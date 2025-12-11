@@ -3343,7 +3343,84 @@
             "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
             "norm_window": 55,
             "comment_norm_window": "内部归一化窗口。"
+          },
+          "cognitive_playbook_capitulation_reversal_params": {
+            "description": "【V1.0 · 绝地反击版】恐慌投降反转剧本的量化参数。",
+            "panic_evidence_weights": {
+              "description": "恐慌证据融合权重。负值信号取绝对值，正值信号直接使用。",
+              "PREDICTIVE_OPP_CAPITULATION_REVERSAL": 0.2,
+              "PROCESS_META_LOSER_CAPITULATION": 0.15,
+              "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": 0.15,
+              "SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": 0.1,
+              "SCORE_BEHAVIOR_VOLUME_ATROPHY": 0.1,
+              "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM": 0.1,
+              "FUSION_RISK_STAGNATION": 0.1,
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.1
+            },
+            "absorption_quality_weights": {
+              "description": "承接品质融合权重。正值信号直接使用，双极性信号取正向。",
+              "SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT": 0.2,
+              "SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION": 0.15,
+              "SCORE_CHIP_OPP_ABSORPTION_ECHO": 0.15,
+              "SCORE_BEHAVIOR_ABSORPTION_STRENGTH": 0.15,
+              "ACCEL_5_SCORE_BEHAVIOR_ABSORPTION_STRENGTH": 0.1,
+              "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY": 0.1,
+              "SCORE_CHIP_TACTICAL_EXCHANGE": 0.15
+            },
+            "reversal_intent_weights": {
+              "description": "反转意图融合权重。正值信号直接使用，双极性信号取正向。",
+              "SCORE_INTRADAY_CONVICTION_REVERSAL": 0.2,
+              "SCORE_MICRO_HARMONY_INFLECTION": 0.15,
+              "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL": 0.15,
+              "PROCESS_META_CHIP_BOTTOM_REVERSAL": 0.15,
+              "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL": 0.1,
+              "SCORE_CHIP_HARMONY_INFLECTION": 0.15,
+              "SCORE_FOUNDATION_HARMONY_INFLECTION": 0.1
+            },
+            "context_reinforcement_weights": {
+              "description": "情境强化融合权重。正值信号直接使用，双极性信号取正向。",
+              "SCORE_FOUNDATION_AXIOM_MARKET_TENSION": 0.2,
+              "SCORE_STRUCT_AXIOM_TENSION": 0.2,
+              "SCORE_CYCLICAL_HURST_REVERSION_REGIME": 0.15,
+              "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": 0.15,
+              "SCORE_STRUCT_AXIOM_STABILITY": 0.15,
+              "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION": 0.15
+            },
+            "risk_filter_weights": {
+              "description": "风险过滤权重。高风险信号将降低最终分数。正值信号直接使用，双极性信号取负向绝对值。",
+              "SCORE_BEHAVIOR_BEARISH_DIVERGENCE": 0.2,
+              "SCORE_FF_AXIOM_DIVERGENCE": 0.15,
+              "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": 0.15,
+              "SCORE_BEHAVIOR_DECEPTION_INDEX": 0.15,
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.15,
+              "SCORE_STRUCT_AXIOM_TREND_FORM": 0.2
+            },
+            "confirmation_contradiction_weights": {
+              "description": "确认矛盾权重。正值信号直接使用，双极性信号取负向绝对值。",
+              "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": 0.4,
+              "SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY": 0.3,
+              "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": 0.3
+            },
+            "purity_penalty_sensitivity": 0.5,
+            "comment_purity_penalty_sensitivity": "纯度调节器对惩罚的敏感度。",
+            "synergy_threshold": 0.6,
+            "comment_synergy_threshold": "维度协同/冲突判断的阈值。",
+            "synergy_bonus_factor": 0.2,
+            "comment_synergy_bonus_factor": "维度协同时的奖励因子。",
+            "conflict_penalty_factor": 0.3,
+            "comment_conflict_penalty_factor": "维度冲突时的惩罚因子。",
+            "dynamic_context_modulator_signal": "SCORE_CYCLICAL_HURST_REVERSION_REGIME",
+            "comment_dynamic_context_modulator_signal": "用于动态调整恐慌/承接/反转意图权重的市场情境信号。",
+            "dynamic_context_sensitivity": 0.5,
+            "comment_dynamic_context_sensitivity": "市场情境对动态权重调整的敏感度。",
+            "final_fusion_exponent": 2.0,
+            "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
+            "min_activation_threshold": 0.1,
+            "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
+            "norm_window": 55,
+            "comment_norm_window": "内部归一化窗口。"
           }
+
         }
       },
       "intraday_behavior_engine_params": {

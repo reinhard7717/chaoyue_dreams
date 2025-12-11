@@ -117,14 +117,14 @@ class CognitiveIntelligence:
         cognitive_scores = pd.DataFrame(index=df.index)
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         playbooks_config = cognitive_intelligence_config.get('playbooks', {})
-
-        # 修改开始 - 检查配置块是否存在来判断是否激活
-        if playbooks_config.get('cognitive_playbook_suppressive_accumulation_params'): # 修改行
+        if playbooks_config.get('cognitive_playbook_suppressive_accumulation_params'):
             cognitive_scores["COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"] = self._calculate_suppressive_accumulation(df)
-        if playbooks_config.get('cognitive_playbook_chasing_accumulation_params'): # 修改行
+        if playbooks_config.get('cognitive_playbook_chasing_accumulation_params'):
             cognitive_scores["COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION"] = self._calculate_chasing_accumulation(df)
+        # 修改开始 - 新增 COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL 的调用
+        if playbooks_config.get('cognitive_playbook_capitulation_reversal_params'):
+            cognitive_scores["COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL"] = self._calculate_capitulation_reversal(df)
         # 修改结束
-        # ... 其他认知剧本的调用 ...
         return cognitive_scores
 
     def _calculate_suppressive_accumulation(self, df: pd.DataFrame) -> pd.Series:
@@ -274,8 +274,6 @@ class CognitiveIntelligence:
         print(f"  -> [认知层] 正在计算 {method_name}...")
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_chasing_accumulation_params', {})
-        if self.debug_enabled:
-            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
         chasing_weights = get_param_value(params.get('chasing_weights'), {})
         accumulation_quality_weights = get_param_value(params.get('accumulation_quality_weights'), {})
         context_weights = get_param_value(params.get('context_weights'), {})
@@ -290,30 +288,6 @@ class CognitiveIntelligence:
         final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 2.0)
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
-        probe_dates_to_print = []
-        if self.debug_enabled and self.probe_dates_list_str:
-            if not df.empty:
-                df_index_tz = df.index.tz
-                for date_str in self.probe_dates_list_str:
-                    try:
-                        probe_date_naive = pd.to_datetime(date_str)
-                        if df_index_tz is not None and probe_date_naive.tz is None:
-                            current_probe_date = probe_date_naive.tz_localize(df_index_tz)
-                        elif df_index_tz is None and probe_date_naive.tz is not None:
-                            current_probe_date = probe_date_naive.tz_convert(None)
-                        else:
-                            current_probe_date = probe_date_naive
-                        if current_probe_date in df.index:
-                            probe_dates_to_print.append(current_probe_date)
-                        else:
-                            print(f"    -> [探针警告] 探测日期 '{date_str}' (时区校准后: {current_probe_date}) 不在DataFrame索引中，跳过。")
-                    except Exception as e:
-                        print(f"    -> [探针警告] 无法解析或处理探针日期 '{date_str}': {e}")
-        if probe_dates_to_print:
-            print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
-        else:
-            if self.debug_enabled:
-                print(f"    -> [探针] 未找到有效的探测日期或调试未启用，将跳过详细探针输出。请检查 debug_params['probe_dates'] 和数据范围。")
         all_required_signals = set()
         all_required_signals.update(chasing_weights.keys())
         all_required_signals.update(accumulation_quality_weights.keys())
@@ -347,16 +321,8 @@ class CognitiveIntelligence:
         accumulation_dynamic_modulator = 1 - (normalized_market_constitution - 0.5) * dynamic_context_sensitivity * 2
         chasing_dynamic_modulator = chasing_dynamic_modulator.clip(0.5, 1.5)
         accumulation_dynamic_modulator = accumulation_dynamic_modulator.clip(0.5, 1.5)
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算追涨证据分数...")
-            for p_date in probe_dates_to_print:
-                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 欺骗惩罚 (Deception Penalty): {deception_penalty.loc[p_date]:.4f}")
-                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 派发惩罚 (Distribution Penalty): {distribution_penalty.loc[p_date]:.4f}")
-                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 市场体质调制器 (Chasing Dynamic Modulator): {chasing_dynamic_modulator.loc[p_date]:.4f}")
         total_chasing_weight = sum(v for k, v in chasing_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_chasing_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 追涨证据总权重: {total_chasing_weight:.4f}")
             for signal_name, weight in chasing_weights.items():
                 if signal_name == 'description':
                     continue
@@ -369,25 +335,11 @@ class CognitiveIntelligence:
                     signal_score = signal_score * (1 - deception_penalty) * (1 - distribution_penalty)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 chasing_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 追涨信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
-            # 修改开始 - 移除 .clip(0,1)
             chasing_score = (chasing_score_components / total_chasing_weight) * chasing_dynamic_modulator
-            # 修改结束
         else:
             chasing_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合追涨分数 (Chasing Score): {chasing_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算吸筹品质证据分数...")
-            for p_date in probe_dates_to_print:
-                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 市场体质调制器 (Accumulation Dynamic Modulator): {accumulation_dynamic_modulator.loc[p_date]:.4f}")
         total_accumulation_quality_weight = sum(v for k, v in accumulation_quality_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_accumulation_quality_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 吸筹品质证据总权重: {total_accumulation_quality_weight:.4f}")
             for signal_name, weight in accumulation_quality_weights.items():
                 if signal_name == 'description':
                     continue
@@ -405,23 +357,11 @@ class CognitiveIntelligence:
                     signal_score = signal_score * (1 - distribution_penalty)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 accumulation_quality_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹品质信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
-            # 修改开始 - 移除 .clip(0,1)
             accumulation_quality_score = (accumulation_quality_score_components / total_accumulation_quality_weight) * accumulation_dynamic_modulator
-            # 修改结束
         else:
             accumulation_quality_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合吸筹品质分数 (Accumulation Quality Score): {accumulation_quality_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算情境强化器分数...")
         total_context_weight = sum(v for k, v in context_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_context_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 情境强化器总权重: {total_context_weight:.4f}")
             for signal_name, weight in context_weights.items():
                 if signal_name == 'description':
                     continue
@@ -435,21 +375,11 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 context_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             context_score = context_score_components / total_context_weight
         else:
             context_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合情境强化器分数 (Context Score): {context_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算风险过滤分数...")
         total_risk_filter_weight = sum(v for k, v in risk_filter_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_risk_filter_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 风险过滤总权重: {total_risk_filter_weight:.4f}")
             for signal_name, weight in risk_filter_weights.items():
                 if signal_name == 'description':
                     continue
@@ -463,9 +393,295 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 risk_filter_score_components += normalized_signal_score * weight
+            risk_filter_score = risk_filter_score_components / total_risk_filter_weight
+        else:
+            risk_filter_score = pd.Series(0.0, index=df.index)
+        total_confirmation_contradiction_weight = sum(v for k, v in confirmation_contradiction_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_confirmation_contradiction_weight > 0:
+            for signal_name, weight in confirmation_contradiction_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION" in signal_name:
+                    signal_score = raw_signal.clip(upper=0).abs()
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                confirmation_contradiction_score_components += normalized_signal_score * weight
+            confirmation_contradiction_score = confirmation_contradiction_score_components / total_confirmation_contradiction_weight
+        else:
+            confirmation_contradiction_score = pd.Series(0.0, index=df.index)
+        synergy_factor = pd.Series(1.0, index=df.index)
+        synergy_condition = (chasing_score > synergy_threshold) & \
+                            (accumulation_quality_score > synergy_threshold) & \
+                            (risk_filter_score < (1 - synergy_threshold))
+        synergy_factor.loc[synergy_condition] += synergy_bonus_factor
+        conflict_condition = (chasing_score > synergy_threshold) & \
+                             (risk_filter_score > synergy_threshold)
+        synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
+        synergy_factor = synergy_factor.clip(0.5, 1.5)
+        epsilon = 1e-6
+        fused_score_raw = (
+            (chasing_score + epsilon) *
+            (accumulation_quality_score + epsilon) *
+            (context_score + epsilon) *
+            (confirmation_contradiction_score + epsilon)
+        )**(1/4)
+        fused_score_raw = fused_score_raw * synergy_factor
+        risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
+        final_score = (risk_adjusted_fused_score)**final_fusion_exponent
+        final_score = final_score.clip(0, 1)
+        final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
+        print(f"  -> {method_name} 计算完成。")
+        return final_score.astype(np.float32)
+
+    def _calculate_capitulation_reversal(self, df: pd.DataFrame) -> pd.Series:
+        method_name = "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL"
+        print(f"  -> [认知层] 正在计算 {method_name}...")
+        cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_capitulation_reversal_params', {})
+        if self.debug_enabled:
+            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
+        panic_evidence_weights = get_param_value(params.get('panic_evidence_weights'), {})
+        absorption_quality_weights = get_param_value(params.get('absorption_quality_weights'), {})
+        reversal_intent_weights = get_param_value(params.get('reversal_intent_weights'), {})
+        context_reinforcement_weights = get_param_value(params.get('context_reinforcement_weights'), {})
+        risk_filter_weights = get_param_value(params.get('risk_filter_weights'), {})
+        confirmation_contradiction_weights = get_param_value(params.get('confirmation_contradiction_weights'), {})
+        purity_penalty_sensitivity = get_param_value(params.get('purity_penalty_sensitivity'), 0.5)
+        synergy_threshold = get_param_value(params.get('synergy_threshold'), 0.6)
+        synergy_bonus_factor = get_param_value(params.get('synergy_bonus_factor'), 0.2)
+        conflict_penalty_factor = get_param_value(params.get('conflict_penalty_factor'), 0.3)
+        dynamic_context_modulator_signal = get_param_value(params.get('dynamic_context_modulator_signal'), "SCORE_CYCLICAL_HURST_REVERSION_REGIME")
+        dynamic_context_sensitivity = get_param_value(params.get('dynamic_context_sensitivity'), 0.5)
+        final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 2.0)
+        min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
+        norm_window = get_param_value(params.get('norm_window'), 55)
+        probe_dates_to_print = []
+        if self.debug_enabled and self.probe_dates_list_str:
+            if not df.empty:
+                df_index_tz = df.index.tz
+                for date_str in self.probe_dates_list_str:
+                    try:
+                        probe_date_naive = pd.to_datetime(date_str)
+                        if df_index_tz is not None and probe_date_naive.tz is None:
+                            current_probe_date = probe_date_naive.tz_localize(df_index_tz)
+                        elif df_index_tz is None and probe_date_naive.tz is not None:
+                            current_probe_date = probe_date_naive.tz_convert(None)
+                        else:
+                            current_probe_date = probe_date_naive
+                        if current_probe_date in df.index:
+                            probe_dates_to_print.append(current_probe_date)
+                        else:
+                            print(f"    -> [探针警告] 探测日期 '{date_str}' (时区校准后: {current_probe_date}) 不在DataFrame索引中，跳过。")
+                    except Exception as e:
+                        print(f"    -> [探针警告] 无法解析或处理探针日期 '{date_str}': {e}")
+        if probe_dates_to_print:
+            print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
+        else:
+            if self.debug_enabled:
+                print(f"    -> [探针] 未找到有效的探测日期或调试未启用，将跳过详细探针输出。请检查 debug_params['probe_dates'] 和数据范围。")
+        all_required_signals = set()
+        all_required_signals.update(panic_evidence_weights.keys())
+        all_required_signals.update(absorption_quality_weights.keys())
+        all_required_signals.update(reversal_intent_weights.keys())
+        all_required_signals.update(context_reinforcement_weights.keys())
+        all_required_signals.update(risk_filter_weights.keys())
+        all_required_signals.update(confirmation_contradiction_weights.keys())
+        all_required_signals.add("SCORE_BEHAVIOR_DECEPTION_INDEX")
+        all_required_signals.add("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER")
+        all_required_signals.add(dynamic_context_modulator_signal)
+        fetched_signals = {}
+        for signal_name in all_required_signals:
+            if signal_name == 'description':
+                continue
+            fetched_signals[signal_name] = self._get_atomic_score(df, signal_name, default=0.0)
+            if not isinstance(fetched_signals[signal_name], pd.Series):
+                fetched_signals[signal_name] = pd.Series(fetched_signals[signal_name], index=df.index)
+            else:
+                fetched_signals[signal_name] = fetched_signals[signal_name].reindex(df.index).fillna(0.0)
+        panic_evidence_score_components = pd.Series(0.0, index=df.index)
+        absorption_quality_score_components = pd.Series(0.0, index=df.index)
+        reversal_intent_score_components = pd.Series(0.0, index=df.index)
+        context_reinforcement_score_components = pd.Series(0.0, index=df.index)
+        risk_filter_score_components = pd.Series(0.0, index=df.index)
+        confirmation_contradiction_score_components = pd.Series(0.0, index=df.index)
+        deception_index = fetched_signals.get("SCORE_BEHAVIOR_DECEPTION_INDEX", pd.Series(0.0, index=df.index))
+        distribution_whisper = fetched_signals.get("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER", pd.Series(0.0, index=df.index))
+        deception_penalty_for_panic = deception_index.clip(lower=0) * purity_penalty_sensitivity
+        distribution_penalty_for_absorption = distribution_whisper * purity_penalty_sensitivity
+        market_context_score = fetched_signals.get(dynamic_context_modulator_signal, pd.Series(0.5, index=df.index))
+        normalized_market_context = normalize_score(market_context_score, df.index, norm_window, ascending=True)
+        panic_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
+        absorption_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
+        reversal_dynamic_modulator = 1 - (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
+        panic_dynamic_modulator = panic_dynamic_modulator.clip(0.5, 1.5)
+        absorption_dynamic_modulator = absorption_dynamic_modulator.clip(0.5, 1.5)
+        reversal_dynamic_modulator = reversal_dynamic_modulator.clip(0.5, 1.5)
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算恐慌证据分数...")
+            for p_date in probe_dates_to_print:
+                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 欺骗惩罚 (Deception Penalty for Panic): {deception_penalty_for_panic.loc[p_date]:.4f}")
+                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 市场情境调制器 (Panic Dynamic Modulator): {panic_dynamic_modulator.loc[p_date]:.4f}")
+        total_panic_evidence_weight = sum(v for k, v in panic_evidence_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_panic_evidence_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 恐慌证据总权重: {total_panic_evidence_weight:.4f}")
+            for signal_name, weight in panic_evidence_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "PRICE_DOWNWARD_MOMENTUM" in signal_name or \
+                   "SENTIMENT_PENDULUM" in signal_name or \
+                   "FUSION_RISK_STAGNATION" in signal_name or \
+                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
+                    signal_score = raw_signal.clip(upper=0).abs()
+                elif "PREDICTIVE_OPP_CAPITULATION_REVERSAL" in signal_name or \
+                     "PROCESS_META_LOSER_CAPITULATION" in signal_name or \
+                     "VOLUME_ATROPHY" in signal_name or \
+                     "SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name: # 恐慌减速也是恐慌证据
+                    signal_score = raw_signal.clip(lower=0)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "FUSION_RISK" in signal_name:
+                    signal_score = signal_score * (1 - deception_penalty_for_panic)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                panic_evidence_score_components += normalized_signal_score * weight
                 if self.debug_enabled:
                     for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 风险过滤信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 恐慌信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            panic_score = (panic_evidence_score_components / total_panic_evidence_weight) * panic_dynamic_modulator
+        else:
+            panic_score = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合恐慌分数 (Panic Score): {panic_score.loc[p_date]:.4f}")
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算承接品质分数...")
+            for p_date in probe_dates_to_print:
+                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 派发惩罚 (Distribution Penalty for Absorption): {distribution_penalty_for_absorption.loc[p_date]:.4f}")
+                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 市场情境调制器 (Absorption Dynamic Modulator): {absorption_dynamic_modulator.loc[p_date]:.4f}")
+        total_absorption_quality_weight = sum(v for k, v in absorption_quality_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_absorption_quality_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 承接品质总权重: {total_absorption_quality_weight:.4f}")
+            for signal_name, weight in absorption_quality_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT" in signal_name or \
+                   "SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION" in signal_name or \
+                   "SCORE_CHIP_OPP_ABSORPTION_ECHO" in signal_name or \
+                   "SCORE_BEHAVIOR_ABSORPTION_STRENGTH" in signal_name or \
+                   "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY" in signal_name or \
+                   "SCORE_CHIP_TACTICAL_EXCHANGE" in signal_name or \
+                   "ACCEL_5_SCORE_BEHAVIOR_ABSORPTION_STRENGTH" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                if "SCORE_CHIP_OPP_ABSORPTION_ECHO" in signal_name or "SCORE_BEHAVIOR_ABSORPTION_STRENGTH" in signal_name or \
+                   "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY" in signal_name or "SCORE_CHIP_TACTICAL_EXCHANGE" in signal_name:
+                    signal_score = signal_score * (1 - distribution_penalty_for_absorption)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                absorption_quality_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 承接信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            absorption_score = (absorption_quality_score_components / total_absorption_quality_weight) * absorption_dynamic_modulator
+        else:
+            absorption_score = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合承接品质分数 (Absorption Quality Score): {absorption_score.loc[p_date]:.4f}")
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算反转意图分数...")
+            for p_date in probe_dates_to_print:
+                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 市场情境调制器 (Reversal Intent Dynamic Modulator): {reversal_dynamic_modulator.loc[p_date]:.4f}")
+        total_reversal_intent_weight = sum(v for k, v in reversal_intent_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_reversal_intent_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 反转意图总权重: {total_reversal_intent_weight:.4f}")
+            for signal_name, weight in reversal_intent_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_INTRADAY_CONVICTION_REVERSAL" in signal_name or \
+                   "SCORE_MICRO_HARMONY_INFLECTION" in signal_name or \
+                   "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL" in signal_name or \
+                   "PROCESS_META_CHIP_BOTTOM_REVERSAL" in signal_name or \
+                   "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL" in signal_name or \
+                   "SCORE_CHIP_HARMONY_INFLECTION" in signal_name or \
+                   "SCORE_FOUNDATION_HARMONY_INFLECTION" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                reversal_intent_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 反转意图信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            reversal_intent_score = (reversal_intent_score_components / total_reversal_intent_weight) * reversal_dynamic_modulator
+        else:
+            reversal_intent_score = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合反转意图分数 (Reversal Intent Score): {reversal_intent_score.loc[p_date]:.4f}")
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算情境强化分数...")
+        total_context_reinforcement_weight = sum(v for k, v in context_reinforcement_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_context_reinforcement_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 情境强化总权重: {total_context_reinforcement_weight:.4f}")
+            for signal_name, weight in context_reinforcement_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_FOUNDATION_AXIOM_MARKET_TENSION" in signal_name or \
+                   "SCORE_STRUCT_AXIOM_TENSION" in signal_name or \
+                   "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE" in signal_name or \
+                   "SCORE_STRUCT_AXIOM_STABILITY" in signal_name or \
+                   "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION" in signal_name or \
+                   "SCORE_CYCLICAL_HURST_REVERSION_REGIME" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                context_reinforcement_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            context_score = context_reinforcement_score_components / total_context_reinforcement_weight
+        else:
+            context_score = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合情境强化分数 (Context Reinforcement Score): {context_score.loc[p_date]:.4f}")
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算风险过滤分数...")
+        total_risk_filter_weight = sum(v for k, v in risk_filter_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_risk_filter_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 风险过滤总权重: {total_risk_filter_weight:.4f}")
+            for signal_name, weight in risk_filter_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_BEHAVIOR_BEARISH_DIVERGENCE" in signal_name or \
+                   "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER" in signal_name or \
+                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                elif "SCORE_FF_AXIOM_DIVERGENCE" in signal_name or \
+                     "SCORE_STRUCT_AXIOM_TREND_FORM" in signal_name:
+                    signal_score = raw_signal.clip(upper=0).abs()
+                elif "SCORE_BEHAVIOR_DECEPTION_INDEX" in signal_name:
+                    signal_score = raw_signal.clip(lower=0) # 正向欺骗（拉高出货）是反转的风险
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                risk_filter_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 风险信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             risk_filter_score = risk_filter_score_components / total_risk_filter_weight
         else:
             risk_filter_score = pd.Series(0.0, index=df.index)
@@ -482,8 +698,10 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                if "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs()
+                if "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION" in signal_name or \
+                   "SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY" in signal_name or \
+                   "SCORE_FUND_FLOW_BULLISH_DIVERGENCE" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
                 else:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
@@ -491,18 +709,19 @@ class CognitiveIntelligence:
                 if self.debug_enabled:
                     for p_date in probe_dates_to_print:
                         print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 确认矛盾信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
-            confirmation_contradiction_score = confirmation_contradiction_score_components / total_confirmation_contradiction_weight
+            confirmation_score = confirmation_contradiction_score_components / total_confirmation_contradiction_weight
         else:
-            confirmation_contradiction_score = pd.Series(0.0, index=df.index)
+            confirmation_score = pd.Series(0.0, index=df.index)
         if self.debug_enabled:
             for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合确认矛盾分数 (Confirmation Contradiction Score): {confirmation_contradiction_score.loc[p_date]:.4f}")
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合确认矛盾分数 (Confirmation Contradiction Score): {confirmation_score.loc[p_date]:.4f}")
         synergy_factor = pd.Series(1.0, index=df.index)
-        synergy_condition = (chasing_score > synergy_threshold) & \
-                            (accumulation_quality_score > synergy_threshold) & \
+        synergy_condition = (panic_score > synergy_threshold) & \
+                            (absorption_score > synergy_threshold) & \
+                            (reversal_intent_score > synergy_threshold) & \
                             (risk_filter_score < (1 - synergy_threshold))
         synergy_factor.loc[synergy_condition] += synergy_bonus_factor
-        conflict_condition = (chasing_score > synergy_threshold) & \
+        conflict_condition = ((panic_score > synergy_threshold) & (absorption_score < (1 - synergy_threshold))) | \
                              (risk_filter_score > synergy_threshold)
         synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
         synergy_factor = synergy_factor.clip(0.5, 1.5)
@@ -511,11 +730,12 @@ class CognitiveIntelligence:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 协同因子 (Synergy Factor): {synergy_factor.loc[p_date]:.4f}")
         epsilon = 1e-6
         fused_score_raw = (
-            (chasing_score + epsilon) *
-            (accumulation_quality_score + epsilon) *
+            (panic_score + epsilon) *
+            (absorption_score + epsilon) *
+            (reversal_intent_score + epsilon) *
             (context_score + epsilon) *
-            (confirmation_contradiction_score + epsilon)
-        )**(1/4)
+            (confirmation_score + epsilon)
+        )**(1/5)
         fused_score_raw = fused_score_raw * synergy_factor
         risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
         final_score = (risk_adjusted_fused_score)**final_fusion_exponent
@@ -533,6 +753,17 @@ class CognitiveIntelligence:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终剧本分数 (Final Playbook Score): {final_score.loc[p_date]:.4f}")
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
+
+
+
+
+
+
+
+
+
+
+
 
 
 
