@@ -1143,7 +1143,6 @@ class ProcessIntelligence:
         Q4_trap_evidence = (distribution_intensity * (1 - active_buying_support)).clip(0, 1)
         Q4_final = (Q4_base * Q4_trap_evidence * -1).clip(-1, 0)
         final_score = (Q1_final + Q2_final + Q3_final + Q4_final).clip(-1, 1)
-        print(f"    -> [过程层] PROCESS_META_COST_ADVANTAGE_TREND 计算完成，最新分值: {final_score.iloc[-1]:.4f}") # 修改行
         return final_score.astype(np.float32)
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:

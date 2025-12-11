@@ -924,11 +924,12 @@ class FusionIntelligence:
 
     def _synthesize_distribution_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 三体博弈模型】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
+        【V1.1 · 三体博弈模型】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
         - 核心重构: 基于“主力派发意图、散户承接意愿、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
         - 诡道哲学: 派发风险的本质是主力与散户的博弈，以及市场结构对这种博弈的承载能力。
                       当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
-        - 融合模型: 最终风险 = tanh( (MFDI_score * w_mfdi + RAW_score * w_raw + MSF_score * w_msf) * non_linear_sensitivity )
+        - 融合模型: 最终风险 = tanh( (MFDI_score^w_mfdi * RAW_score^w_raw * MSF_score^w_msf)^(1/sum_weights) * non_linear_sensitivity )
+        - 升级说明: 将三体融合方式从加权算术平均改为加权几何平均，以更好地体现风险的“木桶效应”。
         """
         print("  -- [融合层] 正在冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)...")
         states = {}
@@ -944,60 +945,60 @@ class FusionIntelligence:
         norm_window = get_param_value(params.get('norm_window'), 55)
         # 2. 计算“主力派发意图 (MFDI)”
         print("  -- [探针] 计算主力派发意图 (MFDI)...")
-        mfdi_log_sum = pd.Series(0.0, index=df_index) # 修改行
+        mfdi_log_sum = pd.Series(0.0, index=df_index)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
         if mfdi_total_weight > 0:
             for signal, weight in mfdi_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
-                # 确保分数严格大于0，避免log(0)
-                score_positive = score.clip(lower=1e-9) # 修改行
-                mfdi_log_sum += np.log(score_positive) * (weight / mfdi_total_weight) # 修改行
-            mfdi_score = np.exp(mfdi_log_sum) # 修改行
+                score_positive = score.clip(lower=1e-9)
+                mfdi_log_sum += np.log(score_positive) * (weight / mfdi_total_weight)
+            mfdi_score = np.exp(mfdi_log_sum)
         else:
             mfdi_score = pd.Series(0.0, index=df_index)
         print(f"  -- [探针] 主力派发意图 (MFDI) 最终分值: {mfdi_score.iloc[-1]:.4f}")
         # 3. 计算“散户承接意愿 (RAW)”
         print("  -- [探针] 计算散户承接意愿 (RAW)...")
-        raw_log_sum = pd.Series(0.0, index=df_index) # 修改行
+        raw_log_sum = pd.Series(0.0, index=df_index)
         raw_total_weight = sum(raw_signal_weights.values())
         if raw_total_weight > 0:
             for signal, weight in raw_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
-                # 确保分数严格大于0，避免log(0)
-                score_positive = score.clip(lower=1e-9) # 修改行
-                raw_log_sum += np.log(score_positive) * (weight / raw_total_weight) # 修改行
-            raw_score = np.exp(raw_log_sum) # 修改行
+                score_positive = score.clip(lower=1e-9)
+                raw_log_sum += np.log(score_positive) * (weight / raw_total_weight)
+            raw_score = np.exp(raw_log_sum)
         else:
             raw_score = pd.Series(0.0, index=df_index)
         print(f"  -- [探针] 散户承接意愿 (RAW) 最终分值: {raw_score.iloc[-1]:.4f}")
         # 4. 计算“市场结构脆弱性 (MSF)”
         print("  -- [探针] 计算市场结构脆弱性 (MSF)...")
-        msf_log_sum = pd.Series(0.0, index=df_index) # 修改行
+        msf_log_sum = pd.Series(0.0, index=df_index)
         msf_total_weight = sum(msf_signal_weights.values())
         if msf_total_weight > 0:
             for signal, weight in msf_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
-                # 确保分数严格大于0，避免log(0)
-                score_positive = score.clip(lower=1e-9) # 修改行
-                msf_log_sum += np.log(score_positive) * (weight / msf_total_weight) # 修改行
-            msf_score = np.exp(msf_log_sum) # 修改行
+                score_positive = score.clip(lower=1e-9)
+                msf_log_sum += np.log(score_positive) * (weight / msf_total_weight)
+            msf_score = np.exp(msf_log_sum)
         else:
             msf_score = pd.Series(0.0, index=df_index)
         print(f"  -- [探针] 市场结构脆弱性 (MSF) 最终分值: {msf_score.iloc[-1]:.4f}")
-        # 5. 融合三体分数
-        print("  -- [探针] 融合三体分数...")
-        weighted_sum = (
-            mfdi_score * body_weights.get('main_force_distribution_intent', 0.0) +
-            raw_score * body_weights.get('retail_absorption_willingness', 0.0) +
-            msf_score * body_weights.get('market_structural_fragility', 0.0)
-        )
+        # 5. 融合三体分数 (加权几何平均)
+        print("  -- [探针] 融合三体分数 (加权几何平均)...")
+        final_log_sum = pd.Series(0.0, index=df_index) # 新增行
         total_body_weight = sum(body_weights.values())
         if total_body_weight > 0:
-            weighted_sum /= total_body_weight
+            # 确保每个分量都严格大于0，避免log(0)
+            mfdi_score_clipped = mfdi_score.clip(lower=1e-9) # 新增行
+            raw_score_clipped = raw_score.clip(lower=1e-9) # 新增行
+            msf_score_clipped = msf_score.clip(lower=1e-9) # 新增行
+            final_log_sum += np.log(mfdi_score_clipped) * (body_weights.get('main_force_distribution_intent', 0.0) / total_body_weight) # 新增行
+            final_log_sum += np.log(raw_score_clipped) * (body_weights.get('retail_absorption_willingness', 0.0) / total_body_weight) # 新增行
+            final_log_sum += np.log(msf_score_clipped) * (body_weights.get('market_structural_fragility', 0.0) / total_body_weight) # 新增行
+            geometric_mean_score = np.exp(final_log_sum) # 新增行
         else:
-            weighted_sum = pd.Series(0.0, index=df_index)
+            geometric_mean_score = pd.Series(0.0, index=df_index) # 新增行
         # 应用非线性激活函数，将分数映射到 [0, 1]
-        final_distribution_pressure = (np.tanh(weighted_sum * non_linear_sensitivity) + 1) / 2
+        final_distribution_pressure = (np.tanh(geometric_mean_score * non_linear_sensitivity) + 1) / 2 # 修改行
         final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
         states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure
         print(f"  -- [融合层] “派发压力”冶炼完成，最终分值: {final_distribution_pressure.iloc[-1]:.4f}")
