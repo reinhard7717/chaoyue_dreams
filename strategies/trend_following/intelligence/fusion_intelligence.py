@@ -41,6 +41,26 @@ class FusionIntelligence:
             print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 和 df_indicators 中均不存在，使用默认值 {default}。")
             return pd.Series(default, index=df.index)
 
+    def _get_normalized_risk_score(self, df: pd.DataFrame, signal_name: str, norm_window: int, default_value: float = 0.0) -> pd.Series:
+        """
+        【V1.0 · 三体博弈模型】获取并归一化风险信号。处理双极性信号的正负部分。
+        """
+        print(f"    -> [探针] 正在获取并归一化信号: {signal_name}")
+        original_signal = self._get_atomic_score(df, signal_name.replace('_POSITIVE', '').replace('_NEGATIVE', ''), default_value)
+        if signal_name.endswith('_POSITIVE'):
+            processed_signal = original_signal.clip(lower=0)
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.4f}) 提取正向部分: {processed_signal.iloc[-1]:.4f}")
+        elif signal_name.endswith('_NEGATIVE'):
+            processed_signal = original_signal.clip(upper=0).abs()
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.4f}) 提取负向绝对值部分: {processed_signal.iloc[-1]:.4f}")
+        else:
+            processed_signal = original_signal
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.4f}) 直接使用。")
+        # 风险信号通常是越高越差，所以ascending=True
+        normalized_score = normalize_score(processed_signal, df.index, norm_window, ascending=True)
+        print(f"      -> [探针] 信号 '{signal_name}' 归一化后分值: {normalized_score.iloc[-1]:.4f}")
+        return normalized_score.astype(np.float32)
+
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V6.5 · 因果重塑版】融合情报分析总指挥
@@ -79,6 +99,10 @@ class FusionIntelligence:
         pressure_states = self._synthesize_market_pressure(df)
         all_fusion_states.update(pressure_states)
         self.strategy.atomic_states.update(pressure_states)
+        # --- 第7层: 终极风险诊断 (依赖所有前序风险信号) ---
+        distribution_pressure_states = self._synthesize_distribution_pressure(df) # 新增行
+        all_fusion_states.update(distribution_pressure_states) # 新增行
+        self.strategy.atomic_states.update(distribution_pressure_states) # 新增行
         # --- 其他独立或已满足依赖的信号 ---
         confrontation_states = self._synthesize_capital_confrontation(df)
         all_fusion_states.update(confrontation_states)
@@ -423,6 +447,8 @@ class FusionIntelligence:
         print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
         states = {}
         # 1. 信号升维：定义“天时、地利、人和”三大支柱
+        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {}) # 修改行
+        params = fusion_intelligence_params.get('fusion_accumulation_inflection_params', {}) # 修改行
         tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
         di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
         ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
@@ -657,6 +683,10 @@ class FusionIntelligence:
         print("  -- [融合层] 正在诊断“趋势衰竭综合征”...")
         states = {}
         df_index = df.index
+        # [修改] 从配置中读取参数
+        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {}) # 修改行
+        fusion_playbook_params = fusion_intelligence_params.get('fusion_playbook_params', {}) # 修改行
+        tes_params = fusion_playbook_params.get('trend_exhaustion_syndrome', {}) # 修改行
         # --- 1. 信号升维：定义“意志”与“压力”两大阵营 ---
         # 阵营一：上涨意志衰竭度 (Weakening Will) - 诊断多头是否军心涣散
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
@@ -703,21 +733,20 @@ class FusionIntelligence:
         states = {}
         df_index = df.index
         # [修改] 从配置中读取参数
-        ld_params = get_params_block(self.strategy, 'fusion_playbook_params', {}).get('liquidity_dynamics', {})
+        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {}) # 修改行
+        fusion_playbook_params = fusion_intelligence_params.get('fusion_playbook_params', {}) # 修改行
+        ld_params = fusion_playbook_params.get('liquidity_dynamics', {}) # 修改行
         # [修改] 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]，并引入诡道调制
         def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0,
                                                 deception_index=None, wash_trade_intensity=None, flow_credibility=None,
                                                 deception_mod_params=None, is_bullish=True):
             if not components_with_weights:
                 return pd.Series(0.0, index=index)
-            
             raw_sum = pd.Series(0.0, index=index)
             total_possible_weight = 0.0
-            
             for comp, weight in components_with_weights:
                 raw_sum += comp * weight
                 total_possible_weight += weight
-            
             if total_possible_weight > 0:
                 normalized_sum = raw_sum / total_possible_weight
                 activated_score = (np.tanh(normalized_sum * activation_sensitivity) + 1) / 2
@@ -729,7 +758,6 @@ class FusionIntelligence:
                     credibility_influence = get_param_value(deception_mod_params.get('credibility_influence'), 0.5)
                     # 资金流可信度对欺骗因子的影响：可信度越高，欺骗因子的影响越小
                     credibility_mod = (1 - flow_credibility * credibility_influence).clip(0, 1) if flow_credibility is not None else pd.Series(1.0, index=index)
-                    
                     # 欺骗指数和对倒强度，经过可信度调制
                     modulated_deception = deception_index * credibility_mod
                     modulated_wash_trade = wash_trade_intensity * credibility_mod
@@ -893,6 +921,91 @@ class FusionIntelligence:
         final_score = np.tanh(raw_fusion_score * 2.0 * synergy_conflict_modulator) # 乘以2.0可以增加tanh的敏感度
         states['FUSION_BIPOLAR_LIQUIDITY_DYNAMICS'] = final_score.astype(np.float32)
         return states
+
+    def _synthesize_distribution_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 三体博弈模型】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
+        - 核心重构: 基于“主力派发意图、散户承接意愿、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
+        - 诡道哲学: 派发风险的本质是主力与散户的博弈，以及市场结构对这种博弈的承载能力。
+                      当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
+        - 融合模型: 最终风险 = tanh( (MFDI_score * w_mfdi + RAW_score * w_raw + MSF_score * w_msf) * non_linear_sensitivity )
+        """
+        print("  -- [融合层] 正在冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)...")
+        states = {}
+        df_index = df.index
+        # 1. 获取配置参数
+        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {}) # 修改行
+        params = fusion_intelligence_params.get('fusion_risk_distribution_pressure_params', {}) # 修改行
+        body_weights = get_param_value(params.get('body_weights'), {})
+        mfdi_signal_weights = get_param_value(params.get('mfdi_signal_weights'), {})
+        raw_signal_weights = get_param_value(params.get('raw_signal_weights'), {})
+        msf_signal_weights = get_param_value(params.get('msf_signal_weights'), {})
+        non_linear_sensitivity = get_param_value(params.get('non_linear_sensitivity'), 2.0)
+        norm_window = get_param_value(params.get('norm_window'), 55)
+        # 2. 计算“主力派发意图 (MFDI)”
+        print("  -- [探针] 计算主力派发意图 (MFDI)...")
+        mfdi_components = []
+        mfdi_total_weight = sum(mfdi_signal_weights.values())
+        if mfdi_total_weight > 0:
+            for signal, weight in mfdi_signal_weights.items():
+                score = self._get_normalized_risk_score(df, signal, norm_window)
+                mfdi_components.append(score.clip(lower=1e-9).pow(weight / mfdi_total_weight))
+            mfdi_score = pd.Series(1.0, index=df_index)
+            for comp in mfdi_components:
+                mfdi_score *= comp
+        else:
+            mfdi_score = pd.Series(0.0, index=df_index)
+        print(f"  -- [探针] 主力派发意图 (MFDI) 最终分值: {mfdi_score.iloc[-1]:.4f}")
+        # 3. 计算“散户承接意愿 (RAW)”
+        print("  -- [探针] 计算散户承接意愿 (RAW)...")
+        raw_components = []
+        raw_total_weight = sum(raw_signal_weights.values())
+        if raw_total_weight > 0:
+            for signal, weight in raw_signal_weights.items():
+                score = self._get_normalized_risk_score(df, signal, norm_window)
+                raw_components.append(score.clip(lower=1e-9).pow(weight / raw_total_weight))
+            raw_score = pd.Series(1.0, index=df_index)
+            for comp in raw_components:
+                raw_score *= comp
+        else:
+            raw_score = pd.Series(0.0, index=df_index)
+        print(f"  -- [探针] 散户承接意愿 (RAW) 最终分值: {raw_score.iloc[-1]:.4f}")
+        # 4. 计算“市场结构脆弱性 (MSF)”
+        print("  -- [探针] 计算市场结构脆弱性 (MSF)...")
+        msf_components = []
+        msf_total_weight = sum(msf_signal_weights.values())
+        if msf_total_weight > 0:
+            for signal, weight in msf_signal_weights.items():
+                score = self._get_normalized_risk_score(df, signal, norm_window)
+                msf_components.append(score.clip(lower=1e-9).pow(weight / msf_total_weight))
+            msf_score = pd.Series(1.0, index=df_index)
+            for comp in msf_components:
+                msf_score *= comp
+        else:
+            msf_score = pd.Series(0.0, index=df_index)
+        print(f"  -- [探针] 市场结构脆弱性 (MSF) 最终分值: {msf_score.iloc[-1]:.4f}")
+        # 5. 融合三体分数
+        print("  -- [探针] 融合三体分数...")
+        weighted_sum = (
+            mfdi_score * body_weights.get('main_force_distribution_intent', 0.0) +
+            raw_score * body_weights.get('retail_absorption_willingness', 0.0) +
+            msf_score * body_weights.get('market_structural_fragility', 0.0)
+        )
+        total_body_weight = sum(body_weights.values())
+        if total_body_weight > 0:
+            weighted_sum /= total_body_weight
+        else:
+            weighted_sum = pd.Series(0.0, index=df_index)
+        # 应用非线性激活函数，将分数映射到 [0, 1]
+        final_distribution_pressure = (np.tanh(weighted_sum * non_linear_sensitivity) + 1) / 2
+        final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
+        states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure
+        print(f"  -- [融合层] “派发压力”冶炼完成，最终分值: {final_distribution_pressure.iloc[-1]:.4f}")
+        return states
+
+
+
+
 
 
 

@@ -1155,7 +1155,7 @@
             "category": "融合层-风险",
             "type": "risk",
             "penalty_weight": -700,
-            "description": "【三体博弈模型】基于“主力卖、散户买”的资金流背离，识别主力在高位派发筹码的风险。"
+            "description": "【V1.0 · 三体博弈模型】基于“主力派发意图、散户承接意愿、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。高分代表派发压力巨大，是强烈的风险预警。"
         },
         "FUSION_RISK_STAGNATION": {
             "cn_name": "【融合风险】滞涨风险",
@@ -1360,50 +1360,6 @@
             "type": "risk",
             "penalty_weight": -2400,
             "description": "基于动态证据，推演结构顶部与主力派发、散户接盘共振，导致高位结构瓦解的风险剧本上演的后验概率。"
-        },
-        "说明_opportunity_layer": "--- 机会层 (Opportunity) ---",
-        "SCORE_OPPORTUNITY_SELLING_EXHAUSTION": {
-            "cn_name": "【机会】卖盘枯竭",
-            "category": "机会层",
-            "type": "opportunity",
-            "description": "【V2.0 · 过程与投降版】重构卖盘枯竭的定义，从“缩量抗跌”的状态升级为对“枯竭过程”的完整叙述。该模型融合了四个维度：1)成交萎缩；2)存在抵抗；3)下跌动能衰减；4)出现投降式抛售后的承接。高分代表卖方力量从衰退到最终投降的全过程，是市场见底反转的强力信号。"
-        },
-        "说明_tactical_and_context": "--- 战术与上下文 (Tactical & Context) ---",
-        "ALERT_LEVEL": {
-            "cn_name": "【战术】警报等级",
-            "category": "战术层-风险",
-            "type": "context",
-            "description": "【审判日】由风险裁决者生成的统一战术警报等级 (0-3)，用于指导最终决策和仓位管理。"
-        },
-        "ALERT_REASON": {
-            "cn_name": "【战术】警报原因",
-            "category": "战术层-风险",
-            "type": "context",
-            "description": "【审判日】对当前战术警报等级的文字说明。"
-        },
-        "CONTEXT_NEW_HIGH_STRENGTH": {
-            "cn_name": "【内部】新高强度分",
-            "category": "内部计分-上下文",
-            "type": "context",
-            "description": "【阿波罗日冕】融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量，用于动态削弱过时的底部记忆。"
-        },
-        "CONTEXT_TREND_CONFIRMED": {
-            "cn_name": "【内部】趋势确认分",
-            "category": "内部计分-上下文",
-            "type": "context",
-            "description": "【波塞冬三叉戟】融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度，用于抑制战略性底部信号。"
-        },
-        "LAST_STAND_LINE": {
-            "cn_name": "【内部】最后防线",
-            "category": "内部计分-上下文",
-            "type": "context",
-            "description": "【盖亚基石】动态计算出的、位于当前价格下方的最强MA支撑位。它是所有多头战术的最后防线和止损基准。"
-        },
-        "SCORE_CONTEXT_DEEP_BOTTOM_ZONE": {
-            "cn_name": "【内部】深度底部区域",
-            "category": "内部计分-上下文",
-            "type": "context",
-            "description": "融合了年内价格位置和周线RSI超卖，评估当前是否处于深度价值区域。"
         }
     }
 }
