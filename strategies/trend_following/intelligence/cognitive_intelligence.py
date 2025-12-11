@@ -96,10 +96,11 @@ class CognitiveIntelligence:
         1.  移除方法开头对 `enabled` 参数的检查，确保该方法总是执行其计算逻辑。
         2.  重构探针输出逻辑，使其能够遍历 `debug_params` 中 `probe_dates` 列表里的每一个日期，
             并为每个日期输出详细的探针信息。
-        3.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
-        4.  对每类证据进行加权融合，得到各自的综合分数。
-        5.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
-        6.  使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
+        3.  在每个核心证据分数的计算过程中，详细输出构成该分数的每一个原料信号的原始值和归一化值。
+        4.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
+        5.  对每类证据进行加权融合，得到各自的综合分数。
+        6.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
+        7.  使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
         """
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
@@ -128,14 +129,19 @@ class CognitiveIntelligence:
             for date_str in probe_dates_list_str:
                 try:
                     current_probe_date = pd.to_datetime(date_str)
-                    if df.index.tz is not None:
+                    # 确保探针日期与DataFrame的索引时区一致
+                    if df.index.tz is not None and current_probe_date.tz is None:
                         current_probe_date = current_probe_date.tz_localize(df.index.tz)
+                    elif df.index.tz is None and current_probe_date.tz is not None:
+                        current_probe_date = current_probe_date.tz_convert(None)
                     if current_probe_date in df.index:
                         probe_dates_to_print.append(current_probe_date)
                 except Exception as e:
                     print(f"    -> [探针警告] 无法解析或定位探针日期 '{date_str}': {e}")
 
         # 1. 计算打压证据分数 (Suppression Evidence Score)
+        if probe_dates_to_print:
+            print(f"    -> [探针] 开始计算打压证据分数...")
         total_suppression_weight = sum(suppression_weights.values())
         if total_suppression_weight > 0:
             for signal_name, weight in suppression_weights.items():
@@ -149,14 +155,18 @@ class CognitiveIntelligence:
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 suppression_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 打压信号 '{signal_name}' 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    if p_date in df.index: # 再次确认日期在df中
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 打压信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
             suppression_score = suppression_score_components / total_suppression_weight
         else:
             suppression_score = pd.Series(0.0, index=df.index)
         for p_date in probe_dates_to_print:
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合打压分数 (Suppression Score): {suppression_score.loc[p_date]:.4f}")
+            if p_date in df.index:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合打压分数 (Suppression Score): {suppression_score.loc[p_date]:.4f}")
 
         # 2. 计算吸筹证据分数 (Accumulation Evidence Score)
+        if probe_dates_to_print:
+            print(f"    -> [探针] 开始计算吸筹证据分数...")
         total_accumulation_weight = sum(accumulation_weights.values())
         if total_accumulation_weight > 0:
             for signal_name, weight in accumulation_weights.items():
@@ -168,14 +178,18 @@ class CognitiveIntelligence:
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 accumulation_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹信号 '{signal_name}' 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    if p_date in df.index:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
             accumulation_score = accumulation_score_components / total_accumulation_weight
         else:
             accumulation_score = pd.Series(0.0, index=df.index)
         for p_date in probe_dates_to_print:
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合吸筹分数 (Accumulation Score): {accumulation_score.loc[p_date]:.4f}")
+            if p_date in df.index:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合吸筹分数 (Accumulation Score): {accumulation_score.loc[p_date]:.4f}")
 
         # 3. 计算矛盾证据分数 (Contradiction Evidence Score)
+        if probe_dates_to_print:
+            print(f"    -> [探针] 开始计算矛盾证据分数...")
         total_contradiction_weight = sum(contradiction_weights.values())
         if total_contradiction_weight > 0:
             for signal_name, weight in contradiction_weights.items():
@@ -184,14 +198,18 @@ class CognitiveIntelligence:
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 contradiction_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 矛盾信号 '{signal_name}' 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    if p_date in df.index:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 矛盾信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
             contradiction_score = contradiction_score_components / total_contradiction_weight
         else:
             contradiction_score = pd.Series(0.0, index=df.index)
         for p_date in probe_dates_to_print:
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合矛盾分数 (Contradiction Score): {contradiction_score.loc[p_date]:.4f}")
+            if p_date in df.index:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合矛盾分数 (Contradiction Score): {contradiction_score.loc[p_date]:.4f}")
 
         # 4. 计算情境调节器 (Context Modulators)
+        if probe_dates_to_print:
+            print(f"    -> [探针] 开始计算情境调节器分数...")
         total_context_weight = sum(context_modulator_weights.values())
         if total_context_weight > 0:
             for signal_name, weight in context_modulator_weights.items():
@@ -199,12 +217,14 @@ class CognitiveIntelligence:
                 normalized_signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=True)
                 context_modulator_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    if p_date in df.index:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
             context_modulator = context_modulator_score_components / total_context_weight
         else:
             context_modulator = pd.Series(1.0, index=df.index)
         for p_date in probe_dates_to_print:
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合情境调节器 (Context Modulator): {context_modulator.loc[p_date]:.4f}")
+            if p_date in df.index:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合情境调节器 (Context Modulator): {context_modulator.loc[p_date]:.4f}")
 
         # 5. 最终融合 (Final Fusion)
         epsilon = 1e-6
@@ -219,8 +239,9 @@ class CognitiveIntelligence:
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
 
         for p_date in probe_dates_to_print:
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终融合原始分数 (Fused Score Raw): {fused_score_raw.loc[p_date]:.4f}")
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终剧本分数 (Final Playbook Score): {final_score.loc[p_date]:.4f}")
+            if p_date in df.index:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终融合原始分数 (Fused Score Raw): {fused_score_raw.loc[p_date]:.4f}")
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终剧本分数 (Final Playbook Score): {final_score.loc[p_date]:.4f}")
 
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
