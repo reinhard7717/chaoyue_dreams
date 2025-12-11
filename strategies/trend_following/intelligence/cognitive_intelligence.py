@@ -984,8 +984,10 @@ class CognitiveIntelligence:
         print(f"  -> [认知层] 正在计算 {method_name}...")
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_energy_compression_params', {})
-        if self.debug_enabled:
-            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
+        # 修改开始 - 删除所有探针相关代码
+        # if self.debug_enabled: ... 已彻底删除
+        # probe_dates_to_print = [] ... 已彻底删除
+        # 修改结束
         volatility_compression_weights = get_param_value(params.get('volatility_compression_weights'), {})
         volume_atrophy_weights = get_param_value(params.get('volume_atrophy_weights'), {})
         main_force_control_weights = get_param_value(params.get('main_force_control_weights'), {})
@@ -999,30 +1001,6 @@ class CognitiveIntelligence:
         final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 2.0)
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
-        probe_dates_to_print = []
-        if self.debug_enabled and self.probe_dates_list_str:
-            if not df.empty:
-                df_index_tz = df.index.tz
-                for date_str in self.probe_dates_list_str:
-                    try:
-                        probe_date_naive = pd.to_datetime(date_str)
-                        if df_index_tz is not None and probe_date_naive.tz is None:
-                            current_probe_date = probe_date_naive.tz_localize(df_index_tz)
-                        elif df_index_tz is None and probe_date_naive.tz is not None:
-                            current_probe_date = probe_date_naive.tz_convert(None)
-                        else:
-                            current_probe_date = probe_date_naive
-                        if current_probe_date in df.index:
-                            probe_dates_to_print.append(current_probe_date)
-                        else:
-                            print(f"    -> [探针警告] 探测日期 '{date_str}' (时区校准后: {current_probe_date}) 不在DataFrame索引中，跳过。")
-                    except Exception as e:
-                        print(f"    -> [探针警告] 无法解析或处理探针日期 '{date_str}': {e}")
-        if probe_dates_to_print:
-            print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
-        else:
-            if self.debug_enabled:
-                print(f"    -> [探针] 未找到有效的探测日期或调试未启用，将跳过详细探针输出。请检查 debug_params['probe_dates'] 和数据范围。")
         all_required_signals = set()
         all_required_signals.update(volatility_compression_weights.keys())
         all_required_signals.update(volume_atrophy_weights.keys())
@@ -1050,14 +1028,14 @@ class CognitiveIntelligence:
         main_force_control_score_components = pd.Series(0.0, index=df.index)
         pre_breakout_indicators_score_components = pd.Series(0.0, index=df.index)
         risk_filter_score_components = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算波动率压缩证据分数...")
-            for p_date in probe_dates_to_print:
-                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 动态调制器 (Dynamic Modulator): {dynamic_modulator.loc[p_date]:.4f}")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         total_volatility_compression_weight = sum(v for k, v in volatility_compression_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_volatility_compression_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 波动率压缩证据总权重: {total_volatility_compression_weight:.4f}")
+            # 修改开始 - 删除探针输出
+            # if self.debug_enabled: ... 已彻底删除
+            # 修改结束
             for signal_name, weight in volatility_compression_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1065,56 +1043,68 @@ class CognitiveIntelligence:
                 if "SCORE_STRUCT_AXIOM_TENSION" in signal_name or \
                    "SCORE_DYN_AXIOM_STABILITY" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
+                    normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True) # 正常归一化
                 elif "BBW_21_2.0_D" in signal_name or \
                      "ATR_14_D" in signal_name:
-                    signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=False)
+                    # 修改开始 - 修正双重归一化问题
+                    signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=False) # 第一次归一化，小值高分
+                    normalized_signal_score = signal_score # 直接使用已归一化的分数
+                    # 修改结束
                 else:
                     signal_score = raw_signal.clip(lower=0)
-                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                    normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 volatility_compression_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 波动率压缩信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+                # 修改开始 - 删除探针输出
+                # if self.debug_enabled: ... 已彻底删除
+                # 修改结束
             volatility_compression_score = (volatility_compression_score_components / total_volatility_compression_weight) * dynamic_modulator
         else:
             volatility_compression_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合波动率压缩证据分数 (Volatility Compression Evidence Score): {volatility_compression_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算量能萎缩证据分数...")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         total_volume_atrophy_weight = sum(v for k, v in volume_atrophy_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_volume_atrophy_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 量能萎缩证据总权重: {total_volume_atrophy_weight:.4f}")
+            # 修改开始 - 删除探针输出
+            # if self.debug_enabled: ... 已彻底删除
+            # 修改结束
             for signal_name, weight in volume_atrophy_weights.items():
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
                 if "SCORE_BEHAVIOR_VOLUME_ATROPHY" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
+                    normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 elif "VOL_MA_5_D" in signal_name or \
                      "VOL_MA_13_D" in signal_name:
-                    signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=False)
+                    # 修改开始 - 修正双重归一化问题
+                    signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=False) # 第一次归一化，小值高分
+                    normalized_signal_score = signal_score # 直接使用已归一化的分数
+                    # 修改结束
                 else:
                     signal_score = raw_signal.clip(lower=0)
-                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                    normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 volume_atrophy_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 量能萎缩信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+                # 修改开始 - 删除探针输出
+                # if self.debug_enabled: ... 已彻底删除
+                # 修改结束
             volume_atrophy_score = (volume_atrophy_score_components / total_volume_atrophy_weight) * dynamic_modulator
         else:
             volume_atrophy_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合量能萎缩证据分数 (Volume Atrophy Evidence Score): {volume_atrophy_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算主力控盘迹象分数...")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         total_main_force_control_weight = sum(v for k, v in main_force_control_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_main_force_control_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 主力控盘迹象总权重: {total_main_force_control_weight:.4f}")
+            # 修改开始 - 删除探针输出
+            # if self.debug_enabled: ... 已彻底删除
+            # 修改结束
             for signal_name, weight in main_force_control_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1129,21 +1119,23 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 main_force_control_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 主力控盘信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+                # 修改开始 - 删除探针输出
+                # if self.debug_enabled: ... 已彻底删除
+                # 修改结束
             main_force_control_score = (main_force_control_score_components / total_main_force_control_weight) * dynamic_modulator
         else:
             main_force_control_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合主力控盘迹象分数 (Main Force Control Signs Score): {main_force_control_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算爆发前兆分数...")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         total_pre_breakout_indicators_weight = sum(v for k, v in pre_breakout_indicators_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_pre_breakout_indicators_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 爆发前兆总权重: {total_pre_breakout_indicators_weight:.4f}")
+            # 修改开始 - 删除探针输出
+            # if self.debug_enabled: ... 已彻底删除
+            # 修改结束
             for signal_name, weight in pre_breakout_indicators_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1158,21 +1150,23 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 pre_breakout_indicators_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 爆发前兆信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+                # 修改开始 - 删除探针输出
+                # if self.debug_enabled: ... 已彻底删除
+                # 修改结束
             pre_breakout_indicators_score = (pre_breakout_indicators_score_components / total_pre_breakout_indicators_weight) * dynamic_modulator
         else:
             pre_breakout_indicators_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合爆发前兆分数 (Pre-Breakout Indicators Score): {pre_breakout_indicators_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算风险过滤分数...")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         total_risk_filter_weight = sum(v for k, v in risk_filter_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_risk_filter_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 风险过滤总权重: {total_risk_filter_weight:.4f}")
+            # 修改开始 - 删除探针输出
+            # if self.debug_enabled: ... 已彻底删除
+            # 修改结束
             for signal_name, weight in risk_filter_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1188,15 +1182,15 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 risk_filter_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 风险信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+                # 修改开始 - 删除探针输出
+                # if self.debug_enabled: ... 已彻底删除
+                # 修改结束
             risk_filter_score = risk_filter_score_components / total_risk_filter_weight
         else:
             risk_filter_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合风险过滤分数 (Risk Filter Score): {risk_filter_score.loc[p_date]:.4f}")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         synergy_factor = pd.Series(1.0, index=df.index)
         sentiment_pendulum = fetched_signals.get("SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM", pd.Series(0.0, index=df.index))
         synergy_condition = (volatility_compression_score > synergy_threshold) & \
@@ -1204,15 +1198,15 @@ class CognitiveIntelligence:
                             (main_force_control_score > synergy_threshold) & \
                             (pre_breakout_indicators_score > synergy_threshold) & \
                             (risk_filter_score < (1 - synergy_threshold)) & \
-                            (sentiment_pendulum < synergy_threshold) # 悲观情绪下，压缩爆发更具价值
+                            (sentiment_pendulum < synergy_threshold)
         synergy_factor.loc[synergy_condition] += synergy_bonus_factor
         conflict_condition = ((volatility_compression_score > synergy_threshold) & (main_force_control_score < (1 - synergy_threshold))) | \
                              ((volume_atrophy_score > synergy_threshold) & (risk_filter_score > synergy_threshold))
         synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
         synergy_factor = synergy_factor.clip(0.5, 1.5)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 协同因子 (Synergy Factor): {synergy_factor.loc[p_date]:.4f}")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         epsilon = 1e-6
         fused_score_raw = (
             (volatility_compression_score + epsilon) *
@@ -1224,17 +1218,13 @@ class CognitiveIntelligence:
         risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
         final_score = (risk_adjusted_fused_score)**final_fusion_exponent
         final_score = final_score.clip(0, 1)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score (clip后, where前): {final_score.loc[p_date]:.4f}")
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] min_activation_threshold: {min_activation_threshold:.4f}")
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score >= min_activation_threshold: {(final_score.loc[p_date] >= min_activation_threshold)}")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终融合原始分数 (Fused Score Raw): {fused_score_raw.loc[p_date]:.4f}")
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 风险调整后融合分数 (Risk Adjusted Fused Score): {risk_adjusted_fused_score.loc[p_date]:.4f}")
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终剧本分数 (Final Playbook Score): {final_score.loc[p_date]:.4f}")
+        # 修改开始 - 删除探针输出
+        # if self.debug_enabled: ... 已彻底删除
+        # 修改结束
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
 
