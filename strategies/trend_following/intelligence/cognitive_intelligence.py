@@ -13,28 +13,32 @@ class CognitiveIntelligence:
                   通过贝叶斯推演，计算出每个战术剧本上演的“后验概率”（最终信号分）。
     - 收益: 使认知层的每一个判断都有清晰的数学逻辑和博弈论基础，直指A股本质。
     """
-    def __init__(self, strategy_instance, dynamic_thresholds: Dict):
+    def __init__(self, strategy_instance, dynamic_thresholds: Dict = None): # 修改此处：dynamic_thresholds 设置为可选参数
         """
         初始化认知情报模块。
         :param strategy_instance: 策略主实例的引用。
         :param dynamic_thresholds: 动态阈值字典。
         """
         self.strategy = strategy_instance
-        self.dynamic_thresholds = dynamic_thresholds
-
-        # 修改开始 - 在 __init__ 中统一加载 debug_params，并存储为实例属性
+        # 修改开始 - 统一加载 debug_params 和 dynamic_thresholds，并存储为实例属性
         full_config_dict = {}
         if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
             full_config_dict = self.strategy.params
         elif hasattr(self.strategy, 'config') and isinstance(self.strategy.config, dict): # 备用方案
             full_config_dict = self.strategy.config
         else:
-            print(f"    -> [认知层警告] 策略实例没有 'params' 或 'config' 属性，或它们不是字典。调试参数加载可能失败。")
+            print(f"    -> [认知层警告] 策略实例没有 'params' 或 'config' 属性，或它们不是字典。参数加载可能失败。")
 
         # 从正确的配置源和路径加载 debug_params
         debug_params_config = get_params_block(full_config_dict, 'strategy_params.trend_follow.debug_params', {})
         self.probe_dates_list_str = debug_params_config.get('probe_dates', [])
         self.debug_enabled = debug_params_config.get('enabled', {}).get('value', False)
+
+        # 如果 dynamic_thresholds 没有被传递，则从配置中加载
+        if dynamic_thresholds is None:
+            self.dynamic_thresholds = get_params_block(full_config_dict, 'strategy_params.trend_follow.dynamic_thresholds', {})
+        else:
+            self.dynamic_thresholds = dynamic_thresholds
         # 修改结束
 
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
