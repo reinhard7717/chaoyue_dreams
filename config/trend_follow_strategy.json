@@ -3419,8 +3419,57 @@
             "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
             "norm_window": 55,
             "comment_norm_window": "内部归一化窗口。"
+          },
+          "cognitive_risk_distribution_at_high_params": {
+            "description": "【V1.0 · 顶部派发风险版】高位派发风险剧本的量化参数。",
+            "high_level_context_weights": {
+              "description": "高位情境风险融合权重。正值信号直接使用，双极性信号取正向。",
+              "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT": 0.3,
+              "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH": 0.25,
+              "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM": 0.25,
+              "SCORE_STRUCT_AXIOM_MTF_COHESION": 0.2
+            },
+            "distribution_behavior_weights": {
+              "description": "派发行为证据融合权重。正值信号直接使用，双极性信号取负向绝对值。",
+              "SCORE_BEHAVIOR_DISTRIBUTION_INTENT": 0.3,
+              "PROCESS_META_MAIN_FORCE_RALLY_INTENT": 0.25,
+              "PROCESS_META_PROFIT_VS_FLOW": 0.25,
+              "SCORE_BEHAVIOR_BEARISH_DIVERGENCE": 0.2
+            },
+            "chip_fund_flow_risk_weights": {
+              "description": "筹码资金流风险融合权重。正值信号直接使用，双极性信号取负向绝对值。",
+              "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": 0.35,
+              "SCORE_FUND_FLOW_BEARISH_DIVERGENCE": 0.3,
+              "SCORE_CHIP_AXIOM_DIVERGENCE": 0.35,
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.0
+            },
+            "structural_trend_exhaustion_weights": {
+              "description": "结构趋势衰竭风险融合权重。正值信号直接使用，双极性信号取负向绝对值。",
+              "FUSION_RISK_STAGNATION": 0.3,
+              "FUSION_BIPOLAR_TREND_QUALITY": 0.25,
+              "SCORE_DYN_AXIOM_MOMENTUM": 0.2,
+              "SCORE_STRUCT_STRATEGIC_POSTURE": 0.15,
+              "PROCESS_META_WINNER_CONVICTION_DECAY": 0.1
+            },
+            "deception_amplifier_sensitivity": 0.5,
+            "comment_deception_amplifier_sensitivity": "欺骗指数对风险的放大敏感度。",
+            "synergy_threshold": 0.6,
+            "comment_synergy_threshold": "维度协同/冲突判断的阈值。",
+            "synergy_bonus_factor": 0.2,
+            "comment_synergy_bonus_factor": "维度协同（所有风险高且情绪乐观）时的奖励因子。",
+            "conflict_penalty_factor": 0.3,
+            "comment_conflict_penalty_factor": "维度冲突（高位风险高但派发证据不足或结构健康）时的惩罚因子。",
+            "dynamic_context_modulator_signal": "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION",
+            "comment_dynamic_context_modulator_signal": "用于动态调整风险维度的市场情境信号（市场体质越差，风险越高）。",
+            "dynamic_context_sensitivity": 0.5,
+            "comment_dynamic_context_sensitivity": "市场情境对动态权重调整的敏感度。",
+            "final_fusion_exponent": 2.0,
+            "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
+            "min_activation_threshold": 0.1,
+            "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
+            "norm_window": 55,
+            "comment_norm_window": "内部归一化窗口。"
           }
-
         }
       },
       "intraday_behavior_engine_params": {
