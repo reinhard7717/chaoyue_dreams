@@ -249,7 +249,7 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                # 修改开始 - 精细化打压证据的信号极性处理
+                # 精细化打压证据的信号极性处理
                 if "PRICE_DOWNWARD_MOMENTUM" in signal_name or \
                    "DISTRIBUTION_INTENT" in signal_name or \
                    "STAGNATION_EVIDENCE_RAW" in signal_name or \
@@ -266,11 +266,10 @@ class CognitiveIntelligence:
                 else:
                     # 默认处理，确保是正值
                     signal_score = raw_signal.clip(lower=0)
-                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 suppression_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 打压信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 打压信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             suppression_score = suppression_score_components / total_suppression_weight
         else:
             suppression_score = pd.Series(0.0, index=df.index)
@@ -287,7 +286,7 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                # 修改开始 - 精细化吸筹证据的信号极性处理
+                # 精细化吸筹证据的信号极性处理
                 if "STEALTH_ACCUMULATION" in signal_name or \
                    "PANIC_WASHOUT_ACCUMULATION" in signal_name or \
                    "DECEPTIVE_ACCUMULATION" in signal_name or \
@@ -299,11 +298,10 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(upper=0).abs()
                 else:
                     signal_score = raw_signal.clip(lower=0) # 默认取正值
-                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 accumulation_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             accumulation_score = accumulation_score_components / total_accumulation_weight
         else:
             accumulation_score = pd.Series(0.0, index=df.index)
@@ -320,7 +318,7 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                # 修改开始 - 精细化矛盾证据的信号极性处理
+                # 精细化矛盾证据的信号极性处理
                 if "BULLISH_DIVERGENCE" in signal_name or \
                    "CHIP_AXIOM_DIVERGENCE" in signal_name or \
                    "FUND_FLOW_BULLISH_DIVERGENCE" in signal_name or \
@@ -330,11 +328,10 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(upper=0).abs()
                 else:
                     signal_score = raw_signal.clip(lower=0) # 默认取正值
-                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 contradiction_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 矛盾信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 矛盾信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             contradiction_score = contradiction_score_components / total_contradiction_weight
         else:
             contradiction_score = pd.Series(0.0, index=df.index)
@@ -356,7 +353,7 @@ class CognitiveIntelligence:
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 context_modulator_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             context_modulator = context_modulator_score_components / total_context_weight
         else:
             context_modulator = pd.Series(1.0, index=df.index)
@@ -372,7 +369,15 @@ class CognitiveIntelligence:
 
         final_score = (fused_score_raw * context_modulator)**final_fusion_exponent
         final_score = final_score.clip(0, 1)
-        final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
+        
+        # 修改开始 - 增加探针输出，检查 final_score 在 where 操作之前的值
+        for p_date in probe_dates_to_print:
+            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score (where前): {final_score.loc[p_date]:.4f}")
+            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] min_activation_threshold: {min_activation_threshold:.4f}")
+            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score >= min_activation_threshold: {(final_score.loc[p_date] >= min_activation_threshold)}")
+        # 确保 final_score 是 Series 类型，并执行 where 操作
+        final_score = pd.Series(final_score, index=df.index).where(final_score >= min_activation_threshold, 0.0) # 修改行
+        # 修改结束
 
         for p_date in probe_dates_to_print:
             print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终融合原始分数 (Fused Score Raw): {fused_score_raw.loc[p_date]:.4f}")
