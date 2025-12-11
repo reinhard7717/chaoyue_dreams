@@ -514,7 +514,9 @@ class CognitiveIntelligence:
         normalized_market_context = normalize_score(market_context_score, df.index, norm_window, ascending=True)
         panic_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
         absorption_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
-        reversal_dynamic_modulator = 1 - (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
+        # 修改开始 - 修正 reversal_dynamic_modulator 的计算逻辑
+        reversal_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
+        # 修改结束
         panic_dynamic_modulator = panic_dynamic_modulator.clip(0.5, 1.5)
         absorption_dynamic_modulator = absorption_dynamic_modulator.clip(0.5, 1.5)
         reversal_dynamic_modulator = reversal_dynamic_modulator.clip(0.5, 1.5)
@@ -531,19 +533,28 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                if "PRICE_DOWNWARD_MOMENTUM" in signal_name or \
-                   "SENTIMENT_PENDULUM" in signal_name or \
-                   "FUSION_RISK_STAGNATION" in signal_name or \
-                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
+                signal_score = pd.Series(0.0, index=df.index) # 初始化为0
+                # 修改开始 - 修正恐慌证据信号的裁剪逻辑
+                if "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM" in signal_name:
+                    # 情绪钟摆负值代表恐慌
                     signal_score = raw_signal.clip(upper=0).abs()
-                elif "PREDICTIVE_OPP_CAPITULATION_REVERSAL" in signal_name or \
+                elif "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name or \
+                     "SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name or \
+                     "SCORE_BEHAVIOR_VOLUME_ATROPHY" in signal_name or \
                      "PROCESS_META_LOSER_CAPITULATION" in signal_name or \
-                     "VOLUME_ATROPHY" in signal_name or \
-                     "SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name: # 恐慌减速也是恐慌证据
+                     "PREDICTIVE_OPP_CAPITULATION_REVERSAL" in signal_name or \
+                     "FUSION_RISK_STAGNATION" in signal_name or \
+                     "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
+                    # 这些信号本身是正向的恐慌证据，或我们只关注其正向部分
                     signal_score = raw_signal.clip(lower=0)
                 else:
+                    # 默认处理，保留正向部分
                     signal_score = raw_signal.clip(lower=0)
-                if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "FUSION_RISK" in signal_name:
+                # 修改结束
+                # 欺骗惩罚应用于所有可能被欺骗影响的恐慌信号
+                if "PRICE_DOWNWARD_MOMENTUM" in signal_name or \
+                   "FUSION_RISK_STAGNATION" in signal_name or \
+                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
                     signal_score = signal_score * (1 - deception_penalty_for_panic)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 panic_evidence_score_components += normalized_signal_score * weight
@@ -674,7 +685,7 @@ class CognitiveIntelligence:
                      "SCORE_STRUCT_AXIOM_TREND_FORM" in signal_name:
                     signal_score = raw_signal.clip(upper=0).abs()
                 elif "SCORE_BEHAVIOR_DECEPTION_INDEX" in signal_name:
-                    signal_score = raw_signal.clip(lower=0) # 正向欺骗（拉高出货）是反转的风险
+                    signal_score = raw_signal.clip(lower=0)
                 else:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
