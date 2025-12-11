@@ -20,6 +20,7 @@ class CognitiveIntelligence:
         :param dynamic_thresholds: 动态阈值字典。
         """
         self.strategy = strategy_instance
+        
         # 修改开始 - 统一加载 debug_params 和 dynamic_thresholds，并存储为实例属性
         full_config_dict = {}
         if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
@@ -27,10 +28,25 @@ class CognitiveIntelligence:
         elif hasattr(self.strategy, 'config') and isinstance(self.strategy.config, dict): # 备用方案
             full_config_dict = self.strategy.config
         else:
-            print(f"    -> [认知层警告] 策略实例没有 'params' 或 'config' 属性，或它们不是字典。参数加载可能失败。")
+            print(f"    -> [认知层警告] 策略实例没有 'params' 或 'config' 属性，或它们不是字典。调试参数加载可能失败。")
+
+        # --- 新增探针输出 ---
+        print(f"    -> [认知层探针 __init__] self.strategy.params 类型: {type(self.strategy.params) if hasattr(self.strategy, 'params') else 'N/A'}")
+        if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
+            print(f"    -> [认知层探针 __init__] self.strategy.params 顶层键: {list(self.strategy.params.keys())}")
+            if 'strategy_params' in self.strategy.params:
+                print(f"    -> [认知层探针 __init__] self.strategy.params['strategy_params'] 顶层键: {list(self.strategy.params['strategy_params'].keys())}")
+                if 'trend_follow' in self.strategy.params['strategy_params']:
+                    print(f"    -> [认知层探针 __init__] self.strategy.params['strategy_params']['trend_follow'] 顶层键: {list(self.strategy.params['strategy_params']['trend_follow'].keys())}")
+        # --- 结束新增探针输出 ---
 
         # 从正确的配置源和路径加载 debug_params
         debug_params_config = get_params_block(full_config_dict, 'strategy_params.trend_follow.debug_params', {})
+        
+        # --- 新增探针输出 ---
+        print(f"    -> [认知层探针 __init__] 加载的 debug_params_config: {debug_params_config}")
+        # --- 结束新增探针输出 ---
+
         self.probe_dates_list_str = debug_params_config.get('probe_dates', [])
         self.debug_enabled = debug_params_config.get('enabled', {}).get('value', False)
 
