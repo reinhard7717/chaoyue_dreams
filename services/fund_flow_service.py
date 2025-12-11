@@ -535,6 +535,9 @@ class AdvancedFundFlowMetricsService:
         【V72.0 · 资金流拆分版】
         - 核心增强: 将 POWER_STRUCTURE_METRICS 中的净流入指标拆分为买入和卖出分量，
                      提供更细致的资金流向洞察。
+        【V72.1 · 修复fillna错误】
+        - 核心修复: 将对标量数值的 `.fillna(0)` 调用替换为 `np.nan_to_num(..., nan=0.0)`，
+                     解决 `'numpy.float64' object has no attribute 'fillna'` 错误。
         """
         results = {}
         WAN = 10000.0
@@ -573,30 +576,30 @@ class AdvancedFundFlowMetricsService:
         # 新增：计算拆分后的买入/卖出金额指标
         # 这些指标直接从 Tushare 的原始 buy/sell amount 字段计算，不进行复杂的校准，因为它们是原始数据。
         # 确保这些字段在 daily_data_series 中存在，如果不存在则默认为0或NaN
-        buy_sm = pd.to_numeric(daily_data_series.get('buy_sm_amount'), errors='coerce').fillna(0)
-        sell_sm = pd.to_numeric(daily_data_series.get('sell_sm_amount'), errors='coerce').fillna(0)
-        buy_md = pd.to_numeric(daily_data_series.get('buy_md_amount'), errors='coerce').fillna(0)
-        sell_md = pd.to_numeric(daily_data_series.get('sell_md_amount'), errors='coerce').fillna(0)
-        buy_lg = pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce').fillna(0)
-        sell_lg = pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce').fillna(0)
-        buy_elg = pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce').fillna(0)
-        sell_elg = pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce').fillna(0)
+        buy_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_sm_amount'), errors='coerce'), nan=0.0) # 修改行
+        sell_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_sm_amount'), errors='coerce'), nan=0.0) # 修改行
+        buy_md = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_md_amount'), errors='coerce'), nan=0.0) # 修改行
+        sell_md = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_md_amount'), errors='coerce'), nan=0.0) # 修改行
+        buy_lg = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'), nan=0.0) # 修改行
+        sell_lg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'), nan=0.0) # 修改行
+        buy_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce'), nan=0.0) # 修改行
+        sell_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce'), nan=0.0) # 修改行
 
-        results['buy_sm_amount_calibrated'] = buy_sm # 新增行
-        results['sell_sm_amount_calibrated'] = sell_sm # 新增行
-        results['buy_md_amount_calibrated'] = buy_md # 新增行
-        results['sell_md_amount_calibrated'] = sell_md # 新增行
-        results['buy_lg_amount_calibrated'] = buy_lg # 新增行
-        results['sell_lg_amount_calibrated'] = sell_lg # 新增行
-        results['buy_elg_amount_calibrated'] = buy_elg # 新增行
-        results['sell_elg_amount_calibrated'] = sell_elg # 新增行
+        results['buy_sm_amount_calibrated'] = buy_sm
+        results['sell_sm_amount_calibrated'] = sell_sm
+        results['buy_md_amount_calibrated'] = buy_md
+        results['sell_md_amount_calibrated'] = sell_md
+        results['buy_lg_amount_calibrated'] = buy_lg
+        results['sell_lg_amount_calibrated'] = sell_lg
+        results['buy_elg_amount_calibrated'] = buy_elg
+        results['sell_elg_amount_calibrated'] = sell_elg
 
-        results['total_buy_amount_calibrated'] = buy_sm + buy_md + buy_lg + buy_elg # 新增行
-        results['total_sell_amount_calibrated'] = sell_sm + sell_md + sell_lg + sell_elg # 新增行
-        results['main_force_buy_amount_calibrated'] = buy_lg + buy_elg # 新增行
-        results['main_force_sell_amount_calibrated'] = sell_lg + sell_elg # 新增行
-        results['retail_buy_amount_calibrated'] = buy_sm + buy_md # 新增行
-        results['retail_sell_amount_calibrated'] = sell_sm + sell_md # 新增行
+        results['total_buy_amount_calibrated'] = buy_sm + buy_md + buy_lg + buy_elg
+        results['total_sell_amount_calibrated'] = sell_sm + sell_md + sell_lg + sell_elg
+        results['main_force_buy_amount_calibrated'] = buy_lg + buy_elg
+        results['main_force_sell_amount_calibrated'] = sell_lg + sell_elg
+        results['retail_buy_amount_calibrated'] = buy_sm + buy_md
+        results['retail_sell_amount_calibrated'] = sell_sm + sell_md
 
         turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
         try:
