@@ -296,6 +296,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     - 核心升维: 注入基于“相邻价格变动”的微观动力学分析，新增 `micro_impact_elasticity`,
                  `price_reversion_velocity`, `asymmetric_friction_index` 三大指标，
                  旨在从最细微的价量关系中洞察市场冲击成本、价格操纵迹象和多空力量的非对称摩擦。
+    - 核心增强: 新增 `main_force_buy_execution_alpha` 和 `main_force_sell_execution_alpha`，
+                 以更细粒度地评估主力在买入和卖出侧的执行效率，为下游信号合成提供更精确的输入。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -324,6 +326,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'pre_closing_posturing': '收盘前姿态',
         'closing_auction_ambush': '收盘伏击强度',
         'main_force_execution_alpha': '主力执行Alpha(%)',
+        'main_force_buy_execution_alpha': '主力买入执行Alpha(%)', # 新增行
+        'main_force_sell_execution_alpha': '主力卖出执行Alpha(%)', # 新增行
         'retail_panic_surrender_index': '散户恐慌投降指数(%)',
         'retail_fomo_premium_index': '散户追高溢价指数(%)',
         'main_force_t0_efficiency': '主力T+0效率(%)',
@@ -381,6 +385,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_flow_dominance_index', 'main_force_slippage_index', 'dip_absorption_power',
         'rally_distribution_pressure', 'panic_selling_cascade', 'opening_battle_result',
         'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
+        'main_force_buy_execution_alpha', # 新增行
+        'main_force_sell_execution_alpha', # 新增行
         'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index',
         'volatility_asymmetry_index', 'closing_strength_index',
@@ -408,7 +414,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_flow_dominance_index', 'main_force_slippage_index',
         'dip_absorption_power', 'rally_distribution_pressure', 'panic_selling_cascade',
         'opening_battle_result', 'pre_closing_posturing', 'closing_auction_ambush',
-        'main_force_execution_alpha', 'retail_panic_surrender_index',
+        'main_force_execution_alpha', 'main_force_buy_execution_alpha', 'main_force_sell_execution_alpha', # 新增行
+        'retail_panic_surrender_index',
         'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index',
         'volatility_asymmetry_index', 'closing_strength_index',

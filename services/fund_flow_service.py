@@ -1898,6 +1898,12 @@ class AdvancedFundFlowMetricsService:
     def _calculate_execution_alpha_metrics(context: dict) -> dict:
         """
         【V71.0 · 终极生产版】(生产环境清洁版)
+        - 核心职责: 计算主力买入、卖出以及综合的执行力Alpha。
+        - 关键说明: `main_force_buy_execution_alpha` 和 `main_force_sell_execution_alpha`
+                    提供了主力在买入和卖出侧的独立执行效率评估。
+                    这些独立指标可用于更细致地判断主力意图（如低位吸筹或高位派发），
+                    而非简单地依赖综合的 `main_force_execution_alpha`。
+        - 升级说明: 增加了详细探针，用于调试和检查每一步计算。
         """
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
@@ -1905,6 +1911,7 @@ class AdvancedFundFlowMetricsService:
         hf_features = context['hf_features']
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
         metrics = {
@@ -1916,40 +1923,63 @@ class AdvancedFundFlowMetricsService:
         }
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
+        if should_probe:
+            print(f"      -> [探针] _calculate_execution_alpha_metrics (日期: {daily_data.name.strftime('%Y-%m-%d')})")
+            print(f"        - daily_vwap: {daily_vwap:.9f}")
+            print(f"        - atr: {atr:.9f}")
+            print(f"        - hf_mf_buy_vwap: {hf_mf_buy_vwap:.9f}")
+            print(f"        - hf_mf_sell_vwap: {hf_mf_sell_vwap:.9f}")
         if pd.isna(daily_vwap) or pd.isna(atr) or atr <= 0:
+            if should_probe: print("        - 关键数据 (daily_vwap, atr) 缺失或无效，跳过计算。")
             return metrics
         buy_alpha, sell_alpha = np.nan, np.nan
         if not hf_analysis_df.empty:
             if pd.notna(hf_mf_buy_vwap):
                 buy_alpha = (daily_vwap - hf_mf_buy_vwap) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
+                if should_probe: print(f"        - buy_alpha = ({daily_vwap:.9f} - {hf_mf_buy_vwap:.9f}) / {atr:.9f} = {buy_alpha:.9f}")
             if pd.notna(hf_mf_sell_vwap):
                 sell_alpha = (hf_mf_sell_vwap - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
+                if should_probe: print(f"        - sell_alpha = ({hf_mf_sell_vwap:.9f} - {daily_vwap:.9f}) / {atr:.9f} = {sell_alpha:.9f}")
             if pd.notna(hf_mf_sell_vwap) and pd.notna(hf_mf_buy_vwap) and daily_vwap > 0:
                 t0_spread = (hf_mf_sell_vwap - hf_mf_buy_vwap) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
+                if should_probe: print(f"        - main_force_t0_spread_ratio = ({hf_mf_sell_vwap:.9f} - {hf_mf_buy_vwap:.9f}) / {daily_vwap:.9f} * 100 = {t0_spread * 100:.9f}")
         else:
             avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
             avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
+            if should_probe:
+                print(f"        - hf_analysis_df 为空，回退到日线聚合成本。")
+                print(f"        - avg_cost_main_buy: {avg_cost_main_buy:.9f}")
+                print(f"        - avg_cost_main_sell: {avg_cost_main_sell:.9f}")
             if pd.notna(avg_cost_main_buy):
                 buy_alpha = (daily_vwap - avg_cost_main_buy) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
+                if should_probe: print(f"        - buy_alpha (日线) = ({daily_vwap:.9f} - {avg_cost_main_buy:.9f}) / {atr:.9f} = {buy_alpha:.9f}")
             if pd.notna(avg_cost_main_sell):
                 sell_alpha = (avg_cost_main_sell - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
+                if should_probe: print(f"        - sell_alpha (日线) = ({avg_cost_main_sell:.9f} - {daily_vwap:.9f}) / {atr:.9f} = {sell_alpha:.9f}")
             if pd.notna(avg_cost_main_sell) and pd.notna(avg_cost_main_buy) and daily_vwap > 0:
                 t0_spread = (avg_cost_main_sell - avg_cost_main_buy) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
+                if should_probe: print(f"        - main_force_t0_spread_ratio (日线) = ({avg_cost_main_sell:.9f} - {avg_cost_main_buy:.9f}) / {daily_vwap:.9f} * 100 = {t0_spread * 100:.9f}")
         if pd.notna(buy_alpha) and pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = (buy_alpha + sell_alpha) / 2
             t0_spread_norm = (sell_alpha - (-buy_alpha))
             if pd.notna(sell_alpha) and sell_alpha != 0:
                 metrics['main_force_t0_efficiency'] = t0_spread_norm / sell_alpha
+            if should_probe:
+                print(f"        - main_force_execution_alpha = ({buy_alpha:.9f} + {sell_alpha:.9f}) / 2 = {metrics['main_force_execution_alpha']:.9f}")
+                print(f"        - main_force_t0_efficiency = ({sell_alpha:.9f} - ({-buy_alpha:.9f})) / {sell_alpha:.9f} = {metrics['main_force_t0_efficiency']:.9f}")
         elif pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = sell_alpha
+            if should_probe: print(f"        - main_force_execution_alpha (仅sell_alpha) = {sell_alpha:.9f}")
         elif pd.notna(buy_alpha):
             metrics['main_force_execution_alpha'] = buy_alpha
+            if should_probe: print(f"        - main_force_execution_alpha (仅buy_alpha) = {buy_alpha:.9f}")
+        if should_probe: print(f"      -> [探针] _calculate_execution_alpha_metrics 最终结果: {metrics['main_force_execution_alpha']:.9f}")
         return metrics
 
     @staticmethod
