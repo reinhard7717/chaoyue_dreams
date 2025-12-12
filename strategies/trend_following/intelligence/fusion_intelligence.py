@@ -41,10 +41,11 @@ class FusionIntelligence:
             print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 和 df_indicators 中均不存在，使用默认值 {default}。")
             return pd.Series(default, index=df.index)
 
-    def _get_normalized_risk_score(self, df: pd.DataFrame, signal_name: str, norm_window: int, default_value: float = 0.0) -> pd.Series:
+    def _get_normalized_risk_score(self, df: pd.DataFrame, signal_name: str, norm_window: int, default_value: float = 0.0, mtf_norm_weights: Dict = None) -> pd.Series:
         """
-        【V1.0 · 三体博弈模型】获取并归一化风险信号。处理双极性信号的正负部分。
+        【V1.2 · 多时间框架归一化版】获取并归一化风险信号。处理双极性信号的正负部分。
         【V1.1 · 信号后缀修复版】修复了对带有'_D'后缀的信号进行'_POSITIVE'/'_NEGATIVE'提取时的逻辑。
+        - 【V1.2 新增】支持多时间框架(MTF)归一化，通过传入 mtf_norm_weights 参数。
         """
         print(f"    -> [探针] 正在获取并归一化信号: {signal_name} (当前日期: {df.index[-1].strftime('%Y-%m-%d')})")
         is_positive_part = False
@@ -67,7 +68,16 @@ class FusionIntelligence:
         else:
             processed_signal = original_signal
             print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 直接使用。")
-        normalized_score = normalize_score(processed_signal, df.index, norm_window, ascending=True)
+
+        # 修改开始
+        if mtf_norm_weights and mtf_norm_weights.get('enabled', False):
+            print(f"      -> [探针] 信号 '{signal_name}' 使用多时间框架归一化。")
+            normalized_score = get_adaptive_mtf_normalized_score(processed_signal, df.index, ascending=True, tf_weights=mtf_norm_weights.get('weights'))
+        else:
+            print(f"      -> [探针] 信号 '{signal_name}' 使用单时间框架归一化 (窗口: {norm_window})。")
+            normalized_score = normalize_score(processed_signal, df.index, norm_window, ascending=True)
+        # 修改结束
+
         zero_processed_mask = (processed_signal.abs() < 1e-6)
         if zero_processed_mask.iloc[-1]:
             print(f"      -> [探针] 信号 '{signal_name}' 原始处理后值接近零 ({processed_signal.iloc[-1]:.9f})，强制归一化分值为0。")
@@ -883,7 +893,7 @@ class FusionIntelligence:
 
     def _synthesize_distribution_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 诡道穿透与动态博弈版】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
+        【V1.4 · 诡道穿透与动态博弈版】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
         - 核心重构: 基于“主力派发意图、散户不愿承接度、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
         - 诡道哲学: 派发风险的本质是主力与散户的博弈，以及市场结构对这种博弈的承载能力。
                       当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
@@ -891,6 +901,7 @@ class FusionIntelligence:
         - 升级说明: 维度内部子信号聚合方式调整为加权算术平均，三大维度之间聚合保持加权几何平均，以更好地体现风险的“木桶效应”。
                     强化了对原始零值信号的归一化处理。此版本增加了详细探针，用于调试和检查每一步计算。
                     引入动态权重、诡道调制、情境放大器和协同/冲突裁决，以更精准地捕捉派发风险。
+        - 【V1.4 新增】为MFDI、RAW、MSF的子信号引入多时间框架(MTF)归一化分析，增强信号的鲁棒性和敏感度。
         """
         print(f"  -- [融合层] 正在冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)... (当前日期: {df.index[-1].strftime('%Y-%m-%d')})")
         states = {}
@@ -903,14 +914,23 @@ class FusionIntelligence:
         msf_signal_weights = get_param_value(params.get('msf_signal_weights'), {})
         non_linear_sensitivity = get_param_value(params.get('non_linear_sensitivity'), 2.0)
         norm_window = get_param_value(params.get('norm_window'), 55)
+        # 修改开始
+        mtf_norm_weights = get_param_value(params.get('mtf_norm_weights'), {})
         print(f"  -- [探针] 归一化窗口 (norm_window): {norm_window}")
+        if mtf_norm_weights.get('enabled', False):
+            print(f"  -- [探针] 多时间框架归一化已启用，权重: {mtf_norm_weights.get('weights')}")
+        else:
+            print(f"  -- [探针] 多时间框架归一化未启用，使用单窗口: {norm_window}")
+        # 修改结束
+
         # --- 1. MFDI (主力派发意图) ---
         print("  -- [探针] 计算主力派发意图 (MFDI)...")
         mfdi_weighted_sum = pd.Series(0.0, index=df_index)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
         if mfdi_total_weight > 0:
             for signal, weight in mfdi_signal_weights.items():
-                score = self._get_normalized_risk_score(df, signal, norm_window)
+                # 修改行：传入 mtf_norm_weights
+                score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights)
                 mfdi_weighted_sum += score * weight
                 print(f"      -> [探针] MFDI子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}")
             print(f"  -- [探针] MFDI 内部加权和 (mfdi_weighted_sum) 最终值: {mfdi_weighted_sum.iloc[-1]:.9f}")
@@ -946,7 +966,8 @@ class FusionIntelligence:
         raw_total_weight = sum(raw_signal_weights.values())
         if raw_total_weight > 0:
             for signal, weight in raw_signal_weights.items():
-                score = self._get_normalized_risk_score(df, signal, norm_window)
+                # 修改行：传入 mtf_norm_weights
+                score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights)
                 raw_weighted_sum += score * weight
                 print(f"      -> [探针] RAW子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}")
             print(f"  -- [探针] RAW 内部加权和 (raw_weighted_sum) 最终值: {raw_weighted_sum.iloc[-1]:.9f}")
@@ -982,7 +1003,8 @@ class FusionIntelligence:
         msf_total_weight = sum(msf_signal_weights.values())
         if msf_total_weight > 0:
             for signal, weight in msf_signal_weights.items():
-                score = self._get_normalized_risk_score(df, signal, norm_window)
+                # 修改行：传入 mtf_norm_weights
+                score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights)
                 msf_weighted_sum += score * weight
                 print(f"      -> [探针] MSF子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}")
             print(f"  -- [探针] MSF 内部加权和 (msf_weighted_sum) 最终值: {msf_weighted_sum.iloc[-1]:.9f}")

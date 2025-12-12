@@ -3399,6 +3399,17 @@
             "retail_absorption_willingness": 0.3,
             "market_structural_fragility": 0.3
           },
+          "mtf_norm_weights": {
+            "enabled": true,
+            "description": "【V1.0 · 新增】为MFDI、RAW、MSF的子信号提供多时间框架(MTF)归一化权重。",
+            "weights": {
+              "5": 0.2,
+              "13": 0.2,
+              "21": 0.2,
+              "34": 0.2,
+              "55": 0.2
+            }
+          },
           "mfdi_signal_weights": {
             "SCORE_BEHAVIOR_DISTRIBUTION_INTENT": 0.05,
             "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": 0.05,
@@ -3533,7 +3544,6 @@
           "norm_window": 55,
           "comment": "【V1.3 · 诡道穿透与动态博弈版】派发压力风险信号参数。融合主力派发意图、散户承接意愿和市场结构脆弱性三大维度。"
         }
-
       },
       "cognitive_intelligence_params": {
         "enabled": true,
