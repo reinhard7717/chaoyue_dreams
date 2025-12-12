@@ -455,6 +455,10 @@ class CognitiveIntelligence:
         all_required_signals.add("SCORE_BEHAVIOR_DECEPTION_INDEX")
         all_required_signals.add("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER")
         all_required_signals.add(dynamic_context_modulator_signal)
+        # 修改开始 - 移除不存在的信号，并添加新的信号
+        all_required_signals.discard("PREDICTIVE_OPP_CAPITULATION_REVERSAL") # 修改行 - 移除不存在的信号
+        all_required_signals.add("SCORE_CHIP_AXIOM_HOLDER_SENTIMENT") # 修改行 - 添加新的信号
+        # 修改结束
         all_required_signals.discard("SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM")
         all_required_signals.discard("ACCEL_5_SCORE_BEHAVIOR_ABSORPTION_STRENGTH")
         all_required_signals.add("SCORE_CHIP_COHERENT_DRIVE")
@@ -492,17 +496,19 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                if "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs()
+                # 修改开始 - 调整信号处理逻辑
+                if "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM" in signal_name or \
+                   "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT" in signal_name: # 修改行 - 添加 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT
+                    signal_score = raw_signal.clip(upper=0).abs() # 对于情绪钟摆和信念韧性，负值代表恐慌，取绝对值
                 elif "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name or \
                      "FUSION_RISK_STAGNATION" in signal_name or \
                      "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name or \
-                     "PREDICTIVE_OPP_CAPITULATION_REVERSAL" in signal_name or \
                      "PROCESS_META_LOSER_CAPITULATION" in signal_name or \
                      "SCORE_BEHAVIOR_VOLUME_ATROPHY" in signal_name:
-                    signal_score = raw_signal.clip(lower=0)
+                    signal_score = raw_signal.clip(lower=0) # 这些信号本身就是正向风险/恐慌
                 else:
-                    signal_score = raw_signal.clip(lower=0)
+                    signal_score = raw_signal.clip(lower=0) # 默认处理为正向信号
+                # 修改结束
                 if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "FUSION_RISK" in signal_name:
                     signal_score = signal_score * (1 - deception_penalty_for_panic)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
@@ -599,6 +605,7 @@ class CognitiveIntelligence:
             risk_filter_score = risk_filter_score_components / total_risk_filter_weight
         else:
             risk_filter_score = pd.Series(0.0, index=df.index)
+
         total_confirmation_contradiction_weight = sum(v for k, v in confirmation_contradiction_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_confirmation_contradiction_weight > 0:
             for signal_name, weight in confirmation_contradiction_weights.items():
@@ -616,16 +623,19 @@ class CognitiveIntelligence:
             confirmation_score = confirmation_contradiction_score_components / total_confirmation_contradiction_weight
         else:
             confirmation_score = pd.Series(0.0, index=df.index)
+
         synergy_factor = pd.Series(1.0, index=df.index)
         synergy_condition = (panic_score > synergy_threshold) & \
                             (absorption_score > synergy_threshold) & \
                             (reversal_intent_score > synergy_threshold) & \
                             (risk_filter_score < (1 - synergy_threshold))
         synergy_factor.loc[synergy_condition] += synergy_bonus_factor
+
         conflict_condition = ((panic_score > synergy_threshold) & (absorption_score < (1 - synergy_threshold))) | \
                              (risk_filter_score > synergy_threshold)
         synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
         synergy_factor = synergy_factor.clip(0.5, 1.5)
+
         epsilon = 1e-6
         fused_score_raw = (
             (panic_score + epsilon) *
@@ -634,11 +644,13 @@ class CognitiveIntelligence:
             (context_score + epsilon) *
             (confirmation_score + epsilon)
         )**(1/5)
+
         fused_score_raw = fused_score_raw * synergy_factor
         risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
         final_score = (risk_adjusted_fused_score)**final_fusion_exponent
         final_score = final_score.clip(0, 1)
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
+
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
 

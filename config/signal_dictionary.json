@@ -1172,21 +1172,6 @@
             "scoring_mode": "unipolar",
             "description": "【V1.0】融合资金流吸筹拐点意图与筹码结构支持，识别主力完成隐蔽吸筹，开始加大吸筹力度，甚至转向抢筹的时间点。旨在先于价格上涨发现趋势起点。"
         },
-        "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
-        "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
-            "cn_name": "【预测风险】高潮衰竭",
-            "category": "预测层-风险",
-            "type": "risk",
-            "penalty_weight": -5000,
-            "context_role": "top_risk",
-            "description": "【先知信号】在T日预测T+1崩盘风险。融合了极度亢奋、天量和冲高回落三大“崩盘前夕”特征，是最高优先级的风险预警。"
-        },
-        "PREDICTIVE_OPP_CAPITULATION_REVERSAL": {
-            "cn_name": "【先知】恐慌投降反转",
-            "category": "预测层-机会",
-            "type": "predictive",
-            "description": "【入场神谕】由先知引擎预测的，在恐慌抛售末期的潜在V型反转机会。"
-        },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
             "cn_name": "【认知剧本】主力打压吸筹",
