@@ -1444,7 +1444,7 @@ class ChipFeatureCalculator:
             focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
             focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
             intent_numerator = below_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
-            intent_denominator = below_analysis_df['main_force_ofi'].abs().sum()
+            intent_denominator = below_peak_zone_df['main_force_ofi'].abs().sum() # 修改：将 below_analysis_df 更正为 below_peak_zone_df
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
             price_start = below_peak_zone_df['price'].iloc[0]
             price_end = below_peak_zone_df['price'].iloc[-1]
