@@ -210,8 +210,6 @@ class PatternIntelligence:
                 day_B_idx = j
                 if day_B_idx <= day_A_idx:
                     continue
-                current_B_date = df_index[day_B_idx]
-                is_probing_this_b_day = (probe_target_date is not None and current_B_date == probe_target_date) 
                 # B点特征提取
                 day_B_pct_change = pct_change_D.iloc[day_B_idx]
                 day_B_volume = volume_D.iloc[day_B_idx]
@@ -228,21 +226,17 @@ class PatternIntelligence:
                 cond_B_chip_conc = day_B_chip_conc_slope > 0
                 cond_B_mf_leverage = day_B_mf_control_leverage > 0
                 if not (cond_B_pct_change and cond_B_volume and cond_B_mf_flow and cond_B_chip_conc and cond_B_mf_leverage):
-                    if is_probing_this_b_day: print("     - B点基础条件不满足，跳过。")
                     continue
                 # B点与A点关系判断
                 cond_B_close_higher_A = day_B_close > day_A_close
                 cond_B_trend_better_A = day_B_trend_form_score > day_A_trend_form_score
-                if is_probing_this_b_day: print(f"     - B/A关系: B_close > A_close ({cond_B_close_higher_A}), B_trend_score > A_trend_score ({cond_B_trend_better_A})")
                 if not (cond_B_close_higher_A and cond_B_trend_better_A):
-                    if is_probing_this_b_day: print("     - B点与A点关系不满足，跳过。")
                     continue
                 # endregion
                 # region 2.3. 评估A、B之间的回踩期质量
                 pullback_slice_start = day_A_idx + 1
                 pullback_slice_end = day_B_idx
                 if pullback_slice_start >= pullback_slice_end:
-                    if is_probing_this_b_day: print("     - 回调期长度不足，跳过。")
                     continue
                 # 提取回调期数据
                 pullback_effective_volume = effective_volume_D.iloc[pullback_slice_start:pullback_slice_end] 
@@ -261,7 +255,6 @@ class PatternIntelligence:
                 # 核心否决条件：是否存在放量下跌
                 no_bearish_volume_breakout = ~((pullback_pct_change < 0) & (pullback_effective_volume > pullback_max_vol_ma)).any()
                 if not no_bearish_volume_breakout:
-                    if is_probing_this_b_day: print("     - 回调期存在放量下跌，判定为无效洗盘，跳过。")
                     continue
                 # 判断洗盘模式：缩量或换手
                 is_volume_shrunk = (pullback_effective_volume < pullback_max_vol_ma).all()
