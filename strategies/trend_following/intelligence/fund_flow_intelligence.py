@@ -1774,7 +1774,14 @@ class FundFlowIntelligence:
         norm_flow_efficiency = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_raw, df_index, tf_weights_ff)
         print(f"        -> [探针] 基础流量效率 (norm_flow_efficiency): {norm_flow_efficiency.iloc[-1]:.4f}")
 
-        # [新增代码行] V1.1 整合新增资金指标到流量效率
+        # [修改代码行] V1.1 整合新增资金指标到流量效率 - 获取原始数据
+        buy_flow_efficiency_index_raw = self._get_safe_series(df, df, 'buy_flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        sell_flow_efficiency_index_raw = self._get_safe_series(df, df, 'sell_flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        buy_order_book_clearing_rate_raw = self._get_safe_series(df, df, 'buy_order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        sell_order_book_clearing_rate_raw = self._get_safe_series(df, df, 'sell_order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        vwap_buy_control_strength_raw = self._get_safe_series(df, df, 'vwap_buy_control_strength_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        vwap_sell_control_strength_raw = self._get_safe_series(df, df, 'vwap_sell_control_strength_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+
         norm_buy_flow_efficiency_index = get_adaptive_mtf_normalized_score(buy_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_sell_flow_efficiency_index = get_adaptive_mtf_normalized_score(sell_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_buy_order_book_clearing_rate = get_adaptive_mtf_normalized_score(buy_order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1805,7 +1812,10 @@ class FundFlowIntelligence:
         risk_filter_base = 1 - get_adaptive_mtf_normalized_score(structural_leverage, df_index, ascending=True, tf_weights=tf_weights_ff)
         print(f"        -> [探针] 基础结构风险过滤器 (risk_filter_base): {risk_filter_base.iloc[-1]:.4f}")
 
-        # [新增代码行] V1.1 整合新增资金指标到结构风险过滤器
+        # [修改代码行] V1.1 整合新增资金指标到结构风险过滤器 - 获取原始数据
+        bid_side_liquidity_raw = self._get_safe_series(df, df, 'bid_side_liquidity_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        ask_side_liquidity_raw = self._get_safe_series(df, df, 'ask_side_liquidity_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+
         norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # 流动性越低风险越高
         norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # 流动性越低风险越高
 
