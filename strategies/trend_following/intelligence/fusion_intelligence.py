@@ -884,10 +884,10 @@ class FusionIntelligence:
     def _synthesize_distribution_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.3 · 诡道穿透与动态博弈版】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
-        - 核心重构: 基于“主力派发意图、散户承接意愿、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
+        - 核心重构: 基于“主力派发意图、散户不愿承接度、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
         - 诡道哲学: 派发风险的本质是主力与散户的博弈，以及市场结构对这种博弈的承载能力。
                       当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
-        - 融合模型: 最终风险 = tanh( (MFDI_score^w_mfdi * RAW_score^w_raw * MSF_score^w_msf)^(1/sum_weights) * non_linear_sensitivity )
+        - 融合模型: 最终风险 = tanh( (MFDI_score^w_mfdi * RAW_unwillingness_score^w_raw * MSF_score^w_msf)^(1/sum_weights) * non_linear_sensitivity )
         - 升级说明: 维度内部子信号聚合方式调整为加权算术平均，三大维度之间聚合保持加权几何平均，以更好地体现风险的“木桶效应”。
                     强化了对原始零值信号的归一化处理。此版本增加了详细探针，用于调试和检查每一步计算。
                     引入动态权重、诡道调制、情境放大器和协同/冲突裁决，以更精准地捕捉派发风险。
@@ -1014,21 +1014,24 @@ class FusionIntelligence:
             print(f"  -- [探针] MSF 流动性陷阱放大后分值: {msf_score.iloc[-1]:.9f}")
         # --- 4. 融合三体分数 (加权几何平均) ---
         print("  -- [探针] 融合三体分数 (加权几何平均)...")
+        # 修改行：将散户承接意愿转换为散户不愿承接度
+        retail_unwillingness_score = (1 - raw_score).clip(lower=1e-9) # 修改行
         print(f"  -- [探针] 原始MFDI分值: {mfdi_score.iloc[-1]:.9f}, 原始RAW分值: {raw_score.iloc[-1]:.9f}, 原始MSF分值: {msf_score.iloc[-1]:.9f}")
+        print(f"  -- [探针] 散户不愿承接分值 (retail_unwillingness_score): {retail_unwillingness_score.iloc[-1]:.9f}") # 新增行
         final_log_sum = pd.Series(0.0, index=df_index)
         total_body_weight = sum(body_weights.values())
         if total_body_weight > 0:
             mfdi_score_clipped = mfdi_score.clip(lower=1e-9)
-            raw_score_clipped = raw_score.clip(lower=1e-9)
             msf_score_clipped = msf_score.clip(lower=1e-9)
-            print(f"  -- [探针] 裁剪后MFDI分值: {mfdi_score_clipped.iloc[-1]:.9f}, 裁剪后RAW分值: {raw_score_clipped.iloc[-1]:.9f}, 裁剪后MSF分值: {msf_score_clipped.iloc[-1]:.9f}")
-            print(f"  -- [探针] log(MFDI_clipped): {np.log(mfdi_score_clipped.iloc[-1]):.9f}, log(RAW_clipped): {np.log(raw_score_clipped.iloc[-1]):.9f}, log(MSF_clipped): {np.log(msf_score_clipped.iloc[-1]):.9f}")
+            print(f"  -- [探针] 裁剪后MFDI分值: {mfdi_score_clipped.iloc[-1]:.9f}, 裁剪后散户不愿承接分值: {retail_unwillingness_score.iloc[-1]:.9f}, 裁剪后MSF分值: {msf_score_clipped.iloc[-1]:.9f}") # 修改行
+            print(f"  -- [探针] log(MFDI_clipped): {np.log(mfdi_score_clipped.iloc[-1]):.9f}, log(RAW_unwillingness_clipped): {np.log(retail_unwillingness_score.iloc[-1]):.9f}, log(MSF_clipped): {np.log(msf_score_clipped.iloc[-1]):.9f}") # 修改行
             mfdi_log_contribution = np.log(mfdi_score_clipped) * (body_weights.get('main_force_distribution_intent', 0.0) / total_body_weight)
-            raw_log_contribution = np.log(raw_score_clipped) * (body_weights.get('retail_absorption_willingness', 0.0) / total_body_weight)
+            # 修改行：使用 retail_unwillingness_score 进行对数贡献计算
+            raw_log_contribution = np.log(retail_unwillingness_score) * (body_weights.get('retail_absorption_willingness', 0.0) / total_body_weight) # 修改行
             msf_log_contribution = np.log(msf_score_clipped) * (body_weights.get('market_structural_fragility', 0.0) / total_body_weight)
             final_log_sum += mfdi_log_contribution + raw_log_contribution + msf_log_contribution
             print(f"  -- [探针] MFDI对final_log_sum贡献: {mfdi_log_contribution.iloc[-1]:.9f}")
-            print(f"  -- [探针] RAW对final_log_sum贡献: {raw_log_contribution.iloc[-1]:.9f}")
+            print(f"  -- [探针] RAW对final_log_sum贡献: {raw_log_contribution.iloc[-1]:.9f}") # 修改行
             print(f"  -- [探针] MSF对final_log_sum贡献: {msf_log_contribution.iloc[-1]:.9f}")
             print(f"  -- [探针] 最终加权对数和 (final_log_sum): {final_log_sum.iloc[-1]:.9f}")
             geometric_mean_score = np.exp(final_log_sum)
@@ -1061,9 +1064,11 @@ class FusionIntelligence:
             conflict_threshold = get_param_value(synergy_conflict_params.get('conflict_threshold'), 0.3)
             synergy_bonus_factor = get_param_value(synergy_conflict_params.get('synergy_bonus_factor'), 0.2)
             conflict_penalty_factor = get_param_value(synergy_conflict_params.get('conflict_penalty_factor'), 0.2)
-            strong_synergy_mask = (mfdi_score > synergy_threshold) & (raw_score < conflict_threshold) & (msf_score > synergy_threshold)
+            # 风险协同：MFDI高，RAW低（不愿承接高），MSF高
+            strong_synergy_mask = (mfdi_score > synergy_threshold) & (raw_score < conflict_threshold) & (msf_score > synergy_threshold) # 修改行
             synergy_modulator.loc[strong_synergy_mask] += synergy_bonus_factor
-            conflict_mask = (mfdi_score > synergy_threshold) & ((raw_score > synergy_threshold) | (msf_score < conflict_threshold))
+            # 风险冲突：MFDI高，但RAW高（承接意愿高）或MSF低（结构不脆弱）
+            conflict_mask = (mfdi_score > synergy_threshold) & ((raw_score > synergy_threshold) | (msf_score < conflict_threshold)) # 修改行
             synergy_modulator.loc[conflict_mask] -= conflict_penalty_factor
             synergy_modulator = synergy_modulator.clip(0.5, 1.5)
             print(f"  -- [探针] 协同/冲突调制器: {synergy_modulator.iloc[-1]:.9f}")
