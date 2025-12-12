@@ -74,22 +74,6 @@ class CognitiveIntelligence:
         else:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             score = pd.Series(default, index=df.index)
-        # 修改开始 - 使用实例属性 self.debug_enabled 和 self.probe_dates_list_str
-        if self.debug_enabled and self.probe_dates_list_str:
-            if not df.empty:
-                df_index_tz = df.index.tz
-                for date_str in self.probe_dates_list_str:
-                    try:
-                        probe_date_naive = pd.to_datetime(date_str)
-                        probe_date_for_loop = probe_date_naive.tz_localize(df_index_tz) if df_index_tz else probe_date_naive
-                        if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                            if isinstance(score, pd.Series):
-                                print(f"    -> [DEBUG _get_atomic_score] 信号 '{name}' 在 {probe_date_for_loop.strftime('%Y-%m-%d')} 原始值: {score.loc[probe_date_for_loop]:.4f}")
-                            else:
-                                print(f"    -> [DEBUG _get_atomic_score] 信号 '{name}' 在 {probe_date_for_loop.strftime('%Y-%m-%d')} 原始值: {score:.4f} (非Series)")
-                    except Exception:
-                        pass
-        # 修改结束
         return score
 
     def _get_playbook_score(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:

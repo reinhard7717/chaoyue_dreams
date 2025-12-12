@@ -47,7 +47,6 @@ class FusionIntelligence:
         【V1.1 · 信号后缀修复版】修复了对带有'_D'后缀的信号进行'_POSITIVE'/'_NEGATIVE'提取时的逻辑。
         - 【V1.2 新增】支持多时间框架(MTF)归一化，通过传入 mtf_norm_weights 参数。
         """
-        print(f"    -> [探针] 正在获取并归一化信号: {signal_name} (当前日期: {df.index[-1].strftime('%Y-%m-%d')})")
         is_positive_part = False
         is_negative_part = False
         base_signal_name = signal_name
@@ -58,31 +57,18 @@ class FusionIntelligence:
             is_negative_part = True
             base_signal_name = signal_name.replace('_NEGATIVE', '')
         original_signal = self._get_atomic_score(df, base_signal_name, default_value)
-        print(f"      -> [探针] 信号 '{base_signal_name}' 原始数据 (iloc[-1]): {original_signal.iloc[-1]:.9f}")
         if is_positive_part:
             processed_signal = original_signal.clip(lower=0)
-            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取正向部分: {processed_signal.iloc[-1]:.9f}")
         elif is_negative_part:
             processed_signal = original_signal.clip(upper=0).abs()
-            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取负向绝对值部分: {processed_signal.iloc[-1]:.9f}")
         else:
             processed_signal = original_signal
-            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 直接使用。")
-
-        # 修改开始
         if mtf_norm_weights and mtf_norm_weights.get('enabled', False):
-            print(f"      -> [探针] 信号 '{signal_name}' 使用多时间框架归一化。")
             normalized_score = get_adaptive_mtf_normalized_score(processed_signal, df.index, ascending=True, tf_weights=mtf_norm_weights.get('weights'))
         else:
-            print(f"      -> [探针] 信号 '{signal_name}' 使用单时间框架归一化 (窗口: {norm_window})。")
             normalized_score = normalize_score(processed_signal, df.index, norm_window, ascending=True)
-        # 修改结束
-
         zero_processed_mask = (processed_signal.abs() < 1e-6)
-        if zero_processed_mask.iloc[-1]:
-            print(f"      -> [探针] 信号 '{signal_name}' 原始处理后值接近零 ({processed_signal.iloc[-1]:.9f})，强制归一化分值为0。")
         normalized_score.loc[zero_processed_mask] = 0.0
-        print(f"      -> [探针] 信号 '{signal_name}' 归一化后分值: {normalized_score.iloc[-1]:.9f}")
         return normalized_score.astype(np.float32)
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
