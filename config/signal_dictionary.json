@@ -1069,13 +1069,13 @@
             "description": "【V1.0】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的顶部反转信号。"
         },
         "说明_fusion_intelligence": "--- 融合层信号 (Fusion Intelligence) ---",
-        "PROCESS_FUSION_ACCUMULATION_PLAYBOOK": {
+        "FUSION_ACCUMULATION_PLAYBOOK": {
             "cn_name": "【融合】吸筹剧本",
             "category": "融合层-机会",
             "type": "opportunity",
             "description": "【V1.0 · 战术剧本】一个高阶战术融合信号，旨在捕捉主力吸筹这一核心战略意图。它通过`max()`函数融合了隐秘吸筹、恐慌洗盘吸筹、诡道吸筹等多种互斥的战术行为，并引入“筹码态势改善度”作为品质调节器。高分代表主力不仅在执行明确的吸筹战术，并且该战术正在有效地优化筹码结构，是高质量的、值得高度关注的建仓信号。"
         },
-        "PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME": {
+        "FUSION_TREND_EXHAUSTION_SYNDROME": {
             "cn_name": "【融合风险】趋势衰竭综合征",
             "category": "融合层-风险",
             "type": "risk",

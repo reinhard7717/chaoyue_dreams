@@ -180,6 +180,8 @@ class ChipFeatureCalculator:
         results = {
             'peak_mass_transfer_rate': np.nan,
             'conviction_flow_index': np.nan,
+            'conviction_flow_buy_intensity': np.nan, # 新增行
+            'conviction_flow_sell_intensity': np.nan, # 新增行
             'constructive_turnover_ratio': np.nan,
             'structural_entropy_change': np.nan,
             'main_force_flow_gini': np.nan,
@@ -214,8 +216,14 @@ class ChipFeatureCalculator:
                 # 新逻辑：(买方力量 - 卖方力量) / 总力量，量化“净胜结果”
                 net_conviction_flow = (gathering_total_weighted - dispersal_vol) / total_battle_vol
                 results['conviction_flow_index'] = net_conviction_flow * 100
+                # 新增行：计算买入和卖出信念流强度
+                results['conviction_flow_buy_intensity'] = (gathering_total_weighted / total_battle_vol) * 100
+                results['conviction_flow_sell_intensity'] = (dispersal_vol / total_battle_vol) * 100
             else:
                 results['conviction_flow_index'] = 0.0
+                # 新增行：当总战斗量为0时，强度也为0
+                results['conviction_flow_buy_intensity'] = 0.0
+                results['conviction_flow_sell_intensity'] = 0.0
         today_winner_rate = context.get('total_winner_rate')
         prev_winner_rate = prev_metrics.get('total_winner_rate')
         order_flow_imbalance = context.get('order_flow_imbalance', 0)
@@ -254,6 +262,8 @@ class ChipFeatureCalculator:
         results = {
             'strategic_phase_score': np.nan,
             'deception_index': np.nan,
+            'deception_lure_long_intensity': np.nan, # 新增行
+            'deception_lure_short_intensity': np.nan, # 新增行
             'control_solidity_index': np.nan,
             'exhaustion_risk_index': np.nan,
             'breakout_readiness_score': np.nan,
@@ -309,6 +319,9 @@ class ChipFeatureCalculator:
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
         lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
+        # 新增行：计算诱多和诱空强度
+        results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
+        results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
         results['control_solidity_index'] = gini * peak_transfer
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
@@ -595,6 +608,8 @@ class ChipFeatureCalculator:
             'intraday_posture_score': np.nan,
             'peak_control_transfer': np.nan,
             'impulse_quality_ratio': np.nan,
+            'upward_impulse_strength': np.nan, # 新增行
+            'downward_impulse_strength': np.nan, # 新增行
             'opening_gap_defense_strength': np.nan,
             'active_buying_support': np.nan,
             'active_selling_pressure': np.nan,
@@ -633,6 +648,11 @@ class ChipFeatureCalculator:
             avg_down_vol = down_moves['vol_shares'].mean()
             if avg_down_vol > 0:
                 results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
+        # 新增行：计算上涨脉冲强度和下跌脉冲强度
+        total_intraday_vol = intraday_df['vol_shares'].sum()
+        if total_intraday_vol > 0:
+            results['upward_impulse_strength'] = (up_moves['vol_shares'].sum() / total_intraday_vol) * 100
+            results['downward_impulse_strength'] = (down_moves['vol_shares'].sum() / total_intraday_vol) * 100
         open_price = context.get('open_price')
         pre_close = context.get('pre_close')
         if enable_probe and is_target_date:
@@ -879,6 +899,7 @@ class ChipFeatureCalculator:
             'pressure_validation_score': np.nan,
             'support_validation_score': np.nan,
             'covert_accumulation_signal': np.nan,
+            'covert_distribution_signal': np.nan, # 新增行
             'pressure_rejection_strength': np.nan,
             'support_validation_strength': np.nan,
             'vacuum_traversal_efficiency': np.nan,
@@ -919,6 +940,11 @@ class ChipFeatureCalculator:
             results['covert_accumulation_signal'] = np.clip(order_flow_imbalance * 100, 0, 100)
         else:
             results['covert_accumulation_signal'] = 0
+        # 新增行：计算隐蔽派发信号
+        if price_momentum >= 0: # 价格上涨或横盘时，如果OFI为负，则可能是隐蔽派发
+            results['covert_distribution_signal'] = np.clip(-order_flow_imbalance * 100, 0, 100)
+        else:
+            results['covert_distribution_signal'] = 0
         daily_high = context.get('high_price')
         daily_low = context.get('low_price')
         atr = context.get('atr_14d')
@@ -1096,6 +1122,8 @@ class ChipFeatureCalculator:
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
+            'mf_cost_zone_buy_intent': np.nan, # 新增行
+            'mf_cost_zone_sell_intent': np.nan, # 新增行
             'floating_chip_cleansing_efficiency': np.nan,
         }
         realtime_df = context.get('realtime_data')
@@ -1150,6 +1178,13 @@ class ChipFeatureCalculator:
                     if valid_weights.sum() > 0:
                         weighted_intent = np.average(valid_intent, weights=valid_weights)
                         results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
+                        # 新增行：计算买方和卖方意图强度
+                        weighted_buy_power = np.average(total_weighted_bid_power[valid_mask], weights=valid_weights)
+                        weighted_sell_power = np.average(total_weighted_ask_power[valid_mask], weights=valid_weights)
+                        total_weighted_power = weighted_buy_power + weighted_sell_power
+                        if total_weighted_power > 0:
+                            results['mf_cost_zone_buy_intent'] = (weighted_buy_power / total_weighted_power) * 100
+                            results['mf_cost_zone_sell_intent'] = (weighted_sell_power / total_weighted_power) * 100
         intraday_df = context.get('processed_intraday_df')
         total_daily_volume = context.get('daily_turnover_volume')
         if intraday_df is None or intraday_df.empty or pd.isna(atr) or atr <= 0 or pd.isna(total_daily_volume) or total_daily_volume <= 0:
@@ -1279,6 +1314,7 @@ class ChipFeatureCalculator:
         """
         results = {
             'suppressive_accumulation_intensity': np.nan,
+            'supportive_distribution_intensity': np.nan, # 新增行
         }
         # 1. 获取宏观环境
         close_price = context.get('close_price')
@@ -1288,7 +1324,9 @@ class ChipFeatureCalculator:
         pct_change = (close_price / pre_close) - 1
         # 2. 获取微观证据
         covert_accumulation = context.get('covert_accumulation_signal', 0.0)
+        covert_distribution = context.get('covert_distribution_signal', 0.0) # 新增行
         conviction_flow = context.get('conviction_flow_index', 0.0)
+        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio', 0.0) # 新增行
         # 3. 战术归因与计算
         # “打压吸筹”战术只在价格下跌或微涨时成立
         # 将触发条件从允许微涨(<= 0.01)收紧为平盘或下跌(<= 0)，使其更符合“打压”的定义
@@ -1300,6 +1338,14 @@ class ChipFeatureCalculator:
             results['suppressive_accumulation_intensity'] = np.clip(intensity_score * 100, 0, 100)
         else:
             results['suppressive_accumulation_intensity'] = 0.0
+        # 新增行：计算支撑性派发强度
+        supportive_mask = pct_change >= 0 # 价格上涨或横盘时
+        if supportive_mask:
+            # 融合隐蔽派发和获利兑现流量
+            intensity_score = (covert_distribution / 100) * np.log1p(np.clip(profit_taking_flow_ratio, 0, None))
+            results['supportive_distribution_intensity'] = np.clip(intensity_score * 100, 0, 100)
+        else:
+            results['supportive_distribution_intensity'] = 0.0
         return results
 
     def _get_absolute_normalized_score(self, value: float, neutral_point: float, sensitivity: float, ascending: bool = True) -> float:

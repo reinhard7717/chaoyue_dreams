@@ -45,6 +45,8 @@ class BaseAdvancedChipMetrics(models.Model):
     INTRADAY_DYNAMICS_METRICS = {
         # 引入新一代日内动态博弈指标
         'impulse_quality_ratio': '脉冲品质比率(%)',
+        'upward_impulse_strength': '上涨脉冲强度(%)', # 新增行
+        'downward_impulse_strength': '下跌脉冲强度(%)', # 新增行
         'peak_control_transfer': '主峰控制权转移(%)',
         'support_validation_strength': '支撑验证强度',
         'pressure_rejection_strength': '压力拒绝强度',
@@ -63,6 +65,8 @@ class BaseAdvancedChipMetrics(models.Model):
         # 引入新一代信念交割与结构演化指标
         'peak_mass_transfer_rate': '主峰质量转移率',
         'conviction_flow_index': '信念流转指数',
+        'conviction_flow_buy_intensity': '信念流买入强度(%)', # 新增行
+        'conviction_flow_sell_intensity': '信念流卖出强度(%)', # 新增行
         'constructive_turnover_ratio': '建设性换手率',
         'structural_entropy_change': '结构熵变',
         'main_force_flow_gini': '主力资金流基尼系数',
@@ -81,10 +85,14 @@ class BaseAdvancedChipMetrics(models.Model):
         # 引入新一代战略推演指标
         'strategic_phase_score': '战略阶段评分(-100~100)',
         'deception_index': '欺骗指数(-100~100)',
+        'deception_lure_long_intensity': '欺骗性诱多强度(%)', # 新增行
+        'deception_lure_short_intensity': '欺骗性诱空强度(%)', # 新增行
         'control_solidity_index': '控制力稳固度',
         'exhaustion_risk_index': '衰竭风险指数',
         'breakout_readiness_score': '突破就绪分(0-100)',
         'mf_cost_zone_defense_intent': '主力成本区攻防意图(-100~100)',
+        'mf_cost_zone_buy_intent': '主力成本区买方意图(%)', # 新增行
+        'mf_cost_zone_sell_intent': '主力成本区卖方意图(%)', # 新增行
         'main_force_cost_advantage': '主力成本优势(%)',
         'chip_health_score': '筹码健康分(0-100)', # 逻辑会依赖新指标
         'auction_intent_signal': '竞价意图信号',
@@ -93,7 +101,9 @@ class BaseAdvancedChipMetrics(models.Model):
         'pressure_validation_score': '压力验证分',
         'support_validation_score': '支撑验证分',
         'covert_accumulation_signal': '隐蔽吸筹信号',
+        'covert_distribution_signal': '隐蔽派发信号', # 新增行
         'suppressive_accumulation_intensity': '打压吸筹强度',
+        'supportive_distribution_intensity': '支撑性派发强度', # 新增行
     }
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
@@ -135,6 +145,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'pressure_validation_score',
         'support_validation_score',
         'covert_accumulation_signal',
+        'covert_distribution_signal', # 新增行
         'structural_node_count',
         'primary_peak_kurtosis',
         'cost_gini_coefficient',
@@ -145,11 +156,15 @@ class BaseAdvancedChipMetrics(models.Model):
         'intraday_posture_score',
         'peak_mass_transfer_rate',
         'conviction_flow_index',
+        'conviction_flow_buy_intensity', # 新增行
+        'conviction_flow_sell_intensity', # 新增行
         'constructive_turnover_ratio',
         'structural_entropy_change',
         'main_force_flow_gini',
         'strategic_phase_score',
         'deception_index',
+        'deception_lure_long_intensity', # 新增行
+        'deception_lure_short_intensity', # 新增行
         'control_solidity_index',
         'exhaustion_risk_index',
         'breakout_readiness_score',
@@ -158,13 +173,18 @@ class BaseAdvancedChipMetrics(models.Model):
         'trend_vitality_index',
         'overall_t1_rating',
         'mf_cost_zone_defense_intent',
+        'mf_cost_zone_buy_intent', # 新增行
+        'mf_cost_zone_sell_intent', # 新增行
         'floating_chip_cleansing_efficiency',
         'suppressive_accumulation_intensity',
+        'supportive_distribution_intensity', # 新增行
         # [新增的代码块] 将新指标添加到排除列表
         'distribution_at_peak_intensity',
         'absorption_at_peak_intensity',
         'breakthrough_of_peak_quality',
         'defense_of_peak_quality',
+        'upward_impulse_strength', # 新增行
+        'downward_impulse_strength', # 新增行
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:

@@ -643,7 +643,7 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 道法合一版 (終章)】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
+        【V5.0 · 道法合一版 (終章)】冶炼“吸筹剧本” (FUSION_ACCUMULATION_PLAYBOOK)
         - 核心升华: 引入“王霸并济”二元法则。根据“点火器”强度，动态切换“王者之道”
                       (薪火相加)与“霸王之道”(状态重置)，以区分“量变积累”与“质变突破”。
         - 终章心法: 王者，积寸功；霸者，定乾坤。此法之后，再无增益。
@@ -670,7 +670,7 @@ class FusionIntelligence:
             else:
                 # 王者之道：常规信号，薪火相加，积累优势
                 playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
-        states['PROCESS_FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
+        states['FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
         # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “吸筹剧本”冶炼完成，最新分值: {playbook_score.iloc[-1] if not playbook_score.empty else 0.0:.4f}")
         return states
