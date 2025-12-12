@@ -644,15 +644,16 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V8.1 · 动态韧性感知版】筹码公理三：诊断“持仓信念韧性”
+        【V8.2 · 动态韧性感知版】筹码公理三：诊断“持仓信念韧性”
         - 核心升级1: 信念内核深度化。在V7.8基础上，引入总赢家比例、总输家比例、赢家输家动量、赢家稳定性短期斜率、输家痛苦指数短期加速度和赢家输家动量短期斜率，更全面刻画信念的动态变化。
         - 核心升级2: 压力测试精细化。在V7.8基础上，引入开盘缺口防守强度、控制坚实度指数、订单簿清算率、微观价格冲击不对称性、支撑验证强度短期斜率、投降吸收指数短期加速度和主动买盘支撑短期斜率，更精准评估主力承受压力的能力。
         - 核心升级3: 杂质削弱多维感知。在V7.8基础上，引入上影线抛压、反弹派发压力、散户狂热溢价、赢家平均利润率短期斜率和散户狂热溢价短期加速度，更全面识别削弱信念的杂质。
         - 核心升级4: 诡道因子智能化。在V7.8基础上，引入欺骗指数和对倒强度，更智能地判断诡道意图并进行调制。
         - 核心升级5: 情境调制器扩展。引入波动率不稳定性指数、市场情绪分数和资金流可信度指数，提供更丰富的宏观情境感知。
         - 核心升级6: 新增筹码指标整合：
-            - 信念流买入/卖出强度 (`conviction_flow_buy_intensity_D`, `conviction_flow_sell_intensity_D`) 增强信念内核维度。
+            - 信念流买入/卖出强度 (`conviction_flow_buy_intensity_D`, `conviction_flow_sell_intensity_D`) 增强信念内核维度，并以乘法形式融入。
         - 代码优化: 移除所有调试探针，优化部分计算逻辑，提高运行效率。
+        - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         # --- 探针: 原始输入 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -684,7 +685,7 @@ class ChipIntelligence:
             'deception_index_D', 'wash_trade_intensity_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'market_sentiment_score_D', 'flow_credibility_index_D',
             'main_force_conviction_index_D',
-            # [新增代码行] V8.1 新增筹码指标
+            # [修改代码行] V8.1 新增筹码指标
             'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
@@ -744,9 +745,9 @@ class ChipIntelligence:
             'volatility_instability': 0.3, 'market_sentiment': 0.4, 'flow_credibility': 0.3
         })
         deception_modulator_params = get_param_value(holder_sentiment_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5})
-        # [新增代码行] V8.1 新增信念流强度参数
-        conviction_flow_buy_intensity_weight = get_param_value(holder_sentiment_params.get('conviction_flow_buy_intensity_weight'), 0.1)
-        conviction_flow_sell_intensity_weight = get_param_value(holder_sentiment_params.get('conviction_flow_sell_intensity_weight'), 0.1)
+        # [修改代码行] V8.1 新增信念流强度参数，但不再直接使用这些作为加法因子，而是作为belief_core_weights的一部分
+        # conviction_flow_buy_intensity_weight = get_param_value(holder_sentiment_params.get('conviction_flow_buy_intensity_weight'), 0.1)
+        # conviction_flow_sell_intensity_weight = get_param_value(holder_sentiment_params.get('conviction_flow_sell_intensity_weight'), 0.1)
         df_index = df.index
         # --- 原始数据获取 ---
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
@@ -782,7 +783,7 @@ class ChipIntelligence:
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        # [新增代码行] V8.1 获取新增信念流强度指标
+        # [修改代码行] V8.1 获取新增信念流强度指标
         conviction_flow_buy_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         conviction_flow_sell_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
 
@@ -837,23 +838,42 @@ class ChipIntelligence:
         dynamic_stability_weight = 0.5 + x
         dynamic_pain_weight = 0.5 - x
         belief_core_numeric_weights = {k: v for k, v in belief_core_weights.items() if isinstance(v, (int, float))}
-        total_belief_core_weight = sum(belief_core_numeric_weights.values())
-        belief_core_score = (
-            (norm_winner_stability.add(1)/2).pow(belief_core_numeric_weights.get('winner_stability', 0.2) * dynamic_stability_weight) *
-            (norm_loser_pain.add(1)/2).pow(belief_core_numeric_weights.get('loser_pain', 0.2) * dynamic_pain_weight) *
-            norm_total_winner_rate.pow(belief_core_numeric_weights.get('total_winner_rate', 0.1)) *
-            (1 - norm_total_loser_rate).pow(belief_core_numeric_weights.get('total_loser_rate', 0.1)) *
-            (norm_winner_loser_momentum.add(1)/2).pow(belief_core_numeric_weights.get('winner_loser_momentum', 0.1)) *
-            (norm_slope_5_winner_stability.add(1)/2).pow(belief_core_numeric_weights.get('winner_stability_slope', 0.1)) *
-            (norm_accel_5_loser_pain.add(1)/2).pow(belief_core_numeric_weights.get('loser_pain_accel', 0.1)) *
-            (norm_slope_5_winner_loser_momentum.add(1)/2).pow(belief_core_numeric_weights.get('winner_loser_momentum_slope', 0.1))
-        ).pow(1 / total_belief_core_weight) * 2 - 1
-        # [新增代码行] V8.1 整合信念流强度
+        
+        # [修改代码行] V8.2 整合信念流强度到信念内核的融合计算中
         norm_conviction_flow_buy_intensity = get_adaptive_mtf_normalized_score(conviction_flow_buy_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_conviction_flow_sell_intensity = get_adaptive_mtf_normalized_score(conviction_flow_sell_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        belief_core_score = belief_core_score + \
-                            (norm_conviction_flow_buy_intensity * conviction_flow_buy_intensity_weight) - \
-                            (norm_conviction_flow_sell_intensity * conviction_flow_sell_intensity_weight)
+
+        # Ensure all components are positive for geometric mean, then scale back to bipolar
+        # For bipolar scores, convert to [0,1] range for geometric mean, then back to [-1,1]
+        comp_winner_stability = (norm_winner_stability.add(1)/2).pow(belief_core_numeric_weights.get('winner_stability', 0.15) * dynamic_stability_weight)
+        comp_loser_pain = (norm_loser_pain.add(1)/2).pow(belief_core_numeric_weights.get('loser_pain', 0.15) * dynamic_pain_weight)
+        comp_total_winner_rate = norm_total_winner_rate.pow(belief_core_numeric_weights.get('total_winner_rate', 0.08))
+        comp_total_loser_rate = (1 - norm_total_loser_rate).pow(belief_core_numeric_weights.get('total_loser_rate', 0.08))
+        comp_winner_loser_momentum = (norm_winner_loser_momentum.add(1)/2).pow(belief_core_numeric_weights.get('winner_loser_momentum', 0.08))
+        comp_winner_stability_slope = (norm_slope_5_winner_stability.add(1)/2).pow(belief_core_numeric_weights.get('winner_stability_slope', 0.08))
+        comp_loser_pain_accel = (norm_accel_5_loser_pain.add(1)/2).pow(belief_core_numeric_weights.get('loser_pain_accel', 0.08))
+        comp_winner_loser_momentum_slope = (norm_slope_5_winner_loser_momentum.add(1)/2).pow(belief_core_numeric_weights.get('winner_loser_momentum_slope', 0.08))
+        # [新增代码行] V8.2 信念流买入强度正向贡献
+        comp_conviction_flow_buy = norm_conviction_flow_buy_intensity.pow(belief_core_numeric_weights.get('conviction_flow_buy', 0.1))
+        # [新增代码行] V8.2 信念流卖出强度负向贡献 (1-score 形式)
+        comp_conviction_flow_sell = (1 - norm_conviction_flow_sell_intensity).pow(belief_core_numeric_weights.get('conviction_flow_sell', 0.1))
+
+        # Sum of all weights, including new ones, for normalization exponent
+        total_belief_core_weight = sum(belief_core_numeric_weights.values())
+
+        belief_core_score = (
+            comp_winner_stability *
+            comp_loser_pain *
+            comp_total_winner_rate *
+            comp_total_loser_rate *
+            comp_winner_loser_momentum *
+            comp_winner_stability_slope *
+            comp_loser_pain_accel *
+            comp_winner_loser_momentum_slope *
+            comp_conviction_flow_buy * # [修改代码行] V8.2 融入信念流买入
+            comp_conviction_flow_sell # [修改代码行] V8.2 融入信念流卖出
+        ).pow(1 / total_belief_core_weight) * 2 - 1
+
         belief_core_score = belief_core_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
 
         if is_probe_active:
@@ -868,10 +888,9 @@ class ChipIntelligence:
             print(f"        -> 信念内核: normalized_sentiment_trend={normalized_sentiment_trend.loc[probe_date]:.4f}")
             print(f"        -> 信念内核: dynamic_stability_weight={dynamic_stability_weight.loc[probe_date]:.4f}")
             print(f"        -> 信念内核: dynamic_pain_weight={dynamic_pain_weight.loc[probe_date]:.4f}")
-            print(f"        -> 信念内核: belief_core_score (pre-conviction_flow)={belief_core_score.loc[probe_date]:.4f}")
             print(f"        -> 信念内核: norm_conviction_flow_buy_intensity={norm_conviction_flow_buy_intensity.loc[probe_date]:.4f}")
             print(f"        -> 信念内核: norm_conviction_flow_sell_intensity={norm_conviction_flow_sell_intensity.loc[probe_date]:.4f}")
-            print(f"        -> 信念内核: belief_core_score (post-conviction_flow)={belief_core_score.loc[probe_date]:.4f}")
+            print(f"        -> 信念内核: belief_core_score={belief_core_score.loc[probe_date]:.4f}") # This is the final belief_core_score after all multiplicative fusion
 
         # --- 维度2: 压力测试 (Pressure Test Score) ---
         norm_absorption_power = get_adaptive_mtf_normalized_bipolar_score(absorption_power, df_index, tf_weights)
@@ -956,8 +975,7 @@ class ChipIntelligence:
         # V8.0 新增：更智能的诡道因子调制
         norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_main_force_conviction_bipolar = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment") # 重新获取，确保是最新的
-        norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(norm_main_force_conviction_bipolar, df_index, tf_weights)
+        norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
 
         if is_probe_active:
             print(f"        -> 诡道因子 (智能调制): norm_deception_index_bipolar={norm_deception_index_bipolar.loc[probe_date]:.4f}")

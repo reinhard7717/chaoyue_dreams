@@ -1844,7 +1844,7 @@
           "final_score_base_sensitivity_multiplier": 2.0
         },
         "holder_sentiment_params": {
-          "description": "【V8.1 · 动态韧性感知版】持仓信念韧性信号的专属参数。",
+          "description": "【V8.2 · 动态韧性感知版】持仓信念韧性信号的专属参数。",
           "sentiment_trend_modulator_signal_name": "SLOPE_55_winner_concentration_90pct_D",
           "comment_sentiment_trend_modulator_signal_name": "用于动态调整信念权重的筹码趋势信号名称（如SLOPE_55_winner_concentration_90pct_D）。",
           "sentiment_trend_mod_factor": 0.5,
@@ -1901,14 +1901,18 @@
           "comment_profit_taking_threshold": "赢家平均利润率（winner_profit_margin_avg_D）的阈值，低于此值不计入利润兑现杂质。",
           "belief_core_weights": {
             "description": "信念内核融合权重。",
-            "winner_stability": 0.2,
-            "loser_pain": 0.2,
-            "total_winner_rate": 0.1,
-            "total_loser_rate": 0.1,
-            "winner_loser_momentum": 0.1,
-            "winner_stability_slope": 0.1,
-            "loser_pain_accel": 0.1,
-            "winner_loser_momentum_slope": 0.1
+            "winner_stability": 0.15,
+            "loser_pain": 0.15,
+            "total_winner_rate": 0.08,
+            "total_loser_rate": 0.08,
+            "winner_loser_momentum": 0.08,
+            "winner_stability_slope": 0.08,
+            "loser_pain_accel": 0.08,
+            "winner_loser_momentum_slope": 0.08,
+            "conviction_flow_buy": 0.1,
+            "comment_conviction_flow_buy": "信念流买入强度对信念内核的权重。",
+            "conviction_flow_sell": 0.1,
+            "comment_conviction_flow_sell": "信念流卖出强度对信念内核的权重。"
           },
           "pressure_test_weights": {
             "description": "压力测试融合权重。",
@@ -1943,11 +1947,7 @@
             "volatility_instability": 0.3,
             "market_sentiment": 0.4,
             "flow_credibility": 0.3
-          },
-          "conviction_flow_buy_intensity_weight": 0.1,
-          "comment_conviction_flow_buy_intensity_weight": "信念流买入强度对信念内核的权重。",
-          "conviction_flow_sell_intensity_weight": 0.1,
-          "comment_conviction_flow_sell_intensity_weight": "信念流卖出强度对信念内核的权重。"
+          }
         },
         "divergence_params": {
           "description": "【V7.2 · 情境自适应张力版】价筹张力信号的专属参数。",
