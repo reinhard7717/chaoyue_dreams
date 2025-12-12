@@ -1438,12 +1438,12 @@ class FundFlowIntelligence:
 
         # [新增代码行] V3.1 新增耐心资本和敏捷资本的权重
         patient_capital_weights_v3_1 = get_param_value(acs_params.get('patient_capital_weights_v3_1'), {
-            'main_force_buy_ofi': 0.1, 'main_force_sell_ofi': -0.1,
-            'wash_trade_buy_volume': -0.05, 'wash_trade_sell_volume': -0.05
+            'main_force_buy_ofi': 0.1, 'main_force_sell_ofi': 0.1, # [修改代码行] 默认权重改为正数
+            'wash_trade_buy_volume': 0.05, 'wash_trade_sell_volume': 0.05 # [修改代码行] 默认权重改为正数
         })
         agile_capital_weights_v3_1 = get_param_value(acs_params.get('agile_capital_weights_v3_1'), {
-            'rally_sell_distribution_intensity': -0.1, 'rally_buy_support_weakness': -0.1,
-            'retail_buy_ofi': 0.1, 'retail_sell_ofi': -0.1
+            'rally_sell_distribution_intensity': 0.1, 'rally_buy_support_weakness': 0.1, # [修改代码行] 默认权重改为正数
+            'retail_buy_ofi': 0.05, 'retail_sell_ofi': 0.05 # [修改代码行] 默认权重改为正数
         })
 
         # --- 信号依赖校验 ---
@@ -1597,7 +1597,7 @@ class FundFlowIntelligence:
             chip_structure_control * patient_capital_weights.get('chip_structure_control', 0.2) +
             flow_structure_resilience * patient_capital_weights.get('flow_structure_resilience', 0.15)
         )
-        # [新增代码行] V3.1 整合新增资金指标到耐心资本
+        # [修改代码行] V3.1 整合新增资金指标到耐心资本，修正加减逻辑
         norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(main_force_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_sell_ofi = get_adaptive_mtf_normalized_score(main_force_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(wash_trade_buy_volume_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1605,9 +1605,9 @@ class FundFlowIntelligence:
 
         patient_capital_score = patient_capital_score + \
                                 (norm_main_force_buy_ofi * patient_capital_weights_v3_1.get('main_force_buy_ofi', 0.1)) - \
-                                (norm_main_force_sell_ofi * patient_capital_weights_v3_1.get('main_force_sell_ofi', -0.1)) - \
-                                (norm_wash_trade_buy_volume * patient_capital_weights_v3_1.get('wash_trade_buy_volume', -0.05)) - \
-                                (norm_wash_trade_sell_volume * patient_capital_weights_v3_1.get('wash_trade_sell_volume', -0.05))
+                                (norm_main_force_sell_ofi * patient_capital_weights_v3_1.get('main_force_sell_ofi', 0.1)) - \
+                                (norm_wash_trade_buy_volume * patient_capital_weights_v3_1.get('wash_trade_buy_volume', 0.05)) - \
+                                (norm_wash_trade_sell_volume * patient_capital_weights_v3_1.get('wash_trade_sell_volume', 0.05))
         patient_capital_score = patient_capital_score.clip(-1, 1)
         print(f"            -> [探针] 整合新增指标后的耐心资本得分 (patient_capital_score): {patient_capital_score.iloc[-1]:.4f}")
 
@@ -1672,17 +1672,17 @@ class FundFlowIntelligence:
             short_term_explosiveness * agile_capital_weights.get('short_term_explosiveness', 0.2) +
             norm_theme_hotness * agile_capital_weights.get('theme_chasing', 0.15)
         )
-        # [新增代码行] V3.1 整合新增资金指标到敏捷资本
+        # [修改代码行] V3.1 整合新增资金指标到敏捷资本，修正加减逻辑
         norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(rally_sell_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(rally_buy_support_weakness_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_buy_ofi = get_adaptive_mtf_normalized_score(retail_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(retail_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
 
-        agile_capital_score = agile_capital_score - \
-                              (norm_rally_sell_distribution_intensity * agile_capital_weights_v3_1.get('rally_sell_distribution_intensity', -0.1)) - \
-                              (norm_rally_buy_support_weakness * agile_capital_weights_v3_1.get('rally_buy_support_weakness', -0.1)) + \
-                              (norm_retail_buy_ofi * agile_capital_weights_v3_1.get('retail_buy_ofi', 0.1)) - \
-                              (norm_retail_sell_ofi * agile_capital_weights_v3_1.get('retail_sell_ofi', -0.1))
+        agile_capital_score = agile_capital_score \
+                              - (norm_rally_sell_distribution_intensity * agile_capital_weights_v3_1.get('rally_sell_distribution_intensity', 0.1)) \
+                              - (norm_rally_buy_support_weakness * agile_capital_weights_v3_1.get('rally_buy_support_weakness', 0.1)) \
+                              - (norm_retail_buy_ofi * agile_capital_weights_v3_1.get('retail_buy_ofi', 0.05)) \
+                              + (norm_retail_sell_ofi * agile_capital_weights_v3_1.get('retail_sell_ofi', 0.05))
         agile_capital_score = agile_capital_score.clip(-1, 1)
         print(f"            -> [探针] 整合新增指标后的敏捷资本得分 (agile_capital_score): {agile_capital_score.iloc[-1]:.4f}")
 

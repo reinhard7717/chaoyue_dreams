@@ -2877,9 +2877,9 @@
           "patient_capital_weights_v3_1": {
             "description": "V3.1新增的耐心资本画像融合权重。",
             "main_force_buy_ofi": 0.1,
-            "main_force_sell_ofi": -0.1,
-            "wash_trade_buy_volume": -0.05,
-            "wash_trade_sell_volume": -0.05
+            "main_force_sell_ofi": 0.1,
+            "wash_trade_buy_volume": 0.05,
+            "wash_trade_sell_volume": 0.05
           },
           "comment_patient_capital_weights": "耐心资本画像各组件的融合权重。",
           "agile_capital_weights": {
@@ -2891,10 +2891,10 @@
           },
           "agile_capital_weights_v3_1": {
             "description": "V3.1新增的敏捷资本画像融合权重。",
-            "rally_sell_distribution_intensity": -0.1,
-            "rally_buy_support_weakness": -0.1,
-            "retail_buy_ofi": 0.1,
-            "retail_sell_ofi": -0.1
+            "rally_sell_distribution_intensity": 0.1,
+            "rally_buy_support_weakness": 0.1,
+            "retail_buy_ofi": 0.05,
+            "retail_sell_ofi": 0.05
           },
           "comment_agile_capital_weights": "敏捷资本画像各组件的融合权重。",
           "mtf_periods_patient_flow": {
