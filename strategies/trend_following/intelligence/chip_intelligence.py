@@ -293,7 +293,6 @@ class ChipIntelligence:
                                    (norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight) - \
                                    (norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
         commanders_resolve_score = commanders_resolve_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
-        commanders_resolve_score = commanders_resolve_score * deception_modulator.pow(np.sign(commanders_resolve_score)) # 诡道调制
 
         if is_probe_active:
             print(f"        -> 指挥官决心: advantage_score={advantage_score.loc[probe_date]:.4f}")
@@ -301,9 +300,7 @@ class ChipIntelligence:
             print(f"        -> 指挥官决心: intent_score={intent_score.loc[probe_date]:.4f}")
             print(f"        -> 指挥官决心: norm_mf_cost_zone_buy_intent={norm_mf_cost_zone_buy_intent.loc[probe_date]:.4f}")
             print(f"        -> 指挥官决心: norm_mf_cost_zone_sell_intent={norm_mf_cost_zone_sell_intent.loc[probe_date]:.4f}")
-            # [问题暴露] 观察到 norm_mf_cost_zone_buy_intent 和 norm_mf_cost_zone_sell_intent 归一化后数值相同，导致其净影响抵消。
-            # 这可能是 normalize_score 函数在特定数据分布下的行为，如果需要更精细的区分度，可能需要调整归一化参数或方法。
-            print(f"        -> 指挥官决心: commanders_resolve_score (pre-deception_modulator)={commanders_resolve_score.loc[probe_date]:.4f}") # 探针输出位置调整
+            print(f"        -> 指挥官决心: commanders_resolve_score (pre-deception_modulator)={commanders_resolve_score.loc[probe_date]:.4f}")
             print(f"        -> 指挥官决心: norm_deception_index={norm_deception_index.loc[probe_date]:.4f}")
             print(f"        -> 指挥官决心: norm_wash_trade_intensity={norm_wash_trade_intensity.loc[probe_date]:.4f}")
             print(f"        -> 指挥官决心: norm_main_force_conviction={norm_main_force_conviction.loc[probe_date]:.4f}")
@@ -311,7 +308,19 @@ class ChipIntelligence:
             print(f"        -> 指挥官决心: norm_deception_lure_long={norm_deception_lure_long.loc[probe_date]:.4f}")
             print(f"        -> 指挥官决心: norm_deception_lure_short={norm_deception_lure_short.loc[probe_date]:.4f}")
             print(f"        -> 指挥官决心: deception_modulator={deception_modulator.loc[probe_date]:.4f}")
-            print(f"        -> 指挥官决心: commanders_resolve_score (post-deception_modulator)={commanders_resolve_score.loc[probe_date]:.4f}") # 探针输出位置调整
+            # [新增探针] 检查调制因子本身
+            probe_sign = np.sign(commanders_resolve_score.loc[probe_date])
+            probe_deception_mod = deception_modulator.loc[probe_date]
+            probe_mod_factor = probe_deception_mod ** probe_sign
+            print(f"        -> 指挥官决心: sign_of_score={probe_sign:.0f}")
+            print(f"        -> 指挥官决心: deception_modulator_value={probe_deception_mod:.4f}")
+            print(f"        -> 指挥官决心: calculated_mod_factor={probe_mod_factor:.4f}")
+            print(f"        -> 指挥官决心: expected_post_mod_score={commanders_resolve_score.loc[probe_date] * probe_mod_factor:.4f}")
+
+        commanders_resolve_score = commanders_resolve_score * deception_modulator.pow(np.sign(commanders_resolve_score)) # 诡道调制
+
+        if is_probe_active:
+            print(f"        -> 指挥官决心: commanders_resolve_score (post-deception_modulator)={commanders_resolve_score.loc[probe_date]:.4f}")
 
         # --- 维度3: 战场控制 (Battlefield Control) ---
         cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency_raw, df_index, tf_weights)
@@ -335,9 +344,9 @@ class ChipIntelligence:
         base_strategic_posture_score = base_strategic_posture_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
 
         if is_probe_active:
-            print(f"        -> 基础战略态势 (融合前): {base_strategic_posture_score.loc[probe_date]:.4f}") # 探针输出位置调整
+            print(f"        -> 基础战略态势 (融合前): {base_strategic_posture_score.loc[probe_date]:.4f}")
             print(f"        -> 隐蔽派发信号: norm_covert_distribution_signal={norm_covert_distribution_signal.loc[probe_date]:.4f}")
-            print(f"        -> 基础战略态势 (隐蔽派发调制后): {base_strategic_posture_score.loc[probe_date]:.4f}") # 探针输出位置调整
+            print(f"        -> 基础战略态势 (隐蔽派发调制后): {base_strategic_posture_score.loc[probe_date]:.4f}")
 
         # V9.0 维度间非线性互动增强
         if inter_dimension_interaction_enabled:
