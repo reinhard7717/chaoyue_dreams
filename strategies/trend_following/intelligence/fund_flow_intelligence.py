@@ -1417,7 +1417,6 @@ class FundFlowIntelligence:
                         - 拉升卖出/买入弱点：rally_sell_distribution_intensity, rally_buy_support_weakness
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [资金流层] 正在诊断“资本属性 (V3.1 · 意图博弈与结构演化版)”公理...")
         df_index = df.index
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
@@ -1436,14 +1435,13 @@ class FundFlowIntelligence:
         emotion_driven_risk_appetite_weights = get_param_value(acs_params.get('emotion_driven_risk_appetite_weights'), {"retail_fomo_slope": 0.4, "retail_panic_slope": 0.3, "market_sentiment_slope": 0.3})
         game_efficiency_utilization_weights = get_param_value(acs_params.get('game_efficiency_utilization_weights'), {"main_force_t0_efficiency_accel": 0.4, "main_force_slippage_inverse_accel": 0.3, "main_force_execution_alpha_accel": 0.3})
 
-        # [新增代码行] V3.1 新增耐心资本和敏捷资本的权重
         patient_capital_weights_v3_1 = get_param_value(acs_params.get('patient_capital_weights_v3_1'), {
-            'main_force_buy_ofi': 0.1, 'main_force_sell_ofi': 0.1, # [修改代码行] 默认权重改为正数
-            'wash_trade_buy_volume': 0.05, 'wash_trade_sell_volume': 0.05 # [修改代码行] 默认权重改为正数
+            'main_force_buy_ofi': 0.1, 'main_force_sell_ofi': 0.1,
+            'wash_trade_buy_volume': 0.05, 'wash_trade_sell_volume': 0.05
         })
         agile_capital_weights_v3_1 = get_param_value(acs_params.get('agile_capital_weights_v3_1'), {
-            'rally_sell_distribution_intensity': 0.1, 'rally_buy_support_weakness': 0.1, # [修改代码行] 默认权重改为正数
-            'retail_buy_ofi': 0.05, 'retail_sell_ofi': 0.05 # [修改代码行] 默认权重改为正数
+            'rally_sell_distribution_intensity': 0.1, 'rally_buy_support_weakness': 0.1,
+            'retail_buy_ofi': 0.05, 'retail_sell_ofi': 0.05
         })
 
         # --- 信号依赖校验 ---
@@ -1458,7 +1456,7 @@ class FundFlowIntelligence:
             'chip_health_score_D', 'control_solidity_index_D',
             'SLOPE_5_covert_accumulation_signal_D', 'ACCEL_5_covert_accumulation_signal_D',
             'SLOPE_5_suppressive_accumulation_intensity_D', 'ACCEL_5_suppressive_accumulation_intensity_D',
-            'SLOPE_5_deception_index_D', 'SLOPE_5_wash_trade_intensity_D', # 用于诡道共振
+            'SLOPE_5_deception_index_D', 'SLOPE_5_wash_trade_intensity_D',
             'cost_structure_skewness_D', 'chip_fatigue_index_D', 'winner_loser_momentum_D',
             'structural_leverage_D', 'structural_node_count_D',
             'main_force_ofi_D',
@@ -1467,7 +1465,7 @@ class FundFlowIntelligence:
             'SLOPE_21_main_force_ofi_D', 'ACCEL_21_main_force_ofi_D',
             'micro_price_impact_asymmetry_D', 'trade_count_D', 'main_force_activity_ratio_D',
             'main_force_flow_gini_D',
-            'SLOPE_5_NMFNF_D', 'ACCEL_5_NMFNF_D', 'ACCEL_5_SLOPE_5_NMFNF_D', # 三阶导数
+            'SLOPE_5_NMFNF_D', 'ACCEL_5_NMFNF_D', 'ACCEL_5_SLOPE_5_NMFNF_D',
             'THEME_HOTNESS_SCORE_D',
             'SLOPE_5_retail_fomo_premium_index_D', 'SLOPE_5_retail_panic_surrender_index_D',
             'SLOPE_5_market_sentiment_score_D',
@@ -1475,7 +1473,6 @@ class FundFlowIntelligence:
             'mf_retail_battle_intensity_D', 'mf_retail_liquidity_swap_corr_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'order_book_liquidity_supply_D', 'order_book_clearing_rate_D',
             'market_sentiment_score_D', 'trend_vitality_index_D', 'strategic_phase_score_D', 'risk_reward_profile_D',
-            # [新增代码行] V3.1 新增资金指标
             'rally_sell_distribution_intensity_D', 'rally_buy_support_weakness_D',
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
@@ -1485,7 +1482,6 @@ class FundFlowIntelligence:
             return pd.Series(0.0, index=df.index)
 
         # --- 原始数据获取 (用于探针和计算) ---
-        print(f"        -> [探针] 正在获取原始数据...")
         # 耐心资本相关
         main_force_cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         main_force_vwap_guidance_raw = self._get_safe_series(df, df, 'main_force_vwap_guidance_D', 0.0, method_name="_diagnose_axiom_capital_signature")
@@ -1495,24 +1491,12 @@ class FundFlowIntelligence:
         winner_loser_momentum_raw = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         structural_leverage_raw = self._get_safe_series(df, df, 'structural_leverage_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         structural_node_count_raw = self._get_safe_series(df, df, 'structural_node_count_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        covert_accumulation_signal_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        suppressive_accumulation_intensity_raw = self._get_safe_series(df, df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-
         # 敏捷资本相关
         micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         theme_hotness_raw = self._get_safe_series(df, df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        retail_fomo_premium_index_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        retail_panic_surrender_index_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        main_force_t0_efficiency_raw = self._get_safe_series(df, df, 'main_force_t0_efficiency_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        main_force_slippage_index_raw = self._get_safe_series(df, df, 'main_force_slippage_index_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-        nmfnf_raw = self._get_safe_series(df, df, 'NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-
         # 资本间意图博弈相关
         mf_retail_battle_intensity_raw = self._get_safe_series(df, df, 'mf_retail_battle_intensity_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         mf_retail_liquidity_swap_corr_raw = self._get_safe_series(df, df, 'mf_retail_liquidity_swap_corr_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-
         # 情境调制相关
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         order_book_liquidity_supply_raw = self._get_safe_series(df, df, 'order_book_liquidity_supply_D', 0.0, method_name="_diagnose_axiom_capital_signature")
@@ -1521,8 +1505,6 @@ class FundFlowIntelligence:
         trend_vitality_raw = self._get_safe_series(df, df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         strategic_phase_raw = self._get_safe_series(df, df, 'strategic_phase_score_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         risk_reward_profile_raw = self._get_safe_series(df, df, 'risk_reward_profile_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-
-        # [新增代码行] V3.1 获取新增资金指标
         rally_sell_distribution_intensity_raw = self._get_safe_series(df, df, 'rally_sell_distribution_intensity_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         rally_buy_support_weakness_raw = self._get_safe_series(df, df, 'rally_buy_support_weakness_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         main_force_buy_ofi_raw = self._get_safe_series(df, df, 'main_force_buy_ofi_D', 0.0, method_name="_diagnose_axiom_capital_signature")
@@ -1531,9 +1513,7 @@ class FundFlowIntelligence:
         retail_sell_ofi_raw = self._get_safe_series(df, df, 'retail_sell_ofi_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         wash_trade_buy_volume_raw = self._get_safe_series(df, df, 'wash_trade_buy_volume_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         wash_trade_sell_volume_raw = self._get_safe_series(df, df, 'wash_trade_sell_volume_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-
         # --- 1. 耐心资本 (Patient Capital) - 意图博弈与结构演化 ---
-        print(f"        -> [探针] 计算耐心资本画像...")
         # 1.1 多时间框架净流入持久性
         patient_flow_slope_weights_short = {str(p): 1/len(mtf_periods_patient_flow.get('short', [1])) for p in mtf_periods_patient_flow.get('short', [1])}
         patient_flow_accel_weights_short = {str(p): 1/len(mtf_periods_patient_flow.get('short', [1])) for p in mtf_periods_patient_flow.get('short', [1])}
@@ -1546,15 +1526,11 @@ class FundFlowIntelligence:
             norm_institutional_flow_accel_mtf * 0.3 +
             norm_institutional_flow_long_slope_mtf * 0.3
         ).clip(-1, 1)
-        print(f"            -> [探针] 流量持久性 (flow_persistence): {flow_persistence.iloc[-1]:.4f}")
-
         # 1.2 成本控制与效率
         norm_cost_advantage = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights=tf_weights_ff)
         norm_vwap_guidance = get_adaptive_mtf_normalized_bipolar_score(main_force_vwap_guidance_raw, df_index, tf_weights=tf_weights_ff)
         norm_execution_alpha = get_adaptive_mtf_normalized_bipolar_score(main_force_execution_alpha_raw, df_index, tf_weights=tf_weights_ff)
         cost_efficiency = (norm_cost_advantage * 0.4 + norm_vwap_guidance * 0.3 + norm_execution_alpha * 0.3).clip(-1, 1)
-        print(f"            -> [探针] 成本效率 (cost_efficiency): {cost_efficiency.iloc[-1]:.4f}")
-
         # 1.3 隐蔽性与反侦察能力 (V3.0 新增)
         covert_acc_slope_weights = {"5": 1.0}
         suppressive_acc_slope_weights = {"5": 1.0}
@@ -1570,8 +1546,6 @@ class FundFlowIntelligence:
             norm_suppressive_accumulation_slope * covertness_anti_recon_weights.get('suppressive_accumulation_slope', 0.3) +
             deception_wash_trade_inverse * covertness_anti_recon_weights.get('deception_wash_trade_inverse', 0.3)
         ).clip(0, 1)
-        print(f"            -> [探针] 隐蔽性与反侦察能力 (covertness_anti_recon): {covertness_anti_recon.iloc[-1]:.4f}")
-
         # 1.4 成本结构与筹码分布 (V3.0 新增)
         norm_cost_structure_skewness = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_raw, df_index, tf_weights=tf_weights_ff)
         norm_chip_fatigue = get_adaptive_mtf_normalized_score(chip_fatigue_index_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
@@ -1581,14 +1555,10 @@ class FundFlowIntelligence:
             norm_chip_fatigue * chip_structure_control_weights.get('chip_fatigue', 0.3) +
             norm_winner_loser_momentum * chip_structure_control_weights.get('winner_loser_momentum', 0.3)
         ).clip(-1, 1)
-        print(f"            -> [探针] 筹码结构控制 (chip_structure_control): {chip_structure_control.iloc[-1]:.4f}")
-
         # 1.5 资金流结构韧性 (V3.0 新增)
         norm_structural_leverage = get_adaptive_mtf_normalized_score(structural_leverage_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
         norm_structural_node_count = get_adaptive_mtf_normalized_score(structural_node_count_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         flow_structure_resilience = (norm_structural_leverage * 0.5 + norm_structural_node_count * 0.5).clip(0, 1)
-        print(f"            -> [探针] 资金流结构韧性 (flow_structure_resilience): {flow_structure_resilience.iloc[-1]:.4f}")
-
         # 融合耐心资本得分
         patient_capital_score = (
             flow_persistence * patient_capital_weights.get('mtf_flow_persistence', 0.25) +
@@ -1597,7 +1567,6 @@ class FundFlowIntelligence:
             chip_structure_control * patient_capital_weights.get('chip_structure_control', 0.2) +
             flow_structure_resilience * patient_capital_weights.get('flow_structure_resilience', 0.15)
         )
-        # [修改代码行] V3.1 整合新增资金指标到耐心资本，修正加减逻辑
         norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(main_force_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_sell_ofi = get_adaptive_mtf_normalized_score(main_force_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(wash_trade_buy_volume_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1609,10 +1578,9 @@ class FundFlowIntelligence:
                                 (norm_wash_trade_buy_volume * patient_capital_weights_v3_1.get('wash_trade_buy_volume', 0.05)) - \
                                 (norm_wash_trade_sell_volume * patient_capital_weights_v3_1.get('wash_trade_sell_volume', 0.05))
         patient_capital_score = patient_capital_score.clip(-1, 1)
-        print(f"            -> [探针] 整合新增指标后的耐心资本得分 (patient_capital_score): {patient_capital_score.iloc[-1]:.4f}")
-
         # --- 2. 敏捷资本 (Agile Capital) - 情绪驱动与博弈效率 ---
-        print(f"        -> [探针] 计算敏捷资本画像...")
+        # [修改代码行] 移除探针
+        # print(f"        -> [探针] 计算敏捷资本画像...")
         # 2.1 高频冲击力与方向性
         agile_ofi_slope_weights_short = {str(p): 1/len(mtf_periods_agile_ofi.get('short', [1])) for p in mtf_periods_agile_ofi.get('short', [1])}
         agile_ofi_accel_weights_short = {str(p): 1/len(mtf_periods_agile_ofi.get('short', [1])) for p in mtf_periods_agile_ofi.get('short', [1])}
@@ -1620,8 +1588,6 @@ class FundFlowIntelligence:
         norm_ofi_accel_mtf = self._get_mtf_dynamic_score(df, 'main_force_ofi_D', mtf_periods_agile_ofi.get('short', []), agile_ofi_accel_weights_short, True, True, method_name="_diagnose_axiom_capital_signature")
         norm_price_impact_asymmetry = get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_raw, df_index, tf_weights=tf_weights_ff)
         ofi_impact_directionality = (norm_ofi_slope_mtf * 0.4 + norm_ofi_accel_mtf * 0.3 + norm_price_impact_asymmetry * 0.3).clip(-1, 1)
-        print(f"            -> [探针] OFI冲击力方向性 (ofi_impact_directionality): {ofi_impact_directionality.iloc[-1]:.4f}")
-
         # 2.2 情绪驱动与风险偏好 (V3.0 新增)
         retail_fomo_slope_weights = {"5": 1.0}
         retail_panic_slope_weights = {"5": 1.0}
@@ -1634,8 +1600,6 @@ class FundFlowIntelligence:
             norm_retail_panic_slope * emotion_driven_risk_appetite_weights.get('retail_panic_slope', 0.3) +
             norm_market_sentiment_slope * emotion_driven_risk_appetite_weights.get('market_sentiment_slope', 0.3)
         ).clip(-1, 1)
-        print(f"            -> [探针] 情绪驱动风险偏好 (emotion_driven_risk_appetite): {emotion_driven_risk_appetite.iloc[-1]:.4f}")
-
         # 2.3 博弈效率与资金利用率 (V3.0 新增)
         mf_t0_efficiency_accel_weights = {"5": 1.0}
         mf_slippage_accel_weights = {"5": 1.0}
@@ -1648,8 +1612,6 @@ class FundFlowIntelligence:
             norm_main_force_slippage_inverse_accel * game_efficiency_utilization_weights.get('main_force_slippage_inverse_accel', 0.3) +
             norm_main_force_execution_alpha_accel * game_efficiency_utilization_weights.get('main_force_execution_alpha_accel', 0.3)
         ).clip(-1, 1)
-        print(f"            -> [探针] 博弈效率与资金利用率 (game_efficiency_utilization): {game_efficiency_utilization.iloc[-1]:.4f}")
-
         # 2.4 短期爆发力与持续性 (V3.0 强化)
         nmfnf_slope_weights = {"5": 1.0}
         nmfnf_accel_weights = {"5": 1.0}
@@ -1658,12 +1620,8 @@ class FundFlowIntelligence:
         norm_nmfnf_accel_5 = self._get_mtf_dynamic_score(df, 'NMFNF_D', [5], nmfnf_accel_weights, True, True, method_name="_diagnose_axiom_capital_signature")
         norm_nmfnf_accel_slope_5 = self._get_mtf_dynamic_score(df, 'SLOPE_5_NMFNF_D', [5], nmfnf_accel_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature")
         short_term_explosiveness = (norm_nmfnf_slope_5 * 0.5 + norm_nmfnf_accel_5 * 0.3 + norm_nmfnf_accel_slope_5 * 0.2).clip(-1, 1)
-        print(f"            -> [探针] 短期爆发力 (short_term_explosiveness): {short_term_explosiveness.iloc[-1]:.4f}")
-
         # 2.5 资金流驱动的题材热度
         norm_theme_hotness = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        print(f"            -> [探针] 题材热度 (norm_theme_hotness): {norm_theme_hotness.iloc[-1]:.4f}")
-
         # 融合敏捷资本得分
         agile_capital_score = (
             ofi_impact_directionality * agile_capital_weights.get('ofi_impact_directionality', 0.25) +
@@ -1672,7 +1630,6 @@ class FundFlowIntelligence:
             short_term_explosiveness * agile_capital_weights.get('short_term_explosiveness', 0.2) +
             norm_theme_hotness * agile_capital_weights.get('theme_chasing', 0.15)
         )
-        # [修改代码行] V3.1 整合新增资金指标到敏捷资本，修正加减逻辑
         norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(rally_sell_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(rally_buy_support_weakness_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_buy_ofi = get_adaptive_mtf_normalized_score(retail_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1684,8 +1641,6 @@ class FundFlowIntelligence:
                               - (norm_retail_buy_ofi * agile_capital_weights_v3_1.get('retail_buy_ofi', 0.05)) \
                               + (norm_retail_sell_ofi * agile_capital_weights_v3_1.get('retail_sell_ofi', 0.05))
         agile_capital_score = agile_capital_score.clip(-1, 1)
-        print(f"            -> [探针] 整合新增指标后的敏捷资本得分 (agile_capital_score): {agile_capital_score.iloc[-1]:.4f}")
-
         # --- 3. 资本间意图博弈分析 (Inter-Capital Intent Game Analysis) (V3.0 新增) ---
         norm_mf_retail_battle_intensity = get_adaptive_mtf_normalized_score(mf_retail_battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_mf_retail_liquidity_swap_corr = get_adaptive_mtf_normalized_bipolar_score(mf_retail_liquidity_swap_corr_raw, df_index, tf_weights=tf_weights_ff)
@@ -1693,8 +1648,6 @@ class FundFlowIntelligence:
             norm_mf_retail_battle_intensity * inter_capital_game_weights.get('mf_retail_battle_intensity', 0.6) * np.sign(patient_capital_score - agile_capital_score) +
             norm_mf_retail_liquidity_swap_corr * inter_capital_game_weights.get('mf_retail_liquidity_swap_corr', 0.4)
         ).clip(-1, 1)
-        print(f"        -> [探针] 资本间意图博弈得分 (inter_capital_game_score): {inter_capital_game_score.iloc[-1]:.4f}")
-
         # --- 4. 情境自适应动态权重与非线性融合 (Context-Adaptive Dynamic Weights & Non-linear Fusion) ---
         norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_liquidity_supply = get_adaptive_mtf_normalized_score(order_book_liquidity_supply_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1714,13 +1667,9 @@ class FundFlowIntelligence:
         total_dynamic_weights = dynamic_patient_weight + dynamic_agile_weight
         dynamic_patient_weight /= total_dynamic_weights
         dynamic_agile_weight /= total_dynamic_weights
-        print(f"        -> [探针] 动态耐心资本权重 (dynamic_patient_weight): {dynamic_patient_weight.iloc[-1]:.4f}")
-        print(f"        -> [探针] 动态敏捷资本权重 (dynamic_agile_weight): {dynamic_agile_weight.iloc[-1]:.4f}")
-
         patient_modulated_score = patient_capital_score * dynamic_patient_weight * liquidity_mod * volatility_mod * sentiment_mod * (1 + inter_capital_game_score.clip(lower=0))
         agile_modulated_score = agile_capital_score * dynamic_agile_weight * liquidity_mod * volatility_mod * sentiment_mod * (1 + inter_capital_game_score.clip(upper=0).abs())
         capital_signature_score = np.tanh(patient_modulated_score - agile_modulated_score).pow(fusion_exponent).clip(-1, 1)
-        print(f"        -> [探针] 最终资本属性得分 (capital_signature_score): {capital_signature_score.iloc[-1]:.4f}")
         return capital_signature_score.astype(np.float32)
 
     def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1737,14 +1686,14 @@ class FundFlowIntelligence:
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         afsh_params = get_param_value(p_conf_ff.get('axiom_flow_structure_health_params'), {})
 
-        # [新增代码行] V1.1 新增流量效率和结构风险权重
+        # [修改代码行] V1.1 新增流量效率和结构风险权重
         flow_efficiency_weights = get_param_value(afsh_params.get('flow_efficiency_weights'), {
             'buy_flow_efficiency_index': 0.2, 'sell_flow_efficiency_index': -0.2,
             'buy_order_book_clearing_rate': 0.15, 'sell_order_book_clearing_rate': -0.15,
             'vwap_buy_control_strength': 0.15, 'vwap_sell_control_strength': -0.15
         })
         structural_risk_weights = get_param_value(afsh_params.get('structural_risk_weights'), {
-            'bid_side_liquidity': -0.1, 'ask_side_liquidity': -0.1
+            'bid_side_liquidity': 0.1, 'ask_side_liquidity': 0.1 # [修改代码行] 权重改为正数，表示风险贡献强度
         })
 
         required_signals = [
@@ -1819,9 +1768,13 @@ class FundFlowIntelligence:
         norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # 流动性越低风险越高
         norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # 流动性越低风险越高
 
-        enhanced_risk_filter = risk_filter_base + \
-                               (norm_bid_side_liquidity * structural_risk_weights.get('bid_side_liquidity', -0.1)) + \
-                               (norm_ask_side_liquidity * structural_risk_weights.get('ask_side_liquidity', -0.1))
+        # [修改代码行] 调整 enhanced_risk_filter 的计算逻辑，使用乘法调制
+        # 当流动性差（norm_liquidity 高）时，risk_filter_base 会被削弱
+        liquidity_risk_modulator = (
+            1 - norm_bid_side_liquidity * structural_risk_weights.get('bid_side_liquidity', 0.1) -
+            norm_ask_side_liquidity * structural_risk_weights.get('ask_side_liquidity', 0.1)
+        ).clip(0, 1) # 确保调制器在 [0, 1] 之间
+        enhanced_risk_filter = risk_filter_base * liquidity_risk_modulator
         enhanced_risk_filter = enhanced_risk_filter.clip(0, 1)
         print(f"        -> [探针] 增强结构风险过滤器 (enhanced_risk_filter): {enhanced_risk_filter.iloc[-1]:.4f}")
 

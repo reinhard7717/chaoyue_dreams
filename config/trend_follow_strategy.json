@@ -2970,8 +2970,8 @@
           },
           "structural_risk_weights": {
             "description": "结构风险融合权重。",
-            "bid_side_liquidity": -0.1,
-            "ask_side_liquidity": -0.1
+            "bid_side_liquidity": 0.1,
+            "ask_side_liquidity": 0.1
           }
         },
         "fund_flow_divergence_params": {
