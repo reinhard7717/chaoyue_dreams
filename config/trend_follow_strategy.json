@@ -130,7 +130,6 @@
         "EMA_89_D": [5, 13, 21, 34, 55, 89],
         "EMA_144_D": [5, 13, 21, 34, 55],
         "EMA_233_D": [5, 13, 21, 34, 55],
-        "说明_structure_axioms": "--- 为结构稳定性公理(盾)提供支持 ---",
         "MA_55_D": [5, 13, 21, 34],
         "MA_144_D": [5, 13, 21, 34],
         "说明_chip_axioms": "--- 为筹码四大公理提供支持 ---",
@@ -139,6 +138,16 @@
         "loser_pain_index_D": [5, 8, 13, 21, 34, 55],
         "chip_fatigue_index_D": [5, 8, 13, 21, 34, 55],
         "dominant_peak_cost_D": [5, 8, 13, 21, 34, 55],
+        "upward_impulse_strength_D": [5, 8, 13],
+        "downward_impulse_strength_D": [5, 8, 13],
+        "conviction_flow_buy_intensity_D": [5, 8, 13],
+        "conviction_flow_sell_intensity_D": [5, 8, 13],
+        "deception_lure_long_intensity_D": [5, 8, 13],
+        "deception_lure_short_intensity_D": [5, 8, 13],
+        "mf_cost_zone_buy_intent_D": [5, 8, 13],
+        "mf_cost_zone_sell_intent_D": [5, 8, 13],
+        "covert_distribution_signal_D": [5, 8, 13],
+        "supportive_distribution_intensity_D": [5, 8, 13],
         "说明_V33_advanced_chip_metrics": "--- 为V33.0新一代筹码高级指标提供支持 ---",
         "peak_separation_ratio_D": [5, 8, 13, 21],
         "chip_fault_magnitude_D": [5, 8, 13, 21],
@@ -319,17 +328,21 @@
         "order_book_clearing_rate_D": [5, 8, 13, 21],
         "vwap_crossing_intensity_D": [5, 8, 13, 21],
         "net_lg_amount_calibrated_D": [5, 13, 21, 34, 55],
-        "comment_net_lg_amount_calibrated_D": "新增多周期加速度",
+        "upward_impulse_strength_D": [5, 8, 13],
+        "downward_impulse_strength_D": [5, 8, 13],
+        "conviction_flow_buy_intensity_D": [5, 8, 13],
+        "conviction_flow_sell_intensity_D": [5, 8, 13],
+        "deception_lure_long_intensity_D": [5, 8, 13],
+        "deception_lure_short_intensity_D": [5, 8, 13],
+        "mf_cost_zone_buy_intent_D": [5, 8, 13],
+        "mf_cost_zone_sell_intent_D": [5, 8, 13],
+        "covert_distribution_signal_D": [5, 8, 13],
+        "supportive_distribution_intensity_D": [5, 8, 13],
         "net_xl_amount_calibrated_D": [5],
-        "comment_net_xl_amount_calibrated_D": "新增5日加速度",
         "retail_net_flow_calibrated_D": [5, 13, 21, 34, 55],
-        "comment_retail_net_flow_calibrated_D": "新增多周期加速度",
         "order_book_imbalance_D": [5, 13, 21, 34, 55],
-        "comment_order_book_imbalance_D": "新增多周期加速度",
         "buy_quote_exhaustion_rate_D": [5, 13, 21, 34, 55],
-        "comment_buy_quote_exhaustion_rate_D": "新增多周期加速度",
         "sell_quote_exhaustion_rate_D": [5, 13, 21, 34, 55],
-        "comment_sell_quote_exhaustion_rate_D": "新增多周期加速度",
         "说明_micro_behavior_axioms": "--- 为微观行为公理提供支持 ---",
         "observed_large_order_size_avg_D": [5, 8],
         "main_force_vpoc_D": [5, 8, 13, 21],
@@ -1595,7 +1608,7 @@
           "trend_momentum": 0.2
         },
         "strategic_posture_params": {
-          "description": "【V9.0 · 诡道情境自适应版】战略态势信号的专属参数。",
+          "description": "【V9.1 · 诡道情境自适应版】战略态势信号的专属参数。",
           "deception_fusion_weights": {
             "description": "【V9.0 废弃】此权重不再直接用于融合，而是作为诡道调制器内部参数。",
             "bear_trap_positive": 0.6,
@@ -1614,6 +1627,16 @@
           "comment_deception_penalty_factor": "诱多（正向欺骗）的惩罚因子。",
           "wash_trade_penalty_factor": 0.3,
           "comment_wash_trade_penalty_factor": "对倒行为的惩罚因子。",
+          "deception_lure_long_penalty_factor": 0.3,
+          "comment_deception_lure_long_penalty_factor": "诱多欺骗强度对战略态势的惩罚因子。",
+          "deception_lure_short_boost_factor": 0.3,
+          "comment_deception_lure_short_boost_factor": "诱空欺骗强度对战略态势的增强因子。",
+          "mf_cost_zone_buy_intent_weight": 0.1,
+          "comment_mf_cost_zone_buy_intent_weight": "主力成本区买入意图对指挥官决心的权重。",
+          "mf_cost_zone_sell_intent_weight": 0.1,
+          "comment_mf_cost_zone_sell_intent_weight": "主力成本区卖出意图对指挥官决心的权重。",
+          "covert_distribution_penalty_factor": 0.2,
+          "comment_covert_distribution_penalty_factor": "隐蔽派发信号对战略态势的惩罚因子。",
           "dynamic_fusion_weights_base": {
             "base_score": 0.6,
             "velocity": 0.2,
@@ -1647,7 +1670,7 @@
           "smoothing_ema_span": 5
         },
         "battlefield_geography_params": {
-          "description": "【V9.0 · 诡道地形判别版】战场地形信号的专属参数。",
+          "description": "【V9.1 · 诡道地形判别版】战场地形信号的专属参数。",
           "path_efficiency_mod_factor": 0.5,
           "comment_path_efficiency_mod_factor": "路径效率对地形优势的调制强度。",
           "path_efficiency_non_linear_exponent": 1.5,
@@ -1673,7 +1696,15 @@
           "context_modulator_sensitivity_health": 0.4,
           "comment_context_modulator_sensitivity_health": "筹码健康度情境调制敏感度。",
           "context_modulator_sensitivity_volatility": 0.3,
-          "comment_context_modulator_sensitivity_volatility": "筹码波动不稳定性情境调制敏感度。"
+          "comment_context_modulator_sensitivity_volatility": "筹码波动不稳定性情境调制敏感度。",
+          "upward_impulse_strength_weight": 0.1,
+          "comment_upward_impulse_strength_weight": "向上脉冲强度对支撑强度的权重。",
+          "downward_impulse_strength_weight": 0.1,
+          "comment_downward_impulse_strength_weight": "向下脉冲强度对阻力强度的权重。",
+          "mf_cost_zone_buy_intent_weight": 0.1,
+          "comment_mf_cost_zone_buy_intent_weight": "主力成本区买入意图对支撑强度的权重。",
+          "mf_cost_zone_sell_intent_weight": 0.1,
+          "comment_mf_cost_zone_sell_intent_weight": "主力成本区卖出意图对阻力强度的权重。"
         },
         "coherent_drive_params": {
           "description": "【V7.18 · 最终分数敏感度动态版】筹码同调驱动力信号的专属参数。",
@@ -1754,7 +1785,7 @@
           "final_score_base_sensitivity_multiplier": 2.0
         },
         "holder_sentiment_params": {
-          "description": "【V8.0 · 动态韧性感知版】持仓信念韧性信号的专属参数。",
+          "description": "【V8.1 · 动态韧性感知版】持仓信念韧性信号的专属参数。",
           "sentiment_trend_modulator_signal_name": "SLOPE_55_winner_concentration_90pct_D",
           "comment_sentiment_trend_modulator_signal_name": "用于动态调整信念权重的筹码趋势信号名称（如SLOPE_55_winner_concentration_90pct_D）。",
           "sentiment_trend_mod_factor": 0.5,
@@ -1853,7 +1884,11 @@
             "volatility_instability": 0.3,
             "market_sentiment": 0.4,
             "flow_credibility": 0.3
-          }
+          },
+          "conviction_flow_buy_intensity_weight": 0.1,
+          "comment_conviction_flow_buy_intensity_weight": "信念流买入强度对信念内核的权重。",
+          "conviction_flow_sell_intensity_weight": 0.1,
+          "comment_conviction_flow_sell_intensity_weight": "信念流卖出强度对信念内核的权重。"
         },
         "divergence_params": {
           "description": "【V7.2 · 情境自适应张力版】价筹张力信号的专属参数。",
@@ -1891,7 +1926,7 @@
           "comment_chip_trend_weight_mod_sensitivity": "动态复合筹码趋势权重调制器对权重的敏感度。"
         },
         "trend_momentum_params": {
-          "description": "【V7.1 · 战略推力引擎版】结构性推力信号的专属参数。",
+          "description": "【V7.2 · 战略推力引擎版】结构性推力信号的专属参数。",
           "health_weights": {
             "posture": 0.4,
             "geography": 0.4,
@@ -1941,7 +1976,9 @@
             "battlefield_geography": {"signal": "battlefield_geography", "weight": 0.3, "sensitivity": 0.3},
             "holder_sentiment": {"signal": "holder_sentiment", "weight": 0.2, "sensitivity": 0.2}
           },
-          "comment_final_fusion_context_modulators": "用于最终融合动态权重的情境调制器配置。"
+          "comment_final_fusion_context_modulators": "用于最终融合动态权重的情境调制器配置。",
+          "upward_impulse_strength_weight": 0.2,
+          "comment_upward_impulse_strength_weight": "向上脉冲强度对燃料品质的权重。"
         },
         "tactical_exchange_params": {
           "description": "【V6.0 · 筹码脉动版】战术换手博弈的质量与意图。",
@@ -2023,7 +2060,7 @@
           "meta_modulator_sensitivity": 0.5
         },
         "absorption_echo_params": {
-          "description": "【V5.0 · 诡道反吸强化版】吸筹回声信号的专属参数。",
+          "description": "【V5.1 · 诡道反吸强化版】吸筹回声信号的专属参数。",
           "panic_source_weights": {
             "description": "恐慌声源融合权重。",
             "retail_panic_surrender": 0.15,
@@ -2098,7 +2135,9 @@
             "structural_tension_inverse": 0.3,
             "chip_health": 0.3
           },
-          "final_fusion_exponent": 0.25
+          "final_fusion_exponent": 0.25,
+          "supportive_distribution_penalty_factor": 0.2,
+          "comment_supportive_distribution_penalty_factor": "支持性派发强度对吸筹回声的惩罚因子。"
         },
         "distribution_whisper_params": {
           "description": "【V4.0 · 深度高频诡道派发版】派发诡影信号的专属参数。",

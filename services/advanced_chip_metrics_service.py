@@ -148,7 +148,7 @@ class AdvancedChipMetricsService:
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
         【V1.11 · 记忆补录修复版】
         - 核心修复: 在构建传递给下一日的记忆字典 `next_prev_metrics` 时，补充了对 `main_force_cumulative_cost`
@@ -171,7 +171,6 @@ class AdvancedChipMetricsService:
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
         is_first_day_in_batch = True
-        debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
             # 移除了所有与 enable_mfca_probe 相关的探针代码
@@ -217,7 +216,6 @@ class AdvancedChipMetricsService:
                 'atr_14d': context_data.get('atr_14d'),
                 'high_5d': context_data.get('high_5d'), 'low_5d': context_data.get('low_5d'),
                 'turnover_vol_5d': context_data.get('turnover_vol_5d'),
-                'debug_params': debug_params,
                 'prev_metrics': prev_metrics,
             })
             # 移除了所有与 enable_mfca_probe 相关的探针代码

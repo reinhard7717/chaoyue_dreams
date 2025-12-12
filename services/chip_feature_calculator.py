@@ -262,20 +262,12 @@ class ChipFeatureCalculator:
         results = {
             'strategic_phase_score': np.nan,
             'deception_index': np.nan,
-            'deception_lure_long_intensity': np.nan, # 新增行
-            'deception_lure_short_intensity': np.nan, # 新增行
+            'deception_lure_long_intensity': np.nan,
+            'deception_lure_short_intensity': np.nan,
             'control_solidity_index': np.nan,
             'exhaustion_risk_index': np.nan,
             'breakout_readiness_score': np.nan,
         }
-        # 植入探针 GT
-        debug_params = context.get('debug_params', {})
-        enable_probe = debug_params.get('enable_gt_probe', False)
-        target_date_str = debug_params.get('target_date')
-        is_target_date = str(context.get('trade_date')) == target_date_str
-        stock_code = context.get('stock_code')
-        if enable_probe and is_target_date:
-            print(f"\n[探针 GT.1 - {stock_code} @ {context.get('trade_date')}] 进入计算器 _compute_game_theoretic_metrics...")
         legacy_metrics = self._compute_legacy_game_theory_metrics(context)
         results.update(legacy_metrics)
         potential = context.get('structural_potential_score')
@@ -303,11 +295,6 @@ class ChipFeatureCalculator:
         }
         required_vars = list(required_vars_map.values())
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
-        if enable_probe and is_target_date:
-            print(f"[探针 GT.2 - {stock_code} @ {context.get('trade_date')}] 检查所有前置依赖项...")
-            for name, value in required_vars_map.items():
-                print(f"  - {name}: {value}")
-            print(f"  - 决策: 是否短路计算？ -> {is_short_circuit}")
         if is_short_circuit:
             return results
         price_extension = (high_price - low_5d) / atr
@@ -319,7 +306,6 @@ class ChipFeatureCalculator:
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
         lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
-        # 新增行：计算诱多和诱空强度
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
         results['control_solidity_index'] = gini * peak_transfer
@@ -330,11 +316,6 @@ class ChipFeatureCalculator:
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
-        if enable_probe and is_target_date:
-            print(f"[探针 GT.3 - {stock_code} @ {context.get('trade_date')}] 计算完成。")
-            print(f"  - control_solidity_index: {results['control_solidity_index']:.2f}")
-            print(f"  - deception_index: {results['deception_index']:.2f}")
-            print(f"  - breakout_readiness_score: {results['breakout_readiness_score']:.2f}")
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
@@ -608,20 +589,12 @@ class ChipFeatureCalculator:
             'intraday_posture_score': np.nan,
             'peak_control_transfer': np.nan,
             'impulse_quality_ratio': np.nan,
-            'upward_impulse_strength': np.nan, # 新增行
-            'downward_impulse_strength': np.nan, # 新增行
+            'upward_impulse_strength': np.nan,
+            'downward_impulse_strength': np.nan,
             'opening_gap_defense_strength': np.nan,
             'active_buying_support': np.nan,
             'active_selling_pressure': np.nan,
         }
-        # 植入探针 OGDS
-        debug_params = context.get('debug_params', {})
-        enable_probe = debug_params.get('enable_ogds_probe', False)
-        target_date_str = debug_params.get('target_date')
-        is_target_date = str(context.get('trade_date')) == target_date_str
-        stock_code = context.get('stock_code')
-        if enable_probe and is_target_date:
-            print(f"\n[探针 OGDS.1 - {stock_code} @ {context.get('trade_date')}] 进入计算器 _compute_intraday_dynamics_metrics...")
         intraday_df_raw = context.get('processed_intraday_df')
         if intraday_df_raw is None or intraday_df_raw.empty:
             return results
@@ -648,27 +621,16 @@ class ChipFeatureCalculator:
             avg_down_vol = down_moves['vol_shares'].mean()
             if avg_down_vol > 0:
                 results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
-        # 新增行：计算上涨脉冲强度和下跌脉冲强度
         total_intraday_vol = intraday_df['vol_shares'].sum()
         if total_intraday_vol > 0:
             results['upward_impulse_strength'] = (up_moves['vol_shares'].sum() / total_intraday_vol) * 100
             results['downward_impulse_strength'] = (down_moves['vol_shares'].sum() / total_intraday_vol) * 100
         open_price = context.get('open_price')
         pre_close = context.get('pre_close')
-        if enable_probe and is_target_date:
-            print(f"[探针 OGDS.2 - {stock_code} @ {context.get('trade_date')}] 检查缺口计算的原始输入...")
-            print(f"  - 当日开盘价 (open_price): {open_price}")
-            print(f"  - 前日收盘价 (pre_close): {pre_close}")
         if pd.notna(open_price) and pd.notna(pre_close) and pre_close > 0:
             gap_pct = (open_price / pre_close - 1) * 100
-            if enable_probe and is_target_date:
-                print(f"  - 计算出的缺口百分比 (gap_pct): {gap_pct:.2f}%")
             if abs(gap_pct) > 0.1:
-                if enable_probe and is_target_date:
-                    print(f"  - 决策: 缺口 > 0.1%，进入防御强度计算逻辑。")
                 first_5_min_df = intraday_df[intraday_df.index.time <= time(9, 35)]
-                if enable_probe and is_target_date:
-                    print(f"  - 数据切片: 截取开盘后5分钟数据 (9:30-9:35)，共 {len(first_5_min_df)} 条记录。")
                 if not first_5_min_df.empty and first_5_min_df['vol_shares'].sum() > 0:
                     sum_amount = (first_5_min_df['minute_vwap'] * first_5_min_df['vol_shares']).sum()
                     sum_vol = first_5_min_df['vol_shares'].sum()
@@ -676,18 +638,8 @@ class ChipFeatureCalculator:
                     price_change_vs_open = (vwap_5min / open_price - 1) * 100 if open_price > 0 else 0
                     defense_strength = price_change_vs_open
                     results['opening_gap_defense_strength'] = np.clip(defense_strength * 50, -100, 100)
-                    if enable_probe and is_target_date:
-                        print(f"  - VWAP计算: 5分钟内总金额={sum_amount:.2f}, 总成交量={sum_vol:.0f}, 5分钟VWAP={vwap_5min:.3f}")
-                        print(f"  - 强度计算: (5分钟VWAP / 开盘价 - 1) = {price_change_vs_open:.2f}%")
-                        print(f"  - 最终结果: 裁剪后的防御强度评分为 {results['opening_gap_defense_strength']:.2f}")
-                elif enable_probe and is_target_date:
-                    print(f"  - 警告: 开盘5分钟内数据为空或无成交量，无法计算防御强度。")
             else:
                 results['opening_gap_defense_strength'] = 0.0
-                if enable_probe and is_target_date:
-                    print(f"  - 决策: 缺口 <= 0.1%，无需计算，防御强度返回默认值 0.0。")
-        elif enable_probe and is_target_date:
-            print(f"  - 警告: open_price 或 pre_close 缺失，无法计算缺口。")
         if 'net_flow_rate' in intraday_df.columns:
             active_buy_df = intraday_df[intraday_df['net_flow_rate'] > 0]
             active_sell_df = intraday_df[intraday_df['net_flow_rate'] < 0]
@@ -1464,12 +1416,6 @@ class ChipFeatureCalculator:
         }
         raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
         hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
-        debug_params = context.get('debug_params', {})
-        enable_probe = debug_params.get('enable_mfca_probe', False)
-        target_date_str = debug_params.get('target_date')
-        trade_date = context.get('trade_date')
-        is_target_date = str(trade_date) == target_date_str
-        should_probe = enable_probe and is_target_date
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = common_data.get('atr')
         if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
@@ -1498,7 +1444,7 @@ class ChipFeatureCalculator:
             focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
             focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
             intent_numerator = below_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
-            intent_denominator = below_peak_zone_df['main_force_ofi'].abs().sum()
+            intent_denominator = below_analysis_df['main_force_ofi'].abs().sum()
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
             price_start = below_peak_zone_df['price'].iloc[0]
             price_end = below_peak_zone_df['price'].iloc[-1]
@@ -1528,33 +1474,6 @@ class ChipFeatureCalculator:
                 recovery_conviction_den = recovery_df['main_force_ofi'].abs().sum()
                 recovery_conviction = recovery_conviction_num / recovery_conviction_den if recovery_conviction_den > 0 else 0
                 metrics['defense_of_peak_quality'] = np.clip((recovery_magnitude * recovery_conviction) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
-        if should_probe:
-            print(f"\n{'='*20} [探针 C.1 - 情境行为内核 @ {str(trade_date)}] {'='*20}")
-            print(f"  - 核心情境: 主峰成本={dominant_peak_cost:.2f}, ATR={atr}")
-            print(f"  - 主峰战区定义: [{peak_zone_lower:.2f} - {peak_zone_upper:.2f}]")
-            print(f"  - 指标计算详情:")
-            # [修改的代码块] 升级探针输出
-            print(f"    - 主峰区派发烈度: {metrics.get('distribution_at_peak_intensity', np.nan):.4f}")
-            if not above_peak_zone_df.empty:
-                print(f"      - (已触发计算)")
-            else:
-                print(f"      - (价格未进入上方区域，强度为0)")
-            print(f"    - 主峰区吸筹烈度: {metrics.get('absorption_at_peak_intensity', np.nan):.4f}")
-            if not below_peak_zone_df.empty:
-                print(f"      - (已触发计算)")
-            else:
-                print(f"      - (价格未进入下方区域，强度为0)")
-            print(f"    - 突破主峰质量: {metrics.get('breakthrough_of_peak_quality', np.nan):.4f}")
-            if not breakthrough_event_df.empty:
-                 print(f"      - (已触发计算)")
-            else:
-                 print(f"      - (未发生向上突破)")
-            if day_low >= peak_zone_lower:
-                print(f"    - 防守主峰质量: {metrics.get('defense_of_peak_quality', np.nan):.4f}")
-                print(f"      - (未发生向下破位，视为完美防守)")
-            else:
-                print(f"    - 防守主峰质量: {metrics.get('defense_of_peak_quality', np.nan):.4f}")
-                print(f"      - (已发生向下破位，评估修复质量)")
         return metrics
 
 

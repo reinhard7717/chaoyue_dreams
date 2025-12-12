@@ -96,14 +96,18 @@ class ChipIntelligence:
 
     def _diagnose_strategic_posture(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V9.0 · 诡道情境自适应版】诊断主力的综合战略态势。
+        【V9.1 · 诡道情境自适应版】诊断主力的综合战略态势。
         - 核心升级1: 诡道博弈深度融合与情境调制：引入主力信念和筹码健康度作为情境，动态调整欺骗指数和对倒强度的影响，实现非对称调制，更精准识别和应对主力诡道博弈。
         - 核心升级2: 动态权重自适应：根据筹码波动不稳定性、筹码健康度斜率等情境因子，动态调整基础态势、速度和加速度的融合权重，使信号自适应市场动态。
         - 核心升级3: 维度间非线性互动增强：引入“协同/冲突”因子，评估阵型部署、指挥官决心、战场控制各维度之间的非线性互动，提高信号的敏感性和准确性。
         - 核心升级4: 全局情境调制器：引入筹码健康度、市场情绪作为全局调制器，对最终战略态势分数进行校准，提高信号在不同市场情境下的可靠性。
+        - 核心升级5: 新增筹码指标整合：
+            - 诱多/诱空欺骗强度 (`deception_lure_long_intensity_D`, `deception_lure_short_intensity_D`) 进一步精细化诡道调制。
+            - 主力成本区买卖意图 (`mf_cost_zone_buy_intent_D`, `mf_cost_zone_sell_intent_D`) 增强指挥官决心维度。
+            - 隐蔽派发信号 (`covert_distribution_signal_D`) 作为负向调制器。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“战略态势 (V9.0 · 诡道情境自适应版)”...")
+        print("    -> [筹码层] 正在诊断“战略态势 (V9.1 · 诡道情境自适应版)”...")
         # --- 探针: 原始输入 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -129,6 +133,14 @@ class ChipIntelligence:
         deception_boost_factor = get_param_value(sp_params.get('deception_boost_factor'), 0.5)
         deception_penalty_factor = get_param_value(sp_params.get('deception_penalty_factor'), 0.7)
         wash_trade_penalty_factor = get_param_value(sp_params.get('wash_trade_penalty_factor'), 0.3)
+        # [新增代码行] V9.1 新增欺骗指标参数
+        deception_lure_long_penalty_factor = get_param_value(sp_params.get('deception_lure_long_penalty_factor'), 0.3)
+        deception_lure_short_boost_factor = get_param_value(sp_params.get('deception_lure_short_boost_factor'), 0.3)
+        # [新增代码行] V9.1 新增主力成本区意图参数
+        mf_cost_zone_buy_intent_weight = get_param_value(sp_params.get('mf_cost_zone_buy_intent_weight'), 0.1)
+        mf_cost_zone_sell_intent_weight = get_param_value(sp_params.get('mf_cost_zone_sell_intent_weight'), 0.1)
+        # [新增代码行] V9.1 新增隐蔽派发信号参数
+        covert_distribution_penalty_factor = get_param_value(sp_params.get('covert_distribution_penalty_factor'), 0.2)
         # V9.0 动态权重自适应参数
         dynamic_fusion_weights_base = get_param_value(sp_params.get('dynamic_fusion_weights_base'), {'base_score': 0.6, 'velocity': 0.2, 'acceleration': 0.2})
         dynamic_weight_modulator_signal_1_name = get_param_value(sp_params.get('dynamic_weight_modulator_signal_1'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
@@ -154,7 +166,10 @@ class ChipIntelligence:
             'deception_index_D', 'wash_trade_intensity_D',
             'main_force_conviction_index_D', 'chip_health_score_D', # V9.0 新增诡道情境依赖
             dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name, # V9.0 新增动态权重依赖
-            global_context_signal_1_name, global_context_signal_2_name # V9.0 新增全局情境依赖
+            global_context_signal_1_name, global_context_signal_2_name, # V9.0 新增全局情境依赖
+            # [新增代码行] V9.1 新增筹码指标
+            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
+            'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D', 'covert_distribution_signal_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_posture"):
             return pd.Series(0.0, index=df.index)
@@ -174,6 +189,12 @@ class ChipIntelligence:
         volatility_instability_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_1_name, 0.0, method_name="_diagnose_strategic_posture")
         chip_health_slope_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_2_name, 0.0, method_name="_diagnose_strategic_posture")
         market_sentiment_raw = self._get_safe_series(df, df, global_context_signal_2_name, 0.0, method_name="_diagnose_strategic_posture")
+        # [新增代码行] V9.1 获取新增筹码指标
+        deception_lure_long_intensity_raw = self._get_safe_series(df, df, 'deception_lure_long_intensity_D', 0.0, method_name="_diagnose_strategic_posture")
+        deception_lure_short_intensity_raw = self._get_safe_series(df, df, 'deception_lure_short_intensity_D', 0.0, method_name="_diagnose_strategic_posture")
+        mf_cost_zone_buy_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_buy_intent_D', 0.0, method_name="_diagnose_strategic_posture")
+        mf_cost_zone_sell_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_sell_intent_D', 0.0, method_name="_diagnose_strategic_posture")
+        covert_distribution_signal_raw = self._get_safe_series(df, df, 'covert_distribution_signal_D', 0.0, method_name="_diagnose_strategic_posture")
         # --- 维度1: 阵型部署 (Formation Deployment) ---
         concentration_level = 1 - cost_gini_coefficient_raw
         level_score = get_adaptive_mtf_normalized_bipolar_score(concentration_level, df_index, tf_weights)
@@ -186,11 +207,17 @@ class ChipIntelligence:
         advantage_score = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights)
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity_index_raw, df_index, tf_weights)
         intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope_raw, df_index, tf_weights)
+        # [新增代码行] V9.1 整合主力成本区买卖意图
+        norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
         # V9.0 诡道博弈深度融合与情境调制
         norm_deception_index = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
         norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # [新增代码行] V9.1 归一化诱多/诱空欺骗强度
+        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_deception_lure_short = get_adaptive_mtf_normalized_score(deception_lure_short_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         deception_modulator = pd.Series(1.0, index=df_index)
         if deception_context_mod_enabled:
             # 情境：主力信念强且筹码健康
@@ -201,14 +228,19 @@ class ChipIntelligence:
                                                    (norm_chip_health < (1 - deception_health_threshold))
             # 诱空（负向欺骗）在强信念健康筹码情境下，可能被视为善意洗盘，增强决心
             bear_trap_boost_mask = strong_conviction_healthy_chip_mask & (norm_deception_index < 0)
-            deception_modulator.loc[bear_trap_boost_mask] = 1 + norm_deception_index.loc[bear_trap_boost_mask].abs() * deception_boost_factor
+            # [修改代码行] 整合诱空欺骗强度
+            deception_modulator.loc[bear_trap_boost_mask] = 1 + (norm_deception_index.loc[bear_trap_boost_mask].abs() * deception_boost_factor + \
+                                                                 norm_deception_lure_short.loc[bear_trap_boost_mask] * deception_lure_short_boost_factor)
             # 诱多（正向欺骗）在任何情境下都惩罚，尤其在弱信念不健康筹码情境下更严厉
             bull_trap_penalty_mask = (norm_deception_index > 0)
-            deception_modulator.loc[bull_trap_penalty_mask] = 1 - norm_deception_index.loc[bull_trap_penalty_mask] * deception_penalty_factor
+            # [修改代码行] 整合诱多欺骗强度
+            deception_modulator.loc[bull_trap_penalty_mask] = 1 - (norm_deception_index.loc[bull_trap_penalty_mask] * deception_penalty_factor + \
+                                                                   norm_deception_lure_long.loc[bull_trap_penalty_mask] * deception_lure_long_penalty_factor)
             # 在弱信念不健康筹码情境下，诱多惩罚加倍
             deception_modulator.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] = \
                 deception_modulator.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] - \
-                norm_deception_index.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] * deception_penalty_factor
+                (norm_deception_index.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] * deception_penalty_factor + \
+                 norm_deception_lure_long.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] * deception_lure_long_penalty_factor)
             # 对倒行为始终惩罚，惩罚力度受信念和健康度影响
             wash_trade_penalty_mod = norm_wash_trade_intensity * wash_trade_penalty_factor
             # 在强信念健康筹码情境下，对倒惩罚略轻
@@ -226,6 +258,11 @@ class ChipIntelligence:
             (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
             (intent_score.clip(lower=-1, upper=1).add(1)/2)
         ).pow(1/3) * 2 - 1 # 基础融合
+        # [新增代码行] V9.1 整合主力成本区买卖意图到指挥官决心
+        commanders_resolve_score = commanders_resolve_score + \
+                                   (norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight) - \
+                                   (norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
+        commanders_resolve_score = commanders_resolve_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
         commanders_resolve_score = commanders_resolve_score * deception_modulator.pow(np.sign(commanders_resolve_score)) # 诡道调制
         # --- 维度3: 战场控制 (Battlefield Control) ---
         cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency_raw, df_index, tf_weights)
@@ -237,6 +274,10 @@ class ChipIntelligence:
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ).pow(1/(0.5+0.3+0.2)) * 2 - 1
+        # [新增代码行] V9.1 整合隐蔽派发信号
+        norm_covert_distribution_signal = get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights)
+        base_strategic_posture_score = base_strategic_posture_score * (1 - norm_covert_distribution_signal * covert_distribution_penalty_factor)
+        base_strategic_posture_score = base_strategic_posture_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
         # V9.0 维度间非线性互动增强
         if inter_dimension_interaction_enabled:
             # 协同/冲突因子：评估各维度方向一致性
@@ -297,12 +338,15 @@ class ChipIntelligence:
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V9.0 · 诡道地形判别版】诊断筹码的战场地形，旨在提供一个双极的、具备诡道过滤和情境自适应能力的信号。
+        【V9.1 · 诡道地形判别版】诊断筹码的战场地形，旨在提供一个双极的、具备诡道过滤和情境自适应能力的信号。
         - 核心升级1: 核心地形优势量化：重新定义地形优势为“支撑强度 - 阻力强度”，直接输出双极分数 [-1, 1]，正值代表地形有利，负值代表地形不利。
         - 核心升级2: 最小阻力路径动态调制：路径效率（真空区大小与穿越效率）不再简单相乘，而是作为非线性调制因子，放大或削弱核心地形优势。
         - 核心升级3: 动态演化趋势强化：地形趋势变化（支撑与阻力斜率之差）作为乘数，对地形优势进行非线性强化，引入前瞻性。
         - 核心升级4: 诡道地形过滤与惩罚：引入欺骗指数和筹码故障幅度作为诡道因子，对地形优势进行过滤和惩罚，例如在有利地形伴随诱多或虚假支撑时进行惩罚，在不利地形伴随诱空洗盘或虚假阻力时进行缓解。
         - 核心升级5: 情境感知与自适应权重：引入筹码健康度、筹码波动不稳定性等情境因子，动态调整各维度的融合权重，使模型在不同市场环境下自适应地调整对地形特征的关注重点。
+        - 核心升级6: 新增筹码指标整合：
+            - 向上/向下脉冲强度 (`upward_impulse_strength_D`, `downward_impulse_strength_D`) 增强支撑/阻力强度。
+            - 主力成本区买卖意图 (`mf_cost_zone_buy_intent_D`, `mf_cost_zone_sell_intent_D`) 进一步强化支撑/阻力。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         df_index = df.index
@@ -327,28 +371,54 @@ class ChipIntelligence:
         context_modulator_signal_2_name = get_param_value(bg_params.get('context_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         context_modulator_sensitivity_health = get_param_value(bg_params.get('context_modulator_sensitivity_health'), 0.4)
         context_modulator_sensitivity_volatility = get_param_value(bg_params.get('context_modulator_sensitivity_volatility'), 0.3)
+        # [新增代码行] V9.1 新增指标参数
+        upward_impulse_strength_weight = get_param_value(bg_params.get('upward_impulse_strength_weight'), 0.1)
+        downward_impulse_strength_weight = get_param_value(bg_params.get('downward_impulse_strength_weight'), 0.1)
+        mf_cost_zone_buy_intent_weight = get_param_value(bg_params.get('mf_cost_zone_buy_intent_weight'), 0.1)
+        mf_cost_zone_sell_intent_weight = get_param_value(bg_params.get('mf_cost_zone_sell_intent_weight'), 0.1)
         # --- 信号依赖校验 ---
         required_signals = [
             'dominant_peak_solidity_D', 'support_validation_strength_D', 'chip_fault_blockage_ratio_D',
             'pressure_rejection_strength_D', 'vacuum_zone_magnitude_D', 'vacuum_traversal_efficiency_D',
             'SLOPE_5_support_validation_strength_D', 'SLOPE_5_pressure_rejection_strength_D',
             deception_signal_name, chip_fault_signal_name,
-            context_modulator_signal_1_name, context_modulator_signal_2_name
+            context_modulator_signal_1_name, context_modulator_signal_2_name,
+            # [新增代码行] V9.1 新增筹码指标
+            'upward_impulse_strength_D', 'downward_impulse_strength_D',
+            'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_battlefield_geography"):
             return pd.Series(0.0, index=df.index)
+        # --- 原始数据获取 ---
+        # [新增代码行] V9.1 获取新增筹码指标
+        upward_impulse_strength_raw = self._get_safe_series(df, df, 'upward_impulse_strength_D', 0.0, method_name="_diagnose_battlefield_geography")
+        downward_impulse_strength_raw = self._get_safe_series(df, df, 'downward_impulse_strength_D', 0.0, method_name="_diagnose_battlefield_geography")
+        mf_cost_zone_buy_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_buy_intent_D', 0.0, method_name="_diagnose_battlefield_geography")
+        mf_cost_zone_sell_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_sell_intent_D', 0.0, method_name="_diagnose_battlefield_geography")
         # --- 1. 下方支撑 (Support Strength) ---
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         support_validation = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0)
         solidity_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, tf_weights)
         validation_score = get_adaptive_mtf_normalized_score(support_validation, df_index, tf_weights)
         support_strength_score = (solidity_score * validation_score).pow(0.5)
+        # [新增代码行] V9.1 整合向上脉冲强度和主力成本区买入意图
+        norm_upward_impulse_strength = get_adaptive_mtf_normalized_score(upward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
+        support_strength_score = support_strength_score * (1 + norm_upward_impulse_strength * upward_impulse_strength_weight + \
+                                                              norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight)
+        support_strength_score = support_strength_score.clip(0, 1)
         # --- 2. 上方阻力 (Resistance Strength) ---
         fault_blockage = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5)
         pressure_rejection = self._get_safe_series(df, df, 'pressure_rejection_strength_D', 0.5)
         blockage_score = get_adaptive_mtf_normalized_score(fault_blockage, df_index, tf_weights)
         rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection, df_index, tf_weights)
         resistance_strength_score = (blockage_score * rejection_score).pow(0.5)
+        # [新增代码行] V9.1 整合向下脉冲强度和主力成本区卖出意图
+        norm_downward_impulse_strength = get_adaptive_mtf_normalized_score(downward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
+        resistance_strength_score = resistance_strength_score * (1 + norm_downward_impulse_strength * downward_impulse_strength_weight + \
+                                                                    norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
+        resistance_strength_score = resistance_strength_score.clip(0, 1)
         # --- 3. 核心地形优势量化 (Core Terrain Advantage Quantification - Bipolar) ---
         # 正值代表地形有利 (支撑强于阻力)，负值代表地形不利 (阻力强于支撑)
         base_terrain_advantage_score = support_strength_score - resistance_strength_score
@@ -404,12 +474,14 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V8.0 · 动态韧性感知版】筹码公理三：诊断“持仓信念韧性”
+        【V8.1 · 动态韧性感知版】筹码公理三：诊断“持仓信念韧性”
         - 核心升级1: 信念内核深度化。在V7.8基础上，引入总赢家比例、总输家比例、赢家输家动量、赢家稳定性短期斜率、输家痛苦指数短期加速度和赢家输家动量短期斜率，更全面刻画信念的动态变化。
         - 核心升级2: 压力测试精细化。在V7.8基础上，引入开盘缺口防守强度、控制坚实度指数、订单簿清算率、微观价格冲击不对称性、支撑验证强度短期斜率、投降吸收指数短期加速度和主动买盘支撑短期斜率，更精准评估主力承受压力的能力。
         - 核心升级3: 杂质削弱多维感知。在V7.8基础上，引入上影线抛压、反弹派发压力、散户狂热溢价、赢家平均利润率短期斜率和散户狂热溢价短期加速度，更全面识别削弱信念的杂质。
         - 核心升级4: 诡道因子智能化。在V7.8基础上，引入欺骗指数和对倒强度，更智能地判断诡道意图并进行调制。
         - 核心升级5: 情境调制器扩展。引入波动率不稳定性指数、市场情绪分数和资金流可信度指数，提供更丰富的宏观情境感知。
+        - 核心升级6: 新增筹码指标整合：
+            - 信念流买入/卖出强度 (`conviction_flow_buy_intensity_D`, `conviction_flow_sell_intensity_D`) 增强信念内核维度。
         - 代码优化: 移除所有调试探针，优化部分计算逻辑，提高运行效率。
         """
         required_signals = [
@@ -427,7 +499,9 @@ class ChipIntelligence:
             'SLOPE_5_winner_profit_margin_avg_D', 'ACCEL_5_retail_fomo_premium_index_D',
             'deception_index_D', 'wash_trade_intensity_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'market_sentiment_score_D', 'flow_credibility_index_D',
-            'main_force_conviction_index_D'
+            'main_force_conviction_index_D',
+            # [新增代码行] V8.1 新增筹码指标
+            'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
             return pd.Series(0.0, index=df.index)
@@ -486,6 +560,9 @@ class ChipIntelligence:
             'volatility_instability': 0.3, 'market_sentiment': 0.4, 'flow_credibility': 0.3
         })
         deception_modulator_params = get_param_value(holder_sentiment_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5})
+        # [新增代码行] V8.1 新增信念流强度参数
+        conviction_flow_buy_intensity_weight = get_param_value(holder_sentiment_params.get('conviction_flow_buy_intensity_weight'), 0.1)
+        conviction_flow_sell_intensity_weight = get_param_value(holder_sentiment_params.get('conviction_flow_sell_intensity_weight'), 0.1)
         df_index = df.index
         # --- 原始数据获取 ---
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
@@ -521,6 +598,9 @@ class ChipIntelligence:
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        # [新增代码行] V8.1 获取新增信念流强度指标
+        conviction_flow_buy_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        conviction_flow_sell_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         # --- 维度1: 信念内核 (Belief Core Score) ---
         norm_winner_stability = get_adaptive_mtf_normalized_bipolar_score(winner_stability, df_index, tf_weights)
         norm_loser_pain = get_adaptive_mtf_normalized_bipolar_score(loser_pain, df_index, tf_weights)
@@ -547,6 +627,13 @@ class ChipIntelligence:
             (norm_accel_5_loser_pain.add(1)/2).pow(belief_core_numeric_weights.get('loser_pain_accel', 0.1)) *
             (norm_slope_5_winner_loser_momentum.add(1)/2).pow(belief_core_numeric_weights.get('winner_loser_momentum_slope', 0.1))
         ).pow(1 / total_belief_core_weight) * 2 - 1
+        # [新增代码行] V8.1 整合信念流强度
+        norm_conviction_flow_buy_intensity = get_adaptive_mtf_normalized_score(conviction_flow_buy_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_conviction_flow_sell_intensity = get_adaptive_mtf_normalized_score(conviction_flow_sell_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
+        belief_core_score = belief_core_score + \
+                            (norm_conviction_flow_buy_intensity * conviction_flow_buy_intensity_weight) - \
+                            (norm_conviction_flow_sell_intensity * conviction_flow_sell_intensity_weight)
+        belief_core_score = belief_core_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
         # --- 维度2: 压力测试 (Pressure Test Score) ---
         norm_absorption_power = get_adaptive_mtf_normalized_bipolar_score(absorption_power, df_index, tf_weights)
         norm_defense_intent = get_adaptive_mtf_normalized_bipolar_score(defense_intent, df_index, tf_weights)
@@ -688,18 +775,22 @@ class ChipIntelligence:
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
         """
-        【V7.1 · 战略推力引擎版】筹码公理六：诊断“结构性推力”
+        【V7.2 · 战略推力引擎版】筹码公理六：诊断“结构性推力”
         - 核心升级1: 引擎功率动态权重。引入筹码健康度趋势作为调制器，动态调整静态基础分与动态变化率的融合权重。
         - 核心升级2: 燃料品质诡道调制。引入筹码故障幅度作为负向调制器，削弱被“诱多”等诡道污染的燃料品质，并使协同奖励情境感知。
         - 核心升级3: 喷管效率多维深化。融合真空区大小、真空区趋势和真空穿越效率，更全面评估最小阻力路径。
         - 核心升级4: 最终融合动态权重。引入战略态势作为情境调制器，动态调整引擎功率、燃料品质、喷管效率的融合权重。
+        - 核心升级5: 新增筹码指标整合：
+            - 向上脉冲强度 (`upward_impulse_strength_D`) 增强燃料品质维度。
         - 升级: 优化 synergy_bonus 计算，引入平滑激活函数，避免硬性截断。
         - 升级: 增强最终融合动态权重的情境感知，引入多情境调制器进行综合调整。
         """
         required_signals = [
             'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D',
             'chip_health_score_D', 'chip_fault_magnitude_D', 'SLOPE_5_vacuum_zone_magnitude_D',
-            'vacuum_traversal_efficiency_D'
+            'vacuum_traversal_efficiency_D',
+            # [新增代码行] V7.2 新增筹码指标
+            'upward_impulse_strength_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
             return pd.Series(0.0, index=df.index)
@@ -725,6 +816,8 @@ class ChipIntelligence:
             'battlefield_geography': {'signal': "battlefield_geography", 'weight': 0.3, 'sensitivity': 0.3},
             'holder_sentiment': {'signal': "holder_sentiment", 'weight': 0.2, 'sensitivity': 0.2}
         })
+        # [新增代码行] V7.2 新增向上脉冲强度权重
+        upward_impulse_strength_weight = get_param_value(trend_momentum_params.get('upward_impulse_strength_weight'), 0.2)
         df_index = df.index
         # [新增代码块] 创建信号映射字典
         signal_map = {
@@ -732,11 +825,14 @@ class ChipIntelligence:
             "battlefield_geography": battlefield_geography,
             "holder_sentiment": holder_sentiment
         }
+        # --- 1. 引擎功率 (Engine Power) ---
+        # 静态引擎功率：由战略态势、战场地形、持仓信念韧性融合而成
         static_engine_power = (
             strategic_posture * health_weights['posture'] +
             battlefield_geography * health_weights['geography'] +
             holder_sentiment * health_weights['sentiment']
         )
+        # 动态调整静态和动态引擎功率的融合权重
         health_score_slope_raw = self._get_safe_series(df, df, engine_power_dynamic_weight_modulator_signal_name, 0.0, method_name="_diagnose_axiom_trend_momentum")
         norm_health_score_slope = get_adaptive_mtf_normalized_bipolar_score(health_score_slope_raw, df_index, tf_weights)
         dynamic_weight_mod = (norm_health_score_slope * engine_power_dynamic_weight_sensitivity).clip(-0.5, 0.5)
@@ -745,23 +841,36 @@ class ChipIntelligence:
         sum_current_weights = current_static_weight + current_dynamic_weight
         current_static_weight = current_static_weight / sum_current_weights
         current_dynamic_weight = current_dynamic_weight / sum_current_weights
+        # 动态引擎功率：由静态引擎功率的速度和加速度组成
         slope = static_engine_power.diff(1).fillna(0)
         accel = slope.diff(1).fillna(0)
         norm_slope = get_adaptive_mtf_normalized_bipolar_score(slope, df_index, tf_weights)
         norm_accel = get_adaptive_mtf_normalized_bipolar_score(accel, df_index, tf_weights)
         dynamic_engine_power = (norm_slope.add(1)/2 * norm_accel.clip(lower=-1, upper=1).add(1)/2).pow(0.5) * 2 - 1
+        # 融合静态和动态引擎功率
         engine_power_score = static_engine_power * current_static_weight + dynamic_engine_power * current_dynamic_weight
+        # --- 2. 燃料品质 (Fuel Quality) ---
         conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         impulse_purity_raw = self._get_safe_series(df, df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
+        # [新增代码行] V7.2 获取向上脉冲强度
+        upward_impulse_strength_raw = self._get_safe_series(df, df, 'upward_impulse_strength_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights)
         purity_score = get_adaptive_mtf_normalized_bipolar_score(impulse_purity_raw, df_index, tf_weights)
+        # [新增代码行] V7.2 归一化向上脉冲强度
+        norm_upward_impulse_strength = get_adaptive_mtf_normalized_score(upward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # 基础燃料品质：由主力信念和上涨脉冲纯度融合
         base_fuel_quality = ((conviction_score.add(1)/2) * (purity_score.add(1)/2)).pow(0.5) * 2 - 1
+        # [新增代码行] V7.2 整合向上脉冲强度到燃料品质
+        base_fuel_quality = base_fuel_quality * (1 + norm_upward_impulse_strength * upward_impulse_strength_weight)
+        base_fuel_quality = base_fuel_quality.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
+        # 诡道调制：筹码故障（诱多）对燃料品质的惩罚
         chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         deception_penalty = pd.Series(0.0, index=df_index)
-        positive_fault_mask = chip_fault_raw > 0
+        positive_fault_mask = chip_fault_raw > 0 # 正向筹码故障通常代表诱多
         deception_penalty.loc[positive_fault_mask] = norm_chip_fault.loc[positive_fault_mask] * fuel_purity_deception_penalty_factor
         fuel_quality_score_after_deception = base_fuel_quality * (1 - deception_penalty.clip(0, 1))
+        # 协同奖励：当主力信念和脉冲纯度都高时，给予额外奖励
         synergy_context_raw = self._get_safe_series(df, df, synergy_bonus_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_trend_momentum")
         norm_synergy_context = get_adaptive_mtf_normalized_score(synergy_context_raw, df_index, ascending=True, tf_weights=tf_weights)
         dynamic_synergy_bonus_factor = synergy_bonus_base * (1 + norm_synergy_context * synergy_bonus_context_sensitivity)
@@ -772,6 +881,7 @@ class ChipIntelligence:
         synergy_activation = ((synergy_potential - synergy_activation_threshold) / (1 - synergy_activation_threshold)).clip(0, 1)
         synergy_bonus = synergy_activation * dynamic_synergy_bonus_factor
         fuel_quality_score = fuel_quality_score_after_deception + synergy_bonus
+        # --- 3. 喷管效率 (Nozzle Efficiency) ---
         vacuum_magnitude_raw = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         vacuum_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         vacuum_traversal_raw = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
@@ -783,18 +893,20 @@ class ChipIntelligence:
             norm_vacuum_trend * nozzle_efficiency_weights.get('trend', 0.3) +
             norm_traversal_efficiency * nozzle_efficiency_weights.get('traversal', 0.2)
         ).clip(-1, 1)
+        # --- 4. 最终融合 (Final Fusion) ---
         engine_score_normalized = engine_power_score.add(1)/2
         fuel_score_normalized = fuel_quality_score.clip(-1, 1).add(1)/2
         nozzle_score_normalized = nozzle_efficiency_score.add(1)/2
+        # 动态调整最终融合权重
         final_engine_weight = pd.Series(final_fusion_weights_base.get('engine', 0.33), index=df_index)
         final_fuel_weight = pd.Series(final_fusion_weights_base.get('fuel', 0.33), index=df_index)
         final_nozzle_weight = pd.Series(final_fusion_weights_base.get('nozzle', 0.34), index=df_index)
         if final_fusion_dynamic_weights_enabled:
             context_modulator_components = []
             total_context_weight = 0.0
-            for ctx_name, ctx_config in final_fusion_context_modulators_config.items(): # [修改代码行] 使用 config 变量
-                signal_key = ctx_config.get('signal') # [修改代码行] 获取信号的键名
-                signal_series = signal_map.get(signal_key) # [新增代码行] 从 signal_map 中获取实际的 Series 对象
+            for ctx_name, ctx_config in final_fusion_context_modulators_config.items():
+                signal_key = ctx_config.get('signal')
+                signal_series = signal_map.get(signal_key)
                 weight = ctx_config.get('weight', 0.0)
                 sensitivity = ctx_config.get('sensitivity', 0.0)
                 if signal_series is not None and weight > 0:
@@ -806,16 +918,19 @@ class ChipIntelligence:
                 normalized_fusion_modulator = context_fusion_modulator
             else:
                 normalized_fusion_modulator = pd.Series(0.0, index=df_index)
+            # 根据情境调制器调整各维度的权重
             engine_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('engine', 0.5)
             fuel_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('fuel', 0.5)
-            nozzle_mod = -normalized_fusion_modulator * final_fusion_weights_sensitivity.get('nozzle', 0.5)
+            nozzle_mod = -normalized_fusion_modulator * final_fusion_weights_sensitivity.get('nozzle', 0.5) # 喷管效率在情境好时权重降低，情境差时权重增加
             final_engine_weight = (final_fusion_weights_base.get('engine', 0.33) + engine_mod).clip(0.1, 0.6)
             final_fuel_weight = (final_fusion_weights_base.get('fuel', 0.33) + fuel_mod).clip(0.1, 0.6)
             final_nozzle_weight = (final_fusion_weights_base.get('nozzle', 0.34) + nozzle_mod).clip(0.1, 0.6)
+            # 重新归一化动态权重，使其和为1
             sum_dynamic_fusion_weights = final_engine_weight + final_fuel_weight + final_nozzle_weight
             final_engine_weight = final_engine_weight / sum_dynamic_fusion_weights
             final_fuel_weight = final_fuel_weight / sum_dynamic_fusion_weights
             final_nozzle_weight = final_nozzle_weight / sum_dynamic_fusion_weights
+        # 最终融合得分
         final_score = (
             engine_score_normalized.pow(final_engine_weight) *
             fuel_score_normalized.pow(final_fuel_weight) *
@@ -1192,14 +1307,16 @@ class ChipIntelligence:
 
     def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
         """
-        【V5.0 · 诡道反吸强化版】吸筹回声探针
+        【V5.1 · 诡道反吸强化版】吸筹回声探针
         - 核心升级1: 恐慌声源精细化。在V4.0基础上，引入总输家比例短期加速度、散户恐慌投降指数短期斜率、结构性紧张指数短期加速度，更精准捕捉恐慌蔓延。
         - 核心升级2: 逆流介质强化。在V4.0基础上，引入浮动筹码清洗效率短期斜率、订单簿清算率短期加速度、微观价格冲击不对称性短期斜率、VWAP控制强度短期斜率、VWAP穿越强度短期加速度，更全面评估承接能力。
         - 核心升级3: 主力回声深化。在V4.0基础上，引入隐蔽吸筹信号短期加速度、压制式吸筹强度短期斜率、主力成本优势短期加速度、主力资金流向方向性短期斜率、主力VPOC短期加速度、智能资金净买入短期斜率，更细致刻画主力吸筹意图。
         - 核心升级4: 诡道背景调制智能化。优化诡道调制逻辑，引入“诱空反吸”的增强机制，即当出现“诱空”式欺骗且主力信念坚定，则增强吸筹回声信号；同时细化对“诱多”式欺骗和对倒行为的惩罚。
         - 核心升级5: 情境调制器引入。引入资金流可信度指数、结构性紧张指数、筹码健康度作为最终分数的调制器，提供更丰富的宏观情境感知。
+        - 核心升级6: 新增筹码指标整合：
+            - 支持性派发强度 (`supportive_distribution_intensity_D`) 作为负向调制器。
         """
-        print("    -> [筹码情报校验] 正在诊断“吸筹回声” (V5.0 · 诡道反吸强化版)...")
+        print("    -> [筹码情报校验] 正在诊断“吸筹回声” (V5.1 · 诡道反吸强化版)...")
         required_signals = [
             'retail_panic_surrender_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
             'structural_tension_index_D', 'panic_selling_cascade_D', 'total_loser_rate_D',
@@ -1221,8 +1338,10 @@ class ChipIntelligence:
             'SLOPE_5_micro_price_impact_asymmetry_D', 'SLOPE_5_vwap_control_strength_D', 'ACCEL_5_vwap_crossing_intensity_D',
             'ACCEL_5_covert_accumulation_signal_D', 'SLOPE_5_suppressive_accumulation_intensity_D',
             'ACCEL_5_main_force_cost_advantage_D', 'SLOPE_5_main_force_flow_directionality_D',
-            'ACCEL_5_main_force_vpoc_D', 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D', # 确保此信号在列表中
-            'flow_credibility_index_D'
+            'ACCEL_5_main_force_vpoc_D', 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D',
+            'flow_credibility_index_D',
+            # [新增代码行] V5.1 新增筹码指标
+            'supportive_distribution_intensity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_absorption_echo"):
             return pd.Series(0.0, index=df.index)
@@ -1237,6 +1356,8 @@ class ChipIntelligence:
         deception_modulator_params = get_param_value(absorption_echo_params.get('deception_modulator_params'), {})
         final_fusion_exponent = get_param_value(absorption_echo_params.get('final_fusion_exponent'), 0.25)
         context_modulator_weights = get_param_value(absorption_echo_params.get('context_modulator_weights'), {})
+        # [新增代码行] V5.1 新增支持性派发强度权重
+        supportive_distribution_penalty_factor = get_param_value(absorption_echo_params.get('supportive_distribution_penalty_factor'), 0.2)
         df_index = df.index
         # --- 原始数据获取 ---
         retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_absorption_echo")
@@ -1288,12 +1409,14 @@ class ChipIntelligence:
         accel_5_main_force_cost_advantage_raw = self._get_safe_series(df, df, 'ACCEL_5_main_force_cost_advantage_D', 0.0, method_name="_diagnose_absorption_echo")
         slope_5_main_force_flow_directionality_raw = self._get_safe_series(df, df, 'SLOPE_5_main_force_flow_directionality_D', 0.0, method_name="_diagnose_absorption_echo")
         accel_5_main_force_vpoc_raw = self._get_safe_series(df, df, 'ACCEL_5_main_force_vpoc_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_smart_money_net_buy_raw = self._get_safe_series(df, df, 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_absorption_echo") # 确保此行正确获取信号
+        slope_5_smart_money_net_buy_raw = self._get_safe_series(df, df, 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_absorption_echo")
         chip_fault_magnitude_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_absorption_echo")
         deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_absorption_echo")
         wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
         chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_absorption_echo")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_absorption_echo")
+        # [新增代码行] V5.1 获取支持性派发强度
+        supportive_distribution_intensity_raw = self._get_safe_series(df, df, 'supportive_distribution_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
         # --- 维度1: 恐慌声源 (Panic Source Score) ---
         norm_retail_panic_surrender = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_loser_pain = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1416,6 +1539,8 @@ class ChipIntelligence:
         norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
+        # [新增代码行] V5.1 归一化支持性派发强度
+        norm_supportive_distribution_intensity = get_adaptive_mtf_normalized_score(supportive_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         conviction_threshold = deception_modulator_params.get('conviction_threshold', 0.2)
         deception_index_boost_weight = deception_modulator_params.get('deception_index_boost_weight', 0.5)
         deception_index_penalty_weight = deception_modulator_params.get('deception_index_penalty_weight', 0.5)
@@ -1426,6 +1551,8 @@ class ChipIntelligence:
         deception_modulator.loc[deception_penalty_mask] = deception_modulator.loc[deception_penalty_mask] * (1 - norm_deception_index_bipolar.loc[deception_penalty_mask] * deception_index_penalty_weight)
         deception_modulator = deception_modulator * (1 - norm_wash_trade_intensity * wash_trade_penalty_weight)
         deception_modulator = deception_modulator * (1 - norm_chip_fault_magnitude_bipolar.clip(lower=0) * deception_modulator_params.get('penalty_factor', 0.4))
+        # [新增代码行] V5.1 整合支持性派发强度作为负向调制
+        deception_modulator = deception_modulator * (1 - norm_supportive_distribution_intensity * supportive_distribution_penalty_factor)
         deception_modulator = deception_modulator.clip(0.1, 2.0)
         # --- 情境调制器 (Contextual Modulators) ---
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights)
