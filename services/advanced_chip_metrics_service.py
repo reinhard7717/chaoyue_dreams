@@ -148,7 +148,7 @@ class AdvancedChipMetricsService:
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None, debug_params: dict = None) -> tuple[pd.DataFrame, dict, list]: # 修改：新增 debug_params 参数
         """
         【V1.11 · 记忆补录修复版】
         - 核心修复: 在构建传递给下一日的记忆字典 `next_prev_metrics` 时，补充了对 `main_force_cumulative_cost`
