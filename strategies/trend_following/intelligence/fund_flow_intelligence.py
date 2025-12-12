@@ -436,7 +436,6 @@ class FundFlowIntelligence:
             - 对倒行为：wash_trade_buy_volume, wash_trade_sell_volume
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        # [修改代码行] 删除探针
         df_index = df.index
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
@@ -524,7 +523,6 @@ class FundFlowIntelligence:
             return pd.Series(0.0, index=df.index)
 
         # --- 原始数据获取 (用于探针和计算) ---
-        # [修改代码行] 删除探针
         main_force_flow_raw = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
         retail_flow_raw = self._get_safe_series(df, df, 'retail_net_flow_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
         order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_consensus")
@@ -576,7 +574,6 @@ class FundFlowIntelligence:
 
         # --- 1. 宏观资金流向 (Macro Fund Flow) ---
         flow_consensus_score = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_raw - retail_flow_raw, df_index, tf_weights_ff)
-        # [修改代码行] 删除探针
 
         # --- 2. 微观盘口意图推断 (Micro Order Book Intent Inference) ---
         imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights_ff)
@@ -592,6 +589,9 @@ class FundFlowIntelligence:
         norm_opening_buy_strength = get_adaptive_mtf_normalized_score(opening_buy_strength_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_pre_closing_buy_posture = get_adaptive_mtf_normalized_score(pre_closing_buy_posture_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_closing_auction_buy_ambush = get_adaptive_mtf_normalized_score(closing_auction_buy_ambush_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        # [修改代码行] 修复：定义 norm_main_force_buy_ofi
+        norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(main_force_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_retail_buy_ofi = get_adaptive_mtf_normalized_score(retail_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         # 买方效率
         norm_main_force_t0_buy_efficiency = get_adaptive_mtf_normalized_score(main_force_t0_buy_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -608,6 +608,9 @@ class FundFlowIntelligence:
         norm_opening_sell_strength = get_adaptive_mtf_normalized_score(opening_sell_strength_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_pre_closing_sell_posture = get_adaptive_mtf_normalized_score(pre_closing_sell_posture_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_closing_auction_sell_ambush = get_adaptive_mtf_normalized_score(closing_auction_sell_ambush_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        # [修改代码行] 修复：定义 norm_main_force_sell_ofi
+        norm_main_force_sell_ofi = get_adaptive_mtf_normalized_score(main_force_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(retail_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_on_peak_sell_flow = get_adaptive_mtf_normalized_score(main_force_on_peak_sell_flow_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         # 卖方效率
@@ -637,7 +640,6 @@ class FundFlowIntelligence:
             norm_vwap_cross_up_intensity * micro_buy_power_weights.get('vwap_cross_up_intensity', 0.05) +
             norm_wash_trade_buy_volume * micro_buy_power_weights.get('wash_trade_buy_volume', -0.05)
         ).clip(0, 1)
-        # [修改代码行] 删除探针
 
         # 综合卖方力量和效率
         total_sell_power = (
@@ -658,25 +660,21 @@ class FundFlowIntelligence:
             norm_vwap_cross_down_intensity * micro_sell_power_weights.get('vwap_cross_down_intensity', 0.05) +
             norm_wash_trade_sell_volume * micro_sell_power_weights.get('wash_trade_sell_volume', -0.05)
         ).clip(0, 1)
-        # [修改代码行] 删除探针
 
         # V5.1 综合买卖力量，形成更精细的微观控制力
         micro_control_score_v5_1 = (total_buy_power - total_sell_power).clip(-1, 1)
-        # [修改代码行] 删除探针
 
         # V5.0 微观盘口意图推断：融合枯竭率
         # 枯竭率综合得分 (双极性)
         exhaustion_score = (norm_sell_exhaustion - norm_buy_exhaustion).clip(-1, 1)
-        # [修改代码行] 删除探针
 
         # V5.0 非线性融合微观意图 (现在加入 V5.1 的精细化微观控制力)
         micro_intent_score = (
             imbalance_score * micro_intent_fusion_weights.get('imbalance', 0.4) +
             impact_score * micro_intent_fusion_weights.get('efficiency', 0.3) +
             exhaustion_score * micro_intent_fusion_weights.get('exhaustion', 0.3) +
-            micro_control_score_v5_1 * 0.5 # [修改代码行] 增加 V5.1 的微观控制力，权重可调
+            micro_control_score_v5_1 * 0.5 # 增加 V5.1 的微观控制力，权重可调
         ).clip(-1, 1)
-        # [修改代码行] 删除探针
 
         # V4.0 微观盘口控制力非对称增强 (现在作用于 micro_intent_score)
         micro_control_modulator = pd.Series(1.0, index=df_index)
@@ -689,7 +687,6 @@ class FundFlowIntelligence:
             micro_control_modulator.loc[penalty_mask] = 1 - (norm_buy_exhaustion.loc[penalty_mask] * norm_sell_exhaustion.loc[penalty_mask]) * exhaustion_penalty_factor
             micro_control_modulator = micro_control_modulator.clip(0.5, 1.5)
         micro_control_score = micro_intent_score * micro_control_modulator
-        # [修改代码行] 删除探针
 
         # --- 3. 诡道博弈深度情境感知与调制 (Deceptive Game Integration & Contextual Modulation) ---
         deception_modulator = pd.Series(1.0, index=df_index)
@@ -709,7 +706,6 @@ class FundFlowIntelligence:
             low_credibility_mask = (norm_flow_credibility < flow_credibility_threshold)
             deception_modulator.loc[low_credibility_mask] = deception_modulator.loc[low_credibility_mask] * (norm_flow_credibility.loc[low_credibility_mask] / flow_credibility_threshold).clip(0.1, 1.0)
             deception_modulator = deception_modulator.clip(0.01, 2.0)
-        # [修改代码行] 删除探针
 
         # --- 4. 多维度情境自适应权重 (Adaptive Macro-Micro Weighting) ---
         dynamic_macro_weight = pd.Series(macro_flow_base_weight, index=df_index)
@@ -728,8 +724,6 @@ class FundFlowIntelligence:
             dynamic_micro_weight = dynamic_micro_weight / sum_dynamic_weights
             dynamic_macro_weight = dynamic_macro_weight.clip(0.1, 0.9)
             dynamic_micro_weight = dynamic_micro_weight.clip(0.1, 0.9)
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
 
         # --- 5. 融合基础战场控制权 (V5.0 资金流结构与效率非线性建模) ---
         base_battlefield_control_score = np.tanh(
@@ -737,7 +731,6 @@ class FundFlowIntelligence:
             micro_control_score * dynamic_micro_weight
         )
         base_battlefield_control_score = base_battlefield_control_score * deception_modulator
-        # [修改代码行] 删除探针
 
         # --- 6. 战场控制权动态演化与前瞻性增强 (Dynamic Evolution & Foresight Enhancement) ---
         smoothed_base_score = base_battlefield_control_score.ewm(span=smoothing_ema_span, adjust=False).mean()
@@ -758,7 +751,6 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        # [修改代码行] 删除探针
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
