@@ -336,25 +336,6 @@ class ProcessIntelligence:
         penalized_bullish_part = bullish_part * (1 - distribution_risk_score)
         final_rally_intent = (penalized_bullish_part + bearish_part).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, (final_rally_intent + 0.35)).clip(-1, 1)
-        # 优化探针日期获取逻辑并更新探针内容
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [主力拉升意图探针] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 顶部派发强度(原始): {df['distribution_at_peak_intensity_D'].iloc[last_date_index]:.4f}")
-            print(f"    - 上影线抛压(原始): {df['upper_shadow_selling_pressure_D'].iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 基础拉升意图: {base_rally_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 调节后拉升意图(未审判): {modulated_rally_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 派发风险分: {distribution_risk_score.iloc[last_date_index]:.4f}")
-            print(f"    - 调节后意图(看涨部分): {bullish_part.iloc[last_date_index]:.4f}")
-            print(f"    - 调节后意图(看跌部分): {bearish_part.iloc[last_date_index]:.4f}")
-            print(f"    - 惩罚后看涨部分: {penalized_bullish_part.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 风险审判后最终分: {final_rally_intent.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
         self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
         self.strategy.atomic_states["_DEBUG_rally_obstacle_clearance"] = obstacle_clearance_score
@@ -1566,26 +1547,6 @@ class ProcessIntelligence:
             magnitude = (momentum_a.abs() * thrust_b.abs()).pow(0.5)
             relationship_score = np.sign(force_vector_sum) * magnitude
         relationship_score = relationship_score.clip(-1, 1).fillna(0.0)
-        probe_dates = self.probe_dates
-        # [修改] 增加对 enable_probe 配置的检查
-        enable_probe = config.get('enable_probe', True)
-        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针: {signal_name}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 信号A ({signal_a_name}): {signal_a.iloc[last_date_index]:.4f}")
-            print(f"    - 信号B ({signal_b_name}): {signal_b.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 信号A动量(归一化): {momentum_a.iloc[last_date_index]:.4f}")
-            print(f"    - 信号B推力(归一化): {thrust_b.iloc[last_date_index]:.4f}")
-            print(f"    - 关系类型: {relationship_type}")
-            if relationship_type == 'consensus':
-                print(f"    - 合力方向向量: {force_vector_sum.iloc[last_date_index]:.4f}")
-                print(f"    - 协同强度(几何平均): {magnitude.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score

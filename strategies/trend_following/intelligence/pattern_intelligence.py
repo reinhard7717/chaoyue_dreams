@@ -180,14 +180,6 @@ class PatternIntelligence:
         # 预计算，减少循环内重复计算
         max_vol_ma = pd.concat([vol_ma5_D, vol_ma21_D], axis=1).max(axis=1)
         effective_volume_D = volume_D * (1 - wash_trade_intensity_D.fillna(0).clip(0, 1)) 
-        # 探针设置
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        probe_target_date = None 
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_target_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-        # endregion
         # region 2. 形态识别主循环
         for i in range(n_pre_A, len(df_index)):
             # region 2.1. 寻找候选A点 (启动阳线)
@@ -235,12 +227,6 @@ class PatternIntelligence:
                 cond_B_mf_flow = day_B_main_force_flow > 0
                 cond_B_chip_conc = day_B_chip_conc_slope > 0
                 cond_B_mf_leverage = day_B_mf_control_leverage > 0
-                if is_probing_this_b_day: 
-                    print(f"\n[探针] 正在为 {current_B_date.date()} 诊断“回踩确认二次启动”形态...")
-                    print(f"  -> 候选A点: {current_A_date.date()}")
-                    print(f"     - A点条件: pct_change > 1% ({cond_A_pct_change}), volume > 1.2*MA_VOL ({cond_A_volume}), MF_Flow > 0 ({cond_A_mf_flow}), Chip_Conc_Slope > 0 ({cond_A_chip_conc})")
-                    print(f"  -> 候选B点: {current_B_date.date()}")
-                    print(f"     - B点条件: pct_change > 1% ({cond_B_pct_change}), volume > 1.2*MA_VOL ({cond_B_volume}), MF_Flow > 0 ({cond_B_mf_flow}), Chip_Conc_Slope > 0 ({cond_B_chip_conc}), MF_Leverage > 0 ({cond_B_mf_leverage})")
                 if not (cond_B_pct_change and cond_B_volume and cond_B_mf_flow and cond_B_chip_conc and cond_B_mf_leverage):
                     if is_probing_this_b_day: print("     - B点基础条件不满足，跳过。")
                     continue
@@ -274,16 +260,12 @@ class PatternIntelligence:
                 # endregion
                 # 核心否决条件：是否存在放量下跌
                 no_bearish_volume_breakout = ~((pullback_pct_change < 0) & (pullback_effective_volume > pullback_max_vol_ma)).any()
-                if is_probing_this_b_day:
-                    print(f"  -> 回调期 ({df_index[pullback_slice_start].date()} to {df_index[pullback_slice_end-1].date()}) 分析:")
-                    print(f"     - 核心否决条件: 无放量下跌 ({no_bearish_volume_breakout})")
                 if not no_bearish_volume_breakout:
                     if is_probing_this_b_day: print("     - 回调期存在放量下跌，判定为无效洗盘，跳过。")
                     continue
                 # 判断洗盘模式：缩量或换手
                 is_volume_shrunk = (pullback_effective_volume < pullback_max_vol_ma).all()
                 is_volume_churn = (pullback_effective_volume >= pullback_max_vol_ma * 0.8).all() and (pullback_effective_volume < pullback_max_vol_ma * 1.5).all()
-                if is_probing_this_b_day: print(f"     - 量能模式: 有效量能缩量 ({is_volume_shrunk}), 有效量能换手 ({is_volume_churn})")
                 # 计算健康洗盘分数
                 health_pullback_score = 0.0
                 score_components = {}
@@ -311,19 +293,14 @@ class PatternIntelligence:
                 # 证据8: 收盘信念强
                 cond_closing_conviction_strong = not pullback_closing_conviction_score.empty and (pullback_closing_conviction_score > 0.5).all()
                 if cond_closing_conviction_strong: health_pullback_score += 0.1; score_components['收盘信念强'] = 0.1
-                if is_probing_this_b_day:
-                    print(f"     - 健康洗盘分数: {health_pullback_score:.2f}")
-                    print(f"       - 分数构成: {score_components}")
                 # 最终判定
                 is_healthy_pullback = False
                 if is_volume_shrunk and health_pullback_score > 0.3: 
                     is_healthy_pullback = True
                 elif is_volume_churn and health_pullback_score > 0.5: 
                     is_healthy_pullback = True
-                if is_probing_this_b_day: print(f"     - 最终判定: 是否健康洗盘 ({is_healthy_pullback})")
                 if is_healthy_pullback:
                     pullback_confirmation_score.iloc[day_B_idx] = 1.0
-                    if is_probing_this_b_day: print(f"  -> [结论] 成功匹配！在 {current_B_date.date()} 确认“回踩确认二次启动”形态。")
                     break # 成功匹配，跳出内层循环，寻找下一个A点
                 # endregion
         # endregion

@@ -1006,79 +1006,47 @@ class BehavioralIntelligence:
         - 数学模型: 最终风险 = max(战术风险, 战略风险) * (1 + 协同奖励)
         - 升级说明: 增加了详细探针，用于调试和检查每一步计算。
         """
-        print(f"  -- [探针] 诊断派发意图 (SCORE_BEHAVIOR_DISTRIBUTION_INTENT)... (当前日期: {df.index[-1].strftime('%Y-%m-%d')})") # 新增行
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('atmospheric_pressure_params'), {})
         synergy_bonus = get_param_value(params.get('synergy_bonus_factor'), 0.2)
         env_params = get_param_value(p_conf.get('judgment_day_protocol_params'), {})
         env_weights = get_param_value(env_params.get('environment_weights'), {'fatigue': 0.4, 'decay': 0.3, 'betrayal': 0.3})
-        print(f"    -> [探针] 参数获取: synergy_bonus={synergy_bonus:.4f}, env_weights={env_weights}") # 新增行
         # --- 2. 轨道一：战术风险评估 (风暴强度) ---
-        print("    -> [探针] 轨道一：战术风险评估 (风暴强度)") # 新增行
         motive_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] motive_raw (profit_taking_flow_ratio_D) 原始值: {motive_raw.iloc[-1]:.9f}") # 新增行
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] rally_pressure_raw (rally_distribution_pressure_D) 原始值: {rally_pressure_raw.iloc[-1]:.9f}") # 新增行
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] upper_shadow_pressure_raw (upper_shadow_selling_pressure_D) 原始值: {upper_shadow_pressure_raw.iloc[-1]:.9f}") # 新增行
         fingerprint_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] fingerprint_raw (main_force_execution_alpha_D) 原始值: {fingerprint_raw.iloc[-1]:.9f}") # 新增行
         motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] motive_score (归一化后): {motive_score.iloc[-1]:.9f}") # 新增行
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] rally_pressure_score (归一化后): {rally_pressure_score.iloc[-1]:.9f}") # 新增行
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] upper_shadow_score (归一化后): {upper_shadow_score.iloc[-1]:.9f}") # 新增行
         weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
-        print(f"      -> [探针] weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5) = ({rally_pressure_score.iloc[-1]:.9f} * 0.5 + {upper_shadow_score.iloc[-1]:.9f} * 0.5) = {weapon_score.iloc[-1]:.9f}") # 新增行
         fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] fingerprint_score (fingerprint_raw.clip(upper=0).abs()归一化后): {fingerprint_score.iloc[-1]:.9f}") # 新增行
         tactical_risk_score = (
             (motive_score + 1e-9).pow(0.2) *
             (weapon_score + 1e-9).pow(0.4) *
             (fingerprint_score + 1e-9).pow(0.4)
         ).fillna(0.0)
-        print(f"      -> [探针] tactical_risk_score = (motive_score^{0.2} * weapon_score^{0.4} * fingerprint_score^{0.4}) = ({motive_score.iloc[-1]:.9f}^{0.2} * {weapon_score.iloc[-1]:.9f}^{0.4} * {fingerprint_score.iloc[-1]:.9f}^{0.4}) = {tactical_risk_score.iloc[-1]:.9f}") # 新增行
         # --- 3. 轨道二：战略风险评估 (大气压读数) ---
-        print("    -> [探针] 轨道二：战略风险评估 (大气压读数)") # 新增行
         vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] vitality_raw (trend_vitality_index_D) 原始值: {vitality_raw.iloc[-1]:.9f}") # 新增行
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] winner_stability_raw (winner_stability_index_D) 原始值: {winner_stability_raw.iloc[-1]:.9f}") # 新增行
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] control_solidity_raw (control_solidity_index_D) 原始值: {control_solidity_raw.iloc[-1]:.9f}") # 新增行
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_distribution_intent")
-        print(f"      -> [探针] conviction_slope_raw (SLOPE_5_main_force_conviction_index_D) 原始值: {conviction_slope_raw.iloc[-1]:.9f}") # 新增行
         vitality_score = get_adaptive_mtf_normalized_score(vitality_raw, df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] vitality_score (归一化后): {vitality_score.iloc[-1]:.9f}") # 新增行
         bullish_fatigue_score = ((1 - vitality_score) * overextension_raw).pow(0.5)
-        print(f"      -> [探针] overextension_raw: {overextension_raw.iloc[-1]:.9f}") # 新增行
-        print(f"      -> [探针] bullish_fatigue_score = ((1 - vitality_score) * overextension_raw)^0.5 = ((1 - {vitality_score.iloc[-1]:.9f}) * {overextension_raw.iloc[-1]:.9f})^0.5 = {bullish_fatigue_score.iloc[-1]:.9f}") # 新增行
         stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] stability_score (归一化后): {stability_score.iloc[-1]:.9f}") # 新增行
         solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] solidity_score (归一化后): {solidity_score.iloc[-1]:.9f}") # 新增行
         fortress_decay_score = ((1 - stability_score) * (1 - solidity_score)).pow(0.5)
-        print(f"      -> [探针] fortress_decay_score = ((1 - stability_score) * (1 - solidity_score))^0.5 = ((1 - {stability_score.iloc[-1]:.9f}) * (1 - {solidity_score.iloc[-1]:.9f}))^0.5 = {fortress_decay_score.iloc[-1]:.9f}") # 新增行
         commanders_betrayal_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        print(f"      -> [探针] commanders_betrayal_score (conviction_slope_raw.clip(upper=0).abs()归一化后): {commanders_betrayal_score.iloc[-1]:.9f}") # 新增行
         strategic_risk_score = (
             bullish_fatigue_score * env_weights.get('fatigue', 0.4) +
             fortress_decay_score * env_weights.get('decay', 0.3) +
             commanders_betrayal_score * env_weights.get('betrayal', 0.3)
         ).clip(0, 1)
-        print(f"      -> [探针] strategic_risk_score = (bullish_fatigue_score * {env_weights.get('fatigue', 0.4):.4f} + fortress_decay_score * {env_weights.get('decay', 0.3):.4f} + commanders_betrayal_score * {env_weights.get('betrayal', 0.3):.4f})") # 新增行
-        print(f"        = ({bullish_fatigue_score.iloc[-1]:.9f} * {env_weights.get('fatigue', 0.4):.4f} + {fortress_decay_score.iloc[-1]:.9f} * {env_weights.get('decay', 0.3):.4f} + {commanders_betrayal_score.iloc[-1]:.9f} * {env_weights.get('betrayal', 0.3):.4f}) = {strategic_risk_score.iloc[-1]:.9f}") # 新增行
         # --- 4. 最终合成：双轨独立审判 ---
-        print("    -> [探针] 最终合成：双轨独立审判") # 新增行
         base_risk = pd.concat([tactical_risk_score, strategic_risk_score], axis=1).max(axis=1)
-        print(f"      -> [探针] base_risk = max(tactical_risk_score, strategic_risk_score) = max({tactical_risk_score.iloc[-1]:.9f}, {strategic_risk_score.iloc[-1]:.9f}) = {base_risk.iloc[-1]:.9f}") # 新增行
         synergy_amplifier = 1 + (tactical_risk_score * strategic_risk_score).pow(0.5) * synergy_bonus
-        print(f"      -> [探针] synergy_amplifier = 1 + (tactical_risk_score * strategic_risk_score)^0.5 * synergy_bonus = 1 + ({tactical_risk_score.iloc[-1]:.9f} * {strategic_risk_score.iloc[-1]:.9f})^0.5 * {synergy_bonus:.4f} = {synergy_amplifier.iloc[-1]:.9f}") # 新增行
         final_distribution_intent = (base_risk * synergy_amplifier).clip(0, 1)
-        print(f"      -> [探针] final_distribution_intent = (base_risk * synergy_amplifier) = ({base_risk.iloc[-1]:.9f} * {synergy_amplifier.iloc[-1]:.9f}) = {final_distribution_intent.iloc[-1]:.9f}") # 新增行
-        print(f"  -- [探针] 诊断派发意图 (SCORE_BEHAVIOR_DISTRIBUTION_INTENT) 最终分值: {final_distribution_intent.iloc[-1]:.9f}") # 新增行
         return final_distribution_intent.astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
