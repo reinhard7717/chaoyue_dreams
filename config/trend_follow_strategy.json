@@ -1930,7 +1930,11 @@
           "deception_modulator_weights": {
             "description": "诡道因子调制权重。",
             "deception_index_boost": 0.5,
-            "wash_trade_penalty": 0.3
+            "wash_trade_penalty": 0.3,
+            "deception_ll_penalty_weight": 0.2,
+            "comment_deception_ll_penalty_weight": "诱多欺骗强度对信念的惩罚权重。",
+            "deception_ls_boost_weight": 0.2,
+            "comment_deception_ls_boost_weight": "诱空欺骗强度对信念的增强权重。"
           },
           "context_modulator_weights": {
             "description": "情境调制器融合权重。",
@@ -2043,7 +2047,11 @@
           "deception_context_sensitivity": 0.3,
           "deception_outcome_weights": {
             "effectiveness": 0.6,
-            "cost": 0.4
+            "cost": 0.4,
+            "deception_ll_effectiveness_weight": 0.3,
+            "comment_deception_ll_effectiveness_weight": "诱多欺骗强度对诱多有效性的权重。",
+            "deception_ls_effectiveness_weight": 0.3,
+            "comment_deception_ls_effectiveness_weight": "诱空欺骗强度对诱空有效性的权重。"
           },
           "deception_outcome_effectiveness_threshold": 0.3,
           "deception_outcome_cost_threshold": 0.3,
@@ -2176,7 +2184,11 @@
             "deception_index_boost_weight": 0.5,
             "deception_index_penalty_weight": 0.5,
             "wash_trade_penalty_weight": 0.3,
-            "penalty_factor": 0.4
+            "penalty_factor": 0.4,
+            "deception_ll_penalty_weight": 0.2,
+            "comment_deception_ll_penalty_weight": "诱多欺骗强度对吸筹回声的惩罚权重。",
+            "deception_ls_boost_weight": 0.2,
+            "comment_deception_ls_boost_weight": "诱空欺骗强度对吸筹回声的增强权重。"
           },
           "context_modulator_weights": {
             "description": "情境调制器融合权重。",
@@ -2239,7 +2251,11 @@
             "boost_factor": 0.6,
             "penalty_factor": 0.4,
             "conviction_threshold": 0.2,
-            "deception_index_weight": 0.5
+            "deception_index_weight": 0.5,
+            "deception_ll_boost_weight": 0.2,
+            "comment_deception_ll_boost_weight": "诱多欺骗强度对派发诡影的增强权重。",
+            "deception_ls_penalty_weight": 0.2,
+            "comment_deception_ls_penalty_weight": "诱空欺骗强度对派发诡影的惩罚权重。"
           },
           "final_fusion_exponent": 0.25
         },
@@ -2287,7 +2303,11 @@
           },
           "dgm_asymmetry_params": {
             "bull_trap_penalty_factor": 1.5,
-            "bear_trap_bonus_factor": 1.2
+            "bear_trap_bonus_factor": 1.2,
+            "bull_trap_ll_penalty_factor": 0.5,
+            "comment_bull_trap_ll_penalty_factor": "诱多欺骗强度对诱多惩罚的额外因子。",
+            "bear_trap_ls_bonus_factor": 0.5,
+            "comment_bear_trap_ls_bonus_factor": "诱空欺骗强度对诱空奖励的额外因子。"
           },
           "final_fusion_weights": {
             "mf_aq": 0.35,
@@ -2392,7 +2412,13 @@
           "deception_signal": "deception_index_D",
           "wash_trade_signal": "wash_trade_intensity_D",
           "deception_penalty_sensitivity": 0.7,
+          "comment_deception_penalty_sensitivity": "欺骗指数对惩罚的敏感度。",
           "wash_trade_mitigation_sensitivity": 0.3,
+          "comment_wash_trade_mitigation_sensitivity": "对倒强度对缓解的敏感度。",
+          "deception_ll_penalty_sensitivity": 0.4,
+          "comment_deception_ll_penalty_sensitivity": "诱多欺骗强度对正向拐点惩罚的敏感度。",
+          "deception_ls_mitigation_sensitivity": 0.2,
+          "comment_deception_ls_mitigation_sensitivity": "诱空欺骗强度对负向拐点缓解的敏感度。",
           "persistence_period": 2,
           "persistence_bonus_factor": 0.1,
           "context_modulator_signal_1": "chip_health_score_D",
