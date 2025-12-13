@@ -274,6 +274,7 @@ class IndicatorService:
             timeframes.add('D')
         # 移除可能存在的空字符串并返回
         return {tf for tf in timeframes if tf}
+
     def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V4.0 · 终极重构版】预计算衍生指标列名适配器
@@ -281,6 +282,7 @@ class IndicatorService:
         - 解决方案: 采用单一、更强大的正则表达式，通过可选捕获组 `(...)?` 一次性、
                     无歧义地解析所有类型的衍生指标（包括常规、带sum的、斜率、加速度）。
                     这从根本上解决了因匹配顺序错误导致列名解析失败的BUG。
+        - 【修复】移除对非衍生指标列名（如仅带_D后缀的原始列）的错误重命名，确保其标准化命名不被破坏。
         """
         import re
         rename_map = {}
@@ -304,9 +306,10 @@ class IndicatorService:
                     # 例如: RSI_13_slope_5d -> SLOPE_5_RSI_13
                     new_name = f"{deriv_type.upper()}_{deriv_period}_{base_name}"
                 rename_map[col] = new_name
-            elif col.endswith('_D'):
-                # 保留对仅带 _D 后缀的列的处理逻辑
-                rename_map[col] = col[:-2]
+            # 【修改代码行】移除此处的elif块，避免错误地剥离基础指标的_D后缀
+            # elif col.endswith('_D'):
+            #     # 保留对仅带 _D 后缀的列的处理逻辑
+            #     rename_map[col] = col[:-2]
         if rename_map:
             df_renamed = df.rename(columns=rename_map)
             return df_renamed
