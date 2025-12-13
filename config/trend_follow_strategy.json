@@ -48,6 +48,7 @@
         "enabled": true,
         "description": "识别价格盘整期，为突破战术提供上下文。",
         "boll_period": 21,
+        "boll_std": 2.0,
         "roc_period": 13,
         "comment_roc_period": "调整为斐波那契数13",
         "vol_ma_period": 55,

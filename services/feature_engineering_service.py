@@ -437,6 +437,8 @@ class FeatureEngineeringService:
         df = all_dfs[timeframe]
         # 修改代码行: 调整默认周期为斐波那契数
         boll_period = params.get('boll_period', 21) # 21是斐波那契数，保持
+        # 新增代码行: 从params中获取 boll_std，如果不存在则默认为 2.0
+        boll_std = params.get('boll_std', 2.0)
         roc_period = params.get('roc_period', 13)   # 从12改为13
         vol_ma_period = params.get('vol_ma_period', 55) # 55是斐波那契数，保持
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
