@@ -167,7 +167,7 @@ class CyclicalIntelligence:
         """
         states = {}
         hurst_period = get_param_value(params.get('hurst_period'), 144)
-        hurst_signal_name = f'hurst_{hurst_period}d_D'
+        hurst_signal_name = f'hurst_{hurst_period}_D'
         hurst_series = self._get_safe_series(df, hurst_signal_name, 0.5, method_name="diagnose_market_memory_with_hurst").fillna(0.5)
         if hurst_series.isnull().all(): # 如果获取到的Series全是NaN，说明数据确实不存在
             print(f"Hurst指数 '{hurst_signal_name}' 不存在或全为NaN，跳过公理二诊断。")
