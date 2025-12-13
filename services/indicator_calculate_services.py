@@ -1190,12 +1190,12 @@ class IndicatorCalculator:
                     'volume', 'VOL_MA_21', 'main_force_flow_directionality',
                     'open', 'high', 'low', 'close',
                     'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY',
-                    'main_force_buy_execution_alpha_D', 'upward_impulse_strength_D',
-                    'buy_order_book_clearing_rate_D', 'bid_side_liquidity_D',
-                    'vwap_cross_up_intensity_D', 'opening_buy_strength_D',
-                    'floating_chip_cleansing_efficiency_D',
-                    'VPA_BUY_EFFICIENCY_D',
-                    'deception_lure_long_intensity_D', 'wash_trade_buy_volume_D'
+                    'main_force_buy_execution_alpha', 'upward_impulse_strength',
+                    'buy_order_book_clearing_rate', 'bid_side_liquidity',
+                    'vwap_cross_up_intensity', 'opening_buy_strength',
+                    'floating_chip_cleansing_efficiency',
+                    'VPA_BUY_EFFICIENCY',
+                    'deception_lure_long_intensity', 'wash_trade_buy_volume'
                 ]
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:

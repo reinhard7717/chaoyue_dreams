@@ -602,10 +602,17 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
         df_daily = all_dfs[timeframe]
+        # 修改代码行: 补充 calculate_breakout_quality_score 所需的所有列
         required_materials = [
             'volume', 'VOL_MA_21', 'main_force_flow_directionality',
             'open', 'high', 'low', 'close',
-            'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
+            'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY',
+            'main_force_buy_execution_alpha', 'upward_impulse_strength',
+            'buy_order_book_clearing_rate', 'bid_side_liquidity',
+            'vwap_cross_up_intensity', 'opening_buy_strength',
+            'floating_chip_cleansing_efficiency',
+            'VPA_BUY_EFFICIENCY',
+            'deception_lure_long_intensity', 'wash_trade_buy_volume'
         ]
         df_standardized = pd.DataFrame(index=df_daily.index)
         missing_materials = []
