@@ -243,12 +243,12 @@ class BehavioralIntelligence:
             'control_solidity_index_D', 'trend_vitality_index_D', 'BIAS_21_D', 'RSI_13_D',
             'ACCEL_5_pct_change_D', 'closing_strength_index_D', 'active_selling_pressure_D',
             'chip_fatigue_index_D', 'main_force_ofi_D', 'retail_ofi_D', 'buy_quote_exhaustion_rate_D',
-            'sell_quote_exhaustion_rate_D',
+            'sell_quote_exhaustion_rate_D', 'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', 
             'microstructure_efficiency_index_D', 'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D',
             'support_validation_strength_D', 'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
-            'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
+            'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
             'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D',
             'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D',
             'SLOPE_5_winner_stability_index_D',
@@ -616,15 +616,17 @@ class BehavioralIntelligence:
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · Production Ready版】诊断博弈欺骗指数
+        【V2.1 · Production Ready版】诊断博弈欺骗指数
         - 核心重构: 废弃V1.2“结果导向”模型，引入基于“认知失调”的全新诊断模型。
         - 核心逻辑: 欺骗分 = (主力真实意图向量 - K线表象剧本向量) * 证据放大器
                       直接量化“意图”与“表象”的背离程度，能识别更高明的欺骗形态。
         - 诊断三要素:
           1. 舞台剧本 (The Apparent Narrative): K线收盘位置讲述的故事 (`closing_strength_index_D`)。
           2. 幕后黑手 (The Hidden Intent): 主力真实的订单流意图 (`main_force_ofi_D`)。
-          3. 作案工具 (The Deceptive Tools): 对倒、欺骗等行为 (`deception_index_D`, `wash_trade_intensity_D`)，作为放大器。
+          3. 作案工具 (The Deceptive Tools): 对倒、欺骗等行为 (`deception_lure_long_intensity_D`, `deception_lure_short_intensity_D`, `wash_trade_intensity_D`)，作为放大器。
+        - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         """
+        method_name = "_diagnose_deception_index"
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('puppeteers_gambit_params'), {})
@@ -632,21 +634,37 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {})
         # --- 2. 获取原始数据 ---
-        narrative_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_deception_index")
-        intent_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name="_diagnose_deception_index")
-        base_deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_deception_index").clip(lower=0)
-        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_deception_index")
+        required_signals = [ # 修改行
+            'closing_strength_index_D', 'main_force_ofi_D',
+            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', # 修改行
+            'wash_trade_intensity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, method_name):
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
+            return pd.Series(0.0, index=df.index)
+        narrative_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name=method_name)
+        intent_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name=method_name)
+        deception_lure_long_raw = self._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name) # 新增行
+        deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name) # 新增行
+        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
         # --- 3. 计算核心组件 ---
         # 组件一：舞台剧本向量
         narrative_vector = normalize_to_bipolar(narrative_raw, df.index, 55)
         # 组件二：幕后意图向量
         intent_vector = get_adaptive_mtf_normalized_bipolar_score(intent_raw, df.index, default_weights)
-        # 组件三：证据放大器
-        deception_evidence_score = get_adaptive_mtf_normalized_score((base_deception_raw + wash_trade_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
+        # 计算认知失调向量 (先计算，以便后续选择欺骗证据) # 修改行
+        cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2 # 修改行
+        # 组件三：证据放大器 (根据认知失调方向选择对应的欺骗强度) # 修改行
+        relevant_deception_intensity = pd.Series(0.0, index=df.index) # 新增行
+        # 如果认知失调为正 (主力意图看涨，K线表象偏弱 -> 看涨诱惑) # 新增行
+        relevant_deception_intensity = relevant_deception_intensity.mask(cognitive_dissonance_vector > 0, deception_lure_long_raw) # 新增行
+        # 如果认知失调为负 (主力意图看跌，K线表象偏强 -> 看跌诱惑) # 新增行
+        relevant_deception_intensity = relevant_deception_intensity.mask(cognitive_dissonance_vector < 0, deception_lure_short_raw) # 新增行
+        deception_evidence_score = get_adaptive_mtf_normalized_score((relevant_deception_intensity + wash_trade_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights) # 修改行
         evidence_amplifier = 1 + k_amplifier * deception_evidence_score
         # --- 4. 计算认知失调并施加放大器 ---
-        cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2
         final_deception_index = (cognitive_dissonance_vector * evidence_amplifier).clip(-1, 1)
+        print(f"    -> [行为情报调试] {method_name} 计算完成。")
         return final_deception_index.astype(np.float32)
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
@@ -834,14 +852,16 @@ class BehavioralIntelligence:
 
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · Production Ready版】微观结构意图诊断引擎
+        【V2.1 · Production Ready版】微观结构意图诊断引擎
         - 核心重构: 废弃V1.3“静态快照”模型，引入“核心意图强度 × 环境适应性 × 行为一致性”的全新三维诊断框架。
         - 诊断三维度:
           1. 核心意图强度 (Core Intent Magnitude): 诊断主力订单流和挂单枯竭的原始意图。
           2. 环境适应性 (Environmental Adaptability): 根据市场波动率和流动性校准意图的显著性。
           3. 行为一致性 (Behavioral Coherence): 通过价格脉冲纯度、欺诈指数印证意图的真实性。
         - 数学模型: 最终微观意图 = 核心意图强度 × 环境适应性因子 × 行为一致性因子
+        - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         """
+        method_name = "_diagnose_microstructure_intent"
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('fog_of_war_protocol_params'), {})
@@ -852,11 +872,12 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # --- 2. 维度一：核心意图强度 (Core Intent Magnitude) ---
         required_signals_core = ['main_force_ofi_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
-        if not self._validate_required_signals(df, required_signals_core, "_diagnose_microstructure_intent"):
+        if not self._validate_required_signals(df, required_signals_core, method_name):
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals_core}，返回默认值。")
             return {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': pd.Series(0.0, index=df.index)}
-        ofi_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name="_diagnose_microstructure_intent")
-        buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
-        sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
+        ofi_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name=method_name)
+        buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
+        sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
         ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df.index, default_weights)
         buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
         sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -866,9 +887,9 @@ class BehavioralIntelligence:
         # --- 3. 维度二：环境适应性 (Environmental Adaptability) ---
         required_signals_env = ['ATR_14_D', 'volume_ratio_D']
         environmental_adaptability_factor = pd.Series(1.0, index=df.index)
-        if self._validate_required_signals(df, required_signals_env, "_diagnose_microstructure_intent"):
-            atr_raw = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name="_diagnose_microstructure_intent")
-            volume_ratio_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_microstructure_intent")
+        if self._validate_required_signals(df, required_signals_env, method_name):
+            atr_raw = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name)
+            volume_ratio_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
             volatility_score = get_adaptive_mtf_normalized_score(atr_raw, df.index, ascending=True, tf_weights=default_weights)
             liquidity_score = (1 - get_adaptive_mtf_normalized_score(volume_ratio_raw, df.index, ascending=True, tf_weights=default_weights))
             environmental_adaptability_factor_raw = (
@@ -877,15 +898,18 @@ class BehavioralIntelligence:
             ).clip(0, 1)
             environmental_adaptability_factor = 0.5 + environmental_adaptability_factor_raw * 0.5 # 映射到 [0.5, 1.0]
         # --- 4. 维度三：行为一致性 (Behavioral Coherence) ---
-        required_signals_behavior = ['upward_impulse_purity_D', 'vacuum_traversal_efficiency_D', 'deception_index_D']
+        required_signals_behavior = ['upward_impulse_purity_D', 'vacuum_traversal_efficiency_D', 'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D'] # 修改行
         behavioral_coherence_factor = pd.Series(1.0, index=df.index)
-        if self._validate_required_signals(df, required_signals_behavior, "_diagnose_microstructure_intent"):
-            upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_microstructure_intent")
-            downward_purity_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_microstructure_intent")
-            deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_microstructure_intent")
+        if self._validate_required_signals(df, required_signals_behavior, method_name):
+            upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
+            downward_purity_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name=method_name)
+            deception_lure_long_raw = self._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name) # 新增行
+            deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name) # 新增行
+            # 综合欺骗强度，取两者最大值作为惩罚因子 # 新增行
+            deception_raw = pd.concat([deception_lure_long_raw, deception_lure_short_raw], axis=1).max(axis=1) # 新增行
             upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             downward_purity_score = get_adaptive_mtf_normalized_score(downward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
-            deception_score = get_adaptive_mtf_normalized_score(deception_raw, df.index, ascending=True, tf_weights=default_weights)
+            deception_score = get_adaptive_mtf_normalized_score(deception_raw, df.index, ascending=True, tf_weights=default_weights) # 修改行
             purity_coherence = pd.Series(0.0, index=df.index)
             purity_coherence = purity_coherence.mask(core_intent_magnitude > 0, upward_purity_score * (1 - downward_purity_score))
             purity_coherence = purity_coherence.mask(core_intent_magnitude < 0, downward_purity_score * (1 - upward_purity_score))
@@ -898,7 +922,7 @@ class BehavioralIntelligence:
             behavioral_coherence_factor = 0.5 + behavioral_coherence_factor_raw * 0.5 # 映射到 [0.5, 1.0]
         # --- 5. 最终合成：三维融合 ---
         final_micro_intent = (core_intent_magnitude * environmental_adaptability_factor * behavioral_coherence_factor).clip(-1, 1)
-        # 移除整个探针逻辑块，恢复生产状态
+        print(f"    -> [行为情报调试] {method_name} 计算完成。")
         states = {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': final_micro_intent.astype(np.float32)}
         return states
 
@@ -1051,14 +1075,16 @@ class BehavioralIntelligence:
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
-        【V5.0 · 诡道反击协议】诊断伏击式反攻信号。
+        【V5.1 · 诡道反击协议】诊断伏击式反攻信号。
         - 核心重构: 引入“脆弱战场 × 幽灵诡计 × 突袭品质”的全新三维诊断框架。
         - 诊断三维度:
           1. 脆弱战场 (Vulnerable Battlefield): 评估市场先前的脆弱性（恐慌、短期下跌趋势/价格停滞、亏损盘痛苦）。
           2. 幽灵诡计 (Phantom Trick): 评估主力承接的强度及其看涨欺骗性（制造弱势假象）。
           3. 突袭品质 (Strike Quality): 评估反攻的有效性与纯粹性（收盘强度、上涨脉冲纯度）。
         - 数学模型: 伏击反攻分 = (脆弱战场分^W1 * 幽灵诡计分^W2 * 突袭品质分^W3)
+        - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         """
+        method_name = "_diagnose_ambush_counterattack"
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('ambush_counterattack_params'), {})
@@ -1073,19 +1099,20 @@ class BehavioralIntelligence:
         # --- 2. 获取所有原始数据 ---
         required_signals = [
             'panic_selling_cascade_D', f'SLOPE_{prior_weakness_slope_window}_close_D', 'loser_pain_index_D',
-            'deception_index_D', 'closing_strength_index_D', 'upward_impulse_purity_D',
+            'closing_strength_index_D', 'upward_impulse_purity_D',
             f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D', 'BBW_21_2.0_D'
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_ambush_counterattack"):
+        if not self._validate_required_signals(df, required_signals, method_name):
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
             return pd.Series(0.0, index=df.index)
-        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        prior_weakness_slope_raw = self._get_safe_series(df, f'SLOPE_{prior_weakness_slope_window}_close_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_ambush_counterattack")
-        upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        stagnation_slope_raw = self._get_safe_series(df, f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name=method_name)
+        prior_weakness_slope_raw = self._get_safe_series(df, f'SLOPE_{prior_weakness_slope_window}_close_D', 0.0, method_name=method_name)
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
+        deception_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0, method_name=method_name) # 修改行: 使用 _diagnose_deception_index 的输出
+        closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name=method_name)
+        upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
+        stagnation_slope_raw = self._get_safe_series(df, f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D', 0.0, method_name=method_name)
+        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name=method_name)
         # --- 3. 维度一：脆弱战场 (Vulnerable Battlefield) ---
         panic_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=default_weights)
         prior_weakness_score = get_adaptive_mtf_normalized_score(prior_weakness_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
@@ -1103,7 +1130,8 @@ class BehavioralIntelligence:
         ).pow(1/(context_weights.get('panic', 0.3) + context_weights.get('prior_weakness_slope', 0.4) + context_weights.get('loser_pain', 0.2) + context_weights.get('price_stagnation', 0.1))).fillna(0.0)
         # --- 4. 维度二：幽灵诡计 (Phantom Trick) ---
         absorption_score = offensive_absorption_intent
-        deceptive_narrative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        # 对于看涨的伏击反攻，我们关注的是“诱空”或“制造弱势假象”的欺骗，这对应于deception_index的负向部分 # 修改行
+        deceptive_narrative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights) # 修改行
         deceptive_action_score = (
             (absorption_score + 1e-9).pow(action_weights.get('absorption', 0.6)) *
             (deceptive_narrative_score + 1e-9).pow(action_weights.get('deception_positive', 0.4))
@@ -1121,6 +1149,7 @@ class BehavioralIntelligence:
             (deceptive_action_score + 1e-9).pow(fusion_weights.get('action', 0.4)) *
             (counterattack_quality_score + 1e-9).pow(fusion_weights.get('quality', 0.3))
         ).pow(1/(fusion_weights.get('context', 0.3) + fusion_weights.get('action', 0.4) + fusion_weights.get('quality', 0.3))).fillna(0.0)
+        print(f"    -> [行为情报调试] {method_name} 计算完成。")
         return ambush_counterattack_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
@@ -1276,7 +1305,7 @@ class BehavioralIntelligence:
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V5.0 · Production Ready版】诊断高品质价量/价资背离
+        【V5.1 · Production Ready版】诊断高品质价量/价资背离
         - 核心重构: 废弃V4.0“宏观趋势分析”模型，引入“背离深度与广度 × 战略位置 × 双重确认 × 欺骗叙事确认”的全新四维诊断框架。
         - 诊断四维度:
           1. 背离深度与广度 (Divergence Depth & Breadth): 使用斜率更鲁棒地检测价格趋势和主力信念趋势。
@@ -1284,7 +1313,9 @@ class BehavioralIntelligence:
           3. 双重确认 (Dual Confirmation): 由“主力承接/派发”和“微观意图”进行双重印证。
           4. 欺骗叙事确认 (Deceptive Narrative Confirmation): 引入欺骗指数的负向部分，捕捉诱多本质。
         - 数学模型: 品质分 = (背离深度与广度分^0.4 * 战略位置分^0.3 * 主力承接/派发确认分^0.2 * 微观意图确认分^0.1 * 欺骗叙事确认分^0.1)
+        - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         """
+        method_name = "_diagnose_divergence_quality"
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('deceptive_divergence_protocol_params'), {})
@@ -1300,21 +1331,21 @@ class BehavioralIntelligence:
             f'SLOPE_{bullish_magnitude_params.get("conviction_uptrend_slope_window", 5)}_main_force_conviction_index_D',
             f'SLOPE_{bearish_magnitude_params.get("price_slope_window", 5)}_close_D',
             f'SLOPE_{bearish_magnitude_params.get("conviction_downtrend_slope_window", 5)}_main_force_conviction_index_D',
-            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT',
-            'deception_index_D'
+            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT'
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_divergence_quality"):
+        if not self._validate_required_signals(df, required_signals, method_name):
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
-        price = self._get_safe_series(df, 'close_D', 0.0, method_name="_diagnose_divergence_quality")
-        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
-        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_divergence_quality")
-        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_divergence_quality")
-        bullish_price_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("price_downtrend_slope_window", 5)}_close_D', 0.0, method_name="_diagnose_divergence_quality")
-        bullish_conviction_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("conviction_uptrend_slope_window", 5)}_main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
-        bearish_price_slope_raw = self._get_safe_series(df, f'SLOPE_{bearish_magnitude_params.get("price_slope_window", 5)}_close_D', 0.0, method_name="_diagnose_divergence_quality")
-        bearish_conviction_slope_raw = self._get_safe_series(df, f'SLOPE_{bearish_magnitude_params.get("conviction_downtrend_slope_window", 5)}_main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
-        micro_intent_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0, method_name="_diagnose_divergence_quality")
-        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_divergence_quality")
+        price = self._get_safe_series(df, 'close_D', 0.0, method_name=method_name)
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name=method_name)
+        bullish_price_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("price_downtrend_slope_window", 5)}_close_D', 0.0, method_name=method_name)
+        bullish_conviction_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("conviction_uptrend_slope_window", 5)}_main_force_conviction_index_D', 0.0, method_name=method_name)
+        bearish_price_slope_raw = self._get_safe_series(df, f'SLOPE_{bearish_magnitude_params.get("price_slope_window", 5)}_close_D', 0.0, method_name=method_name)
+        bearish_conviction_slope_raw = self._get_safe_series(df, f'SLOPE_{bearish_magnitude_params.get("conviction_downtrend_slope_window", 5)}_main_force_conviction_index_D', 0.0, method_name=method_name)
+        micro_intent_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0, method_name=method_name)
+        deception_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0, method_name=method_name) # 修改行: 使用 _diagnose_deception_index 的输出
         # --- 3. 计算牛市背离 (价格下跌趋势 vs 信念上升趋势) ---
         # 维度一：背离深度与广度 (Magnitude)
         price_downtrend_score = get_adaptive_mtf_normalized_score(bullish_price_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
@@ -1343,8 +1374,9 @@ class BehavioralIntelligence:
         # 维度三：三重确认 (Triple Confirmation)
         bearish_distribution_confirmation_score = distribution_intent
         bearish_micro_intent_confirmation_score = micro_intent_raw.clip(upper=0).abs()
+        # 对于看跌背离，我们关注的是“诱多”或“制造强势假象”的欺骗，这对应于deception_index的负向部分 # 修改行
         deceptive_narrative_confirmation_score = get_adaptive_mtf_normalized_score(
-            deception_raw.clip(upper=0).abs(),
+            deception_raw.clip(upper=0).abs(), # 修改行
             df.index,
             ascending=True,
             tf_weights=default_weights
@@ -1357,7 +1389,7 @@ class BehavioralIntelligence:
             (bearish_micro_intent_confirmation_score + 1e-9).pow(fusion_weights.get('micro_intent_confirmation', 0.1)) *
             (deceptive_narrative_confirmation_score + 1e-9).pow(fusion_weights.get('deceptive_narrative_confirmation', 0.1))
         ).fillna(0.0)
-        # 移除整个探针逻辑块，恢复生产状态
+        print(f"    -> [行为情报调试] {method_name} 计算完成。")
         return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:

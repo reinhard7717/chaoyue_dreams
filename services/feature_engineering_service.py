@@ -114,36 +114,54 @@ class FeatureEngineeringService:
 
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.1 注释优化版】VPA效率指标生产线
-        - 核心职责: 计算自定义指标 VPA_EFFICIENCY_D (价量攻击效率)。
-        - 指标含义: 该指标衡量单位“超额”成交量所带来的价格涨幅。比值越高，说明资金攻击效率越高，少量放量就能带来较大涨幅；
-                    反之，则说明存在抛压，或资金拉升意愿不强。
-        - 优化: 代码已为最优向量化实现，本次仅增加详尽注释。
+        【V1.2 · 细粒度VPA升级版】VPA效率指标生产线
+        - 核心职责: 计算自定义指标 VPA_EFFICIENCY_D (价量攻击效率)，并新增买卖方细粒度VPA效率。
+        - 指标含义:
+            - VPA_EFFICIENCY_D: 衡量单位“超额”成交量所带来的价格涨幅。
+            - VPA_BUY_EFFICIENCY_D: 衡量买方资金推动价格上涨的效率。
+            - VPA_SELL_EFFICIENCY_D: 衡量卖方资金推动价格下跌的效率。
+        - 优化: 增加细粒度买卖方VPA效率的计算。
         """
         timeframe = 'D' # 此特征仅在日线级别计算
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
         # 检查计算所需的列是否存在
-        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
+        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             logger.warning(f"VPA效率生产线缺少关键数据: {missing}，模块已跳过！")
             return all_dfs
-        # 1. 计算成交量比率：当日成交量 / 21日均量。衡量成交量的相对放大程度。
+        # 1. 计算总VPA效率
         volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
-        # 2. 计算攻击效率：当日涨跌幅 / 成交量比率。
         vpa_efficiency = df['pct_change_D'] / volume_ratio.replace(0, np.nan)
-        # 3. 将结果存入DataFrame，处理无穷大值并填充空值
         df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
+        # 2. 计算买方VPA效率 (VPA_BUY_EFFICIENCY_D)
+        # 衡量买方资金推动价格上涨的效率
+        # 使用主力买入OFI作为买方资金流的代表
+        mf_buy_ofi_ma_21 = df['main_force_buy_ofi_D'].rolling(window=21, min_periods=1).mean()
+        buy_flow_ratio = df['main_force_buy_ofi_D'] / mf_buy_ofi_ma_21.replace(0, np.nan)
+        # 仅在价格上涨时计算买方效率，下跌时效率为0或负值
+        buy_vpa_efficiency = df['pct_change_D'].apply(lambda x: max(0, x)) / buy_flow_ratio.replace(0, np.nan)
+        df['VPA_BUY_EFFICIENCY_D'] = buy_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
+        # 3. 计算卖方VPA效率 (VPA_SELL_EFFICIENCY_D)
+        # 衡量卖方资金推动价格下跌的效率
+        # 使用主力卖出OFI作为卖方资金流的代表
+        mf_sell_ofi_ma_21 = df['main_force_sell_ofi_D'].rolling(window=21, min_periods=1).mean()
+        sell_flow_ratio = df['main_force_sell_ofi_D'] / mf_sell_ofi_ma_21.replace(0, np.nan)
+        # 仅在价格下跌时计算卖方效率，上涨时效率为0或负值
+        sell_vpa_efficiency = df['pct_change_D'].apply(lambda x: min(0, x)) / sell_flow_ratio.replace(0, np.nan)
+        df['VPA_SELL_EFFICIENCY_D'] = sell_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.1 · 熵指标增强版】元特征计算车间
+        【V3.3 · 熵指标与细粒度斐波那契元特征增强版】元特征计算车间
         - 核心升级: 废弃旧的简单指标，引入分形维度、样本熵、波动率不稳定性等一系列能够深度刻画市场混沌、分形与信息熵的“元特征”。
         - 新增优化: 直接集成预计算的、更高级的 `price_volume_entropy_D` 指标，作为对市场信息复杂度的核心度量。
+        - 细粒度增强: 引入基于主力资金流和订单簿流动性的赫斯特指数和样本熵。
+        - 周期调整: 调整元特征计算窗口为斐波那契数列。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -153,109 +171,116 @@ class FeatureEngineeringService:
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
         if not params.get('enabled', False):
             return all_dfs
-        close_col = f'close{suffix}'
-        if close_col not in df.columns:
-            logger.warning(f"元特征计算缺少核心列 '{close_col}'，模块已跳过。")
-            return all_dfs
-        source_series = df[close_col]
-        if isinstance(source_series, pd.DataFrame):
-            source_series = source_series.iloc[:, 0]
-        # --- 1. Hurst 指数 (市场记忆性) ---
-        hurst_window = params.get('hurst_window', 120)
-        hurst_col = f'hurst_{hurst_window}d{suffix}'
-        if hurst_col not in df.columns and len(source_series.dropna()) >= hurst_window:
-            try:
-                df[hurst_col] = source_series.rolling(window=hurst_window, min_periods=hurst_window).apply(hurst_exponent, raw=True)
-            except Exception as e:
-                logger.error(f"赫斯特指数(周期{hurst_window})计算失败: {e}")
-                df[hurst_col] = np.nan
-        # --- 2. 分形维度 (市场复杂度) ---
+        source_series_configs = [
+            {'col': f'close{suffix}', 'prefix': ''},
+            {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
+            {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
+        ]
         def _higuchi_fractal_dimension(x, k_max):
             L = []
             x_len = len(x)
             for k in range(1, k_max + 1):
                 Lk = 0
                 for m in range(k):
-                    # 创建子序列
                     series = x[m::k]
                     if len(series) < 2: continue
-                    # 计算子序列长度
                     Lk += np.sum(np.abs(np.diff(series))) * (x_len - 1) / ((x_len - m) // k * k)
                 L.append(np.log(Lk / k) if Lk > 0 else 0)
-            # 对log-log图进行线性回归
             k_range_log = np.log(np.arange(1, k_max + 1))
-            # 过滤掉无效的L值
             valid_indices = [i for i, val in enumerate(L) if val != 0]
             if len(valid_indices) < 2: return np.nan
             slope, _ = np.polyfit(k_range_log[valid_indices], np.array(L)[valid_indices], 1)
             return slope
-        fd_window = params.get('fractal_dimension_window', 100)
-        fd_col = f'FRACTAL_DIMENSION_{fd_window}d{suffix}'
-        if fd_col not in df.columns and len(source_series.dropna()) >= fd_window:
-            try:
-                k_max = int(np.sqrt(fd_window))
-                df[fd_col] = source_series.rolling(window=fd_window).apply(lambda x: _higuchi_fractal_dimension(x, k_max), raw=True)
-            except Exception as e:
-                logger.error(f"分形维度(周期{fd_window})计算失败: {e}")
-                df[fd_col] = np.nan
-        # --- 3. 样本熵 (市场可预测性) ---
         def _sample_entropy(x, m, r):
             n = len(x)
-            # 构造模板
             templates = np.array([x[i:i+m] for i in range(n - m + 1)])
-            # 计算模板间距离
             dist = np.max(np.abs(templates[:, np.newaxis] - templates), axis=2)
-            # 统计匹配数
-            A = np.sum(dist < r) - n # 减去自身匹配
+            A = np.sum(dist < r) - n
             templates_plus_1 = np.array([x[i:i+m+1] for i in range(n - m)])
             dist_plus_1 = np.max(np.abs(templates_plus_1[:, np.newaxis] - templates_plus_1), axis=2)
             B = np.sum(dist_plus_1 < r) - (n - m)
             if A == 0 or B == 0: return np.nan
             return -np.log(B / A)
-        se_window = params.get('sample_entropy_window', 10)
-        se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
-        se_col = f'SAMPLE_ENTROPY_{se_window}d{suffix}'
-        if se_col not in df.columns and len(source_series.dropna()) >= se_window + 1:
-            try:
-                log_returns = np.log(source_series / source_series.shift(1)).dropna()
-                rolling_std = log_returns.rolling(window=se_window).std()
-                # 使用 apply 结合 lambda 来传递动态的 r
-                entropy_values = []
-                for i in range(len(log_returns) - se_window + 1):
-                    window_data = log_returns.iloc[i:i+se_window].values
-                    r = rolling_std.iloc[i+se_window-1] * se_tol_ratio
-                    if pd.isna(r) or r == 0:
-                        entropy_values.append(np.nan)
+        for src_config in source_series_configs:
+            source_col = src_config['col']
+            prefix = src_config['prefix']
+            if source_col not in df.columns:
+                logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
+                continue
+            current_series = df[source_col]
+            if isinstance(current_series, pd.DataFrame):
+                current_series = current_series.iloc[:, 0]
+            # --- 1. Hurst 指数 (市场记忆性) ---
+            # 修改代码行: 调整默认窗口为斐波那契数
+            hurst_window = params.get('hurst_window', 144) # 144是斐波那契数，保持
+            hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
+            if hurst_col not in df.columns and len(current_series.dropna()) >= hurst_window:
+                try:
+                    df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(hurst_exponent, raw=True)
+                except Exception as e:
+                    logger.error(f"赫斯特指数(周期{hurst_window}, 列: {source_col})计算失败: {e}")
+                    df[hurst_col] = np.nan
+            # --- 2. 分形维度 (市场复杂度) ---
+            # 修改代码行: 调整默认窗口为斐波那契数
+            fd_window = params.get('fractal_dimension_window', 89) # 从100改为89
+            fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
+            if fd_col not in df.columns and len(current_series.dropna()) >= fd_window:
+                try:
+                    k_max = int(np.sqrt(fd_window))
+                    df[fd_col] = current_series.rolling(window=fd_window).apply(lambda x: _higuchi_fractal_dimension(x, k_max), raw=True)
+                except Exception as e:
+                    logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
+                    df[fd_col] = np.nan
+            # --- 3. 样本熵 (市场可预测性) ---
+            # 修改代码行: 调整默认窗口为斐波那契数
+            se_window = params.get('sample_entropy_window', 13) # 从10改为13
+            se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
+            se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
+            if se_col not in df.columns and len(current_series.dropna()) >= se_window + 1:
+                try:
+                    log_returns_or_series = current_series.dropna()
+                    if len(log_returns_or_series) < se_window + 1:
+                        df[se_col] = np.nan
                         continue
-                    entropy_values.append(_sample_entropy(window_data, m=2, r=r))
-                # 对齐结果到原始DataFrame
-                df[se_col] = pd.Series(entropy_values, index=log_returns.index[se_window-1:]).reindex(df.index)
-            except Exception as e:
-                logger.error(f"样本熵(周期{se_window})计算失败: {e}")
-                df[se_col] = np.nan
+                    rolling_std = log_returns_or_series.rolling(window=se_window).std()
+                    entropy_values = []
+                    for i in range(len(log_returns_or_series) - se_window + 1):
+                        window_data = log_returns_or_series.iloc[i:i+se_window].values
+                        r = rolling_std.iloc[i+se_window-1] * se_tol_ratio
+                        if pd.isna(r) or r == 0:
+                            entropy_values.append(np.nan)
+                            continue
+                        entropy_values.append(_sample_entropy(window_data, m=2, r=r))
+                    df[se_col] = pd.Series(entropy_values, index=log_returns_or_series.index[se_window-1:]).reindex(df.index)
+                except Exception as e:
+                    logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
+                    df[se_col] = np.nan
         # --- 4. 波动率不稳定性 (状态切换前兆) ---
-        vi_window = params.get('volatility_instability_window', 21)
+        # 修改代码行: 调整默认窗口为斐波那契数
+        vi_window = params.get('volatility_instability_window', 21) # 21是斐波那契数，保持
         vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
-        atr_col = f'ATR_14{suffix}' # 依赖于ATR
+        atr_col = f'ATR_14{suffix}'
         if atr_col in df.columns and vi_col not in df.columns:
             df[vi_col] = df[atr_col].rolling(window=vi_window).std()
-        # --- 5. 新增：集成价格成交量熵 (市场信息复杂度) --- # 新增代码块
-        pve_col_source = f'price_volume_entropy{suffix}' # 新增代码行
-        pve_col_target = f'PRICE_VOLUME_ENTROPY{suffix}' # 新增代码行
-        if pve_col_source in df.columns and pve_col_target not in df.columns: # 新增代码行
-            df[pve_col_target] = df[pve_col_source] # 新增代码行
-            logger.info("已成功集成预计算的'价格成交量熵'指标。") # 新增代码行
+        # --- 5. 新增：集成价格成交量熵 (市场信息复杂度) ---
+        pve_col_source = f'price_volume_entropy{suffix}'
+        pve_col_target = f'PRICE_VOLUME_ENTROPY{suffix}'
+        if pve_col_source in df.columns and pve_col_target not in df.columns:
+            df[pve_col_target] = df[pve_col_source]
+            logger.info("已成功集成预计算的'价格成交量熵'指标。")
+            
         all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.6 · 战略意图升级版】高级模式识别信号生产线
+        【V3.7 · 细粒度博弈升级版】高级模式识别信号生产线
         - 核心升级: 全面引入新一代的结构、博弈和风险指标，将市场状态的识别精度从战术层面提升至战略层面。
                       - 盘整识别: 引入“结构张力指数”，要求筹码结构内部应力低。
                       - 吸筹识别: 引入“浮筹清洗效率”，验证主力吸筹的质量。
                       - 突破识别: 引入“突破就绪分”，作为突破信号的强确认。
                       - 派发识别: 引入“衰竭风险指数”，预警趋势顶部的系统性风险。
+                      - 细粒度数据集成: 将旧的聚合指标替换为新的买卖双方细粒度指标，提升判断精度。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -267,20 +292,27 @@ class FeatureEngineeringService:
             'open_D', 'amount_D',
             'chip_health_score_D',
             'hidden_accumulation_intensity_D',
-            'rally_distribution_pressure_D',
+            'rally_sell_distribution_intensity_D',
+            'rally_buy_support_weakness_D', # 新增代码行: 确保拉升买方支撑弱点在必需列中
             'winner_stability_index_D',
             'cost_structure_skewness_D',
             'dominant_peak_solidity_D',
-            'main_force_net_flow_calibrated_D', 'main_force_execution_alpha_D', 'dip_absorption_power_D',
-            'main_force_on_peak_flow_D', 'flow_efficiency_index_D', 'main_force_flow_directionality_D',
+            'main_force_net_flow_calibrated_D',
+            'main_force_buy_execution_alpha_D',
+            'main_force_sell_execution_alpha_D',
+            'dip_buy_absorption_strength_D',
+            'dip_sell_pressure_resistance_D',
+            'main_force_on_peak_buy_flow_D',
+            'buy_flow_efficiency_index_D',
+            'main_force_flow_directionality_D',
             'MA_POTENTIAL_TENSION_INDEX_D',
             'MA_POTENTIAL_ORDERLINESS_SCORE_D',
             'MA_POTENTIAL_COMPRESSION_RATE_D',
             'VPA_EFFICIENCY_D',
-            'structural_tension_index_D',          # 新增代码行: 引入结构张力指数
-            'floating_chip_cleansing_efficiency_D',# 新增代码行: 引入浮筹清洗效率
-            'breakout_readiness_score_D',          # 新增代码行: 引入突破就绪分
-            'exhaustion_risk_index_D'              # 新增代码行: 引入衰竭风险指数
+            'structural_tension_index_D',
+            'floating_chip_cleansing_efficiency_D',
+            'breakout_readiness_score_D',
+            'exhaustion_risk_index_D'
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -294,39 +326,35 @@ class FeatureEngineeringService:
         cond_struct_healthy = (df['chip_health_score_D'] > 50) & (df['dominant_peak_solidity_D'] > 0.5)
         cond_low_volatility = df['BBW_21_2.0_D'] < df['BBW_21_2.0_D'].rolling(60).quantile(0.25)
         cond_weak_trend = df['ADX_14_D'] < 25
-        # 新增代码行: 引入结构张力条件，要求筹码结构内部稳定、无应力
         cond_low_structural_tension = df['structural_tension_index_D'] < df['structural_tension_index_D'].rolling(60).quantile(0.30)
-        # 修改代码行: 在盘整条件中加入对低结构张力的要求
         df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy & cond_low_volatility & cond_weak_trend & cond_low_structural_tension
         cond_compressing = df['MA_POTENTIAL_COMPRESSION_RATE_D'] < 0
-        # 新增代码行: 引入浮筹清洗效率作为吸筹的佐证
         cond_chip_cleansing = df['floating_chip_cleansing_efficiency_D'] > 0.5
-        # 修改代码行: 将浮筹清洗效率加入主力吸筹的判断条件
-        cond_main_force_accum = (df['hidden_accumulation_intensity_D'] > 0) | (df['dip_absorption_power_D'] > 0.5) | cond_chip_cleansing
-        cond_peak_flow_positive = df['main_force_on_peak_flow_D'].rolling(3).mean() > 0
+        cond_main_force_accum = (df['hidden_accumulation_intensity_D'] > 0) | \
+                                ((df['dip_buy_absorption_strength_D'] > 0.5) & (df['dip_sell_pressure_resistance_D'] < 0.3)) | \
+                                cond_chip_cleansing
+        cond_peak_flow_positive = df['main_force_on_peak_buy_flow_D'].rolling(3).mean() > 0
         cond_vpa_efficient_accum = df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.5)
         df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & cond_compressing & (cond_main_force_accum | cond_peak_flow_positive) & cond_vpa_efficient_accum
         cond_was_consolidating = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'].shift(1).fillna(False)
         cond_orderliness_turn_up = (df['MA_POTENTIAL_ORDERLINESS_SCORE_D'] > 0.8) & (df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].diff() > 0.3)
         cond_main_force_ignition = (df['main_force_net_flow_calibrated_D'] > 0) & \
-                                   (df['main_force_execution_alpha_D'] > 0) & \
+                                   (df['main_force_buy_execution_alpha_D'] > 0) & \
                                    (df['main_force_flow_directionality_D'] > 0.6)
         cond_price_volume_confirm = (df['pct_change_D'] > 0.01) & \
                                     (df['volume_D'] > df['VOL_MA_21_D'] * 1.2) & \
                                     (df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.9))
-        # 新增代码行: 引入突破就绪分作为强确认条件
-        cond_breakout_ready = df['breakout_readiness_score_D'] > 60 # 突破就绪分通常是0-100
-        # 修改代码行: 在突破条件中加入对突破就绪分的验证
+        cond_breakout_ready = df['breakout_readiness_score_D'] > 60
         df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm & cond_breakout_ready
-        cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_distribution_pressure_D'] > 0.5)
+        # 修改代码行: 增强派发信号，结合拉升卖出派发强度和拉升买方支撑弱点
+        cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_sell_distribution_intensity_D'] > 0.5) & (df['rally_buy_support_weakness_D'] > 0.5) # 新增代码行
         cond_main_force_outflow = (df['main_force_net_flow_calibrated_D'].rolling(3).sum() < 0) & \
-                                  (df['main_force_flow_directionality_D'] < -0.3)
+                                  (df['main_force_flow_directionality_D'] < -0.3) & \
+                                  (df['main_force_sell_execution_alpha_D'] > 0)
         cond_winner_conviction_drop = df['winner_stability_index_D'].diff() < 0
         cond_resilience_drop = df['dominant_peak_solidity_D'].diff() < 0
         cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
-        # 新增代码行: 引入衰竭风险指数作为派发的强预警信号
-        cond_exhaustion_risk = df['exhaustion_risk_index_D'] > 70 # 衰竭风险指数通常是0-100
-        # 修改代码行: 将衰竭风险加入派发的核心判断逻辑
+        cond_exhaustion_risk = df['exhaustion_risk_index_D'] > 70
         df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist) | cond_exhaustion_risk
         # --- 3. 【通达信模式集成】 ---
         if 'amount_D' in df.columns:
@@ -360,7 +388,7 @@ class FeatureEngineeringService:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.6 战略意图升级版)分析完成。")
+        logger.info("高级模式识别引擎(V3.7 细粒度博弈升级版)分析完成。")
         return all_dfs
 
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
@@ -395,9 +423,11 @@ class FeatureEngineeringService:
 
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.0 · 意图识别升级版】根据多因子共振识别盘整期。
+        【V2.2 · 细粒度意图与斐波那契周期升级版】根据多因子共振识别盘整期。
         - 核心升级: 判定逻辑从单一的“几何形态”升级为“几何形态 或 主力意图”的双重标准。
                       即使K线形态不完美，只要筹码高度锁定且主力展现出强控盘意图，也将其识别为盘整构筑期。
+                      增强主力意图判断，引入细粒度买卖方意图和欺骗指数。
+                      周期参数调整为斐波那契数列。
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -405,16 +435,18 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             return all_dfs
         df = all_dfs[timeframe]
-        boll_period = params.get('boll_period', 21)
-        boll_std = params.get('boll_std', 2.0)
-        roc_period = params.get('roc_period', 12)
-        vol_ma_period = params.get('vol_ma_period', 55)
+        # 修改代码行: 调整默认周期为斐波那契数
+        boll_period = params.get('boll_period', 21) # 21是斐波那契数，保持
+        roc_period = params.get('roc_period', 13)   # 从12改为13
+        vol_ma_period = params.get('vol_ma_period', 55) # 55是斐波那契数，保持
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
         roc_col = f"ROC_{roc_period}_{timeframe}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}_{timeframe}"
         required_cols = [
             bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}',
-            'dominant_peak_solidity_D', 'control_solidity_index_D' # 新增：引入主力意图证据
+            'dominant_peak_solidity_D', 'control_solidity_index_D',
+            'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D',
+            'deception_lure_long_intensity_D'
         ]
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
@@ -425,17 +457,18 @@ class FeatureEngineeringService:
         min_expanding_periods = boll_period * 2
         dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile).bfill()
         df[f'dynamic_bbw_threshold_{timeframe}'] = dynamic_bbw_threshold
-        # 条件1: 经典几何形态构筑
         cond_volatility = df[bbw_col] < df[f'dynamic_bbw_threshold_{timeframe}']
         cond_trend = df[roc_col].abs() < roc_threshold
         cond_volume = df[f'volume_{timeframe}'] < df[vol_ma_col]
         is_classic_consolidation = cond_volatility & cond_trend & cond_volume
-        # 条件2: 主力意图构筑 (即使形态不完美)
-        # 证据：筹码高度锁定 且 主力强力控盘
         cond_chips_locked = df['dominant_peak_solidity_D'] > 0.7
         cond_main_force_control = df['control_solidity_index_D'] > 0.6
-        is_intent_based_consolidation = cond_chips_locked & cond_main_force_control
-        # 最终判定：满足任一条件即可
+        cond_mf_buy_intent_strong = df['mf_cost_zone_buy_intent_D'] > 0.5
+        cond_mf_sell_intent_weak = df['mf_cost_zone_sell_intent_D'] < 0.3
+        cond_no_deception_lure_long = df['deception_lure_long_intensity_D'] < 0.2
+        is_intent_based_consolidation = cond_chips_locked & cond_main_force_control & \
+                                         cond_mf_buy_intent_strong & cond_mf_sell_intent_weak & \
+                                         cond_no_deception_lure_long
         is_consolidating = is_classic_consolidation | is_intent_based_consolidation
         df[f'is_consolidating_{timeframe}'] = is_consolidating
         if is_consolidating.any():
@@ -601,33 +634,43 @@ class FeatureEngineeringService:
 
     async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V1.0】计算标准化主力净流量 (Normalized Main Force Net Flow, NMFNF)。
+        【V1.1 · 细粒度NMFNF升级版】计算标准化主力净流量 (Normalized Main Force Net Flow, NMFNF)。
         - 核心逻辑: NMFNF = main_force_net_flow_calibrated_D / total_market_value_D。
-        - 目的: 将主力净流量标准化，使其在不同市值和活跃度的股票间可比。
+        - 新增逻辑: NMFNF_BUY_D = main_force_buy_ofi_D / total_market_value_D。
+        - 新增逻辑: NMFNF_SELL_D = main_force_sell_ofi_D / total_market_value_D。
+        - 目的: 将主力净流量标准化，使其在不同市值和活跃度的股票间可比，并细化买卖方贡献。
         """
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             logger.warning(f"计算 NMFNF 失败：缺少日线数据。")
             return all_dfs
         df = all_dfs[timeframe]
-        required_cols = ['main_force_net_flow_calibrated_D', 'total_market_value_D']
+        required_cols = ['main_force_net_flow_calibrated_D', 'total_market_value_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             logger.warning(f"计算 NMFNF 缺少关键数据: {missing_cols}，模块已跳过！")
             return all_dfs
-        # 避免除以零，将总市值中的零替换为 NaN，然后填充一个非常小的数或直接用0处理
-        # 这里选择替换为 NaN，然后整个表达式会变为 NaN，最后fillna(0)
-        nmfnf_series = df['main_force_net_flow_calibrated_D'] / df['total_market_value_D'].replace(0, np.nan)
+        # 避免除以零，将总市值中的零替换为 NaN，然后整个表达式会变为 NaN，最后fillna(0)
+        total_market_value_safe = df['total_market_value_D'].replace(0, np.nan)
+        # 计算总NMFNF
+        nmfnf_series = df['main_force_net_flow_calibrated_D'] / total_market_value_safe
         df['NMFNF_D'] = nmfnf_series.fillna(0)
+        # 计算买方NMFNF (NMFNF_BUY_D)
+        nmfnf_buy_series = df['main_force_buy_ofi_D'] / total_market_value_safe
+        df['NMFNF_BUY_D'] = nmfnf_buy_series.fillna(0)
+        # 计算卖方NMFNF (NMFNF_SELL_D)
+        nmfnf_sell_series = df['main_force_sell_ofi_D'] / total_market_value_safe
+        df['NMFNF_SELL_D'] = nmfnf_sell_series.fillna(0)
         all_dfs[timeframe] = df
         logger.info("NMFNF 指标计算完成。")
         return all_dfs
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V3.1 · 结构动力学升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
+        【V3.2 · 结构动力学与细粒度博弈升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
         - 核心升级: 维度一“筹码集中度与结构优化”的计算逻辑重构，引入 cost_gini_coefficient 和 primary_peak_kurtosis 两个核心指标，
                     替代旧的 winner/loser_concentration 指标，实现对筹码结构更精准、更深刻的量化评估。
+                    全面替换旧的聚合指标，引入新的买卖双方细粒度指标，并重新设计部分融合逻辑，以更精确地反映市场博弈的真实情况。
         - 目的: 在数据层提前计算一个综合的筹码健康度指标，供后续斜率计算和情报层使用。
         - 数据源: 直接从 df 中获取原始筹码相关列。
         """
@@ -638,11 +681,11 @@ class FeatureEngineeringService:
         df = all_dfs[timeframe]
         df_index = df.index
         # 定义所有需要的原始筹码相关列
-        # 更新必需列的列表，以匹配V33.0版本的新指标体系
+        # 更新必需列的列表，以匹配V33.0版本的新指标体系和细粒度数据
         required_cols = [
-            # 维度一: 筹码集中度与结构优化 (已更新)
-            'cost_gini_coefficient_D',        # 修改代码行: 新增，替代 winner/loser_concentration
-            'primary_peak_kurtosis_D',        # 修改代码行: 新增，增强主峰质量评估
+            # 维度一: 筹码集中度与结构优化
+            'cost_gini_coefficient_D',
+            'primary_peak_kurtosis_D',
             'dominant_peak_solidity_D', 'dominant_peak_volume_ratio_D',
             'chip_fault_blockage_ratio_D',
             # 维度二: 成本与盈亏结构动态
@@ -652,6 +695,9 @@ class FeatureEngineeringService:
             'main_force_cost_advantage_D',
             'profit_taking_flow_ratio_D',
             'loser_pain_index_D',
+            'rally_sell_distribution_intensity_D',
+            'dip_buy_absorption_strength_D',
+            'panic_buy_absorption_contribution_D',
             # 维度三: 持股心态与交易行为
             'winner_stability_index_D',
             'chip_fatigue_index_D',
@@ -659,11 +705,50 @@ class FeatureEngineeringService:
             'capitulation_absorption_index_D',
             'active_buying_support_D', 'active_selling_pressure_D',
             'mf_retail_battle_intensity_D',
+            'dip_buy_absorption_strength_D',
+            'dip_sell_pressure_resistance_D',
+            'rally_sell_distribution_intensity_D',
+            'rally_buy_support_weakness_D',
+            'panic_sell_volume_contribution_D',
+            'panic_buy_absorption_contribution_D',
+            'opening_buy_strength_D',
+            'opening_sell_strength_D',
+            'pre_closing_buy_posture_D',
+            'pre_closing_sell_posture_D',
+            'closing_auction_buy_ambush_D',
+            'closing_auction_sell_ambush_D',
+            'main_force_buy_ofi_D',
+            'main_force_sell_ofi_D',
+            'retail_buy_ofi_D',
+            'retail_sell_ofi_D',
+            'wash_trade_buy_volume_D', # 新增代码行: 确保洗盘交易量在必需列中
+            'wash_trade_sell_volume_D', # 新增代码行: 确保洗盘交易量在必需列中
+            'buy_order_book_clearing_rate_D',
+            'sell_order_book_clearing_rate_D',
+            'vwap_buy_control_strength_D',
+            'vwap_sell_control_strength_D',
+            'bid_side_liquidity_D',
+            'ask_side_liquidity_D',
             # 维度四: 主力控盘与意图
             'control_solidity_index_D',
-            'main_force_on_peak_flow_D',
-            'main_force_flow_directionality_D', 'main_force_execution_alpha_D',
-            'main_force_conviction_index_D', 'mf_vpoc_premium_D', 'vwap_control_strength_D',
+            'main_force_on_peak_buy_flow_D',
+            'main_force_on_peak_sell_flow_D',
+            'main_force_flow_directionality_D',
+            'main_force_buy_execution_alpha_D',
+            'main_force_sell_execution_alpha_D',
+            'main_force_conviction_index_D', 'mf_vpoc_premium_D',
+            'vwap_buy_control_strength_D',
+            'vwap_sell_control_strength_D',
+            'main_force_vwap_up_guidance_D',
+            'main_force_vwap_down_guidance_D',
+            'vwap_cross_up_intensity_D',
+            'vwap_cross_down_intensity_D',
+            'main_force_t0_buy_efficiency_D',
+            'main_force_t0_sell_efficiency_D',
+            'buy_flow_efficiency_index_D',
+            'sell_flow_efficiency_index_D',
+            'covert_distribution_signal_D', # 新增代码行: 确保隐蔽派发信号在必需列中
+            'supportive_distribution_intensity_D', # 新增代码行: 确保支持性派发强度在必需列中
             'turnover_rate_f_D'
         ]
         # 使用 _get_safe_series 确保所有数据都存在，并用默认值填充缺失值
@@ -673,111 +758,122 @@ class FeatureEngineeringService:
                 return pd.Series(default_val, index=df_index)
             return df[col_name].fillna(default_val)
         # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
-        # 修改代码块：V3.1 升级: 使用基尼系数和峰态系数替代旧的集中度指标，评估更精准
-        cost_gini = _get_safe_series_local('cost_gini_coefficient_D', 0.5) # 0-1, 越小越集中
-        peak_kurtosis = _get_safe_series_local('primary_peak_kurtosis_D', 3.0) # 越大越尖锐
-        peak_solidity = _get_safe_series_local('dominant_peak_solidity_D', 0.5) # 0-1
-        peak_volume_ratio = _get_safe_series_local('dominant_peak_volume_ratio_D', 0.5) # 0-1
-        chip_fault = _get_safe_series_local('chip_fault_blockage_ratio_D', 0.0) # 0-1，越低越好
-        # 集中度健康度：基尼系数越低，代表成本越集中，健康度越高
+        cost_gini = _get_safe_series_local('cost_gini_coefficient_D', 0.5)
+        peak_kurtosis = _get_safe_series_local('primary_peak_kurtosis_D', 3.0)
+        peak_solidity = _get_safe_series_local('dominant_peak_solidity_D', 0.5)
+        peak_volume_ratio = _get_safe_series_local('dominant_peak_volume_ratio_D', 0.5)
+        chip_fault = _get_safe_series_local('chip_fault_blockage_ratio_D', 0.0)
         concentration_health = (1 - cost_gini).clip(0, 1)
-        # 筹码峰质量：稳固度、量能占比、以及峰的尖锐度（峰态）三者结合
-        # 使用滚动百分位排名对峰态系数进行归一化，使其成为一个稳定的[0,1]因子
         normalized_kurtosis = peak_kurtosis.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5)
         peak_quality = (peak_solidity * peak_volume_ratio * normalized_kurtosis).clip(0, 1)
-        # 堵塞惩罚：堵塞比率越高，惩罚越大
         blockage_penalty = (1 - chip_fault)
-        # 集中度与结构优化融合 (映射到 0-1)
-        # 重新分配权重，突出集中度(基尼系数)和峰质量的核心地位
         concentration_score = (
             concentration_health * 0.5 +
             peak_quality * 0.4 +
             blockage_penalty * 0.1
         ).clip(0, 1)
         # --- 2. 成本与盈亏结构动态 (Cost & P/L Structure Dynamics Score) ---
-        total_winner_rate = _get_safe_series_local('total_winner_rate_D', 0.5) # 0-1
-        total_loser_rate = _get_safe_series_local('total_loser_rate_D', 0.5) # 0-1
-        winner_profit_margin = _get_safe_series_local('winner_profit_margin_avg_D', 0.0) / 100 # 归一化到 0-1
-        loser_loss_margin = _get_safe_series_local('loser_loss_margin_avg_D', 0.0) / 100 # 归一化到 0-1
-        # 使用 cost_structure_skewness_D 替代 cost_divergence_normalized_D
-        cost_divergence = _get_safe_series_local('cost_structure_skewness_D', 0.0) # -1到1
-        mf_cost_advantage = _get_safe_series_local('main_force_cost_advantage_D', 0.0) # -1到1
-        # 使用 profit_taking_flow_ratio_D 和 loser_pain_index_D 替代
-        imminent_profit_taking = _get_safe_series_local('profit_taking_flow_ratio_D', 0.0) # 0-1
-        loser_capitulation_pressure = _get_safe_series_local('loser_pain_index_D', 0.0) # 0-1
-        # 获利盘压力：获利盘比例、利润率、抛压意愿的乘积 (负向贡献)
-        profit_pressure = total_winner_rate * winner_profit_margin * imminent_profit_taking
-        # 亏损盘支撑：亏损盘比例、亏损率、投降压力低的乘积 (正向贡献)
-        loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure)
-        # 成本优势：主力成本优势与成本发散度的结合
+        total_winner_rate = _get_safe_series_local('total_winner_rate_D', 0.5)
+        total_loser_rate = _get_safe_series_local('total_loser_rate_D', 0.5)
+        winner_profit_margin = _get_safe_series_local('winner_profit_margin_avg_D', 0.0) / 100
+        loser_loss_margin = _get_safe_series_local('loser_loss_margin_avg_D', 0.0) / 100
+        cost_divergence = _get_safe_series_local('cost_structure_skewness_D', 0.0)
+        mf_cost_advantage = _get_safe_series_local('main_force_cost_advantage_D', 0.0)
+        imminent_profit_taking = _get_safe_series_local('profit_taking_flow_ratio_D', 0.0)
+        loser_capitulation_pressure = _get_safe_series_local('loser_pain_index_D', 0.0)
+        profit_pressure = total_winner_rate * winner_profit_margin * (imminent_profit_taking + _get_safe_series_local('rally_sell_distribution_intensity_D', 0.0)).clip(0,1)
+        loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure) + \
+                        _get_safe_series_local('dip_buy_absorption_strength_D', 0.0) * 0.5 + \
+                        _get_safe_series_local('panic_buy_absorption_contribution_D', 0.0) * 0.5
         cost_advantage_score = (mf_cost_advantage - cost_divergence).clip(-1, 1)
-        # 成本与盈亏结构融合 (映射到 0-1)
         cost_structure_score = (
             (loser_support * 0.4) +
-            ((cost_advantage_score + 1) / 2 * 0.4) - # 映射到 0到1
+            ((cost_advantage_score + 1) / 2 * 0.4) -
             (profit_pressure * 0.2)
         ).clip(0, 1)
         # --- 3. 持股心态与交易行为 (Holder Sentiment & Behavior Score) ---
-        # 使用 winner_stability_index_D 和 (1 - capitulation_flow_ratio_D) 等替代
-        winner_conviction = _get_safe_series_local('winner_stability_index_D', 0.0) # 0-1
-        chip_fatigue = _get_safe_series_local('chip_fatigue_index_D', 0.0) # 0-1
-        locked_profit = _get_safe_series_local('winner_stability_index_D', 0.0) # 0-1
-        locked_loss = 1.0 - _get_safe_series_local('capitulation_flow_ratio_D', 0.0) # 0-1
-        capitulation_absorption = _get_safe_series_local('capitulation_absorption_index_D', 0.0) # 0-1
-        active_buying = _get_safe_series_local('active_buying_support_D', 0.0) # 0-1
-        active_selling = _get_safe_series_local('active_selling_pressure_D', 0.0) # 0-1
-        # 使用 mf_retail_battle_intensity_D 替代 active_zone_combat_intensity_D
-        combat_intensity = _get_safe_series_local('mf_retail_battle_intensity_D', 0.0) # 0-1
-        # 信念与锁定：信念、锁定利润盘正向，疲劳、锁定亏损盘负向
+        winner_conviction = _get_safe_series_local('winner_stability_index_D', 0.0)
+        chip_fatigue = _get_safe_series_local('chip_fatigue_index_D', 0.0)
+        locked_profit = _get_safe_series_local('winner_stability_index_D', 0.0)
+        locked_loss = 1.0 - _get_safe_series_local('capitulation_flow_ratio_D', 0.0)
+        buy_side_absorption_composite = (
+            _get_safe_series_local('capitulation_absorption_index_D', 0.0) * 0.2 +
+            _get_safe_series_local('active_buying_support_D', 0.0) * 0.1 +
+            _get_safe_series_local('dip_buy_absorption_strength_D', 0.0) * 0.1 +
+            _get_safe_series_local('panic_buy_absorption_contribution_D', 0.0) * 0.1 +
+            _get_safe_series_local('opening_buy_strength_D', 0.0) * 0.05 +
+            _get_safe_series_local('pre_closing_buy_posture_D', 0.0) * 0.05 +
+            _get_safe_series_local('closing_auction_buy_ambush_D', 0.0) * 0.05 +
+            _get_safe_series_local('main_force_buy_ofi_D', 0.0) * 0.1 +
+            _get_safe_series_local('retail_buy_ofi_D', 0.0) * 0.05 +
+            _get_safe_series_local('bid_side_liquidity_D', 0.0) * 0.05 +
+            _get_safe_series_local('buy_order_book_clearing_rate_D', 0.0) * 0.05 +
+            _get_safe_series_local('vwap_buy_control_strength_D', 0.0) * 0.05
+        ).clip(0, 1)
+        sell_side_pressure_composite = (
+            _get_safe_series_local('active_selling_pressure_D', 0.0) * 0.1 +
+            _get_safe_series_local('rally_sell_distribution_intensity_D', 0.0) * 0.1 +
+            _get_safe_series_local('dip_sell_pressure_resistance_D', 0.0) * 0.05 +
+            _get_safe_series_local('panic_sell_volume_contribution_D', 0.0) * 0.1 +
+            _get_safe_series_local('opening_sell_strength_D', 0.0) * 0.05 +
+            _get_safe_series_local('pre_closing_sell_posture_D', 0.0) * 0.05 +
+            _get_safe_series_local('closing_auction_sell_ambush_D', 0.0) * 0.05 +
+            _get_safe_series_local('main_force_sell_ofi_D', 0.0) * 0.1 +
+            _get_safe_series_local('retail_sell_ofi_D', 0.0) * 0.05 +
+            _get_safe_series_local('ask_side_liquidity_D', 0.0) * 0.05 +
+            _get_safe_series_local('sell_order_book_clearing_rate_D', 0.0) * 0.05 +
+            _get_safe_series_local('vwap_sell_control_strength_D', 0.0) * 0.05
+        ).clip(0, 1)
+        combat_intensity = _get_safe_series_local('mf_retail_battle_intensity_D', 0.0)
         conviction_lock_score = (winner_conviction + locked_profit - chip_fatigue - locked_loss).clip(-1, 1)
-        # 吸收与支撑：吸收能力、主动买盘正向，主动卖盘负向
-        absorption_support_score = (capitulation_absorption + active_buying - active_selling).clip(-1, 1)
-        # 持股心态与交易行为融合 (映射到 0-1)
+        absorption_support_score = (buy_side_absorption_composite - sell_side_pressure_composite).clip(-1, 1)
+        # 修改代码行: 引入洗盘交易量作为情绪杂质的惩罚项
+        wash_trade_penalty = (_get_safe_series_local('wash_trade_buy_volume_D', 0.0) + _get_safe_series_local('wash_trade_sell_volume_D', 0.0)).clip(0, 1) * 0.1 # 假设洗盘交易量越大，情绪纯度越低
         sentiment_score = (
             ((conviction_lock_score + 1) / 2 * 0.4) +
             ((absorption_support_score + 1) / 2 * 0.4) +
-            (combat_intensity * 0.2)
+            (combat_intensity * 0.2) -
+            (wash_trade_penalty * 0.1) # 新增代码行: 惩罚洗盘交易量
         ).clip(0, 1)
         # --- 4. 主力控盘与意图 (Main Force Control & Intent Score) ---
-        # 使用 control_solidity_index_D 替代 main_force_control_leverage_D
-        mf_control_leverage = _get_safe_series_local('control_solidity_index_D', 0.0) # 0-1
-        mf_on_peak_flow = _get_safe_series_local('main_force_on_peak_flow_D', 0.0) # 金额，需要归一化
-        mf_flow_directionality = _get_safe_series_local('main_force_flow_directionality_D', 0.0) # -1到1
-        mf_execution_alpha = _get_safe_series_local('main_force_execution_alpha_D', 0.0) # -1到1
-        mf_conviction_index = _get_safe_series_local('main_force_conviction_index_D', 0.0) # 0-1
-        mf_vpoc_premium = _get_safe_series_local('mf_vpoc_premium_D', 0.0) # -1到1
-        vwap_control_strength = _get_safe_series_local('vwap_control_strength_D', 0.0) # 0-1
-        turnover_rate_f = _get_safe_series_local('turnover_rate_f_D', 0.0) # 百分比
-        # 控盘强度：控盘杠杆与VWAP控制强度乘积
-        control_strength = mf_control_leverage * vwap_control_strength
-        # 峰值操作：主力在筹码峰上的资金流，归一化到 0-1
-        mf_on_peak_flow_normalized = (mf_on_peak_flow.rank(pct=True) * 2 - 1).clip(0, 1) # 只取正向贡献
-        # 资金意图：方向性、执行效率、信念的乘积
-        mf_intent = mf_flow_directionality * mf_execution_alpha * mf_conviction_index
-        # 成本优势：主力VPOC溢价
-        mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2 # 映射到 0-1
-        # 换手率健康度：适中为好，过高过低惩罚
+        mf_control_leverage = _get_safe_series_local('control_solidity_index_D', 0.0)
+        mf_on_peak_flow_composite = (_get_safe_series_local('main_force_on_peak_buy_flow_D', 0.0) - _get_safe_series_local('main_force_on_peak_sell_flow_D', 0.0))
+        mf_on_peak_flow_normalized = (mf_on_peak_flow_composite.rank(pct=True) * 2 - 1).clip(0, 1)
+        mf_intent_composite = (
+            _get_safe_series_local('main_force_flow_directionality_D', 0.0) * 0.2 +
+            (_get_safe_series_local('main_force_buy_execution_alpha_D', 0.0) - _get_safe_series_local('main_force_sell_execution_alpha_D', 0.0)) * 0.2 +
+            _get_safe_series_local('main_force_conviction_index_D', 0.0) * 0.1 +
+            (_get_safe_series_local('main_force_vwap_up_guidance_D', 0.0) - _get_safe_series_local('main_force_vwap_down_guidance_D', 0.0)) * 0.1 +
+            (_get_safe_series_local('vwap_cross_up_intensity_D', 0.0) - _get_safe_series_local('vwap_cross_down_intensity_D', 0.0)) * 0.1 +
+            (_get_safe_series_local('main_force_t0_buy_efficiency_D', 0.0) - _get_safe_series_local('main_force_t0_sell_efficiency_D', 0.0)) * 0.1 +
+            (_get_safe_series_local('buy_flow_efficiency_index_D', 0.0) - _get_safe_series_local('sell_flow_efficiency_index_D', 0.0)) * 0.1
+        ).clip(-1, 1)
+        mf_vpoc_premium = _get_safe_series_local('mf_vpoc_premium_D', 0.0)
+        vwap_control_composite = (_get_safe_series_local('vwap_buy_control_strength_D', 0.0) - _get_safe_series_local('vwap_sell_control_strength_D', 0.0))
+        control_strength = mf_control_leverage * ((vwap_control_composite + 1) / 2)
+        mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2
+        turnover_rate_f = _get_safe_series_local('turnover_rate_f_D', 0.0)
         turnover_health = pd.Series(1.0, index=df_index)
         turnover_health[turnover_rate_f < 2] = turnover_rate_f[turnover_rate_f < 2] / 2
         turnover_health[turnover_rate_f > 15] = 1 - (turnover_rate_f[turnover_rate_f > 15] - 15) / 10
         turnover_health = turnover_health.clip(0, 1)
-        # 主力控盘与意图融合 (映射到 0-1)
+        # 修改代码行: 引入隐蔽派发信号和支持性派发强度作为主力意图的惩罚项
+        distribution_penalty = (_get_safe_series_local('covert_distribution_signal_D', 0.0) + _get_safe_series_local('supportive_distribution_intensity_D', 0.0)).clip(0, 1) * 0.1 # 派发信号越强，主力控盘意图越负面
         main_force_score = (
             control_strength * 0.3 +
             mf_on_peak_flow_normalized * 0.2 +
-            ((mf_intent + 1) / 2 * 0.3) + # 映射到 0-1
+            ((mf_intent_composite + 1) / 2 * 0.3) +
             mf_cost_advantage_final * 0.1 +
-            turnover_health * 0.1
+            turnover_health * 0.1 -
+            (distribution_penalty * 0.1) # 新增代码行: 惩罚派发信号
         ).clip(0, 1)
         # --- 最终 OCH_D 融合 ---
-        # 将四个维度分数进行加权平均，并映射到 [-1, 1]
-        # 权重可以根据实际回测效果进行调整
         och_score = (
             concentration_score * 0.25 +
             cost_structure_score * 0.25 +
             sentiment_score * 0.25 +
             main_force_score * 0.25
-        ) * 2 - 1 # 映射到 [-1, 1]
+        ) * 2 - 1
         df['OCH_D'] = och_score.astype(np.float32)
         all_dfs[timeframe] = df
         logger.info("OCH 指标计算完成。")

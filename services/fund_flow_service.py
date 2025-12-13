@@ -511,7 +511,6 @@ class AdvancedFundFlowMetricsService:
         """
         results = {}
         WAN = 10000.0
-
         def get_calibrated_value(target_col_name: str):
             consensus_map = {
                 'net_flow_calibrated': ('net_flow_tushare', ['net_flow_ths', 'net_flow_dc']),
@@ -538,11 +537,9 @@ class AdvancedFundFlowMetricsService:
                 calibration_factor = (1 + confirmation_score) / (1 + available_sources) if available_sources > 0 else 1.0
                 return base_value * calibration_factor
             return np.nan
-
         # 计算净流入指标
         for col_name in ['net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated', 'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated', 'net_sh_amount_calibrated']:
             results[col_name] = get_calibrated_value(col_name)
-
         # 新增：计算拆分后的买入/卖出金额指标
         # 这些指标直接从 Tushare 的原始 buy/sell amount 字段计算，不进行复杂的校准，因为它们是原始数据。
         # 确保这些字段在 daily_data_series 中存在，如果不存在则默认为0或NaN
@@ -554,7 +551,6 @@ class AdvancedFundFlowMetricsService:
         sell_lg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'), nan=0.0) # 修改行
         buy_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce'), nan=0.0) # 修改行
         sell_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce'), nan=0.0) # 修改行
-
         results['buy_sm_amount_calibrated'] = buy_sm
         results['sell_sm_amount_calibrated'] = sell_sm
         results['buy_md_amount_calibrated'] = buy_md
@@ -563,14 +559,12 @@ class AdvancedFundFlowMetricsService:
         results['sell_lg_amount_calibrated'] = sell_lg
         results['buy_elg_amount_calibrated'] = buy_elg
         results['sell_elg_amount_calibrated'] = sell_elg
-
         results['total_buy_amount_calibrated'] = buy_sm + buy_md + buy_lg + buy_elg
         results['total_sell_amount_calibrated'] = sell_sm + sell_md + sell_lg + sell_elg
         results['main_force_buy_amount_calibrated'] = buy_lg + buy_elg
         results['main_force_sell_amount_calibrated'] = sell_lg + sell_elg
         results['retail_buy_amount_calibrated'] = buy_sm + buy_md
         results['retail_sell_amount_calibrated'] = sell_sm + sell_md
-
         turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
         try:
             if turnover_amount_yuan > 0:
@@ -931,7 +925,6 @@ class AdvancedFundFlowMetricsService:
             metrics['main_force_sell_ofi'] = hf_analysis_df['main_force_ofi'].clip(upper=0).sum() # 新增行
             metrics['retail_buy_ofi'] = hf_analysis_df['retail_ofi'].clip(lower=0).sum() # 新增行
             metrics['retail_sell_ofi'] = hf_analysis_df['retail_ofi'].clip(upper=0).sum() # 新增行
-
             mf_ofi_series = hf_analysis_df['main_force_ofi']
             price_change_series = hf_analysis_df['mid_price_change']
             if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
@@ -1286,7 +1279,6 @@ class AdvancedFundFlowMetricsService:
                     if total_auction_vol_fallback > 0: # 新增行
                         metrics['closing_auction_buy_ambush'] = (mf_auction_buy_vol_fallback / total_auction_vol_fallback) * PriceImpact * VolumeAnomaly * 100 # 新增行
                         metrics['closing_auction_sell_ambush'] = (mf_auction_sell_vol_fallback / total_auction_vol_fallback) * PriceImpact * VolumeAnomaly * 100 # 新增行
-
             posturing_df = continuous_trading_df[continuous_trading_df.index.time >= time(14, 30)]
             if pd.notna(daily_vwap) and not posturing_df.empty:
                 if not hf_analysis_df.empty:
@@ -1393,7 +1385,6 @@ class AdvancedFundFlowMetricsService:
                     metrics['main_force_vwap_up_guidance'] = price_dev_series[up_guidance_mask].corr(mf_net_flow_series[up_guidance_mask]) # 新增行
                 if down_guidance_mask.any(): # 新增行
                     metrics['main_force_vwap_down_guidance'] = price_dev_series[down_guidance_mask].corr(mf_net_flow_series[down_guidance_mask]) # 新增行
-
             position_vs_vwap = np.sign(intraday_data['minute_vwap'] - daily_vwap)
             crossings = position_vs_vwap.diff().ne(0)
             metrics['vwap_crossing_intensity'] = intraday_data.loc[crossings, 'vol_shares'].sum() / daily_total_volume
@@ -1402,7 +1393,6 @@ class AdvancedFundFlowMetricsService:
             cross_down_mask = (position_vs_vwap.shift(1) == 1) & (position_vs_vwap == -1) # 新增行
             metrics['vwap_cross_up_intensity'] = intraday_data.loc[crossings & cross_up_mask, 'vol_shares'].sum() / daily_total_volume # 新增行
             metrics['vwap_cross_down_intensity'] = intraday_data.loc[crossings & cross_down_mask, 'vol_shares'].sum() / daily_total_volume # 新增行
-
             twap = intraday_data['minute_vwap'].mean()
             if pd.notna(twap) and twap > 0:
                 metrics['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100

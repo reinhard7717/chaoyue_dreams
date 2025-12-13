@@ -1169,55 +1169,78 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算对手盘衰竭指数(V2.3)时发生错误: {e}", exc_info=True)
             return None
+
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V2.5 · 接口契约修复版】计算突破质量分。
+        【V2.7 · 细粒度斐波那契突破质量增强版】计算突破质量分。
         - 核心修复: 遵循“纯净计算”原则，返回不带任何后缀的列名 'breakout_quality_score'，
                       将命名标准化的责任完全交由上游编排器处理。
+        - 细粒度增强: 全面利用细粒度买卖方数据、订单簿流动性、欺骗指数等，提升评估精度。
+        - 周期调整: 调整滚动窗口为斐波那契数列。
         """
         if df_daily is None or df_daily.empty:
             return None
         try:
             def _sync_calc():
                 df = df_daily.copy()
-                weights = params.get('weights', {'volume': 0.2, 'driver': 0.3, 'price_action': 0.1, 'chips': 0.2, 'efficiency': 0.2})
+                weights = params.get('weights', {'volume': 0.2, 'driver': 0.3, 'price_action': 0.1, 'chips': 0.2, 'efficiency': 0.2, 'purity_penalty': 0.1})
+                # 新增代码行: 从params中获取斐波那契滚动窗口周期，默认55
+                rolling_window_fib_period = params.get('rolling_window_fib_period', 55)
                 required_cols = [
                     'volume', 'VOL_MA_21', 'main_force_flow_directionality',
                     'open', 'high', 'low', 'close',
-                    'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
+                    'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY',
+                    'main_force_buy_execution_alpha', 'upward_impulse_strength',
+                    'buy_order_book_clearing_rate', 'bid_side_liquidity',
+                    'vwap_cross_up_intensity', 'opening_buy_strength',
+                    'floating_chip_cleansing_efficiency',
+                    'VPA_BUY_EFFICIENCY',
+                    'deception_lure_long_intensity', 'wash_trade_buy_volume'
                 ]
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:
-                    logger.warning(f"计算突破质量分(V2.5)失败，缺少必要列: {missing_cols}。")
+                    logger.warning(f"计算突破质量分(V2.7)失败，缺少必要列: {missing_cols}。")
                     return None
                 # 维度一：能量输入 (0-1分)
                 volume_ratio = df['volume'] / df['VOL_MA_21'].replace(0, np.nan)
-                score_volume = volume_ratio.rolling(60).rank(pct=True).fillna(0.5)
+                # 修改代码行: 使用 rolling_window_fib_period
+                score_volume = (volume_ratio.rolling(rolling_window_fib_period).rank(pct=True) * 0.5 + \
+                                df['buy_order_book_clearing_rate'].rolling(rolling_window_fib_period).rank(pct=True) * 0.3 + \
+                                df['bid_side_liquidity'].rolling(rolling_window_fib_period).rank(pct=True) * 0.2).fillna(0.5)
                 # 维度二：主导力量 (天然是-1到1分，映射到0-1)
-                score_driver = (df['main_force_flow_directionality'].fillna(0) + 1) / 2
+                score_driver = ((df['main_force_buy_execution_alpha'].fillna(0) * 0.6 + \
+                                 df['upward_impulse_strength'].fillna(0) * 0.4) + 1) / 2
                 # 维度三：价格形态 (0-1分)
                 price_range = (df['high'] - df['low']).replace(0, np.nan)
                 raw_price_action = ((df['close'] - df['open']) / price_range).fillna(0)
-                score_price_action = (raw_price_action.clip(-1, 1) + 1) / 2
+                score_price_action = (raw_price_action.clip(-1, 1) * 0.5 + \
+                                      df['vwap_cross_up_intensity'].fillna(0) * 0.3 + \
+                                      df['opening_buy_strength'].fillna(0) * 0.2 + 1) / 2
                 # 维度四：筹码结构 (0-1分)
                 winner_rate_gain = df['total_winner_rate'].diff().fillna(0)
                 chip_breakthrough_eff = winner_rate_gain * df['dominant_peak_solidity']
-                score_chips = chip_breakthrough_eff.rolling(60).rank(pct=True).fillna(0.5)
+                # 修改代码行: 使用 rolling_window_fib_period
+                score_chips = (chip_breakthrough_eff.rolling(rolling_window_fib_period).rank(pct=True) * 0.7 + \
+                               df['floating_chip_cleansing_efficiency'].rolling(rolling_window_fib_period).rank(pct=True) * 0.3).fillna(0.5)
                 # 维度五：攻击效率 (0-1分)
-                score_efficiency = df['VPA_EFFICIENCY'].rolling(60).rank(pct=True).fillna(0.5)
-                # 加权融合
+                # 修改代码行: 使用 rolling_window_fib_period
+                score_efficiency = df['VPA_BUY_EFFICIENCY'].rolling(rolling_window_fib_period).rank(pct=True).fillna(0.5)
+                # 维度六：纯度惩罚 (0-1分，越低越纯净，惩罚项)
+                purity_penalty = (df['deception_lure_long_intensity'].fillna(0) * 0.7 + \
+                                  df['wash_trade_buy_volume'].fillna(0) * 0.3).clip(0, 1)
                 quality_score = (
                     score_volume * weights['volume'] +
                     score_driver * weights['driver'] +
                     score_price_action * weights['price_action'] +
                     score_chips * weights['chips'] +
-                    score_efficiency * weights['efficiency']
+                    score_efficiency * weights['efficiency'] -
+                    purity_penalty * weights['purity_penalty']
                 ).clip(0, 1)
-                # 修改代码行: 返回纯净的列名，不带后缀
+                
                 return pd.DataFrame({'breakout_quality_score': quality_score})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算突破质量分(V2.5)时发生错误: {e}", exc_info=True)
+            logger.error(f"计算突破质量分(V2.7)时发生错误: {e}", exc_info=True)
             return None
 
 

@@ -605,7 +605,6 @@ class CognitiveIntelligence:
             risk_filter_score = risk_filter_score_components / total_risk_filter_weight
         else:
             risk_filter_score = pd.Series(0.0, index=df.index)
-
         total_confirmation_contradiction_weight = sum(v for k, v in confirmation_contradiction_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_confirmation_contradiction_weight > 0:
             for signal_name, weight in confirmation_contradiction_weights.items():
@@ -623,19 +622,16 @@ class CognitiveIntelligence:
             confirmation_score = confirmation_contradiction_score_components / total_confirmation_contradiction_weight
         else:
             confirmation_score = pd.Series(0.0, index=df.index)
-
         synergy_factor = pd.Series(1.0, index=df.index)
         synergy_condition = (panic_score > synergy_threshold) & \
                             (absorption_score > synergy_threshold) & \
                             (reversal_intent_score > synergy_threshold) & \
                             (risk_filter_score < (1 - synergy_threshold))
         synergy_factor.loc[synergy_condition] += synergy_bonus_factor
-
         conflict_condition = ((panic_score > synergy_threshold) & (absorption_score < (1 - synergy_threshold))) | \
                              (risk_filter_score > synergy_threshold)
         synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
         synergy_factor = synergy_factor.clip(0.5, 1.5)
-
         epsilon = 1e-6
         fused_score_raw = (
             (panic_score + epsilon) *
@@ -644,13 +640,11 @@ class CognitiveIntelligence:
             (context_score + epsilon) *
             (confirmation_score + epsilon)
         )**(1/5)
-
         fused_score_raw = fused_score_raw * synergy_factor
         risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
         final_score = (risk_adjusted_fused_score)**final_fusion_exponent
         final_score = final_score.clip(0, 1)
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
-
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
 

@@ -901,7 +901,6 @@ class FusionIntelligence:
         non_linear_sensitivity = get_param_value(params.get('non_linear_sensitivity'), 2.0)
         norm_window = get_param_value(params.get('norm_window'), 55)
         mtf_norm_weights = get_param_value(params.get('mtf_norm_weights'), {})
-
         # --- 1. MFDI (主力派发意图) ---
         mfdi_weighted_sum = pd.Series(0.0, index=df_index)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
@@ -929,7 +928,6 @@ class FusionIntelligence:
             threshold = get_param_value(mfdi_deception_modulation_params.get('threshold'), 0.1)
             deception_amplifier = (deception_signal.clip(lower=threshold) * amplifier_factor).clip(0, 1)
             mfdi_score = mfdi_score * (1 + deception_amplifier)
-
         # --- 2. RAW (散户承接意愿) ---
         raw_weighted_sum = pd.Series(0.0, index=df_index)
         raw_total_weight = sum(raw_signal_weights.values())
@@ -957,7 +955,6 @@ class FusionIntelligence:
             threshold = get_param_value(raw_panic_dampener_params.get('threshold'), 0.1)
             panic_dampener = (panic_signal.clip(lower=threshold) * dampener_factor).clip(0, 1)
             raw_score = raw_score * (1 - panic_dampener)
-
         # --- 3. MSF (市场结构脆弱性) ---
         msf_weighted_sum = pd.Series(0.0, index=df_index)
         msf_total_weight = sum(msf_signal_weights.values())
@@ -985,7 +982,6 @@ class FusionIntelligence:
             threshold = get_param_value(msf_liquidity_trap_amplifier_params.get('threshold'), 0.3)
             liquidity_trap_amplifier = (1 - efficiency_signal.clip(upper=threshold)) * amplifier_factor
             msf_score = msf_score * (1 + liquidity_trap_amplifier)
-
         # --- 4. 融合三体分数 (加权几何平均) ---
         retail_unwillingness_score = (1 - raw_score).clip(lower=1e-9)
         final_log_sum = pd.Series(0.0, index=df_index)
