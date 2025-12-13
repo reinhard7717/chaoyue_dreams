@@ -155,30 +155,16 @@ class CyclicalIntelligence:
             results_df[name].iloc[start_index:] = arr
         states = {col: results_df[col] for col in results_df.columns}
         return states
+
     def diagnose_market_memory_with_hurst(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
-        """
-        【V2.1 · 双极性重构与多时间维度归一化版】使用Hurst指数诊断市场记忆性 (公理二)
-        - 核心重构: 废除线性映射，改用 normalize_to_bipolar 对 (Hurst - 0.5) 进行自适应归一化。
-        - 核心逻辑:
-          - Hurst > 0.5 (正值输入): 市场具有趋势性，输出正分。
-          - Hurst < 0.5 (负值输入): 市场具有均值回归性，输出负分。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `hurst_memory_score` 的归一化方式改为多时间维度自适应归一化。
-        """
         states = {}
         hurst_period = get_param_value(params.get('hurst_period'), 144)
-        hurst_signal_name = f'hurst_{hurst_period}_D'
+        hurst_signal_name = f'hurst_{hurst_period}d_D'
         hurst_series = self._get_safe_series(df, hurst_signal_name, 0.5, method_name="diagnose_market_memory_with_hurst").fillna(0.5)
-        if hurst_series.isnull().all(): # 如果获取到的Series全是NaN，说明数据确实不存在
-            print(f"Hurst指数 '{hurst_signal_name}' 不存在或全为NaN，跳过公理二诊断。")
-            states['SCORE_CYCLICAL_HURST_MEMORY'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-            states['SCORE_CYCLICAL_HURST_TREND_REGIME'] = pd.Series(0.5, index=df.index, dtype=np.float32)
-            states['SCORE_CYCLICAL_HURST_REVERSION_REGIME'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-            return states
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5
         # 使用双极归一化引擎进行最终裁决，输出一个[-1, 1]的记忆性分数
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=0.1)
