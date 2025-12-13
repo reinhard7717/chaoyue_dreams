@@ -171,11 +171,13 @@ class FeatureEngineeringService:
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
         if not params.get('enabled', False):
             return all_dfs
+        
         source_series_configs = [
-            {'col': f'close{suffix}', 'prefix': ''},
+            {'col': f'close{suffix}', 'prefix': ''}, # 确保 close_D 的 prefix 为空，这样赫斯特指数的列名就是 HURST_144d_D
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
+
         def _higuchi_fractal_dimension(x, k_max):
             L = []
             x_len = len(x)
@@ -191,6 +193,7 @@ class FeatureEngineeringService:
             if len(valid_indices) < 2: return np.nan
             slope, _ = np.polyfit(k_range_log[valid_indices], np.array(L)[valid_indices], 1)
             return slope
+
         def _sample_entropy(x, m, r):
             n = len(x)
             templates = np.array([x[i:i+m] for i in range(n - m + 1)])
@@ -201,67 +204,88 @@ class FeatureEngineeringService:
             B = np.sum(dist_plus_1 < r) - (n - m)
             if A == 0 or B == 0: return np.nan
             return -np.log(B / A)
+
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
+
             if source_col not in df.columns:
                 logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
                 continue
+            
             current_series = df[source_col]
             if isinstance(current_series, pd.DataFrame):
                 current_series = current_series.iloc[:, 0]
+
             # --- 1. Hurst 指数 (市场记忆性) ---
             # 修改代码行: 调整默认窗口为斐波那契数
             hurst_window = params.get('hurst_window', 144) # 144是斐波那契数，保持
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
-            if hurst_col not in df.columns and len(current_series.dropna()) >= hurst_window:
+            if hurst_col not in df.columns: # 移除 len(current_series.dropna()) >= hurst_window 的判断，让 rolling.apply 自己处理 NaN
                 try:
-                    df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(hurst_exponent, raw=True)
+                    # 确保传递给 hurst_exponent 的是 Series，并且处理 NaN
+                    # 修改代码行: 确保 hurst_exponent 接收到的是数值类型，并处理数据不足的情况
+                    df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
+                        lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
+                    )
                 except Exception as e:
                     logger.error(f"赫斯特指数(周期{hurst_window}, 列: {source_col})计算失败: {e}")
                     df[hurst_col] = np.nan
+
             # --- 2. 分形维度 (市场复杂度) ---
             # 修改代码行: 调整默认窗口为斐波那契数
             fd_window = params.get('fractal_dimension_window', 89) # 从100改为89
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
-            if fd_col not in df.columns and len(current_series.dropna()) >= fd_window:
+            if fd_col not in df.columns: # 移除 len(current_series.dropna()) >= fd_window 的判断
                 try:
                     k_max = int(np.sqrt(fd_window))
-                    df[fd_col] = current_series.rolling(window=fd_window).apply(lambda x: _higuchi_fractal_dimension(x, k_max), raw=True)
+                    # 修改代码行: 确保 _higuchi_fractal_dimension 接收到的是数值类型，并处理数据不足的情况
+                    df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
+                        lambda x: _higuchi_fractal_dimension(x.dropna().values, k_max) if len(x.dropna()) >= fd_window else np.nan, raw=False
+                    )
                 except Exception as e:
                     logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
                     df[fd_col] = np.nan
+
             # --- 3. 样本熵 (市场可预测性) ---
             # 修改代码行: 调整默认窗口为斐波那契数
             se_window = params.get('sample_entropy_window', 13) # 从10改为13
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
-            if se_col not in df.columns and len(current_series.dropna()) >= se_window + 1:
+            if se_col not in df.columns: # 移除 len(current_series.dropna()) >= se_window + 1 的判断
                 try:
+                    # 修改代码行: 重新组织样本熵的计算逻辑，使其更健壮
+                    entropy_values = []
+                    # 确保 rolling_std 在足够的数据点上计算
                     log_returns_or_series = current_series.dropna()
                     if len(log_returns_or_series) < se_window + 1:
                         df[se_col] = np.nan
-                        continue
-                    rolling_std = log_returns_or_series.rolling(window=se_window).std()
-                    entropy_values = []
-                    for i in range(len(log_returns_or_series) - se_window + 1):
-                        window_data = log_returns_or_series.iloc[i:i+se_window].values
-                        r = rolling_std.iloc[i+se_window-1] * se_tol_ratio
-                        if pd.isna(r) or r == 0:
-                            entropy_values.append(np.nan)
-                            continue
-                        entropy_values.append(_sample_entropy(window_data, m=2, r=r))
-                    df[se_col] = pd.Series(entropy_values, index=log_returns_or_series.index[se_window-1:]).reindex(df.index)
+                    else:
+                        rolling_std = log_returns_or_series.rolling(window=se_window, min_periods=se_window).std()
+                        for i in range(len(log_returns_or_series)):
+                            if i < se_window - 1: # 窗口不足
+                                entropy_values.append(np.nan)
+                                continue
+                            window_data = log_returns_or_series.iloc[i - se_window + 1 : i + 1].values
+                            std_val = rolling_std.iloc[i]
+                            r = std_val * se_tol_ratio
+                            if pd.isna(r) or r == 0 or len(window_data) < se_window:
+                                entropy_values.append(np.nan)
+                                continue
+                            entropy_values.append(_sample_entropy(window_data, m=2, r=r))
+                        df[se_col] = pd.Series(entropy_values, index=log_returns_or_series.index).reindex(df.index)
                 except Exception as e:
                     logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
                     df[se_col] = np.nan
+        
         # --- 4. 波动率不稳定性 (状态切换前兆) ---
         # 修改代码行: 调整默认窗口为斐波那契数
         vi_window = params.get('volatility_instability_window', 21) # 21是斐波那契数，保持
         vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
         atr_col = f'ATR_14{suffix}'
         if atr_col in df.columns and vi_col not in df.columns:
-            df[vi_col] = df[atr_col].rolling(window=vi_window).std()
+            df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std() # 确保有足够的min_periods
+
         # --- 5. 新增：集成价格成交量熵 (市场信息复杂度) ---
         pve_col_source = f'price_volume_entropy{suffix}'
         pve_col_target = f'PRICE_VOLUME_ENTROPY{suffix}'
