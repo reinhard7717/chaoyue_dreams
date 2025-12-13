@@ -21,6 +21,14 @@ from utils.cache_manager import CacheManager
 from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
 from functools import reduce
 import operator
+from utils.model_helpers import (
+    get_daily_data_model_by_code, get_cyq_chips_model_by_code,
+    get_advanced_chip_metrics_model_by_code,
+    get_minute_data_model_by_code_and_timelevel, get_stk_limit_model_by_code,
+    get_advanced_structural_metrics_model_by_code, # 新增导入
+    get_platform_feature_model_by_code, # 新增导入
+    get_multi_timeframe_trendline_model_by_code # 新增导入
+)
 
 logger = logging.getLogger("dao")
 
@@ -594,6 +602,115 @@ class StrategiesDAO(BaseDAO):
         df = df.set_index('trade_time')
         df = df.sort_index(ascending=True)
         return df
+
+    # 【新增方法】获取高级结构与行为指标数据
+    async def get_advanced_structural_metrics_data(self, stock_code: str, trade_time: Optional[datetime.datetime], limit: int) -> pd.DataFrame:
+        """
+        【V1.0】获取指定股票的高级结构与行为指标数据。
+        """
+        cache_key = f"advanced_structural_metrics_{stock_code}_{trade_time.strftime('%Y%m%d%H%M%S') if trade_time else 'latest'}_{limit}"
+        cached_df = self.cache_manager.get(cache_key)
+        if cached_df is not None:
+            return cached_df
+
+        model = get_advanced_structural_metrics_model_by_code(stock_code)
+        if not model:
+            logger.warning(f"未找到 {stock_code} 的高级结构与行为指标数据模型。")
+            return pd.DataFrame()
+
+        try:
+            query = model.objects.filter(stock__ts_code=stock_code).order_by('-trade_time')
+            if trade_time:
+                query = query.filter(trade_time__lte=trade_time)
+            
+            data = await asyncio.to_thread(lambda: list(query.values()[:limit]))
+            
+            if not data:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data)
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df.set_index('trade_time', inplace=True)
+            df.sort_index(inplace=True)
+
+            self.cache_manager.set(cache_key, df, timeout=3600)
+            return df
+        except Exception as e:
+            logger.error(f"从数据库获取 {stock_code} 的高级结构与行为指标数据失败: {e}")
+            return pd.DataFrame()
+
+    # 【新增方法】获取平台特征数据
+    async def get_platform_feature_data(self, stock_code: str, trade_time: Optional[datetime.datetime], limit: int) -> pd.DataFrame:
+        """
+        【V1.0】获取指定股票的矩形平台特征数据。
+        """
+        cache_key = f"platform_feature_{stock_code}_{trade_time.strftime('%Y%m%d%H%M%S') if trade_time else 'latest'}_{limit}"
+        cached_df = self.cache_manager.get(cache_key)
+        if cached_df is not None:
+            return cached_df
+
+        model = get_platform_feature_model_by_code(stock_code)
+        if not model:
+            logger.warning(f"未找到 {stock_code} 的平台特征数据模型。")
+            return pd.DataFrame()
+
+        try:
+            query = model.objects.filter(stock__ts_code=stock_code).order_by('-start_date') # 平台特征按start_date排序
+            if trade_time:
+                query = query.filter(start_date__lte=trade_time) # 筛选在trade_time之前开始的平台
+            
+            data = await asyncio.to_thread(lambda: list(query.values()[:limit]))
+            
+            if not data:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data)
+            df['start_date'] = pd.to_datetime(df['start_date'])
+            df.set_index('start_date', inplace=True) # 以start_date作为索引
+            df.sort_index(inplace=True)
+
+            self.cache_manager.set(cache_key, df, timeout=3600)
+            return df
+        except Exception as e:
+            logger.error(f"从数据库获取 {stock_code} 的平台特征数据失败: {e}")
+            return pd.DataFrame()
+
+    # 【新增方法】获取多时间维度趋势线数据
+    async def get_multi_timeframe_trendline_data(self, stock_code: str, trade_time: Optional[datetime.datetime], limit: int) -> pd.DataFrame:
+        """
+        【V1.0】获取指定股票的多时间维度趋势线数据。
+        """
+        cache_key = f"multi_timeframe_trendline_{stock_code}_{trade_time.strftime('%Y%m%d%H%M%S') if trade_time else 'latest'}_{limit}"
+        cached_df = self.cache_manager.get(cache_key)
+        if cached_df is not None:
+            return cached_df
+
+        model = get_multi_timeframe_trendline_model_by_code(stock_code)
+        if not model:
+            logger.warning(f"未找到 {stock_code} 的多时间维度趋势线数据模型。")
+            return pd.DataFrame()
+
+        try:
+            query = model.objects.filter(stock__ts_code=stock_code).order_by('-trade_date')
+            if trade_time:
+                query = query.filter(trade_date__lte=trade_time)
+            
+            data = await asyncio.to_thread(lambda: list(query.values()[:limit]))
+            
+            if not data:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data)
+            df['trade_date'] = pd.to_datetime(df['trade_date'])
+            df.set_index('trade_date', inplace=True)
+            df.sort_index(inplace=True)
+
+            self.cache_manager.set(cache_key, df, timeout=3600)
+            return df
+        except Exception as e:
+            logger.error(f"从数据库获取 {stock_code} 的多时间维度趋势线数据失败: {e}")
+            return pd.DataFrame()
+
     async def get_daily_buy_signals(self, trade_date: date) -> List['TrendFollowStrategySignalLog']:
         """
         【V1.0 - 盘中引擎专用】
