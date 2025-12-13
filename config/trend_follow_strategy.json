@@ -25,7 +25,7 @@
       "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
       "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [5, 13, 21, 55, 89, 144, 233, 377] }, { "apply_on": ["W"], "periods": [20] }] },
       "atr": { "enabled": true, "apply_on": ["D", "W"], "periods": [14] },
-      "roc": { "enabled": true, "configs": [ { "apply_on": ["D"], "periods": [12] } ] },
+      "roc": { "enabled": true, "configs": [ { "apply_on": ["D"], "periods": [13] } ] },
       "price_volume_ma_comparison": {
         "enabled": true,
         "description": "【V4.0行为引擎新增】计算价格/成交量与各自均线的比率，为行为动态诊断提供静态输入。",
