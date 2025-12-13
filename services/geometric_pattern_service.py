@@ -198,6 +198,12 @@ class GeometricPatternService:
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
         data_dfs['enriched_df'] = enriched_df
+        # 新增：计算 main_force_net_flow_calibrated_sum_5d 列，以解决 KeyError
+        if 'main_force_net_flow_calibrated' in enriched_df.columns: # 检查基础列是否存在
+            enriched_df['main_force_net_flow_calibrated_sum_5d'] = enriched_df['main_force_net_flow_calibrated'].rolling(window=5, min_periods=1).sum()
+        else:
+            # 如果基础资金流数据不存在，则将此列填充为 NaN，避免后续计算出错
+            enriched_df['main_force_net_flow_calibrated_sum_5d'] = np.nan
         if start_date_str:
             deleted_count, _ = self.platform_model.objects.filter(
                 stock=self.stock_instance,
