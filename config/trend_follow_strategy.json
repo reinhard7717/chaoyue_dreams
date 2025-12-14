@@ -118,6 +118,7 @@
       "fft_energy_ratio_window": 34
     },
     "slope_params": {
+      "enabled": true,
       "series_to_slope": {
         "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
         "VPA_BUY_EFFICIENCY_D": [1, 5, 13, 21, 55],
@@ -312,6 +313,7 @@
       }
     },
     "accel_params": {
+      "enabled": true,
       "series_to_accel": {
         "VPA_EFFICIENCY_D": [1, 5, 8, 13, 21, 34, 55],
         "VPA_BUY_EFFICIENCY_D": [1, 5, 8, 13, 21, 34, 55],
