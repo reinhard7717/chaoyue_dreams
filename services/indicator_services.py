@@ -438,7 +438,9 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.22 · 结构与形态数据集成版】
+        【V8.23 · 核心OHLCV列名标准化版】
+        - 核心修复: 确保日线 `df_daily_master` 的原始 OHLCV 列（open, high, low, close, volume, amount）
+                      在所有后续操作之前，被正确地命名为带有 `_D` 后缀的形式。
         - 核心修复: 修正了 `fund_flow_tushare` 数据源的列名标准化逻辑，确保其原始买卖金额列在合并到 `df_daily_master` 之前，
                       被正确地命名为带有 `_D` 后缀的形式，解决了 `_diagnose_axiom_consensus` 方法中缺少 `net_sm_amount_calibrated_D` 等列的问题。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
@@ -574,6 +576,14 @@ class IndicatorService:
             return {}
         df_daily_master = raw_dfs['D']
         df_daily_master.index = df_daily_master.index.normalize()
+
+        # 新增代码块：为核心 OHLCV 列添加 _D 后缀
+        ohlcv_cols = ['open', 'high', 'low', 'close', 'volume', 'amount']
+        rename_ohlcv_map = {col: f"{col}_D" for col in ohlcv_cols if col in df_daily_master.columns and not col.endswith('_D')}
+        if rename_ohlcv_map:
+            df_daily_master.rename(columns=rename_ohlcv_map, inplace=True)
+            print(f"调试信息: 已为日线OHLCV列添加_D后缀: {rename_ohlcv_map}")
+
         processed_supp_dfs_to_join = []
         all_new_cols = []
         for tag, df_supp in supplemental_dfs.items():
