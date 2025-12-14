@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from typing import List, Optional, Set, Union, Dict
 import pandas_ta as ta
+import re
 from .feature_engineering_service import FeatureEngineeringService
 from .contextual_analysis_service import ContextualAnalysisService
 
