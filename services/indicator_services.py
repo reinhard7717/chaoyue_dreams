@@ -446,7 +446,8 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.25 · 近似熵鲁棒与列名冲突解决版】
+        【V8.26 · 变量作用域修复版】
+        - 核心修复: 修正了 `_calculate_for_tf` 异步函数中 `df_processed` 变量未定义的错误，确保正确返回计算后的DataFrame。
         - 核心修复: 在日线 `df_daily_master` 的索引标准化后，显式删除重复的索引行，以避免 `ValueError: cannot reindex on an axis with duplicate labels` 错误。
         - 核心修复: 确保日线 `df_daily_master` 的原始 OHLCV 列（open, high, low, close, volume, amount）
                       在所有后续操作之前，被正确地命名为带有 `_D` 后缀的形式。
@@ -716,7 +717,8 @@ class IndicatorService:
         async def _calculate_for_tf(tf, df):
             df = self._standardize_df_index_to_utc(df)
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-            return tf, df_processed
+            # 修改代码行：将 df_processed 替换为 df_with_indicators
+            return tf, df_with_indicators
         for tf, df in raw_dfs.items():
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
