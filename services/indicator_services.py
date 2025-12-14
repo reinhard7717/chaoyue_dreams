@@ -336,7 +336,8 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.3 · 军械库清单生成版】为策略准备数据的统一入口。
+        【V8.4 · OCH时序修复版】为策略准备数据的统一入口。
+        - 核心修复: 调整了 `calculate_och` 的执行时序，确保其在所有依赖的元特征和上下文信号（如波动率不稳定性、市场情绪）计算并合并到DataFrame之后才执行。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
         - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
         """
@@ -424,6 +425,13 @@ class IndicatorService:
                     else:
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
         all_dfs['D'] = df_daily # 更新all_dfs['D']为包含所有上下文信号的df_daily
+
+        # NEW STEP: Calculate OCH_D for the daily dataframe (移动到此处)
+        if 'D' in all_dfs and not all_dfs['D'].empty:
+            temp_dfs = {'D': all_dfs['D']} # 重新封装，确保传入的是字典
+            temp_dfs = await self.feature_service.calculate_och(temp_dfs)
+            all_dfs['D'] = temp_dfs['D']
+
         # --- 10. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
@@ -657,10 +665,10 @@ class IndicatorService:
             temp_dfs = {'D': raw_dfs['D']} # 重新封装，确保传入的是字典
             temp_dfs = await self.feature_service.calculate_nmfnf(temp_dfs)
             raw_dfs['D'] = temp_dfs['D']
-            # NEW STEP: Calculate OCH_D for the daily dataframe
-            temp_dfs = {'D': raw_dfs['D']} # 重新封装，确保传入的是字典
-            temp_dfs = await self.feature_service.calculate_och(temp_dfs)
-            raw_dfs['D'] = temp_dfs['D']
+            # OLD STEP: Calculate OCH_D for the daily dataframe (已移除，移动到 prepare_data_for_strategy)
+            # temp_dfs = {'D': raw_dfs['D']}
+            # temp_dfs = await self.feature_service.calculate_och(temp_dfs)
+            # raw_dfs['D'] = temp_dfs['D']
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -791,12 +799,7 @@ class IndicatorService:
             'dma': self.calculator.calculate_dma,
             'atan_ma_angle': self.calculator.calculate_atan_ma_angle,
             'ma_velocity_acceleration': self.calculator.calculate_ma_velocity_acceleration,
-            'zigzag': self.calculator.calculate_zigzag,
-            # 【新增代码行】添加结构与形态指标的计算方法
-            'advanced_structural_metrics': self.calculator.process_advanced_structural_metrics,
-            'platform_feature': self.calculator.process_platform_feature,
-            'trendline_feature': self.calculator.process_trendline_feature,
-            'multi_timeframe_trendline': self.calculator.process_multi_timeframe_trendline,
+            'zigzag': self.calculator.calculate_zigzag
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty:
