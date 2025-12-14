@@ -779,7 +779,8 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V11.22 · 结构与形态指标跳过计算版】根据配置为指定时间周期计算所有技术指标。
+        【V110.23 · 指标计算前重复索引终极清理版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修复: 在指标计算前，对 `df_for_calc` 进行最终的重复索引清理，确保 `pandas_ta` 等库接收到的DataFrame索引唯一。
         - 核心修复: 调整了 `merge_results` 函数的逻辑，确保只对**不以时间框架后缀结尾**的列添加后缀，避免重复。
         - 【修复】对于 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline`，
                   这些数据已在数据准备阶段从DAO获取并合并到DataFrame中，此处不再尝试调用 `IndicatorCalculator` 进行计算，而是直接跳过。
@@ -791,6 +792,13 @@ class IndicatorService:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过。")
             return df
         df_for_calc = df.copy()
+
+        # 新增代码块：在指标计算前，再次检查并清理重复索引
+        if df_for_calc.index.duplicated().any():
+            initial_len = len(df_for_calc)
+            df_for_calc = df_for_calc[~df_for_calc.index.duplicated(keep='last')]
+            print(f"调试信息: 在 _calculate_indicators_for_timescale 中发现并清理了 {initial_len - len(df_for_calc)} 个重复索引 (周期: {timeframe_key})。")
+
         indicator_method_map = {
             'ma': self.calculator.calculate_ma,
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
@@ -824,6 +832,7 @@ class IndicatorService:
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore',
             'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag',
+            # 【新增代码行】将结构与形态指标的计算放在最后，因为它们通常是直接从DAO获取并标准化后的数据，不需要复杂的依赖
             'advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline'
         ]
         close_col_tf = f'close_{timeframe_key}'
