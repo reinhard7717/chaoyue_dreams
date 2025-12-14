@@ -278,39 +278,44 @@ class IndicatorService:
 
     def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V4.0 · 终极重构版】预计算衍生指标列名适配器
-        - 核心重构: 废弃了原先脆弱且易错的 if/elif 链式匹配逻辑。
-        - 解决方案: 采用单一、更强大的正则表达式，通过可选捕获组 `(...)?` 一次性、
-                    无歧义地解析所有类型的衍生指标（包括常规、带sum的、斜率、加速度）。
-                    这从根本上解决了因匹配顺序错误导致列名解析失败的BUG。
-        - 【修复】移除对非衍生指标列名（如仅带_D后缀的原始列）的错误重命名，确保其标准化命名不被破坏。
+        【V4.1 · 衍生指标基名_D后缀修复版】预计算衍生指标列名适配器
+        - 核心修复: 确保从DAO获取的预计算衍生指标（如 `base_name_slope_Xd`）在重命名时，
+                  其 `base_name` 部分能够正确地继承 `_D` 后缀，如果对应的基础列（如 `base_name_D`）存在。
+                  解决了 `SLOPE_X_base_name` 缺少 `_D` 后缀的问题。
         """
         import re
         rename_map = {}
-        # 定义一个能处理所有情况的、统一的正则表达式
         # 模式解释:
-        #   (.+?)                     - 非贪婪匹配基础指标名 (base_name)
+        #   (.+?)                     - 非贪婪匹配基础指标名 (base_name_raw)
         #   (?:_sum_(\d+)d)?          - 可选的sum部分，捕获sum周期 (sum_period)
         #   _(slope|accel)_(\d+)d$    - 必须匹配的斜率/加速度部分，捕获类型(deriv_type)和周期(deriv_period)
         pattern = re.compile(r'(.+?)(?:_sum_(\d+)d)?_(slope|accel)_(\d+)d$')
+        
+        # 获取当前DataFrame中所有列名，用于检查是否存在_D后缀版本
+        current_columns = set(df.columns)
+
         for col in df.columns:
             match = pattern.match(col)
             if match:
-                base_name, sum_period, deriv_type, deriv_period = match.groups()
+                base_name_raw, sum_period, deriv_type, deriv_period = match.groups()
+                
+                # 确定最终的 base_name。
+                # 如果 base_name_raw 不以 '_D' 结尾，但其 '_D' 后缀版本存在于 DataFrame 中，
+                # 则使用 '_D' 后缀版本作为目标 base_name。
+                # 否则，使用原始的 base_name_raw。
+                target_base_name = base_name_raw
+                # 修改代码行：确保只有当原始基名不带_D后缀，且其_D后缀版本存在时才添加
+                if not base_name_raw.endswith('_D') and f"{base_name_raw}_D" in current_columns:
+                    target_base_name = f"{base_name_raw}_D"
+
                 # 根据捕获组构建新的、标准化的列名
                 if sum_period:
-                    # 处理带 _sum_ 的情况
-                    # 例如: net_lg_amount_consensus_sum_13d_slope_13d -> SLOPE_13_net_lg_amount_consensus_sum_13d
-                    new_name = f"{deriv_type.upper()}_{deriv_period}_{base_name}_sum_{sum_period}d"
+                    new_name = f"{deriv_type.upper()}_{deriv_period}_{target_base_name}_sum_{sum_period}d"
                 else:
-                    # 处理常规情况
-                    # 例如: RSI_13_slope_5d -> SLOPE_5_RSI_13
-                    new_name = f"{deriv_type.upper()}_{deriv_period}_{base_name}"
+                    new_name = f"{deriv_type.upper()}_{deriv_period}_{target_base_name}"
+                
                 rename_map[col] = new_name
-            # 【修改代码行】移除此处的elif块，避免错误地剥离基础指标的_D后缀
-            # elif col.endswith('_D'):
-            #     # 保留对仅带 _D 后缀的列的处理逻辑
-            #     rename_map[col] = col[:-2]
+        
         if rename_map:
             df_renamed = df.rename(columns=rename_map)
             return df_renamed
