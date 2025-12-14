@@ -446,14 +446,15 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.23 · 核心OHLCV列名标准化版】
+        【V8.24 · 日线重复索引清理版】
+        - 核心修复: 在日线 `df_daily_master` 的索引标准化后，显式删除重复的索引行，以避免 `ValueError: cannot reindex on an axis with duplicate labels` 错误。
         - 核心修复: 确保日线 `df_daily_master` 的原始 OHLCV 列（open, high, low, close, volume, amount）
                       在所有后续操作之前，被正确地命名为带有 `_D` 后缀的形式。
         - 核心修复: 修正了 `fund_flow_tushare` 数据源的列名标准化逻辑，确保其原始买卖金额列在合并到 `df_daily_master` 之前，
                       被正确地命名为带有 `_D` 后缀的形式，解决了 `_diagnose_axiom_consensus` 方法中缺少 `net_sm_amount_calibrated_D` 等列的问题。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
         - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
-        - 【新增】在日线数据准备完成后，计算 `NMFNF_D` 和 `OCH_D`。
+        - 【新增】在日线数据准备完成后，计算 `NMFNF_D`。
         - 【修复】确保 `advanced_chips` 和 `advanced_fund_flow` 中的基础指标列在被 `_rename_precomputed_derivatives` 处理前就已添加 `_D` 后缀。
         - 【新增】集成 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline` 数据。
         """
@@ -584,6 +585,10 @@ class IndicatorService:
             return {}
         df_daily_master = raw_dfs['D']
         df_daily_master.index = df_daily_master.index.normalize()
+        # 新增代码行：删除重复的索引行，保留最后一条
+        if df_daily_master.index.duplicated().any():
+            print(f"调试信息: 日线数据中发现重复索引，已删除重复项，保留最后一条。重复数量: {df_daily_master.index.duplicated().sum()}")
+            df_daily_master = df_daily_master[~df_daily_master.index.duplicated(keep='last')]
 
         # 新增代码块：为核心 OHLCV 列添加 _D 后缀
         ohlcv_cols = ['open', 'high', 'low', 'close', 'volume', 'amount']
@@ -627,8 +632,6 @@ class IndicatorService:
                 # 这些标签的后缀处理已在 _fetch_fund_flow_ths_tagged / _fetch_fund_flow_dc_tagged 中完成
                 pass # 无需额外处理
             # 避免与 df_daily_master 现有列冲突，但要保留补充数据中独有的、已正确命名的列
-            conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
-            # 明确列出补充数据中应保留的、即使与df_daily_master有同名但含义不同的列
             cols_to_keep_from_supp = [
                 'total_market_value_D', # 来自 daily_basic
                 'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D', # 来自 advanced_fund_flow/chips
@@ -638,6 +641,7 @@ class IndicatorService:
                 'trend_conviction_score_D', 'quality_score_D', 'validity_score_D'
                 # 根据需要添加其他应保留的列
             ]
+            conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
             # 过滤掉那些不应该被删除的冲突列
             conflicting_cols_to_drop = [col for col in conflicting_cols if col not in cols_to_keep_from_supp]
             if conflicting_cols_to_drop:
@@ -775,9 +779,10 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.21 · 结构与形态指标集成版】根据配置为指定时间周期计算所有技术指标。
+        【V11.22 · 结构与形态指标跳过计算版】根据配置为指定时间周期计算所有技术指标。
         - 核心修复: 调整了 `merge_results` 函数的逻辑，确保只对**不以时间框架后缀结尾**的列添加后缀，避免重复。
-        - 【新增】集成 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline` 的处理。
+        - 【修复】对于 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline`，
+                  这些数据已在数据准备阶段从DAO获取并合并到DataFrame中，此处不再尝试调用 `IndicatorCalculator` 进行计算，而是直接跳过。
         """
         if not config:
             return df
@@ -799,7 +804,7 @@ class IndicatorService:
             'dma': self.calculator.calculate_dma,
             'atan_ma_angle': self.calculator.calculate_atan_ma_angle,
             'ma_velocity_acceleration': self.calculator.calculate_ma_velocity_acceleration,
-            'zigzag': self.calculator.calculate_zigzag
+            'zigzag': self.calculator.calculate_zigzag,
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty:
@@ -819,7 +824,6 @@ class IndicatorService:
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore',
             'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag',
-            # 【新增代码行】将结构与形态指标的计算放在最后，因为它们通常是直接从DAO获取并标准化后的数据，不需要复杂的依赖
             'advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline'
         ]
         close_col_tf = f'close_{timeframe_key}'
@@ -855,19 +859,11 @@ class IndicatorService:
                     except Exception as e:
                         logger.error(f"计算Z-score时出错: {e}", exc_info=True)
                 continue
-            # 【新增代码块】处理结构与形态指标，它们不需要 periods 循环，直接处理即可
+            # 【修改代码块】处理结构与形态指标，它们不需要 periods 循环，直接处理即可
             if indicator_name in ['advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline']:
-                # 这些指标的数据已经从DAO获取并合并到df_for_calc中，这里只需要确保它们存在
-                # 并且如果需要，可以进行一些简单的后处理或验证
-                # 实际上，这里不需要额外的计算，因为数据已经准备好并带有_D后缀
-                # 但为了保持结构一致性，可以调用一个空操作或验证函数
-                # 假设 process_* 方法只是返回原始df，或者进行一些简单的验证
-                result_df = await indicator_method_map[indicator_name](df=df_for_calc)
-                # 注意：这里不需要 merge_results，因为这些数据已经直接在 _prepare_base_data_and_indicators 中合并并后缀化
-                # 这里的调用主要是为了保持逻辑流的完整性，或者未来可以添加一些基于这些数据的衍生计算
-                # 如果 process_* 方法返回的是一个修改过的df，则需要更新df_for_calc
-                if result_df is not None and not result_df.empty:
-                    df_for_calc = result_df
+                # 这些指标的数据已在 _prepare_base_data_and_indicators 中从DAO获取并合并到df_for_calc中，
+                # 并且已经带有正确的后缀。此处无需再次计算或处理，直接跳过。
+                logger.debug(f"指标 '{indicator_name}' (周期: {timeframe_key}) 已在数据准备阶段处理，跳过重复计算。")
                 continue
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
