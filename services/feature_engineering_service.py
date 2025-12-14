@@ -21,9 +21,10 @@ class FeatureEngineeringService:
 
     async def calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.1 注释优化版】计算所有配置的斜率特征。
+        【V3.2 注释优化版】计算所有配置的斜率特征。
         - 核心逻辑: 根据配置文件中的'series_to_slope'部分，为指定的数据列（如'MACD_12_26_9_D'）在不同的时间窗口（lookbacks）上计算线性回归斜率。
         - 优化: 保持原有的高效向量化计算，增加详尽注释。
+        - 【新增】支持对结构与形态指标计算斜率。
         """
         # 从配置中获取斜率计算参数
         slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
@@ -72,9 +73,10 @@ class FeatureEngineeringService:
 
     async def calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.1 注释优化版】计算所有配置的加速度特征。
+        【V2.2 注释优化版】计算所有配置的加速度特征。
         - 核心逻辑: 加速度是斜率的斜率。此方法基于已计算好的斜率特征（SLOPE_*），再次计算其斜率，从而得到加速度特征（ACCEL_*）。
         - 优化: 保持原有的高效向量化计算，增加详尽注释。
+        - 【新增】支持对结构与形态指标计算加速度。
         """
         # 从配置中获取加速度计算参数
         accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
@@ -157,11 +159,12 @@ class FeatureEngineeringService:
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.3 · 熵指标与细粒度斐波那契元特征增强版】元特征计算车间
+        【V3.4 · 熵指标与细粒度斐波那契元特征增强版】元特征计算车间
         - 核心升级: 废弃旧的简单指标，引入分形维度、样本熵、波动率不稳定性等一系列能够深度刻画市场混沌、分形与信息熵的“元特征”。
         - 新增优化: 直接集成预计算的、更高级的 `price_volume_entropy_D` 指标，作为对市场信息复杂度的核心度量。
         - 细粒度增强: 引入基于主力资金流和订单簿流动性的赫斯特指数和样本熵。
         - 周期调整: 调整元特征计算窗口为斐波那契数列。
+        - 【新增】引入近似熵 (Approximate Entropy) 和傅里叶变换能量比 (FFT Energy Ratio) 来进一步深化时间序列特征。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -171,13 +174,11 @@ class FeatureEngineeringService:
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
         if not params.get('enabled', False):
             return all_dfs
-        
         source_series_configs = [
             {'col': f'close{suffix}', 'prefix': ''}, # 确保 close_D 的 prefix 为空，这样赫斯特指数的列名就是 HURST_144d_D
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
-
         def _higuchi_fractal_dimension(x, k_max):
             L = []
             x_len = len(x)
@@ -193,7 +194,6 @@ class FeatureEngineeringService:
             if len(valid_indices) < 2: return np.nan
             slope, _ = np.polyfit(k_range_log[valid_indices], np.array(L)[valid_indices], 1)
             return slope
-
         def _sample_entropy(x, m, r):
             n = len(x)
             templates = np.array([x[i:i+m] for i in range(n - m + 1)])
@@ -204,19 +204,49 @@ class FeatureEngineeringService:
             B = np.sum(dist_plus_1 < r) - (n - m)
             if A == 0 or B == 0: return np.nan
             return -np.log(B / A)
-
+        # 【新增代码块】近似熵计算函数
+        def _approximate_entropy(x, m, r):
+            N = len(x)
+            if N < m + 2: return np.nan
+            def _phi(m_val):
+                x_m = np.array([x[i:i_val + m_val] for i_val in range(N - m_val + 1)])
+                C = np.zeros(N - m_val + 1)
+                for i_val in range(N - m_val + 1):
+                    count = 0
+                    for j_val in range(N - m_val + 1):
+                        if np.max(np.abs(x_m[i_val] - x_m[j_val])) <= r:
+                            count += 1
+                    C[i_val] = count / (N - m_val + 1)
+                return np.sum(np.log(C)) / (N - m_val + 1)
+            phi_m = _phi(m)
+            phi_m_plus_1 = _phi(m + 1)
+            if phi_m == 0 or phi_m_plus_1 == 0: return np.nan # 避免对数0
+            return phi_m - phi_m_plus_1
+        # 【新增代码块】FFT能量比计算函数
+        def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5):
+            N = len(x)
+            if N < 2: return np.nan
+            yf = np.fft.fft(x)
+            yf_abs = np.abs(yf[:N//2]) # 取正频率部分
+            total_energy = np.sum(yf_abs**2)
+            if total_energy == 0: return np.nan
+            freqs = np.fft.fftfreq(N, d=1)[:N//2]
+            low_freq_idx = int(N * low_freq_cutoff_ratio)
+            high_freq_idx = int(N * high_freq_cutoff_ratio)
+            low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
+            mid_freq_energy = np.sum(yf_abs[low_freq_idx:high_freq_idx]**2)
+            high_freq_energy = np.sum(yf_abs[high_freq_idx:]**2)
+            # 可以根据需求返回不同频率段的能量比，这里返回低频能量占比
+            return low_freq_energy / total_energy
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
-
             if source_col not in df.columns:
                 logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
                 continue
-            
             current_series = df[source_col]
             if isinstance(current_series, pd.DataFrame):
                 current_series = current_series.iloc[:, 0]
-
             # --- 1. Hurst 指数 (市场记忆性) ---
             # 修改代码行: 调整默认窗口为斐波那契数
             hurst_window = params.get('hurst_window', 144) # 144是斐波那契数，保持
@@ -231,7 +261,6 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"赫斯特指数(周期{hurst_window}, 列: {source_col})计算失败: {e}")
                     df[hurst_col] = np.nan
-
             # --- 2. 分形维度 (市场复杂度) ---
             # 修改代码行: 调整默认窗口为斐波那契数
             fd_window = params.get('fractal_dimension_window', 89) # 从100改为89
@@ -246,7 +275,6 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
                     df[fd_col] = np.nan
-
             # --- 3. 样本熵 (市场可预测性) ---
             # 修改代码行: 调整默认窗口为斐波那契数
             se_window = params.get('sample_entropy_window', 13) # 从10改为13
@@ -277,16 +305,61 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
                     df[se_col] = np.nan
-        
-        # --- 4. 波动率不稳定性 (状态切换前兆) ---
+            # --- 4. 【新增】近似熵 (Approximate Entropy) (时间序列复杂性) ---
+            ae_window = params.get('approximate_entropy_window', 21) # 斐波那契数
+            ae_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
+            ae_col = f'{prefix}APPROX_ENTROPY_{ae_window}d{suffix}'
+            if ae_col not in df.columns:
+                try:
+                    entropy_values = []
+                    log_returns_or_series = current_series.dropna()
+                    if len(log_returns_or_series) < ae_window + 2:
+                        df[ae_col] = np.nan
+                    else:
+                        rolling_std = log_returns_or_series.rolling(window=ae_window, min_periods=ae_window).std()
+                        for i in range(len(log_returns_or_series)):
+                            if i < ae_window - 1:
+                                entropy_values.append(np.nan)
+                                continue
+                            window_data = log_returns_or_series.iloc[i - ae_window + 1 : i + 1].values
+                            std_val = rolling_std.iloc[i]
+                            r = std_val * ae_tol_ratio
+                            if pd.isna(r) or r == 0 or len(window_data) < ae_window:
+                                entropy_values.append(np.nan)
+                                continue
+                            entropy_values.append(_approximate_entropy(window_data, m=2, r=r))
+                        df[ae_col] = pd.Series(entropy_values, index=log_returns_or_series.index).reindex(df.index)
+                except Exception as e:
+                    logger.error(f"近似熵(周期{ae_window}, 列: {source_col})计算失败: {e}")
+                    df[ae_col] = np.nan
+            # --- 5. 【新增】FFT能量比 (FFT Energy Ratio) (频率结构) ---
+            fft_window = params.get('fft_energy_ratio_window', 34) # 斐波那契数
+            fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
+            if fft_col not in df.columns:
+                try:
+                    energy_ratios = []
+                    log_returns_or_series = current_series.dropna()
+                    if len(log_returns_or_series) < fft_window:
+                        df[fft_col] = np.nan
+                    else:
+                        for i in range(len(log_returns_or_series)):
+                            if i < fft_window - 1:
+                                energy_ratios.append(np.nan)
+                                continue
+                            window_data = log_returns_or_series.iloc[i - fft_window + 1 : i + 1].values
+                            energy_ratios.append(_fft_energy_ratio(window_data))
+                        df[fft_col] = pd.Series(energy_ratios, index=log_returns_or_series.index).reindex(df.index)
+                except Exception as e:
+                    logger.error(f"FFT能量比(周期{fft_window}, 列: {source_col})计算失败: {e}")
+                    df[fft_col] = np.nan
+        # --- 6. 波动率不稳定性 (状态切换前兆) ---
         # 修改代码行: 调整默认窗口为斐波那契数
         vi_window = params.get('volatility_instability_window', 21) # 21是斐波那契数，保持
         vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
         atr_col = f'ATR_14{suffix}'
         if atr_col in df.columns and vi_col not in df.columns:
             df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std() # 确保有足够的min_periods
-
-        # --- 5. 新增：集成价格成交量熵 (市场信息复杂度) ---
+        # --- 7. 新增：集成价格成交量熵 (市场信息复杂度) ---
         pve_col_source = f'price_volume_entropy{suffix}'
         pve_col_target = f'PRICE_VOLUME_ENTROPY{suffix}'
         if pve_col_source in df.columns and pve_col_target not in df.columns:
@@ -298,13 +371,15 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.7 · 细粒度博弈升级版】高级模式识别信号生产线
+        【V3.8 · 诡道博弈与情境自适应版】高级模式识别信号生产线
         - 核心升级: 全面引入新一代的结构、博弈和风险指标，将市场状态的识别精度从战术层面提升至战略层面。
                       - 盘整识别: 引入“结构张力指数”，要求筹码结构内部应力低。
                       - 吸筹识别: 引入“浮筹清洗效率”，验证主力吸筹的质量。
                       - 突破识别: 引入“突破就绪分”，作为突破信号的强确认。
                       - 派发识别: 引入“衰竭风险指数”，预警趋势顶部的系统性风险。
                       - 细粒度数据集成: 将旧的聚合指标替换为新的买卖双方细粒度指标，提升判断精度。
+        - 【新增】引入“诡道博弈”模式识别，如诱空洗盘、假突破诱多等。
+        - 【新增】引入情境自适应机制，根据市场波动率和趋势强度调整信号敏感度。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -317,7 +392,7 @@ class FeatureEngineeringService:
             'chip_health_score_D',
             'hidden_accumulation_intensity_D',
             'rally_sell_distribution_intensity_D',
-            'rally_buy_support_weakness_D', # 新增代码行: 确保拉升买方支撑弱点在必需列中
+            'rally_buy_support_weakness_D',
             'winner_stability_index_D',
             'cost_structure_skewness_D',
             'dominant_peak_solidity_D',
@@ -336,7 +411,20 @@ class FeatureEngineeringService:
             'structural_tension_index_D',
             'floating_chip_cleansing_efficiency_D',
             'breakout_readiness_score_D',
-            'exhaustion_risk_index_D'
+            'exhaustion_risk_index_D',
+            # 【新增代码行】诡道博弈相关指标
+            'deception_lure_long_intensity_D',
+            'deception_lure_short_intensity_D',
+            'wash_trade_buy_volume_D',
+            'wash_trade_sell_volume_D',
+            'price_volume_entropy_D', # 用于情境自适应
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', # 用于情境自适应
+            'trend_acceleration_score_D', # 来自 AdvancedStructuralMetrics
+            'final_charge_intensity_D', # 来自 AdvancedStructuralMetrics
+            'platform_conviction_score_D', # 来自 PlatformFeature
+            'trend_conviction_score_D', # 来自 MultiTimeframeTrendline
+            'quality_score_D', # 来自 PlatformFeature
+            'validity_score_D' # 来自 TrendlineFeature
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -344,6 +432,15 @@ class FeatureEngineeringService:
             print("当前可用的列名包括:")
             print(df.columns.tolist())
             return all_dfs
+        # --- 1. 【情境自适应调制器】 ---
+        # 根据市场波动率和趋势强度动态调整信号敏感度
+        volatility_instability = df['VOLATILITY_INSTABILITY_INDEX_21d_D'].fillna(0).rolling(21).mean()
+        trend_strength = df['ADX_14_D'].fillna(0).rolling(21).mean()
+        # 波动率越高，信号越需要谨慎，趋势越强，信号越需要确认
+        # 假设一个简单的调制函数：高波动率降低敏感度，强趋势提高确认度
+        # 调制因子在 0.5 到 1.5 之间
+        volatility_modulator = (1 - (volatility_instability.rolling(21).rank(pct=True) - 0.5) * 0.5).clip(0.5, 1.5)
+        trend_modulator = (1 + (trend_strength.rolling(21).rank(pct=True) - 0.5) * 0.5).clip(0.5, 1.5)
         # --- 2. 【战场状态定义】: 基于“状态+势能”的多因子共振 ---
         cond_high_tension = df['MA_POTENTIAL_TENSION_INDEX_D'] < df['MA_POTENTIAL_TENSION_INDEX_D'].rolling(60).quantile(0.20)
         cond_low_orderliness = df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].abs() < 0.5
@@ -369,9 +466,12 @@ class FeatureEngineeringService:
                                     (df['volume_D'] > df['VOL_MA_21_D'] * 1.2) & \
                                     (df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.9))
         cond_breakout_ready = df['breakout_readiness_score_D'] > 60
-        df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm & cond_breakout_ready
-        # 修改代码行: 增强派发信号，结合拉升卖出派发强度和拉升买方支撑弱点
-        cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_sell_distribution_intensity_D'] > 0.5) & (df['rally_buy_support_weakness_D'] > 0.5) # 新增代码行
+        # 【新增代码行】结合结构与形态指标，增强突破信号
+        cond_platform_breakout_potential = (df['platform_conviction_score_D'] > 70) & (df['quality_score_D'] > 0.7) # 高质量平台
+        cond_trendline_breakout_confirm = (df['trend_conviction_score_D'] > 80) & (df['validity_score_D'] > 0.8) # 强趋势线突破
+        df['IS_BREAKOUT_D'] = (cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm & cond_breakout_ready) | \
+                              (cond_platform_breakout_potential & cond_trendline_breakout_confirm) # 非线性融合
+        cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_sell_distribution_intensity_D'] > 0.5) & (df['rally_buy_support_weakness_D'] > 0.5)
         cond_main_force_outflow = (df['main_force_net_flow_calibrated_D'].rolling(3).sum() < 0) & \
                                   (df['main_force_flow_directionality_D'] < -0.3) & \
                                   (df['main_force_sell_execution_alpha_D'] > 0)
@@ -380,7 +480,36 @@ class FeatureEngineeringService:
         cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
         cond_exhaustion_risk = df['exhaustion_risk_index_D'] > 70
         df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist) | cond_exhaustion_risk
-        # --- 3. 【通达信模式集成】 ---
+        # --- 3. 【诡道博弈模式识别】 ---
+        # 诱空洗盘 (Bear Trap Washout)
+        # 逻辑：价格快速下跌（pct_change_D < -0.03），伴随洗盘交易量增加 (wash_trade_sell_volume_D > 0.5)，
+        # 但主力资金流向（main_force_net_flow_calibrated_D）并未大幅流出，且筹码健康度（chip_health_score_D）保持稳定或小幅下降后迅速回升。
+        # 结合情境自适应：在低波动率、弱趋势情境下，诱空洗盘的信号更可信。
+        cond_sharp_drop = df['pct_change_D'] < -0.03
+        cond_wash_sell_volume = df['wash_trade_sell_volume_D'] > 0.5
+        cond_mf_not_outflow = df['main_force_net_flow_calibrated_D'].rolling(3).mean() > -0.01 # 主力净流出不明显
+        cond_chip_resilient = (df['chip_health_score_D'].diff() > -10) | (df['chip_health_score_D'].shift(1) < df['chip_health_score_D']) # 筹码健康度未大幅恶化或开始回升
+        df['IS_BEAR_TRAP_WASHOUT_D'] = (cond_sharp_drop & cond_wash_sell_volume & cond_mf_not_outflow & cond_chip_resilient) * volatility_modulator.fillna(1) # 乘以调制因子
+        # 假突破诱多 (Bull Trap Lure)
+        # 逻辑：价格突破（IS_BREAKOUT_D），但伴随主力资金流向（main_force_net_flow_calibrated_D）负向背离，
+        # 且诱多欺骗强度（deception_lure_long_intensity_D）高，筹码派发迹象（rally_sell_distribution_intensity_D）明显。
+        # 结合情境自适应：在高波动率、强趋势情境下，假突破的风险更高。
+        cond_breakout_signal = df['IS_BREAKOUT_D']
+        cond_mf_divergence = df['main_force_net_flow_calibrated_D'].rolling(5).mean().diff() < 0 # 主力资金动能减弱
+        cond_lure_long = df['deception_lure_long_intensity_D'] > 0.6
+        cond_dist_sign = df['rally_sell_distribution_intensity_D'] > 0.5
+        df['IS_BULL_TRAP_LURE_D'] = (cond_breakout_signal & cond_mf_divergence & cond_lure_long & cond_dist_sign) * trend_modulator.fillna(1) # 乘以调制因子
+        # 高位对倒出货 (High-Level Wash Trade Distribution)
+        # 逻辑：股价处于高位（例如高于过去60日最高价的80%），成交量异常放大（volume_D > VOL_MA_21_D * 2），
+        # 对倒买卖量（wash_trade_buy_volume_D + wash_trade_sell_volume_D）高，但价格涨幅有限（pct_change_D < 0.01），
+        # 且主力资金净流出（main_force_net_flow_calibrated_D < 0）。
+        cond_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.8
+        cond_volume_spike = df['volume_D'] > df['VOL_MA_21_D'] * 2
+        cond_high_wash_trade = (df['wash_trade_buy_volume_D'] + df['wash_trade_sell_volume_D']) > 1.0 # 假设对倒量归一化后大于1
+        cond_limited_gain = df['pct_change_D'] < 0.01
+        cond_mf_outflow = df['main_force_net_flow_calibrated_D'] < 0
+        df['IS_HIGH_LEVEL_WASH_DISTRIBUTION_D'] = cond_high_price & cond_volume_spike & cond_high_wash_trade & cond_limited_gain & cond_mf_outflow
+        # --- 4. 【通达信模式集成】 ---
         if 'amount_D' in df.columns:
             ema_amount_5 = df['amount_D'].ewm(span=5, adjust=False).mean()
             ff_ratio = ema_amount_5 / ema_amount_5.shift(1)
@@ -406,13 +535,17 @@ class FeatureEngineeringService:
         else:
             df['IS_WW1_D'] = False
             logger.warning("高级模式识别引擎缺少 'open_D' 或 'volume_D' 列，无法计算 'WW1' 模式。")
-        # --- 4. 【信号整合与输出】 ---
-        pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D', 'IS_BAZHAN_D', 'IS_WW1_D']
+        # --- 5. 【信号整合与输出】 ---
+        pattern_cols = [
+            'IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D',
+            'IS_BAZHAN_D', 'IS_WW1_D',
+            'IS_BEAR_TRAP_WASHOUT_D', 'IS_BULL_TRAP_LURE_D', 'IS_HIGH_LEVEL_WASH_DISTRIBUTION_D' # 新增诡道博弈信号
+        ]
         for col in pattern_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.7 细粒度博弈升级版)分析完成。")
+        logger.info("高级模式识别引擎(V3.8 诡道博弈与情境自适应版)分析完成。")
         return all_dfs
 
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
@@ -700,10 +833,11 @@ class FeatureEngineeringService:
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V3.2 · 结构动力学与细粒度博弈升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
+        【V3.3 · 结构动力学与细粒度博弈升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
         - 核心升级: 维度一“筹码集中度与结构优化”的计算逻辑重构，引入 cost_gini_coefficient 和 primary_peak_kurtosis 两个核心指标，
                     替代旧的 winner/loser_concentration 指标，实现对筹码结构更精准、更深刻的量化评估。
                     全面替换旧的聚合指标，引入新的买卖双方细粒度指标，并重新设计部分融合逻辑，以更精确地反映市场博弈的真实情况。
+        - 【新增】引入非线性融合（tanh函数）和情境自适应（基于波动率和市场情绪）来增强OCH的鲁棒性和敏感度。
         - 目的: 在数据层提前计算一个综合的筹码健康度指标，供后续斜率计算和情报层使用。
         - 数据源: 直接从 df 中获取原始筹码相关列。
         """
@@ -754,8 +888,8 @@ class FeatureEngineeringService:
             'main_force_sell_ofi_D',
             'retail_buy_ofi_D',
             'retail_sell_ofi_D',
-            'wash_trade_buy_volume_D', # 新增代码行: 确保洗盘交易量在必需列中
-            'wash_trade_sell_volume_D', # 新增代码行: 确保洗盘交易量在必需列中
+            'wash_trade_buy_volume_D',
+            'wash_trade_sell_volume_D',
             'buy_order_book_clearing_rate_D',
             'sell_order_book_clearing_rate_D',
             'vwap_buy_control_strength_D',
@@ -780,9 +914,13 @@ class FeatureEngineeringService:
             'main_force_t0_sell_efficiency_D',
             'buy_flow_efficiency_index_D',
             'sell_flow_efficiency_index_D',
-            'covert_distribution_signal_D', # 新增代码行: 确保隐蔽派发信号在必需列中
-            'supportive_distribution_intensity_D', # 新增代码行: 确保支持性派发强度在必需列中
-            'turnover_rate_f_D'
+            'covert_distribution_signal_D',
+            'supportive_distribution_intensity_D',
+            'turnover_rate_f_D',
+            # 【新增代码行】情境自适应相关指标
+            'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'market_sentiment_score_D',
+            'price_volume_entropy_D'
         ]
         # 使用 _get_safe_series 确保所有数据都存在，并用默认值填充缺失值
         def _get_safe_series_local(col_name, default_val=0.0):
@@ -790,6 +928,24 @@ class FeatureEngineeringService:
                 print(f"调试信息: OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
                 return pd.Series(default_val, index=df_index)
             return df[col_name].fillna(default_val)
+        # --- 情境自适应调制器 ---
+        # 波动率情境：高波动率时，筹码健康度可能更不稳定，需要更谨慎的评估
+        volatility_context = _get_safe_series_local('VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0).rolling(21).mean().fillna(0)
+        # 市场情绪情境：极端情绪下，筹码健康度可能被扭曲
+        sentiment_context = _get_safe_series_local('market_sentiment_score_D', 0.0).rolling(21).mean().fillna(0)
+        # 市场信息复杂度情境：高复杂度时，信号可能更模糊
+        entropy_context = _get_safe_series_local('price_volume_entropy_D', 0.0).rolling(21).mean().fillna(0)
+        # 融合函数：使用 tanh 激活函数进行非线性融合，并考虑情境调制
+        def _nonlinear_fusion(scores, weights, volatility_mod=1.0, sentiment_mod=1.0, entropy_mod=1.0):
+            fused_score = pd.Series(0.0, index=df_index)
+            for score_name, weight in weights.items():
+                score_series = scores.get(score_name, pd.Series(0.0, index=df_index))
+                # 动态调整权重或分数，例如：高波动率时，某些指标的权重可能降低
+                # 这里使用一个简单的乘法调制，更复杂的可以根据具体指标设计
+                modulated_score = score_series * (1 + volatility_mod * 0.1 - sentiment_mod * 0.05 - entropy_mod * 0.05)
+                fused_score += modulated_score * weight
+            # 使用 tanh 将分数映射到 [-1, 1] 之间，提供非线性压缩
+            return np.tanh(fused_score)
         # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
         cost_gini = _get_safe_series_local('cost_gini_coefficient_D', 0.5)
         peak_kurtosis = _get_safe_series_local('primary_peak_kurtosis_D', 3.0)
@@ -800,11 +956,13 @@ class FeatureEngineeringService:
         normalized_kurtosis = peak_kurtosis.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5)
         peak_quality = (peak_solidity * peak_volume_ratio * normalized_kurtosis).clip(0, 1)
         blockage_penalty = (1 - chip_fault)
-        concentration_score = (
-            concentration_health * 0.5 +
-            peak_quality * 0.4 +
-            blockage_penalty * 0.1
-        ).clip(0, 1)
+        concentration_scores = {
+            'concentration_health': concentration_health,
+            'peak_quality': peak_quality,
+            'blockage_penalty': blockage_penalty
+        }
+        concentration_weights = {'concentration_health': 0.5, 'peak_quality': 0.4, 'blockage_penalty': 0.1}
+        concentration_score = _nonlinear_fusion(concentration_scores, concentration_weights, volatility_context, sentiment_context, entropy_context)
         # --- 2. 成本与盈亏结构动态 (Cost & P/L Structure Dynamics Score) ---
         total_winner_rate = _get_safe_series_local('total_winner_rate_D', 0.5)
         total_loser_rate = _get_safe_series_local('total_loser_rate_D', 0.5)
@@ -814,16 +972,18 @@ class FeatureEngineeringService:
         mf_cost_advantage = _get_safe_series_local('main_force_cost_advantage_D', 0.0)
         imminent_profit_taking = _get_safe_series_local('profit_taking_flow_ratio_D', 0.0)
         loser_capitulation_pressure = _get_safe_series_local('loser_pain_index_D', 0.0)
-        profit_pressure = total_winner_rate * winner_profit_margin * (imminent_profit_taking + _get_safe_series_local('rally_sell_distribution_intensity_D', 0.0)).clip(0,1)
+        profit_pressure = total_winner_rate * winner_profit_margin * (_get_safe_series_local('rally_sell_distribution_intensity_D', 0.0) + imminent_profit_taking).clip(0,1)
         loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure) + \
                         _get_safe_series_local('dip_buy_absorption_strength_D', 0.0) * 0.5 + \
                         _get_safe_series_local('panic_buy_absorption_contribution_D', 0.0) * 0.5
         cost_advantage_score = (mf_cost_advantage - cost_divergence).clip(-1, 1)
-        cost_structure_score = (
-            (loser_support * 0.4) +
-            ((cost_advantage_score + 1) / 2 * 0.4) -
-            (profit_pressure * 0.2)
-        ).clip(0, 1)
+        cost_structure_scores = {
+            'loser_support': loser_support,
+            'cost_advantage_score': cost_advantage_score,
+            'profit_pressure': profit_pressure
+        }
+        cost_structure_weights = {'loser_support': 0.4, 'cost_advantage_score': 0.4, 'profit_pressure': -0.2} # 利润压力是负向权重
+        cost_structure_score = _nonlinear_fusion(cost_structure_scores, cost_structure_weights, volatility_context, sentiment_context, entropy_context)
         # --- 3. 持股心态与交易行为 (Holder Sentiment & Behavior Score) ---
         winner_conviction = _get_safe_series_local('winner_stability_index_D', 0.0)
         chip_fatigue = _get_safe_series_local('chip_fatigue_index_D', 0.0)
@@ -860,14 +1020,15 @@ class FeatureEngineeringService:
         combat_intensity = _get_safe_series_local('mf_retail_battle_intensity_D', 0.0)
         conviction_lock_score = (winner_conviction + locked_profit - chip_fatigue - locked_loss).clip(-1, 1)
         absorption_support_score = (buy_side_absorption_composite - sell_side_pressure_composite).clip(-1, 1)
-        # 修改代码行: 引入洗盘交易量作为情绪杂质的惩罚项
-        wash_trade_penalty = (_get_safe_series_local('wash_trade_buy_volume_D', 0.0) + _get_safe_series_local('wash_trade_sell_volume_D', 0.0)).clip(0, 1) * 0.1 # 假设洗盘交易量越大，情绪纯度越低
-        sentiment_score = (
-            ((conviction_lock_score + 1) / 2 * 0.4) +
-            ((absorption_support_score + 1) / 2 * 0.4) +
-            (combat_intensity * 0.2) -
-            (wash_trade_penalty * 0.1) # 新增代码行: 惩罚洗盘交易量
-        ).clip(0, 1)
+        wash_trade_penalty = (_get_safe_series_local('wash_trade_buy_volume_D', 0.0) + _get_safe_series_local('wash_trade_sell_volume_D', 0.0)).clip(0, 1) * 0.1
+        sentiment_scores = {
+            'conviction_lock_score': (conviction_lock_score + 1) / 2, # 归一化到 [0, 1]
+            'absorption_support_score': (absorption_support_score + 1) / 2, # 归一化到 [0, 1]
+            'combat_intensity': combat_intensity,
+            'wash_trade_penalty': wash_trade_penalty
+        }
+        sentiment_weights = {'conviction_lock_score': 0.4, 'absorption_support_score': 0.4, 'combat_intensity': 0.2, 'wash_trade_penalty': -0.1}
+        sentiment_score = _nonlinear_fusion(sentiment_scores, sentiment_weights, volatility_context, sentiment_context, entropy_context)
         # --- 4. 主力控盘与意图 (Main Force Control & Intent Score) ---
         mf_control_leverage = _get_safe_series_local('control_solidity_index_D', 0.0)
         mf_on_peak_flow_composite = (_get_safe_series_local('main_force_on_peak_buy_flow_D', 0.0) - _get_safe_series_local('main_force_on_peak_sell_flow_D', 0.0))
@@ -890,29 +1051,180 @@ class FeatureEngineeringService:
         turnover_health[turnover_rate_f < 2] = turnover_rate_f[turnover_rate_f < 2] / 2
         turnover_health[turnover_rate_f > 15] = 1 - (turnover_rate_f[turnover_rate_f > 15] - 15) / 10
         turnover_health = turnover_health.clip(0, 1)
-        # 修改代码行: 引入隐蔽派发信号和支持性派发强度作为主力意图的惩罚项
-        distribution_penalty = (_get_safe_series_local('covert_distribution_signal_D', 0.0) + _get_safe_series_local('supportive_distribution_intensity_D', 0.0)).clip(0, 1) * 0.1 # 派发信号越强，主力控盘意图越负面
-        main_force_score = (
-            control_strength * 0.3 +
-            mf_on_peak_flow_normalized * 0.2 +
-            ((mf_intent_composite + 1) / 2 * 0.3) +
-            mf_cost_advantage_final * 0.1 +
-            turnover_health * 0.1 -
-            (distribution_penalty * 0.1) # 新增代码行: 惩罚派发信号
-        ).clip(0, 1)
+        distribution_penalty = (_get_safe_series_local('covert_distribution_signal_D', 0.0) + _get_safe_series_local('supportive_distribution_intensity_D', 0.0)).clip(0, 1) * 0.1
+        main_force_scores = {
+            'control_strength': control_strength,
+            'mf_on_peak_flow_normalized': mf_on_peak_flow_normalized,
+            'mf_intent_composite': (mf_intent_composite + 1) / 2, # 归一化到 [0, 1]
+            'mf_cost_advantage_final': mf_cost_advantage_final,
+            'turnover_health': turnover_health,
+            'distribution_penalty': distribution_penalty
+        }
+        main_force_weights = {
+            'control_strength': 0.3, 'mf_on_peak_flow_normalized': 0.2, 'mf_intent_composite': 0.3,
+            'mf_cost_advantage_final': 0.1, 'turnover_health': 0.1, 'distribution_penalty': -0.1
+        }
+        main_force_score = _nonlinear_fusion(main_force_scores, main_force_weights, volatility_context, sentiment_context, entropy_context)
         # --- 最终 OCH_D 融合 ---
-        och_score = (
-            concentration_score * 0.25 +
-            cost_structure_score * 0.25 +
-            sentiment_score * 0.25 +
-            main_force_score * 0.25
-        ) * 2 - 1
+        och_scores = {
+            'concentration_score': concentration_score,
+            'cost_structure_score': cost_structure_score,
+            'sentiment_score': sentiment_score,
+            'main_force_score': main_force_score
+        }
+        och_weights = {
+            'concentration_score': 0.25, 'cost_structure_score': 0.25,
+            'sentiment_score': 0.25, 'main_force_score': 0.25
+        }
+        # 最终OCH也使用非线性融合，并考虑情境自适应
+        och_score = _nonlinear_fusion(och_scores, och_weights, volatility_context, sentiment_context, entropy_context) * 2 - 1 # 映射回 [-1, 1]
         df['OCH_D'] = och_score.astype(np.float32)
         all_dfs[timeframe] = df
         logger.info("OCH 指标计算完成。")
         return all_dfs
 
+    async def calculate_structural_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 · 结构特征合成版】
+        - 核心职责: 从 BaseAdvancedStructuralMetrics 中提取和合成更高级的结构性特征。
+        - 指标含义:
+            - STRUCTURAL_TREND_HEALTH_D: 综合评估趋势的健康度、加速状态和成交结构。
+            - BREAKTHROUGH_CONVICTION_D: 直接使用突破信念分。
+            - DEFENSE_SOLIDITY_D: 直接使用防守稳固度。
+            - EQUILIBRIUM_COMPRESSION_D: 直接使用均衡压缩指数。
+        """
+        timeframe = 'D'
+        if timeframe not in all_dfs or all_dfs[timeframe].empty:
+            logger.warning(f"结构特征计算失败：缺少日线数据。")
+            return all_dfs
+        df = all_dfs[timeframe]
+        # 检查计算所需的原始结构指标列是否存在
+        required_structural_cols = [
+            'trend_acceleration_score_D', 'final_charge_intensity_D', 'volume_structure_skew_D',
+            'breakthrough_conviction_score_D', 'defense_solidity_score_D', 'equilibrium_compression_index_D'
+        ]
+        missing_cols = [col for col in required_structural_cols if col not in df.columns]
+        if missing_cols:
+            logger.warning(f"结构特征计算缺少关键数据: {missing_cols}，模块已跳过！")
+            return all_dfs
+        # 1. 合成 STRUCTURAL_TREND_HEALTH_D
+        # 综合趋势加速、终场冲锋强度和成交结构偏度，评估趋势的整体健康度
+        # 假设这些指标都已归一化到0-100或-1到1的范围
+        df['STRUCTURAL_TREND_HEALTH_D'] = (
+            df['trend_acceleration_score_D'] * 0.4 +
+            df['final_charge_intensity_D'] * 0.3 +
+            (1 - df['volume_structure_skew_D'].abs()) * 0.3 # 偏度越小，结构越健康
+        ).clip(0, 100) # 假设输出范围是0-100
+        # 2. 直接使用其他结构指标作为特征
+        df['BREAKTHROUGH_CONVICTION_D'] = df['breakthrough_conviction_score_D']
+        df['DEFENSE_SOLIDITY_D'] = df['defense_solidity_score_D']
+        df['EQUILIBRIUM_COMPRESSION_D'] = df['equilibrium_compression_index_D']
+        all_dfs[timeframe] = df
+        logger.info("结构特征计算完成。")
+        return all_dfs
 
+    async def calculate_geometric_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 · 几何形态特征映射版】
+        - 核心职责: 将平台、趋势线等几何形态数据映射到日线级别，并衍生出可用于量化的特征。
+        - 处理逻辑:
+            1. 对于 MultiTimeframeTrendline (已是日线快照)，直接提取其特征。
+            2. 对于 PlatformFeature 和 TrendlineFeature (事件型)，将其特征在有效日期范围内映射到每日数据。
+            3. 处理重叠事件，默认优先使用最新结束的事件。
+        """
+        timeframe = 'D'
+        if timeframe not in all_dfs or all_dfs[timeframe].empty:
+            logger.warning(f"几何形态特征计算失败：缺少日线数据。")
+            return all_dfs
+        df_daily = all_dfs[timeframe]
+        df_index = df_daily.index
+        # 初始化一个空的DataFrame来存储每日几何特征
+        df_geometric_features = pd.DataFrame(index=df_index)
+        # --- 1. 处理 MultiTimeframeTrendline (已是每日快照) ---
+        # 假设这些数据已经通过 IndicatorService 加载并带有 _D 后缀
+        multi_trendline_cols = [
+            'trend_conviction_score_D', 'slope_D', 'intercept_D', 'validity_score_D'
+        ]
+        # 筛选出所有以 'multi_timeframe_trendline' 开头的列，并检查是否存在
+        # 实际列名会是类似 'multi_timeframe_trendline_trend_conviction_score_D'
+        # 这里需要更精确地匹配，或者假设这些列已经直接在df_daily中
+        # 假设这些列已经直接在df_daily中，并且是针对不同period和line_type的
+        # 例如：trend_conviction_score_5_support_D, trend_conviction_score_13_resistance_D
+        # 暂时只处理通用的，更细致的需要根据实际列名来
+        for col in df_daily.columns:
+            if 'trend_conviction_score' in col or 'trendline_slope' in col or 'trendline_validity_score' in col:
+                df_geometric_features[col] = df_daily[col]
+        # --- 2. 处理 PlatformFeature (事件型数据) ---
+        # 假设 PlatformFeature_D 已经通过 IndicatorService 加载，并且其索引是 end_date
+        df_platforms = all_dfs.get('platform_feature_D')
+        if df_platforms is not None and not df_platforms.empty:
+            # 将平台特征映射到每日数据
+            for idx, row in df_platforms.iterrows():
+                start_date = pd.to_datetime(row['start_date_D'], utc=True).normalize()
+                end_date = pd.to_datetime(idx, utc=True).normalize() # 索引已经是end_date
+                
+                # 确保日期范围在 df_daily 的索引范围内
+                valid_dates = df_index[(df_index >= start_date) & (df_index <= end_date)]
+                if not valid_dates.empty:
+                    # 提取平台相关特征
+                    platform_features = {
+                        'PLATFORM_CONVICTION_SCORE_D': row.get('platform_conviction_score_D', np.nan),
+                        'PLATFORM_QUALITY_SCORE_D': row.get('quality_score_D', np.nan),
+                        'PLATFORM_DURATION_D': row.get('duration_D', np.nan),
+                        'PLATFORM_CHARACTER_SCORE_D': row.get('character_score_D', np.nan),
+                        'PLATFORM_BREAKOUT_READINESS_D': row.get('breakout_readiness_score_D', np.nan),
+                        'PLATFORM_VPOC_D': row.get('vpoc_D', np.nan),
+                        'PLATFORM_HIGH_D': row.get('high_D', np.nan),
+                        'PLATFORM_LOW_D': row.get('low_D', np.nan),
+                    }
+                    # 映射到每日数据，处理重叠时，最新结束的平台优先
+                    for date in valid_dates:
+                        for feature_name, value in platform_features.items():
+                            # 如果该日期已有值，且当前平台结束日期更晚，则更新
+                            if pd.isna(df_geometric_features.loc[date, feature_name]) or date == end_date:
+                                df_geometric_features.loc[date, feature_name] = value
+            # 衍生平台相关特征
+            if 'PLATFORM_HIGH_D' in df_geometric_features.columns and 'PLATFORM_LOW_D' in df_geometric_features.columns:
+                df_geometric_features['PLATFORM_RANGE_PCT_D'] = (
+                    (df_geometric_features['PLATFORM_HIGH_D'] - df_geometric_features['PLATFORM_LOW_D']) /
+                    df_geometric_features['PLATFORM_LOW_D'].replace(0, np.nan)
+                ).fillna(0)
+            if 'PLATFORM_VPOC_D' in df_geometric_features.columns and 'close_D' in df_daily.columns:
+                df_geometric_features['PLATFORM_VPOC_PREMIUM_D'] = (
+                    (df_geometric_features['PLATFORM_VPOC_D'] - df_daily['close_D']) /
+                    df_daily['close_D'].replace(0, np.nan)
+                ).fillna(0)
+        # --- 3. 处理 TrendlineFeature (事件型数据) ---
+        # 假设 TrendlineFeature_D 已经通过 IndicatorService 加载，并且其索引是 end_date
+        df_trendlines = all_dfs.get('trendline_feature_D')
+        if df_trendlines is not None and not df_trendlines.empty:
+            for idx, row in df_trendlines.iterrows():
+                start_date = pd.to_datetime(row['start_date_D'], utc=True).normalize()
+                end_date = pd.to_datetime(idx, utc=True).normalize() # 索引已经是end_date
+                
+                valid_dates = df_index[(df_index >= start_date) & (df_index <= end_date)]
+                if not valid_dates.empty:
+                    # 提取趋势线相关特征
+                    trendline_features = {
+                        f"TRENDLINE_SLOPE_{row['line_type_D'].upper()}_D": row.get('slope_D', np.nan),
+                        f"TRENDLINE_CONVICTION_{row['line_type_D'].upper()}_D": row.get('touch_conviction_score_D', np.nan),
+                        f"TRENDLINE_VALIDITY_{row['line_type_D'].upper()}_D": row.get('validity_score_D', np.nan),
+                        f"TRENDLINE_INTERCEPT_{row['line_type_D'].upper()}_D": row.get('intercept_D', np.nan),
+                    }
+                    # 映射到每日数据，处理重叠时，最新结束的趋势线优先
+                    for date in valid_dates:
+                        for feature_name, value in trendline_features.items():
+                            if pd.isna(df_geometric_features.loc[date, feature_name]) or date == end_date:
+                                df_geometric_features.loc[date, feature_name] = value
+        # 将所有几何特征合并到 df_daily
+        df_daily = df_daily.join(df_geometric_features, how='left')
+        # 对新合并的列进行前向填充，确保连续性
+        new_geometric_cols = [col for col in df_geometric_features.columns if col not in df_daily.columns]
+        if new_geometric_cols:
+            df_daily[new_geometric_cols] = df_daily[new_geometric_cols].ffill()
+        all_dfs[timeframe] = df_daily
+        logger.info("几何形态特征计算完成。")
+        return all_dfs
 
 
 

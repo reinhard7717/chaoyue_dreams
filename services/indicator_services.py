@@ -437,14 +437,14 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.21 · 资金流列名标准化与NMFNF/OCH计算版】
+        【V8.22 · 结构与形态数据集成版】
         - 核心修复: 修正了 `fund_flow_tushare` 数据源的列名标准化逻辑，确保其原始买卖金额列在合并到 `df_daily_master` 之前，
                       被正确地命名为带有 `_D` 后缀的形式，解决了 `_diagnose_axiom_consensus` 方法中缺少 `net_sm_amount_calibrated_D` 等列的问题。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
         - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
         - 【新增】在日线数据准备完成后，计算 `NMFNF_D` 和 `OCH_D`。
         - 【修复】确保 `advanced_chips` 和 `advanced_fund_flow` 中的基础指标列在被 `_rename_precomputed_derivatives` 处理前就已添加 `_D` 后缀。
-        - 【新增】获取 `advanced_structural_metrics`、`platform_feature` 和 `multi_timeframe_trendline` 数据。
+        - 【新增】集成 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline` 数据。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -521,29 +521,30 @@ class IndicatorService:
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, limit)
             return ('price_limit', df)
         tasks.append(_fetch_price_limit_tagged(stock_code, trade_time, base_needed_bars))
-
-        # 【新增任务】获取高级结构与行为指标数据
+        # 【新增代码行】添加获取高级结构指标数据的任务
         async def _fetch_advanced_structural_metrics_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_advanced_structural_metrics_data(stock_code, trade_time_dt, limit)
             return ('advanced_structural_metrics', df)
         tasks.append(_fetch_advanced_structural_metrics_tagged(stock_code, trade_time, base_needed_bars))
-
-        # 【新增任务】获取平台特征数据
+        # 【新增代码行】添加获取平台特征数据的任务
         async def _fetch_platform_feature_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_platform_feature_data(stock_code, trade_time_dt, limit)
             return ('platform_feature', df)
         tasks.append(_fetch_platform_feature_tagged(stock_code, trade_time, base_needed_bars))
-
-        # 【新增任务】获取多时间维度趋势线数据
+        # 【新增代码行】添加获取趋势线特征数据的任务
+        async def _fetch_trendline_feature_tagged(stock_code, trade_time, limit):
+            trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
+            df = await self.strategies_dao.get_trendline_feature_data(stock_code, trade_time_dt, limit)
+            return ('trendline_feature', df)
+        tasks.append(_fetch_trendline_feature_tagged(stock_code, trade_time, base_needed_bars))
+        # 【新增代码行】添加获取多时间框架趋势线数据的任务
         async def _fetch_multi_timeframe_trendline_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_multi_timeframe_trendline_data(stock_code, trade_time_dt, limit)
             return ('multi_timeframe_trendline', df)
         tasks.append(_fetch_multi_timeframe_trendline_tagged(stock_code, trade_time, base_needed_bars))
-
-
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
@@ -562,7 +563,8 @@ class IndicatorService:
                 object_cols = data.select_dtypes(include=['object']).columns
                 for col in object_cols:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
-                if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare', 'advanced_fund_flow', 'price_limit', 'advanced_structural_metrics', 'platform_feature', 'multi_timeframe_trendline']: # 修改：新增标签
+                # 【修改代码行】更新 supplemental_dfs 的标签列表，包含新增的数据类型
+                if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare', 'advanced_fund_flow', 'price_limit', 'advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline']:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
@@ -578,22 +580,18 @@ class IndicatorService:
             if df_supp_std is None or df_supp_std.empty:
                 continue
             df_supp_std.index = df_supp_std.index.normalize()
-
-            # 【修改代码行】针对 advanced_chips, advanced_fund_flow, advanced_structural_metrics, platform_feature, multi_timeframe_trendline
-            # 在处理衍生指标前，先为基础列添加 _D 后缀
-            if tag in ['advanced_chips', 'advanced_fund_flow', 'advanced_structural_metrics', 'platform_feature', 'multi_timeframe_trendline']:
+            # 【修改代码行】针对 advanced_chips, advanced_fund_flow, advanced_structural_metrics, platform_feature, trendline_feature, multi_timeframe_trendline，在处理衍生指标前，先为基础列添加 _D 后缀
+            if tag in ['advanced_chips', 'advanced_fund_flow', 'advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline']:
                 # 仅对不以时间框架后缀结尾且不是衍生指标模式的列添加 _D 后缀
                 cols_to_suffix = [
                     col for col in df_supp_std.columns
                     if not col.endswith(('_D', '_W', '_M')) and not re.match(r'.+?_(slope|accel)_\d+d$', col)
-                    and col not in ['stock_id', 'id', 'trade_time', 'trade_date', 'start_date', 'end_date', 'line_type', 'period'] # 排除非指标列
                 ]
                 rename_map_explicit_suffix = {col: f"{col}_D" for col in cols_to_suffix}
                 df_supp_std.rename(columns=rename_map_explicit_suffix, inplace=True)
                 
                 # 然后再处理预计算的衍生指标（如 SLOPE_X_Y_slope_Ad）
                 df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
-
             elif tag == 'daily_basic':
                 # 确保 total_mv 被正确重命名为 total_market_value_D
                 if 'total_mv' in df_supp_std.columns:
@@ -604,13 +602,11 @@ class IndicatorService:
                     if not col.endswith(('_D', '_W', '_M'))
                 }
                 df_supp_std.rename(columns=rename_map_daily_basic, inplace=True)
-
             # fund_flow_tushare 已在 _fetch_fund_flow_tushare_tagged 中处理 _D 后缀
             # fund_flow_ths 和 fund_flow_dc 添加的是 _ths 或 _dc 后缀
             elif tag in ['fund_flow_ths', 'fund_flow_dc']:
                 # 这些标签的后缀处理已在 _fetch_fund_flow_ths_tagged / _fetch_fund_flow_dc_tagged 中完成
                 pass # 无需额外处理
-
             # 避免与 df_daily_master 现有列冲突，但要保留补充数据中独有的、已正确命名的列
             conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
             # 明确列出补充数据中应保留的、即使与df_daily_master有同名但含义不同的列
@@ -618,39 +614,24 @@ class IndicatorService:
                 'total_market_value_D', # 来自 daily_basic
                 'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D', # 来自 advanced_fund_flow/chips
                 'breakout_quality_score_D', # 来自 advanced_chips
-                # 新增：来自 advanced_structural_metrics, platform_feature, multi_timeframe_trendline 的列
-                'trend_acceleration_score_D', 'final_charge_intensity_D', 'volume_structure_skew_D',
-                'breakthrough_conviction_score_D', 'defense_solidity_score_D', 'equilibrium_compression_index_D',
-                'platform_conviction_score_D', 'quality_score_D', 'breakout_readiness_score_D',
-                'trend_conviction_score_D', 'validity_score_D'
+                # 【新增代码行】添加结构与形态数据中应保留的列
+                'trend_acceleration_score_D', 'final_charge_intensity_D', 'platform_conviction_score_D',
+                'trend_conviction_score_D', 'quality_score_D', 'validity_score_D'
                 # 根据需要添加其他应保留的列
             ]
             # 过滤掉那些不应该被删除的冲突列
             conflicting_cols_to_drop = [col for col in conflicting_cols if col not in cols_to_keep_from_supp]
             if conflicting_cols_to_drop:
                 df_supp_std = df_supp_std.drop(columns=conflicting_cols_to_drop)
-
             if not df_supp_std.columns.empty:
                 processed_supp_dfs_to_join.append(df_supp_std)
                 all_new_cols.extend(df_supp_std.columns)
-
         if processed_supp_dfs_to_join:
             df_daily_master = df_daily_master.join(processed_supp_dfs_to_join, how='left')
             unique_new_cols = list(set(all_new_cols))
             cols_to_ffill = [col for col in unique_new_cols if col in df_daily_master.columns]
             if cols_to_ffill:
                 df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
-
-        # 【修改代码行】移除此处的通用 rename_map_daily 逻辑，因为所有补充数据列现在都应该已经正确后缀。
-        # 原始OHLCV列在_get_ohlcv_data中已经处理，或者在df_daily_master = raw_dfs['D']时已经带有_D后缀。
-        # 这样可以避免不必要的重复处理或潜在的错误。
-        # rename_map_daily = {
-        #     col: f"{col}_D"
-        #     for col in df_daily_master.columns
-        #     if not col.endswith(('_D', '_W', '_M')) and not any(col.endswith(f'_{i}') for i in range(100))
-        # }
-        # df_daily_master.rename(columns=rename_map_daily, inplace=True)
-
         if 'close_D' in df_daily_master.columns:
             df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
         raw_dfs['D'] = df_daily_master
@@ -751,6 +732,7 @@ class IndicatorService:
             rsi = 100 - (100 / (1 + rs))
             synthetic_indicators['RSI_13_W'] = rsi
         return synthetic_indicators
+
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
         """
         解析指标配置，获取指定时间周期所需的最大计算周期。
@@ -771,10 +753,12 @@ class IndicatorService:
                 elif isinstance(periods, (int, float)): flat_periods.append(periods)
                 if flat_periods: max_period = max(max_period, max(flat_periods))
         return int(max_period * 1.2) if max_period > 0 else 1
+
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.20 · 通达信指标集成与列名修复版】根据配置为指定时间周期计算所有技术指标。
+        【V110.21 · 结构与形态指标集成版】根据配置为指定时间周期计算所有技术指标。
         - 核心修复: 调整了 `merge_results` 函数的逻辑，确保只对**不以时间框架后缀结尾**的列添加后缀，避免重复。
+        - 【新增】集成 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline` 的处理。
         """
         if not config:
             return df
@@ -797,6 +781,11 @@ class IndicatorService:
             'atan_ma_angle': self.calculator.calculate_atan_ma_angle,
             'ma_velocity_acceleration': self.calculator.calculate_ma_velocity_acceleration,
             'zigzag': self.calculator.calculate_zigzag,
+            # 【新增代码行】添加结构与形态指标的计算方法
+            'advanced_structural_metrics': self.calculator.process_advanced_structural_metrics,
+            'platform_feature': self.calculator.process_platform_feature,
+            'trendline_feature': self.calculator.process_trendline_feature,
+            'multi_timeframe_trendline': self.calculator.process_multi_timeframe_trendline,
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty:
@@ -815,7 +804,9 @@ class IndicatorService:
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore',
-            'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag'
+            'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag',
+            # 【新增代码行】将结构与形态指标的计算放在最后，因为它们通常是直接从DAO获取并标准化后的数据，不需要复杂的依赖
+            'advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline'
         ]
         close_col_tf = f'close_{timeframe_key}'
         high_col_tf = f'high_{timeframe_key}'
@@ -849,6 +840,20 @@ class IndicatorService:
                             logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
                     except Exception as e:
                         logger.error(f"计算Z-score时出错: {e}", exc_info=True)
+                continue
+            # 【新增代码块】处理结构与形态指标，它们不需要 periods 循环，直接处理即可
+            if indicator_name in ['advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline']:
+                # 这些指标的数据已经从DAO获取并合并到df_for_calc中，这里只需要确保它们存在
+                # 并且如果需要，可以进行一些简单的后处理或验证
+                # 实际上，这里不需要额外的计算，因为数据已经准备好并带有_D后缀
+                # 但为了保持结构一致性，可以调用一个空操作或验证函数
+                # 假设 process_* 方法只是返回原始df，或者进行一些简单的验证
+                result_df = await indicator_method_map[indicator_name](df=df_for_calc)
+                # 注意：这里不需要 merge_results，因为这些数据已经直接在 _prepare_base_data_and_indicators 中合并并后缀化
+                # 这里的调用主要是为了保持逻辑流的完整性，或者未来可以添加一些基于这些数据的衍生计算
+                # 如果 process_* 方法返回的是一个修改过的df，则需要更新df_for_calc
+                if result_df is not None and not result_df.empty:
+                    df_for_calc = result_df
                 continue
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
@@ -941,6 +946,7 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}) 时出错: {e}", exc_info=True)
         return df_for_calc
+
     async def _calculate_breadth_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """计算内部强度分"""
         members = await self.indicator_dao.get_industry_members(industry_code)
@@ -955,6 +961,7 @@ class IndicatorService:
         # 综合打分
         score = up_ratio * 10
         return score
+
     async def _calculate_leader_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
         计算龙头效应得分。
@@ -971,6 +978,7 @@ class IndicatorService:
             return 0.5 # 弱龙头效应
         # print(f"      - [龙头效应] 未找到领涨股数据，得分: 0.0")
         return 0.0 # 无龙头效应
+
     async def _calculate_cohesion_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
         计算板块协同性（上涨广度）得分。
@@ -999,6 +1007,7 @@ class IndicatorService:
             score = 0.2 # 弱协同性：部分上涨
         # print(f"      - [协同性] 上涨家数/总数: {rising_count}/{total_count} (占比: {rising_ratio:.2%}), 大涨家数: {strong_rising_count}，得分: {score}")
         return score
+
     async def _calculate_limit_up_echelon_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
         【新增-核心】计算涨停梯队得分。
@@ -1025,6 +1034,7 @@ class IndicatorService:
             score = 0.4 # 有涨停股，热点发酵
         # print(f"      - [涨停梯队] 发现 {limit_up_count} 家涨停，得分: {score}")
         return score
+
     def calculate_relative_strength(self, df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
         """
         计算股票相对于基准指数/板块的相对强度/超额收益。
