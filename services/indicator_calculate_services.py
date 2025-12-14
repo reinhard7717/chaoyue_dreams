@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from typing import Dict, List, Optional
-
+import nolds
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
@@ -1243,6 +1243,63 @@ class IndicatorCalculator:
             logger.error(f"计算突破质量分(V2.7)时发生错误: {e}", exc_info=True)
             return None
 
+    async def calculate_approx_entropy(self, df: pd.DataFrame, period: int, column: str) -> pd.Series:
+        """
+        【V1.2 · 近似熵鲁棒计算版】计算近似熵 (Approximate Entropy)。
+        - 核心修复: 增强了对输入序列的健壮性检查，处理常数序列、NaN/Inf值以及计算异常，
+                  避免 'setting an array element with a sequence' 错误。
+        - 核心逻辑: 使用 nolds 库计算滚动近似熵，衡量时间序列的复杂度和不可预测性。
+        - 参数说明: `period` 在此函数中被视为滚动窗口大小。`emb_dim` (m) 固定为 2。
+        """
+        if column not in df.columns:
+            logger.warning(f"近似熵计算失败: 列 '{column}' 不存在。")
+            return pd.Series(np.nan, index=df.index)
+
+        # 确保输入序列是数值类型，并处理NaN
+        series_raw = df[column].astype(float)
+        
+        # nolds.apen 至少需要 emb_dim + 1 个样本，通常 emb_dim=2，所以至少需要 3 个样本。
+        # 滚动窗口 period 应该大于 emb_dim。
+        emb_dim = 2 # 默认的嵌入维度
+        min_samples_for_window = max(period, emb_dim + 1) # 窗口至少要大于 emb_dim
+
+        if len(series_raw) < min_samples_for_window:
+            logger.warning(f"近似熵计算失败: 序列 '{column}' 数据不足 (长度: {len(series_raw)}, 最小要求窗口: {min_samples_for_window})。")
+            return pd.Series(np.nan, index=df.index)
+
+        results = pd.Series(np.nan, index=df.index)
+
+        # 使用循环计算滚动近似熵
+        for i in range(len(series_raw)):
+            if i < min_samples_for_window - 1:
+                continue # 窗口不足，跳过
+
+            window_data = series_raw.iloc[i - min_samples_for_window + 1 : i + 1].dropna().values
+
+            # 再次检查窗口数据长度
+            if len(window_data) < min_samples_for_window:
+                continue
+
+            # 检查窗口数据是否为常数或变化极小
+            if np.all(window_data == window_data[0]) or np.std(window_data) < 1e-9:
+                results.iloc[i] = 0.0 # 常数序列的近似熵通常认为是0或未定义，这里设为0.0
+                continue
+
+            try:
+                # 计算容忍度 r，通常是 0.2 * 标准差
+                r_tolerance = 0.2 * np.std(window_data)
+                if r_tolerance == 0: # 避免除以零或极小值
+                    results.iloc[i] = 0.0
+                    continue
+
+                # 调用 nolds.apen
+                ap_en = nolds.apen(window_data, emb_dim=emb_dim, tolerance=r_tolerance)
+                results.iloc[i] = ap_en
+            except Exception as e:
+                logger.error(f"近似熵(周期{period}, 列: {column})计算失败: {e} for series window ending at {series_raw.index[i]}. Window data (first 5): {window_data[:5]}...", exc_info=False)
+                results.iloc[i] = np.nan # 计算失败时赋值NaN
+
+        return results.reindex(df.index) # 确保结果Series的索引与原始df对齐
 
 
 

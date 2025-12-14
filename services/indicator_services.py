@@ -446,7 +446,7 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.24 · 日线重复索引清理版】
+        【V8.25 · 近似熵鲁棒与列名冲突解决版】
         - 核心修复: 在日线 `df_daily_master` 的索引标准化后，显式删除重复的索引行，以避免 `ValueError: cannot reindex on an axis with duplicate labels` 错误。
         - 核心修复: 确保日线 `df_daily_master` 的原始 OHLCV 列（open, high, low, close, volume, amount）
                       在所有后续操作之前，被正确地命名为带有 `_D` 后缀的形式。
@@ -457,6 +457,7 @@ class IndicatorService:
         - 【新增】在日线数据准备完成后，计算 `NMFNF_D`。
         - 【修复】确保 `advanced_chips` 和 `advanced_fund_flow` 中的基础指标列在被 `_rename_precomputed_derivatives` 处理前就已添加 `_D` 后缀。
         - 【新增】集成 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline` 数据。
+        - 【新增】解决 `breakout_readiness_score_D` 列名冲突问题，合并 `_x` 和 `_y` 后缀的列。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -655,6 +656,18 @@ class IndicatorService:
             cols_to_ffill = [col for col in unique_new_cols if col in df_daily_master.columns]
             if cols_to_ffill:
                 df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
+
+            # 新增代码块：处理冲突的 'breakout_readiness_score_D' 列
+            if 'breakout_readiness_score_D_y' in df_daily_master.columns:
+                # 优先保留 _y 版本（假设其来自 platform_feature，更具相关性）
+                df_daily_master['breakout_readiness_score_D'] = df_daily_master['breakout_readiness_score_D_y'].fillna(df_daily_master.get('breakout_readiness_score_D_x'))
+                df_daily_master.drop(columns=[col for col in ['breakout_readiness_score_D_x', 'breakout_readiness_score_D_y'] if col in df_daily_master.columns], inplace=True)
+                print("调试信息: 已合并并清理重复的 'breakout_readiness_score_D' 列，优先保留 '_y' 版本。")
+            elif 'breakout_readiness_score_D_x' in df_daily_master.columns:
+                # 如果只有 _x 存在，则重命名它
+                df_daily_master.rename(columns={'breakout_readiness_score_D_x': 'breakout_readiness_score_D'}, inplace=True)
+                print("调试信息: 已重命名 'breakout_readiness_score_D_x' 为 'breakout_readiness_score_D'。")
+
         if 'close_D' in df_daily_master.columns:
             df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
         raw_dfs['D'] = df_daily_master
@@ -703,7 +716,7 @@ class IndicatorService:
         async def _calculate_for_tf(tf, df):
             df = self._standardize_df_index_to_utc(df)
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-            return tf, df_with_indicators
+            return tf, df_processed
         for tf, df in raw_dfs.items():
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
