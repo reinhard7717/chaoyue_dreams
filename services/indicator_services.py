@@ -516,9 +516,10 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.29 · 数据合并与命名统一重构版】
+        【V8.30 · 协程标签修复版】
         为策略准备数据的统一入口，彻底重构数据合并和命名规则。
-        - 核心思想: 以 OHLCV 数据为基础，所有补充数据在合并前进行标准化、后缀化和冲突解决。
+        - 核心修复: 解决了 `coroutine` 对象没有 `tag` 属性的错误，通过将 DAO 异步调用封装在
+                  返回 `(tag, result_df)` 元组的辅助函数中，以便 `asyncio.gather` 正确处理。
         - 统一命名: 所有日线数据列名统一以 `_D` 结尾。
         - 迭代合并: 逐个合并补充 DataFrame，明确处理列名冲突。
         """
@@ -555,38 +556,77 @@ class IndicatorService:
         # --- 步骤 1: 并发获取所有原始数据 ---
         tasks = []
         # OHLCV 数据
-        async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
+        async def _fetch_and_tag_ohlcv_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
         for tf in base_tfs_to_fetch:
-            tasks.append(_fetch_and_tag_data(tf, trade_time))
+            tasks.append(_fetch_and_tag_ohlcv_data(tf, trade_time))
 
         # 补充数据 (各种高级指标和基本面数据)
         trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
         trade_time_dt_date = trade_time_dt.date() if trade_time_dt else datetime.datetime.now().date()
 
-        # Legacy supplemental (fund flow and cyq perf)
-        tasks.append(self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, base_needed_bars).tag('legacy_supplemental'))
-        # Daily basic
-        tasks.append(self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, base_needed_bars).tag('daily_basic'))
-        # Fund flow THS
-        tasks.append(self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, base_needed_bars).tag('fund_flow_ths'))
-        # Fund flow DC
-        tasks.append(self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, base_needed_bars).tag('fund_flow_dc'))
-        # Fund flow Tushare
-        tasks.append(self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, base_needed_bars).tag('fund_flow_tushare'))
-        # Advanced fund flow
-        tasks.append(self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, base_needed_bars).tag('advanced_fund_flow'))
-        # Price limit
-        tasks.append(self.strategies_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars).tag('price_limit'))
-        # Advanced structural metrics
-        tasks.append(self.strategies_dao.get_advanced_structural_metrics_data(stock_code, trade_time_dt, base_needed_bars).tag('advanced_structural_metrics'))
-        # Platform feature
-        tasks.append(self.strategies_dao.get_platform_feature_data(stock_code, trade_time_dt, base_needed_bars).tag('platform_feature'))
-        # Trendline feature
-        tasks.append(self.strategies_dao.get_trendline_feature_data(stock_code, trade_time_dt, base_needed_bars).tag('trendline_feature'))
-        # Multi-timeframe trendline
-        tasks.append(self.strategies_dao.get_multi_timeframe_trendline_data(stock_code, trade_time_dt, base_needed_bars).tag('multi_timeframe_trendline'))
+        # 修改代码块：将 DAO 异步调用封装在返回 (tag, result_df) 元组的辅助函数中
+        async def _fetch_legacy_supplemental_tagged():
+            df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('legacy_supplemental', df)
+        tasks.append(_fetch_legacy_supplemental_tagged())
+
+        async def _fetch_daily_basic_tagged():
+            df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('daily_basic', df)
+        tasks.append(_fetch_daily_basic_tagged())
+
+        async def _fetch_fund_flow_ths_tagged():
+            df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, base_needed_bars)
+            return ('fund_flow_ths', df)
+        tasks.append(_fetch_fund_flow_ths_tagged())
+
+        async def _fetch_fund_flow_dc_tagged():
+            df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, base_needed_bars)
+            return ('fund_flow_dc', df)
+        tasks.append(_fetch_fund_flow_dc_tagged())
+
+        async def _fetch_fund_flow_tushare_tagged():
+            df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, base_needed_bars)
+            return ('fund_flow_tushare', df)
+        tasks.append(_fetch_fund_flow_tushare_tagged())
+
+        async def _fetch_advanced_fund_flow_tagged():
+            df = await self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, base_needed_bars)
+            return ('advanced_fund_flow', df)
+        tasks.append(_fetch_advanced_fund_flow_tagged())
+
+        async def _fetch_price_limit_tagged():
+            df = await self.strategies_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('price_limit', df)
+        tasks.append(_fetch_price_limit_tagged())
+
+        async def _fetch_advanced_structural_metrics_tagged():
+            df = await self.strategies_dao.get_advanced_structural_metrics_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('advanced_structural_metrics', df)
+        tasks.append(_fetch_advanced_structural_metrics_tagged())
+
+        async def _fetch_platform_feature_tagged():
+            df = await self.strategies_dao.get_platform_feature_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('platform_feature', df)
+        tasks.append(_fetch_platform_feature_tagged())
+
+        async def _fetch_trendline_feature_tagged():
+            df = await self.strategies_dao.get_trendline_feature_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('trendline_feature', df)
+        tasks.append(_fetch_trendline_feature_tagged())
+
+        async def _fetch_multi_timeframe_trendline_tagged():
+            df = await self.strategies_dao.get_multi_timeframe_trendline_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('multi_timeframe_trendline', df)
+        tasks.append(_fetch_multi_timeframe_trendline_tagged())
+
+        async def _fetch_advanced_chips_tagged():
+            df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, base_needed_bars)
+            return ('advanced_chips', df)
+        tasks.append(_fetch_advanced_chips_tagged())
+
 
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -597,10 +637,8 @@ class IndicatorService:
             if isinstance(result, Exception):
                 print(f"      -> 警告: 一个数据获取任务失败: {result}")
                 continue
-            # 检查结果是否是带有tag的元组，或者直接是DataFrame (对于tag方法)
-            if hasattr(result, 'tag') and hasattr(result, 'result'): # For results from .tag() method
-                tag, data = result.tag, result.result
-            elif isinstance(result, tuple) and len(result) == 2: # For results from _fetch_and_tag_data
+            # 修改代码行：直接解包 (tag, data) 元组
+            if isinstance(result, tuple) and len(result) == 2:
                 tag, data = result
             else:
                 continue # Skip unexpected results
@@ -778,8 +816,15 @@ class IndicatorService:
                     df_daily_master.drop(columns=[temp_col_name], inplace=True)
             
             # Add newly introduced columns from df_supp_processed to the ffill list
-            newly_added_cols = [col for col in df_supp_processed.columns if col not in df_daily_master.columns and f"{col}{temp_suffix}" not in df_daily_master.columns]
-            all_merged_cols_for_ffill.update(newly_added_cols)
+            # 这里的逻辑需要调整，因为 df_supp_processed 已经包含了 _D 后缀
+            # 我们需要收集的是最终合并到 df_daily_master 中的列名
+            for col in df_supp_processed.columns:
+                if col not in df_daily_master.columns: # 如果是新列
+                    all_merged_cols_for_ffill.add(col)
+                elif col in common_cols: # 如果是冲突列，且我们决定保留了补充数据的值
+                    if col in priority_supp_cols:
+                        all_merged_cols_for_ffill.add(col)
+
 
         # --- 步骤 4: 统一 ffill 填充 ---
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
