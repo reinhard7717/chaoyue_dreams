@@ -374,9 +374,12 @@ class IndicatorService:
         # 注意：此步骤依赖于一些斜率和加速度，但如果这些斜率和加速度是基于基础OHLCV或早期计算的指标，
         # 且不依赖于后续的上下文注入信号，则可以保留在此处。
         # 如果高级模式识别也依赖于上下文注入信号的斜率/加速度，则需要将其移动到斜率/加速度计算之后。
-        # 暂时保留在此处，假设其依赖的斜率/加速度已在_prepare_base_data_and_indicators中处理或不依赖上下文信号。
+        # 暂时保留在此处，假设其依赖的斜率和加速度已在_prepare_base_data_and_indicators中处理或不依赖上下文信号。
         all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
-        # --- 9. 【上下文信息注入】 ---
+        # 【新增代码行】9. 【几何形态特征计算】 ---
+        # 确保几何形态特征在斜率和加速度计算之前可用
+        all_dfs = await self.feature_service.calculate_geometric_features(all_dfs, config)
+        # --- 10. 【上下文信息注入】 ---
         # 此处将所有外部信号（包括smart_money_signals_df）合并到all_dfs['D']
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
@@ -438,7 +441,7 @@ class IndicatorService:
             temp_dfs = await self.feature_service.calculate_och(temp_dfs)
             all_dfs['D'] = temp_dfs['D']
 
-        # --- 10. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
+        # --- 11. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
         self._log_final_data_columns(all_dfs) # 移除调试打印
