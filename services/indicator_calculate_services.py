@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 from scipy.signal import find_peaks, peak_prominences
+import pyentrp.entropy as ent
 
 logger = logging.getLogger("services")
 
@@ -1243,28 +1244,26 @@ class IndicatorCalculator:
             logger.error(f"计算突破质量分(V2.7)时发生错误: {e}", exc_info=True)
             return None
 
-    async def calculate_approx_entropy(self, df: pd.DataFrame, period: int, column: str) -> pd.Series:
+    async def calculate_approx_entropy(self, df: pd.DataFrame, period: int, column: str, tolerance_ratio: float = 0.2) -> pd.Series:
         """
-        【V1.3 · nolds兼容性修复版】计算近似熵 (Approximate Entropy)。
-        - 核心修复: 针对 `nolds` 库可能出现的 `has no attribute 'apen'` 错误，增加前置检查和更详细的错误日志。
-                  如果 `nolds.apen` 不可用，则返回 NaN，避免程序崩溃。
-        - 核心逻辑: 使用 nolds 库计算滚动近似熵，衡量时间序列的复杂度和不可预测性。
+        【V1.4 · pyentrp集成版】计算近似熵 (Approximate Entropy)。
+        - 核心修复: 修正了对 `nolds` 库的错误引用，现在使用 `pyentrp` 库来计算近似熵。
+        - 核心逻辑: 使用 `pyentrp.entropy.app_entropy` 计算滚动近似熵，衡量时间序列的复杂度和不可预测性。
         - 参数说明: `period` 在此函数中被视为滚动窗口大小。`emb_dim` (m) 固定为 2。
+        - `tolerance_ratio`: 容忍度 `r` 的比例因子，`r = tolerance_ratio * std(window_data)`。
         """
+        # 修改代码行：检查 pyentrp 是否成功导入
+        if ent is None:
+            logger.error("pyentrp 库未加载，无法计算近似熵。请确保已安装 'pyentrp'。")
+            return pd.Series(np.nan, index=df.index)
+
         if column not in df.columns:
             logger.warning(f"近似熵计算失败: 列 '{column}' 不存在。")
             return pd.Series(np.nan, index=df.index)
 
-        # 修改代码行：增加对 nolds.apen 属性的检查
-        if not hasattr(nolds, 'apen'):
-            # 修改代码行：输出更详细的错误信息，包含 nolds 版本
-            print(f"    - 错误: 近似熵计算失败！'nolds' 模块 (版本 {nolds.__version__ if hasattr(nolds, '__version__') else '未知'}) 没有 'apen' 属性。请检查 'nolds' 库的安装或版本是否正确。")
-            return pd.Series(np.nan, index=df.index)
-
-        # 确保输入序列是数值类型，并处理NaN
         series_raw = df[column].astype(float)
         
-        emb_dim = 2 # 默认的嵌入维度
+        emb_dim = 2 # 嵌入维度 m，通常取 2
         min_samples_for_window = max(period, emb_dim + 1)
 
         if len(series_raw) < min_samples_for_window:
@@ -1273,7 +1272,6 @@ class IndicatorCalculator:
 
         results = pd.Series(np.nan, index=df.index)
 
-        # 使用循环计算滚动近似熵
         for i in range(len(series_raw)):
             if i < min_samples_for_window - 1:
                 continue
@@ -1283,17 +1281,21 @@ class IndicatorCalculator:
             if len(window_data) < min_samples_for_window:
                 continue
 
+            # 检查窗口数据是否为常数或变化极小
             if np.all(window_data == window_data[0]) or np.std(window_data) < 1e-9:
                 results.iloc[i] = 0.0
                 continue
 
             try:
-                r_tolerance = 0.2 * np.std(window_data)
+                std_dev = np.std(window_data)
+                r_tolerance = tolerance_ratio * std_dev
+                
                 if r_tolerance == 0:
                     results.iloc[i] = 0.0
                     continue
 
-                ap_en = nolds.apen(window_data, emb_dim=emb_dim, tolerance=r_tolerance)
+                # 修改代码行：调用 pyentrp.entropy.app_entropy
+                ap_en = ent.app_entropy(window_data, m=emb_dim, r=r_tolerance)
                 results.iloc[i] = ap_en
             except Exception as e:
                 logger.error(f"近似熵(周期{period}, 列: {column})计算失败: {e} for series window ending at {series_raw.index[i]}. Window data (first 5): {window_data[:5]}...", exc_info=False)

@@ -208,7 +208,6 @@ class FeatureEngineeringService:
             B = np.sum(dist_plus_1 < r) - (n - m)
             if A == 0 or B == 0: return np.nan
             return -np.log(B / A)
-        # 【已移除】_approximate_entropy 函数已移除，现在直接调用 self.calculator.calculate_approx_entropy
         # 【新增代码块】FFT能量比计算函数
         def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5):
             N = len(x)
@@ -294,12 +293,12 @@ class FeatureEngineeringService:
                     df[se_col] = np.nan
             # --- 4. 【新增】近似熵 (Approximate Entropy) (时间序列复杂性) ---
             ae_window = params.get('approximate_entropy_window', 21) # 斐波那契数
-            # ae_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2) # 此参数由 calculate_approx_entropy 内部处理
+            ae_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2) # 获取容忍度比例
             ae_col = f'{prefix}APPROX_ENTROPY_{ae_window}d{suffix}'
             if ae_col not in df.columns:
                 try:
-                    # 修改代码行：调用 self.calculator 中的 calculate_approx_entropy 方法
-                    df[ae_col] = await self.calculator.calculate_approx_entropy(df=df, period=ae_window, column=source_col)
+                    # 修改代码行：调用 self.calculator 中的 calculate_approx_entropy 方法，并传入 tolerance_ratio
+                    df[ae_col] = await self.calculator.calculate_approx_entropy(df=df, period=ae_window, column=source_col, tolerance_ratio=ae_tol_ratio)
                 except Exception as e:
                     logger.error(f"近似熵(周期{ae_window}, 列: {source_col})计算失败: {e}")
                     df[ae_col] = np.nan
