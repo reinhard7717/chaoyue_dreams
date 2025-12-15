@@ -300,18 +300,7 @@
         "vpoc_D": [5, 8, 13, 21],
         "total_volume_D": [5, 8, 13, 21],
         "breakout_readiness_score_D": [5, 8, 13, 21],
-        "goodness_of_fit_score_D": [5, 8, 13, 21],
-        "说明_trendline_feature": "--- 为趋势线特征提供支持 ---",
-        "trendline_slope_D": [5, 8, 13, 21],
-        "trendline_intercept_D": [5, 8, 13, 21],
-        "trendline_touch_points_D": [5, 8, 13, 21],
-        "trendline_validity_score_D": [5, 8, 13, 21],
-        "trendline_touch_conviction_score_D": [5, 8, 13, 21],
-        "说明_multi_timeframe_trendline": "--- 为多时间框架趋势线提供支持 ---",
-        "mtf_trendline_slope_D": [5, 8, 13, 21],
-        "mtf_trendline_intercept_D": [5, 8, 13, 21],
-        "mtf_trendline_validity_score_D": [5, 8, 13, 21],
-        "trend_conviction_score_D": [5, 8, 13, 21]
+        "goodness_of_fit_score_D": [5, 8, 13, 21]
       }
     },
     "accel_params": {
@@ -482,18 +471,7 @@
         "vpoc_D": [5, 8, 13, 21],
         "total_volume_D": [5, 8, 13, 21],
         "breakout_readiness_score_D": [5, 8, 13, 21],
-        "goodness_of_fit_score_D": [5, 8, 13, 21],
-        "说明_trendline_feature": "--- 为趋势线特征提供支持 ---",
-        "trendline_slope_D": [5, 8, 13, 21],
-        "trendline_intercept_D": [5, 8, 13, 21],
-        "trendline_touch_points_D": [5, 8, 13, 21],
-        "trendline_validity_score_D": [5, 8, 13, 21],
-        "trendline_touch_conviction_score_D": [5, 8, 13, 21],
-        "说明_multi_timeframe_trendline": "--- 为多时间框架趋势线提供支持 ---",
-        "mtf_trendline_slope_D": [5, 8, 13, 21],
-        "mtf_trendline_intercept_D": [5, 8, 13, 21],
-        "mtf_trendline_validity_score_D": [5, 8, 13, 21],
-        "trend_conviction_score_D": [5, 8, 13, 21]
+        "goodness_of_fit_score_D": [5, 8, 13, 21]
       }
     }
   },

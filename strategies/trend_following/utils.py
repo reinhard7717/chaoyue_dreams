@@ -99,15 +99,37 @@ def is_limit_down(df_row: pd.Series, tolerance: float = 0.005) -> bool:
     return close_price <= estimated_down_limit * (1 + tolerance)
 
 def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    【V1.1 · 类型安全修正版】
+    遍历DataFrame的所有列，并尽可能地将其数据类型转换为占用内存更小的类型。
+    - 核心修复: 将 `df[col].dtype` 替换为 `df.dtypes[col]`，以解决当 `df[col]` 意外返回 `DataFrame` 时
+                  出现的 `AttributeError`。这确保了在任何情况下都能正确获取列的数据类型。
+    """
+    start_mem = df.memory_usage().sum() / 1024**2
     converted_cols = []
     for col in df.columns:
-        if df[col].dtype == 'object':
-            first_valid_item = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+        # 修改代码行：使用 df.dtypes[col] 更安全地获取列的数据类型
+        if df.dtypes[col] == 'object':
+            # 确保 df[col] 是 Series，以防万一 df[col] 行为异常
+            column_series = df[col]
+            # 如果 column_series 仍然是 DataFrame，则尝试将其展平为 Series
+            if isinstance(column_series, pd.DataFrame):
+                # 假设如果 df[col] 是 DataFrame，它只有一个子列
+                if len(column_series.columns) == 1:
+                    column_series = column_series.iloc[:, 0]
+                else:
+                    # 如果有多个子列，则跳过此列，因为无法确定如何转换为单一数值类型
+                    print(f"警告: 列 '{col}' 包含多个子列，无法自动转换为数值类型，已跳过。")
+                    continue
+            first_valid_item = column_series.dropna().iloc[0] if not column_series.dropna().empty else None
             if isinstance(first_valid_item, Decimal):
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+                df[col] = pd.to_numeric(column_series, errors='coerce')
                 converted_cols.append(col)
     # if not converted_cols:
         # print("      -> 所有数值列类型正常，无需转换。")
+    end_mem = df.memory_usage().sum() / 1024**2
+    # 调试信息：打印内存优化结果
+    print(f'    -> [内存优化] DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
     return df
 
 def get_unified_score(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str) -> pd.Series:

@@ -402,8 +402,8 @@ class FeatureEngineeringService:
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"高级模式识别引擎缺少关键数据: {missing_cols}，模块已跳过！")
-            print("当前可用的列名包括:")
-            print(df.columns.tolist())
+            # print("当前可用的列名包括:")
+            # print(df.columns.tolist())
             return all_dfs
         # --- 1. 【情境自适应调制器】 ---
         # 根据市场波动率和趋势强度动态调整信号敏感度
