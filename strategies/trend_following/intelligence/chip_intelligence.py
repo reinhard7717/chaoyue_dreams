@@ -602,6 +602,8 @@ class ChipIntelligence:
         global_context_sensitivity_health = get_param_value(holder_sentiment_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_conviction = get_param_value(holder_sentiment_params.get('global_context_sensitivity_conviction'), 0.3)
         df_index = df.index
+        # 修改代码行：将 chip_health_raw 的获取移动到所有原始数据获取的起始位置
+        chip_health_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
@@ -700,7 +702,6 @@ class ChipIntelligence:
         norm_dip_buy_absorption_strength = get_adaptive_mtf_normalized_score(dip_buy_absorption_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
         base_pressure_test_numeric_weights = {k: v for k, v in pressure_test_weights.items() if isinstance(v, (int, float))}
         total_base_pressure_test_weight = sum(base_pressure_test_numeric_weights.values())
-        # 修改代码行：添加对 total_base_pressure_test_weight 为 0 的检查，避免 NameError
         if total_base_pressure_test_weight == 0:
             base_pressure_score = pd.Series(0.0, index=df_index)
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 警告: 压力测试权重总和为0，base_pressure_score 设为0。")
