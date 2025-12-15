@@ -1232,7 +1232,7 @@ class BehavioralIntelligence:
             close_slope_raw.loc[bullish_divergence_mask].abs() * behavioral_momentum_divergence_weights.get('price_slope_weight', 0.5) + \
             rsi_slope_raw.loc[bullish_divergence_mask].abs() * behavioral_momentum_divergence_weights.get('rsi_slope_weight', 0.5)
         behavioral_momentum_divergence_score = get_adaptive_mtf_normalized_score(behavioral_momentum_divergence_raw, df.index, ascending=True, tf_weights=default_weights)
-        # [修改代码行] 将行为动量背离融入 ambush_score
+        # 将行为动量背离融入 ambush_score
         ambush_score = (
             distribution_intent * ambush_fusion_weights.get('distribution_intent', 0.7) +
             covert_ambush_intent_score * ambush_fusion_weights.get('covert_ambush_intent', 0.2) +
@@ -1251,7 +1251,7 @@ class BehavioralIntelligence:
             norm_rsi_extreme * behavioral_sentiment_extreme_weights.get('rsi_extreme', 0.3) +
             norm_bias_extreme * behavioral_sentiment_extreme_weights.get('bias_extreme', 0.3)
         ).clip(0,1)
-        # [修改代码行] 将行为情绪极端融入 context_amplifier_factor
+        # 将行为情绪极端融入 context_amplifier_factor
         context_amplifier_factor = (
             overextension_score * context_amplifier_weights.get('overextension', 0.3) +
             positive_deception_score * context_amplifier_weights.get('positive_deception', 0.2) +

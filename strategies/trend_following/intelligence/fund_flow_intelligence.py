@@ -469,7 +469,7 @@ class FundFlowIntelligence:
         dynamic_evolution_base_weights = get_param_value(ac_params.get('dynamic_evolution_base_weights'), {'base_score': 0.6, 'velocity': 0.2, 'acceleration': 0.2})
         dynamic_evolution_context_modulator_signal_name = get_param_value(ac_params.get('dynamic_evolution_context_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         dynamic_evolution_context_sensitivity = get_param_value(ac_params.get('dynamic_evolution_context_sensitivity'), 0.2)
-        # [新增代码行] V5.1 新增微观盘口意图推断权重
+        # V5.1 新增微观盘口意图推断权重
         micro_buy_power_weights = get_param_value(ac_params.get('micro_buy_power_weights'), {
             'dip_buy_absorption_strength': 0.1, 'panic_buy_absorption_contribution': 0.1,
             'opening_buy_strength': 0.1, 'pre_closing_buy_posture': 0.1, 'closing_auction_buy_ambush': 0.1,
@@ -499,7 +499,7 @@ class FundFlowIntelligence:
             'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
             deception_context_modulator_signal_name, # V5.0 诡道情境依赖
             dynamic_evolution_context_modulator_signal_name, # V5.0 动态演化情境依赖
-            # [新增代码行] V5.1 新增资金指标
+            # V5.1 新增资金指标
             'dip_buy_absorption_strength_D', 'dip_sell_pressure_resistance_D',
             'panic_sell_volume_contribution_D', 'panic_buy_absorption_contribution_D',
             'opening_buy_strength_D', 'opening_sell_strength_D',
@@ -535,7 +535,7 @@ class FundFlowIntelligence:
         sell_exhaustion_raw = self._get_safe_series(df, df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_consensus")
         deception_context_modulator_raw = self._get_safe_series(df, df, deception_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_consensus")
         dynamic_evolution_context_modulator_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_consensus")
-        # [新增代码行] V5.1 获取新增资金指标
+        # V5.1 获取新增资金指标
         dip_buy_absorption_strength_raw = self._get_safe_series(df, df, 'dip_buy_absorption_strength_D', 0.0, method_name="_diagnose_axiom_consensus")
         dip_sell_pressure_resistance_raw = self._get_safe_series(df, df, 'dip_sell_pressure_resistance_D', 0.0, method_name="_diagnose_axiom_consensus")
         panic_sell_volume_contribution_raw = self._get_safe_series(df, df, 'panic_sell_volume_contribution_D', 0.0, method_name="_diagnose_axiom_consensus")
@@ -575,14 +575,14 @@ class FundFlowIntelligence:
         norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # 枯竭率越低越好
         norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 枯竭率越高越好
         exhaustion_score = (norm_sell_exhaustion - norm_buy_exhaustion).clip(-1, 1)
-        # [新增代码行] V5.1 整合新增资金指标到微观盘口意图推断
+        # V5.1 整合新增资金指标到微观盘口意图推断
         # 买方力量
         norm_dip_buy_absorption_strength = get_adaptive_mtf_normalized_score(dip_buy_absorption_strength_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_opening_buy_strength = get_adaptive_mtf_normalized_score(opening_buy_strength_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_pre_closing_buy_posture = get_adaptive_mtf_normalized_score(pre_closing_buy_posture_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_closing_auction_buy_ambush = get_adaptive_mtf_normalized_score(closing_auction_buy_ambush_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        # [修改代码行] 修复：定义 norm_main_force_buy_ofi
+        # 修复：定义 norm_main_force_buy_ofi
         norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(main_force_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_buy_ofi = get_adaptive_mtf_normalized_score(retail_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -600,7 +600,7 @@ class FundFlowIntelligence:
         norm_opening_sell_strength = get_adaptive_mtf_normalized_score(opening_sell_strength_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_pre_closing_sell_posture = get_adaptive_mtf_normalized_score(pre_closing_sell_posture_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_closing_auction_sell_ambush = get_adaptive_mtf_normalized_score(closing_auction_sell_ambush_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        # [修改代码行] 修复：定义 norm_main_force_sell_ofi
+        # 修复：定义 norm_main_force_sell_ofi
         norm_main_force_sell_ofi = get_adaptive_mtf_normalized_score(main_force_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(retail_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -791,7 +791,7 @@ class FundFlowIntelligence:
         dynamic_evolution_context_sensitivity_1 = get_param_value(ac_params.get('dynamic_evolution_context_sensitivity'), 0.2)
         dynamic_evolution_context_modulator_signal_2_name = get_param_value(ac_params.get('dynamic_evolution_context_modulator_signal_2'), 'trend_vitality_index_D')
         dynamic_evolution_context_sensitivity_2 = get_param_value(ac_params.get('dynamic_evolution_context_sensitivity_2'), 0.1)
-        # [新增代码行] V4.1 新增核心信念强度权重
+        # V4.1 新增核心信念强度权重
         core_conviction_weights_v4_1 = get_param_value(ac_params.get('core_conviction_weights_v4_1'), {
             'rally_sell_distribution_intensity': -0.1, 'rally_buy_support_weakness': -0.1,
             'main_force_buy_ofi': 0.1, 'main_force_sell_ofi': -0.1,
@@ -812,8 +812,8 @@ class FundFlowIntelligence:
             'SLOPE_5_flow_efficiency_index_D', 'SLOPE_13_flow_efficiency_index_D',
             'micro_price_impact_asymmetry_D', 'large_order_pressure_D', 'intraday_vwap_div_index_D',
             dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name, dynamic_weight_modulator_signal_3_name, dynamic_weight_modulator_signal_4_name,
-            dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name, # [修改代码行] 修正：使用信号名称变量
-            # [新增代码行] V4.1 新增资金指标
+            dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name, # 修正：使用信号名称变量
+            # V4.1 新增资金指标
             'rally_sell_distribution_intensity_D', 'rally_buy_support_weakness_D',
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
@@ -860,7 +860,7 @@ class FundFlowIntelligence:
         trend_vitality_dw_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_4_name, 0.0, method_name="_diagnose_axiom_conviction")
         dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_1_name, 0.0, method_name="_diagnose_axiom_conviction")
         dynamic_evolution_context_modulator_2_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_2_name, 0.0, method_name="_diagnose_axiom_conviction")
-        # [新增代码行] V4.1 获取新增资金指标
+        # V4.1 获取新增资金指标
         rally_sell_distribution_intensity_raw = self._get_safe_series(df, df, 'rally_sell_distribution_intensity_D', 0.0, method_name="_diagnose_axiom_conviction")
         rally_buy_support_weakness_raw = self._get_safe_series(df, df, 'rally_buy_support_weakness_D', 0.0, method_name="_diagnose_axiom_conviction")
         main_force_buy_ofi_raw = self._get_safe_series(df, df, 'main_force_buy_ofi_D', 0.0, method_name="_diagnose_axiom_conviction")
@@ -887,7 +887,7 @@ class FundFlowIntelligence:
             norm_flow_credibility * core_conviction_weights.get('flow_credibility', 0.1) +
             norm_intraday_large_order_flow * core_conviction_weights.get('intraday_large_order_flow', 0.1)
         ).clip(-1, 1)
-        # [新增代码行] V4.1 整合新增资金指标到核心信念强度
+        # V4.1 整合新增资金指标到核心信念强度
         norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(rally_sell_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(rally_buy_support_weakness_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(main_force_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1026,7 +1026,7 @@ class FundFlowIntelligence:
             - 对倒买卖量：wash_trade_buy_volume, wash_trade_sell_volume
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        # [修改代码行] 删除探针
+        # 删除探针
         df_index = df.index
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
@@ -1067,7 +1067,7 @@ class FundFlowIntelligence:
         structural_momentum_weights = get_param_value(fm_params.get('structural_momentum_weights'), {'large_order_flow_slope_5': 0.2, 'large_order_flow_accel_5': 0.15, 'main_force_flow_directionality': 0.2, 'main_force_flow_gini': 0.15, 'retail_flow_slope_5': -0.1, 'retail_flow_accel_5': -0.05, 'retail_flow_dominance': -0.15})
         flow_quality_signal_name = get_param_value(fm_params.get('flow_quality_signal'), 'main_force_flow_gini_D')
         retail_dominance_signal_name = get_param_value(fm_params.get('retail_dominance_signal'), 'retail_flow_dominance_index_D')
-        # [新增代码行] V6.1 新增结构性动能权重
+        # V6.1 新增结构性动能权重
         structural_momentum_weights_v6_1 = get_param_value(fm_params.get('structural_momentum_weights_v6_1'), {
             'rally_sell_distribution_intensity': -0.1, 'rally_buy_support_weakness': -0.1,
             'main_force_buy_ofi': 0.1, 'main_force_sell_ofi': -0.1,
@@ -1104,7 +1104,7 @@ class FundFlowIntelligence:
             'main_force_flow_directionality_D', flow_quality_signal_name, retail_dominance_signal_name,
             dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name,
             dynamic_evolution_context_modulator_signal_3_name, dynamic_evolution_context_modulator_signal_4_name,
-            # [新增代码行] V6.1 新增资金指标
+            # V6.1 新增资金指标
             'rally_sell_distribution_intensity_D', 'rally_buy_support_weakness_D',
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
@@ -1113,7 +1113,7 @@ class FundFlowIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_flow_momentum"):
             return pd.Series(0.0, index=df.index)
         # --- 原始数据获取 (用于探针和计算) ---
-        # [修改代码行] 删除探针
+        # 删除探针
         # 基础动能深化
         nmfnf_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_NMFNF_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
         nmfnf_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_NMFNF_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
@@ -1160,7 +1160,7 @@ class FundFlowIntelligence:
         dynamic_evolution_context_modulator_2_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_2_name, 0.0, method_name="_diagnose_axiom_flow_momentum")
         dynamic_evolution_context_modulator_3_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_3_name, 0.0, method_name="_diagnose_axiom_flow_momentum")
         dynamic_evolution_context_modulator_4_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_4_name, 0.0, method_name="_diagnose_axiom_flow_momentum")
-        # [新增代码行] V6.1 获取新增资金指标
+        # V6.1 获取新增资金指标
         rally_sell_distribution_intensity_raw = self._get_safe_series(df, df, 'rally_sell_distribution_intensity_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
         rally_buy_support_weakness_raw = self._get_safe_series(df, df, 'rally_buy_support_weakness_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
         main_force_buy_ofi_raw = self._get_safe_series(df, df, 'main_force_buy_ofi_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
@@ -1192,7 +1192,7 @@ class FundFlowIntelligence:
             norm_sm_net_buy_slope_5 * smart_money_momentum_weights.get('sm_net_buy_slope_5', 0.6) +
             norm_sm_net_buy_accel_5 * smart_money_momentum_weights.get('sm_net_buy_accel_5', 0.4)
         ).clip(-1, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         # --- 2. 诡道纯度精修 (Refined Purity Filter) ---
         purity_modulator = pd.Series(1.0, index=df_index)
         if purity_filter_enabled:
@@ -1227,7 +1227,7 @@ class FundFlowIntelligence:
             benign_mask = (norm_wash_trade_multi_tf < 0.5) & (norm_deception_multi_tf < 0.5) & (norm_main_force_conviction > 0.5) & (norm_flow_credibility > 0.5) & (norm_main_force_flow_gini < 0.5) & (norm_purity_auxiliary > 0.5)
             purity_modulator.loc[benign_mask] = purity_modulator.loc[benign_mask] * (1 + purity_mitigation_factor * norm_purity_auxiliary.loc[benign_mask].clip(0.5, 1.5))
             purity_modulator = purity_modulator.clip(0.01, 2.0)
-        # [修改代码行] 删除探针
+        # 删除探针
         # --- 3. 环境感知增强 (Enhanced Contextual Modulator) ---
         context_modulator = pd.Series(1.0, index=df_index)
         if contextual_modulator_enabled:
@@ -1250,7 +1250,7 @@ class FundFlowIntelligence:
             entropy_mod = (1 + norm_price_volume_entropy * environment_mod_sensitivity_entropy)
             context_modulator = level_mod * slope_mod * impact_mod * volatility_mod * trend_mod * entropy_mod
             context_modulator = context_modulator.clip(0.5, 2.0)
-        # [修改代码行] 删除探针
+        # 删除探针
         # --- 4. 结构洞察升级 (Upgraded Structural Momentum) ---
         norm_lg_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_slope_5_raw, df_index, tf_weights_ff)
         norm_lg_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_accel_5_raw, df_index, tf_weights_ff)
@@ -1278,8 +1278,8 @@ class FundFlowIntelligence:
             retail_flow_momentum * structural_momentum_weights.get('retail_flow_slope_5', -0.1) +
             norm_retail_dominance * structural_momentum_weights.get('retail_flow_dominance', -0.15)
         ).clip(-1, 1)
-        # [修改代码行] 删除探针
-        # [新增代码行] V6.1 整合新增资金指标到结构性动能
+        # 删除探针
+        # V6.1 整合新增资金指标到结构性动能
         norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(rally_sell_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(rally_buy_support_weakness_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(main_force_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1298,7 +1298,7 @@ class FundFlowIntelligence:
                                     (norm_wash_trade_buy_volume * structural_momentum_weights_v6_1.get('wash_trade_buy_volume', -0.05)) - \
                                     (norm_wash_trade_sell_volume * structural_momentum_weights_v6_1.get('wash_trade_sell_volume', -0.05))
         structural_momentum_score = structural_momentum_score.clip(-1, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         # --- 5. 融合基础动能、纯度、环境和结构性动能 ---
         base_flow_momentum_score = (
             (base_momentum_score.add(1)/2).pow(0.3) *
@@ -1306,7 +1306,7 @@ class FundFlowIntelligence:
             (context_modulator.add(1)/2).pow(0.2) *
             (structural_momentum_score.add(1)/2).pow(0.3)
         ).pow(1 / (0.3 + 0.2 + 0.2 + 0.3)) * 2 - 1
-        # [修改代码行] 删除探针
+        # 删除探针
         # --- 6. 动能演化趋势与前瞻性增强 (Momentum Evolution & Foresight Enhancement) ---
         smoothed_base_score = base_flow_momentum_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
@@ -1335,7 +1335,7 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        # [修改代码行] 删除探针
+        # 删除探针
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1509,7 +1509,7 @@ class FundFlowIntelligence:
                                 (norm_wash_trade_sell_volume * patient_capital_weights_v3_1.get('wash_trade_sell_volume', 0.05))
         patient_capital_score = patient_capital_score.clip(-1, 1)
         # --- 2. 敏捷资本 (Agile Capital) - 情绪驱动与博弈效率 ---
-        # [修改代码行] 移除探针
+        # 移除探针
         # print(f"        -> [探针] 计算敏捷资本画像...")
         # 2.1 高频冲击力与方向性
         agile_ofi_slope_weights_short = {str(p): 1/len(mtf_periods_agile_ofi.get('short', [1])) for p in mtf_periods_agile_ofi.get('short', [1])}
@@ -1609,7 +1609,7 @@ class FundFlowIntelligence:
         - 核心升级1: 流量效率增强：引入买卖流效率、订单簿清算率、VWAP控制强度等，更精细评估资金流效率。
         - 核心升级2: 结构风险过滤器增强：引入买卖方流动性，评估订单簿流动性风险。
         """
-        # [修改代码行] 删除探针
+        # 删除探针
         # print("    -> [资金流层] 正在诊断“资金流结构健康度 (V1.1)”公理...")
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
@@ -1752,7 +1752,7 @@ class FundFlowIntelligence:
                         - 盘口卖出效率：main_force_t0_sell_efficiency, sell_flow_efficiency_index, sell_order_book_clearing_rate, vwap_sell_control_strength, main_force_vwap_down_guidance, vwap_cross_down_intensity
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        # [修改代码行] 删除探针
+        # 删除探针
         df_index = df.index
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
@@ -1773,7 +1773,7 @@ class FundFlowIntelligence:
         bullish_exponent_context_factors = get_param_value(ffd_params.get('bullish_exponent_context_factors'), {"trend_vitality": 0.7, "volatility_inverse": 0.3})
         bearish_exponent_context_factors = get_param_value(ffd_params.get('bearish_exponent_context_factors'), {"volatility_instability": 0.6, "flow_credibility_inverse": 0.4})
         purity_context_mod_factors = get_param_value(ffd_params.get('purity_context_mod_factors'), {"market_sentiment": 0.5, "flow_credibility": 0.5})
-        # [新增代码行] V4.1 新增微观意图强度权重
+        # V4.1 新增微观意图强度权重
         micro_buy_power_weights = get_param_value(ffd_params.get('micro_buy_power_weights'), {
             'dip_buy_absorption_strength': 0.1, 'panic_buy_absorption_contribution': 0.1,
             'opening_buy_strength': 0.1, 'pre_closing_buy_posture': 0.1, 'closing_auction_buy_ambush': 0.1,
@@ -1803,7 +1803,7 @@ class FundFlowIntelligence:
             'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
             'micro_impact_elasticity_D', 'main_force_t0_efficiency_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'trend_vitality_index_D', 'market_sentiment_score_D',
-            # [新增代码行] V4.1 新增资金指标
+            # V4.1 新增资金指标
             'dip_buy_absorption_strength_D', 'dip_sell_pressure_resistance_D',
             'panic_sell_volume_contribution_D', 'panic_buy_absorption_contribution_D',
             'opening_buy_strength_D', 'opening_sell_strength_D',
@@ -1821,16 +1821,16 @@ class FundFlowIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_fund_flow_divergence_signals", atomic_states=self.strategy.atomic_states):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         # --- 原始数据获取 (用于探针和计算) ---
-        # [修改代码行] 删除探针
+        # 删除探针
         # 基础背离
         bullish_base_divergence, bearish_base_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         # 确认信号
         axiom_conviction = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONVICTION', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         axiom_flow_momentum = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         # 纯度过滤信号
         deception_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         deception_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
@@ -1852,7 +1852,7 @@ class FundFlowIntelligence:
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         trend_vitality_raw = self._get_safe_series(df, df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
-        # [新增代码行] V4.1 获取新增资金指标
+        # V4.1 获取新增资金指标
         dip_buy_absorption_strength_raw = self._get_safe_series(df, df, 'dip_buy_absorption_strength_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         dip_sell_pressure_resistance_raw = self._get_safe_series(df, df, 'dip_sell_pressure_resistance_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         panic_sell_volume_contribution_raw = self._get_safe_series(df, df, 'panic_sell_volume_contribution_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
@@ -1887,7 +1887,7 @@ class FundFlowIntelligence:
             norm_deception_slope_13 * 0.3 +
             norm_deception_slope_21 * 0.2
         ).clip(-1, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         norm_wash_trade_slope_5 = get_adaptive_mtf_normalized_score(wash_trade_slope_5_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_wash_trade_slope_13 = get_adaptive_mtf_normalized_score(wash_trade_slope_13_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_wash_trade_slope_21 = get_adaptive_mtf_normalized_score(wash_trade_slope_21_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -1896,18 +1896,18 @@ class FundFlowIntelligence:
             norm_wash_trade_slope_13 * 0.3 +
             norm_wash_trade_slope_21 * 0.2
         ).clip(0, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, self.tf_weights_ff)
         norm_flow_credibility_purity = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         purity_context_mod = (
             (1 + norm_market_sentiment.abs() * np.sign(norm_market_sentiment) * purity_context_mod_factors.get('market_sentiment', 0.5)) *
             (1 + (norm_flow_credibility_purity - 0.5) * purity_context_mod_factors.get('flow_credibility', 0.5))
         ).clip(0.5, 1.5)
-        # [修改代码行] 删除探针
+        # 删除探针
         bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod)
         bearish_purity_modulator = (1 + norm_deception_multi_tf.clip(lower=0) * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod)
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         # --- 2. 意图确认 (Intent Confirmation) ---
         bullish_conviction_confirm = axiom_conviction.clip(lower=0) * confirmation_weights.get('conviction_positive', 0.5)
         bearish_conviction_confirm = axiom_conviction.clip(upper=0).abs() * confirmation_weights.get('conviction_positive', 0.5)
@@ -1915,8 +1915,8 @@ class FundFlowIntelligence:
         bearish_flow_momentum_confirm = axiom_flow_momentum.clip(upper=0).abs() * confirmation_weights.get('flow_momentum_positive', 0.5)
         bullish_confirmation_score = (bullish_conviction_confirm + bullish_flow_momentum_confirm).clip(0, 1)
         bearish_confirmation_score = (bearish_conviction_confirm + bearish_flow_momentum_confirm).clip(0, 1)
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         # --- 3. 情境校准 (Contextual Calibration) ---
         norm_strategic_posture = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_STRATEGIC_POSTURE', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         bullish_posture_mod = norm_strategic_posture.clip(lower=0) * context_modulator_weights.get('strategic_posture', 0.4)
@@ -1929,8 +1929,8 @@ class FundFlowIntelligence:
         bearish_retail_context_mod = norm_retail_fomo * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
         bullish_context_modulator = (1 + bullish_posture_mod + credibility_mod + bullish_retail_context_mod).clip(0.5, 2.0)
         bearish_context_modulator = (1 + bearish_posture_mod + credibility_mod + bearish_retail_context_mod).clip(0.5, 2.0)
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         # --- V4.0 升级: 双极性多时间框架共振/背离因子 (Bipolar MTF Resonance/Divergence Factor) ---
         short_periods = [5, 13]
         long_periods = [21, 55]
@@ -1940,14 +1940,14 @@ class FundFlowIntelligence:
             nmfnf_bipolar_resonance_factor * mtf_resonance_factor_weights.get('nmfnf_cohesion', 0.6) +
             conviction_bipolar_resonance_factor * mtf_resonance_factor_weights.get('conviction_cohesion', 0.4)
         ).clip(-1, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         # --- V4.0 升级: 更全面的微观意图强度 (Comprehensive Micro-Intent Strength) ---
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, self.tf_weights_ff)
         norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
         norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_micro_impact_elasticity = get_adaptive_mtf_normalized_bipolar_score(micro_impact_elasticity_raw, df_index, self.tf_weights_ff)
         norm_main_force_t0_efficiency = get_adaptive_mtf_normalized_bipolar_score(main_force_t0_efficiency_raw, df_index, self.tf_weights_ff)
-        # [新增代码行] V4.1 整合新增资金指标到微观意图强度
+        # V4.1 整合新增资金指标到微观意图强度
         norm_dip_buy_absorption_strength = get_adaptive_mtf_normalized_score(dip_buy_absorption_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_opening_buy_strength = get_adaptive_mtf_normalized_score(opening_buy_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -1987,7 +1987,7 @@ class FundFlowIntelligence:
             norm_main_force_vwap_up_guidance * micro_buy_power_weights.get('main_force_vwap_up_guidance', 0.05) +
             norm_vwap_cross_up_intensity * micro_buy_power_weights.get('vwap_cross_up_intensity', 0.05)
         ).clip(0, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         total_micro_sell_strength = (
             norm_dip_sell_pressure_resistance * micro_sell_power_weights.get('dip_sell_pressure_resistance', 0.1) +
             norm_panic_sell_volume_contribution * micro_sell_power_weights.get('panic_sell_volume_contribution', 0.1) +
@@ -2003,24 +2003,24 @@ class FundFlowIntelligence:
             norm_main_force_vwap_down_guidance * micro_sell_power_weights.get('main_force_vwap_down_guidance', 0.05) +
             norm_vwap_cross_down_intensity * micro_sell_power_weights.get('vwap_cross_down_intensity', 0.05)
         ).clip(0, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         micro_intent_strength = (
             norm_order_book_imbalance * micro_intent_signals_weights.get('order_book_imbalance', 0.3) +
             (norm_sell_exhaustion - norm_buy_exhaustion) * micro_intent_signals_weights.get('exhaustion_rate', 0.3) +
             norm_micro_impact_elasticity * micro_intent_signals_weights.get('micro_impact_elasticity', 0.2) +
             norm_main_force_t0_efficiency * micro_intent_signals_weights.get('main_force_t0_efficiency', 0.2) +
-            (total_micro_buy_strength - total_micro_sell_strength) * 0.5 # [修改代码行] 整合 V4.1 的买卖力量
+            (total_micro_buy_strength - total_micro_sell_strength) * 0.5 # 整合 V4.1 的买卖力量
         ).clip(-1, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         micro_macro_divergence_factor = (
             micro_intent_strength * micro_macro_divergence_weights.get('micro_intent_strength', 0.5) -
             axiom_flow_momentum * micro_macro_divergence_weights.get('macro_flow_momentum', 0.5)
         ).clip(-1, 1)
-        # [修改代码行] 删除探针
+        # 删除探针
         bullish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(lower=0))
         bearish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(upper=0).abs())
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         # --- V4.0 升级: 看涨/看跌专属动态非线性指数 (Bullish/Bearish Adaptive Non-linear Exponents) ---
         norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -2035,8 +2035,8 @@ class FundFlowIntelligence:
             (1 - norm_flow_credibility_exp) * bearish_exponent_context_factors.get('flow_credibility_inverse', 0.4)
         ).clip(0, 1)
         bearish_dynamic_non_linear_exponent = non_linear_exponent_base * (1 + bearish_exponent_mod_factor * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         # --- 4. 非线性融合 (Non-linear Fusion) ---
         bullish_divergence_score = (
             bullish_base_divergence *
@@ -2056,8 +2056,8 @@ class FundFlowIntelligence:
         ).pow(bearish_dynamic_non_linear_exponent).clip(0, 1)
         bullish_divergence_score = bullish_divergence_score.where(bullish_divergence_score > bullish_divergence_threshold, 0.0)
         bearish_divergence_score = bearish_divergence_score.where(bearish_divergence_score > bearish_divergence_threshold, 0.0)
-        # [修改代码行] 删除探针
-        # [修改代码行] 删除探针
+        # 删除探针
+        # 删除探针
         return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
 
 
