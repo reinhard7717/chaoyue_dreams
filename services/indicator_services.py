@@ -793,7 +793,6 @@ class IndicatorService:
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
-            print(f"调试信息: 已对 {len(cols_to_ffill)} 个新合并列进行 ffill 填充。")
         # --- 5: 计算基础衍生指标 ---
         if 'close_D' in df_daily_master.columns:
             df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
@@ -935,7 +934,6 @@ class IndicatorService:
         if df_for_calc.index.duplicated().any():
             initial_len = len(df_for_calc)
             df_for_calc = df_for_calc[~df_for_calc.index.duplicated(keep='last')]
-            print(f"调试信息: 在 _calculate_indicators_for_timescale 中发现并清理了 {initial_len - len(df_for_calc)} 个重复索引 (周期: {timeframe_key})。")
         indicator_method_map = {
             'ma': self.calculator.calculate_ma,
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
