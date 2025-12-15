@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 from scipy.signal import find_peaks, peak_prominences
-import pyentrp.entropy as ent
+from pyentrp import entropy as ent
 
 logger = logging.getLogger("services")
 
