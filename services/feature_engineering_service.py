@@ -342,7 +342,9 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.8 · 诡道博弈与情境自适应版】高级模式识别信号生产线
+        【V3.9 · 几何特征列名修复版】高级模式识别信号生产线
+        - 核心修复: 将 `required_cols` 列表中的 `validity_score_D` 替换为 `trendline_validity_score_D`，
+                  以匹配 `_process_supplemental_df` 中对 `TrendlineFeature` 数据的命名约定。
         - 核心升级: 全面引入新一代的结构、博弈和风险指标，将市场状态的识别精度从战术层面提升至战略层面。
                       - 盘整识别: 引入“结构张力指数”，要求筹码结构内部应力低。
                       - 吸筹识别: 引入“浮筹清洗效率”，验证主力吸筹的质量。
@@ -395,7 +397,7 @@ class FeatureEngineeringService:
             'platform_conviction_score_D', # 来自 PlatformFeature
             'trend_conviction_score_D', # 来自 MultiTimeframeTrendline
             'quality_score_D', # 来自 PlatformFeature
-            'validity_score_D' # 来自 TrendlineFeature
+            'trendline_validity_score_D' # 修改代码行：将 validity_score_D 替换为 trendline_validity_score_D
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -439,7 +441,7 @@ class FeatureEngineeringService:
         cond_breakout_ready = df['breakout_readiness_score_D'] > 60
         # 【新增代码行】结合结构与形态指标，增强突破信号
         cond_platform_breakout_potential = (df['platform_conviction_score_D'] > 70) & (df['quality_score_D'] > 0.7) # 高质量平台
-        cond_trendline_breakout_confirm = (df['trend_conviction_score_D'] > 80) & (df['validity_score_D'] > 0.8) # 强趋势线突破
+        cond_trendline_breakout_confirm = (df['trend_conviction_score_D'] > 80) & (df['trendline_validity_score_D'] > 0.8) # 强趋势线突破 # 修改代码行
         df['IS_BREAKOUT_D'] = (cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm & cond_breakout_ready) | \
                               (cond_platform_breakout_potential & cond_trendline_breakout_confirm) # 非线性融合
         cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_sell_distribution_intensity_D'] > 0.5) & (df['rally_buy_support_weakness_D'] > 0.5)
@@ -516,7 +518,7 @@ class FeatureEngineeringService:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.8 诡道博弈与情境自适应版)分析完成。")
+        logger.info("高级模式识别引擎(V3.9 几何特征列名修复版)分析完成。")
         return all_dfs
 
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
