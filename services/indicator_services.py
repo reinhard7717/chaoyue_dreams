@@ -442,44 +442,52 @@ class IndicatorService:
 
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:
         """
-        【V8.29 · 补充数据统一处理中心】
+        【V8.31 · 几何特征命名统一版】
         辅助函数：统一处理从DAO获取的补充DataFrame，包括索引标准化、列名后缀化、衍生指标重命名和特定列名冲突解决。
+        - 核心修复: 确保 `platform_feature`、`trendline_feature` 和 `multi_timeframe_trendline` 的
+                  所有相关列都进行了带前缀的重命名，以避免与 OHLCV 或其他特征的冲突。
         """
         if df_supp is None or df_supp.empty:
             return pd.DataFrame()
+
         df_supp_std = self._standardize_df_index_to_utc(df_supp.copy())
         if df_supp_std is None or df_supp_std.empty:
             return pd.DataFrame()
         df_supp_std.index = df_supp_std.index.normalize()
+
         # 1. 统一添加 _D 后缀到所有非衍生指标列
         # 排除 'trade_time', 'end_date', 'period', 'line_type' 等索引或特殊列
         # 排除已经带有时间级别后缀的列
         # 排除衍生指标模式的列，因为它们会被 _rename_precomputed_derivatives 处理
         cols_to_suffix = [
             col for col in df_supp_std.columns
-            if col not in ['trade_time', 'end_date', 'period', 'line_type', 'start_date'] # 这些是索引或特殊标识，不直接加_D
+            if col not in ['trade_time', 'end_date', 'period', 'line_type', 'start_date', 'trade_date'] # 这些是索引或特殊标识，不直接加_D
             and not col.endswith(('_D', '_W', '_M'))
             and not re.match(r'.+?_(slope|accel)_\d+d$', col) # 排除预计算的斜率/加速度
         ]
         rename_map_explicit_suffix = {col: f"{col}_D" for col in cols_to_suffix}
         df_supp_std.rename(columns=rename_map_explicit_suffix, inplace=True)
+
         # 2. 处理预计算的衍生指标（如 SLOPE_X_Y_slope_Ad）
         df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
+
         # 3. 处理特定数据源的列名冲突，例如平台特征的 high/low 与 OHLCV 冲突
         if tag == 'platform_feature':
             platform_feature_renames = {
                 'high_D': 'platform_high_D',
                 'low_D': 'platform_low_D',
-                'slope_D': 'platform_slope_D', # 如果有的话
-                'intercept_D': 'platform_intercept_D', # 如果有的话
-                'validity_score_D': 'platform_validity_score_D' # 如果有的话
+                'slope_D': 'platform_slope_D', # 新增：确保平台特征的 slope 也重命名
+                'intercept_D': 'platform_intercept_D', # 新增：确保平台特征的 intercept 也重命名
+                'validity_score_D': 'platform_validity_score_D' # 新增：确保平台特征的 validity_score 也重命名
             }
             df_supp_std.rename(columns=platform_feature_renames, inplace=True)
         elif tag == 'trendline_feature':
             trendline_feature_renames = {
                 'slope_D': 'trendline_slope_D',
                 'intercept_D': 'trendline_intercept_D',
-                'validity_score_D': 'trendline_validity_score_D'
+                'validity_score_D': 'trendline_validity_score_D',
+                'touch_points_D': 'trendline_touch_points_D', # 新增：确保 touch_points 也重命名
+                'touch_conviction_score_D': 'trendline_touch_conviction_score_D' # 新增：确保 touch_conviction_score 也重命名
             }
             df_supp_std.rename(columns=trendline_feature_renames, inplace=True)
         elif tag == 'multi_timeframe_trendline':
@@ -493,6 +501,7 @@ class IndicatorService:
             # 确保 total_mv 被正确重命名为 total_market_value
             if 'total_mv_D' in df_supp_std.columns:
                 df_supp_std.rename(columns={'total_mv_D': 'total_market_value_D'}, inplace=True)
+
         return df_supp_std
 
     async def _prepare_base_data_and_indicators(
