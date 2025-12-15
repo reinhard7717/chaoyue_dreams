@@ -724,9 +724,11 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
-        【V3.2 · 接口契约修复版】突破质量分计算专用通道
+        【V3.3 · 幂等性优化版】突破质量分计算专用通道
+        - 核心修复: 增加幂等性检查。在计算前判断 `breakout_quality_score_D` 列是否已存在，
+                  如果存在则跳过计算，避免重复处理和潜在的数据覆盖。
         - 核心修复: 协同 IndicatorCalculator V2.5 修复了接口契约。本方法现在能正确接收不带后缀的
-                      'breakout_quality_score'，并执行重命名与填充，确保数据流的绝对标准化和健壮性。
+                  'breakout_quality_score'，并执行重命名与填充，确保数据流的绝对标准化和健壮性。
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -734,6 +736,12 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
         df_daily = all_dfs[timeframe]
+
+        # 修改代码行：新增幂等性检查
+        if 'breakout_quality_score_D' in df_daily.columns:
+            logger.debug(f"突破质量分 (breakout_quality_score_D) 已存在于周期 '{timeframe}' 的DataFrame中，跳过重复计算。")
+            return all_dfs
+
         # 修改代码行: 补充 calculate_breakout_quality_score 所需的所有列
         required_materials = [
             'volume', 'VOL_MA_21', 'main_force_flow_directionality',
