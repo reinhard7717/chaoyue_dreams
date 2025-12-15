@@ -161,9 +161,10 @@ class StructuralIntelligence:
         - 核心修复: 修复了因直接访问 `self.strategy.slope_params` 导致的 `AttributeError`。改为通过 `get_params_block` 安全地获取斜率配置。
         - 核心优化: 引入逻辑仲裁机制。当均线排列分极高时，将修正与之矛盾的“有序度”分，解决底层信号冲突问题。
         - 【优化】使用专属的 `short_term_geometry` MTF权重进行归一化。
-        - 【V3.0 核心升级】移除了对当日价格涨跌幅（pct_change_D）的直接依赖来判断最终方向。现在，最终的双极性分数直接由看涨形态分减去看跌形态分得出，更纯粹地反映了趋势形态本身的内在方向和强度，避免了当日价格波动对趋势形态判断的干扰。
+        - 【V3.0 核心升级】移除了对当日价格涨跌幅（pct_change_D）的直接依赖来判断最终方向。现在，最终的双极性分数直接由看涨形态分减去看跌形态分得出, 更纯粹地反映了趋势形态本身的内在方向和强度，避免了当日价格波动对趋势形态判断的干扰。
         - 【V3.0 探针植入】增加了详细的探针输出，以便于检查和调试。
         - 【V3.0 参数化】融合权重现在从配置文件中读取。
+        - 【V3.1 探针增强】增强了斜率和有序度维度的探针输出，以诊断其归一化结果。
         """
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 55])
@@ -207,28 +208,24 @@ class StructuralIntelligence:
             print(f"        [探针] 维度2 - 斜率 (Slope) 详细信息:")
         for col in slope_cols_to_use:
             raw_slope_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
-            # 修改开始：传入 debug_probe_enabled
             normalized_slope_score = get_adaptive_mtf_normalized_bipolar_score(raw_slope_series, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
-            # 修改结束
             individual_slope_scores.append(normalized_slope_score.values)
+            # 修改开始：确保打印每个斜率的原始数据和归一化分数
             if self.is_probe_date:
                 print(f"            原始数据 - {col}: {raw_slope_series.iloc[-1]:.4f}")
                 print(f"            归一化分数 - {col}: {normalized_slope_score.iloc[-1]:.4f}")
+            # 修改结束
         avg_slope_score = pd.Series(np.mean(individual_slope_scores, axis=0) if individual_slope_scores else 0.0, index=df_index)
         # 维度3: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        # 修改开始：传入 debug_probe_enabled
         orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, ascending=True, tf_weights=tf_weights, debug_probe_enabled=self.is_probe_date)
-        # 修改结束
         # 逻辑仲裁
         corrected_orderliness_score = orderliness_score.copy()
         arbitration_triggered = (alignment_score > 0.9) & (orderliness_score < alignment_score)
         corrected_orderliness_score[arbitration_triggered] = alignment_score[arbitration_triggered]
         # 维度4: 角度 (Angle)
         angle_raw = self._get_safe_series(df, 'ATAN_ANGLE_EMA_55_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        # 修改开始：传入 debug_probe_enabled
         angle_score = get_adaptive_mtf_normalized_bipolar_score(angle_raw, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
-        # 修改结束
         # --- 融合形态分 ---
         bullish_alignment_contrib = alignment_score * fusion_weights['alignment']
         bullish_slope_contrib = avg_slope_score.clip(lower=0) * fusion_weights['slope']
