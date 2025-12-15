@@ -1938,7 +1938,7 @@
           "final_score_base_sensitivity_multiplier": 2.0
         },
         "holder_sentiment_params": {
-          "description": "【V8.2 · 动态韧性感知版】持仓信念韧性信号的专属参数。",
+          "description": "【V9.0 · 诡道反噬与韧性重构版】持仓信念韧性信号的专属参数。",
           "sentiment_trend_modulator_signal_name": "SLOPE_55_winner_concentration_90pct_D",
           "comment_sentiment_trend_modulator_signal_name": "用于动态调整信念权重的筹码趋势信号名称（如SLOPE_55_winner_concentration_90pct_D）。",
           "sentiment_trend_mod_factor": 0.5,
@@ -1993,6 +1993,18 @@
           "comment_fomo_concentration_optimal_target": "赢家集中度（winner_concentration_90pct_D）的最优目标值，偏离此值越大，Fomo杂质越高。",
           "profit_taking_threshold": 5.0,
           "comment_profit_taking_threshold": "赢家平均利润率（winner_profit_margin_avg_D）的阈值，低于此值不计入利润兑现杂质。",
+          "impurity_deception_mod_enabled": true,
+          "comment_impurity_deception_mod_enabled": "是否启用杂质分数中的诡道调制。",
+          "deception_lure_long_impurity_amp_factor": 0.3,
+          "comment_deception_lure_long_impurity_amp_factor": "诱多欺骗强度对杂质分数的放大因子。",
+          "deception_lure_short_impurity_damp_factor": 0.2,
+          "comment_deception_lure_short_impurity_damp_factor": "诱空欺骗强度对杂质分数的削弱因子。",
+          "impurity_resilience_mod_enabled": true,
+          "comment_impurity_resilience_mod_enabled": "是否启用杂质分数中的韧性重构调制。",
+          "chip_health_slope_impurity_damp_factor": 0.2,
+          "comment_chip_health_slope_impurity_damp_factor": "筹码健康度斜率对杂质分数的削弱因子（正向斜率）。",
+          "structural_tension_impurity_amp_factor": 0.2,
+          "comment_structural_tension_impurity_amp_factor": "结构性紧张指数对杂质分数的放大因子。",
           "belief_core_weights": {
             "description": "信念内核融合权重。",
             "winner_stability": 0.15,
@@ -2019,7 +2031,11 @@
             "micro_price_impact_asymmetry": 0.07,
             "support_validation_slope": 0.08,
             "capitulation_absorption_accel": 0.07,
-            "active_buying_support_slope": 0.05
+            "active_buying_support_slope": 0.05,
+            "panic_buy_absorption_contribution": 0.05,
+            "comment_panic_buy_absorption_contribution": "恐慌买入吸收贡献对压力测试的权重。",
+            "dip_buy_absorption_strength": 0.05,
+            "comment_dip_buy_absorption_strength": "低吸吸收强度对压力测试的权重。"
           },
           "impurity_weights": {
             "description": "杂质削弱融合权重。",
@@ -2029,7 +2045,15 @@
             "rally_distribution_pressure": 0.15,
             "retail_fomo_premium": 0.1,
             "winner_profit_margin_slope": 0.1,
-            "retail_fomo_premium_accel": 0.1
+            "retail_fomo_premium_accel": 0.1,
+            "deception_lure_long": 0.1,
+            "comment_deception_lure_long": "诱多欺骗强度对杂质的权重。",
+            "deception_lure_short": -0.05,
+            "comment_deception_lure_short": "诱空欺骗强度对杂质的权重（负向贡献）。",
+            "chip_health_slope": -0.1,
+            "comment_chip_health_slope": "筹码健康度斜率对杂质的权重（负向贡献）。",
+            "structural_tension": 0.1,
+            "comment_structural_tension": "结构性紧张指数对杂质的权重。"
           },
           "deception_modulator_weights": {
             "description": "诡道因子调制权重。",
@@ -2042,10 +2066,19 @@
           },
           "context_modulator_weights": {
             "description": "情境调制器融合权重。",
-            "volatility_instability": 0.3,
-            "market_sentiment": 0.4,
-            "flow_credibility": 0.3
-          }
+            "volatility_instability": 0.4,
+            "flow_credibility": 0.3,
+            "chip_health": 0.3,
+            "comment_chip_health": "筹码健康度作为情境调制器。"
+          },
+          "global_context_modulator_signal_1": "chip_health_score_D",
+          "comment_global_context_modulator_signal_1": "全局情境调制器信号1（筹码健康度）。",
+          "global_context_modulator_signal_2": "main_force_conviction_index_D",
+          "comment_global_context_modulator_signal_2": "全局情境调制器信号2（主力信念）。",
+          "global_context_sensitivity_health": 0.5,
+          "comment_global_context_sensitivity_health": "筹码健康度对全局情境调制的敏感度。",
+          "global_context_sensitivity_conviction": 0.3,
+          "comment_global_context_sensitivity_conviction": "主力信念对全局情境调制的敏感度。"
         },
         "divergence_params": {
           "description": "【V7.2 · 情境自适应张力版】价筹张力信号的专属参数。",
