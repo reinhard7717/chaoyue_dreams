@@ -132,6 +132,7 @@
         "EMA_5_D": [5, 8, 13, 21, 34, 55],
         "EMA_13_D": [5, 8, 13, 21, 34, 55],
         "EMA_21_D": [5, 8, 13, 21, 34, 55],
+        "EMA_34_D": [5, 8, 13, 21, 34, 55],
         "EMA_55_D": [5, 13, 21, 34, 55],
         "EMA_89_D": [5, 13, 21, 34, 55, 89],
         "EMA_144_D": [5, 13, 21, 34, 55],
@@ -338,6 +339,7 @@
         "EMA_5_D": [5, 8, 13, 21, 34, 55],
         "EMA_13_D": [5, 8, 13, 21, 34, 55],
         "EMA_21_D": [5, 8, 13, 21, 34, 55],
+        "EMA_34_D": [5, 8, 13, 21, 34, 55],
         "EMA_55_D": [5, 13, 21, 34, 55],
         "EMA_89_D": [5, 13, 21, 34, 55, 89],
         "EMA_144_D": [5, 13, 21, 34, 55],
@@ -3285,7 +3287,7 @@
           "mtf_cohesion": 0.3,
           "stability": 0.2
         },
-        "trend_form_ema_periods": [5, 13, 21, 55],
+        "trend_form_ema_periods": [5, 13, 21, 34, 55],
         "comment_trend_form_ema_periods": "【趋势形态公理】用于趋势形态判断的EMA周期列表。",
         "trend_form_ma_periods": [5, 13, 21, 55],
         "comment_trend_form_ma_periods": "【趋势形态公理】用于趋势形态判断的MA周期列表。",
@@ -3306,11 +3308,12 @@
             "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 }
         },
         "trend_form_fusion_weights": {
-          "description": "【趋势形态公理】融合排列、斜率、有序度、角度的权重。",
-          "alignment": 0.3,
-          "slope": 0.3,
-          "orderliness": 0.2,
-          "angle": 0.2
+          "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度的权重。",
+          "alignment": 0.25,
+          "slope": 0.25,
+          "acceleration": 0.2,
+          "orderliness": 0.15,
+          "angle": 0.15
         }
       },
       "fusion_intelligence_params": {
