@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 from scipy.signal import find_peaks, peak_prominences
-from pyentrp import entropy as ent
+from pyentrp.entropy import app_entropy
 
 logger = logging.getLogger("services")
 
@@ -1246,15 +1246,15 @@ class IndicatorCalculator:
 
     async def calculate_approx_entropy(self, df: pd.DataFrame, period: int, column: str, tolerance_ratio: float = 0.2) -> pd.Series:
         """
-        【V1.4 · pyentrp集成版】计算近似熵 (Approximate Entropy)。
-        - 核心修复: 修正了对 `nolds` 库的错误引用，现在使用 `pyentrp` 库来计算近似熵。
+        【V1.5 · pyentrp函数直调版】计算近似熵 (Approximate Entropy)。
+        - 核心修复: 修正了 `pyentrp` 库 `app_entropy` 函数的调用方式，现在直接使用导入的函数。
         - 核心逻辑: 使用 `pyentrp.entropy.app_entropy` 计算滚动近似熵，衡量时间序列的复杂度和不可预测性。
         - 参数说明: `period` 在此函数中被视为滚动窗口大小。`emb_dim` (m) 固定为 2。
         - `tolerance_ratio`: 容忍度 `r` 的比例因子，`r = tolerance_ratio * std(window_data)`。
         """
-        # 修改代码行：检查 pyentrp 是否成功导入
-        if ent is None:
-            logger.error("pyentrp 库未加载，无法计算近似熵。请确保已安装 'pyentrp'。")
+        # 修改代码行：检查 app_entropy 函数是否可用
+        if app_entropy is None:
+            logger.error("近似熵计算失败：'app_entropy' 函数未加载。请确保已安装 'pyentrp'。")
             return pd.Series(np.nan, index=df.index)
 
         if column not in df.columns:
@@ -1294,8 +1294,8 @@ class IndicatorCalculator:
                     results.iloc[i] = 0.0
                     continue
 
-                # 修改代码行：调用 pyentrp.entropy.app_entropy
-                ap_en = ent.app_entropy(window_data, m=emb_dim, r=r_tolerance)
+                # 修改代码行：直接调用 app_entropy 函数
+                ap_en = app_entropy(window_data, m=emb_dim, r=r_tolerance)
                 results.iloc[i] = ap_en
             except Exception as e:
                 logger.error(f"近似熵(周期{period}, 列: {column})计算失败: {e} for series window ending at {series_raw.index[i]}. Window data (first 5): {window_data[:5]}...", exc_info=False)
