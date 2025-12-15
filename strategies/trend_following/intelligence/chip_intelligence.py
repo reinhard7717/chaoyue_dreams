@@ -1017,9 +1017,12 @@ class ChipIntelligence:
             final_nozzle_weight = (final_fusion_weights_base.get('nozzle', 0.34) + nozzle_mod).clip(0.1, 0.6)
             # 重新归一化动态权重，使其和为1
             sum_dynamic_fusion_weights = final_engine_weight + final_fuel_weight + final_nozzle_weight
-            final_engine_weight = final_engine_weight / sum_dynamic_weights
-            final_fuel_weight = final_fuel_weight / sum_dynamic_weights
-            final_nozzle_weight = final_nozzle_weight / sum_dynamic_weights
+            # 修改代码行：修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
+            final_engine_weight = final_engine_weight / sum_dynamic_fusion_weights
+            # 修改代码行：修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
+            final_fuel_weight = final_fuel_weight / sum_dynamic_fusion_weights
+            # 修改代码行：修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
+            final_nozzle_weight = final_nozzle_weight / sum_dynamic_fusion_weights
             # 修改代码行：将 probe_date 转换为 pd.Timestamp
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终融合动态权重: Engine={final_engine_weight.asof(probe_date_for_asof):.4f}, Fuel={final_fuel_weight.asof(probe_date_for_asof):.4f}, Nozzle={final_nozzle_weight.asof(probe_date_for_asof):.4f}")
         # 最终融合得分
