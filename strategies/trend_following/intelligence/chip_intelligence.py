@@ -2654,16 +2654,27 @@ class ChipIntelligence:
                 else:
                     probe_date_for_asof = probe_date_ts
         required_signals = [
-            'STRUCT_PLATFORM_VPOC', 'price_close_D', 'main_force_conviction_index_D',
+            'main_force_conviction_index_D',
             'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D'
         ]
+        # [修改代码行] 移除 'STRUCT_PLATFORM_VPOC' 和 'price_close_D' 的强制校验，因为它们可能由其他模块生成或作为基础数据存在
+        # 而是通过 _get_safe_series 灵活处理缺失值
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_main_force_cost_intent"):
+            # 如果缺少核心的信念和流量数据，则直接返回0
             return pd.Series(0.0, index=df.index)
+
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 获取原始信号
-        vpoc_raw = self._get_safe_series(df, df, 'STRUCT_PLATFORM_VPOC', df['price_close_D'].mean(), method_name="_diagnose_chip_main_force_cost_intent")
+
+        # [修改代码行] 确保 price_close_D 存在，如果不存在则返回0
         price_close_raw = self._get_safe_series(df, df, 'price_close_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
+        if price_close_raw.isnull().all() or (price_close_raw == 0).all():
+            print(f"        -> [筹码情报警告] 方法 '_diagnose_chip_main_force_cost_intent' 缺少有效的 'price_close_D' 数据，返回0。")
+            return pd.Series(0.0, index=df.index)
+
+        # [修改代码行] STRUCT_PLATFORM_VPOC 默认值使用 price_close_D 的均值，而不是直接使用0
+        vpoc_raw = self._get_safe_series(df, df, 'STRUCT_PLATFORM_VPOC', price_close_raw.mean(), method_name="_diagnose_chip_main_force_cost_intent")
+        
         main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         conviction_flow_buy_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         conviction_flow_sell_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
@@ -2682,7 +2693,7 @@ class ChipIntelligence:
         main_force_cost_intent = pd.Series(0.0, index=df_index)
         # 情况1: 价格在成本区下方或附近 (吸筹/防守意图)
         # 价格低于或在成本区下沿，且主力净买入为正
-        mask_below_vpoc_buy = (price_close_raw < upper_bound) & (norm_net_conviction_flow > 0)
+        mask_below_vpoc_buy = (price_close_raw < lower_bound) & (norm_net_conviction_flow > 0) # [修改代码行] 价格低于下沿更明确为吸筹
         # 意图强度 = 净买入强度 * 主力信念强度 * (1 + 价格偏离VPOC的程度，越低越积极)
         price_deviation_factor_buy = (vpoc_raw - price_close_raw) / vpoc_raw
         price_deviation_factor_buy = price_deviation_factor_buy.clip(0, 0.1) * 5 # 0-0.5
@@ -2693,7 +2704,7 @@ class ChipIntelligence:
         )
         # 情况2: 价格在成本区上方或附近 (派发/减仓意图)
         # 价格高于或在成本区上沿，且主力净买入为负
-        mask_above_vpoc_sell = (price_close_raw > lower_bound) & (norm_net_conviction_flow < 0)
+        mask_above_vpoc_sell = (price_close_raw > upper_bound) & (norm_net_conviction_flow < 0) # [修改代码行] 价格高于上沿更明确为派发
         # 意图强度 = 净卖出强度 * 主力信念强度 * (1 + 价格偏离VPOC的程度，越高越积极派发)
         price_deviation_factor_sell = (price_close_raw - vpoc_raw) / vpoc_raw
         price_deviation_factor_sell = price_deviation_factor_sell.clip(0, 0.1) * 5 # 0-0.5
@@ -2706,13 +2717,13 @@ class ChipIntelligence:
         mask_in_vpoc_buy = (price_close_raw >= lower_bound) & (price_close_raw <= upper_bound) & (norm_net_conviction_flow > 0)
         main_force_cost_intent.loc[mask_in_vpoc_buy] = (
             norm_net_conviction_flow.loc[mask_in_vpoc_buy] *
-            norm_main_force_conviction.loc[mask_in_vpoc_buy]
+            norm_main_force_conviction.loc[mask_in_vpoc_buy] * 0.5 # [修改代码行] 在成本区内，强度减半，因为意图不那么明确
         )
         # 情况4: 价格在成本区内，且主力净买入为负 (消极控盘/震仓)
         mask_in_vpoc_sell = (price_close_raw >= lower_bound) & (price_close_raw <= upper_bound) & (norm_net_conviction_flow < 0)
         main_force_cost_intent.loc[mask_in_vpoc_sell] = -(
             norm_net_conviction_flow.loc[mask_in_vpoc_sell].abs() *
-            norm_main_force_conviction.loc[mask_in_vpoc_sell]
+            norm_main_force_conviction.loc[mask_in_vpoc_sell] * 0.5 # [修改代码行] 在成本区内，强度减半，因为意图不那么明确
         )
         if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 主力成本区攻防意图 (初步): {main_force_cost_intent.asof(probe_date_for_asof):.4f}")
         # 最终分数映射到 [-1, 1]

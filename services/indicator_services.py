@@ -647,7 +647,6 @@ class IndicatorService:
         rename_ohlcv_map = {col: f"{col}_D" for col in ohlcv_cols if col in df_daily_master.columns and not col.endswith('_D')}
         if rename_ohlcv_map:
             df_daily_master.rename(columns=rename_ohlcv_map, inplace=True)
-            print(f"调试信息: 已为日线OHLCV列添加_D后缀: {rename_ohlcv_map}")
         # 定义 OHLCV 核心列，这些列在合并时应始终优先保留 df_daily_master 中的值
         ohlcv_core_cols = set(rename_ohlcv_map.values())
         # --- 步骤 3: 逐个处理并合并补充数据 ---
