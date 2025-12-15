@@ -234,16 +234,27 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
 
 def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value=0.5) -> pd.Series:
     """
-    【V2.3 · 绝对零点校准版】通用归一化引擎 (万物标尺)
-    - 核心修复: 废弃“零值隔离”，引入“绝对零点校准”。在完成排名归一化后，
-                  强制将原始输入为零的位置的最终得分校准为最低分0.0，
-                  彻底根除所有场景下的“零值归一化悖论”。
-    - 修复V2.2: 修正 zero_mask 的应用逻辑，确保其与 rank 序列的索引对齐。
+    【V2.4 · 健壮类型处理版】通用归一化引擎 (万物标尺)
+    - 核心修复: 在函数入口处增加对 `series` 参数的健壮性检查和类型转换。
+                  确保 `series` 始终是数值型的 `pandas.Series`，避免因类型不一致导致的 `ValueError`。
     """
-    if series is None or series.isnull().all() or series.empty:
+    # 确保 'series' 是 pandas Series 且为数值类型
+    if isinstance(series, pd.DataFrame):
+        if len(series.columns) == 1:
+            series = series.iloc[:, 0] # 将单列DataFrame转换为Series
+        else:
+            # 如果是多列DataFrame，则无法作为单个Series进行归一化
+            print(f"警告: normalize_score 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
+            return pd.Series(default_value, index=target_index, dtype=np.float32)
+
+    # 强制转换为数值类型，并将无法转换的值设为NaN，然后填充0
+    series = pd.to_numeric(series, errors='coerce').fillna(0)
+
+    if series.empty: # 检查是否为空 Series
         return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 确保 series 与 target_index 对齐，并填充 NaN
-    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
+
+    # 确保 series 与 target_index 对齐，并填充 NaN (此处fillna(0)已在前面完成，但reindex可能引入新的NaN)
+    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0)
     min_periods = max(1, int(window * 0.2))
     rank = series_aligned.rolling(
         window=window, 
@@ -382,14 +393,24 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V3.3 · 零值隔离与符号校准版】双极归一化引擎 (力学罗盘)
-    - 核心修复: 采用“零值隔离”策略。在滚动计算前，将零值替换为NaN，使其不参与均值和标准差的计算。
-                  计算完成后，再将NaN的结果填充为中性值0.0，从源头根除“零值归一化悖论”。
-    - 修复V3.2: 引入“符号校准”机制。在Z-score归一化后，如果原始信号的符号与归一化后的分数符号不一致，
-                  且原始信号的绝对值足够大，则强制修正归一化分数的符号，确保双极性信号的方向性不被扭曲。
+    【V3.4 · 健壮类型处理版】双极归一化引擎 (力学罗盘)
+    - 核心修复: 在函数入口处增加对 `series` 参数的健壮性检查和类型转换。
+                  确保 `series` 始终是数值型的 `pandas.Series`，避免因类型不一致导致的 `ValueError`。
     """
-    if series is None or series.isnull().all() or series.empty:
+    # 确保 'series' 是 pandas Series 且为数值类型
+    if isinstance(series, pd.DataFrame):
+        if len(series.columns) == 1:
+            series = series.iloc[:, 0] # 将单列DataFrame转换为Series
+        else:
+            print(f"警告: normalize_to_bipolar 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
+            return pd.Series(default_value, index=target_index, dtype=np.float32)
+
+    # 强制转换为数值类型，并将无法转换的值设为NaN，然后填充0
+    series = pd.to_numeric(series, errors='coerce').fillna(0)
+
+    if series.empty: # 检查是否为空 Series
         return pd.Series(default_value, index=target_index, dtype=np.float32)
+
     # 确保 series 与 target_index 对齐，并填充 NaN
     series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
     # 零值隔离：将接近0的值替换为NaN
@@ -414,16 +435,24 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
 
 def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V1.2 · 临界点豁免版】双极归一化的高阶进化版 (力学罗盘)
-    - 新增原因: 为解决“零标准差悖论”与“min_periods陷阱”而生。
-    - 核心逻辑: 在V1.0“绝对偏差校准”基础上，增加“临界点豁免”协议。当因数据稀疏
-                  导致滚动计算失败时，直接采信当前值的符号作为信号，确保在突变临界点
-                  的信号不会被湮灭。
-    - 修复V1.1: 将 sensitivity 的默认值直接设置为 2.0，避免不直观的默认值行为。
+    【V1.3 · 健壮类型处理版】双极归一化的高阶进化版 (力学罗盘)
+    - 核心修复: 在函数入口处增加对 `series` 参数的健壮性检查和类型转换。
+                  确保 `series` 始终是数值型的 `pandas.Series`，避免因类型不一致导致的 `ValueError`。
     """
-    # 移除 if sensitivity == 1.0: sensitivity = 2.0 逻辑，直接使用默认值 2.0
-    if series is None or series.isnull().all() or series.empty:
+    # 确保 'series' 是 pandas Series 且为数值类型
+    if isinstance(series, pd.DataFrame):
+        if len(series.columns) == 1:
+            series = series.iloc[:, 0] # 将单列DataFrame转换为Series
+        else:
+            print(f"警告: get_robust_bipolar_normalized_score 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
+            return pd.Series(default_value, index=target_index, dtype=np.float32)
+
+    # 强制转换为数值类型，并将无法转换的值设为NaN，然后填充0
+    series = pd.to_numeric(series, errors='coerce').fillna(0)
+
+    if series.empty: # 检查是否为空 Series
         return pd.Series(default_value, index=target_index, dtype=np.float32)
+
     # 确保 series 与 target_index 对齐，并填充 NaN
     series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
     series_isolated = series_aligned.where(series_aligned.abs() >= 1e-6)
