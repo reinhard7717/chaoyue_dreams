@@ -163,12 +163,12 @@ class FeatureEngineeringService:
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.4 · 熵指标与细粒度斐波那契元特征增强版】元特征计算车间
+        【V3.5 · nolds样本熵集成版】元特征计算车间
         - 核心升级: 废弃旧的简单指标，引入分形维度、样本熵、波动率不稳定性等一系列能够深度刻画市场混沌、分形与信息熵的“元特征”。
         - 新增优化: 直接集成预计算的、更高级的 `price_volume_entropy_D` 指标，作为对市场信息复杂度的核心度量。
         - 细粒度增强: 引入基于主力资金流和订单簿流动性的赫斯特指数和样本熵。
         - 周期调整: 调整元特征计算窗口为斐波那契数列。
-        - 【新增】引入近似熵 (Approximate Entropy) 和傅里叶变换能量比 (FFT Energy Ratio) 来进一步深化时间序列特征。
+        - 【修复】将近似熵计算替换为使用 `nolds` 库的样本熵，并更新相关列名。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -239,7 +239,7 @@ class FeatureEngineeringService:
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns: # 移除 len(current_series.dropna()) >= hurst_window 的判断，让 rolling.apply 自己处理 NaN
                 try:
-                    # 确保传递给 hurst_exponent 的是 Series，并且处理 NaN
+                    # 确保传递给 hurst_exponent 的是 Series，并且处理数据不足的情况
                     # 修改代码行: 确保 hurst_exponent 接收到的是数值类型，并处理数据不足的情况
                     df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
                         lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
@@ -261,7 +261,7 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
                     df[fd_col] = np.nan
-            # --- 3. 样本熵 (市场可预测性) ---
+            # --- 3. 样本熵 (市场可预测性) --- (使用自定义实现)
             # 修改代码行: 调整默认窗口为斐波那契数
             se_window = params.get('sample_entropy_window', 13) # 从10改为13
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
@@ -291,17 +291,18 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
                     df[se_col] = np.nan
-            # --- 4. 【新增】近似熵 (Approximate Entropy) (时间序列复杂性) ---
-            ae_window = params.get('approximate_entropy_window', 21) # 斐波那契数
-            ae_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2) # 获取容忍度比例
-            ae_col = f'{prefix}APPROX_ENTROPY_{ae_window}d{suffix}'
-            if ae_col not in df.columns:
+            # --- 4. 【修复】NOLDS样本熵 (替代近似熵) (时间序列复杂性) ---
+            # 修改代码行：使用新的配置参数名称和列名
+            nolds_sampen_window = params.get('approximate_entropy_window', 21) # 沿用原近似熵的窗口配置
+            nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2) # 沿用原近似熵的容忍度配置
+            nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
+            if nolds_sampen_col not in df.columns:
                 try:
-                    # 修改代码行：调用 self.calculator 中的 calculate_approx_entropy 方法，并传入 tolerance_ratio
-                    df[ae_col] = await self.calculator.calculate_approx_entropy(df=df, period=ae_window, column=source_col, tolerance_ratio=ae_tol_ratio)
+                    # 修改代码行：调用 self.calculator 中重命名后的方法
+                    df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio)
                 except Exception as e:
-                    logger.error(f"近似熵(周期{ae_window}, 列: {source_col})计算失败: {e}")
-                    df[ae_col] = np.nan
+                    logger.error(f"NOLDS样本熵(周期{nolds_sampen_window}, 列: {source_col})计算失败: {e}")
+                    df[nolds_sampen_col] = np.nan
             # --- 5. 【新增】FFT能量比 (FFT Energy Ratio) (频率结构) ---
             fft_window = params.get('fft_energy_ratio_window', 34) # 斐波那契数
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'

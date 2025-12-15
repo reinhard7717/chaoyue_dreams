@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 from scipy.signal import find_peaks, peak_prominences
-from pyentrp.entropy import sample_entropy
 
 logger = logging.getLogger("services")
 
@@ -1244,22 +1243,22 @@ class IndicatorCalculator:
             logger.error(f"计算突破质量分(V2.7)时发生错误: {e}", exc_info=True)
             return None
 
-    async def calculate_approx_entropy(self, df: pd.DataFrame, period: int, column: str, tolerance_ratio: float = 0.2) -> pd.Series:
+    async def calculate_nolds_sample_entropy(self, df: pd.DataFrame, period: int, column: str, tolerance_ratio: float = 0.2) -> pd.Series:
         """
-        【V1.6 · pyentrp样本熵替代版】计算近似熵 (Approximate Entropy)。
-        - 核心修复: 鉴于 `pyentrp` 库不提供 `app_entropy`，现已切换为使用其提供的 `sample_entropy` 函数。
+        【V1.7 · nolds样本熵集成版】计算样本熵 (Sample Entropy) 使用 nolds 库。
+        - 核心修复: 鉴于 `pyentrp` 库在近似熵计算上的问题，现已切换为使用 `nolds` 库的 `sampen` 函数。
                   样本熵是近似熵的改进版本，通常更稳健。
-        - 核心逻辑: 使用 `pyentrp.entropy.sample_entropy` 计算滚动样本熵，衡量时间序列的复杂度和不可预测性。
+        - 核心逻辑: 使用 `nolds.sampen` 计算滚动样本熵，衡量时间序列的复杂度和不可预测性。
         - 参数说明: `period` 在此函数中被视为滚动窗口大小。`emb_dim` (m) 固定为 2。
         - `tolerance_ratio`: 容忍度 `r` 的比例因子，`r = tolerance_ratio * std(window_data)`。
         """
-        # 修改代码行：检查 sample_entropy 函数是否可用
-        if sample_entropy is None:
-            logger.error("近似熵计算失败：'sample_entropy' 函数未加载。请确保已安装 'pyentrp'。")
+        # 修改代码行：检查 nolds 库和 sampen 函数是否可用
+        if nolds is None or not hasattr(nolds, 'sampen'):
+            logger.error("样本熵计算失败：'nolds' 库未加载或不包含 'sampen' 函数。请确保已安装 'nolds'。")
             return pd.Series(np.nan, index=df.index)
 
         if column not in df.columns:
-            logger.warning(f"近似熵计算失败: 列 '{column}' 不存在。")
+            logger.warning(f"样本熵计算失败: 列 '{column}' 不存在。")
             return pd.Series(np.nan, index=df.index)
 
         series_raw = df[column].astype(float)
@@ -1268,7 +1267,7 @@ class IndicatorCalculator:
         min_samples_for_window = max(period, emb_dim + 1)
 
         if len(series_raw) < min_samples_for_window:
-            logger.warning(f"近似熵计算失败: 序列 '{column}' 数据不足 (长度: {len(series_raw)}, 最小要求窗口: {min_samples_for_window})。")
+            logger.warning(f"样本熵计算失败: 序列 '{column}' 数据不足 (长度: {len(series_raw)}, 最小要求窗口: {min_samples_for_window})。")
             return pd.Series(np.nan, index=df.index)
 
         results = pd.Series(np.nan, index=df.index)
@@ -1295,11 +1294,11 @@ class IndicatorCalculator:
                     results.iloc[i] = 0.0
                     continue
 
-                # 修改代码行：调用 sample_entropy 函数
-                ap_en = sample_entropy(window_data, m=emb_dim, r=r_tolerance)
-                results.iloc[i] = ap_en
+                # 修改代码行：调用 nolds.sampen 函数，并传递正确的参数
+                samp_en = nolds.sampen(window_data, emb_dim=emb_dim, tolerance=r_tolerance)
+                results.iloc[i] = samp_en
             except Exception as e:
-                logger.error(f"近似熵(周期{period}, 列: {column})计算失败: {e} for series window ending at {series_raw.index[i]}. Window data (first 5): {window_data[:5]}...", exc_info=False)
+                logger.error(f"样本熵(周期{period}, 列: {column})计算失败: {e} for series window ending at {series_raw.index[i]}. Window data (first 5): {window_data[:5]}...", exc_info=False)
                 results.iloc[i] = np.nan
 
         return results.reindex(df.index)
