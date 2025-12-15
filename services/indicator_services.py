@@ -455,11 +455,10 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.27 · 补充数据合并冲突修复版】
-        - 核心修复: 修正了 `_prepare_base_data_and_indicators` 中补充数据（如结构与形态特征）合并到
-                  `df_daily_master` 时，因列名冲突导致数据丢失或被覆盖的问题。
-        - 解决方案: 在合并时使用 `rsuffix` 避免冲突，然后手动选择和重命名关键补充数据列，
-                  确保 `calculate_all_slopes` 和 `calculate_all_accelerations` 能够找到正确的源列。
+        【V8.28 · 补充数据迭代合并修复版】
+        - 核心修复: 解决了 `processed_supp_dfs_to_join` 为列表时，`DataFrame.join` 不支持 `rsuffix` 的问题。
+                  现在通过迭代每个补充 DataFrame 并逐一合并来解决。
+        - 核心逻辑: 在每次迭代合并时，使用临时后缀处理冲突，并根据 `priority_supp_cols` 决定保留哪个源的数据。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -601,7 +600,7 @@ class IndicatorService:
             print(f"调试信息: 已为日线OHLCV列添加_D后缀: {rename_ohlcv_map}")
 
         processed_supp_dfs_to_join = []
-        all_new_cols = []
+        all_new_cols = set() # 使用集合来避免重复列名
         for tag, df_supp in supplemental_dfs.items():
             df_supp_std = self._standardize_df_index_to_utc(df_supp)
             if df_supp_std is None or df_supp_std.empty:
@@ -634,73 +633,58 @@ class IndicatorService:
             elif tag in ['fund_flow_ths', 'fund_flow_dc']:
                 # 这些标签的后缀处理已在 _fetch_fund_flow_ths_tagged / _fetch_fund_flow_dc_tagged 中完成
                 pass # 无需额外处理
-            # 避免与 df_daily_master 现有列冲突，但要保留补充数据中独有的、已正确命名的列
-            # 修改代码块：明确指定哪些列应该优先来自补充数据
-            # 这些列是 DAO 直接提供的，应该作为权威数据源
-            priority_supp_cols = [
-                'total_market_value_D', # 来自 daily_basic
-                'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D', # 来自 advanced_fund_flow/chips
-                'breakout_quality_score_D', # 来自 advanced_chips
-                'trend_acceleration_score_D', 'final_charge_intensity_D', 'volume_structure_skew_D', # 来自 advanced_structural_metrics
-                'breakthrough_conviction_score_D', 'defense_solidity_score_D', 'equilibrium_compression_index_D', # 来自 advanced_structural_metrics
-                'order_flow_imbalance_score_D', 'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'vpin_score_D', # 来自 advanced_structural_metrics
-                'vwap_mean_reversion_corr_D', 'market_impact_cost_D', 'liquidity_slope_D', 'liquidity_authenticity_score_D', # 来自 advanced_structural_metrics
-                'value_area_migration_D', 'value_area_overlap_pct_D', 'closing_acceptance_type_D', # 来自 advanced_structural_metrics
-                'volatility_expansion_ratio_D', 'shock_conviction_score_D', 'auction_showdown_score_D', # 来自 advanced_structural_metrics
-                'platform_conviction_score_D', 'quality_score_D', 'duration_D', 'high_D', 'low_D', 'vpoc_D', 'total_volume_D', # 来自 platform_feature
-                'breakout_readiness_score_D', 'goodness_of_fit_score_D', # 来自 platform_feature
-                'slope_D', 'intercept_D', 'touch_points_D', 'validity_score_D', 'touch_conviction_score_D', # 来自 trendline_feature
-                'trend_conviction_score_D', # 来自 multi_timeframe_trendline
-                # 根据需要添加其他应保留的列
-            ]
-            # 记录 df_supp_std 中与 df_daily_master 冲突的列
-            conflicting_cols_in_supp = df_daily_master.columns.intersection(df_supp_std.columns)
             
-            # 对于冲突的列，如果它在 priority_supp_cols 中，则从 df_supp_std 中保留，否则从 df_supp_std 中删除
-            cols_to_drop_from_supp = [col for col in conflicting_cols_in_supp if col not in priority_supp_cols]
-            if cols_to_drop_from_supp:
-                df_supp_std = df_supp_std.drop(columns=cols_to_drop_from_supp)
+            # 将处理后的补充DataFrame添加到列表中
+            processed_supp_dfs_to_join.append(df_supp_std)
+            all_new_cols.update(df_supp_std.columns) # 收集所有补充DataFrame的列名
 
-            if not df_supp_std.columns.empty:
-                processed_supp_dfs_to_join.append(df_supp_std)
-                all_new_cols.extend(df_supp_std.columns)
+        # 定义优先使用补充数据值的列
+        priority_supp_cols = [
+            'total_market_value_D', # 来自 daily_basic
+            'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D', # 来自 advanced_fund_flow/chips
+            'breakout_quality_score_D', # 来自 advanced_chips
+            'trend_acceleration_score_D', 'final_charge_intensity_D', 'volume_structure_skew_D', # 来自 advanced_structural_metrics
+            'breakthrough_conviction_score_D', 'defense_solidity_score_D', 'equilibrium_compression_index_D', # 来自 advanced_structural_metrics
+            'order_flow_imbalance_score_D', 'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'vpin_score_D', # 来自 advanced_structural_metrics
+            'vwap_mean_reversion_corr_D', 'market_impact_cost_D', 'liquidity_slope_D', 'liquidity_authenticity_score_D', # 来自 advanced_structural_metrics
+            'value_area_migration_D', 'value_area_overlap_pct_D', 'closing_acceptance_type_D', # 来自 advanced_structural_metrics
+            'volatility_expansion_ratio_D', 'shock_conviction_score_D', 'auction_showdown_score_D', # 来自 advanced_structural_metrics
+            'platform_conviction_score_D', 'quality_score_D', 'duration_D', 'high_D', 'low_D', 'vpoc_D', 'total_volume_D', # 来自 platform_feature
+            'breakout_readiness_score_D', 'goodness_of_fit_score_D', # 来自 platform_feature
+            'slope_D', 'intercept_D', 'touch_points_D', 'validity_score_D', 'touch_conviction_score_D', # 来自 trendline_feature
+            'trend_conviction_score_D', # 来自 multi_timeframe_trendline
+            # 根据需要添加其他应保留的列
+        ]
+
         if processed_supp_dfs_to_join:
-            # 修改代码行：使用 rsuffix='_orig' 来处理 df_daily_master 中与补充数据冲突的列
-            # 这样，df_daily_master 中的原始列会变成 col_orig，而补充数据中的列会保留原名
-            df_daily_master = df_daily_master.join(processed_supp_dfs_to_join, how='left', rsuffix='_orig')
-            
-            # 手动处理冲突列：对于 priority_supp_cols 中的列，如果存在 _orig 后缀版本，则删除 _orig 版本
-            for col in priority_supp_cols:
-                if f"{col}_orig" in df_daily_master.columns and col in df_daily_master.columns:
-                    # 如果补充数据和原始数据都有这个列，我们优先使用补充数据（DAO）的
-                    df_daily_master[col] = df_daily_master[col].fillna(df_daily_master[f"{col}_orig"])
-                    df_daily_master.drop(columns=[f"{col}_orig"], inplace=True)
-                elif f"{col}_orig" in df_daily_master.columns and col not in df_daily_master.columns:
-                    # 如果只有原始数据有，但被重命名了，则恢复其原始名称
-                    df_daily_master.rename(columns={f"{col}_orig": col}, inplace=True)
-
-            # 清理所有剩余的 _orig 后缀列
-            cols_to_drop_orig = [col for col in df_daily_master.columns if col.endswith('_orig')]
-            if cols_to_drop_orig:
-                df_daily_master.drop(columns=cols_to_drop_orig, inplace=True)
-                print(f"调试信息: 已清理 {len(cols_to_drop_orig)} 个带有 '_orig' 后缀的临时列。")
-
-            unique_new_cols = list(set(all_new_cols))
-            cols_to_ffill = [col for col in unique_new_cols if col in df_daily_master.columns]
+            # 修改代码块：迭代合并每个补充DataFrame，并处理冲突
+            for df_supp_std in processed_supp_dfs_to_join:
+                # Identify columns that exist in both df_daily_master and df_supp_std
+                common_cols = df_daily_master.columns.intersection(df_supp_std.columns)
+                
+                # Perform join with a temporary suffix
+                temp_suffix = '_supp_temp'
+                df_daily_master = df_daily_master.join(df_supp_std, how='left', rsuffix=temp_suffix)
+                
+                # Resolve conflicts for common columns
+                for col in common_cols:
+                    temp_col_name = f"{col}{temp_suffix}"
+                    if temp_col_name in df_daily_master.columns: # Ensure the temp column was actually created
+                        if col in priority_supp_cols:
+                            # If it's a priority column, take the value from df_supp_std (temp_col_name)
+                            # and fill NaNs with the original df_daily_master value
+                            df_daily_master[col] = df_daily_master[temp_col_name].fillna(df_daily_master[col])
+                        else:
+                            # If not a priority column, take the value from original df_daily_master
+                            # and fill NaNs with the df_supp_std value (temp_col_name)
+                            df_daily_master[col] = df_daily_master[col].fillna(df_daily_master[temp_col_name])
+                        # Drop the temporary column after resolution
+                        df_daily_master.drop(columns=[temp_col_name], inplace=True)
+                
+            # After all joins, apply ffill to the relevant columns
+            cols_to_ffill = [col for col in all_new_cols if col in df_daily_master.columns]
             if cols_to_ffill:
                 df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
-
-            # 新增代码块：处理冲突的 'breakout_readiness_score_D' 列
-            if 'breakout_readiness_score_D_y' in df_daily_master.columns:
-                # 优先保留 _y 版本（假设其来自 platform_feature，更具相关性）
-                df_daily_master['breakout_readiness_score_D'] = df_daily_master['breakout_readiness_score_D_y'].fillna(df_daily_master.get('breakout_readiness_score_D_x'))
-                df_daily_master.drop(columns=[col for col in ['breakout_readiness_score_D_x', 'breakout_readiness_score_D_y'] if col in df_daily_master.columns], inplace=True)
-                print("调试信息: 已合并并清理重复的 'breakout_readiness_score_D' 列，优先保留 '_y' 版本。")
-            elif 'breakout_readiness_score_D_x' in df_daily_master.columns:
-                # 如果只有 _x 存在，则重命名它
-                df_daily_master.rename(columns={'breakout_readiness_score_D_x': 'breakout_readiness_score_D'}, inplace=True)
-                print("调试信息: 已重命名 'breakout_readiness_score_D_x' 为 'breakout_readiness_score_D'。")
-
         if 'close_D' in df_daily_master.columns:
             df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
         raw_dfs['D'] = df_daily_master
