@@ -45,6 +45,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的常规日级资金流数据，截止日期 {trade_date}，数量 {limit}...")
+        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
         model_class = get_fund_flow_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定常规资金流向数据模型。")
@@ -72,6 +73,7 @@ class FundFlowDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询常规日级资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
             return pd.DataFrame()
+
     async def save_history_fund_flow_daily_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 (终极优化版 V3.1 - 字段补全)
@@ -162,6 +164,7 @@ class FundFlowDao(BaseDAO):
             total_rows += len(data_list)
         # print(f"所有历史日级资金流向数据处理完成，共保存 {total_rows} 条记录。")
         return
+
     # ============== 个股日级资金流向数据 - 同花顺 ==============
     async def get_fund_flow_ths_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
@@ -172,6 +175,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的同花顺资金流数据，截止日期 {trade_date}，数量 {limit}...")
+        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
         model_class = get_fund_flow_ths_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定同花顺资金流向数据模型。")
@@ -199,6 +203,7 @@ class FundFlowDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询同花顺资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
             return pd.DataFrame()
+
     async def save_history_fund_flow_daily_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 - 同花顺 (参照save_history_fund_flow_daily_data重构)
@@ -296,6 +301,7 @@ class FundFlowDao(BaseDAO):
             total_rows += len(data_list)
         print(f"所有历史日级资金流向数据(同花顺)处理完成，共保存 {total_rows} 条记录。")
         return
+
     # ============== 日级资金流向数据 - 东方财富 ==============
     async def get_fund_flow_dc_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
@@ -306,6 +312,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的东方财富资金流数据，截止日期 {trade_date}，数量 {limit}...")
+        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
         model_class = get_fund_flow_dc_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定东方财富资金流向数据模型。")
@@ -333,6 +340,7 @@ class FundFlowDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询东方财富资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
             return pd.DataFrame()
+
     async def save_history_fund_flow_daily_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 - 东方财富 (参照save_history_fund_flow_daily_data重构)
@@ -430,12 +438,14 @@ class FundFlowDao(BaseDAO):
             total_rows += len(data_list)
         print(f"所有历史日级资金流向数据(东方财富)处理完成，共保存 {total_rows} 条记录。")
         return
+
     # ============== 资金流向高级指标 ==============
     async def get_advanced_fund_flow_metrics_data(self, stock_code: str, trade_date: datetime.date, limit: int) -> pd.DataFrame:
         """
         从 AdvancedFundFlowMetrics 模型获取预计算的高级资金指标。
         """
         # 动态获取对应市场的模型
+        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
         model = get_advanced_fund_flow_metrics_model_by_code(stock_code)
         if not model:
             return pd.DataFrame()
@@ -451,6 +461,7 @@ class FundFlowDao(BaseDAO):
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df = df.set_index('trade_time')
         return df
+
     # ============== 板块资金流向数据 - 同花顺 ==============
     async def save_history_fund_flow_cnt_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
@@ -540,6 +551,7 @@ class FundFlowDao(BaseDAO):
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         print(f"完成 {date_range_info} 板块资金流向数据（同花顺），result: {result}")
         return result
+
     # ============== 板块资金流向数据 - 东方财富 ==============
     async def save_history_fund_flow_cnt_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
@@ -630,6 +642,7 @@ class FundFlowDao(BaseDAO):
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         print(f"完成 {date_range_info} 历史板块资金流向数据（东方财富），result: {result}")
         return result
+
     # ============== 行业资金流向数据 - 同花顺 ==============
     @sync_to_async
     def get_industry_fund_flow(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
@@ -645,6 +658,7 @@ class FundFlowDao(BaseDAO):
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
         return df
+
     async def save_history_fund_flow_industry_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         【V2.0 - 向量化优化版】保存历史行业资金流向数据 - 同花顺
@@ -733,6 +747,7 @@ class FundFlowDao(BaseDAO):
         # 【修正打印信息】将“板块”修正为“行业”
         print(f"完成 {date_range_info} 行业资金流向数据（同花顺），result: {result}")
         return result
+
     # ============== 大盘资金流向数据 - 东方财富 ==============
     async def save_history_fund_flow_market_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
@@ -797,6 +812,7 @@ class FundFlowDao(BaseDAO):
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         print(f"完成 {date_range_info} 历史大盘资金流向数据（东方财富），result: {result}")
         return result
+
     # ============== 龙虎榜每日明细 ==============
     async def save_today_lhb_daily_data(self) -> Dict:
         """
@@ -807,6 +823,7 @@ class FundFlowDao(BaseDAO):
         # 直接调用重构后的历史数据方法，传入当天日期
         print(f"调用 save_hisroty_lhb_daily_data 保存今日 {today_str} 的龙虎榜数据。")
         return await self.save_hisroty_lhb_daily_data(trade_date=today_str)
+
     async def save_hisroty_lhb_daily_data(self, trade_date: str) -> Dict:
         """
         【V2.1 - 全面向量化版】保存历史龙虎榜每日数据
@@ -876,6 +893,7 @@ class FundFlowDao(BaseDAO):
         )
         logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
         return result
+
     async def get_top_list_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame:
         """
         根据日期范围和股票代码列表，获取龙虎榜每日明细数据。
@@ -899,6 +917,7 @@ class FundFlowDao(BaseDAO):
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         return df
+
     # ============== 龙虎榜机构明细 ==============
     async def save_today_lhb_inst_data(self) -> Dict:
         """
@@ -909,6 +928,7 @@ class FundFlowDao(BaseDAO):
         print(f"调用 save_hisroty_lhb_inst_data 保存今日 {today_str} 的龙虎榜机构数据。")
         # 复用已包含分页和向量化逻辑的健壮方法
         return await self.save_hisroty_lhb_inst_data(trade_date=today_str)
+
     async def save_hisroty_lhb_inst_data(self, trade_date: str) -> Dict:
         """
         【V2.1 - 全面向量化版】保存历史龙虎榜机构明细
@@ -994,6 +1014,7 @@ class FundFlowDao(BaseDAO):
             logger.error(f"保存龙虎榜机构明细时发生严重错误: {e}", exc_info=True)
             print(f"调试: 发生异常: {e}")
             raise
+
     async def get_top_inst_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame:
         """
         根据日期范围和股票代码列表，获取龙虎榜机构明细数据。
@@ -1013,6 +1034,7 @@ class FundFlowDao(BaseDAO):
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         return df
+
     # ============== 游资每日明细 ==============
     async def save_hm_detail_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
@@ -1131,6 +1153,7 @@ class FundFlowDao(BaseDAO):
         )
         print(f"所有游资每日明细数据处理完成，共处理/保存 {len(data_list)} 条记录。")
         return
+
     async def get_hm_detail_data(self, start_date: date, end_date: date, stock_codes: list[str] = None, hm_names: list[str] = None) -> pd.DataFrame:
         """
         查询游资每日明细数据
