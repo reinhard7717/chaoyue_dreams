@@ -5,7 +5,7 @@ import logging
 import asyncio
 from asgiref.sync import async_to_sync
 from utils.task_helpers import with_cache_manager
-from celery import group
+from celery import group, current_task
 # 假设 StockBasicInfoDao 存在且可用
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
