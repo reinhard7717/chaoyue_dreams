@@ -1236,7 +1236,6 @@ class IndicatorCalculator:
                     score_efficiency * weights['efficiency'] -
                     purity_penalty * weights['purity_penalty']
                 ).clip(0, 1)
-                
                 return pd.DataFrame({'breakout_quality_score': quality_score})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
@@ -1256,51 +1255,38 @@ class IndicatorCalculator:
         if nolds is None or not hasattr(nolds, 'sampen'):
             logger.error("样本熵计算失败：'nolds' 库未加载或不包含 'sampen' 函数。请确保已安装 'nolds'。")
             return pd.Series(np.nan, index=df.index)
-
         if column not in df.columns:
             logger.warning(f"样本熵计算失败: 列 '{column}' 不存在。")
             return pd.Series(np.nan, index=df.index)
-
         series_raw = df[column].astype(float)
-        
         emb_dim = 2 # 嵌入维度 m，通常取 2
         min_samples_for_window = max(period, emb_dim + 1)
-
         if len(series_raw) < min_samples_for_window:
             logger.warning(f"样本熵计算失败: 序列 '{column}' 数据不足 (长度: {len(series_raw)}, 最小要求窗口: {min_samples_for_window})。")
             return pd.Series(np.nan, index=df.index)
-
         results = pd.Series(np.nan, index=df.index)
-
         for i in range(len(series_raw)):
             if i < min_samples_for_window - 1:
                 continue
-
             window_data = series_raw.iloc[i - min_samples_for_window + 1 : i + 1].dropna().values
-
             if len(window_data) < min_samples_for_window:
                 continue
-
             # 检查窗口数据是否为常数或变化极小
             if np.all(window_data == window_data[0]) or np.std(window_data) < 1e-9:
                 results.iloc[i] = 0.0
                 continue
-
             try:
                 std_dev = np.std(window_data)
                 r_tolerance = tolerance_ratio * std_dev
-                
                 if r_tolerance == 0:
                     results.iloc[i] = 0.0
                     continue
-
                 # 修改代码行：调用 nolds.sampen 函数，并传递正确的参数
                 samp_en = nolds.sampen(window_data, emb_dim=emb_dim, tolerance=r_tolerance)
                 results.iloc[i] = samp_en
             except Exception as e:
                 logger.error(f"样本熵(周期{period}, 列: {column})计算失败: {e} for series window ending at {series_raw.index[i]}. Window data (first 5): {window_data[:5]}...", exc_info=False)
                 results.iloc[i] = np.nan
-
         return results.reindex(df.index)
 
 

@@ -1106,11 +1106,9 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs:
             return all_dfs
         df_daily = all_dfs[timeframe]
-
         # 假设 df_geometric_features 是在此方法内部计算生成的
         # 这是一个占位符，实际的几何特征计算逻辑应在此处实现
         df_geometric_features = pd.DataFrame(index=df_daily.index)
-
         # 示例：模拟一个 'trend_conviction_score_D' 几何特征的计算
         # 假设这个特征是根据收盘价的某种几何变换得出的
         if 'close_D' in df_daily.columns:
@@ -1119,14 +1117,11 @@ class FeatureEngineeringService:
         else:
             logger.warning("无法计算 'trend_conviction_score_D' 几何特征，缺少 'close_D' 列。")
             df_geometric_features['trend_conviction_score_D'] = np.nan
-        
         # 识别重叠列并记录警告
         overlapping_cols = df_daily.columns.intersection(df_geometric_features.columns)
         if not overlapping_cols.empty:
             logger.warning(f"在合并几何特征时发现重叠列: {overlapping_cols.tolist()}。来自 df_geometric_features 的重叠列将添加 '_geom' 后缀。")
-
         df_daily = df_daily.join(df_geometric_features, how='left', rsuffix='_geom')
-        
         all_dfs[timeframe] = df_daily
         return all_dfs
 

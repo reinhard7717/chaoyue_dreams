@@ -370,7 +370,6 @@ class GeometricPatternService:
                             ofi_score_val = np.clip(ofi / breakout_vol, -1, 1)
                     if next_trade_date in realtime_map:
                         momentum_score_val = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
-                    
                     if np.isnan(ofi_score_val) or np.isinf(ofi_score_val): ofi_score_val = 0.0
                     if np.isnan(momentum_score_val) or np.isinf(momentum_score_val): momentum_score_val = 0.0
                     temp_breakout_quality_score = (ofi_score_val * 0.6) + (momentum_score_val * 0.4)

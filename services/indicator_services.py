@@ -292,15 +292,12 @@ class IndicatorService:
         #   (?:_sum_(\d+)d)?          - 可选的sum部分，捕获sum周期 (sum_period)
         #   _(slope|accel)_(\d+)d$    - 必须匹配的斜率/加速度部分，捕获类型(deriv_type)和周期(deriv_period)
         pattern = re.compile(r'(.+?)(?:_sum_(\d+)d)?_(slope|accel)_(\d+)d$')
-        
         # 获取当前DataFrame中所有列名，用于检查是否存在_D后缀版本
         current_columns = set(df.columns)
-
         for col in df.columns:
             match = pattern.match(col)
             if match:
                 base_name_raw, sum_period, deriv_type, deriv_period = match.groups()
-                
                 # 确定最终的 base_name。
                 # 如果 base_name_raw 不以 '_D' 结尾，但其 '_D' 后缀版本存在于 DataFrame 中，
                 # 则使用 '_D' 后缀版本作为目标 base_name。
@@ -309,15 +306,12 @@ class IndicatorService:
                 # 修改代码行：确保只有当原始基名不带_D后缀，且其_D后缀版本存在时才添加
                 if not base_name_raw.endswith('_D') and f"{base_name_raw}_D" in current_columns:
                     target_base_name = f"{base_name_raw}_D"
-
                 # 根据捕获组构建新的、标准化的列名
                 if sum_period:
                     new_name = f"{deriv_type.upper()}_{deriv_period}_{target_base_name}_sum_{sum_period}d"
                 else:
                     new_name = f"{deriv_type.upper()}_{deriv_period}_{target_base_name}"
-                
                 rename_map[col] = new_name
-        
         if rename_map:
             df_renamed = df.rename(columns=rename_map)
             return df_renamed
@@ -435,13 +429,11 @@ class IndicatorService:
                     else:
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
         all_dfs['D'] = df_daily # 更新all_dfs['D']为包含所有上下文信号的df_daily
-
         # NEW STEP: Calculate OCH_D for the daily dataframe (移动到此处)
         if 'D' in all_dfs and not all_dfs['D'].empty:
             temp_dfs = {'D': all_dfs['D']} # 重新封装，确保传入的是字典
             temp_dfs = await self.feature_service.calculate_och(temp_dfs)
             all_dfs['D'] = temp_dfs['D']
-
         # --- 11. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
@@ -455,12 +447,10 @@ class IndicatorService:
         """
         if df_supp is None or df_supp.empty:
             return pd.DataFrame()
-
         df_supp_std = self._standardize_df_index_to_utc(df_supp.copy())
         if df_supp_std is None or df_supp_std.empty:
             return pd.DataFrame()
         df_supp_std.index = df_supp_std.index.normalize()
-
         # 1. 统一添加 _D 后缀到所有非衍生指标列
         # 排除 'trade_time', 'end_date', 'period', 'line_type' 等索引或特殊列
         # 排除已经带有时间级别后缀的列
@@ -473,10 +463,8 @@ class IndicatorService:
         ]
         rename_map_explicit_suffix = {col: f"{col}_D" for col in cols_to_suffix}
         df_supp_std.rename(columns=rename_map_explicit_suffix, inplace=True)
-
         # 2. 处理预计算的衍生指标（如 SLOPE_X_Y_slope_Ad）
         df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
-
         # 3. 处理特定数据源的列名冲突，例如平台特征的 high/low 与 OHLCV 冲突
         if tag == 'platform_feature':
             platform_feature_renames = {
@@ -505,7 +493,6 @@ class IndicatorService:
             # 确保 total_mv 被正确重命名为 total_market_value
             if 'total_mv_D' in df_supp_std.columns:
                 df_supp_std.rename(columns={'total_mv_D': 'total_market_value_D'}, inplace=True)
-
         return df_supp_std
 
     async def _prepare_base_data_and_indicators(
@@ -516,10 +503,12 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.30 · 协程标签修复版】
+        【V8.31 · DAO方法调用修复版】
         为策略准备数据的统一入口，彻底重构数据合并和命名规则。
-        - 核心修复: 解决了 `coroutine` 对象没有 `tag` 属性的错误，通过将 DAO 异步调用封装在
-                  返回 `(tag, result_df)` 元组的辅助函数中，以便 `asyncio.gather` 正确处理。
+        - 核心修复: 修正了 `FundFlowDao` 和 `StrategiesDAO` 实例中不存在 `get_fund_flow_model_by_code`
+                  和 `get_price_limit_data` 方法的错误。
+                  `get_fund_flow_model_by_code` 应该从 `utils.model_helpers` 导入。
+                  `get_price_limit_data` 应该通过 `self.stock_trade_dao` 实例调用。
         - 统一命名: 所有日线数据列名统一以 `_D` 结尾。
         - 迭代合并: 逐个合并补充 DataFrame，明确处理列名冲突。
         """
@@ -533,7 +522,6 @@ class IndicatorService:
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
-        
         # 确定需要获取的数据条数
         if latest_only:
             max_lookback = self._get_max_lookback_period(config)
@@ -542,7 +530,6 @@ class IndicatorService:
             print(f"    - [闪电模式启动] 策略最大回溯期: {max_lookback}, 安全缓冲: {safety_buffer}, 最终加载: {base_needed_bars} 条记录。")
         else:
             base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
-        
         # 确定需要获取的基础时间框架和重采样映射
         base_tfs_to_fetch = set()
         resample_map = {}
@@ -552,7 +539,6 @@ class IndicatorService:
                 resample_map[tf] = 'D'
             else:
                 base_tfs_to_fetch.add(tf)
-        
         # --- 步骤 1: 并发获取所有原始数据 ---
         tasks = []
         # OHLCV 数据
@@ -561,105 +547,85 @@ class IndicatorService:
             return (tf_to_fetch, df)
         for tf in base_tfs_to_fetch:
             tasks.append(_fetch_and_tag_ohlcv_data(tf, trade_time))
-
         # 补充数据 (各种高级指标和基本面数据)
         trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
         trade_time_dt_date = trade_time_dt.date() if trade_time_dt else datetime.datetime.now().date()
-
         # 修改代码块：将 DAO 异步调用封装在返回 (tag, result_df) 元组的辅助函数中
         async def _fetch_legacy_supplemental_tagged():
             df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, base_needed_bars)
             return ('legacy_supplemental', df)
         tasks.append(_fetch_legacy_supplemental_tagged())
-
         async def _fetch_daily_basic_tagged():
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, base_needed_bars)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged())
-
         async def _fetch_fund_flow_ths_tagged():
             df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_ths', df)
         tasks.append(_fetch_fund_flow_ths_tagged())
-
         async def _fetch_fund_flow_dc_tagged():
             df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_dc', df)
         tasks.append(_fetch_fund_flow_dc_tagged())
-
         async def _fetch_fund_flow_tushare_tagged():
             df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_tushare', df)
         tasks.append(_fetch_fund_flow_tushare_tagged())
-
         async def _fetch_advanced_fund_flow_tagged():
             df = await self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('advanced_fund_flow', df)
         tasks.append(_fetch_advanced_fund_flow_tagged())
-
+        # 修改代码行：get_price_limit_data 应该通过 self.stock_trade_dao 实例调用
         async def _fetch_price_limit_tagged():
-            df = await self.strategies_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars)
+            df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars)
             return ('price_limit', df)
         tasks.append(_fetch_price_limit_tagged())
-
         async def _fetch_advanced_structural_metrics_tagged():
             df = await self.strategies_dao.get_advanced_structural_metrics_data(stock_code, trade_time_dt, base_needed_bars)
             return ('advanced_structural_metrics', df)
         tasks.append(_fetch_advanced_structural_metrics_tagged())
-
         async def _fetch_platform_feature_tagged():
             df = await self.strategies_dao.get_platform_feature_data(stock_code, trade_time_dt, base_needed_bars)
             return ('platform_feature', df)
         tasks.append(_fetch_platform_feature_tagged())
-
         async def _fetch_trendline_feature_tagged():
             df = await self.strategies_dao.get_trendline_feature_data(stock_code, trade_time_dt, base_needed_bars)
             return ('trendline_feature', df)
         tasks.append(_fetch_trendline_feature_tagged())
-
         async def _fetch_multi_timeframe_trendline_tagged():
             df = await self.strategies_dao.get_multi_timeframe_trendline_data(stock_code, trade_time_dt, base_needed_bars)
             return ('multi_timeframe_trendline', df)
         tasks.append(_fetch_multi_timeframe_trendline_tagged())
-
         async def _fetch_advanced_chips_tagged():
             df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, base_needed_bars)
             return ('advanced_chips', df)
         tasks.append(_fetch_advanced_chips_tagged())
-
-
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
-
         raw_dfs: Dict[str, pd.DataFrame] = {}
         supplemental_dfs: Dict[str, pd.DataFrame] = {}
-
         for result in all_data_results:
             if isinstance(result, Exception):
                 print(f"      -> 警告: 一个数据获取任务失败: {result}")
                 continue
-            # 修改代码行：直接解包 (tag, data) 元组
+            # 直接解包 (tag, data) 元组
             if isinstance(result, tuple) and len(result) == 2:
                 tag, data = result
             else:
                 continue # Skip unexpected results
-
             if isinstance(data, pd.DataFrame) and not data.empty:
                 # Convert object columns to numeric where possible
                 object_cols = data.select_dtypes(include=['object']).columns
                 for col in object_cols:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
-                
                 if tag in ['legacy_supplemental', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare',
                            'advanced_fund_flow', 'price_limit', 'advanced_structural_metrics', 'platform_feature',
                            'trendline_feature', 'multi_timeframe_trendline', 'advanced_chips']:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
-
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
-        
         # --- 步骤 2: 初始化 df_daily_master (OHLCV 日线数据) ---
         df_daily_master = raw_dfs['D']
         df_daily_master.index = df_daily_master.index.normalize()
@@ -667,20 +633,16 @@ class IndicatorService:
         if df_daily_master.index.duplicated().any():
             print(f"调试信息: 日线数据中发现重复索引，已删除重复项，保留最后一条。重复数量: {df_daily_master.index.duplicated().sum()}")
             df_daily_master = df_daily_master[~df_daily_master.index.duplicated(keep='last')]
-
         # 为核心 OHLCV 列添加 _D 后缀
         ohlcv_cols = ['open', 'high', 'low', 'close', 'volume', 'amount']
         rename_ohlcv_map = {col: f"{col}_D" for col in ohlcv_cols if col in df_daily_master.columns and not col.endswith('_D')}
         if rename_ohlcv_map:
             df_daily_master.rename(columns=rename_ohlcv_map, inplace=True)
             print(f"调试信息: 已为日线OHLCV列添加_D后缀: {rename_ohlcv_map}")
-
         # 定义 OHLCV 核心列，这些列在合并时应始终优先保留 df_daily_master 中的值
         ohlcv_core_cols = set(rename_ohlcv_map.values())
-
         # --- 步骤 3: 逐个处理并合并补充数据 ---
         all_merged_cols_for_ffill = set() # 收集所有新合并进来的列，用于后续 ffill
-
         # 定义优先级列：这些列如果来自补充数据，则优先保留补充数据的值
         # 这是一个综合了所有高级指标模型字段的列表，确保它们在冲突时优先
         priority_supp_cols = set([
@@ -786,17 +748,14 @@ class IndicatorService:
             # PriceLimit
             'up_limit_D', 'down_limit_D', 'up_limit_pct_D', 'down_limit_pct_D'
         ])
-
         # Iterate and merge each processed supplementary DataFrame
         for tag, df_supp_raw in supplemental_dfs.items():
             df_supp_processed = await self._process_supplemental_df(df_supp_raw, tag)
             if df_supp_processed.empty:
                 continue
-
             # Perform join with a temporary suffix
             temp_suffix = '_temp_supp'
             df_daily_master = df_daily_master.join(df_supp_processed, how='left', rsuffix=temp_suffix)
-            
             # Resolve conflicts for common columns
             common_cols = df_daily_master.columns.intersection(df_supp_processed.columns)
             for col in common_cols:
@@ -811,10 +770,8 @@ class IndicatorService:
                     else:
                         # 其他冲突列，默认保留 df_daily_master 中的值，用补充数据填充 NaN
                         df_daily_master[col] = df_daily_master[col].fillna(df_daily_master[temp_col_name])
-                    
                     # Drop the temporary column after resolution
                     df_daily_master.drop(columns=[temp_col_name], inplace=True)
-            
             # Add newly introduced columns from df_supp_processed to the ffill list
             # 这里的逻辑需要调整，因为 df_supp_processed 已经包含了 _D 后缀
             # 我们需要收集的是最终合并到 df_daily_master 中的列名
@@ -824,20 +781,15 @@ class IndicatorService:
                 elif col in common_cols: # 如果是冲突列，且我们决定保留了补充数据的值
                     if col in priority_supp_cols:
                         all_merged_cols_for_ffill.add(col)
-
-
-        # --- 步骤 4: 统一 ffill 填充 ---
+        # --- 4: 统一 ffill 填充 ---
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
             print(f"调试信息: 已对 {len(cols_to_ffill)} 个新合并列进行 ffill 填充。")
-
-        # --- 步骤 5: 计算基础衍生指标 ---
+        # --- 5: 计算基础衍生指标 ---
         if 'close_D' in df_daily_master.columns:
             df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
-        
         raw_dfs['D'] = df_daily_master
-
         # Calculate AAA_D and NMFNF_D
         if 'D' in raw_dfs and not raw_dfs['D'].empty:
             temp_dfs = {'D': raw_dfs['D']}
@@ -846,8 +798,7 @@ class IndicatorService:
             temp_dfs = {'D': raw_dfs['D']}
             temp_dfs = await self.feature_service.calculate_nmfnf(temp_dfs)
             raw_dfs['D'] = temp_dfs['D']
-        
-        # --- 步骤 6: 重采样周/月线数据 ---
+        # --- 6: 重采样周/月线数据 ---
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -865,11 +816,9 @@ class IndicatorService:
                                 aggregation_rules[col] = 'mean'
                             else: # 其他指标取最后一个值
                                 aggregation_rules[col] = 'last'
-                    
                     resample_period = 'W-FRI' if target_tf == 'W' else 'ME'
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
                     df_resampled.dropna(how='all', inplace=True) # 删除全为NaN的行
-
                     if not df_resampled.empty:
                         # 统一重命名列名后缀
                         rename_map_resampled = {col: col.replace('_D', f'_{target_tf}') for col in df_resampled.columns if col.endswith('_D')}
@@ -879,21 +828,17 @@ class IndicatorService:
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
                         raw_dfs[target_tf] = df_resampled
-        
-        # --- 步骤 7: 计算所有时间框架的指标 ---
+        # --- 7: 计算所有时间框架的指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
         async def _calculate_for_tf(tf, df):
             df = self._standardize_df_index_to_utc(df)
             df_with_indicators = await self._calculate_indicators_for_timescale(df, config.get('feature_engineering_params', {}).get('indicators', {}), tf)
             return tf, df_with_indicators
-        
         for tf, df in raw_dfs.items():
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
-        
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
-        
         for res in processed_results:
             if isinstance(res, Exception):
                 print(f"    - 错误: 指标计算任务中出现异常: {res}")
@@ -904,7 +849,6 @@ class IndicatorService:
                     processed_dfs[tf] = df_processed
                 else:
                     print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
-        
         return processed_dfs
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
@@ -979,13 +923,11 @@ class IndicatorService:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过。")
             return df
         df_for_calc = df.copy()
-
         # 新增代码块：在指标计算前，再次检查并清理重复索引
         if df_for_calc.index.duplicated().any():
             initial_len = len(df_for_calc)
             df_for_calc = df_for_calc[~df_for_calc.index.duplicated(keep='last')]
             print(f"调试信息: 在 _calculate_indicators_for_timescale 中发现并清理了 {initial_len - len(df_for_calc)} 个重复索引 (周期: {timeframe_key})。")
-
         indicator_method_map = {
             'ma': self.calculator.calculate_ma,
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
