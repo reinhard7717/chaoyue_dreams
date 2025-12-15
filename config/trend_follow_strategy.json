@@ -3304,6 +3304,13 @@
             "default": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
             "long_term_stability": { "13": 0.2, "21": 0.3, "55": 0.4, "89": 0.1 },
             "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 }
+        },
+        "trend_form_fusion_weights": {
+          "description": "【趋势形态公理】融合排列、斜率、有序度、角度的权重。",
+          "alignment": 0.3,
+          "slope": 0.3,
+          "orderliness": 0.2,
+          "angle": 0.2
         }
       },
       "fusion_intelligence_params": {

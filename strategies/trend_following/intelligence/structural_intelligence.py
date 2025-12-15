@@ -154,19 +154,30 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.5 · MTF重构版】结构公理一：诊断“趋势形态”
+        【V3.0 · 几何形态与内在方向版】结构公理一：诊断“趋势形态”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 废弃了旧版对“能量”的评估，更纯粹地聚焦于趋势的“几何形态品质”。
         - 核心证据: 融合均线排列的“有序度”、均线簇的“角度”以及均线本身的“斜率”。
         - 核心修复: 修复了因直接访问 `self.strategy.slope_params` 导致的 `AttributeError`。改为通过 `get_params_block` 安全地获取斜率配置。
         - 核心优化: 引入逻辑仲裁机制。当均线排列分极高时，将修正与之矛盾的“有序度”分，解决底层信号冲突问题。
         - 【优化】使用专属的 `short_term_geometry` MTF权重进行归一化。
+        - 【V3.0 核心升级】移除了对当日价格涨跌幅（pct_change_D）的直接依赖来判断最终方向。现在，最终的双极性分数直接由看涨形态分减去看跌形态分得出，更纯粹地反映了趋势形态本身的内在方向和强度，避免了当日价格波动对趋势形态判断的干扰。
+        - 【V3.0 探针植入】增加了详细的探针输出，以便于检查和调试。
+        - 【V3.0 参数化】融合权重现在从配置文件中读取。
         """
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 55])
+        # 修改开始：从配置文件获取融合权重
+        fusion_weights = get_param_value(p_conf_struct.get('trend_form_fusion_weights'), {
+            'alignment': 0.3,
+            'slope': 0.3,
+            'orderliness': 0.2,
+            'angle': 0.2
+        })
+        # 修改结束
         required_signals = [
             'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ATAN_ANGLE_EMA_55_D',
-            'close_D', 'pct_change_D'
+            'close_D' # 移除 pct_change_D
         ]
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
         feature_eng_params = get_params_block(self.strategy, 'feature_engineering_params', {})
@@ -186,12 +197,12 @@ class StructuralIntelligence:
         tf_weights = mtf_weights_conf.get('short_term_geometry', {5: 0.5, 8: 0.3, 13: 0.2})
         # 维度1: 排列 (Alignment)
         bull_alignment_raw = pd.Series(0.0, index=df_index)
-        alignment_weights = np.linspace(0.5, 0.2, len(ema_periods) - 1)
+        alignment_weights_internal = np.linspace(0.5, 0.2, len(ema_periods) - 1)
         for i in range(len(ema_periods) - 1):
             ema_i = self._get_safe_series(df, f'EMA_{ema_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
             ema_i_plus_1 = self._get_safe_series(df, f'EMA_{ema_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
-            bull_alignment_raw += (ema_i > ema_i_plus_1).astype(float) * alignment_weights[i]
-        alignment_score = bull_alignment_raw / sum(alignment_weights)
+            bull_alignment_raw += (ema_i > ema_i_plus_1).astype(float) * alignment_weights_internal[i]
+        alignment_score = bull_alignment_raw / sum(alignment_weights_internal)
         # 维度2: 斜率 (Slope)
         slope_scores = [get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form"), df_index, tf_weights).values for col in slope_cols_to_use]
         avg_slope_score = pd.Series(np.mean(slope_scores, axis=0) if slope_scores else 0.0, index=df_index)
@@ -207,21 +218,41 @@ class StructuralIntelligence:
         angle_score = get_adaptive_mtf_normalized_bipolar_score(angle_raw, df_index, tf_weights)
         # --- 融合形态分 ---
         bullish_form_score = (
-            alignment_score * 0.3 +
-            avg_slope_score.clip(lower=0) * 0.3 +
-            corrected_orderliness_score * 0.2 +
-            angle_score.clip(lower=0) * 0.2
+            alignment_score * fusion_weights['alignment'] + # 修改：使用配置权重
+            avg_slope_score.clip(lower=0) * fusion_weights['slope'] + # 修改：使用配置权重
+            corrected_orderliness_score * fusion_weights['orderliness'] + # 修改：使用配置权重
+            angle_score.clip(lower=0) * fusion_weights['angle'] # 修改：使用配置权重
         ).clip(0, 1)
         bearish_form_score = (
-            (1 - alignment_score) * 0.3 +
-            avg_slope_score.clip(upper=0).abs() * 0.3 +
-            (1 - corrected_orderliness_score) * 0.2 +
-            angle_score.clip(upper=0).abs() * 0.2
+            (1 - alignment_score) * fusion_weights['alignment'] + # 修改：使用配置权重
+            avg_slope_score.clip(upper=0).abs() * fusion_weights['slope'] + # 修改：使用配置权重
+            (1 - corrected_orderliness_score) * fusion_weights['orderliness'] + # 修改：使用配置权重
+            angle_score.clip(upper=0).abs() * fusion_weights['angle'] # 修改：使用配置权重
         ).clip(0, 1)
         # --- 最终裁决 ---
-        trend_direction = np.sign(self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_trend_form"))
-        trend_form_score = np.where(trend_direction >= 0, bullish_form_score, -bearish_form_score)
+        # 修改开始：移除 pct_change_D 依赖，直接通过牛熊形态分差值获得双极性分数
+        trend_form_score = bullish_form_score - bearish_form_score
         final_score = pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
+        # 修改结束
+
+        # 探针输出
+        if self.is_probe_date:
+            current_date = df.index[-1]
+            print(f"    [探针] _diagnose_axiom_trend_form @ {current_date.strftime('%Y-%m-%d')}:")
+            print(f"        原始数据 - MA_POTENTIAL_ORDERLINESS_SCORE_D: {orderliness_raw.iloc[-1]:.4f}")
+            print(f"        原始数据 - ATAN_ANGLE_EMA_55_D: {angle_raw.iloc[-1]:.4f}")
+            for p in ema_periods:
+                print(f"        原始数据 - EMA_{p}_D: {self._get_safe_series(df, f'EMA_{p}_D', method_name='_diagnose_axiom_trend_form').iloc[-1]:.4f}")
+            for col in slope_cols_to_use:
+                print(f"        原始数据 - {col}: {self._get_safe_series(df, col, method_name='_diagnose_axiom_trend_form').iloc[-1]:.4f}")
+            print(f"        中间分数 - 排列 (Alignment Score): {alignment_score.iloc[-1]:.4f}")
+            print(f"        中间分数 - 平均斜率 (Avg Slope Score): {avg_slope_score.iloc[-1]:.4f}")
+            print(f"        中间分数 - 有序度 (Orderliness Score): {orderliness_score.iloc[-1]:.4f}")
+            print(f"        中间分数 - 修正有序度 (Corrected Orderliness Score): {corrected_orderliness_score.iloc[-1]:.4f}")
+            print(f"        中间分数 - 角度 (Angle Score): {angle_score.iloc[-1]:.4f}")
+            print(f"        融合分数 - 看涨形态分 (Bullish Form Score): {bullish_form_score.iloc[-1]:.4f}")
+            print(f"        融合分数 - 看跌形态分 (Bearish Form Score): {bearish_form_score.iloc[-1]:.4f}")
+            print(f"        最终结果 - SCORE_STRUCT_AXIOM_TREND_FORM: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
