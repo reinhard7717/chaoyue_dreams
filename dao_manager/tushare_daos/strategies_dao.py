@@ -23,7 +23,8 @@ from functools import reduce
 import operator
 from utils.model_helpers import (
     get_advanced_structural_metrics_model_by_code, get_platform_feature_model_by_code,
-    get_trendline_feature_model_by_code, get_multi_timeframe_trendline_model_by_code
+    get_trendline_feature_model_by_code, get_multi_timeframe_trendline_model_by_code,
+    get_fund_flow_model_by_code
 )
 
 
@@ -326,7 +327,7 @@ class StrategiesDAO(BaseDAO):
         - 健壮合并: 使用 'outer' 合并，并统一使用 ffill() 填充，确保数据连续性。
         """
         # print(f"    - [DAO] 正在为 {stock_code} 获取补充数据 (资金流、筹码)...")
-        FundFlowModel = self.fund_flow_dao.get_fund_flow_model_by_code(stock_code)
+        FundFlowModel = get_fund_flow_model_by_code(stock_code)
         if not FundFlowModel:
             logger.error(f"无法为 {stock_code} 找到对应的资金流模型，跳过补充数据获取。")
             return pd.DataFrame()
