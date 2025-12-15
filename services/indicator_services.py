@@ -627,7 +627,7 @@ class IndicatorService:
                 rename_map_daily_basic = {
                     col: f"{col}_D" for col in df_supp_std.columns
                     if not col.endswith(('_D', '_W', '_M'))
-                ]
+                }
                 df_supp_std.rename(columns=rename_map_daily_basic, inplace=True)
             # fund_flow_tushare 已在 _fetch_fund_flow_tushare_tagged 中处理 _D 后缀
             # fund_flow_ths 和 fund_flow_dc 添加的是 _ths 或 _dc 后缀
