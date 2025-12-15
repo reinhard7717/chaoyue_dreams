@@ -597,12 +597,13 @@ class ChipIntelligence:
         impurity_resilience_mod_enabled = get_param_value(holder_sentiment_params.get('impurity_resilience_mod_enabled'), True)
         chip_health_slope_impurity_damp_factor = get_param_value(holder_sentiment_params.get('chip_health_slope_impurity_damp_factor'), 0.2)
         structural_tension_impurity_amp_factor = get_param_value(holder_sentiment_params.get('structural_tension_impurity_amp_factor'), 0.2)
+        # 修改代码行：加载 global_context_modulator_enabled 参数
+        global_context_modulator_enabled = get_param_value(holder_sentiment_params.get('global_context_modulator_enabled'), True)
         global_context_modulator_signal_1_name = get_param_value(holder_sentiment_params.get('global_context_modulator_signal_1'), 'chip_health_score_D')
         global_context_modulator_signal_2_name = get_param_value(holder_sentiment_params.get('global_context_modulator_signal_2'), 'main_force_conviction_index_D')
         global_context_sensitivity_health = get_param_value(holder_sentiment_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_conviction = get_param_value(holder_sentiment_params.get('global_context_sensitivity_conviction'), 0.3)
         df_index = df.index
-        # 修改代码行：将 chip_health_raw 的获取移动到所有原始数据获取的起始位置
         chip_health_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
