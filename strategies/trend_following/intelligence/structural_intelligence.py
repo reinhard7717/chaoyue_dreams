@@ -204,17 +204,17 @@ class StructuralIntelligence:
         alignment_score = bull_alignment_raw / sum(alignment_weights_internal)
         # 维度2: 斜率 (Slope)
         individual_slope_scores = []
+        # 修改开始：将探针输出移到循环内部
         if self.is_probe_date:
             print(f"        [探针] 维度2 - 斜率 (Slope) 详细信息:")
         for col in slope_cols_to_use:
             raw_slope_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
             normalized_slope_score = get_adaptive_mtf_normalized_bipolar_score(raw_slope_series, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
             individual_slope_scores.append(normalized_slope_score.values)
-            # 修改开始：确保打印每个斜率的原始数据和归一化分数
             if self.is_probe_date:
                 print(f"            原始数据 - {col}: {raw_slope_series.iloc[-1]:.4f}")
                 print(f"            归一化分数 - {col}: {normalized_slope_score.iloc[-1]:.4f}")
-            # 修改结束
+        # 修改结束
         avg_slope_score = pd.Series(np.mean(individual_slope_scores, axis=0) if individual_slope_scores else 0.0, index=df_index)
         # 维度3: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
