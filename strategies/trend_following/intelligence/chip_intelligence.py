@@ -2731,18 +2731,7 @@ class ChipIntelligence:
         高分代表主力核心筹码正在流失，市场筹码结构出现“空心化”迹象，即大部分筹码由不稳定资金在高位持有，
         一旦下跌容易引发连锁抛售。
         """
-        print("    -> [筹码层] 正在诊断“筹码空心化风险”...")
         df_index = df.index
-        probe_date_for_asof = None
-        if self.should_probe and not df.empty:
-            current_date = df.index[-1].date()
-            if current_date in self.probe_dates_set:
-                probe_date = current_date
-                probe_date_ts = pd.Timestamp(probe_date)
-                if df_index.tz is not None:
-                    probe_date_for_asof = probe_date_ts.tz_localize(df_index.tz)
-                else:
-                    probe_date_for_asof = probe_date_ts
         required_signals = [
             'winner_concentration_90pct_D', 'total_winner_rate_D', 'winner_profit_margin_avg_D',
             'chip_health_score_D', 'rally_distribution_pressure_D'
@@ -2757,7 +2746,6 @@ class ChipIntelligence:
         winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
         chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
         rally_distribution_pressure_raw = self._get_safe_series(df, df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 原始信号: winner_concentration_90pct_D={winner_concentration_raw.asof(probe_date_for_asof):.4f}, total_winner_rate_D={total_winner_rate_raw.asof(probe_date_for_asof):.4f}, winner_profit_margin_avg_D={winner_profit_margin_avg_raw.asof(probe_date_for_asof):.4f}, chip_health_score_D={chip_health_score_raw.asof(probe_date_for_asof):.4f}, rally_distribution_pressure_D={rally_distribution_pressure_raw.asof(probe_date_for_asof):.4f}")
         # 归一化各项指标，高值代表高空心化风险
         # 赢家集中度越低，风险越高，所以ascending=False
         norm_winner_concentration = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
@@ -2766,7 +2754,6 @@ class ChipIntelligence:
         # 筹码健康度越低，风险越高，所以ascending=False
         norm_chip_health_score = get_adaptive_mtf_normalized_score(chip_health_score_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_rally_distribution_pressure = get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 归一化信号: norm_winner_concentration={norm_winner_concentration.asof(probe_date_for_asof):.4f}, norm_total_winner_rate={norm_total_winner_rate.asof(probe_date_for_asof):.4f}, norm_winner_profit_margin_avg={norm_winner_profit_margin_avg.asof(probe_date_for_asof):.4f}, norm_chip_health_score={norm_chip_health_score.asof(probe_date_for_asof):.4f}, norm_rally_distribution_pressure={norm_rally_distribution_pressure.asof(probe_date_for_asof):.4f}")
         # 定义权重 (可配置)
         weights = {
             'winner_concentration': 0.25,
@@ -2784,12 +2771,9 @@ class ChipIntelligence:
             norm_chip_health_score.pow(weights['chip_health_score']) *
             norm_rally_distribution_pressure.pow(weights['rally_distribution_pressure'])
         ).pow(1 / total_weight)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 筹码空心化风险 (几何平均前): {hollowing_out_risk_score.asof(probe_date_for_asof):.4f}")
         # 进一步非线性放大极端值
         hollowing_out_risk_score = np.tanh(hollowing_out_risk_score * 2) # 放大因子可调
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 筹码空心化风险 (Tanh放大后): {hollowing_out_risk_score.asof(probe_date_for_asof):.4f}")
         final_score = hollowing_out_risk_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终筹码空心化风险: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score
 
     def _diagnose_chip_turnover_purity_cost_optimization(self, df: pd.DataFrame) -> pd.Series:
@@ -2799,18 +2783,7 @@ class ChipIntelligence:
         高分代表换手是健康的，有助于优化筹码结构，降低整体持仓成本，为后续上涨奠定基础；
         低分或负分代表换手是恶性的，筹码从低成本向高成本转移，或伴随大量对倒和虚假交易。
         """
-        print("    -> [筹码层] 正在诊断“换手纯度与成本优化”...")
         df_index = df.index
-        probe_date_for_asof = None
-        if self.should_probe and not df.empty:
-            current_date = df.index[-1].date()
-            if current_date in self.probe_dates_set:
-                probe_date = current_date
-                probe_date_ts = pd.Timestamp(probe_date)
-                if df_index.tz is not None:
-                    probe_date_for_asof = probe_date_ts.tz_localize(df_index.tz)
-                else:
-                    probe_date_for_asof = probe_date_ts
         required_signals = [
             'wash_trade_intensity_D', 'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
             'winner_profit_margin_avg_D', 'loser_pain_index_D', 'turnover_rate_D'
@@ -2826,7 +2799,6 @@ class ChipIntelligence:
         winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
         loser_pain_index_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
         turnover_rate_raw = self._get_safe_series(df, df, 'turnover_rate_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 原始信号: wash_trade_intensity_D={wash_trade_intensity_raw.asof(probe_date_for_asof):.4f}, conviction_flow_buy_intensity_D={conviction_flow_buy_raw.asof(probe_date_for_asof):.4f}, conviction_flow_sell_intensity_D={conviction_flow_sell_raw.asof(probe_date_for_asof):.4f}, winner_profit_margin_avg_D={winner_profit_margin_avg_raw.asof(probe_date_for_asof):.4f}, loser_pain_index_D={loser_pain_index_raw.asof(probe_date_for_asof):.4f}, turnover_rate_D={turnover_rate_raw.asof(probe_date_for_asof):.4f}")
         # 归一化各项指标
         # 对倒强度越高，纯度越低，所以ascending=False
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=False, tf_weights=tf_weights)
@@ -2839,20 +2811,16 @@ class ChipIntelligence:
         norm_loser_pain_index = get_adaptive_mtf_normalized_score(loser_pain_index_raw, df_index, ascending=True, tf_weights=tf_weights)
         # 换手率作为背景强度，归一化
         norm_turnover_rate = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 归一化信号: norm_wash_trade_intensity={norm_wash_trade_intensity.asof(probe_date_for_asof):.4f}, norm_net_conviction_flow={norm_net_conviction_flow.asof(probe_date_for_asof):.4f}, norm_winner_profit_margin_avg={norm_winner_profit_margin_avg.asof(probe_date_for_asof):.4f}, norm_loser_pain_index={norm_loser_pain_index.asof(probe_date_for_asof):.4f}, norm_turnover_rate={norm_turnover_rate.asof(probe_date_for_asof):.4f}")
         # 纯度因子 (0到1，1为纯净)
         purity_factor = (1 - norm_wash_trade_intensity)
         # 成本优化因子 (0到1，1为优化好)
         cost_optimization_factor = (norm_winner_profit_margin_avg + norm_loser_pain_index) / 2
         # 换手质量因子 (双极，-1到1)
         turnover_quality_factor = (purity_factor * cost_optimization_factor * norm_net_conviction_flow)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 中间计算: purity_factor={purity_factor.asof(probe_date_for_asof):.4f}, cost_optimization_factor={cost_optimization_factor.asof(probe_date_for_asof):.4f}, turnover_quality_factor={turnover_quality_factor.asof(probe_date_for_asof):.4f}")
         # 结合换手率强度进行调制
         # 高换手率下，如果质量好，则放大积极作用；如果质量差，则放大消极作用
         turnover_purity_cost_optimization = turnover_quality_factor * (1 + norm_turnover_rate * 0.5) # 调制强度可调
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 换手纯度与成本优化 (调制后): {turnover_purity_cost_optimization.asof(probe_date_for_asof):.4f}")
         final_score = turnover_purity_cost_optimization.clip(-1, 1).fillna(0.0).astype(np.float32)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终换手纯度与成本优化: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score
 
     def _diagnose_chip_despair_temptation_zones(self, df: pd.DataFrame) -> pd.Series:
@@ -2861,18 +2829,7 @@ class ChipIntelligence:
         识别当前筹码分布中，散户或弱势资金处于极端亏损（绝望区）或极端浮盈（诱惑区）的价格区间。
         正分代表诱惑区风险（主力派发），负分代表绝望区机会（主力吸筹）。
         """
-        print("    -> [筹码层] 正在诊断“筹码绝望与诱惑区”...")
         df_index = df.index
-        probe_date_for_asof = None
-        if self.should_probe and not df.empty:
-            current_date = df.index[-1].date()
-            if current_date in self.probe_dates_set:
-                probe_date = current_date
-                probe_date_ts = pd.Timestamp(probe_date)
-                if df_index.tz is not None:
-                    probe_date_for_asof = probe_date_ts.tz_localize(df_index.tz)
-                else:
-                    probe_date_for_asof = probe_date_ts
         required_signals = [
             'loser_pain_index_D', 'total_loser_rate_D', 'panic_buy_absorption_contribution_D',
             'retail_fomo_premium_index_D', 'winner_profit_margin_avg_D', 'total_winner_rate_D'
@@ -2888,7 +2845,6 @@ class ChipIntelligence:
         retail_fomo_premium_index_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
         winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
         total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 原始信号: loser_pain_index_D={loser_pain_index_raw.asof(probe_date_for_asof):.4f}, total_loser_rate_D={total_loser_rate_raw.asof(probe_date_for_asof):.4f}, panic_buy_absorption_contribution_D={panic_buy_absorption_contribution_raw.asof(probe_date_for_asof):.4f}, retail_fomo_premium_index_D={retail_fomo_premium_index_raw.asof(probe_date_for_asof):.4f}, winner_profit_margin_avg_D={winner_profit_margin_avg_raw.asof(probe_date_for_asof):.4f}, total_winner_rate_D={total_winner_rate_raw.asof(probe_date_for_asof):.4f}")
         # 归一化绝望区相关指标 (高值代表更绝望)
         norm_loser_pain_index = get_adaptive_mtf_normalized_score(loser_pain_index_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -2898,7 +2854,6 @@ class ChipIntelligence:
         norm_retail_fomo_premium_index = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_winner_profit_margin_avg = get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 归一化信号: norm_loser_pain_index={norm_loser_pain_index.asof(probe_date_for_asof):.4f}, norm_total_loser_rate={norm_total_loser_rate.asof(probe_date_for_asof):.4f}, norm_panic_buy_absorption_contribution={norm_panic_buy_absorption_contribution.asof(probe_date_for_asof):.4f}, norm_retail_fomo_premium_index={norm_retail_fomo_premium_index.asof(probe_date_for_asof):.4f}, norm_winner_profit_margin_avg={norm_winner_profit_margin_avg.asof(probe_date_for_asof):.4f}, norm_total_winner_rate={norm_total_winner_rate.asof(probe_date_for_asof):.4f}")
         # 计算绝望区强度 (0到1)
         despair_strength = (
             norm_loser_pain_index.pow(0.4) *
@@ -2911,15 +2866,12 @@ class ChipIntelligence:
             norm_winner_profit_margin_avg.pow(0.3) *
             norm_total_winner_rate.pow(0.3)
         ).pow(1 / 1.0)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 中间计算: despair_strength={despair_strength.asof(probe_date_for_asof):.4f}, temptation_strength={temptation_strength.asof(probe_date_for_asof):.4f}")
         # 结合成双极分数：正分代表诱惑区风险，负分代表绝望区机会
         # 诱惑区强度直接作为正向分数，绝望区强度作为负向分数
         despair_temptation_score = temptation_strength - despair_strength
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 筹码绝望与诱惑区 (初步): {despair_temptation_score.asof(probe_date_for_asof):.4f}")
         # 进一步非线性放大，并映射到 [-1, 1]
         final_score = np.tanh(despair_temptation_score * 2) # 放大因子可调
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终筹码绝望与诱惑区: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score
 
 
