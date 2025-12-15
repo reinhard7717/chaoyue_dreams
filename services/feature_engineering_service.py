@@ -1117,17 +1117,6 @@ class FeatureEngineeringService:
         else:
             logger.warning("无法计算 'trend_conviction_score_D' 几何特征，缺少 'close_D' 列。")
             df_geometric_features['trend_conviction_score_D'] = np.nan
-
-        # 在这里添加其他几何特征的计算逻辑...
-        # 例如：
-        # df_geometric_features['geometric_volatility_D'] = (df_daily['high_D'] / df_daily['low_D'] - 1).fillna(0)
-        # df_geometric_features['price_oscillation_amplitude_D'] = (df_daily['high_D'] - df_daily['low_D']) / df_daily['close_D'].shift(1).replace(0, np.nan)
-
-        # 修改代码行：在 join 操作中添加 rsuffix 参数来处理列名冲突
-        # 如果 df_daily 和 df_geometric_features 存在同名列，df_geometric_features 中的列将获得 '_geom' 后缀
-        # 例如，如果 df_daily 有 'trend_conviction_score_D'，df_geometric_features 也有，
-        # 那么结果中将有 'trend_conviction_score_D' (来自 df_daily) 和 'trend_conviction_score_D_geom' (来自 df_geometric_features)
-        # 这样可以避免 ValueError，并允许后续根据业务逻辑选择或合并这些列。
         
         # 识别重叠列并记录警告
         overlapping_cols = df_daily.columns.intersection(df_geometric_features.columns)
