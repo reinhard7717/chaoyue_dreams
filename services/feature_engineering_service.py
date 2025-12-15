@@ -21,11 +21,11 @@ class FeatureEngineeringService:
 
     async def calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.3 · 调试增强版】计算所有配置的斜率特征。
+        【V3.4 · 调试信息清理版】计算所有配置的斜率特征。
         - 核心逻辑: 根据配置文件中的'series_to_slope'部分，为指定的数据列（如'MACD_12_26_9_D'）在不同的时间窗口（lookbacks）上计算线性回归斜率。
         - 优化: 保持原有的高效向量化计算，增加详尽注释。
         - 【新增】支持对结构与形态指标计算斜率。
-        - 【调试】增加了当源列不存在时，打印当前DataFrame所有列的调试信息。
+        - 【清理】移除了调试打印信息。
         """
         # 从配置中获取斜率计算参数
         slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
@@ -53,9 +53,7 @@ class FeatureEngineeringService:
             df = all_dfs[timeframe]
             # 检查源数据列是否存在
             if col_pattern not in df.columns:
-                # 修改代码行：增加调试信息，打印当前DataFrame的列名
                 logger.warning(f"SLOPE计算跳过: 周期 '{timeframe}' 的源列 '{col_pattern}' 不存在。")
-                print(f"调试信息: SLOPE计算跳过: 周期 '{timeframe}' 的源列 '{col_pattern}' 不存在。当前列: {df.columns.tolist()}")
                 continue
             source_series = df[col_pattern].astype(float)
             # 遍历需要计算的周期长度
@@ -77,11 +75,11 @@ class FeatureEngineeringService:
 
     async def calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.3 · 调试增强版】计算所有配置的加速度特征。
+        【V2.4 · 调试信息清理版】计算所有配置的加速度特征。
         - 核心逻辑: 加速度是斜率的斜率。此方法基于已计算好的斜率特征（SLOPE_*），再次计算其斜率，从而得到加速度特征（ACCEL_*）。
         - 优化: 保持原有的高效向量化计算，增加详尽注释。
         - 【新增】支持对结构与形态指标计算加速度。
-        - 【调试】增加了当依赖的斜率列不存在时，打印当前DataFrame所有列的调试信息。
+        - 【清理】移除了调试打印信息。
         """
         # 从配置中获取加速度计算参数
         accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
@@ -106,9 +104,7 @@ class FeatureEngineeringService:
                 slope_col_name = f'SLOPE_{period}_{base_col_name}'
                 if slope_col_name not in df.columns:
                     # 如果依赖的斜率数据不存在，则无法计算加速度，跳过
-                    # 修改代码行：增加调试信息，打印当前DataFrame的列名
                     logger.warning(f"ACCEL计算跳过: 周期 '{timeframe}' 的依赖斜率列 '{slope_col_name}' 不存在。")
-                    print(f"调试信息: ACCEL计算跳过: 周期 '{timeframe}' 的依赖斜率列 '{slope_col_name}' 不存在。当前列: {df.columns.tolist()}")
                     continue
                 accel_col_name = f'ACCEL_{period}_{base_col_name}'
                 # 如果目标加速度列已存在，则跳过
