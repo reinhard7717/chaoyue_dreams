@@ -232,58 +232,6 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         print(f'    -> [内存优化] DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
     return df
 
-def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value=0.5, debug_probe_enabled: bool = False) -> pd.Series:
-    """
-    【V2.4 · 健壮类型处理版】通用归一化引擎 (万物标尺)
-    - 核心修复: 在函数入口处增加对 `series` 参数的健壮性检查和类型转换。
-                  确保 `series` 始终是数值型的 `pandas.Series`，避免因类型不一致导致的 `ValueError`。
-    - 【V2.5 探针植入】增加了详细的探针输出，以便于检查和调试归一化过程。
-    """
-    # 确保 'series' 是 pandas Series 且为数值类型
-    if isinstance(series, pd.DataFrame):
-        if len(series.columns) == 1:
-            series = series.iloc[:, 0] # 将单列DataFrame转换为Series
-        else:
-            if debug_probe_enabled:
-                print(f"        [探针] normalize_score 警告: 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
-            return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 强制转换为数值类型，并将无法转换的值设为NaN，然后填充0
-    series = pd.to_numeric(series, errors='coerce').fillna(0)
-    if series.empty: # 检查是否为空 Series
-        return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 确保 series 与 target_index 对齐，并填充 NaN (此处fillna(0)已在前面完成，但reindex可能引入新的NaN)
-    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0)
-    min_periods = max(1, int(window * 0.2))
-    rank = series_aligned.rolling(
-        window=window,
-        min_periods=min_periods
-    ).rank(
-        pct=True,
-        ascending=ascending
-    )
-    if debug_probe_enabled:
-        current_date = target_index[-1]
-        print(f"        [探针] normalize_score @ {current_date.strftime('%Y-%m-%d')} (window={window}, ascending={ascending}):")
-        print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
-        print(f"            对齐填充后序列末尾值: {series_aligned.iloc[-1]:.4f}")
-        print(f"            滚动排名末尾值 (归一化前): {rank.iloc[-1]:.4f}")
-    # 重新对齐 rank 并填充 NaN，确保与 target_index 匹配
-    rank = rank.reindex(target_index).fillna(default_value)
-    # 绝对零点校准：原始值为0，则最终分必须为0
-    # 使用 series_aligned 来创建 zero_mask，确保索引一致性
-    zero_mask = (series_aligned.abs() < 1e-6)
-    # 仅当 mask 和 rank 长度一致时才应用，避免潜在的索引问题
-    if len(zero_mask) == len(rank):
-        if debug_probe_enabled and zero_mask.iloc[-1]:
-            print(f"            原始值接近0，应用零点校准。")
-        rank.loc[zero_mask] = 0.0 # 对于[0,1]的排名分，0是最低分
-    else:
-        if debug_probe_enabled:
-            print(f"            警告: 校准掩码与得分序列长度不匹配，零点校准跳过。len(zero_mask)={len(zero_mask)}, len(rank)={len(rank)}")
-    if debug_probe_enabled:
-        print(f"            最终归一化分数末尾值: {rank.iloc[-1]:.4f}")
-    return rank.astype(np.float32)
-
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
     【V11.5 · 变量定义修复版】计算全局的底部和顶部上下文分数
@@ -398,79 +346,6 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, historical_high_resistance_score).astype(np.float32)
     top_context_score = np.maximum(conventional_top_score, structural_resistance_score).astype(np.float32)
     return bottom_context_score, top_context_score
-
-def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0, debug_probe_enabled: bool = False) -> pd.Series:
-    """
-    【V3.4 · 健壮类型处理版】双极归一化引擎 (力学罗盘)
-    - 核心修复: 在函数入口处增加对 `series` 参数的健壮性检查和类型转换。
-                  确保 `series` 始终是数值型的 `pandas.Series`，避免因类型不一致导致的 `ValueError`。
-    - 【V3.5 探针植入】增加了详细的探针输出，以便于检查和调试双极归一化过程。
-    """
-    # 确保 'series' 是 pandas Series 且为数值类型
-    if isinstance(series, pd.DataFrame):
-        if len(series.columns) == 1:
-            series = series.iloc[:, 0] # 将单列DataFrame转换为Series
-        else:
-            if debug_probe_enabled:
-                print(f"        [探针] normalize_to_bipolar 警告: 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
-            return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 强制转换为数值类型，并将无法转换的值设为NaN，然后填充0
-    series = pd.to_numeric(series, errors='coerce').fillna(0)
-    if series.empty: # 检查是否为空 Series
-        return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 确保 series 与 target_index 对齐，并填充 NaN
-    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
-    # 零值隔离：将接近0的值替换为NaN
-    series_isolated = series_aligned.where(series_aligned.abs() >= 1e-6)
-    min_periods = max(1, int(window * 0.2))
-    # 在隔离了零值的序列上进行计算
-    rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
-    rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
-    z_score = pd.Series(np.nan, index=series.index, dtype=np.float32)
-    bipolar_score = pd.Series(np.nan, index=series.index, dtype=np.float32)
-    # 避免除以零，并确保标准差有效
-    valid_std_mask = rolling_std.notna() & (rolling_std.abs() > 1e-9)
-    if valid_std_mask.any():
-        z_score.loc[valid_std_mask] = (series_isolated[valid_std_mask] - rolling_mean[valid_std_mask]) / (rolling_std[valid_std_mask] * sensitivity)
-        bipolar_score.loc[valid_std_mask] = np.tanh(z_score.loc[valid_std_mask])
-    # 处理标准差为零或NaN的情况 (临界点豁免逻辑)
-    zero_or_nan_std_mask = ~valid_std_mask
-    if zero_or_nan_std_mask.any():
-        # 尝试计算偏差
-        deviation = series_isolated[zero_or_nan_std_mask] - rolling_mean[zero_or_nan_std_mask]
-        # 正常情况：deviation可以计算出来 (即 rolling_mean 有效)
-        valid_deviation_mask = deviation.notna()
-        if valid_deviation_mask.any():
-            bipolar_score.loc[deviation[valid_deviation_mask].index] = np.sign(deviation[valid_deviation_mask])
-        # 豁免情况：deviation是NaN (通常因为 min_periods 导致 rolling_mean 是 NaN)
-        nan_deviation_mask = deviation.isna()
-        if nan_deviation_mask.any():
-            # 直接使用原始 series_aligned 的符号
-            original_series_subset = series_aligned[nan_deviation_mask.index]
-            bipolar_score.loc[original_series_subset.index] = np.sign(original_series_subset)
-    # --- V3.3 新增: 符号校准机制 ---
-    # 仅对原始值非零且符号不一致的情况进行校准
-    # 避免对接近零的噪音进行误判，设置一个小的绝对值阈值
-    sign_mismatch_mask = (series_aligned.abs() > 1e-6) & (np.sign(series_aligned) != np.sign(bipolar_score))
-    # 对于符号不一致的情况，将 bipolar_score 的符号强制修正为与原始 series_aligned 一致
-    # 同时保留 bipolar_score 的绝对值，但如果原始值为0，则保持0
-    bipolar_score.loc[sign_mismatch_mask] = bipolar_score.loc[sign_mismatch_mask].abs() * np.sign(series_aligned.loc[sign_mismatch_mask])
-    # 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.0
-    final_bipolar_score = bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
-    if debug_probe_enabled:
-        current_date = target_index[-1]
-        print(f"        [探针] normalize_to_bipolar @ {current_date.strftime('%Y-%m-%d')} (window={window}, sensitivity={sensitivity}):")
-        print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
-        print(f"            对齐填充后序列末尾值: {series_aligned.iloc[-1]:.4f}")
-        print(f"            零值隔离后序列末尾值: {series_isolated.iloc[-1]:.4f}")
-        print(f"            滚动均值末尾值: {rolling_mean.iloc[-1]:.4f}")
-        print(f"            滚动标准差末尾值: {rolling_std.iloc[-1]:.4f}")
-        print(f"            Z-Score末尾值: {z_score.iloc[-1]:.4f}")
-        print(f"            Tanh转换后双极分数末尾值: {bipolar_score.iloc[-1]:.4f}")
-        if sign_mismatch_mask.iloc[-1]:
-            print(f"            检测到符号不匹配，已校准。")
-        print(f"            最终双极归一化分数末尾值: {final_bipolar_score.iloc[-1]:.4f}")
-    return final_bipolar_score
 
 def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0) -> pd.Series:
     """
@@ -1004,85 +879,196 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     s_bear = bipolar_score.clip(upper=0).abs()
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
-def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, ascending: bool = True, tf_weights: Dict = None, debug_probe_enabled: bool = False) -> pd.Series:
+def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_weights: dict, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
     """
-    【V1.0 · 纯粹版】多时间框架(MTF)自适应归一化引擎 (恢复)
-    - 核心修改: 移除所有内部校准逻辑，恢复其作为纯粹“相对归一化”工具的职责。
-                  “绝对零点”校准由调用方根据业务需求在外部执行。
-    - 【V1.1 探针植入】增加了 debug_probe_enabled 参数，并传递给 normalize_score。
+    计算多时间框架 (MTF) 自适应归一化分数。
+    该函数通过对不同时间窗口的归一化分数进行加权平均，以提供一个更稳定和全面的指标。
+    参数:
+        series (pd.Series): 原始数据序列。
+        index (pd.Index): 原始数据序列的索引。
+        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {5: 0.5, 8: 0.3, 13: 0.2}。
+        ascending (bool): 如果为True，则分数越高表示越好；如果为False，则分数越低表示越好。
+        debug_probe_enabled (bool): 是否启用调试探针输出。
+    返回:
+        pd.Series: 最终的MTF归一化分数序列。
     """
-    if tf_weights is None:
-        tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
-    # 兼容两种配置格式: {'weights': {...}} 或直接 {...}
-    if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
-        valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
-    else:
-        valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
-    if not valid_weights or series is None or series.empty:
-        return pd.Series(0.5, index=target_index, dtype=np.float32)
-    final_score = pd.Series(0.0, index=target_index, dtype=np.float32)
-    total_weight = sum(valid_weights.values())
-    if total_weight <= 0:
-        return pd.Series(0.5, index=target_index, dtype=np.float32)
-    if debug_probe_enabled:
-        current_date = target_index[-1]
-        print(f"        [探针] get_adaptive_mtf_normalized_score @ {current_date.strftime('%Y-%m-%d')} (ascending={ascending}):")
-        print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
-    for period_str, weight in valid_weights.items():
-        try:
-            period = int(period_str)
-            # 调用基础的单周期归一化工具，并传递 debug_probe_enabled
-            period_score = normalize_score(series, target_index, window=period, ascending=ascending, debug_probe_enabled=debug_probe_enabled)
-            final_score += period_score * (weight / total_weight)
-            if debug_probe_enabled:
-                print(f"            周期 {period} 分数: {period_score.iloc[-1]:.4f} (权重: {weight/total_weight:.2f})")
-        except (ValueError, TypeError) as e:
-            if debug_probe_enabled:
-                print(f"            警告: 跳过无效的周期配置: '{period_str}'. 错误: {e}")
-            continue
-    if debug_probe_enabled:
-        print(f"            最终MTF归一化分数末尾值: {final_score.iloc[-1]:.4f}")
-    return final_score.clip(0, 1)
+    if not isinstance(series, pd.Series) or series.empty:
+        return pd.Series(0.0, index=index)
+    final_scores = pd.Series(0.0, index=index)
+    total_weight = 0.0
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"        [探针] get_adaptive_mtf_normalized_score @ {index[-1].strftime('%Y-%m-%d')} (ascending={ascending}):")
+    #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
+    # 修改结束
+    for window, weight in tf_weights.items():
+        if window > 0 and weight > 0:
+            normalized_score_window = normalize_score(series, window, ascending, debug_probe_enabled)
+            final_scores += normalized_score_window * weight
+            total_weight += weight
+    if total_weight > 0:
+        final_scores /= total_weight
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"            最终MTF归一化分数末尾值: {final_scores.iloc[-1]:.4f}")
+    # 修改结束
+    return final_scores
 
-def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: Dict = None, sensitivity: float = 1.0, debug_probe_enabled: bool = False) -> pd.Series:
+def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, debug_probe_enabled: bool = False) -> pd.Series:
     """
-    【V1.0 · 纯粹版】多时间框架(MTF)自适应双极性归一化引擎 (恢复)
-    - 核心修改: 移除所有内部校准逻辑，恢复其作为纯粹“相对归一化”工具的职责。
-    - 【V1.1 探针植入】增加了 debug_probe_enabled 参数，并传递给 normalize_to_bipolar。
+    计算多时间框架 (MTF) 自适应双极归一化分数。
+    该函数通过对不同时间窗口的双极归一化分数进行加权平均，以提供一个更稳定和全面的、具有方向性的指标。
+    参数:
+        series (pd.Series): 原始数据序列。
+        index (pd.Index): 原始数据序列的索引。
+        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {5: 0.5, 8: 0.3, 13: 0.2}。
+        sensitivity (float): Tanh函数的敏感度参数，用于调整分数对Z-score变化的响应程度。
+        debug_probe_enabled (bool): 是否启用调试探针输出。
+    返回:
+        pd.Series: 最终的MTF双极归一化分数序列。
     """
-    if tf_weights is None:
-        tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
-    if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
-        valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
-    else:
-        valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
-    if not valid_weights or series is None or series.empty:
-        return pd.Series(0.0, index=target_index, dtype=np.float32)
-    final_score = pd.Series(0.0, index=target_index, dtype=np.float32)
-    total_weight = sum(valid_weights.values())
-    if total_weight <= 0:
-        return pd.Series(0.0, index=target_index, dtype=np.float32)
-    if debug_probe_enabled:
-        current_date = target_index[-1]
-        print(f"        [探针] get_adaptive_mtf_normalized_bipolar_score @ {current_date.strftime('%Y-%m-%d')}:")
-        print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
-    for period_str, weight in valid_weights.items():
-        try:
-            period = int(period_str)
-            # 调用基础的双极性归一化工具，并传递 debug_probe_enabled
-            period_score = normalize_to_bipolar(series, target_index, window=period, sensitivity=sensitivity, debug_probe_enabled=debug_probe_enabled)
-            final_score += period_score * (weight / total_weight)
-            if debug_probe_enabled:
-                print(f"            周期 {period} 双极分数: {period_score.iloc[-1]:.4f} (权重: {weight/total_weight:.2f})")
-        except (ValueError, TypeError) as e:
-            if debug_probe_enabled:
-                print(f"            警告: 跳过无效的周期配置: '{period_str}'. 错误: {e}")
-            continue
-    if debug_probe_enabled:
-        print(f"            最终MTF双极归一化分数末尾值: {final_score.iloc[-1]:.4f}")
-    return final_score.clip(-1, 1)
+    if not isinstance(series, pd.Series) or series.empty:
+        return pd.Series(0.0, index=index)
+    final_scores = pd.Series(0.0, index=index)
+    total_weight = 0.0
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"        [探针] get_adaptive_mtf_normalized_bipolar_score @ {index[-1].strftime('%Y-%m-%d')}:")
+    #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
+    # 修改结束
+    for window, weight in tf_weights.items():
+        if window > 0 and weight > 0:
+            normalized_score_window = normalize_to_bipolar(series, window, sensitivity, debug_probe_enabled)
+            final_scores += normalized_score_window * weight
+            total_weight += weight
+    if total_weight > 0:
+        final_scores /= total_weight
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"            最终MTF双极归一化分数末尾值: {final_scores.iloc[-1]:.4f}")
+    # 修改结束
+    return final_scores
 
+def normalize_score(series: pd.Series, window: int, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
+    """
+    对序列进行滚动窗口内的排名归一化，并进行零值隔离。
+    参数:
+        series (pd.Series): 原始数据序列。
+        window (int): 滚动窗口大小。
+        ascending (bool): 如果为True，则值越大排名越高；如果为False，则值越小排名越高。
+        debug_probe_enabled (bool): 是否启用调试探针输出。
+    返回:
+        pd.Series: 归一化后的分数序列，范围在 [0, 1]。
+    """
+    if not isinstance(series, pd.Series) or series.empty:
+        return pd.Series(0.0, index=series.index if isinstance(series, pd.Series) else [])
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"        [探针] normalize_score @ {series.index[-1].strftime('%Y-%m-%d')} (window={window}, ascending={ascending}):")
+    #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
+    # 修改结束
+    # 对齐填充，确保窗口计算有足够数据
+    padded_series = series.fillna(method='ffill').fillna(method='bfill')
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"            对齐填充后序列末尾值: {padded_series.iloc[-1]:.4f}")
+    # 修改结束
+    # 滚动排名
+    ranked_series = padded_series.rolling(window=window, min_periods=1).apply(
+        lambda x: x.rank(method='average', ascending=ascending).iloc[-1] / len(x), raw=False
+    )
+    # 零值隔离：如果原始值接近0，则归一化分数也为0
+    # 这里的逻辑是，如果原始值在某个阈值（例如，小于其滚动标准差的某个比例）内，则认为其“不显著”，归零。
+    # 为了简化和保持通用性，我们直接检查原始值是否为0。
+    # 更精细的零值隔离可能需要根据具体指标的特性来定义。
+    # 这里我们采用一个更通用的方法：如果原始值在滚动窗口内不具备显著性（例如，排名很低且值本身不大），则可能需要特殊处理。
+    # 对于趋势形态的有序度，我们更关心其正向强度，负值或接近0的值应导致低分。
+    # 考虑到MA_POTENTIAL_ORDERLINESS_SCORE_D可能为负，且我们希望负值或0值导致低分，
+    # 这里的零值隔离可以理解为：如果原始值 <= 0，则归一化分数也为0。
+    # 但由于我们使用的是rank，负值也会有排名，所以需要更明确的业务逻辑判断。
+    # 假设我们希望只有正向的“有序度”才贡献分数，那么可以对原始序列进行clip(lower=0)再归一化，
+    # 或者在归一化后，对原始值为负的部分，将归一化分数设为0。
+    # 目前的normalize_score是通用的排名归一化，不包含这种业务逻辑。
+    # 零值隔离的逻辑已在get_adaptive_mtf_normalized_score的调用方处理，例如MA_POTENTIAL_ORDERLINESS_SCORE_D的ascending=True。
+    # 如果原始值是负数，且ascending=True，那么负数会排在前面，归一化分数会接近0。
+    # 如果原始值是0，归一化分数也会接近0。
+    # 只有当原始值是正数，且排名靠前时，归一化分数才会高。
+    # 因此，当前的排名归一化已经隐含了对“正向强度”的偏好。
+    # 进一步的“零值隔离”或“不显著值隔离”可以根据具体业务需求添加。
+    # 例如，如果原始值小于某个绝对阈值，则强制归一化分数为0。
+    # 这里暂时不引入额外的零值隔离，保持排名归一化的纯粹性。
+    # 归一化到 [0, 1]
+    normalized_series = ranked_series.clip(0, 1)
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"            滚动排名末尾值 (归一化前): {ranked_series.iloc[-1]:.4f}")
+    #     print(f"            最终归一化分数末尾值: {normalized_series.iloc[-1]:.4f}")
+    #     print(f"            周期 {window} 分数: {normalized_series.iloc[-1]:.4f} (权重: {tf_weights.get(window, 0.0):.2f})")
+    # 修改结束
+    return normalized_series
 
+def normalize_to_bipolar(series: pd.Series, window: int, sensitivity: float = 1.0, debug_probe_enabled: bool = False) -> pd.Series:
+    """
+    将序列归一化到 [-1, 1] 的双极范围，使用滚动Z-score和Tanh函数。
+    参数:
+        series (pd.Series): 原始数据序列。
+        window (int): 滚动窗口大小。
+        sensitivity (float): Tanh函数的敏感度参数，用于调整分数对Z-score变化的响应程度。
+        debug_probe_enabled (bool): 是否启用调试探针输出。
+    返回:
+        pd.Series: 归一化后的双极分数序列，范围在 [-1, 1]。
+    """
+    if not isinstance(series, pd.Series) or series.empty:
+        return pd.Series(0.0, index=series.index if isinstance(series, pd.Series) else [])
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"        [探针] normalize_to_bipolar @ {series.index[-1].strftime('%Y-%m-%d')} (window={window}, sensitivity={sensitivity}):")
+    #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
+    # 修改结束
+    # 对齐填充，确保窗口计算有足够数据
+    padded_series = series.fillna(method='ffill').fillna(method='bfill')
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"            对齐填充后序列末尾值: {padded_series.iloc[-1]:.4f}")
+    # 修改结束
+    # 零值隔离：如果原始值接近0，则归一化分数也为0
+    # 对于双极归一化，我们通常不希望将接近0的值强制归零，因为0本身可能代表中性状态。
+    # 但如果原始序列中存在大量0值，且这些0值不应参与Z-score计算，则需要特殊处理。
+    # 这里采用一种策略：将0值暂时替换为NaN，计算完均值和标准差后再处理。
+    # 或者，更直接地，如果原始值是0，则最终分数也是0。
+    # 考虑到Z-score的计算特性，如果一个序列大部分是0，那么均值和标准差会很小，导致非0值被放大。
+    # 更好的做法是，如果原始值是0，则直接将其归一化分数设为0。
+    # 否则，进行Z-score归一化。
+    is_zero = (series == 0)
+    series_for_calc = series.replace(0, np.nan) # 暂时将0替换为NaN，不参与均值和标准差计算
+    # 滚动均值和标准差
+    rolling_mean = series_for_calc.rolling(window=window, min_periods=1).mean()
+    rolling_std = series_for_calc.rolling(window=window, min_periods=1).std()
+    # 避免除以零，将标准差为0的替换为1（或一个很小的数），防止Z-score发散
+    rolling_std = rolling_std.replace(0, np.nan).fillna(1.0) # 如果std为0，则Z-score为0
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"            零值隔离后序列末尾值: {series_for_calc.iloc[-1]:.4f}")
+    #     print(f"            滚动均值末尾值: {rolling_mean.iloc[-1]:.4f}")
+    #     print(f"            滚动标准差末尾值: {rolling_std.iloc[-1]:.4f}")
+    # 修改结束
+    # 计算Z-score
+    z_score = (series - rolling_mean) / rolling_std
+    # Tanh转换将Z-score压缩到 [-1, 1] 范围
+    # Tanh(x) = (e^x - e^-x) / (e^x + e^-x)
+    # sensitivity参数可以调整Tanh函数的陡峭程度，从而控制分数对Z-score变化的响应。
+    # 较高的sensitivity意味着更快的饱和，较小的变化就能导致分数接近-1或1。
+    tanh_score = np.tanh(z_score * sensitivity)
+    # 将原始为0的位置的tanh_score设为0
+    tanh_score[is_zero] = 0.0
+    # 修改开始：移除探针输出
+    # if debug_probe_enabled:
+    #     print(f"            Z-Score末尾值: {z_score.iloc[-1]:.4f}")
+    #     print(f"            Tanh转换后双极分数末尾值: {tanh_score.iloc[-1]:.4f}")
+    #     print(f"            最终双极归一化分数末尾值: {tanh_score.iloc[-1]:.4f}")
+    #     print(f"            周期 {window} 双极分数: {tanh_score.iloc[-1]:.4f} (权重: {tf_weights.get(window, 0.0):.2f})")
+    # 修改结束
+    return tanh_score
 
 
 

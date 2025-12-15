@@ -154,10 +154,10 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.0 · 几何形态与内在方向版】结构公理一：诊断“趋势形态”
+        【V3.3 · 趋势共振版】结构公理一：诊断“趋势形态”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 废弃了旧版对“能量”的评估，更纯粹地聚焦于趋势的“几何形态品质”。
-        - 核心证据: 融合均线排列的“有序度”、均线簇的“角度”以及均线本身的“斜率”和“加速度”。
+        - 核心证据: 融合均线排列的“有序度”、均线簇的“角度”以及均线本身的“斜率”、“加速度”和“共振”。
         - 核心修复: 修复了因直接访问 `self.strategy.slope_params` 导致的 `AttributeError`。改为通过 `get_params_block` 安全地获取斜率配置。
         - 核心优化: 引入逻辑仲裁机制。当均线排列分极高时，将修正与之矛盾的“有序度”分，解决底层信号冲突问题。
         - 【优化】使用专属的 `short_term_geometry` MTF权重进行归一化。
@@ -166,16 +166,25 @@ class StructuralIntelligence:
         - 【V3.0 参数化】融合权重现在从配置文件中读取。
         - 【V3.1 探针增强】增强了斜率和有序度维度的探针输出，以诊断其归一化结果。
         - 【V3.2 核心升级】引入多级别时间维度斜率和加速度，并将其纳入融合计算。
+        - 【V3.3 核心升级】引入“共振”维度，评估多级别斜率和加速度的方向一致性与强度稳定性。
         """
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 55])
-        # 修改开始：更新融合权重，增加'acceleration'维度
+        ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 34, 55])
+        # 修改开始：更新融合权重，增加'resonance'维度
         fusion_weights = get_param_value(p_conf_struct.get('trend_form_fusion_weights'), {
-            'alignment': 0.25,
-            'slope': 0.25,
-            'acceleration': 0.2, # 新增加速度权重
+            'alignment': 0.2,
+            'slope': 0.15,
+            'acceleration': 0.15,
             'orderliness': 0.15,
-            'angle': 0.15
+            'angle': 0.15,
+            'resonance': 0.2 # 新增共振权重
+        })
+        # 修改结束
+        # 修改开始：获取共振参数
+        resonance_params = get_param_value(p_conf_struct.get('trend_form_resonance_params'), {
+            'slope_consistency_weight': 0.4,
+            'accel_consistency_weight': 0.4,
+            'slope_accel_alignment_weight': 0.2
         })
         # 修改结束
         required_signals = [
@@ -185,28 +194,25 @@ class StructuralIntelligence:
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
         feature_eng_params = get_params_block(self.strategy, 'feature_engineering_params', {})
         slope_params = feature_eng_params.get('slope_params', {})
-        accel_params = feature_eng_params.get('accel_params', {}) # 修改：获取加速度参数
-        series_to_slope_config = slope_params.get('series_to_slope', {})
-        series_to_accel_config = accel_params.get('series_to_accel', {}) # 修改：获取加速度配置
+        accel_params = feature_eng_params.get('accel_params', {})
 
-        all_slope_cols = [] # 修改：存储所有相关斜率列
-        all_accel_cols = [] # 修改：存储所有相关加速度列
+        series_to_slope_config = slope_params.get('series_to_slope', {})
+        series_to_accel_config = accel_params.get('series_to_accel', {})
+
+        all_slope_cols = []
+        all_accel_cols = []
         for p in ema_periods:
             base_ema_col = f'EMA_{p}_D'
-            # 修改开始：根据配置动态生成所有斜率列
             configured_slope_periods = series_to_slope_config.get(base_ema_col, [])
             for sp in configured_slope_periods:
                 slope_col = f'SLOPE_{sp}_{base_ema_col}'
                 required_signals.append(slope_col)
                 all_slope_cols.append(slope_col)
-            # 修改结束
-            # 修改开始：根据配置动态生成所有加速度列
             configured_accel_periods = series_to_accel_config.get(base_ema_col, [])
             for ap in configured_accel_periods:
                 accel_col = f'ACCEL_{ap}_{base_ema_col}'
                 required_signals.append(accel_col)
                 all_accel_cols.append(accel_col)
-            # 修改结束
 
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
             return pd.Series(0.0, index=df.index)
@@ -222,62 +228,100 @@ class StructuralIntelligence:
             bull_alignment_raw += (ema_i > ema_i_plus_1).astype(float) * alignment_weights_internal[i]
         alignment_score = bull_alignment_raw / sum(alignment_weights_internal)
         # 维度2: 斜率 (Slope)
-        individual_slope_scores = []
+        individual_slope_scores_list = [] # 修改：存储所有归一化斜率Series
         if self.is_probe_date:
             print(f"        [探针] 维度2 - 斜率 (Slope) 详细信息:")
-        for col in all_slope_cols: # 修改：遍历所有斜率列
+        for col in all_slope_cols:
             raw_slope_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
             normalized_slope_score = get_adaptive_mtf_normalized_bipolar_score(raw_slope_series, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
-            individual_slope_scores.append(normalized_slope_score.values)
+            individual_slope_scores_list.append(normalized_slope_score) # 修改：存储Series
             if self.is_probe_date:
                 print(f"            原始数据 - {col}: {raw_slope_series.iloc[-1]:.4f}")
                 print(f"            归一化分数 - {col}: {normalized_slope_score.iloc[-1]:.4f}")
-        avg_slope_score = pd.Series(np.mean(individual_slope_scores, axis=0) if individual_slope_scores else 0.0, index=df_index)
-        # 修改开始：维度3: 加速度 (Acceleration)
-        individual_accel_scores = []
+        avg_slope_score = pd.Series(np.mean([s.values for s in individual_slope_scores_list], axis=0) if individual_slope_scores_list else 0.0, index=df_index)
+        # 维度3: 加速度 (Acceleration)
+        individual_accel_scores_list = [] # 修改：存储所有归一化加速度Series
         if self.is_probe_date:
             print(f"        [探针] 维度3 - 加速度 (Acceleration) 详细信息:")
-        for col in all_accel_cols: # 遍历所有加速度列
+        for col in all_accel_cols:
             raw_accel_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
             normalized_accel_score = get_adaptive_mtf_normalized_bipolar_score(raw_accel_series, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
-            individual_accel_scores.append(normalized_accel_score.values)
+            individual_accel_scores_list.append(normalized_accel_score) # 修改：存储Series
             if self.is_probe_date:
                 print(f"            原始数据 - {col}: {raw_accel_series.iloc[-1]:.4f}")
                 print(f"            归一化分数 - {col}: {normalized_accel_score.iloc[-1]:.4f}")
-        avg_accel_score = pd.Series(np.mean(individual_accel_scores, axis=0) if individual_accel_scores else 0.0, index=df_index)
+        avg_accel_score = pd.Series(np.mean([s.values for s in individual_accel_scores_list], axis=0) if individual_accel_scores_list else 0.0, index=df_index)
+
+        # 修改开始：维度4: 共振 (Resonance)
+        slope_consistency_score = pd.Series(0.0, index=df_index)
+        if len(individual_slope_scores_list) > 1:
+            # 计算所有归一化斜率序列的滚动标准差
+            # max_possible_std_dev_for_bipolar_scores = 1.0 (当一半为-1，一半为1时，标准差为1)
+            std_norm_slopes = pd.concat(individual_slope_scores_list, axis=1).std(axis=1)
+            # 将标准差反向归一化为一致性分数 (0-1)，然后乘以平均斜率赋予方向性
+            # 避免除以0，如果所有值都相同，std_norm_slopes可能为0
+            slope_consistency_factor = (1 - (std_norm_slopes / 1.0)).clip(0, 1) # 1.0是理论最大标准差
+            slope_consistency_score = avg_slope_score * slope_consistency_factor
+        accel_consistency_score = pd.Series(0.0, index=df_index)
+        if len(individual_accel_scores_list) > 1:
+            std_norm_accels = pd.concat(individual_accel_scores_list, axis=1).std(axis=1)
+            accel_consistency_factor = (1 - (std_norm_accels / 1.0)).clip(0, 1)
+            accel_consistency_score = avg_accel_score * accel_consistency_factor
+        slope_accel_directional_alignment_score = pd.Series(0.0, index=df_index)
+        if not avg_slope_score.empty and not avg_accel_score.empty:
+            # 检查平均斜率和平均加速度的方向一致性
+            # 如果同向，乘积为正；如果反向，乘积为负。然后归一化到[-1, 1]
+            # 假设avg_slope_score和avg_accel_score已经在[-1, 1]
+            slope_accel_directional_alignment_score = (avg_slope_score * avg_accel_score).clip(-1, 1)
+
+        # 融合共振分数
+        overall_resonance_score = (
+            slope_consistency_score * resonance_params['slope_consistency_weight'] +
+            accel_consistency_score * resonance_params['accel_consistency_weight'] +
+            slope_accel_directional_alignment_score * resonance_params['slope_accel_alignment_weight']
+        ).clip(-1, 1)
         # 修改结束
-        # 维度4: 有序度 (Orderliness)
+
+        # 维度5: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
         orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, ascending=True, tf_weights=tf_weights, debug_probe_enabled=self.is_probe_date)
         # 逻辑仲裁
         corrected_orderliness_score = orderliness_score.copy()
         arbitration_triggered = (alignment_score > 0.9) & (orderliness_score < alignment_score)
         corrected_orderliness_score[arbitration_triggered] = alignment_score[arbitration_triggered]
-        # 维度5: 角度 (Angle)
+        # 维度6: 角度 (Angle)
         angle_raw = self._get_safe_series(df, 'ATAN_ANGLE_EMA_55_D', 0.0, method_name="_diagnose_axiom_trend_form")
         angle_score = get_adaptive_mtf_normalized_bipolar_score(angle_raw, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
         # --- 融合形态分 ---
         bullish_alignment_contrib = alignment_score * fusion_weights['alignment']
         bullish_slope_contrib = avg_slope_score.clip(lower=0) * fusion_weights['slope']
-        bullish_accel_contrib = avg_accel_score.clip(lower=0) * fusion_weights['acceleration'] # 修改：新增看涨加速度贡献
+        bullish_accel_contrib = avg_accel_score.clip(lower=0) * fusion_weights['acceleration']
+        # 修改开始：新增看涨共振贡献
+        bullish_resonance_contrib = overall_resonance_score.clip(lower=0) * fusion_weights['resonance']
+        # 修改结束
         bullish_orderliness_contrib = corrected_orderliness_score * fusion_weights['orderliness']
         bullish_angle_contrib = angle_score.clip(lower=0) * fusion_weights['angle']
         bullish_form_score = (
             bullish_alignment_contrib +
             bullish_slope_contrib +
-            bullish_accel_contrib + # 修改：加入加速度贡献
+            bullish_accel_contrib +
+            bullish_resonance_contrib + # 修改：加入共振贡献
             bullish_orderliness_contrib +
             bullish_angle_contrib
         ).clip(0, 1)
         bearish_alignment_contrib = (1 - alignment_score) * fusion_weights['alignment']
         bearish_slope_contrib = avg_slope_score.clip(upper=0).abs() * fusion_weights['slope']
-        bearish_accel_contrib = avg_accel_score.clip(upper=0).abs() * fusion_weights['acceleration'] # 修改：新增看跌加速度贡献
+        bearish_accel_contrib = avg_accel_score.clip(upper=0).abs() * fusion_weights['acceleration']
+        # 修改开始：新增看跌共振贡献
+        bearish_resonance_contrib = overall_resonance_score.clip(upper=0).abs() * fusion_weights['resonance']
+        # 修改结束
         bearish_orderliness_contrib = (1 - corrected_orderliness_score) * fusion_weights['orderliness']
         bearish_angle_contrib = angle_score.clip(upper=0).abs() * fusion_weights['angle']
         bearish_form_score = (
             bearish_alignment_contrib +
             bearish_slope_contrib +
-            bearish_accel_contrib + # 修改：加入加速度贡献
+            bearish_accel_contrib +
+            bearish_resonance_contrib + # 修改：加入共振贡献
             bearish_orderliness_contrib +
             bearish_angle_contrib
         ).clip(0, 1)
@@ -293,19 +337,31 @@ class StructuralIntelligence:
                 print(f"        原始数据 - EMA_{p}_D: {self._get_safe_series(df, f'EMA_{p}_D', method_name='_diagnose_axiom_trend_form').iloc[-1]:.4f}")
             print(f"        中间分数 - 排列 (Alignment Score): {alignment_score.iloc[-1]:.4f}")
             print(f"        中间分数 - 平均斜率 (Avg Slope Score): {avg_slope_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 平均加速度 (Avg Acceleration Score): {avg_accel_score.iloc[-1]:.4f}") # 修改：新增加速度探针输出
+            print(f"        中间分数 - 平均加速度 (Avg Acceleration Score): {avg_accel_score.iloc[-1]:.4f}")
+            # 修改开始：新增共振探针输出
+            print(f"        中间分数 - 斜率一致性 (Slope Consistency Score): {slope_consistency_score.iloc[-1]:.4f}")
+            print(f"        中间分数 - 加速度一致性 (Accel Consistency Score): {accel_consistency_score.iloc[-1]:.4f}")
+            print(f"        中间分数 - 斜率加速度方向对齐 (Slope-Accel Alignment Score): {slope_accel_directional_alignment_score.iloc[-1]:.4f}")
+            print(f"        中间分数 - 整体共振 (Overall Resonance Score): {overall_resonance_score.iloc[-1]:.4f}")
+            # 修改结束
             print(f"        中间分数 - 有序度 (Orderliness Score): {orderliness_score.iloc[-1]:.4f}")
             print(f"        中间分数 - 修正有序度 (Corrected Orderliness Score): {corrected_orderliness_score.iloc[-1]:.4f}")
             print(f"        中间分数 - 角度 (Angle Score): {angle_score.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看涨排列贡献: {bullish_alignment_contrib.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看涨斜率贡献: {bullish_slope_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看涨加速度贡献: {bullish_accel_contrib.iloc[-1]:.4f}") # 修改：新增看涨加速度贡献探针输出
+            print(f"        融合分数组件 - 看涨加速度贡献: {bullish_accel_contrib.iloc[-1]:.4f}")
+            # 修改开始：新增看涨共振贡献探针输出
+            print(f"        融合分数组件 - 看涨共振贡献: {bullish_resonance_contrib.iloc[-1]:.4f}")
+            # 修改结束
             print(f"        融合分数组件 - 看涨有序度贡献: {bullish_orderliness_contrib.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看涨角度贡献: {bullish_angle_contrib.iloc[-1]:.4f}")
             print(f"        融合分数 - 看涨形态分 (Bullish Form Score): {bullish_form_score.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看跌排列贡献: {bearish_alignment_contrib.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看跌斜率贡献: {bearish_slope_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看跌加速度贡献: {bearish_accel_contrib.iloc[-1]:.4f}") # 修改：新增看跌加速度贡献探针输出
+            print(f"        融合分数组件 - 看跌加速度贡献: {bearish_accel_contrib.iloc[-1]:.4f}")
+            # 修改开始：新增看跌共振贡献探针输出
+            print(f"        融合分数组件 - 看跌共振贡献: {bearish_resonance_contrib.iloc[-1]:.4f}")
+            # 修改结束
             print(f"        融合分数组件 - 看跌有序度贡献: {bearish_orderliness_contrib.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看跌角度贡献: {bearish_angle_contrib.iloc[-1]:.4f}")
             print(f"        融合分数 - 看跌形态分 (Bearish Form Score): {bearish_form_score.iloc[-1]:.4f}")
