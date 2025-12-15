@@ -547,9 +547,8 @@ class ChipIntelligence:
             'SLOPE_5_winner_profit_margin_avg_D', 'ACCEL_5_retail_fomo_premium_index_D',
             'deception_index_D', 'wash_trade_intensity_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'flow_credibility_index_D',
-            'main_force_conviction_index_D', # 用于全局情境调制器和诡道反噬
+            'main_force_conviction_index_D',
             'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
-            # 修改代码行：V9.0 新增筹码指标
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
             'panic_buy_absorption_contribution_D', 'dip_buy_absorption_strength_D',
             'structural_tension_index_D', 'SLOPE_5_chip_health_score_D'
@@ -559,7 +558,6 @@ class ChipIntelligence:
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         holder_sentiment_params = get_param_value(p_conf.get('holder_sentiment_params'), {})
-        # --- 参数加载 ---
         sentiment_trend_modulator_signal_name = get_param_value(holder_sentiment_params.get('sentiment_trend_modulator_signal_name'), 'SLOPE_55_winner_concentration_90pct_D')
         sentiment_trend_mod_factor = get_param_value(holder_sentiment_params.get('sentiment_trend_mod_factor'), 0.5)
         panic_reward_modulator_signal_name = get_param_value(holder_sentiment_params.get('panic_reward_modulator_signal_name'), 'chip_fatigue_index_D')
@@ -593,20 +591,17 @@ class ChipIntelligence:
         deception_modulator_params = get_param_value(holder_sentiment_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5})
         deception_modulator_weights = {k: v for k, v in get_param_value(holder_sentiment_params.get('deception_modulator_weights'), {}).items() if isinstance(v, (int, float))}
         context_modulator_weights = {k: v for k, v in get_param_value(holder_sentiment_params.get('context_modulator_weights'), {}).items() if isinstance(v, (int, float))}
-        # 修改代码行：V9.0 新增诡道反噬和韧性重构参数
         impurity_deception_mod_enabled = get_param_value(holder_sentiment_params.get('impurity_deception_mod_enabled'), True)
         deception_lure_long_impurity_amp_factor = get_param_value(holder_sentiment_params.get('deception_lure_long_impurity_amp_factor'), 0.3)
         deception_lure_short_impurity_damp_factor = get_param_value(holder_sentiment_params.get('deception_lure_short_impurity_damp_factor'), 0.2)
         impurity_resilience_mod_enabled = get_param_value(holder_sentiment_params.get('impurity_resilience_mod_enabled'), True)
         chip_health_slope_impurity_damp_factor = get_param_value(holder_sentiment_params.get('chip_health_slope_impurity_damp_factor'), 0.2)
         structural_tension_impurity_amp_factor = get_param_value(holder_sentiment_params.get('structural_tension_impurity_amp_factor'), 0.2)
-        # 修改代码行：V9.0 全局情境调制器信号名称更新
         global_context_modulator_signal_1_name = get_param_value(holder_sentiment_params.get('global_context_modulator_signal_1'), 'chip_health_score_D')
         global_context_modulator_signal_2_name = get_param_value(holder_sentiment_params.get('global_context_modulator_signal_2'), 'main_force_conviction_index_D')
         global_context_sensitivity_health = get_param_value(holder_sentiment_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_conviction = get_param_value(holder_sentiment_params.get('global_context_sensitivity_conviction'), 0.3)
         df_index = df.index
-        # --- 原始数据获取 ---
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
@@ -641,7 +636,6 @@ class ChipIntelligence:
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         conviction_flow_buy_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         conviction_flow_sell_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        # 修改代码行：V9.0 获取新增筹码指标
         deception_lure_long_intensity_raw = self._get_safe_series(df, df, 'deception_lure_long_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         deception_lure_short_intensity_raw = self._get_safe_series(df, df, 'deception_lure_short_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         panic_buy_absorption_contribution_raw = self._get_safe_series(df, df, 'panic_buy_absorption_contribution_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
@@ -702,26 +696,29 @@ class ChipIntelligence:
         norm_slope_5_support_validation = get_adaptive_mtf_normalized_score(slope_5_support_validation_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_accel_5_capitulation_absorption = get_adaptive_mtf_normalized_score(accel_5_capitulation_absorption_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_slope_5_active_buying_support = get_adaptive_mtf_normalized_score(slope_5_active_buying_support_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 修改代码行：V9.0 整合恐慌买入吸收贡献和低吸吸收强度
         norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_dip_buy_absorption_strength = get_adaptive_mtf_normalized_score(dip_buy_absorption_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
         base_pressure_test_numeric_weights = {k: v for k, v in pressure_test_weights.items() if isinstance(v, (int, float))}
         total_base_pressure_test_weight = sum(base_pressure_test_numeric_weights.values())
-        pressure_test_score = (
-            (norm_absorption_power.add(1)/2).pow(base_pressure_test_numeric_weights.get('active_buying_support', 0.15)) *
-            (norm_defense_intent.add(1)/2).pow(base_pressure_test_numeric_weights.get('support_validation', 0.15)) *
-            norm_capitulation_absorption.pow(base_pressure_test_numeric_weights.get('capitulation_absorption', 0.15)) *
-            norm_opening_gap_defense_strength.pow(base_pressure_test_numeric_weights.get('opening_gap_defense_strength', 0.1)) *
-            norm_control_solidity.pow(base_pressure_test_numeric_weights.get('control_solidity', 0.1)) *
-            norm_order_book_clearing_rate.pow(base_pressure_test_numeric_weights.get('order_book_clearing_rate', 0.08)) *
-            norm_micro_price_impact_asymmetry.pow(base_pressure_test_numeric_weights.get('micro_price_impact_asymmetry', 0.07)) *
-            norm_slope_5_support_validation.pow(base_pressure_test_numeric_weights.get('support_validation_slope', 0.08)) *
-            norm_accel_5_capitulation_absorption.pow(base_pressure_test_numeric_weights.get('capitulation_absorption_accel', 0.07)) *
-            norm_slope_5_active_buying_support.pow(base_pressure_test_numeric_weights.get('active_buying_support_slope', 0.05)) *
-            # 修改代码行：V9.0 整合新增指标
-            norm_panic_buy_absorption_contribution.pow(base_pressure_test_numeric_weights.get('panic_buy_absorption_contribution', 0.05)) *
-            norm_dip_buy_absorption_strength.pow(base_pressure_test_numeric_weights.get('dip_buy_absorption_strength', 0.05))
-        ).pow(1 / total_base_pressure_test_weight) * 2 - 1
+        # 修改代码行：添加对 total_base_pressure_test_weight 为 0 的检查，避免 NameError
+        if total_base_pressure_test_weight == 0:
+            base_pressure_score = pd.Series(0.0, index=df_index)
+            if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 警告: 压力测试权重总和为0，base_pressure_score 设为0。")
+        else:
+            base_pressure_score = (
+                (norm_absorption_power.add(1)/2).pow(base_pressure_test_numeric_weights.get('active_buying_support', 0.15)) *
+                (norm_defense_intent.add(1)/2).pow(base_pressure_test_numeric_weights.get('support_validation', 0.15)) *
+                norm_capitulation_absorption.pow(base_pressure_test_numeric_weights.get('capitulation_absorption', 0.15)) *
+                norm_opening_gap_defense_strength.pow(base_pressure_test_numeric_weights.get('opening_gap_defense_strength', 0.1)) *
+                norm_control_solidity.pow(base_pressure_test_numeric_weights.get('control_solidity', 0.1)) *
+                norm_order_book_clearing_rate.pow(base_pressure_test_numeric_weights.get('order_book_clearing_rate', 0.08)) *
+                norm_micro_price_impact_asymmetry.pow(base_pressure_test_numeric_weights.get('micro_price_impact_asymmetry', 0.07)) *
+                norm_slope_5_support_validation.pow(base_pressure_test_numeric_weights.get('support_validation_slope', 0.08)) *
+                norm_accel_5_capitulation_absorption.pow(base_pressure_test_numeric_weights.get('capitulation_absorption_accel', 0.07)) *
+                norm_slope_5_active_buying_support.pow(base_pressure_test_numeric_weights.get('active_buying_support_slope', 0.05)) *
+                norm_panic_buy_absorption_contribution.pow(base_pressure_test_numeric_weights.get('panic_buy_absorption_contribution', 0.05)) *
+                norm_dip_buy_absorption_strength.pow(base_pressure_test_numeric_weights.get('dip_buy_absorption_strength', 0.05))
+            ).pow(1 / total_base_pressure_test_weight) * 2 - 1
         panic_modulator_raw = self._get_safe_series(df, df, panic_reward_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
         normalized_panic_modulator = get_adaptive_mtf_normalized_score(panic_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
         panic_reward_adjustment_factor = np.tanh(normalized_panic_modulator * panic_reward_mod_tanh_factor) * panic_reward_mod_factor
@@ -759,13 +756,10 @@ class ChipIntelligence:
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
         conviction_threshold = deception_modulator_params.get('conviction_threshold', 0.2)
-        # 负向欺骗（诱空）且主力信念坚定 -> 增强信念
         deception_boost_mask = (norm_deception_index_bipolar < 0) & (norm_main_force_conviction_bipolar > conviction_threshold)
         conviction_base.loc[deception_boost_mask] = conviction_base.loc[deception_boost_mask] * (1 + norm_deception_index_bipolar.loc[deception_boost_mask].abs() * deception_modulator_weights.get('deception_index_boost', 0.5))
-        # 正向欺骗（诱多）且主力信念动摇 -> 削弱信念
         deception_penalty_mask = (norm_deception_index_bipolar > 0) & (norm_main_force_conviction_bipolar < -conviction_threshold)
         conviction_base.loc[deception_penalty_mask] = conviction_base.loc[deception_penalty_mask] * (1 - norm_deception_index_bipolar.loc[deception_penalty_mask] * deception_modulator_weights.get('deception_index_boost', 0.5))
-        # 对倒行为始终惩罚，惩罚力度受信念和健康度影响
         conviction_base = conviction_base * (1 - norm_wash_trade_intensity * deception_modulator_weights.get('wash_trade_penalty', 0.3))
         conviction_base = conviction_base.clip(0, 1)
         if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 诡道调制后信念基础分数: {conviction_base.asof(probe_date_for_asof):.4f}")
@@ -778,7 +772,6 @@ class ChipIntelligence:
         norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_slope_5_winner_profit_margin = get_adaptive_mtf_normalized_score(slope_5_winner_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_accel_5_retail_fomo_premium = get_adaptive_mtf_normalized_score(accel_5_retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 修改代码行：V9.0 归一化新增杂质指标
         norm_deception_lure_long_intensity = get_adaptive_mtf_normalized_score(deception_lure_long_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_deception_lure_short_intensity = get_adaptive_mtf_normalized_score(deception_lure_short_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_slope_5_chip_health = get_adaptive_mtf_normalized_bipolar_score(slope_5_chip_health_raw, df_index, tf_weights)
@@ -791,10 +784,8 @@ class ChipIntelligence:
             current_sentiment_strength = conviction_base.abs()
             normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True)
             context_adjustment_factor = pd.Series(1.0, index=df_index)
-            # --- 情境调制器 (Contextual Modulators) ---
             norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights)
             norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights)
-            # 修改代码行：V9.0 使用筹码健康度作为情境调制器
             norm_chip_health_for_context = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
             context_modulator_numeric_weights = {k: v for k, v in context_modulator_weights.items() if isinstance(v, (int, float))}
             total_context_modulator_weight = sum(context_modulator_numeric_weights.values())
@@ -802,7 +793,7 @@ class ChipIntelligence:
                 fused_context_modulator = (
                     norm_volatility_instability.pow(context_modulator_numeric_weights.get('volatility_instability', 0.4)) *
                     norm_flow_credibility.pow(context_modulator_numeric_weights.get('flow_credibility', 0.3)) *
-                    norm_chip_health_for_context.pow(context_modulator_numeric_weights.get('chip_health', 0.3)) # 修改代码行：V9.0 使用筹码健康度
+                    norm_chip_health_for_context.pow(context_modulator_numeric_weights.get('chip_health', 0.3))
                 ).pow(1 / total_context_modulator_weight)
                 context_adjustment_factor = context_adjustment_factor * (1 + (fused_context_modulator - 0.5) * 0.5)
             if impurity_context_modulation_enabled:
@@ -813,19 +804,16 @@ class ChipIntelligence:
                 context_adjustment_factor.loc[overbought_mask] = context_adjustment_factor.loc[overbought_mask] * (1 + (normalized_context_modulator.loc[overbought_mask] - 0.7) * impurity_context_overbought_amp_factor / 0.3)
                 context_adjustment_factor.loc[oversold_mask] = context_adjustment_factor.loc[oversold_mask] * (1 - (0.3 - normalized_context_modulator.loc[oversold_mask]) * impurity_context_oversold_damp_factor / 0.3)
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 杂质情境调整因子: {context_adjustment_factor.asof(probe_date_for_asof):.4f}")
-            # FOMO 效应
             dynamic_fomo_tanh_factor = fomo_tanh_factor * (1 + normalized_sentiment_strength * fomo_sentiment_sensitivity)
             dynamic_fomo_tanh_factor = dynamic_fomo_tanh_factor * context_adjustment_factor
             dynamic_fomo_tanh_factor = dynamic_fomo_tanh_factor.clip(0.5, 3.0)
             fomo_effect = np.tanh(norm_fomo_deviation * dynamic_fomo_tanh_factor)
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} FOMO效应: {fomo_effect.asof(probe_date_for_asof):.4f}")
-            # 利润兑现效应
             dynamic_profit_taking_tanh_factor = profit_taking_tanh_factor * (1 + normalized_sentiment_strength * profit_taking_sentiment_sensitivity)
             dynamic_profit_taking_tanh_factor = dynamic_profit_taking_tanh_factor * context_adjustment_factor
             dynamic_profit_taking_tanh_factor = dynamic_profit_taking_tanh_factor.clip(0.5, 3.0)
             profit_taking_effect = np.tanh(norm_profit_taking_quality * dynamic_profit_taking_tanh_factor)
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 利润兑现效应: {profit_taking_effect.asof(probe_date_for_asof):.4f}")
-            # V8.0 新增：其他杂质效应
             other_impurity_numeric_weights = {k: v for k, v in impurity_weights.items() if isinstance(v, (int, float)) and k not in ['fomo_concentration', 'profit_taking_margin', 'deception_lure_long', 'deception_lure_short', 'chip_health_slope', 'structural_tension']}
             total_other_impurity_weight = sum(other_impurity_numeric_weights.values())
             if total_other_impurity_weight > 0:
@@ -838,28 +826,22 @@ class ChipIntelligence:
                 ).pow(1 / total_other_impurity_weight)
                 other_impurity_effect = np.tanh(other_impurity_score * context_adjustment_factor)
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 其他杂质效应: {other_impurity_effect.asof(probe_date_for_asof):.4f}")
-            # 修改代码行：V9.0 诡道反噬与韧性重构调制
             impurity_deception_modulator = pd.Series(1.0, index=df_index)
             if impurity_deception_mod_enabled:
-                # 诱多欺骗强度放大杂质
                 impurity_deception_modulator = impurity_deception_modulator * (1 + norm_deception_lure_long_intensity * deception_lure_long_impurity_amp_factor)
-                # 诱空欺骗强度在主力信念坚定下削弱杂质
                 deception_lure_short_damp_mask = (norm_deception_lure_short_intensity > 0) & (norm_main_force_conviction_bipolar > conviction_threshold)
                 impurity_deception_modulator.loc[deception_lure_short_damp_mask] = impurity_deception_modulator.loc[deception_lure_short_damp_mask] * (1 - norm_deception_lure_short_intensity.loc[deception_lure_short_damp_mask] * deception_lure_short_impurity_damp_factor)
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 杂质诡道调制器: {impurity_deception_modulator.asof(probe_date_for_asof):.4f}")
             impurity_resilience_modulator = pd.Series(1.0, index=df_index)
             if impurity_resilience_mod_enabled:
-                # 筹码健康度斜率改善削弱杂质
                 impurity_resilience_modulator = impurity_resilience_modulator * (1 - norm_slope_5_chip_health.clip(lower=0) * chip_health_slope_impurity_damp_factor)
-                # 结构性紧张指数放大杂质
                 impurity_resilience_modulator = impurity_resilience_modulator * (1 + norm_structural_tension * structural_tension_impurity_amp_factor)
             if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 杂质韧性调制器: {impurity_resilience_modulator.asof(probe_date_for_asof):.4f}")
             dynamic_impurity_fusion_exponent = impurity_fusion_exponent_base * (1 - normalized_sentiment_strength * impurity_fusion_exponent_sensitivity)
             dynamic_impurity_fusion_exponent = dynamic_impurity_fusion_exponent.clip(0.1, 1.0)
-            # 融合所有杂质效应，并应用诡道反噬和韧性重构调制
             final_impurity_effect = 1 - ((1 - fomo_effect) * (1 - profit_taking_effect) * (1 - other_impurity_effect)).pow(dynamic_impurity_fusion_exponent)
             final_impurity_effect = final_impurity_effect * impurity_deception_modulator * impurity_resilience_modulator
-            final_impurity_effect = final_impurity_effect.clip(0, 1) # 确保杂质在 [0, 1] 范围内
+            final_impurity_effect = final_impurity_effect.clip(0, 1)
         else:
             final_impurity_effect = pd.Series(0.0, index=df_index)
         if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终杂质效应: {final_impurity_effect.asof(probe_date_for_asof):.4f}")
@@ -867,15 +849,14 @@ class ChipIntelligence:
         global_modulator_effect = pd.Series(1.0, index=df_index)
         if global_context_modulator_enabled:
             norm_global_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
-            # 修改代码行：V9.0 使用主力信念代替市场情绪
             norm_global_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
             global_modulator_effect = (
                 (1 + norm_global_chip_health * global_context_sensitivity_health) *
-                (1 + norm_global_main_force_conviction * global_context_sensitivity_conviction) # 修改代码行：V9.0 使用主力信念敏感度
+                (1 + norm_global_main_force_conviction * global_context_sensitivity_conviction)
             ).clip(0.5, 1.5)
         if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 全局情境调制器: {global_modulator_effect.asof(probe_date_for_asof):.4f}")
         final_score = (conviction_base * (1 - final_impurity_effect)) * 2 - 1
-        final_score = final_score * global_modulator_effect # 应用全局情境调制
+        final_score = final_score * global_modulator_effect
         if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终持仓信念韧性分数: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
