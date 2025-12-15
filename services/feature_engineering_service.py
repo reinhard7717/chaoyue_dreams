@@ -16,8 +16,8 @@ class FeatureEngineeringService:
     - 核心职责: 专注于从基础数据（OHLCV和简单指标）中衍生出更高级的技术特征。
                 它负责所有与K线本身形态、趋势、波动率相关的深度计算。
     """
-    def __init__(self):
-        pass
+    def __init__(self, calculator):
+        self.calculator = calculator
 
     async def calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
@@ -208,24 +208,7 @@ class FeatureEngineeringService:
             B = np.sum(dist_plus_1 < r) - (n - m)
             if A == 0 or B == 0: return np.nan
             return -np.log(B / A)
-        # 【新增代码块】近似熵计算函数
-        def _approximate_entropy(x, m, r):
-            N = len(x)
-            if N < m + 2: return np.nan
-            def _phi(m_val):
-                x_m = np.array([x[i:i_val + m_val] for i_val in range(N - m_val + 1)])
-                C = np.zeros(N - m_val + 1)
-                for i_val in range(N - m_val + 1):
-                    count = 0
-                    for j_val in range(N - m_val + 1):
-                        if np.max(np.abs(x_m[i_val] - x_m[j_val])) <= r:
-                            count += 1
-                    C[i_val] = count / (N - m_val + 1)
-                return np.sum(np.log(C)) / (N - m_val + 1)
-            phi_m = _phi(m)
-            phi_m_plus_1 = _phi(m + 1)
-            if phi_m == 0 or phi_m_plus_1 == 0: return np.nan # 避免对数0
-            return phi_m - phi_m_plus_1
+        # 【已移除】_approximate_entropy 函数已移除，现在直接调用 self.calculator.calculate_approx_entropy
         # 【新增代码块】FFT能量比计算函数
         def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5):
             N = len(x)
@@ -311,28 +294,12 @@ class FeatureEngineeringService:
                     df[se_col] = np.nan
             # --- 4. 【新增】近似熵 (Approximate Entropy) (时间序列复杂性) ---
             ae_window = params.get('approximate_entropy_window', 21) # 斐波那契数
-            ae_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
+            # ae_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2) # 此参数由 calculate_approx_entropy 内部处理
             ae_col = f'{prefix}APPROX_ENTROPY_{ae_window}d{suffix}'
             if ae_col not in df.columns:
                 try:
-                    entropy_values = []
-                    log_returns_or_series = current_series.dropna()
-                    if len(log_returns_or_series) < ae_window + 2:
-                        df[ae_col] = np.nan
-                    else:
-                        rolling_std = log_returns_or_series.rolling(window=ae_window, min_periods=ae_window).std()
-                        for i in range(len(log_returns_or_series)):
-                            if i < ae_window - 1:
-                                entropy_values.append(np.nan)
-                                continue
-                            window_data = log_returns_or_series.iloc[i - ae_window + 1 : i + 1].values
-                            std_val = rolling_std.iloc[i]
-                            r = std_val * ae_tol_ratio
-                            if pd.isna(r) or r == 0 or len(window_data) < ae_window:
-                                entropy_values.append(np.nan)
-                                continue
-                            entropy_values.append(_approximate_entropy(window_data, m=2, r=r))
-                        df[ae_col] = pd.Series(entropy_values, index=log_returns_or_series.index).reindex(df.index)
+                    # 修改代码行：调用 self.calculator 中的 calculate_approx_entropy 方法
+                    df[ae_col] = await self.calculator.calculate_approx_entropy(df=df, period=ae_window, column=source_col)
                 except Exception as e:
                     logger.error(f"近似熵(周期{ae_window}, 列: {source_col})计算失败: {e}")
                     df[ae_col] = np.nan

@@ -58,7 +58,7 @@ class IndicatorService:
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
         # 专业服务层
         self.calculator = IndicatorCalculator()
-        self.feature_service = FeatureEngineeringService() # 实例化特征工程师
+        self.feature_service = FeatureEngineeringService(self.calculator) # 修改代码行：注入 self.calculator
         self.context_service = ContextualAnalysisService(cache_manager_instance) # 实例化情报分析师
         try:
             global ta
@@ -69,6 +69,7 @@ class IndicatorService:
         except ImportError:
             logger.error("pandas-ta 库未安装，请运行 'pip install pandas-ta'")
             ta = None
+
     # ▼▼▼ 调试辅助函数，用于打印DataFrame时间范围 ▼▼▼
     def _log_df_time_range(self, df: Optional[pd.DataFrame], df_name: str):
         """【调试函数】打印DataFrame的时间范围、数据量等基本信息。"""
