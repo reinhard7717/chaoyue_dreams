@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 from scipy.signal import find_peaks, peak_prominences
-from pyentrp.entropy import app_entropy
+from pyentrp.entropy import sample_entropy
 
 logger = logging.getLogger("services")
 
@@ -1246,15 +1246,16 @@ class IndicatorCalculator:
 
     async def calculate_approx_entropy(self, df: pd.DataFrame, period: int, column: str, tolerance_ratio: float = 0.2) -> pd.Series:
         """
-        【V1.5 · pyentrp函数直调版】计算近似熵 (Approximate Entropy)。
-        - 核心修复: 修正了 `pyentrp` 库 `app_entropy` 函数的调用方式，现在直接使用导入的函数。
-        - 核心逻辑: 使用 `pyentrp.entropy.app_entropy` 计算滚动近似熵，衡量时间序列的复杂度和不可预测性。
+        【V1.6 · pyentrp样本熵替代版】计算近似熵 (Approximate Entropy)。
+        - 核心修复: 鉴于 `pyentrp` 库不提供 `app_entropy`，现已切换为使用其提供的 `sample_entropy` 函数。
+                  样本熵是近似熵的改进版本，通常更稳健。
+        - 核心逻辑: 使用 `pyentrp.entropy.sample_entropy` 计算滚动样本熵，衡量时间序列的复杂度和不可预测性。
         - 参数说明: `period` 在此函数中被视为滚动窗口大小。`emb_dim` (m) 固定为 2。
         - `tolerance_ratio`: 容忍度 `r` 的比例因子，`r = tolerance_ratio * std(window_data)`。
         """
-        # 修改代码行：检查 app_entropy 函数是否可用
-        if app_entropy is None:
-            logger.error("近似熵计算失败：'app_entropy' 函数未加载。请确保已安装 'pyentrp'。")
+        # 修改代码行：检查 sample_entropy 函数是否可用
+        if sample_entropy is None:
+            logger.error("近似熵计算失败：'sample_entropy' 函数未加载。请确保已安装 'pyentrp'。")
             return pd.Series(np.nan, index=df.index)
 
         if column not in df.columns:
@@ -1294,8 +1295,8 @@ class IndicatorCalculator:
                     results.iloc[i] = 0.0
                     continue
 
-                # 修改代码行：直接调用 app_entropy 函数
-                ap_en = app_entropy(window_data, m=emb_dim, r=r_tolerance)
+                # 修改代码行：调用 sample_entropy 函数
+                ap_en = sample_entropy(window_data, m=emb_dim, r=r_tolerance)
                 results.iloc[i] = ap_en
             except Exception as e:
                 logger.error(f"近似熵(周期{period}, 列: {column})计算失败: {e} for series window ending at {series_raw.index[i]}. Window data (first 5): {window_data[:5]}...", exc_info=False)
