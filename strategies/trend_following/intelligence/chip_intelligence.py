@@ -2446,6 +2446,8 @@ class ChipIntelligence:
         - 核心升级5: 趋势一致性品质校准。当战略与战术在同一方向上高度协同并具备足够强度时，引入筹码品质因子（如筹码健康度、主力信念指数）进行校准，确保奖励的是高质量、可持续的趋势。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
+        # 修改代码行：将 df_index 的赋值提前到方法开头
+        df_index = df.index
         # --- 探针: 原始输入 ---
         # 修改代码行：根据 self.debug_params 设置 probe_date
         probe_date_for_asof = None
@@ -2459,7 +2461,6 @@ class ChipIntelligence:
                     probe_date_for_asof = probe_date_ts.tz_localize(df_index.tz)
                 else:
                     probe_date_for_asof = probe_date_ts
-        df_index = df.index
         # --- 参数加载 ---
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
