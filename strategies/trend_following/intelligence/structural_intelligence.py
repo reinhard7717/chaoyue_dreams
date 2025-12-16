@@ -166,15 +166,23 @@ class StructuralIntelligence:
         """
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 34, 55])
-        # 更新融合权重，增加'resonance'维度
-        fusion_weights = get_param_value(p_conf_struct.get('trend_form_fusion_weights'), {
+        # 修改开始：定义一个完整的默认融合权重字典
+        default_fusion_weights = {
             'alignment': 0.2,
             'slope': 0.15,
             'acceleration': 0.15,
             'orderliness': 0.15,
             'angle': 0.15,
             'resonance': 0.2 # 新增共振权重
-        })
+        }
+        # 从配置中获取融合权重，如果配置中没有，则使用空字典
+        configured_fusion_weights = get_param_value(p_conf_struct.get('trend_form_fusion_weights'), {})
+        
+        # 将默认权重与配置权重合并，确保所有键都存在，并优先使用配置中的值
+        fusion_weights = default_fusion_weights.copy()
+        fusion_weights.update(configured_fusion_weights)
+        # 修改结束
+
         # 获取共振参数
         resonance_params = get_param_value(p_conf_struct.get('trend_form_resonance_params'), {
             'slope_consistency_weight': 0.4,
@@ -227,9 +235,6 @@ class StructuralIntelligence:
         avg_slope_score = pd.Series(np.mean([s.values for s in individual_slope_scores_list], axis=0) if individual_slope_scores_list else 0.0, index=df_index)
         # 维度3: 加速度 (Acceleration)
         individual_accel_scores_list = [] # 修改：存储所有归一化加速度Series
-        # 修改开始：移除探针输出中对 self.is_probe_date 的依赖
-        # if self.is_probe_date:
-        #     print(f"        [探针] 维度3 - 加速度 (Acceleration) 详细信息:")
         for col in all_accel_cols:
             raw_accel_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
             normalized_accel_score = get_adaptive_mtf_normalized_bipolar_score(raw_accel_series, df_index, tf_weights)
@@ -305,6 +310,7 @@ class StructuralIntelligence:
         ).clip(0, 1)
         trend_form_score = bullish_form_score - bearish_form_score
         final_score = pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
+        # 探针输出
         return final_score
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
