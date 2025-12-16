@@ -166,7 +166,7 @@ class CyclicalIntelligence:
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5
 
-        # 修改开始：简化权重提取逻辑，依赖于 get_param_value 的增强解包能力
+        # 简化权重提取逻辑，依赖于 get_param_value 的增强解包能力
         # 从 params (cyclical_analysis_params) 中获取 mtf_normalization_weights
         # get_param_value 会自动解包 {'default': {...}} 或 {'weights': {...}}
         default_weights = get_param_value(params.get('mtf_normalization_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1})
@@ -176,7 +176,6 @@ class CyclicalIntelligence:
             default_weights = {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
 
         print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst: 传递给 get_adaptive_mtf_normalized_bipolar_score 的 default_weights: {default_weights}")
-        # 修改结束
 
         hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=0.1)
         states['SCORE_CYCLICAL_HURST_MEMORY'] = hurst_memory_score

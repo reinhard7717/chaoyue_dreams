@@ -8,7 +8,7 @@ import gc
 # 这个文件包含所有层级都可能用到的通用辅助函数
 
 def get_param_value(param: Any, default: Any = None) -> Any:
-    # 修改开始：增强对嵌套字典的自动解包能力
+    # 增强对嵌套字典的自动解包能力
     if isinstance(param, dict):
         if 'value' in param:
             return param['value']
@@ -946,14 +946,14 @@ def normalize_score(series: pd.Series, window: int, ascending: bool = True, debu
     """
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=series.index if isinstance(series, pd.Series) else [])
-    # 修改开始：移除探针输出
+    # 移除探针输出
     # if debug_probe_enabled:
     #     print(f"        [探针] normalize_score @ {series.index[-1].strftime('%Y-%m-%d')} (window={window}, ascending={ascending}):")
     #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
     # 修改结束
     # 对齐填充，确保窗口计算有足够数据
     padded_series = series.fillna(method='ffill').fillna(method='bfill')
-    # 修改开始：移除探针输出
+    # 移除探针输出
     # if debug_probe_enabled:
     #     print(f"            对齐填充后序列末尾值: {padded_series.iloc[-1]:.4f}")
     # 修改结束
@@ -983,7 +983,7 @@ def normalize_score(series: pd.Series, window: int, ascending: bool = True, debu
     # 这里暂时不引入额外的零值隔离，保持排名归一化的纯粹性。
     # 归一化到 [0, 1]
     normalized_series = ranked_series.clip(0, 1)
-    # 修改开始：移除探针输出
+    # 移除探针输出
     # if debug_probe_enabled:
     #     print(f"            滚动排名末尾值 (归一化前): {ranked_series.iloc[-1]:.4f}")
     #     print(f"            最终归一化分数末尾值: {normalized_series.iloc[-1]:.4f}")
@@ -1004,14 +1004,14 @@ def normalize_to_bipolar(series: pd.Series, window: int, sensitivity: float = 1.
     """
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=series.index if isinstance(series, pd.Series) else [])
-    # 修改开始：移除探针输出
+    # 移除探针输出
     # if debug_probe_enabled:
     #     print(f"        [探针] normalize_to_bipolar @ {series.index[-1].strftime('%Y-%m-%d')} (window={window}, sensitivity={sensitivity}):")
     #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
     # 修改结束
     # 对齐填充，确保窗口计算有足够数据
     padded_series = series.fillna(method='ffill').fillna(method='bfill')
-    # 修改开始：移除探针输出
+    # 移除探针输出
     # if debug_probe_enabled:
     #     print(f"            对齐填充后序列末尾值: {padded_series.iloc[-1]:.4f}")
     # 修改结束
@@ -1030,7 +1030,7 @@ def normalize_to_bipolar(series: pd.Series, window: int, sensitivity: float = 1.
     rolling_std = series_for_calc.rolling(window=window, min_periods=1).std()
     # 避免除以零，将标准差为0的替换为1（或一个很小的数），防止Z-score发散
     rolling_std = rolling_std.replace(0, np.nan).fillna(1.0) # 如果std为0，则Z-score为0
-    # 修改开始：移除探针输出
+    # 移除探针输出
     # if debug_probe_enabled:
     #     print(f"            零值隔离后序列末尾值: {series_for_calc.iloc[-1]:.4f}")
     #     print(f"            滚动均值末尾值: {rolling_mean.iloc[-1]:.4f}")
@@ -1045,7 +1045,7 @@ def normalize_to_bipolar(series: pd.Series, window: int, sensitivity: float = 1.
     tanh_score = np.tanh(z_score * sensitivity)
     # 将原始为0的位置的tanh_score设为0
     tanh_score[is_zero] = 0.0
-    # 修改开始：移除探针输出
+    # 移除探针输出
     # if debug_probe_enabled:
     #     print(f"            Z-Score末尾值: {z_score.iloc[-1]:.4f}")
     #     print(f"            Tanh转换后双极分数末尾值: {tanh_score.iloc[-1]:.4f}")

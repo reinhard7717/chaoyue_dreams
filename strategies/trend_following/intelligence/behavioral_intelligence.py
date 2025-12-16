@@ -160,7 +160,7 @@ class BehavioralIntelligence:
             'SCORE_RISK_LIQUIDITY_DRAIN'
         ]
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         for signal_name in atomic_signals_to_enhance:
             if signal_name in self.strategy.atomic_states:
                 signal_series = self.strategy.atomic_states[signal_name]
@@ -196,9 +196,16 @@ class BehavioralIntelligence:
         print("开始执行【V1.3 · 意图解读重构版】行为K线质量分计算...")
         # 结果评估：使用“日内姿态分”作为对全天博弈结果的评估，它比单纯的收盘位置更全面
         outcome_score = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name="_calculate_behavioral_day_quality").clip(-1, 1)
+        
+        # 获取 default_weights 并传递给 get_adaptive_mtf_normalized_score
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        
         # 过程质量评估：融合“微观结构效率”和“脉冲质量”，评估日内走势的含金量
-        micro_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'microstructure_efficiency_index_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
-        impulse_quality = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'impulse_quality_ratio_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
+        micro_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'microstructure_efficiency_index_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index, tf_weights=default_weights)
+        impulse_quality = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'impulse_quality_ratio_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index, tf_weights=default_weights)
+        
         # 将过程质量分转化为[-1, 1]的双极性分数
         process_quality_score = ((micro_efficiency * impulse_quality).pow(0.5) * 2 - 1).clip(-1, 1)
         # 最终质量分 = 结果 * 40% + 过程 * 60%
@@ -278,8 +285,9 @@ class BehavioralIntelligence:
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # 修正键名 'long_term_weights' 为 'long_term_stability'
+        long_term_weights = get_param_value(p_mtf.get('long_term_stability'), {'21': 0.5, '55': 0.3, '89': 0.2})
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -497,7 +505,7 @@ class BehavioralIntelligence:
         params = get_param_value(p_conf.get('scorched_earth_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'breach_force': 0.4, 'defense_vacuum': 0.3, 'command_vacuum': 0.3})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取原始数据 ---
         pct_change_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_downward_momentum")
         efficiency_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_downward_momentum")
@@ -542,7 +550,7 @@ class BehavioralIntelligence:
         params = get_param_value(p_conf.get('offensive_absorption_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'crisis_context': 0.3, 'counter_offensive_force': 0.4, 'commanders_will': 0.3})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取原始数据 ---
         crisis_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
         dip_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
@@ -632,7 +640,7 @@ class BehavioralIntelligence:
         params = get_param_value(p_conf.get('puppeteers_gambit_params'), {})
         k_amplifier = params.get('evidence_amplifier_k', 0.5)
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取原始数据 ---
         required_signals = [ # 修改行
             'closing_strength_index_D', 'main_force_ofi_D',
@@ -804,8 +812,9 @@ class BehavioralIntelligence:
             return {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # 修正键名 'long_term_weights' 为 'long_term_stability'
+        long_term_weights = get_param_value(p_mtf.get('long_term_stability'), {'21': 0.5, '55': 0.3, '89': 0.2})
         price_breakthrough_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         ma_slope_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'SLOPE_5_EMA_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength"), df.index, ascending=True, tf_weights=default_weights)
         bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
@@ -831,7 +840,7 @@ class BehavioralIntelligence:
             }
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         absorption_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True, tf_weights=default_weights)
         absorption_control = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True, tf_weights=default_weights)
         absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
@@ -869,7 +878,8 @@ class BehavioralIntelligence:
         env_adapt_weights = get_param_value(params.get('environmental_adaptability_weights'), {"volatility_sensitivity": 0.5, "liquidity_sensitivity": 0.5})
         behavior_coherence_weights = get_param_value(params.get('behavioral_coherence_weights'), {"impulse_purity": 0.7, "deception_penalty": 0.3})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 修正键名 'default_weights' 为 'default'，并从 p_mtf 获取
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 维度一：核心意图强度 (Core Intent Magnitude) ---
         required_signals_core = ['main_force_ofi_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
         if not self._validate_required_signals(df, required_signals_core, method_name):
@@ -938,7 +948,7 @@ class BehavioralIntelligence:
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
         alpha_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
         # --- 1. 获取原始数据 ---
@@ -991,7 +1001,7 @@ class BehavioralIntelligence:
         params = get_param_value(p_conf.get('directors_cut_params'), {})
         intent_weights = get_param_value(params.get('intent_weights'), {'conviction': 0.7, 'covert_ops': 0.3})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取三幕剧的原料数据 ---
         # Act I: 剧本
         script_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
@@ -1036,16 +1046,18 @@ class BehavioralIntelligence:
         synergy_bonus = get_param_value(params.get('synergy_bonus_factor'), 0.2)
         env_params = get_param_value(p_conf.get('judgment_day_protocol_params'), {})
         env_weights = get_param_value(env_params.get('environment_weights'), {'fatigue': 0.4, 'decay': 0.3, 'betrayal': 0.3})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 轨道一：战术风险评估 (风暴强度) ---
         motive_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_distribution_intent")
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         fingerprint_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_distribution_intent")
-        motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=tf_weights)
-        rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
+        motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=default_weights)
+        rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
+        upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
         weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
-        fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         tactical_risk_score = (
             (motive_score + 1e-9).pow(0.2) *
             (weapon_score + 1e-9).pow(0.4) *
@@ -1056,12 +1068,12 @@ class BehavioralIntelligence:
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_distribution_intent")
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_distribution_intent")
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_distribution_intent")
-        vitality_score = get_adaptive_mtf_normalized_score(vitality_raw, df.index, ascending=True, tf_weights=tf_weights)
+        vitality_score = get_adaptive_mtf_normalized_score(vitality_raw, df.index, ascending=True, tf_weights=default_weights)
         bullish_fatigue_score = ((1 - vitality_score) * overextension_raw).pow(0.5)
-        stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
-        solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
+        stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=default_weights)
+        solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=default_weights)
         fortress_decay_score = ((1 - stability_score) * (1 - solidity_score)).pow(0.5)
-        commanders_betrayal_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        commanders_betrayal_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         strategic_risk_score = (
             bullish_fatigue_score * env_weights.get('fatigue', 0.4) +
             fortress_decay_score * env_weights.get('decay', 0.3) +
@@ -1095,7 +1107,7 @@ class BehavioralIntelligence:
         action_weights = get_param_value(params.get('action_weights'), {"absorption": 0.6, "deception_positive": 0.4})
         quality_weights = get_param_value(params.get('quality_weights'), {"closing_strength": 0.6, "upward_purity": 0.4})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取所有原始数据 ---
         required_signals = [
             'panic_selling_cascade_D', f'SLOPE_{prior_weakness_slope_window}_close_D', 'loser_pain_index_D',
@@ -1172,7 +1184,7 @@ class BehavioralIntelligence:
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
         core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 1.0})
         context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.4, "positive_deception": 0.3, "retail_fomo": 0.3})
@@ -1233,6 +1245,7 @@ class BehavioralIntelligence:
             rsi_slope_raw.loc[bullish_divergence_mask].abs() * behavioral_momentum_divergence_weights.get('rsi_slope_weight', 0.5)
         behavioral_momentum_divergence_score = get_adaptive_mtf_normalized_score(behavioral_momentum_divergence_raw, df.index, ascending=True, tf_weights=default_weights)
         # 将行为动量背离融入 ambush_score
+        ambush_fusion_weights['behavioral_momentum_divergence'] = ambush_fusion_weights.get('behavioral_momentum_divergence', 0.1) # 确保键存在
         ambush_score = (
             distribution_intent * ambush_fusion_weights.get('distribution_intent', 0.7) +
             covert_ambush_intent_score * ambush_fusion_weights.get('covert_ambush_intent', 0.2) +
@@ -1241,6 +1254,7 @@ class BehavioralIntelligence:
         trapped_force_score = pd.Series(0.0, index=df.index) # 设为0，不再参与计算
         mf_abandonment_score = pd.Series(0.0, index=df.index) # 设为0，不再参与计算
         positive_deception_score = deception_raw.clip(lower=0)
+        retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name) # 确保 retail_fomo_raw 已定义
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         # 计算行为情绪极端信号
         norm_retail_fomo_extreme = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
@@ -1252,6 +1266,7 @@ class BehavioralIntelligence:
             norm_bias_extreme * behavioral_sentiment_extreme_weights.get('bias_extreme', 0.3)
         ).clip(0,1)
         # 将行为情绪极端融入 context_amplifier_factor
+        context_amplifier_weights['behavioral_sentiment_extreme'] = context_amplifier_weights.get('behavioral_sentiment_extreme', 0.3) # 确保键存在
         context_amplifier_factor = (
             overextension_score * context_amplifier_weights.get('overextension', 0.3) +
             positive_deception_score * context_amplifier_weights.get('positive_deception', 0.2) +
@@ -1273,6 +1288,9 @@ class BehavioralIntelligence:
         weighted_avg_risk = (dynamic_ambush_weight * ambush_score_pow).pow(1 / core_risk_synergy_exponent).fillna(0.0)
         stretched_weighted_avg_risk = (1 - (1 - weighted_avg_risk).pow(core_risk_high_end_stretch_power)).clip(0,1)
         core_risk_base_initial = (lure_score_modulated * stretched_weighted_avg_risk).clip(0,1).fillna(0.0)
+        deceptive_calm_weights['overextension_inverse'] = deceptive_calm_weights.get('overextension_inverse', 0.3) # 确保键存在
+        deceptive_calm_weights['positive_deception_inverse'] = deceptive_calm_weights.get('positive_deception_inverse', 0.3) # 确保键存在
+        deceptive_calm_weights['retail_fomo_inverse'] = deceptive_calm_weights.get('retail_fomo_inverse', 0.4) # 确保键存在
         deceptive_calm_score = (
             (1 - overextension_score) * deceptive_calm_weights.get('overextension_inverse', 0.3) +
             (1 - positive_deception_score) * deceptive_calm_weights.get('positive_deception_inverse', 0.3) +
@@ -1323,7 +1341,7 @@ class BehavioralIntelligence:
         bearish_magnitude_params = get_param_value(params.get('bearish_magnitude_params'), {"price_slope_window": 5, "conviction_downtrend_slope_window": 5})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"magnitude": 0.4, "location": 0.3, "bullish_absorption_confirmation": 0.2, "bearish_distribution_confirmation": 0.2, "micro_intent_confirmation": 0.1, "deceptive_narrative_confirmation": 0.1})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取所有原始数据 ---
         required_signals = [
             'close_D', 'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D',
@@ -1453,6 +1471,8 @@ class BehavioralIntelligence:
         params = get_param_value(p_conf.get('crucible_protocol_params'), {})
         stability_window = get_param_value(params.get('stability_window'), 5)
         quality_weights = get_param_value(params.get('quality_weights'), {'purity_score': 0.6, 'stability_score': 0.4})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取原料数据 ---
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_atrophy")
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_calculate_volume_atrophy")
@@ -1497,6 +1517,8 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('citadel_protocol_params'), {})
         action_weights = get_param_value(params.get('action_weights'), {'dip_absorption': 0.6, 'active_buying': 0.4})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取三维度原始数据 ---
         # 维度一：地基
         foundation_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_calculate_absorption_strength")
@@ -1691,8 +1713,8 @@ class BehavioralIntelligence:
         body_ratio_threshold = stagnation_params.get('body_ratio_threshold', 0.3)
         volume_stagnation_multiplier = stagnation_params.get('volume_stagnation_multiplier', 1.2)
         momentum_divergence_penalty = stagnation_params.get('momentum_divergence_penalty', 0.15)
-        upward_efficiency_decay_bonus = stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
-        intraday_control_decay_bonus = stagnation_params.get('intraday_control_decay_bonus', 0.1)
+        upward_efficiency_decay_bonus = stagnation_params.get('upward_efficiency_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
+        intraday_control_decay_bonus = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
         dynamic_kline_atr_multiplier = stagnation_params.get('dynamic_kline_atr_multiplier', 0.005) # [新增]
         momentum_deceleration_bonus = stagnation_params.get('momentum_deceleration_bonus', 0.1) # [新增]
         volume_drying_up_multiplier = stagnation_params.get('volume_drying_up_multiplier', 0.8) # [新增]
@@ -1763,7 +1785,7 @@ class BehavioralIntelligence:
         params = get_param_value(p_conf.get('grandmasters_protocol_params'), {})
         quality_weights = get_param_value(params.get('quality_weights'), {'efficiency': 0.4, 'control': 0.4, 'decisiveness': 0.2})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 2. 获取三维度原始数据 ---
         # 维度一：战略意图 (已作为参数传入)
         # 维度二：战术行动 (已作为参数传入)
@@ -1803,7 +1825,10 @@ class BehavioralIntelligence:
         method_name = "_diagnose_pure_behavioral_divergence"
         # 1. 获取所有配置参数
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
-        params = { # [修改的代码行] 将所有参数打包成一个字典
+        # 修正键名 'default_weights' 为 'default'，并从 p_mtf 获取
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights_from_config = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        params = { # 将所有参数打包成一个字典
             'mtf_slopes_params': get_param_value(p_conf.get('multi_timeframe_slopes'), {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}}),
             'multi_level_resonance_params': get_param_value(p_conf.get('multi_level_resonance_params'), {"enabled": True, "long_term_period": 21, "resonance_bonus": 0.2}),
             'persistence_params': get_param_value(p_conf.get('persistence_params'), {"enabled": True, "min_duration": 2, "max_duration_window": 5, "quality_decay_factor": 0.05}),
@@ -1903,8 +1928,8 @@ class BehavioralIntelligence:
         rsi_overbought_threshold_dynamic = params['rsi_overbought_threshold_base'] + (trend_vitality - 0.5) * params['rsi_overbought_trend_adjust_factor']
         # 3. 调用辅助方法计算看涨和看跌背离
         bullish_divergence_score = self._calculate_single_divergence_type(
-            df, True, params, tf_weights,
-            # [修改的代码行] 移除 debug_enabled, probe_ts
+            df, True, params, default_weights_from_config, # 修改：传递 default_weights_from_config
+            # 移除 debug_enabled, probe_ts
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
@@ -1917,8 +1942,8 @@ class BehavioralIntelligence:
             dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic
         )
         bearish_divergence_score = self._calculate_single_divergence_type(
-            df, False, params, tf_weights,
-            # [修改的代码行] 移除 debug_enabled, probe_ts
+            df, False, params, default_weights_from_config, # 修改：传递 default_weights_from_config
+            # 移除 debug_enabled, probe_ts
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
@@ -1947,7 +1972,7 @@ class BehavioralIntelligence:
         """
         【V8.1 · 行为背离强度惯性与自适应引擎版】辅助方法：计算单一类型的行为背离（看涨或看跌）。
         """
-        method_name = "_calculate_single_divergence_type" # [修改的代码行] 修正方法名
+        method_name = "_calculate_single_divergence_type" # 修正方法名
         # 从params字典中获取所有子参数
         mtf_slopes_params = params['mtf_slopes_params']
         multi_level_resonance_params = params['multi_level_resonance_params']
@@ -1970,7 +1995,7 @@ class BehavioralIntelligence:
         bearish_div_weights = params['bearish_div_weights']
         bullish_conf_weights = params['bullish_conf_weights']
         bearish_conf_weights = params['bearish_conf_weights']
-        long_term_period = params['long_term_period'] # [修改的代码行] 从params中获取long_term_period
+        long_term_period = params['long_term_period'] # 从params中获取long_term_period
         # 根据is_bullish设置方向性变量
         price_trend_condition = (robust_close_slope < 0) if is_bullish else (robust_close_slope > 0)
         rsi_indicator_trend = (robust_rsi_slope > 0) if is_bullish else (robust_rsi_slope < 0)
@@ -2187,7 +2212,7 @@ class BehavioralIntelligence:
         freshness_factor = pd.Series(1.0, index=df.index)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window).apply(lambda x: (x == 1).sum(), raw=True).fillna(0) # [修改的代码行] 重新计算persistence_count
+            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window).apply(lambda x: (x == 1).sum(), raw=True).fillna(0) # 重新计算persistence_count
             freshness_factor = freshness_factor.mask(
                 persistence_count == 1, 1 + freshness_bonus
             )
@@ -2241,7 +2266,7 @@ class BehavioralIntelligence:
             long_term_slope_stability_threshold = behavioral_inertia_params.get('long_term_slope_stability_threshold', 0.8)
             high_inertia_penalty = behavioral_inertia_params.get('high_inertia_penalty', 0.1)
             low_inertia_bonus = behavioral_inertia_params.get('low_inertia_bonus', 0.05)
-            long_term_adx_mean = adx_val.rolling(long_term_period).mean() # [修改的代码行] 使用传入的adx_val
+            long_term_adx_mean = adx_val.rolling(long_term_period).mean() # 使用传入的adx_val
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold)
             long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)

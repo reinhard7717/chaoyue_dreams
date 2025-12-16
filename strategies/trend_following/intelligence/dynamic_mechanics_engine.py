@@ -82,14 +82,14 @@ class DynamicMechanicsEngine:
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'purity': 0.4, 'conviction': 0.4, 'vitality': 0.2})
-        # 修改开始：将ROC_12_D替换为ROC_13_D
+        # 将ROC_12_D替换为ROC_13_D
         required_signals = [
             'ROC_13_D', 'MACDh_13_34_8_D',
             'upward_impulse_purity_D', 'main_force_conviction_index_D', 'trend_vitality_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_momentum"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
-        # 修改开始：将ROC_12_D替换为ROC_13_D
+        # 将ROC_12_D替换为ROC_13_D
         roc = self._get_safe_series(df, 'ROC_13_D', 0.0)
         macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0)
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -130,10 +130,10 @@ class DynamicMechanicsEngine:
         inertia_weights = get_param_value(p_conf_dyn.get('inertia_structural_weights'), {'base_inertia': 0.7, 'structural_reinforcement': 0.3})
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'
-        # 修改开始：将hurst_col直接指定为BID_LIQUIDITY_HURST_144d_D
+        # 将hurst_col直接指定为BID_LIQUIDITY_HURST_144d_D
         hurst_col = 'BID_LIQUIDITY_HURST_144d_D'
         fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), 'FRACTAL_DIMENSION_100d_D')
-        # 修改开始：required_signals中包含新的hurst_col
+        # required_signals中包含新的hurst_col
         required_signals = [
             'ADX_14_D', hurst_col, fractal_col, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}',
             f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 'PDI_14_D', 'NDI_14_D',
