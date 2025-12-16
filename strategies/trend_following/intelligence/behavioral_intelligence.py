@@ -196,16 +196,14 @@ class BehavioralIntelligence:
         print("开始执行【V1.3 · 意图解读重构版】行为K线质量分计算...")
         # 结果评估：使用“日内姿态分”作为对全天博弈结果的评估，它比单纯的收盘位置更全面
         outcome_score = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name="_calculate_behavioral_day_quality").clip(-1, 1)
-        
         # 获取 default_weights 并传递给 get_adaptive_mtf_normalized_score
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-        
         # 过程质量评估：融合“微观结构效率”和“脉冲质量”，评估日内走势的含金量
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         micro_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'microstructure_efficiency_index_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index, tf_weights=default_weights)
         impulse_quality = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'impulse_quality_ratio_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index, tf_weights=default_weights)
-        
         # 将过程质量分转化为[-1, 1]的双极性分数
         process_quality_score = ((micro_efficiency * impulse_quality).pow(0.5) * 2 - 1).clip(-1, 1)
         # 最终质量分 = 结果 * 40% + 过程 * 60%
@@ -495,12 +493,15 @@ class BehavioralIntelligence:
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_upward_momentum")
         # --- 2. 计算各要素得分 ---
         # 要素一：攻击力度分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         purity_score = get_adaptive_mtf_normalized_score(impulse_purity_raw, df.index, ascending=True, tf_weights=tf_weights)
         quality_score = get_adaptive_mtf_normalized_score(impulse_quality_raw, df.index, ascending=True, tf_weights=tf_weights)
         offensive_force_score = (purity_score * quality_score).pow(0.5)
         # 要素二：战略指挥分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         strategic_command_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         # 要素三：后勤支撑分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         sustainability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
         # --- 3. “闪电战”三要素合成 ---
         upward_momentum_score = (
@@ -535,15 +536,18 @@ class BehavioralIntelligence:
         # --- 3. 计算核心组件 ---
         # 组件一：前沿阵地失守 (破坏力)
         raw_drop = pct_change_raw.clip(upper=0).abs()
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         drop_score = get_adaptive_mtf_normalized_score(raw_drop, df.index, ascending=True, tf_weights=default_weights)
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
         breach_force_score = (drop_score * efficiency_score).pow(0.5)
         # 组件二：防御工事崩塌 (防御真空)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         dip_absorption_score = get_adaptive_mtf_normalized_score(dip_absorption_raw, df.index, ascending=True, tf_weights=default_weights)
         active_buying_score = get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=default_weights)
         defense_power_score = (dip_absorption_score * 0.5 + active_buying_score * 0.5)
         defense_vacuum_score = (1 - defense_power_score).clip(0, 1)
         # 组件三：指挥系统溃败 (信念真空)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         positive_conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         command_vacuum_score = (1 - positive_conviction_score).clip(0, 1)
         # --- 4. 最终合成 ---
@@ -580,12 +584,15 @@ class BehavioralIntelligence:
         # 组件一：战略前提 (一票否决)
         strategic_prerequisite_score = (1 - distribution_intent).clip(0, 1)
         # 组件二：战役背景分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         crisis_context_score = get_adaptive_mtf_normalized_score(crisis_raw, df.index, ascending=True, tf_weights=default_weights)
         # 组件三：核心行动分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         dip_absorption_score = get_adaptive_mtf_normalized_score(dip_absorption_raw, df.index, ascending=True, tf_weights=default_weights)
         active_buying_score = get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=default_weights)
         counter_offensive_force_score = (dip_absorption_score * 0.5 + active_buying_score * 0.5)
         # 组件四：司令部意志分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         commanders_will_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         # --- 4. 最终合成 ---
         base_quality_score = (
@@ -598,13 +605,14 @@ class BehavioralIntelligence:
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V6.0 · Production Ready版】诊断“日内多头控制力”
+        【V6.1 · 归一化函数调用修复版】诊断“日内多头控制力”
         - 核心重构: 废弃V5.1“最后一分钟谎言谬误”模型，引入“战果×过程×叙事”的全新三维诊断框架。
         - 诊断三维度:
           1. 战略位置 (Strategic Position): 评估最终战果，即收盘价相对VWAP的位置。
           2. 过程品质 (Process Quality): 评估全天攻防动作的综合效率与信念。
           3. 叙事诚信度 (Narrative Integrity): 审判结局与过程是否一致，惩罚“尾盘偷袭”等欺骗行为。
         - 数学模型: 最终控制力 = 战略位置分 * (过程品质分 * 叙事诚信度分) ^ 0.5
+        - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
         """
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -624,12 +632,14 @@ class BehavioralIntelligence:
         # 维度一：战略位置分 (作为基础分)
         strategic_position_score = position_raw.clip(-1, 1)
         # 维度二：过程品质分 (作为调节器)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
         resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights)
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights)
         process_quality_score = ((purity_score + resistance_score) / 2 * (conviction_score.clip(0,1) + 1) / 2).clip(0, 1)
         # 维度三：叙事诚信度分 (作为调节器)
         posture_score = posture_raw.clip(-1, 1)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights)
         narrative_deception_score = (ambush_score * (1 - posture_score.clip(lower=0))).clip(0, 1)
         narrative_integrity_score = (1 - narrative_deception_score)
@@ -644,7 +654,7 @@ class BehavioralIntelligence:
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.1 · Production Ready版】诊断博弈欺骗指数
+        【V2.2 · 归一化函数调用修复版】诊断博弈欺骗指数
         - 核心重构: 废弃V1.2“结果导向”模型，引入基于“认知失调”的全新诊断模型。
         - 核心逻辑: 欺骗分 = (主力真实意图向量 - K线表象剧本向量) * 证据放大器
                       直接量化“意图”与“表象”的背离程度，能识别更高明的欺骗形态。
@@ -653,6 +663,7 @@ class BehavioralIntelligence:
           2. 幕后黑手 (The Hidden Intent): 主力真实的订单流意图 (`main_force_ofi_D`)。
           3. 作案工具 (The Deceptive Tools): 对倒、欺骗等行为 (`deception_lure_long_intensity_D`, `deception_lure_short_intensity_D`, `wash_trade_intensity_D`)，作为放大器。
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
+        - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
         """
         method_name = "_diagnose_deception_index"
         # --- 1. 获取参数 ---
@@ -678,18 +689,20 @@ class BehavioralIntelligence:
         # --- 3. 计算核心组件 ---
         # 组件一：舞台剧本向量
         # 修正 normalize_to_bipolar 的调用参数
-        narrative_vector = normalize_to_bipolar(narrative_raw, 55)
+        narrative_vector = normalize_to_bipolar(narrative_raw, df.index, 55, default_value=0.0)
         # 组件二：幕后意图向量
+        # get_adaptive_mtf_normalized_bipolar_score 内部已处理 df.index
         intent_vector = get_adaptive_mtf_normalized_bipolar_score(intent_raw, df.index, default_weights)
         # 计算认知失调向量 (先计算，以便后续选择欺骗证据)
         cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2
-        # 组件三：证据放大器 (根据认知失调方向选择对应的欺骗强度)
+        # 组件三：证据放大器 (根据认知失调方向选择对应的欺骗证据)
         # MODIFIED LINE: 使用 np.where 替代 mask 进行向量化条件赋值
         relevant_deception_intensity = pd.Series(np.where(
             cognitive_dissonance_vector > 0,
             deception_lure_long_raw,
             np.where(cognitive_dissonance_vector < 0, deception_lure_short_raw, 0.0)
         ), index=df.index)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         deception_evidence_score = get_adaptive_mtf_normalized_score((relevant_deception_intensity + wash_trade_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         evidence_amplifier = 1 + k_amplifier * deception_evidence_score
         # --- 4. 计算认知失调并施加放大器 ---
@@ -720,11 +733,13 @@ class BehavioralIntelligence:
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_price_overextension")
         # --- 2. 计算各维度得分 ---
         # 维度一：内部压力分 (市场狂热)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         winner_rate_score = get_adaptive_mtf_normalized_score(winner_rate_raw, df.index, ascending=True, tf_weights=tf_weights)
         price_accel_score = get_adaptive_mtf_normalized_score(price_accel_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         turnover_score = get_adaptive_mtf_normalized_score(turnover_raw, df.index, ascending=True, tf_weights=tf_weights)
         internal_pressure_score = (winner_rate_score * price_accel_score * turnover_score).pow(1/3)
         # 维度二：结构完整性分 (主力信念与控制力)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=long_term_weights)
         control_solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=long_term_weights)
         conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
@@ -758,6 +773,7 @@ class BehavioralIntelligence:
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_upward_efficiency")
         # --- 3. 计算各维度得分 ---
         # 维度一：战术强攻品质分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
         offensive_efficiency_score = get_adaptive_mtf_normalized_score(offensive_efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
         suppression_score = get_adaptive_mtf_normalized_score(suppression_raw, df.index, ascending=True, tf_weights=tf_weights)
@@ -767,6 +783,7 @@ class BehavioralIntelligence:
             (suppression_score + 1e-9).pow(0.3)
         ).fillna(0.0)
         # 维度二：战略环境地形分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=tf_weights)
         loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
         strategic_resistance_score = (
@@ -802,6 +819,7 @@ class BehavioralIntelligence:
         cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_downward_resistance")
         # --- 3. 计算各维度得分 ---
         # 维度一：战术应对能力分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         passive_absorption_score = get_adaptive_mtf_normalized_score(passive_absorption_raw, df.index, ascending=True, tf_weights=tf_weights)
         active_defense_score = get_adaptive_mtf_normalized_score(active_defense_raw, df.index, ascending=True, tf_weights=tf_weights)
         counter_attack_score = get_adaptive_mtf_normalized_score(counter_attack_raw, df.index, ascending=True, tf_weights=tf_weights)
@@ -811,6 +829,7 @@ class BehavioralIntelligence:
             (counter_attack_score + 1e-9).pow(0.4)
         ).fillna(0.0)
         # 维度二：战略意图分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         cleansing_score = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=tf_weights)
         strategic_intent_score = (
@@ -837,6 +856,7 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 修正键名 'long_term_weights' 为 'long_term_stability'
         long_term_weights = get_param_value(p_mtf.get('long_term_stability'), {'21': 0.5, '55': 0.3, '89': 0.2})
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         price_breakthrough_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         ma_slope_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'SLOPE_5_EMA_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength"), df.index, ascending=True, tf_weights=default_weights)
         bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
@@ -863,6 +883,7 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         absorption_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True, tf_weights=default_weights)
         absorption_control = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True, tf_weights=default_weights)
         absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
@@ -910,7 +931,9 @@ class BehavioralIntelligence:
         ofi_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name=method_name)
         buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
         sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
+        # get_adaptive_mtf_normalized_bipolar_score 内部已处理 df.index
         ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df.index, default_weights)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
         sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
         bullish_core_intent = (ofi_score.clip(lower=0) * core_intent_weights.get('ofi', 0.6) + buy_sweep_score * core_intent_weights.get('quote_exhaustion', 0.4))
@@ -922,8 +945,10 @@ class BehavioralIntelligence:
         if self._validate_required_signals(df, required_signals_env, method_name):
             atr_raw = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name)
             volume_ratio_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
+            # get_adaptive_mtf_normalized_score 内部已处理 df.index
             volatility_score = get_adaptive_mtf_normalized_score(atr_raw, df.index, ascending=True, tf_weights=default_weights)
             liquidity_score = (1 - get_adaptive_mtf_normalized_score(volume_ratio_raw, df.index, ascending=True, tf_weights=default_weights))
+            # 修改结束
             environmental_adaptability_factor_raw = (
                 volatility_score * env_adapt_weights.get('volatility_sensitivity', 0.5) +
                 liquidity_score * env_adapt_weights.get('liquidity_sensitivity', 0.5)
@@ -939,9 +964,11 @@ class BehavioralIntelligence:
             deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name) # 新增行
             # 综合欺骗强度，取两者最大值作为惩罚因子 # 新增行
             deception_raw = pd.concat([deception_lure_long_raw, deception_lure_short_raw], axis=1).max(axis=1) # 新增行
+            # get_adaptive_mtf_normalized_score 内部已处理 df.index
             upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             downward_purity_score = get_adaptive_mtf_normalized_score(downward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             deception_score = get_adaptive_mtf_normalized_score(deception_raw, df.index, ascending=True, tf_weights=default_weights) # 修改行
+            # 修改结束
             
             # MODIFIED LINE: 使用 np.where 替代 mask
             purity_coherence = pd.Series(np.where(
@@ -953,7 +980,6 @@ class BehavioralIntelligence:
                     0.5
                 )
             ), index=df.index)
-
             deception_penalty_factor = (1 - deception_score * behavior_coherence_weights.get('deception_penalty', 0.3)).clip(0, 1)
             behavioral_coherence_factor_raw = (
                 purity_coherence * behavior_coherence_weights.get('impulse_purity', 0.7) +
@@ -993,18 +1019,22 @@ class BehavioralIntelligence:
         winner_stability_slope_raw = self._get_safe_series(df, 'SLOPE_5_winner_stability_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
         # --- 2. 维度一：微观战局僵持 (Micro-Battlefield Stalemate) ---
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=default_weights)
         bullish_exhaustion_score = (inefficiency_score * momentum_decay_score * chip_fatigue_score).pow(1/3).fillna(0.0)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df_index, ascending=True, tf_weights=default_weights)
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df_index, ascending=True, tf_weights=default_weights)
         mf_alpha_filtered = self._apply_neutral_zone_filter(mf_alpha_raw, alpha_threshold)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         mf_distribution_evidence = get_adaptive_mtf_normalized_score(mf_alpha_filtered.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         bearish_ambush_score = (rally_pressure_score * upper_shadow_score * mf_distribution_evidence).pow(1/3).fillna(0.0)
         total_energy = (bullish_exhaustion_score + bearish_ambush_score) / 2
         balance_factor = 1 - (bullish_exhaustion_score - bearish_ambush_score).abs()
         micro_stalemate_score = (total_energy * balance_factor).fillna(0.0)
         # --- 3. 维度二：宏观信念动摇 (Macro-Conviction Erosion) ---
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate_raw, df_index, ascending=True, tf_weights=default_weights)
         conviction_decay_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         instability_score = get_adaptive_mtf_normalized_score(winner_stability_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
@@ -1043,12 +1073,15 @@ class BehavioralIntelligence:
         intent_covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         # --- 3. 计算各幕得分 ---
         # 第一幕：剧本品质分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         script_quality_score = get_adaptive_mtf_normalized_score(script_raw, df.index, ascending=True, tf_weights=default_weights)
         # 第二幕：表演品质分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         performance_active_score = get_adaptive_mtf_normalized_score(performance_active_raw, df.index, ascending=True, tf_weights=default_weights)
         performance_dip_score = get_adaptive_mtf_normalized_score(performance_dip_raw, df.index, ascending=True, tf_weights=default_weights)
         performance_quality_score = (performance_active_score * 0.6 + performance_dip_score * 0.4)
         # 第三幕：导演意图分
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         intent_conviction_score = get_adaptive_mtf_normalized_score(intent_conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         intent_covert_ops_score = get_adaptive_mtf_normalized_score(intent_covert_ops_raw, df.index, ascending=True, tf_weights=default_weights)
         directors_intent_score = (
@@ -1083,10 +1116,12 @@ class BehavioralIntelligence:
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         fingerprint_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_distribution_intent")
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=default_weights)
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
         weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         tactical_risk_score = (
             (motive_score + 1e-9).pow(0.2) *
@@ -1098,11 +1133,14 @@ class BehavioralIntelligence:
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_distribution_intent")
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_distribution_intent")
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_distribution_intent")
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         vitality_score = get_adaptive_mtf_normalized_score(vitality_raw, df.index, ascending=True, tf_weights=default_weights)
         bullish_fatigue_score = ((1 - vitality_score) * overextension_raw).pow(0.5)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=default_weights)
         solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=default_weights)
         fortress_decay_score = ((1 - stability_score) * (1 - solidity_score)).pow(0.5)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         commanders_betrayal_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         strategic_risk_score = (
             bullish_fatigue_score * env_weights.get('fatigue', 0.4) +
@@ -1117,7 +1155,7 @@ class BehavioralIntelligence:
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
-        【V5.1 · 诡道反击协议】诊断伏击式反攻信号。
+        【V5.2 · 归一化函数调用修复版】诊断伏击式反攻信号。
         - 核心重构: 引入“脆弱战场 × 幽灵诡计 × 突袭品质”的全新三维诊断框架。
         - 诊断三维度:
           1. 脆弱战场 (Vulnerable Battlefield): 评估市场先前的脆弱性（恐慌、短期下跌趋势/价格停滞、亏损盘痛苦）。
@@ -1125,6 +1163,7 @@ class BehavioralIntelligence:
           3. 突袭品质 (Strike Quality): 评估反攻的有效性与纯粹性（收盘强度、上涨脉冲纯度）。
         - 数学模型: 伏击反攻分 = (脆弱战场分^W1 * 幽灵诡计分^W2 * 突袭品质分^W3)
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
+        - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
         """
         method_name = "_diagnose_ambush_counterattack"
         # --- 1. 获取参数 ---
@@ -1156,10 +1195,12 @@ class BehavioralIntelligence:
         stagnation_slope_raw = self._get_safe_series(df, f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D', 0.0, method_name=method_name)
         bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name=method_name)
         # --- 3. 维度一：脆弱战场 (Vulnerable Battlefield) ---
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         panic_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=default_weights)
         prior_weakness_score = get_adaptive_mtf_normalized_score(prior_weakness_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
         bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df.index, ascending=False, tf_weights=default_weights)
+        # 修改结束
         price_stagnation_score = pd.Series(0.0, index=df.index)
         price_stagnation_condition = (stagnation_slope_raw.abs() < price_stagnation_params.get("max_abs_slope_threshold", 0.005)) & \
                                      (bbw_score > (1 - price_stagnation_params.get("max_bbw_score_threshold", 0.3)))
@@ -1173,15 +1214,20 @@ class BehavioralIntelligence:
         # --- 4. 维度二：幽灵诡计 (Phantom Trick) ---
         absorption_score = offensive_absorption_intent
         # 对于看涨的伏击反攻，我们关注的是“诱空”或“制造弱势假象”的欺骗，这对应于deception_index的负向部分 # 修改行
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         deceptive_narrative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights) # 修改行
+        # 修改结束
         deceptive_action_score = (
             (absorption_score + 1e-9).pow(action_weights.get('absorption', 0.6)) *
             (deceptive_narrative_score + 1e-9).pow(action_weights.get('deception_positive', 0.4))
         ).pow(1/(action_weights.get('absorption', 0.6) + action_weights.get('deception_positive', 0.4))).fillna(0.0)
         # --- 5. 维度三：突袭品质 (Strike Quality) ---
-        # 修正 normalize_score 的调用参数
-        closing_strength_score = normalize_score(closing_strength_raw, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        closing_strength_score = normalize_score(closing_strength_raw, df.index, 55, default_value=0.5)
+        # 修改结束
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         counterattack_quality_score = (
             (closing_strength_score + 1e-9).pow(quality_weights.get('closing_strength', 0.6)) *
             (upward_purity_score + 1e-9).pow(quality_weights.get('upward_purity', 0.4))
@@ -1257,11 +1303,15 @@ class BehavioralIntelligence:
         rsi_slope_raw = self._get_safe_series(df, 'SLOPE_5_RSI_13_D', 0.0, method_name=method_name)
         bias_raw = self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name=method_name)
         # --- 2. 计算各要素得分 ---
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
         market_weakness_score = get_adaptive_mtf_normalized_score(trend_vitality_raw, df.index, ascending=False, tf_weights=default_weights)
+        # 修改结束
         lure_score_modulated = (lure_score * (1 + market_weakness_score * lure_weakness_multiplier)).clip(0, 1)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         weak_buying_support_score = (1 - get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
         declining_impulse_purity_score = (1 - get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
+        # 修改结束
         covert_ambush_intent_score = (
             weak_buying_support_score * covert_ambush_intent_weights.get('weak_buying_support', 0.6) +
             declining_impulse_purity_score * covert_ambush_intent_weights.get('declining_impulse_purity', 0.4)
@@ -1274,7 +1324,9 @@ class BehavioralIntelligence:
         behavioral_momentum_divergence_raw.loc[bullish_divergence_mask] = \
             close_slope_raw.loc[bullish_divergence_mask].abs() * behavioral_momentum_divergence_weights.get('price_slope_weight', 0.5) + \
             rsi_slope_raw.loc[bullish_divergence_mask].abs() * behavioral_momentum_divergence_weights.get('rsi_slope_weight', 0.5)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         behavioral_momentum_divergence_score = get_adaptive_mtf_normalized_score(behavioral_momentum_divergence_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         # 将行为动量背离融入 ambush_score
         ambush_fusion_weights['behavioral_momentum_divergence'] = ambush_fusion_weights.get('behavioral_momentum_divergence', 0.1) # 确保键存在
         ambush_score = (
@@ -1286,11 +1338,15 @@ class BehavioralIntelligence:
         mf_abandonment_score = pd.Series(0.0, index=df.index) # 设为0，不再参与计算
         positive_deception_score = deception_raw.clip(lower=0)
         retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name) # 确保 retail_fomo_raw 已定义
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         # 计算行为情绪极端信号
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         norm_retail_fomo_extreme = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         norm_rsi_extreme = get_adaptive_mtf_normalized_score(rsi_raw.clip(70, 100), df.index, ascending=True, tf_weights=default_weights) # RSI > 70 视为极端
         norm_bias_extreme = get_adaptive_mtf_normalized_score(bias_raw.clip(0.1, 1.0), df.index, ascending=True, tf_weights=default_weights) # BIAS > 0.1 视为极端
+        # 修改结束
         behavioral_sentiment_extreme_score = (
             norm_retail_fomo_extreme * behavioral_sentiment_extreme_weights.get('retail_fomo', 0.4) +
             norm_rsi_extreme * behavioral_sentiment_extreme_weights.get('rsi_extreme', 0.3) +
@@ -1305,8 +1361,10 @@ class BehavioralIntelligence:
             behavioral_sentiment_extreme_score * context_amplifier_weights.get('behavioral_sentiment_extreme', 0.3)
         ).clip(0, 1)
         # --- 3. 核心风险基准分合成 ---
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         normalized_volatility = get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=default_weights)
         normalized_inverse_trend_vitality = (1 - get_adaptive_mtf_normalized_score(trend_vitality_raw, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
+        # 修改结束
         adaptive_dynamic_risk_weight_exponent = (
             base_dynamic_risk_weight_exponent +
             normalized_volatility * volatility_exponent_multiplier +
@@ -1341,8 +1399,10 @@ class BehavioralIntelligence:
             risk_ema = core_risk_base_initial.ewm(span=risk_ema_span, adjust=False).mean()
             risk_trend = risk_ema.diff(risk_trend_slope_window).fillna(0.0)
             risk_momentum = risk_trend.diff(risk_momentum_diff_window).fillna(0.0)
+            # 修改开始：get_adaptive_mtf_normalized_bipolar_score 内部已处理 df.index
             risk_trend_score = get_adaptive_mtf_normalized_bipolar_score(risk_trend, df.index, default_weights)
             risk_momentum_score = get_adaptive_mtf_normalized_bipolar_score(risk_momentum, df.index, default_weights)
+            # 修改结束
             risk_dynamic_modulator = (
                 1 +
                 (risk_trend_score * risk_trend_mod_multiplier) +
@@ -1397,11 +1457,15 @@ class BehavioralIntelligence:
         deception_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0, method_name=method_name) # 修改行: 使用 _diagnose_deception_index 的输出
         # --- 3. 计算牛市背离 (价格下跌趋势 vs 信念上升趋势) ---
         # 维度一：背离深度与广度 (Magnitude)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         price_downtrend_score = get_adaptive_mtf_normalized_score(bullish_price_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         conviction_uptrend_score = get_adaptive_mtf_normalized_score(bullish_conviction_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         bullish_magnitude_score = (price_downtrend_score * conviction_uptrend_score).pow(0.5).fillna(0.0)
         # 维度二：战略位置 (Location)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         bullish_location_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         # 维度三：双重确认 (Dual Confirmation)
         bullish_absorption_confirmation_score = absorption_strength
         bullish_micro_intent_confirmation_score = micro_intent_raw.clip(lower=0)
@@ -1414,22 +1478,28 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         # --- 5. 计算熊市背离 (价格上升趋势 vs 信念下降趋势) ---
         # 维度一：背离深度与广度 (Magnitude)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         price_uptrend_score = get_adaptive_mtf_normalized_score(bearish_price_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         conviction_downtrend_score = get_adaptive_mtf_normalized_score(bearish_conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         bearish_magnitude_score = (price_uptrend_score * conviction_downtrend_score).pow(0.5).fillna(0.0)
         # 维度二：战略位置 (Location)
         winner_instability_raw = 1 - winner_stability_raw
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         bearish_location_score = get_adaptive_mtf_normalized_score(winner_instability_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         # 维度三：三重确认 (Triple Confirmation)
         bearish_distribution_confirmation_score = distribution_intent
         bearish_micro_intent_confirmation_score = micro_intent_raw.clip(upper=0).abs()
         # 对于看跌背离，我们关注的是“诱多”或“制造强势假象”的欺骗，这对应于deception_index的负向部分 # 修改行
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         deceptive_narrative_confirmation_score = get_adaptive_mtf_normalized_score(
             deception_raw.clip(upper=0).abs(), # 修改行
             df.index,
             ascending=True,
             tf_weights=default_weights
         )
+        # 修改结束
         # --- 6. 熊市背离品质合成 ---
         bearish_divergence_quality = (
             (bearish_magnitude_score + 1e-9).pow(fusion_weights.get('magnitude', 0.4)) *
@@ -1461,11 +1531,15 @@ class BehavioralIntelligence:
         efficiency_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_calculate_volume_burst_quality")
         result_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_volume_burst_quality")
         # 2.2 计算战术各要素得分
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
         conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改结束
         # 修正 normalize_score 的调用参数
-        result_score = normalize_score(result_raw, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        result_score = normalize_score(result_raw, df.index, 55, default_value=0.5)
+        # 修改结束
         # 2.3 合成战术强攻品质分
         tactical_assault_quality_score = (
             (magnitude_score + 1e-9) * (conviction_score + 1e-9) *
@@ -1476,8 +1550,10 @@ class BehavioralIntelligence:
         chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_calculate_volume_burst_quality")
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_burst_quality")
         # 3.2 计算战略阻力各要素得分
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=tf_weights)
         loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改结束
         # 3.3 合成滩头阵地阻力指数
         beachhead_resistance_score = (
             chip_fatigue_score * strategic_weights.get('chip_fatigue', 0.6) +
@@ -1515,18 +1591,25 @@ class BehavioralIntelligence:
         # --- 3. 计算核心组件 ---
         # 组件一：战略环境门控 (The Furnace Check)
         # 只有当多头至少取得平局或优势时，门控才开启
-        # 修正 normalize_score 的调用参数
-        strategic_context_gate = normalize_score(vwap_control_raw, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        strategic_context_gate = normalize_score(vwap_control_raw, df.index, 55, default_value=0.5)
+        # 修改结束
         # 组件二：基础萎缩分
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         base_atrophy_score = 1 - get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改结束
         # 组件三：筹码纯度诊断 (The Purity Test)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         lockup_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
         exhaustion_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
         cleansing_score = get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改结束
         purity_score = ((lockup_score + 1e-9) * (exhaustion_score + 1e-9) * (cleansing_score + 1e-9)).pow(1/3).fillna(0.0)
         # 组件四：过程稳定性封印 (The Stability Seal)
         price_volatility = close_price.pct_change().rolling(window=stability_window).std().fillna(0)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         normalized_volatility = get_adaptive_mtf_normalized_score(price_volatility, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改结束
         stability_score = (1 - normalized_volatility).clip(0, 1)
         # --- 4. 最终品质合成 ---
         quality_modulator = (
@@ -1562,16 +1645,22 @@ class BehavioralIntelligence:
         intent_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_absorption_strength")
         # --- 3. 计算各维度得分 ---
         # 维度一：地基品质分
-        foundation_score = get_adaptive_mtf_normalized_score(foundation_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
+        foundation_score = get_adaptive_mtf_normalized_score(foundation_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         # 维度二：构筑行动分
-        action_dip_score = get_adaptive_mtf_normalized_score(action_dip_raw, df.index, ascending=True, tf_weights=tf_weights)
-        action_active_score = get_adaptive_mtf_normalized_score(action_active_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
+        action_dip_score = get_adaptive_mtf_normalized_score(action_dip_raw, df.index, ascending=True, tf_weights=default_weights)
+        action_active_score = get_adaptive_mtf_normalized_score(action_active_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         construction_action_score = (
             action_dip_score * action_weights.get('dip_absorption', 0.6) +
             action_active_score * action_weights.get('active_buying', 0.4)
         )
         # 维度三：总督意志分
-        governors_will_score = get_adaptive_mtf_normalized_score(intent_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
+        governors_will_score = get_adaptive_mtf_normalized_score(intent_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         # --- 4. “堡垒协议”三维合成 ---
         absorption_strength = (
             (foundation_score + 1e-9) *
@@ -1786,7 +1875,7 @@ class BehavioralIntelligence:
         volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1) # 两种情况叠加
         # 4. 日内控制力减弱 (Intraday Control Weakness)
         upward_efficiency_decay_penalty = stagnation_params.get('upward_efficiency_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
-        intraday_control_decay_penalty = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
+        intraday_control_decay_bonus = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
         # 上涨效率衰减 (效率越低，滞涨风险越高)
         norm_upward_efficiency_decay = (1 - upward_efficiency).clip(0, 1) * upward_efficiency_decay_penalty
         # 日内多头控制力减弱 (控制力越弱，滞涨风险越高)
@@ -1834,9 +1923,13 @@ class BehavioralIntelligence:
         # 维度二：战术行动分
         tactical_action_score = absorption_strength
         # 维度三：执行品质分 (工匠指数)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 修改结束
         # 修正 normalize_score 的调用参数
-        control_score = normalize_score(control_raw, 55) # VWAP控制力本身就是[-1,1]附近，用简单归一化即可
+        # 修改开始：修正 normalize_score 的调用参数
+        control_score = normalize_score(control_raw, df.index, 55, default_value=0.5) # VWAP控制力本身就是[-1,1]附近，用简单归一化即可
+        # 修改结束
         decisiveness_score = ((close - low) / (high - low + 1e-9)).fillna(0.5).clip(0, 1)
         execution_quality_score = (
             efficiency_score * quality_weights.get('efficiency', 0.4) +
@@ -1940,7 +2033,9 @@ class BehavioralIntelligence:
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
         raw_trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
         # 修正 normalize_score 的调用参数
-        trend_vitality = normalize_score(raw_trend_vitality, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        trend_vitality = normalize_score(raw_trend_vitality, df.index, 55, default_value=0.5)
+        # 修改结束
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
         high_price = self._get_safe_series(df, 'high_D', df['close_D'], method_name=method_name)
         low_price = self._get_safe_series(df, 'low_D', df['close_D'], method_name=method_name)
@@ -1954,9 +2049,11 @@ class BehavioralIntelligence:
         internal_price_overextension_raw = self._get_safe_series(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0, method_name=method_name)
         internal_stagnation_evidence_raw = self._get_safe_series(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0, method_name=method_name)
         # 归一化确认因子 (0到1)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
         norm_active_selling = get_adaptive_mtf_normalized_score(active_selling, df.index, ascending=True, tf_weights=tf_weights)
         norm_atr = get_adaptive_mtf_normalized_score(atr_val, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改结束
         # 动态阈值计算
         dynamic_min_divergence_slope_diff = params['min_divergence_slope_diff_base'] + atr_val * params['min_slope_diff_atr_multiplier']
         rsi_oversold_threshold_dynamic = params['rsi_oversold_threshold_base'] - (trend_vitality - 0.5) * params['rsi_oversold_trend_adjust_factor']
@@ -2057,18 +2154,24 @@ class BehavioralIntelligence:
             div_strength_volume * div_weights.get('price_volume', 0.3)
         )
         total_div_strength = total_div_strength.where(total_div_strength > dynamic_min_divergence_slope_diff, 0.0)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         norm_total_div_strength = get_adaptive_mtf_normalized_score(total_div_strength, df.index, ascending=True, tf_weights=tf_weights)
+        # 修改结束
         final_strength_factor = norm_total_div_strength * (1 + accelerated_strength)
         final_strength_factor = final_strength_factor.clip(0, 1.5)
         # 确认因子 (精细化为连续值)
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
+            # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
             rsi_conf = get_adaptive_mtf_normalized_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
             volume_change_conf = get_adaptive_mtf_normalized_score(robust_volume_slope.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+            # 修改结束
             active_flow_conf = norm_active_buying
         else: # Bearish
+            # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
             rsi_conf = get_adaptive_mtf_normalized_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
             volume_change_conf = get_adaptive_mtf_normalized_score(robust_volume_slope.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+            # 修改结束
             active_flow_conf = norm_active_selling
         total_conf_factor = (
             rsi_conf * conf_weights.get('rsi_oversold' if is_bullish else 'rsi_overbought', 0.3) +
@@ -2077,7 +2180,9 @@ class BehavioralIntelligence:
             norm_atr * conf_weights.get('volatility_high', 0.2)
         )
         # 修正 normalize_score 的调用参数
-        norm_total_conf_factor = normalize_score(total_conf_factor, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, 55, default_value=0.5)
+        # 修改结束
         # 行为强度与持续性 - 持续性 (Persistence Factor with Quality)
         persistence_factor = pd.Series(0.0, index=df.index)
         if persistence_params.get('enabled'):
@@ -2103,7 +2208,9 @@ class BehavioralIntelligence:
         bbw_slope_penalty = pd.Series(0.0, index=df.index)
         if structural_context_weights_params.get('enabled'):
             bbw_slope_penalty = robust_bbw_slope.clip(lower=0) * structural_context_weights_params.get('bbw_slope_penalty_factor', 0.1)
+        # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
         structural_context_factor = (1 - get_adaptive_mtf_normalized_score(bbw_slope_penalty, df.index, ascending=True, tf_weights=tf_weights)).clip(0.5, 1)
+        # 修改结束
         # 多级别背离共振 (Multi-Level Divergence Resonance)
         resonance_factor = pd.Series(1.0, index=df.index)
         if multi_level_resonance_params.get('enabled'):
@@ -2193,7 +2300,8 @@ class BehavioralIntelligence:
             short_term_close_slopes = self._get_safe_series(df, f'SLOPE_{mtf_slopes_params.get("periods", [5])[0]}_close_D', 0.0, method_name=method_name)
             slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
             # 修正 normalize_score 的调用参数
-            norm_slope_std_dev = normalize_score(slope_std_dev, 55, ascending=False)
+            # 修改开始：修正 normalize_score 的调用参数
+            norm_slope_std_dev = normalize_score(slope_std_dev, df.index, 55, ascending=False)
             # 修改结束
             purity_penalty = pd.Series(0.0, index=df.index)
             purity_penalty = purity_penalty.mask(
@@ -2210,7 +2318,8 @@ class BehavioralIntelligence:
             adx_div_max_adjust = market_regime_params.get('adx_div_weight_max_adjust', 0.3)
             adx_conf_max_adjust = market_regime_params.get('adx_conf_weight_max_adjust', 0.3)
             # 修正 normalize_score 的调用参数
-            norm_adx = normalize_score(adx_val, 55)
+            # 修改开始：修正 normalize_score 的调用参数
+            norm_adx = normalize_score(adx_val, df.index, 55, default_value=0.5)
             # 修改结束
             dynamic_div_weight_multiplier = 1 + norm_adx * adx_div_max_adjust
             dynamic_conf_weight_multiplier = dynamic_conf_weight_multiplier.mask(
@@ -2310,7 +2419,8 @@ class BehavioralIntelligence:
             long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
             # 修正 normalize_score 的调用参数
-            norm_long_term_slope_std_dev = normalize_score(long_term_slope_std_dev, 55, ascending=False)
+            # 修改开始：修正 normalize_score 的调用参数
+            norm_long_term_slope_std_dev = normalize_score(long_term_slope_std_dev, df.index, 55, ascending=False)
             # 修改结束
             is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
             is_high_inertia_market = is_strong_long_term_trend & is_stable_long_term_slope
@@ -2334,7 +2444,8 @@ class BehavioralIntelligence:
                 is_ranging_market, adaptive_fusion_weight_multiplier * (1 + ranging_bonus_factor)
             )
             # 修正 normalize_score 的调用参数
-            is_high_volatility = (normalize_score(atr_val, 55) > 0.8)
+            # 修改开始：修正 normalize_score 的调用参数
+            is_high_volatility = (normalize_score(atr_val, df.index, 55, default_value=0.5) > 0.8)
             # 修改结束
             adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(
                 is_high_volatility, adaptive_fusion_weight_multiplier * (1 - volatility_high_penalty_factor)

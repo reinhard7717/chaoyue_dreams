@@ -164,7 +164,6 @@ class CyclicalIntelligence:
         # 从 params (cyclical_analysis_params) 中获取 mtf_normalization_weights
         # get_param_value 会自动解包 {'default': {...}} 或 {'weights': {...}}
         default_weights = get_param_value(params.get('mtf_normalization_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1})
-        
         # 如果最终还是空，或者不是字典，则使用硬编码默认值
         if not isinstance(default_weights, dict) or not default_weights:
             default_weights = {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}

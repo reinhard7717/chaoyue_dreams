@@ -94,17 +94,15 @@ class DynamicMechanicsEngine:
         # 将ROC_12_D替换为ROC_13_D
         roc = self._get_safe_series(df, 'ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum")
         macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum")
-        p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        
-        # 修改行：重命名变量并增加健壮性检查
-        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
-            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_momentum' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
-            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
-        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
-
-        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        # 正确获取MTF权重配置
+        p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
+        actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 新增行：健壮性检查
+        if not isinstance(actual_mtf_weights, dict):
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_momentum' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
+            actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        # 将 default_weights 替换为 actual_mtf_weights
         roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, actual_mtf_weights)
         macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, actual_mtf_weights)
         raw_momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
@@ -172,17 +170,15 @@ class DynamicMechanicsEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_inertia"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
-        p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        
-        # 修改行：重命名变量并增加健壮性检查
-        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
-            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_inertia' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
-            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
-        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
-
-        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        # 正确获取MTF权重配置
+        p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
+        actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 新增行：健壮性检查
+        if not isinstance(actual_mtf_weights, dict):
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_inertia' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
+            actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        # 将 default_weights 替换为 actual_mtf_weights
         adx_strength = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0), df.index, True, actual_mtf_weights)
         hurst = self._get_safe_series(df, hurst_col, 0.5).fillna(0.5)
         # hurst_quality的计算依赖于hurst，这里无需修改
@@ -225,20 +221,18 @@ class DynamicMechanicsEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
-        p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        
-        # 修改行：重命名变量并增加健壮性检查
-        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
-            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_stability' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
-            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
-        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
-
+        # 正确获取MTF权重配置
+        p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
+        actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 新增行：健壮性检查
+        if not isinstance(actual_mtf_weights, dict):
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_stability' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
+            actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0)
         atr_pct = self._get_safe_series(df, 'ATR_14_D', 0.0) / self._get_safe_series(df, 'close_D', 1e-9).replace(0, np.nan)
         raw_volatility = (bbw + atr_pct).fillna(0)
-        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        # 将 default_weights 替换为 actual_mtf_weights
         volatility_level_score = get_adaptive_mtf_normalized_score(raw_volatility, df.index, ascending=True, tf_weights=actual_mtf_weights)
         raw_stability_score = 1 - volatility_level_score
         raw_ma_tension = self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.5)
@@ -280,17 +274,15 @@ class DynamicMechanicsEngine:
         vpa = self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5)
         cmf = self._get_safe_series(df, 'CMF_21_D', 0.0)
         vpa_bipolar = (vpa * 2 - 1).clip(-1, 1)
-        p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        
-        # 修改行：重命名变量并增加健壮性检查
-        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
-            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_energy' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
-            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
-        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
-
-        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        # 正确获取MTF权重配置
+        p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
+        actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 新增行：健壮性检查
+        if not isinstance(actual_mtf_weights, dict):
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_energy' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
+            actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        # 将 default_weights 替换为 actual_mtf_weights
         cmf_bipolar = get_adaptive_mtf_normalized_bipolar_score(cmf, df.index, actual_mtf_weights)
         raw_energy_score = (vpa_bipolar * 0.5 + cmf_bipolar * 0.5).clip(-1, 1)
         raw_credibility = self._get_safe_series(df, 'flow_credibility_index_D', 0.5)
@@ -302,7 +294,7 @@ class DynamicMechanicsEngine:
         )
         z_score, z_tension = self._get_mtf_calibrated_z_score(composite_quality_raw, p_conf_dyn)
         base_quality_score = (np.tanh(z_score) + 1) / 2
-        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        # 将 default_weights 替换为 actual_mtf_weights
         wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, True, actual_mtf_weights).clip(0, 1)
         energy_quality_modulator = (base_quality_score * wash_trade_penalty_factor).clip(0, 1)
         final_energy_score = (raw_energy_score * energy_quality_modulator).clip(-1, 1)
@@ -333,17 +325,15 @@ class DynamicMechanicsEngine:
         df_index = df.index
         velocity_raw = self._get_safe_series(df, velocity_col, 0.0, method_name="_diagnose_axiom_ma_dynamics")
         acceleration_raw = self._get_safe_series(df, acceleration_col, 0.0, method_name="_diagnose_axiom_ma_dynamics")
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        
-        # 修改行：重命名变量并增加健壮性检查
-        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
-            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_ma_dynamics' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
-            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
-        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
-
-        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        # 正确获取MTF权重配置
+        p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
+        actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 新增行：健壮性检查
+        if not isinstance(actual_mtf_weights, dict):
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_ma_dynamics' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
+            actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        # 将 default_weights 替换为 actual_mtf_weights
         velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, actual_mtf_weights)
         acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, actual_mtf_weights)
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)

@@ -234,9 +234,8 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V11.5 · 变量定义修复版】计算全局的底部和顶部上下文分数
-    - 核心修复: 在函数体内增加了对 `norm_window` 变量的定义。该变量在“元动力”奖励逻辑中被使用，
-                  但在此前的版本中被遗漏，导致了 NameError。
+    【V11.6 · 归一化函数调用修复版】计算全局的底部和顶部上下文分数
+    - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名，避免参数错位和未定义参数的错误。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -265,7 +264,9 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     distance_from_ma55 = (df[close_col] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
     lifeline_support_score_raw = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
     lifeline_support_score = lifeline_support_score_raw * slope_moderator
-    price_pos_yearly = normalize_score(df[close_col], df.index, window=250, ascending=True, default_value=0.5)
+    # 修正 normalize_score 调用
+    price_pos_yearly = normalize_score(df[close_col], df.index, 250, ascending=True, default_value=0.5)
+    # 修改结束
     absolute_value_zone_score = 1.0 - price_pos_yearly
     deep_bottom_context_score_values = np.maximum.reduce([
         lifeline_support_score.values,
@@ -273,7 +274,9 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
     rsi_w_col = 'RSI_13_W'
-    rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
+    # 修正 normalize_score 调用
+    rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, 52, ascending=False, default_value=0.5)
+    # 修改结束
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
     context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
@@ -300,7 +303,9 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         bonus_factor = get_param_value(p_meta.get('bonus_factor'), 0.3)
         meta_dynamics_col = f'SLOPE_{short_slope_p}_EMA_{long_ma_p}_D'
         if meta_dynamics_col in df.columns:
-            deceleration_score = normalize_score(df[meta_dynamics_col], df.index, window=norm_window, ascending=True)
+            # 修正 normalize_score 调用
+            deceleration_score = normalize_score(df[meta_dynamics_col], df.index, norm_window, ascending=True)
+            # 修改结束
             meta_dynamics_bonus = (deceleration_score * is_deep_bearish_zone * bonus_factor)
             bottom_context_score_raw = (bottom_context_score_raw + meta_dynamics_bonus).clip(0, 1)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
@@ -395,11 +400,8 @@ def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Inde
 
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
     """
-    【V2.3 · 赫尔墨斯之翼优化版】全息动态计算引擎
-    - 战略意义: 捕捉一个指标的“动态画像”，不仅看它的值，更看它的“速度变化”(加速度)和“力量变化”(加加速度/Jerk)。
-                这使得系统能区分“匀速上涨”和“加速上涨”，从而识别趋势的真实动能。
-    - 性能优化: 1. 使用`np.sqrt`替代`**0.5`，提高代码可读性。
-                  2. 确保所有返回的Series都为float32类型。
+    【V2.4 · 归一化函数调用修复版】全息动态计算引擎
+    - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
     """
     # 创建一个默认的Series，用于在df.get找不到列时返回，构建双重保险
     default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -407,14 +409,18 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     slope_1 = df.get(f'SLOPE_1_{base_name}', default_series)
     slope_5 = df.get(f'SLOPE_5_{base_name}', default_series)
     slope_diff = slope_1 - slope_5
+    # 修正 normalize_score 调用
     velocity_accel_score = normalize_score(slope_diff, df.index, norm_window, ascending=True)
     velocity_decel_score = normalize_score(slope_diff, df.index, norm_window, ascending=False)
+    # 修改结束
     # 维度二：力量变化 (加加速度 / Jerk) - 衡量趋势加速度的变化趋势
     accel_1 = df.get(f'ACCEL_1_{base_name}', default_series)
     accel_5 = df.get(f'ACCEL_5_{base_name}', default_series)
     accel_diff = accel_1 - accel_5
+    # 修正 normalize_score 调用
     jerk_accel_score = normalize_score(accel_diff, df.index, norm_window, ascending=True)
     jerk_decel_score = normalize_score(accel_diff, df.index, norm_window, ascending=False)
+    # 修改结束
     # 融合：两大维度必须共振，形成合力
     # 使用np.sqrt，意图更清晰
     bullish_holographic_score = np.sqrt(velocity_accel_score * jerk_accel_score).astype(np.float32)
@@ -510,8 +516,8 @@ def transmute_health_to_ultimate_signals(
 
 def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V2.2 · MA基准版】多维新高上下文分数计算器
-    - 将趋势确认的均线斜率基准从 EMA 替换为 MA。
+    【V2.3 · 归一化函数调用修复版】多维新高上下文分数计算器
+    - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -529,7 +535,8 @@ def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
         ma_slope_col = f'SLOPE_{p}_MA_{p}_D'
         if ma_slope_col not in df.columns: ma_slope_col = f'SLOPE_{p}_close_D'
         ma_slope = df.get(ma_slope_col, pd.Series(0, index=df.index))
-        ma_slope_score = normalize_score(ma_slope, df.index, window=p*2, ascending=True)
+        # 修正 normalize_score 调用
+        ma_slope_score = normalize_score(ma_slope, df.index, p*2, ascending=True)
         bias_period = 21 if p <= 21 else 55
         bias_col = f'BIAS_{bias_period}_D'
         bias_threshold = bias_thresholds.get(str(bias_period), 0.2)
@@ -549,9 +556,8 @@ def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
 
 def calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
     """
-    【V3.0 · 伊卡洛斯协议版】趋势确认上下文计算器 (波塞冬三叉戟)
-    - 核心革命: 签署“伊卡洛斯协议”，将“趋势健康度(BIAS)”从确认逻辑中剥离，避免因趋势过热导致确认失效的“伊卡洛斯问题”。
-    - 新核心逻辑: 趋势确认分 = 趋势强度分 * 趋势方向分。一个纯粹的、只判断趋势是否存在及方向的强大引擎。
+    【V3.1 · 归一化函数调用修复版】趋势确认上下文计算器 (波塞冬三叉戟)
+    - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -559,7 +565,9 @@ def calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_wi
     # 叉戟一: 趋势强度 (ADX) - 浪潮有多高？
     adx = df.get('ADX_14_D', pd.Series(0, index=df.index))
     is_trending = (adx > adx_threshold).astype(np.float32)
-    strength_score = normalize_score(adx, df.index, window=norm_window, ascending=True) * is_trending
+    # 修正 normalize_score 调用
+    strength_score = normalize_score(adx, df.index, norm_window, ascending=True) * is_trending
+    # 修改结束
     # 叉戟二: 趋势方向 (PDI/NDI) - 浪潮往哪边涌？
     pdi = df.get('PDI_14_D', pd.Series(0, index=df.index))
     ndi = df.get('NDI_14_D', pd.Series(0, index=df.index))
@@ -605,8 +613,8 @@ def calculate_tactical_reversal_score(
 
 def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
     """
-    【V1.1 · MA基准版】动态反转上下文计算器 (二阶求导引擎)
-    - 将二阶求导的均线基准从 EMA 替换为 MA。
+    【V1.2 · 归一化函数调用修复版】动态反转上下文计算器 (二阶求导引擎)
+    - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -621,10 +629,14 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     ma_distance = df[short_ma_col] - df[mid_ma_col]
     ma_distance_slope = ma_distance.diff(slope_period).fillna(0)
-    distance_accel_score = normalize_score(ma_distance_slope, df.index, window=norm_window, ascending=True)
+    # 修正 normalize_score 调用
+    distance_accel_score = normalize_score(ma_distance_slope, df.index, norm_window, ascending=True)
+    # 修改结束
     short_ma_slope = df[short_ma_slope_col]
     short_ma_slope_accel = short_ma_slope.diff(slope_period).fillna(0)
-    slope_accel_score = normalize_score(short_ma_slope_accel, df.index, window=norm_window, ascending=True)
+    # 修正 normalize_score 调用
+    slope_accel_score = normalize_score(short_ma_slope_accel, df.index, norm_window, ascending=True)
+    # 修改结束
     dynamic_reversal_score = (
         distance_accel_score * weights.get('distance_accel', 0.5) +
         slope_accel_score * weights.get('slope_accel', 0.5)
@@ -819,8 +831,8 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
 
 def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistance_line: pd.Series) -> pd.Series:
     """
-    【V1.2 · 参数校准版】通用拒绝质量评估引擎 (阿波罗之箭)
-    - 核心修复: 修正了 'icarus_fall' 的参数名，使其能正确读取配置文件中的 'icarus_fall_base_score'。
+    【V1.3 · 归一化函数调用修复版】通用拒绝质量评估引擎 (阿波罗之箭)
+    - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
     """
     influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
     rejection_base_score = get_param_value(params.get('rejection_base_score'), 0.4)
@@ -856,7 +868,9 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
     rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
     rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
     volume_ratio = df[vol_col] / df[ares_vol_ma_col].replace(0, np.nan)
-    proportional_volume_score = normalize_score(volume_ratio, df.index, window=cooldown_reset_volume_ma_period, ascending=True)
+    # 修正 normalize_score 调用
+    proportional_volume_score = normalize_score(volume_ratio, df.index, cooldown_reset_volume_ma_period, ascending=True)
+    # 修改结束
     dynamic_volume_contribution = rejection_volume_weight * proportional_volume_score
     volume_mask = base_rejection_condition & has_dominance & has_volume_spike
     rejection_quality_score.loc[volume_mask] += dynamic_volume_contribution.loc[volume_mask]
@@ -877,6 +891,10 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_weights: dict, ascending: bool = True) -> pd.Series:
+    """
+    【V1.1 · 归一化函数调用修复版】自适应多时间框架归一化分数计算器
+    - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
+    """
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     # 过滤并准备权重和窗口
@@ -894,7 +912,8 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
     # 计算所有有效窗口的归一化分数，并进行加权
     normalized_results = {}
     for window, weight in valid_windows_weights:
-        normalized_score_window = normalize_score(series, window, ascending)
+        # 修正 normalize_score 调用
+        normalized_score_window = normalize_score(series, index, window, ascending)
         # 确保所有 Series 都与目标索引对齐并填充 NaN，然后乘以权重
         normalized_results[window] = normalized_score_window.reindex(index).fillna(0.0) * weight
     # 将所有加权分数转换为 DataFrame 并进行向量化求和
@@ -911,6 +930,10 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
     return final_scores.astype(np.float32)
 
 def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index, tf_weights: dict, sensitivity: float = 1.0) -> pd.Series:
+    """
+    【V1.1 · 归一化函数调用修复版】自适应多时间框架双极归一化分数计算器
+    - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
+    """
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     valid_windows_weights = []
@@ -926,7 +949,8 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         return pd.Series(0.0, index=index)
     normalized_results = {}
     for window, weight in valid_windows_weights:
-        normalized_score_window = normalize_to_bipolar(series, window, sensitivity)
+        # 修正 normalize_to_bipolar 调用
+        normalized_score_window = normalize_to_bipolar(series, index, window, sensitivity)
         normalized_results[window] = normalized_score_window.reindex(index).fillna(0.0) * weight
     if not normalized_results:
         return pd.Series(0.0, index=index)
@@ -939,18 +963,23 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         final_scores = pd.Series(0.0, index=index)
     return final_scores.astype(np.float32)
 
-def normalize_score(series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
+def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
     """
-    对序列进行滚动窗口内的排名归一化，并进行零值隔离。
+    【V1.1 · 统一参数版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
+    - 核心升级: 统一了参数签名，增加了 `target_index` 和 `default_value`，确保与 `get_robust_bipolar_normalized_score` 等函数接口一致。
     参数:
         series (pd.Series): 原始数据序列。
+        target_index (pd.Index): 目标索引，用于对齐返回的Series。
         window (int): 滚动窗口大小。
         ascending (bool): 如果为True，则值越大排名越高；如果为False，则值越小排名越高。
+        default_value (float): 当Series为空或计算结果为NaN时填充的默认值。
     返回:
         pd.Series: 归一化后的分数序列，范围在 [0, 1]。
     """
+    # 使用 target_index 处理空 Series
     if not isinstance(series, pd.Series) or series.empty:
-        return pd.Series(0.0, index=series.index if isinstance(series, pd.Series) else [])
+        return pd.Series(default_value, index=target_index)
+    # 修改结束
     # 对齐填充，确保窗口计算有足够数据
     padded_series = series.fillna(method='ffill').fillna(method='bfill')
     # 滚动排名
@@ -959,20 +988,27 @@ def normalize_score(series: pd.Series, window: int, ascending: bool = True) -> p
     )
     # 归一化到 [0, 1]
     normalized_series = ranked_series.clip(0, 1)
-    return normalized_series
+    # 确保返回的Series索引正确并填充缺失值
+    return normalized_series.reindex(target_index).fillna(default_value)
+    # 修改结束
 
-def normalize_to_bipolar(series: pd.Series, window: int, sensitivity: float = 1.0) -> pd.Series:
+def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
     """
-    将序列归一化到 [-1, 1] 的双极范围，使用滚动Z-score和Tanh函数。
+    【V1.1 · 统一参数版】将序列归一化到 [-1, 1] 的双极范围，使用滚动Z-score和Tanh函数。
+    - 核心升级: 统一了参数签名，增加了 `target_index` 和 `default_value`，确保与 `get_robust_bipolar_normalized_score` 等函数接口一致。
     参数:
         series (pd.Series): 原始数据序列。
+        target_index (pd.Index): 目标索引，用于对齐返回的Series。
         window (int): 滚动窗口大小。
         sensitivity (float): Tanh函数的敏感度参数，用于调整分数对Z-score变化的响应程度。
+        default_value (float): 当Series为空或计算结果为NaN时填充的默认值。
     返回:
         pd.Series: 归一化后的双极分数序列，范围在 [-1, 1]。
     """
+    # 使用 target_index 处理空 Series
     if not isinstance(series, pd.Series) or series.empty:
-        return pd.Series(0.0, index=series.index if isinstance(series, pd.Series) else [])
+        return pd.Series(default_value, index=target_index)
+    # 修改结束
     # 对齐填充，确保窗口计算有足够数据
     padded_series = series.fillna(method='ffill').fillna(method='bfill')
     # 零值隔离：如果原始值接近0，则归一化分数也为0
@@ -989,7 +1025,9 @@ def normalize_to_bipolar(series: pd.Series, window: int, sensitivity: float = 1.
     tanh_score = np.tanh(z_score * sensitivity)
     # 将原始为0的位置的tanh_score设为0
     tanh_score[is_zero] = 0.0
-    return tanh_score
+    # 确保返回的Series索引正确并填充缺失值
+    return tanh_score.reindex(target_index).fillna(default_value)
+    # 修改结束
 
 
 

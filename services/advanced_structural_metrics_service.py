@@ -188,7 +188,7 @@ class AdvancedStructuralMetricsService:
         prev_day_metrics = {}
         if intraday_map:
             # 确保 first_date 是 Timestamp 类型，以便与 daily_df_with_atr 的 DatetimeIndex 兼容
-            first_date_ts = pd.to_datetime(min(intraday_map.keys())) # 修改行：将 datetime.date 转换为 Timestamp
+            first_date_ts = pd.to_datetime(min(intraday_map.keys())) # 将 datetime.date 转换为 Timestamp
             prev_date_ts = first_date_ts - pd.Timedelta(days=1) # prev_date_ts 现在是 Timestamp
             # 假设 daily_df_with_atr 的索引在 tasks/stock_analysis_tasks.py 中已修正为 DatetimeIndex (Timestamps)
             if prev_date_ts in daily_df_with_atr.index:
@@ -200,7 +200,7 @@ class AdvancedStructuralMetricsService:
                 }
         # 遍历 intraday_map，其键 trade_date_dt_obj 仍是 datetime.date 对象
         for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
-            # 修改行：将当前的 datetime.date 对象转换为 pandas.Timestamp，用于后续操作
+            # 将当前的 datetime.date 对象转换为 pandas.Timestamp，用于后续操作
             current_trade_timestamp = pd.to_datetime(trade_date_dt_obj)
             
             # 使用 Timestamp 进行 daily_df_with_atr 的索引查找
@@ -250,7 +250,7 @@ class AdvancedStructuralMetricsService:
                 prev_day_metrics=prev_day_metrics,
                 debug_info=debug_info
             )
-            # 修改行：确保 trade_time 字段是 Timestamp 类型
+            # 确保 trade_time 字段是 Timestamp 类型
             day_metric_dict['trade_time'] = current_trade_timestamp
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)

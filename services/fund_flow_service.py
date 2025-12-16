@@ -404,7 +404,7 @@ class AdvancedFundFlowMetricsService:
             if not processed_with_tick_data and minute_data_map and date_obj in minute_data_map:
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
             elif not processed_with_tick_data:
-                pass # 修改行：移除了此处的print调试信息
+                pass # 移除了此处的print调试信息
         return intraday_data_map
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame, debug_mode: bool = False) -> tuple[dict, None]:
         """
@@ -695,19 +695,19 @@ class AdvancedFundFlowMetricsService:
         - 核心职责: 聚合基础的 *_vol_attr 列，生成 main_force_* 和 retail_* 级别的成交量列。
         """
         df = minute_df.copy()
-        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
+        # 移除了所有与debug_params和probe_dates相关的探针初始化代码
         df['main_force_buy_vol'] = df.get('lg_buy_vol_attr', 0) + df.get('elg_buy_vol_attr', 0)
         df['main_force_sell_vol'] = df.get('lg_sell_vol_attr', 0) + df.get('elg_sell_vol_attr', 0)
         df['main_force_net_vol'] = df['main_force_buy_vol'] - df['main_force_sell_vol']
         df['retail_buy_vol'] = df.get('sm_buy_vol_attr', 0) + df.get('md_buy_vol_attr', 0)
         df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
         df['retail_net_vol'] = df['retail_buy_vol'] - df['retail_sell_vol']
-        # 修改行：移除了检查归因后成交量的探针print语句
+        # 移除了检查归因后成交量的探针print语句
         return df
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
-        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
+        # 移除了所有与debug_params和probe_dates相关的探针初始化代码
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
         ACCEL_WINDOW = 2
@@ -723,11 +723,11 @@ class AdvancedFundFlowMetricsService:
             for col in sum_cols:
                 if col in consensus_df.columns:
                     source_series_for_sum = pd.to_numeric(consensus_df[col], errors='coerce')
-                    # 修改行：移除了检查数据源缺失值的探针print语句
+                    # 移除了检查数据源缺失值的探针print语句
                     sum_col_name = f'{col}_sum_{p}d'
                     derivatives_df[sum_col_name] = source_series_for_sum.rolling(window=p, min_periods=min_p).sum()
                 else:
-                    pass # 修改行：移除了检查数据源列是否存在的探针print语句
+                    pass # 移除了检查数据源列是否存在的探针print语句
         all_cols_to_derive = CORE_METRICS_TO_DERIVE + list(derivatives_df.columns)
         for col in all_cols_to_derive:
             base_col_name = col.split('_sum_')[0] if '_sum_' in col else col
@@ -739,7 +739,7 @@ class AdvancedFundFlowMetricsService:
                 source_series = derivatives_df[col]
             else:
                 continue
-            # 修改行：移除了检查数据源是否全为缺失值的探针print语句
+            # 移除了检查数据源是否全为缺失值的探针print语句
             if source_series.isnull().all():
                 continue
             for p in UNIFIED_PERIODS:
@@ -795,7 +795,7 @@ class AdvancedFundFlowMetricsService:
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
-                'should_probe': debug_mode, # 修改行：根据传入的debug_mode设置should_probe
+                'should_probe': debug_mode, # 根据传入的debug_mode设置should_probe
             }
         }
         if not hf_analysis_df.empty:
@@ -1949,7 +1949,7 @@ class AdvancedFundFlowMetricsService:
         - 【修正】修复 `impulse_modifier` 计算中 `price_range` 的错误使用。
         """
         df = intraday_data_for_day.copy()
-        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
+        # 移除了所有与debug_params和probe_dates相关的探针初始化代码
         if 'vol_shares' not in df.columns or df['vol_shares'].sum() < 1e-6 or len(df) < 5:
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = 0; df[f'{size}_sell_weight'] = 0
@@ -1974,7 +1974,7 @@ class AdvancedFundFlowMetricsService:
             0.0
         ]
         buy_pressure_proxy = np.select(conditions, choices, default=0.5)
-        # 修改行：移除了检查中间计算结果的探针print语句
+        # 移除了检查中间计算结果的探针print语句
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
         impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
@@ -2006,7 +2006,7 @@ class AdvancedFundFlowMetricsService:
             df[f'{size}_buy_weight'] = buy_score / total_buy_score if total_buy_score > 1e-9 else 0
             total_sell_score = sell_score.sum()
             df[f'{size}_sell_weight'] = sell_score / total_sell_score if total_sell_score > 1e-9 else 0
-            # 修改行：移除了检查score总和的探针print语句
+            # 移除了检查score总和的探针print语句
         return df
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
