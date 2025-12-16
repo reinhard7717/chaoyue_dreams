@@ -3310,12 +3310,13 @@
             "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 }
         },
         "trend_form_fusion_weights": {
-          "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度的权重。",
+          "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振的权重。",
           "alignment": 0.25,
           "slope": 0.25,
           "acceleration": 0.2,
           "orderliness": 0.15,
-          "angle": 0.15
+          "angle": 0.15,
+          "resonance": 0.2
         }
       },
       "fusion_intelligence_params": {
