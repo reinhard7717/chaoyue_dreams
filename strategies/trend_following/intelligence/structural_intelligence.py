@@ -743,17 +743,26 @@ class StructuralIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_breakout_readiness"):
             return pd.Series(0.0, index=df.index)
+
+        # 修改开始：获取 tf_weights
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
+        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 修改结束
+
         # --- 1. 评估三大维度 (无条件执行) ---
         # 1a. 供应枯竭度
+        # 修改开始：传递 tf_weights 参数
         supply_exhaustion_score = (
-            get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, ascending=True) * 0.7 +
-            get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, ascending=False) * 0.3
+            get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, tf_weights, ascending=True) * 0.7 +
+            get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, tf_weights, ascending=False) * 0.3
         )
         # 1b. 主力控盘度
         main_force_control_score = (
-            get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, ascending=True) * 0.5
+            get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, tf_weights, ascending=True) * 0.5
         )
+        # 修改结束
         # 1c. 势能积蓄度 (直接复用结构张力公理)
         energy_accumulation_score = axiom_tension
         # --- 2. 融合输出 (无条件执行) ---
