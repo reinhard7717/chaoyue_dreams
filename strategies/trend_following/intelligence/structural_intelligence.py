@@ -640,9 +640,16 @@ class StructuralIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_platform_foundation"):
             nan_series = pd.Series(np.nan, index=df.index)
             return pd.Series(0.0, index=df.index), nan_series, nan_series, nan_series
+        # 修改开始：获取 tf_weights
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
+        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 修改结束
         # --- 步骤一: 识别平台状态 ---
-        price_stability_score = get_adaptive_mtf_normalized_score(df['BBW_21_2.0_D'], df.index, ascending=False)
-        supply_exhaustion_score = get_adaptive_mtf_normalized_score(df['VOL_MA_5_D'] / df['VOL_MA_55_D'], df.index, ascending=False)
+        # 修改开始：传递 tf_weights 参数
+        price_stability_score = get_adaptive_mtf_normalized_score(df['BBW_21_2.0_D'], df.index, tf_weights, ascending=False)
+        supply_exhaustion_score = get_adaptive_mtf_normalized_score(df['VOL_MA_5_D'] / df['VOL_MA_55_D'], df.index, tf_weights, ascending=False)
+        # 修改结束
         is_in_platform_state = (price_stability_score > 0.6) & (supply_exhaustion_score > 0.6)
         min_duration = 5
         platform_group = is_in_platform_state.ne(is_in_platform_state.shift()).cumsum()
@@ -655,24 +662,26 @@ class StructuralIntelligence:
         vpoc = pd.Series(np.nan, index=df.index, dtype=np.float32)
         # --- 新增代码开始 ---
         # 预计算所有维度的分数
+        # 修改开始：传递 tf_weights 参数
         s_structure = (
-            get_adaptive_mtf_normalized_score(df['VOLATILITY_INSTABILITY_INDEX_21d_D'], df.index, ascending=False) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['PRICE_VOLUME_ENTROPY_D'], df.index, ascending=False) * 0.5
+            get_adaptive_mtf_normalized_score(df['VOLATILITY_INSTABILITY_INDEX_21d_D'], df.index, tf_weights, ascending=False) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['PRICE_VOLUME_ENTROPY_D'], df.index, tf_weights, ascending=False) * 0.5
         )
         s_chips = (
-            get_adaptive_mtf_normalized_score(df['dominant_peak_solidity_D'], df.index, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['peak_separation_ratio_D'], df.index, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(df['chip_fatigue_index_D'], df.index, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
+            get_adaptive_mtf_normalized_score(df['dominant_peak_solidity_D'], df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['peak_separation_ratio_D'], df.index, tf_weights, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(df['chip_fatigue_index_D'], df.index, tf_weights, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
         )
         s_main_force = (
-            get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, ascending=True) * 0.5
+            get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, tf_weights, ascending=True) * 0.5
         )
         s_sentiment = (
-            get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['retail_panic_surrender_index_D'], df.index, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, ascending=False) * 0.2
+            get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['retail_panic_surrender_index_D'], df.index, tf_weights, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, tf_weights, ascending=False) * 0.2
         )
+        # 修改结束
         # 最终品质分权重: 主力(0.4), 筹码(0.3), 情绪(0.2), 形态(0.1)
         final_quality_score = (s_main_force * 0.4 + s_chips * 0.3 + s_sentiment * 0.2 + s_structure * 0.1).clip(0, 1)
         # --- 新增代码结束 ---

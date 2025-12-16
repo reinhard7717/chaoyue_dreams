@@ -10,6 +10,7 @@ class DynamicMechanicsEngine:
         :param strategy_instance: 策略主实例的引用，用于访问 df_indicators。
         """
         self.strategy = strategy_instance
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -18,6 +19,7 @@ class DynamicMechanicsEngine:
             print(f"    -> [力学情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -28,6 +30,7 @@ class DynamicMechanicsEngine:
             print(f"    -> [力学情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
+
     def run_dynamic_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V7.3 · 探针增强版】动态力学引擎总指挥
@@ -63,6 +66,7 @@ class DynamicMechanicsEngine:
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_dynamic_states
+
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, momentum_score: pd.Series, inertia_score: pd.Series) -> pd.Series:
         """
         【V1.3 · 参数清理版】力学公理五：诊断“力学背离”
@@ -70,36 +74,54 @@ class DynamicMechanicsEngine:
         """
         divergence_score = (inertia_score - momentum_score).clip(-1, 1)
         return divergence_score.astype(np.float32)
+
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
-        【V3.3 · 校准张力版】力学公理一：诊断“动量品质”
+        【V3.4 · 纯力学品质版】力学公理一：诊断“动量品质”
+        - 核心重构: 将品质调节器的输入替换为纯粹基于力学指标（ROC、MACDh）及其衍生（斜率、加速度、波动率）的力学特征。
         - 核心重构: 方法现在返回 (final_momentum_score, z_tension)，将计算出的“校准张力”向上传递。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
-        quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'purity': 0.4, 'conviction': 0.4, 'vitality': 0.2})
+        quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'trend_strength': 0.4, 'stability': 0.3, 'acceleration': 0.3}) # 修改行
         # 将ROC_12_D替换为ROC_13_D
         required_signals = [
             'ROC_13_D', 'MACDh_13_34_8_D',
-            'upward_impulse_purity_D', 'main_force_conviction_index_D', 'trend_vitality_index_D'
+            'SLOPE_5_ROC_13_D', 'SLOPE_5_MACDh_13_34_8_D', # 修改行
+            'ACCEL_5_ROC_13_D', 'ACCEL_5_MACDh_13_34_8_D' # 修改行
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_momentum"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         # 将ROC_12_D替换为ROC_13_D
-        roc = self._get_safe_series(df, 'ROC_13_D', 0.0)
-        macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0)
+        roc = self._get_safe_series(df, 'ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
+        macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, default_weights)
         macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         raw_momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
-        raw_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.5)
-        raw_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0)
-        raw_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5)
+        # --- 新增纯力学品质因子计算 --- # 修改行
+        # 1. 动量趋势强度 (Momentum Trend Strength)
+        roc_slope = self._get_safe_series(df, 'SLOPE_5_ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
+        macd_h_slope = self._get_safe_series(df, 'SLOPE_5_MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
+        momentum_trend_strength_score = (get_adaptive_mtf_normalized_bipolar_score(roc_slope, df.index, default_weights) + \
+                                         get_adaptive_mtf_normalized_bipolar_score(macd_h_slope, df.index, default_weights)) / 2 # 修改行
+        # 2. 动量稳定性 (Momentum Stability) - 波动率的倒数
+        roc_std = roc.rolling(window=5, min_periods=1).std().fillna(0) # 修改行
+        macd_h_std = macd_h.rolling(window=5, min_periods=1).std().fillna(0) # 修改行
+        # 将标准差归一化，然后取1-score，表示波动越小分数越高
+        roc_stability_score = 1 - get_adaptive_mtf_normalized_score(roc_std, df.index, default_weights, ascending=True) # 修改行
+        macd_h_stability_score = 1 - get_adaptive_mtf_normalized_score(macd_h_std, df.index, default_weights, ascending=True) # 修改行
+        momentum_stability_score = (roc_stability_score + macd_h_stability_score) / 2 # 修改行
+        # 3. 动量加速度 (Momentum Acceleration)
+        roc_accel = self._get_safe_series(df, 'ACCEL_5_ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
+        macd_h_accel = self._get_safe_series(df, 'ACCEL_5_MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
+        momentum_acceleration_score = (get_adaptive_mtf_normalized_bipolar_score(roc_accel, df.index, default_weights) + \
+                                       get_adaptive_mtf_normalized_bipolar_score(macd_h_accel, df.index, default_weights)) / 2 # 修改行
         composite_quality_raw = (
-            raw_purity * quality_weights.get('purity', 0.4) +
-            raw_conviction * quality_weights.get('conviction', 0.4) +
-            raw_vitality * quality_weights.get('vitality', 0.2)
+            momentum_trend_strength_score * quality_weights.get('trend_strength', 0.4) + # 修改行
+            momentum_stability_score * quality_weights.get('stability', 0.3) + # 修改行
+            momentum_acceleration_score * quality_weights.get('acceleration', 0.3) # 修改行
         )
         z_score, z_tension = self._get_mtf_calibrated_z_score(composite_quality_raw, p_conf_dyn)
         momentum_quality_modulator = (np.tanh(z_score) + 1) / 2
@@ -107,14 +129,21 @@ class DynamicMechanicsEngine:
         if is_probe_day:
             last_values = {
                 "原料-ROC": roc.iloc[-1], "原料-MACDh": macd_h.iloc[-1],
-                "品质-纯度": raw_purity.iloc[-1], "品质-信念": raw_conviction.iloc[-1], "品质-活力": raw_vitality.iloc[-1],
-                "节点-原始动量分": raw_momentum_score.iloc[-1], "节点-品质综合分(原始)": composite_quality_raw.iloc[-1],
+                "原料-ROC_Slope": roc_slope.iloc[-1], "原料-MACDh_Slope": macd_h_slope.iloc[-1], # 修改行
+                "原料-ROC_Std": roc_std.iloc[-1], "原料-MACDh_Std": macd_h_std.iloc[-1], # 修改行
+                "原料-ROC_Accel": roc_accel.iloc[-1], "原料-MACDh_Accel": macd_h_accel.iloc[-1], # 修改行
+                "节点-原始动量分": raw_momentum_score.iloc[-1],
+                "节点-动量趋势强度分": momentum_trend_strength_score.iloc[-1], # 修改行
+                "节点-动量稳定性分": momentum_stability_score.iloc[-1], # 修改行
+                "节点-动量加速度分": momentum_acceleration_score.iloc[-1], # 修改行
+                "节点-品质综合分(原始)": composite_quality_raw.iloc[-1],
                 "节点-品质ZScore": z_score.iloc[-1], "节点-品质调节器": momentum_quality_modulator.iloc[-1],
                 "节点-校准张力": z_tension.iloc[-1],
                 "结果-最终动量分": final_momentum_score.iloc[-1]
             }
             print(f"  > 动量品质探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_momentum_score.astype(np.float32), z_tension.astype(np.float32)
+
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
         【V3.5 · 校准张力版】力学公理二：诊断“结构化惯性”
@@ -166,6 +195,7 @@ class DynamicMechanicsEngine:
             }
             print(f"  > 结构化惯性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_inertia_score.astype(np.float32), z_tension.astype(np.float32)
+
     def _diagnose_axiom_stability(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
         【V3.5 · 校准张力版】力学公理三：诊断“势能稳定性”
@@ -209,6 +239,7 @@ class DynamicMechanicsEngine:
             }
             print(f"  > 势能稳定性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_stability_score.astype(np.float32), z_tension.astype(np.float32)
+
     def _diagnose_axiom_energy(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
         【V2.5 · 校准张力版】力学公理四：诊断“能量真实性”
@@ -253,6 +284,7 @@ class DynamicMechanicsEngine:
             }
             print(f"  > 能量真实性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_energy_score.astype(np.float32), z_tension.astype(np.float32)
+
     def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.5 · 参数清理版】力学公理六：诊断“均线动态”
@@ -275,6 +307,7 @@ class DynamicMechanicsEngine:
         acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, default_weights)
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
         return ma_dynamics_score.astype(np.float32)
+
     def _synthesize_grand_unification_score(self, momentum: pd.Series, inertia: pd.Series, stability: pd.Series, energy: pd.Series) -> pd.Series:
         """
         【V1.0 · 矛与盾】大统一力场合成器
@@ -304,6 +337,7 @@ class DynamicMechanicsEngine:
         # 将numpy数组转换回带索引的pandas Series
         grand_unification_score = pd.Series(grand_unification_score_raw, index=momentum.index).fillna(0)
         return grand_unification_score.astype(np.float32)
+
     def _get_mtf_calibrated_z_score(self, raw_series: pd.Series, p_conf_dyn: Dict) -> (pd.Series, pd.Series):
         """
         【V2.0 · 张力诊断版】内部辅助方法，计算MTF融合Z-Score和“校准张力”。

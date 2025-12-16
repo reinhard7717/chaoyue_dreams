@@ -2487,10 +2487,10 @@
           "ma_acceleration": 0.15
         },
         "momentum_quality_weights": {
-          "description": "【动量公理】动量品质三要素（上涨纯度、主力信念、趋势活力）的融合权重。",
-          "purity": 0.4,
-          "conviction": 0.4,
-          "vitality": 0.2
+          "description": "【动量公理】动量品质三要素（动量趋势强度、动量稳定性、动量加速度）的融合权重。",
+          "trend_strength": 0.4,
+          "stability": 0.3,
+          "acceleration": 0.3
         },
         "inertia_structural_weights": {
           "description": "【惯性公理】结构加固双要素（均线排列、结构杠杆）在惯性计算中的权重。",
