@@ -181,6 +181,8 @@ class StructuralIntelligence:
         # 将默认权重与配置权重合并，确保所有键都存在，并优先使用配置中的值
         fusion_weights = default_fusion_weights.copy()
         fusion_weights.update(configured_fusion_weights)
+        # 修改开始：过滤非数值类型的融合权重
+        fusion_weights = {k: v for k, v in fusion_weights.items() if isinstance(v, (int, float))}
         # 修改结束
 
         # 获取共振参数

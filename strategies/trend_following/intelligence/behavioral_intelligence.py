@@ -684,11 +684,12 @@ class BehavioralIntelligence:
         # 计算认知失调向量 (先计算，以便后续选择欺骗证据)
         cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2
         # 组件三：证据放大器 (根据认知失调方向选择对应的欺骗强度)
-        relevant_deception_intensity = pd.Series(0.0, index=df.index)
-        # 如果认知失调为正 (主力意图看涨，K线表象偏弱 -> 看涨诱惑)
-        relevant_deception_intensity = relevant_deception_intensity.mask(cognitive_dissonance_vector > 0, deception_lure_long_raw)
-        # 如果认知失调为负 (主力意图看跌，K线表象偏强 -> 看跌诱惑)
-        relevant_deception_intensity = relevant_deception_intensity.mask(cognitive_dissonance_vector < 0, deception_lure_short_raw)
+        # MODIFIED LINE: 使用 np.where 替代 mask 进行向量化条件赋值
+        relevant_deception_intensity = pd.Series(np.where(
+            cognitive_dissonance_vector > 0,
+            deception_lure_long_raw,
+            np.where(cognitive_dissonance_vector < 0, deception_lure_short_raw, 0.0)
+        ), index=df.index)
         deception_evidence_score = get_adaptive_mtf_normalized_score((relevant_deception_intensity + wash_trade_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         evidence_amplifier = 1 + k_amplifier * deception_evidence_score
         # --- 4. 计算认知失调并施加放大器 ---
@@ -941,10 +942,18 @@ class BehavioralIntelligence:
             upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             downward_purity_score = get_adaptive_mtf_normalized_score(downward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             deception_score = get_adaptive_mtf_normalized_score(deception_raw, df.index, ascending=True, tf_weights=default_weights) # 修改行
-            purity_coherence = pd.Series(0.0, index=df.index)
-            purity_coherence = purity_coherence.mask(core_intent_magnitude > 0, upward_purity_score * (1 - downward_purity_score))
-            purity_coherence = purity_coherence.mask(core_intent_magnitude < 0, downward_purity_score * (1 - upward_purity_score))
-            purity_coherence = purity_coherence.mask(core_intent_magnitude == 0, 0.5)
+            
+            # MODIFIED LINE: 使用 np.where 替代 mask
+            purity_coherence = pd.Series(np.where(
+                core_intent_magnitude > 0,
+                upward_purity_score * (1 - downward_purity_score),
+                np.where(
+                    core_intent_magnitude < 0,
+                    downward_purity_score * (1 - upward_purity_score),
+                    0.5
+                )
+            ), index=df.index)
+
             deception_penalty_factor = (1 - deception_score * behavior_coherence_weights.get('deception_penalty', 0.3)).clip(0, 1)
             behavioral_coherence_factor_raw = (
                 purity_coherence * behavior_coherence_weights.get('impulse_purity', 0.7) +

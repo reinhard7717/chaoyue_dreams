@@ -82,46 +82,54 @@ class DynamicMechanicsEngine:
         - 核心重构: 方法现在返回 (final_momentum_score, z_tension)，将计算出的“校准张力”向上传递。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
-        quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'trend_strength': 0.4, 'stability': 0.3, 'acceleration': 0.3}) # 修改行
+        quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'trend_strength': 0.4, 'stability': 0.3, 'acceleration': 0.3})
         # 将ROC_12_D替换为ROC_13_D
         required_signals = [
             'ROC_13_D', 'MACDh_13_34_8_D',
-            'SLOPE_5_ROC_13_D', 'SLOPE_5_MACDh_13_34_8_D', # 修改行
-            'ACCEL_5_ROC_13_D', 'ACCEL_5_MACDh_13_34_8_D' # 修改行
+            'SLOPE_5_ROC_13_D', 'SLOPE_5_MACDh_13_34_8_D',
+            'ACCEL_5_ROC_13_D', 'ACCEL_5_MACDh_13_34_8_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_momentum"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         # 将ROC_12_D替换为ROC_13_D
-        roc = self._get_safe_series(df, 'ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
-        macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
+        roc = self._get_safe_series(df, 'ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum")
+        macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum")
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, default_weights)
-        macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
+        
+        # 修改行：重命名变量并增加健壮性检查
+        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_momentum' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
+            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
+        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
+
+        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, actual_mtf_weights)
+        macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, actual_mtf_weights)
         raw_momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
-        # --- 新增纯力学品质因子计算 --- # 修改行
+        # --- 新增纯力学品质因子计算 ---
         # 1. 动量趋势强度 (Momentum Trend Strength)
-        roc_slope = self._get_safe_series(df, 'SLOPE_5_ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
-        macd_h_slope = self._get_safe_series(df, 'SLOPE_5_MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
-        momentum_trend_strength_score = (get_adaptive_mtf_normalized_bipolar_score(roc_slope, df.index, default_weights) + \
-                                         get_adaptive_mtf_normalized_bipolar_score(macd_h_slope, df.index, default_weights)) / 2 # 修改行
+        roc_slope = self._get_safe_series(df, 'SLOPE_5_ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum")
+        macd_h_slope = self._get_safe_series(df, 'SLOPE_5_MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum")
+        momentum_trend_strength_score = (get_adaptive_mtf_normalized_bipolar_score(roc_slope, df.index, actual_mtf_weights) + \
+                                         get_adaptive_mtf_normalized_bipolar_score(macd_h_slope, df.index, actual_mtf_weights)) / 2
         # 2. 动量稳定性 (Momentum Stability) - 波动率的倒数
-        roc_std = roc.rolling(window=5, min_periods=1).std().fillna(0) # 修改行
-        macd_h_std = macd_h.rolling(window=5, min_periods=1).std().fillna(0) # 修改行
+        roc_std = roc.rolling(window=5, min_periods=1).std().fillna(0)
+        macd_h_std = macd_h.rolling(window=5, min_periods=1).std().fillna(0)
         # 将标准差归一化，然后取1-score，表示波动越小分数越高
-        roc_stability_score = 1 - get_adaptive_mtf_normalized_score(roc_std, df.index, default_weights, ascending=True) # 修改行
-        macd_h_stability_score = 1 - get_adaptive_mtf_normalized_score(macd_h_std, df.index, default_weights, ascending=True) # 修改行
-        momentum_stability_score = (roc_stability_score + macd_h_stability_score) / 2 # 修改行
+        roc_stability_score = 1 - get_adaptive_mtf_normalized_score(roc_std, df.index, actual_mtf_weights, ascending=True)
+        macd_h_stability_score = 1 - get_adaptive_mtf_normalized_score(macd_h_std, df.index, actual_mtf_weights, ascending=True)
+        momentum_stability_score = (roc_stability_score + macd_h_stability_score) / 2
         # 3. 动量加速度 (Momentum Acceleration)
-        roc_accel = self._get_safe_series(df, 'ACCEL_5_ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
-        macd_h_accel = self._get_safe_series(df, 'ACCEL_5_MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum") # 修改行
-        momentum_acceleration_score = (get_adaptive_mtf_normalized_bipolar_score(roc_accel, df.index, default_weights) + \
-                                       get_adaptive_mtf_normalized_bipolar_score(macd_h_accel, df.index, default_weights)) / 2 # 修改行
+        roc_accel = self._get_safe_series(df, 'ACCEL_5_ROC_13_D', 0.0, method_name="_diagnose_axiom_momentum")
+        macd_h_accel = self._get_safe_series(df, 'ACCEL_5_MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum")
+        momentum_acceleration_score = (get_adaptive_mtf_normalized_bipolar_score(roc_accel, df.index, actual_mtf_weights) + \
+                                       get_adaptive_mtf_normalized_bipolar_score(macd_h_accel, df.index, actual_mtf_weights)) / 2
         composite_quality_raw = (
-            momentum_trend_strength_score * quality_weights.get('trend_strength', 0.4) + # 修改行
-            momentum_stability_score * quality_weights.get('stability', 0.3) + # 修改行
-            momentum_acceleration_score * quality_weights.get('acceleration', 0.3) # 修改行
+            momentum_trend_strength_score * quality_weights.get('trend_strength', 0.4) +
+            momentum_stability_score * quality_weights.get('stability', 0.3) +
+            momentum_acceleration_score * quality_weights.get('acceleration', 0.3)
         )
         z_score, z_tension = self._get_mtf_calibrated_z_score(composite_quality_raw, p_conf_dyn)
         momentum_quality_modulator = (np.tanh(z_score) + 1) / 2
@@ -129,13 +137,13 @@ class DynamicMechanicsEngine:
         if is_probe_day:
             last_values = {
                 "原料-ROC": roc.iloc[-1], "原料-MACDh": macd_h.iloc[-1],
-                "原料-ROC_Slope": roc_slope.iloc[-1], "原料-MACDh_Slope": macd_h_slope.iloc[-1], # 修改行
-                "原料-ROC_Std": roc_std.iloc[-1], "原料-MACDh_Std": macd_h_std.iloc[-1], # 修改行
-                "原料-ROC_Accel": roc_accel.iloc[-1], "原料-MACDh_Accel": macd_h_accel.iloc[-1], # 修改行
+                "原料-ROC_Slope": roc_slope.iloc[-1], "原料-MACDh_Slope": macd_h_slope.iloc[-1],
+                "原料-ROC_Std": roc_std.iloc[-1], "原料-MACDh_Std": macd_h_std.iloc[-1],
+                "原料-ROC_Accel": roc_accel.iloc[-1], "原料-MACDh_Accel": macd_h_accel.iloc[-1],
                 "节点-原始动量分": raw_momentum_score.iloc[-1],
-                "节点-动量趋势强度分": momentum_trend_strength_score.iloc[-1], # 修改行
-                "节点-动量稳定性分": momentum_stability_score.iloc[-1], # 修改行
-                "节点-动量加速度分": momentum_acceleration_score.iloc[-1], # 修改行
+                "节点-动量趋势强度分": momentum_trend_strength_score.iloc[-1],
+                "节点-动量稳定性分": momentum_stability_score.iloc[-1],
+                "节点-动量加速度分": momentum_acceleration_score.iloc[-1],
                 "节点-品质综合分(原始)": composite_quality_raw.iloc[-1],
                 "节点-品质ZScore": z_score.iloc[-1], "节点-品质调节器": momentum_quality_modulator.iloc[-1],
                 "节点-校准张力": z_tension.iloc[-1],
@@ -166,15 +174,23 @@ class DynamicMechanicsEngine:
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        adx_strength = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0), df.index, True, default_weights)
+        
+        # 修改行：重命名变量并增加健壮性检查
+        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_inertia' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
+            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
+        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
+
+        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        adx_strength = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0), df.index, True, actual_mtf_weights)
         hurst = self._get_safe_series(df, hurst_col, 0.5).fillna(0.5)
         # hurst_quality的计算依赖于hurst，这里无需修改
-        hurst_quality = get_adaptive_mtf_normalized_score(hurst, df.index, True, default_weights)
+        hurst_quality = get_adaptive_mtf_normalized_score(hurst, df.index, True, actual_mtf_weights)
         fractal_dim = self._get_safe_series(df, fractal_col, 1.5).fillna(1.5)
-        fractal_smoothness = get_adaptive_mtf_normalized_score(fractal_dim, df.index, False, default_weights)
-        ma_velocity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, default_weights)
-        ma_acceleration = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, default_weights)
+        fractal_smoothness = get_adaptive_mtf_normalized_score(fractal_dim, df.index, False, actual_mtf_weights)
+        ma_velocity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, actual_mtf_weights)
+        ma_acceleration = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, actual_mtf_weights)
         base_inertia_quality = (adx_strength * 0.3 + hurst_quality * 0.3 + fractal_smoothness * 0.1 + ma_velocity * 0.15 + ma_acceleration * 0.15).clip(0, 1)
         raw_alignment = self._get_safe_series(df, 'trend_alignment_index_D', 0.0)
         raw_leverage = self._get_safe_series(df, 'structural_leverage_D', 0.0)
@@ -211,11 +227,19 @@ class DynamicMechanicsEngine:
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        
+        # 修改行：重命名变量并增加健壮性检查
+        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_stability' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
+            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
+        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
+
         bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0)
         atr_pct = self._get_safe_series(df, 'ATR_14_D', 0.0) / self._get_safe_series(df, 'close_D', 1e-9).replace(0, np.nan)
         raw_volatility = (bbw + atr_pct).fillna(0)
-        volatility_level_score = get_adaptive_mtf_normalized_score(raw_volatility, df.index, ascending=True, tf_weights=default_weights)
+        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        volatility_level_score = get_adaptive_mtf_normalized_score(raw_volatility, df.index, ascending=True, tf_weights=actual_mtf_weights)
         raw_stability_score = 1 - volatility_level_score
         raw_ma_tension = self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.5)
         raw_structural_tension = self._get_safe_series(df, 'structural_tension_index_D', 0.5)
@@ -258,8 +282,16 @@ class DynamicMechanicsEngine:
         vpa_bipolar = (vpa * 2 - 1).clip(-1, 1)
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        cmf_bipolar = get_adaptive_mtf_normalized_bipolar_score(cmf, df.index, default_weights)
+        
+        # 修改行：重命名变量并增加健壮性检查
+        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_energy' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
+            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
+        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
+
+        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        cmf_bipolar = get_adaptive_mtf_normalized_bipolar_score(cmf, df.index, actual_mtf_weights)
         raw_energy_score = (vpa_bipolar * 0.5 + cmf_bipolar * 0.5).clip(-1, 1)
         raw_credibility = self._get_safe_series(df, 'flow_credibility_index_D', 0.5)
         raw_directionality = self._get_safe_series(df, 'main_force_flow_directionality_D', 0.5)
@@ -270,7 +302,8 @@ class DynamicMechanicsEngine:
         )
         z_score, z_tension = self._get_mtf_calibrated_z_score(composite_quality_raw, p_conf_dyn)
         base_quality_score = (np.tanh(z_score) + 1) / 2
-        wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, True, default_weights).clip(0, 1)
+        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, True, actual_mtf_weights).clip(0, 1)
         energy_quality_modulator = (base_quality_score * wash_trade_penalty_factor).clip(0, 1)
         final_energy_score = (raw_energy_score * energy_quality_modulator).clip(-1, 1)
         if is_probe_day:
@@ -302,9 +335,17 @@ class DynamicMechanicsEngine:
         acceleration_raw = self._get_safe_series(df, acceleration_col, 0.0, method_name="_diagnose_axiom_ma_dynamics")
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, default_weights)
-        acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, default_weights)
+        
+        # 修改行：重命名变量并增加健壮性检查
+        mtf_weights_config = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        if not isinstance(mtf_weights_config, dict) or 'weights' not in mtf_weights_config:
+            print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_ma_dynamics' 的MTF权重配置格式错误，使用默认值。配置: {mtf_weights_config}")
+            mtf_weights_config = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}} # Fallback to a known good structure
+        actual_mtf_weights = mtf_weights_config['weights'] # 新增行：获取实际权重字典
+
+        # 修改行：将 default_weights 替换为 actual_mtf_weights
+        velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, actual_mtf_weights)
+        acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, actual_mtf_weights)
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
         return ma_dynamics_score.astype(np.float32)
 
