@@ -179,14 +179,12 @@ class StructuralIntelligence:
             'angle': 0.15,
             'resonance': 0.2 # 新增共振权重
         })
-        # 修改结束
         # 修改开始：获取共振参数
         resonance_params = get_param_value(p_conf_struct.get('trend_form_resonance_params'), {
             'slope_consistency_weight': 0.4,
             'accel_consistency_weight': 0.4,
             'slope_accel_alignment_weight': 0.2
         })
-        # 修改结束
         required_signals = [
             'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ATAN_ANGLE_EMA_55_D',
             'close_D'
@@ -280,7 +278,6 @@ class StructuralIntelligence:
             accel_consistency_score * resonance_params['accel_consistency_weight'] +
             slope_accel_directional_alignment_score * resonance_params['slope_accel_alignment_weight']
         ).clip(-1, 1)
-        # 修改结束
 
         # 维度5: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
@@ -298,7 +295,6 @@ class StructuralIntelligence:
         bullish_accel_contrib = avg_accel_score.clip(lower=0) * fusion_weights['acceleration']
         # 修改开始：新增看涨共振贡献
         bullish_resonance_contrib = overall_resonance_score.clip(lower=0) * fusion_weights['resonance']
-        # 修改结束
         bullish_orderliness_contrib = corrected_orderliness_score * fusion_weights['orderliness']
         bullish_angle_contrib = angle_score.clip(lower=0) * fusion_weights['angle']
         bullish_form_score = (
@@ -314,7 +310,6 @@ class StructuralIntelligence:
         bearish_accel_contrib = avg_accel_score.clip(upper=0).abs() * fusion_weights['acceleration']
         # 修改开始：新增看跌共振贡献
         bearish_resonance_contrib = overall_resonance_score.clip(upper=0).abs() * fusion_weights['resonance']
-        # 修改结束
         bearish_orderliness_contrib = (1 - corrected_orderliness_score) * fusion_weights['orderliness']
         bearish_angle_contrib = angle_score.clip(upper=0).abs() * fusion_weights['angle']
         bearish_form_score = (
@@ -343,7 +338,6 @@ class StructuralIntelligence:
             print(f"        中间分数 - 加速度一致性 (Accel Consistency Score): {accel_consistency_score.iloc[-1]:.4f}")
             print(f"        中间分数 - 斜率加速度方向对齐 (Slope-Accel Alignment Score): {slope_accel_directional_alignment_score.iloc[-1]:.4f}")
             print(f"        中间分数 - 整体共振 (Overall Resonance Score): {overall_resonance_score.iloc[-1]:.4f}")
-            # 修改结束
             print(f"        中间分数 - 有序度 (Orderliness Score): {orderliness_score.iloc[-1]:.4f}")
             print(f"        中间分数 - 修正有序度 (Corrected Orderliness Score): {corrected_orderliness_score.iloc[-1]:.4f}")
             print(f"        中间分数 - 角度 (Angle Score): {angle_score.iloc[-1]:.4f}")
@@ -352,7 +346,6 @@ class StructuralIntelligence:
             print(f"        融合分数组件 - 看涨加速度贡献: {bullish_accel_contrib.iloc[-1]:.4f}")
             # 修改开始：新增看涨共振贡献探针输出
             print(f"        融合分数组件 - 看涨共振贡献: {bullish_resonance_contrib.iloc[-1]:.4f}")
-            # 修改结束
             print(f"        融合分数组件 - 看涨有序度贡献: {bullish_orderliness_contrib.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看涨角度贡献: {bullish_angle_contrib.iloc[-1]:.4f}")
             print(f"        融合分数 - 看涨形态分 (Bullish Form Score): {bullish_form_score.iloc[-1]:.4f}")
@@ -361,7 +354,6 @@ class StructuralIntelligence:
             print(f"        融合分数组件 - 看跌加速度贡献: {bearish_accel_contrib.iloc[-1]:.4f}")
             # 修改开始：新增看跌共振贡献探针输出
             print(f"        融合分数组件 - 看跌共振贡献: {bearish_resonance_contrib.iloc[-1]:.4f}")
-            # 修改结束
             print(f"        融合分数组件 - 看跌有序度贡献: {bearish_orderliness_contrib.iloc[-1]:.4f}")
             print(f"        融合分数组件 - 看跌角度贡献: {bearish_angle_contrib.iloc[-1]:.4f}")
             print(f"        融合分数 - 看跌形态分 (Bearish Form Score): {bearish_form_score.iloc[-1]:.4f}")

@@ -87,12 +87,10 @@ class DynamicMechanicsEngine:
             'ROC_13_D', 'MACDh_13_34_8_D',
             'upward_impulse_purity_D', 'main_force_conviction_index_D', 'trend_vitality_index_D'
         ]
-        # 修改结束
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_momentum"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         # 修改开始：将ROC_12_D替换为ROC_13_D
         roc = self._get_safe_series(df, 'ROC_13_D', 0.0)
-        # 修改结束
         macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0)
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
@@ -134,7 +132,6 @@ class DynamicMechanicsEngine:
         timeframe_key = 'D'
         # 修改开始：将hurst_col直接指定为BID_LIQUIDITY_HURST_144d_D
         hurst_col = 'BID_LIQUIDITY_HURST_144d_D'
-        # 修改结束
         fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), 'FRACTAL_DIMENSION_100d_D')
         # 修改开始：required_signals中包含新的hurst_col
         required_signals = [
@@ -142,7 +139,6 @@ class DynamicMechanicsEngine:
             f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 'PDI_14_D', 'NDI_14_D',
             'trend_alignment_index_D', 'structural_leverage_D'
         ]
-        # 修改结束
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_inertia"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})

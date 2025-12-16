@@ -41,11 +41,9 @@ class CyclicalIntelligence:
         # --- 公理二: 序列记忆 (Hurst) ---
         hurst_states = self.diagnose_market_memory_with_hurst(df, p)
         all_cyclical_states.update(hurst_states)
-        # [代码新增开始]
         # --- 诊断周期顶风险 ---
         cyclical_top_risk = self._diagnose_cyclical_top_risk(df, fft_states)
         all_cyclical_states.update(cyclical_top_risk)
-        # [代码新增结束]
         # --- 融合裁决: 趋势政权 ---
         fft_trend_score = fft_states.get('SCORE_CYCLICAL_FFT_TREND_REGIME', pd.Series(0.5, index=df.index))
         hurst_trend_score = hurst_states.get('SCORE_CYCLICAL_HURST_TREND_REGIME', pd.Series(0.5, index=df.index))
@@ -163,10 +161,14 @@ class CyclicalIntelligence:
         hurst_series = self._get_safe_series(df, hurst_signal_name, 0.5, method_name="diagnose_market_memory_with_hurst").fillna(0.5)
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5
-        # 使用双极归一化引擎进行最终裁决，输出一个[-1, 1]的记忆性分数
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+
+        # 修改开始：正确获取MTF归一化权重
+        # 从传入的 params (cyclical_analysis_params) 中获取 mtf_normalization_weights
+        mtf_norm_params = get_param_value(params.get('mtf_normalization_weights'), {})
+        # 从 mtf_norm_params 中获取 'default' 权重字典
+        # 确保默认值中的键是字符串，以匹配JSON结构
+        default_weights = get_param_value(mtf_norm_params.get('default'), {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1})
+
         hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=0.1)
         states['SCORE_CYCLICAL_HURST_MEMORY'] = hurst_memory_score
         # 将双极性分数分解为互斥的单极性“政权”分

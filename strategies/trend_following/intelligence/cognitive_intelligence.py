@@ -37,7 +37,6 @@ class CognitiveIntelligence:
             self.dynamic_thresholds = get_params_block(full_config_dict_for_dynamic_thresholds, 'strategy_params.trend_follow.dynamic_thresholds', {})
         else:
             self.dynamic_thresholds = dynamic_thresholds
-        # 修改结束
 
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -114,7 +113,6 @@ class CognitiveIntelligence:
         # 修改开始 - 新增 COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION 的调用
         if playbooks_config.get('cognitive_playbook_energy_compression_params'):
             cognitive_scores["COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION"] = self._calculate_energy_compression(df)
-        # 修改结束
         return cognitive_scores
 
     def _calculate_suppressive_accumulation(self, df: pd.DataFrame) -> pd.Series:
@@ -134,7 +132,6 @@ class CognitiveIntelligence:
         # 修改开始 - 移除 enabled 状态检查
         # if not get_param_value(params.get('enabled'), False):
         #     return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 修改结束
         suppression_weights = get_param_value(params.get('suppression_weights'), {})
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
         contradiction_weights = get_param_value(params.get('contradiction_weights'), {})
@@ -458,7 +455,6 @@ class CognitiveIntelligence:
         # 修改开始 - 移除不存在的信号，并添加新的信号
         all_required_signals.discard("PREDICTIVE_OPP_CAPITULATION_REVERSAL") # 修改行 - 移除不存在的信号
         all_required_signals.add("SCORE_CHIP_AXIOM_HOLDER_SENTIMENT") # 修改行 - 添加新的信号
-        # 修改结束
         all_required_signals.discard("SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM")
         all_required_signals.discard("ACCEL_5_SCORE_BEHAVIOR_ABSORPTION_STRENGTH")
         all_required_signals.add("SCORE_CHIP_COHERENT_DRIVE")
@@ -508,7 +504,6 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0) # 这些信号本身就是正向风险/恐慌
                 else:
                     signal_score = raw_signal.clip(lower=0) # 默认处理为正向信号
-                # 修改结束
                 if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "FUSION_RISK" in signal_name:
                     signal_score = signal_score * (1 - deception_penalty_for_panic)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
@@ -977,7 +972,6 @@ class CognitiveIntelligence:
         # 修改开始 - 删除所有探针相关代码
         # if self.debug_enabled: ... 已彻底删除
         # probe_dates_to_print = [] ... 已彻底删除
-        # 修改结束
         volatility_compression_weights = get_param_value(params.get('volatility_compression_weights'), {})
         volume_atrophy_weights = get_param_value(params.get('volume_atrophy_weights'), {})
         main_force_control_weights = get_param_value(params.get('main_force_control_weights'), {})
@@ -1020,12 +1014,10 @@ class CognitiveIntelligence:
         risk_filter_score_components = pd.Series(0.0, index=df.index)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         total_volatility_compression_weight = sum(v for k, v in volatility_compression_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_volatility_compression_weight > 0:
             # 修改开始 - 删除探针输出
             # if self.debug_enabled: ... 已彻底删除
-            # 修改结束
             for signal_name, weight in volatility_compression_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1046,21 +1038,17 @@ class CognitiveIntelligence:
                 volatility_compression_score_components += normalized_signal_score * weight
                 # 修改开始 - 删除探针输出
                 # if self.debug_enabled: ... 已彻底删除
-                # 修改结束
             volatility_compression_score = (volatility_compression_score_components / total_volatility_compression_weight) * dynamic_modulator
         else:
             volatility_compression_score = pd.Series(0.0, index=df.index)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         total_volume_atrophy_weight = sum(v for k, v in volume_atrophy_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_volume_atrophy_weight > 0:
             # 修改开始 - 删除探针输出
             # if self.debug_enabled: ... 已彻底删除
-            # 修改结束
             for signal_name, weight in volume_atrophy_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1080,21 +1068,17 @@ class CognitiveIntelligence:
                 volume_atrophy_score_components += normalized_signal_score * weight
                 # 修改开始 - 删除探针输出
                 # if self.debug_enabled: ... 已彻底删除
-                # 修改结束
             volume_atrophy_score = (volume_atrophy_score_components / total_volume_atrophy_weight) * dynamic_modulator
         else:
             volume_atrophy_score = pd.Series(0.0, index=df.index)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         total_main_force_control_weight = sum(v for k, v in main_force_control_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_main_force_control_weight > 0:
             # 修改开始 - 删除探针输出
             # if self.debug_enabled: ... 已彻底删除
-            # 修改结束
             for signal_name, weight in main_force_control_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1111,21 +1095,17 @@ class CognitiveIntelligence:
                 main_force_control_score_components += normalized_signal_score * weight
                 # 修改开始 - 删除探针输出
                 # if self.debug_enabled: ... 已彻底删除
-                # 修改结束
             main_force_control_score = (main_force_control_score_components / total_main_force_control_weight) * dynamic_modulator
         else:
             main_force_control_score = pd.Series(0.0, index=df.index)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         total_pre_breakout_indicators_weight = sum(v for k, v in pre_breakout_indicators_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_pre_breakout_indicators_weight > 0:
             # 修改开始 - 删除探针输出
             # if self.debug_enabled: ... 已彻底删除
-            # 修改结束
             for signal_name, weight in pre_breakout_indicators_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1142,21 +1122,17 @@ class CognitiveIntelligence:
                 pre_breakout_indicators_score_components += normalized_signal_score * weight
                 # 修改开始 - 删除探针输出
                 # if self.debug_enabled: ... 已彻底删除
-                # 修改结束
             pre_breakout_indicators_score = (pre_breakout_indicators_score_components / total_pre_breakout_indicators_weight) * dynamic_modulator
         else:
             pre_breakout_indicators_score = pd.Series(0.0, index=df.index)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         total_risk_filter_weight = sum(v for k, v in risk_filter_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_risk_filter_weight > 0:
             # 修改开始 - 删除探针输出
             # if self.debug_enabled: ... 已彻底删除
-            # 修改结束
             for signal_name, weight in risk_filter_weights.items():
                 if signal_name == 'description':
                     continue
@@ -1174,13 +1150,11 @@ class CognitiveIntelligence:
                 risk_filter_score_components += normalized_signal_score * weight
                 # 修改开始 - 删除探针输出
                 # if self.debug_enabled: ... 已彻底删除
-                # 修改结束
             risk_filter_score = risk_filter_score_components / total_risk_filter_weight
         else:
             risk_filter_score = pd.Series(0.0, index=df.index)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         synergy_factor = pd.Series(1.0, index=df.index)
         sentiment_pendulum = fetched_signals.get("SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM", pd.Series(0.0, index=df.index))
         synergy_condition = (volatility_compression_score > synergy_threshold) & \
@@ -1196,7 +1170,6 @@ class CognitiveIntelligence:
         synergy_factor = synergy_factor.clip(0.5, 1.5)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         epsilon = 1e-6
         fused_score_raw = (
             (volatility_compression_score + epsilon) *
@@ -1210,11 +1183,9 @@ class CognitiveIntelligence:
         final_score = final_score.clip(0, 1)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
         # 修改开始 - 删除探针输出
         # if self.debug_enabled: ... 已彻底删除
-        # 修改结束
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
 
