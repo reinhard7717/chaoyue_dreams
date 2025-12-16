@@ -1935,7 +1935,9 @@ class BehavioralIntelligence:
         active_buying = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
         raw_trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
-        trend_vitality = normalize_score(raw_trend_vitality, df.index, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        trend_vitality = normalize_score(raw_trend_vitality, 55)
+        # 修改结束
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
         high_price = self._get_safe_series(df, 'high_D', df['close_D'], method_name=method_name)
         low_price = self._get_safe_series(df, 'low_D', df['close_D'], method_name=method_name)
