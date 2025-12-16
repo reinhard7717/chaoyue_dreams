@@ -14,7 +14,6 @@ def get_param_value(param: Any, default: Any = None) -> Any:
     if param is not None:
         return param
     return default
-    # 修改结束
 
 def get_params_block(strategy_instance, block_name: str, default_return: Any = None) -> dict:
     """
@@ -264,9 +263,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     distance_from_ma55 = (df[close_col] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
     lifeline_support_score_raw = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
     lifeline_support_score = lifeline_support_score_raw * slope_moderator
-    # 修正 normalize_score 调用
     price_pos_yearly = normalize_score(df[close_col], df.index, 250, ascending=True, default_value=0.5)
-    # 修改结束
     absolute_value_zone_score = 1.0 - price_pos_yearly
     deep_bottom_context_score_values = np.maximum.reduce([
         lifeline_support_score.values,
@@ -274,9 +271,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
     rsi_w_col = 'RSI_13_W'
-    # 修正 normalize_score 调用
     rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, 52, ascending=False, default_value=0.5)
-    # 修改结束
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
     context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
@@ -305,7 +300,6 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         if meta_dynamics_col in df.columns:
             # 修正 normalize_score 调用
             deceleration_score = normalize_score(df[meta_dynamics_col], df.index, norm_window, ascending=True)
-            # 修改结束
             meta_dynamics_bonus = (deceleration_score * is_deep_bearish_zone * bonus_factor)
             bottom_context_score_raw = (bottom_context_score_raw + meta_dynamics_bonus).clip(0, 1)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
@@ -409,18 +403,14 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     slope_1 = df.get(f'SLOPE_1_{base_name}', default_series)
     slope_5 = df.get(f'SLOPE_5_{base_name}', default_series)
     slope_diff = slope_1 - slope_5
-    # 修正 normalize_score 调用
     velocity_accel_score = normalize_score(slope_diff, df.index, norm_window, ascending=True)
     velocity_decel_score = normalize_score(slope_diff, df.index, norm_window, ascending=False)
-    # 修改结束
     # 维度二：力量变化 (加加速度 / Jerk) - 衡量趋势加速度的变化趋势
     accel_1 = df.get(f'ACCEL_1_{base_name}', default_series)
     accel_5 = df.get(f'ACCEL_5_{base_name}', default_series)
     accel_diff = accel_1 - accel_5
-    # 修正 normalize_score 调用
     jerk_accel_score = normalize_score(accel_diff, df.index, norm_window, ascending=True)
     jerk_decel_score = normalize_score(accel_diff, df.index, norm_window, ascending=False)
-    # 修改结束
     # 融合：两大维度必须共振，形成合力
     # 使用np.sqrt，意图更清晰
     bullish_holographic_score = np.sqrt(velocity_accel_score * jerk_accel_score).astype(np.float32)
@@ -565,9 +555,7 @@ def calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_wi
     # 叉戟一: 趋势强度 (ADX) - 浪潮有多高？
     adx = df.get('ADX_14_D', pd.Series(0, index=df.index))
     is_trending = (adx > adx_threshold).astype(np.float32)
-    # 修正 normalize_score 调用
     strength_score = normalize_score(adx, df.index, norm_window, ascending=True) * is_trending
-    # 修改结束
     # 叉戟二: 趋势方向 (PDI/NDI) - 浪潮往哪边涌？
     pdi = df.get('PDI_14_D', pd.Series(0, index=df.index))
     ndi = df.get('NDI_14_D', pd.Series(0, index=df.index))
@@ -629,14 +617,10 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     ma_distance = df[short_ma_col] - df[mid_ma_col]
     ma_distance_slope = ma_distance.diff(slope_period).fillna(0)
-    # 修正 normalize_score 调用
     distance_accel_score = normalize_score(ma_distance_slope, df.index, norm_window, ascending=True)
-    # 修改结束
     short_ma_slope = df[short_ma_slope_col]
     short_ma_slope_accel = short_ma_slope.diff(slope_period).fillna(0)
-    # 修正 normalize_score 调用
     slope_accel_score = normalize_score(short_ma_slope_accel, df.index, norm_window, ascending=True)
-    # 修改结束
     dynamic_reversal_score = (
         distance_accel_score * weights.get('distance_accel', 0.5) +
         slope_accel_score * weights.get('slope_accel', 0.5)
@@ -868,9 +852,7 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
     rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
     rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
     volume_ratio = df[vol_col] / df[ares_vol_ma_col].replace(0, np.nan)
-    # 修正 normalize_score 调用
     proportional_volume_score = normalize_score(volume_ratio, df.index, cooldown_reset_volume_ma_period, ascending=True)
-    # 修改结束
     dynamic_volume_contribution = rejection_volume_weight * proportional_volume_score
     volume_mask = base_rejection_condition & has_dominance & has_volume_spike
     rejection_quality_score.loc[volume_mask] += dynamic_volume_contribution.loc[volume_mask]
@@ -979,7 +961,6 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     # 使用 target_index 处理空 Series
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(default_value, index=target_index)
-    # 修改结束
     # 对齐填充，确保窗口计算有足够数据
     padded_series = series.fillna(method='ffill').fillna(method='bfill')
     # 滚动排名
@@ -990,7 +971,6 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     normalized_series = ranked_series.clip(0, 1)
     # 确保返回的Series索引正确并填充缺失值
     return normalized_series.reindex(target_index).fillna(default_value)
-    # 修改结束
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
     """
@@ -1008,7 +988,6 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     # 使用 target_index 处理空 Series
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(default_value, index=target_index)
-    # 修改结束
     # 对齐填充，确保窗口计算有足够数据
     padded_series = series.fillna(method='ffill').fillna(method='bfill')
     # 零值隔离：如果原始值接近0，则归一化分数也为0
@@ -1027,7 +1006,6 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     tanh_score[is_zero] = 0.0
     # 确保返回的Series索引正确并填充缺失值
     return tanh_score.reindex(target_index).fillna(default_value)
-    # 修改结束
 
 
 
