@@ -879,75 +879,114 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     s_bear = bipolar_score.clip(upper=0).abs()
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
-def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_weights: dict, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
-    """
-    计算多时间框架 (MTF) 自适应归一化分数。
-    该函数通过对不同时间窗口的归一化分数进行加权平均，以提供一个更稳定和全面的指标。
-    参数:
-        series (pd.Series): 原始数据序列。
-        index (pd.Index): 原始数据序列的索引。
-        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {5: 0.5, 8: 0.3, 13: 0.2}。
-        ascending (bool): 如果为True，则分数越高表示越好；如果为False，则分数越低表示越好。
-        debug_probe_enabled (bool): 是否启用调试探针输出。
-    返回:
-        pd.Series: 最终的MTF归一化分数序列。
-    """
-    if not isinstance(series, pd.Series) or series.empty:
-        return pd.Series(0.0, index=index)
-    final_scores = pd.Series(0.0, index=index)
-    total_weight = 0.0
-    # 修改开始：移除探针输出
-    # if debug_probe_enabled:
-    #     print(f"        [探针] get_adaptive_mtf_normalized_score @ {index[-1].strftime('%Y-%m-%d')} (ascending={ascending}):")
-    #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
-    # 修改结束
-    for window, weight in tf_weights.items():
+def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, ascending: bool = True, tf_weights: dict = None, debug_probe_enabled: bool = False) -> pd.Series:
+    # 确保输入序列是数值类型
+    if not pd.api.types.is_numeric_dtype(series):
+        series = pd.to_numeric(series, errors='coerce')
+    series = series.fillna(0)
+    if tf_weights is None:
+        tf_weights = {5: 0.5, 8: 0.3, 13: 0.2}
+    mtf_scores = []
+    actual_weights = []
+    for window_str, weight in tf_weights.items():
+        # 修改开始：将window_str转换为整数
+        try:
+            window = int(window_str)
+        except ValueError:
+            print(f"        [错误] get_adaptive_mtf_normalized_score: 无法将窗口 '{window_str}' 转换为整数。跳过此窗口。")
+            continue
+        # 修改结束
         if window > 0 and weight > 0:
-            normalized_score_window = normalize_score(series, window, ascending, debug_probe_enabled)
-            final_scores += normalized_score_window * weight
-            total_weight += weight
-    if total_weight > 0:
-        final_scores /= total_weight
-    # 修改开始：移除探针输出
-    # if debug_probe_enabled:
-    #     print(f"            最终MTF归一化分数末尾值: {final_scores.iloc[-1]:.4f}")
-    # 修改结束
-    return final_scores
+            # 对齐填充，确保序列长度足够进行滚动计算
+            padded_series = series.align(index, fill_value=0.0)[0]
+            # 计算滚动排名
+            # rank方法默认处理NaN，min_periods=1确保即使数据不足也能计算
+            # pct=True 返回百分位排名 [0, 1]
+            rolling_rank = padded_series.rolling(window=window, min_periods=1).apply(
+                lambda x: x.rank(pct=True).iloc[-1], raw=False
+            )
+            # 根据ascending参数调整排名方向
+            if not ascending:
+                normalized_score = 1 - rolling_rank
+            else:
+                normalized_score = rolling_rank
+            # 确保结果与原始序列的索引对齐
+            normalized_score = normalized_score.reindex(index, fill_value=0.0)
+            mtf_scores.append(normalized_score * weight)
+            actual_weights.append(weight)
+            if debug_probe_enabled:
+                current_date = index[-1]
+                print(f"        [探针] normalize_score @ {current_date.strftime('%Y-%m-%d')} (window={window}, ascending={ascending}):")
+                print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
+                print(f"            对齐填充后序列末尾值: {padded_series.iloc[-1]:.4f}")
+                print(f"            滚动排名末尾值 (归一化前): {rolling_rank.iloc[-1]:.4f}")
+                print(f"            最终归一化分数末尾值: {normalized_score.iloc[-1]:.4f}")
+                print(f"            周期 {window} 分数: {normalized_score.iloc[-1]:.4f} (权重: {weight:.2f})")
+    if not mtf_scores:
+        return pd.Series(0.0, index=index)
+    # 加权平均所有时间框架的分数
+    final_score = sum(mtf_scores) / sum(actual_weights)
+    if debug_probe_enabled:
+        current_date = index[-1]
+        print(f"            最终MTF归一化分数末尾值: {final_score.iloc[-1]:.4f}")
+    return final_score
 
 def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, debug_probe_enabled: bool = False) -> pd.Series:
-    """
-    计算多时间框架 (MTF) 自适应双极归一化分数。
-    该函数通过对不同时间窗口的双极归一化分数进行加权平均，以提供一个更稳定和全面的、具有方向性的指标。
-    参数:
-        series (pd.Series): 原始数据序列。
-        index (pd.Index): 原始数据序列的索引。
-        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {5: 0.5, 8: 0.3, 13: 0.2}。
-        sensitivity (float): Tanh函数的敏感度参数，用于调整分数对Z-score变化的响应程度。
-        debug_probe_enabled (bool): 是否启用调试探针输出。
-    返回:
-        pd.Series: 最终的MTF双极归一化分数序列。
-    """
-    if not isinstance(series, pd.Series) or series.empty:
-        return pd.Series(0.0, index=index)
-    final_scores = pd.Series(0.0, index=index)
-    total_weight = 0.0
-    # 修改开始：移除探针输出
-    # if debug_probe_enabled:
-    #     print(f"        [探针] get_adaptive_mtf_normalized_bipolar_score @ {index[-1].strftime('%Y-%m-%d')}:")
-    #     print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
-    # 修改结束
-    for window, weight in tf_weights.items():
+    # 确保输入序列是数值类型
+    if not pd.api.types.is_numeric_dtype(series):
+        series = pd.to_numeric(series, errors='coerce')
+    series = series.fillna(0)
+    # 存储每个时间框架的归一化分数
+    mtf_scores = []
+    # 存储每个时间框架的权重
+    actual_weights = []
+    # 遍历每个时间框架的窗口和权重
+    for window_str, weight in tf_weights.items():
+        # 修改开始：将window_str转换为整数
+        try:
+            window = int(window_str)
+        except ValueError:
+            print(f"        [错误] get_adaptive_mtf_normalized_bipolar_score: 无法将窗口 '{window_str}' 转换为整数。跳过此窗口。")
+            continue
+        # 修改结束
         if window > 0 and weight > 0:
-            normalized_score_window = normalize_to_bipolar(series, window, sensitivity, debug_probe_enabled)
-            final_scores += normalized_score_window * weight
-            total_weight += weight
-    if total_weight > 0:
-        final_scores /= total_weight
-    # 修改开始：移除探针输出
-    # if debug_probe_enabled:
-    #     print(f"            最终MTF双极归一化分数末尾值: {final_scores.iloc[-1]:.4f}")
-    # 修改结束
-    return final_scores
+            # 对齐填充，确保序列长度足够进行滚动计算
+            padded_series = series.align(index, fill_value=0.0)[0]
+            # 零值隔离：将0值替换为NaN，避免影响滚动统计，但保留原始0值的位置
+            isolated_series = padded_series.replace(0, np.nan)
+            # 计算滚动均值和标准差
+            rolling_mean = isolated_series.rolling(window=window, min_periods=1).mean()
+            rolling_std = isolated_series.rolling(window=window, min_periods=1).std()
+            # 避免除以零，如果标准差为零，则Z-Score为零
+            z_score = (padded_series - rolling_mean) / rolling_std.replace(0, np.nan)
+            z_score = z_score.fillna(0) # 填充NaN为0，包括标准差为0的情况
+            # 应用tanh函数将Z-Score转换为双极分数 [-1, 1]
+            # sensitivity参数控制tanh函数的陡峭程度，越大则越快饱和
+            bipolar_score = np.tanh(sensitivity * z_score)
+            # 确保结果与原始序列的索引对齐
+            bipolar_score = bipolar_score.reindex(index, fill_value=0.0)
+            mtf_scores.append(bipolar_score * weight)
+            actual_weights.append(weight)
+            if debug_probe_enabled:
+                current_date = index[-1]
+                print(f"        [探针] normalize_to_bipolar @ {current_date.strftime('%Y-%m-%d')} (window={window}, sensitivity={sensitivity}):")
+                print(f"            原始序列末尾值: {series.iloc[-1]:.4f}")
+                print(f"            对齐填充后序列末尾值: {padded_series.iloc[-1]:.4f}")
+                print(f"            零值隔离后序列末尾值: {isolated_series.iloc[-1]:.4f}")
+                print(f"            滚动均值末尾值: {rolling_mean.iloc[-1]:.4f}")
+                print(f"            滚动标准差末尾值: {rolling_std.iloc[-1]:.4f}")
+                print(f"            Z-Score末尾值: {z_score.iloc[-1]:.4f}")
+                print(f"            Tanh转换后双极分数末尾值: {bipolar_score.iloc[-1]:.4f}")
+                print(f"            最终双极归一化分数末尾值: {bipolar_score.iloc[-1]:.4f}")
+                print(f"            周期 {window} 双极分数: {bipolar_score.iloc[-1]:.4f} (权重: {weight:.2f})")
+    if not mtf_scores:
+        return pd.Series(0.0, index=index)
+    # 加权平均所有时间框架的分数
+    final_score = sum(mtf_scores) / sum(actual_weights)
+    if debug_probe_enabled:
+        current_date = index[-1]
+        print(f"            最终MTF双极归一化分数末尾值: {final_score.iloc[-1]:.4f}")
+    return final_score
 
 def normalize_score(series: pd.Series, window: int, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
     """
