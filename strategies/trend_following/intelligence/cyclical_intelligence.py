@@ -162,27 +162,44 @@ class CyclicalIntelligence:
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5
 
-        # 修改开始：正确获取MTF归一化权重，处理可能的嵌套结构
-        mtf_norm_params = get_param_value(params.get('mtf_normalization_weights'), {})
-        
-        # 尝试从 'default' 键获取权重配置
-        # 这里的 get_param_value 会处理 { "value": ... } 结构，但对于纯字典会直接返回字典
-        raw_default_weights_config = get_param_value(mtf_norm_params.get('default'), {})
+        # 修改开始：强化权重提取逻辑并添加更多探针
+        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 接收到的 params: {params}")
 
-        # 进一步检查 raw_default_weights_config 是否包含 'weights' 键
-        # 这正是导致 "weights" 无法转换为整数的根本原因，即 tf_weights 变成了 {'weights': {...}}
-        if isinstance(raw_default_weights_config, dict) and 'weights' in raw_default_weights_config:
-            # 如果存在 'weights' 键，则提取其值作为最终的权重字典
-            default_weights = get_param_value(raw_default_weights_config.get('weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1})
-        else:
-            # 否则，raw_default_weights_config 本身就是我们需要的权重字典，
-            # 或者如果它为空，则使用硬编码的默认值
-            default_weights = raw_default_weights_config if raw_default_weights_config else {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
+        # 获取 mtf_normalization_weights 整个配置块
+        mtf_norm_config_block = get_param_value(params.get('mtf_normalization_weights'), {})
+        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - mtf_norm_config_block (从 params 中获取): {mtf_norm_config_block}")
+
+        # 从配置块中获取 'default' 键对应的值
+        # 预期这里会得到 {"5": 0.4, "13": 0.3, ...} 或者 {"value": {"5": 0.4, ...}}
+        # 或者 {"weights": {"5": 0.4, ...}}
+        potential_weights_dict = get_param_value(mtf_norm_config_block.get('default'), {})
+        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - potential_weights_dict (从 default 键获取): {potential_weights_dict}")
+
+        # 最终确定要传递给 get_adaptive_mtf_normalized_bipolar_score 的权重字典
+        final_tf_weights = {}
+        if isinstance(potential_weights_dict, dict):
+            if 'weights' in potential_weights_dict:
+                # 如果是 {"weights": {"5": 0.4, ...}} 这种结构
+                print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 发现 'weights' 嵌套键。")
+                final_tf_weights = get_param_value(potential_weights_dict.get('weights'), {})
+            elif 'value' in potential_weights_dict:
+                # 如果是 {"value": {"5": 0.4, ...}} 这种结构
+                print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 发现 'value' 嵌套键。")
+                final_tf_weights = get_param_value(potential_weights_dict.get('value'), {})
+            else:
+                # 否则，potential_weights_dict 本身就是 {"5": 0.4, ...} 这种结构
+                print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 权重字典结构直接可用。")
+                final_tf_weights = potential_weights_dict
+        
+        # 如果最终还是空，或者不是字典，则使用硬编码默认值
+        if not isinstance(final_tf_weights, dict) or not final_tf_weights:
+            print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 最终权重字典为空或无效，使用硬编码默认值。")
+            final_tf_weights = {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
+
+        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 最终传递的 final_tf_weights: {final_tf_weights}")
         # 修改结束
 
-        print(f"        [探针] diagnose_market_memory_with_hurst: 传递给 get_adaptive_mtf_normalized_bipolar_score 的 default_weights: {default_weights}")
-
-        hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=0.1)
+        hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, final_tf_weights, sensitivity=0.1)
         states['SCORE_CYCLICAL_HURST_MEMORY'] = hurst_memory_score
         # 将双极性分数分解为互斥的单极性“政权”分
         trend_regime_score, reversion_regime_score = bipolar_to_exclusive_unipolar(hurst_memory_score)

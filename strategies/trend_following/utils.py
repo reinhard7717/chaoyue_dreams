@@ -886,19 +886,22 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
     参数:
         series (pd.Series): 原始数据序列。
         index (pd.Index): 原始数据序列的索引。
-        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {"5": 0.5, "13": 0.3, "21": 0.2}。
+        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {"5": 0.5, "8": 0.3, "13": 0.2}。
         ascending (bool): 如果为True，则分数越高表示越好；如果为False，则分数越低表示越好。
         debug_probe_enabled (bool): 是否启用调试探针输出。
     返回:
         pd.Series: 最终的MTF归一化分数序列。
     """
+    # 修改开始：添加探针
+    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_score - 接收到的 tf_weights: {tf_weights}")
+    # 修改结束
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     final_scores = pd.Series(0.0, index=index)
     total_weight = 0.0
-    for window_str, weight in tf_weights.items(): # 修改：迭代键名为 window_str
+    for window_str, weight in tf_weights.items():
         try:
-            window = int(window_str) # 修改：将字符串键转换为整数
+            window = int(window_str)
         except ValueError:
             print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
             continue
@@ -908,7 +911,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
             total_weight += weight
     if total_weight > 0:
         final_scores /= total_weight
-    return final_scores.astype(np.float32) # 修改：转换为 np.float32 类型
+    return final_scores
 
 def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, debug_probe_enabled: bool = False) -> pd.Series:
     """
@@ -923,13 +926,16 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
     返回:
         pd.Series: 最终的MTF双极归一化分数序列。
     """
+    # 修改开始：添加探针
+    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_bipolar_score - 接收到的 tf_weights: {tf_weights}")
+    # 修改结束
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     final_scores = pd.Series(0.0, index=index)
     total_weight = 0.0
-    for window_str, weight in tf_weights.items(): # 修改：迭代键名为 window_str
+    for window_str, weight in tf_weights.items():
         try:
-            window = int(window_str) # 修改：将字符串键转换为整数
+            window = int(window_str)
         except ValueError:
             print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
             continue
