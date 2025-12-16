@@ -186,24 +186,32 @@ class AdvancedStructuralMetricsService:
         """
         【V46.0 · 潜龙在渊】
         - 核心升级: 在构建传递给下一日的 `prev_day_metrics` 上下文时，增加 `volume` 字段，
-                     为 `equilibrium_compression_index` 的计算提供必要的“力量胶着度”评估依据。
+                    为 `equilibrium_compression_index` 的计算提供必要的“力量胶着度”评估依据。
         """
         new_metrics_data = []
         prev_day_metrics = {}
         if intraday_map:
-            first_date = min(intraday_map.keys())
-            prev_date = first_date - pd.Timedelta(days=1)
-            if prev_date in daily_df_with_atr.index:
-                 prev_day_series = daily_df_with_atr.loc[prev_date]
-                 prev_day_metrics = {
+            # 确保 first_date 是 Timestamp 类型，以便与 daily_df_with_atr 的 DatetimeIndex 兼容
+            first_date_ts = pd.to_datetime(min(intraday_map.keys())) # 修改行：将 datetime.date 转换为 Timestamp
+            prev_date_ts = first_date_ts - pd.Timedelta(days=1) # prev_date_ts 现在是 Timestamp
+            # 假设 daily_df_with_atr 的索引在 tasks/stock_analysis_tasks.py 中已修正为 DatetimeIndex (Timestamps)
+            if prev_date_ts in daily_df_with_atr.index:
+                prev_day_series = daily_df_with_atr.loc[prev_date_ts]
+                prev_day_metrics = {
                     'high': prev_day_series.get('high_qfq'),
                     'low': prev_day_series.get('low_qfq'),
-                    'volume': prev_day_series.get('volume'), # 新增此行
-                 }
-        for trade_date, data_for_day in sorted(intraday_map.items()):
-            if trade_date not in daily_df_with_atr.index:
+                    'volume': prev_day_series.get('volume'),
+                }
+        # 遍历 intraday_map，其键 trade_date_dt_obj 仍是 datetime.date 对象
+        for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
+            # 修改行：将当前的 datetime.date 对象转换为 pandas.Timestamp，用于后续操作
+            current_trade_timestamp = pd.to_datetime(trade_date_dt_obj)
+            
+            # 使用 Timestamp 进行 daily_df_with_atr 的索引查找
+            if current_trade_timestamp not in daily_df_with_atr.index:
+                logger.warning(f"[{stock_code}] 在日期 {trade_date_dt_obj} 对应的日线数据缺失，跳过当日计算。")
                 continue
-            daily_series_for_day = daily_df_with_atr.loc[trade_date]
+            daily_series_for_day = daily_df_with_atr.loc[current_trade_timestamp]
             canonical_minute_df = None
             tick_df_for_day = data_for_day.get('tick')
             minute_df_for_day = data_for_day.get('minute')
@@ -223,17 +231,18 @@ class AdvancedStructuralMetricsService:
                     minute_df_for_day.rename(columns={'volume': 'vol'}, inplace=True)
                 canonical_minute_df = minute_df_for_day
             if canonical_minute_df is None or canonical_minute_df.empty:
-                logger.warning(f"[{stock_code}] 在日期 {trade_date} 缺少可用的分钟级或Tick级数据，跳过当日计算。")
+                logger.warning(f"[{stock_code}] 在日期 {trade_date_dt_obj} 缺少可用的分钟级或Tick级数据，跳过当日计算。")
                 continue
             level5_df_for_day = data_for_day.get('level5')
             realtime_df_for_day = data_for_day.get('realtime')
             continuous_group = self._create_continuous_minute_data(canonical_minute_df)
             target_date_str = self.debug_params.get('target_date')
-            is_target_date = target_date_str == trade_date.strftime('%Y-%m-%d')
+            # 调试信息中的日期字符串仍使用原始的 datetime.date 对象
+            is_target_date = target_date_str == trade_date_dt_obj.strftime('%Y-%m-%d')
             debug_info = {
                 'is_target_date': is_target_date,
                 'enable_probe': self.debug_params.get('enable_asm_probe', False),
-                'trade_date_str': trade_date.strftime('%Y-%m-%d')
+                'trade_date_str': trade_date_dt_obj.strftime('%Y-%m-%d')
             }
             day_metric_dict = self._calculate_daily_structural_metrics(
                 group=canonical_minute_df,
@@ -245,7 +254,8 @@ class AdvancedStructuralMetricsService:
                 prev_day_metrics=prev_day_metrics,
                 debug_info=debug_info
             )
-            day_metric_dict['trade_time'] = trade_date
+            # 修改行：确保 trade_time 字段是 Timestamp 类型
+            day_metric_dict['trade_time'] = current_trade_timestamp
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
             # 在传递给下一日的上下文中增加 volume
@@ -256,11 +266,12 @@ class AdvancedStructuralMetricsService:
                 'atr_14d': daily_series_for_day.get('ATR_14'),
                 'high': daily_series_for_day.get('high_qfq'),
                 'low': daily_series_for_day.get('low_qfq'),
-                'volume': daily_series_for_day.get('volume'), # 新增此行
+                'volume': daily_series_for_day.get('volume'),
             }
         if not new_metrics_data:
             return pd.DataFrame()
         new_metrics_df = pd.DataFrame(new_metrics_data)
+        # new_metrics_df 的索引现在将是 DatetimeIndex (Timestamps)
         new_metrics_df.set_index('trade_time', inplace=True)
         final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
         return final_metrics_df
