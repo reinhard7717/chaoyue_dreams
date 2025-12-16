@@ -1171,7 +1171,9 @@ class BehavioralIntelligence:
             (deceptive_narrative_score + 1e-9).pow(action_weights.get('deception_positive', 0.4))
         ).pow(1/(action_weights.get('absorption', 0.6) + action_weights.get('deception_positive', 0.4))).fillna(0.0)
         # --- 5. 维度三：突袭品质 (Strike Quality) ---
-        closing_strength_score = normalize_score(closing_strength_raw, df.index, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        closing_strength_score = normalize_score(closing_strength_raw, 55)
+        # 修改结束
         upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
         counterattack_quality_score = (
             (closing_strength_score + 1e-9).pow(quality_weights.get('closing_strength', 0.6)) *
@@ -1455,7 +1457,9 @@ class BehavioralIntelligence:
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
         conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        result_score = normalize_score(result_raw, df.index, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        result_score = normalize_score(result_raw, 55)
+        # 修改结束
         # 2.3 合成战术强攻品质分
         tactical_assault_quality_score = (
             (magnitude_score + 1e-9) * (conviction_score + 1e-9) *
@@ -1505,7 +1509,9 @@ class BehavioralIntelligence:
         # --- 3. 计算核心组件 ---
         # 组件一：战略环境门控 (The Furnace Check)
         # 只有当多头至少取得平局或优势时，门控才开启
-        strategic_context_gate = normalize_score(vwap_control_raw, df.index, 55)
+        # 修改开始：修正 normalize_score 的调用参数
+        strategic_context_gate = normalize_score(vwap_control_raw, 55)
+        # 修改结束
         # 组件二：基础萎缩分
         base_atrophy_score = 1 - get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
         # 组件三：筹码纯度诊断 (The Purity Test)
@@ -2185,7 +2191,7 @@ class BehavioralIntelligence:
             short_term_close_slopes = self._get_safe_series(df, f'SLOPE_{mtf_slopes_params.get("periods", [5])[0]}_close_D', 0.0, method_name=method_name)
             slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
             # 修改开始：修正 normalize_score 的调用参数
-            norm_slope_std_dev = get_adaptive_mtf_normalized_score(slope_std_dev, df.index, ascending=False, tf_weights=tf_weights)
+            norm_slope_std_dev = normalize_score(slope_std_dev, 55, ascending=False)
             # 修改结束
             purity_penalty = pd.Series(0.0, index=df.index)
             purity_penalty = purity_penalty.mask(
@@ -2301,7 +2307,7 @@ class BehavioralIntelligence:
             long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
             # 修改开始：修正 normalize_score 的调用参数
-            norm_long_term_slope_std_dev = get_adaptive_mtf_normalized_score(long_term_slope_std_dev, df.index, ascending=False, tf_weights=tf_weights)
+            norm_long_term_slope_std_dev = normalize_score(long_term_slope_std_dev, 55, ascending=False)
             # 修改结束
             is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
             is_high_inertia_market = is_strong_long_term_trend & is_stable_long_term_slope
