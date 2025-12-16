@@ -231,7 +231,7 @@ class BehavioralIntelligence:
         # 获取所有参数配置，用于动态构建required_signals
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         
-        # 修改开始：健壮地获取 mtf_slopes_params，确保 'weights' 键存在
+        # 健壮地获取 mtf_slopes_params，确保 'weights' 键存在
         mtf_slopes_params_from_config = p_behavioral_div_conf.get('multi_timeframe_slopes')
         # 定义一个完整的默认 mtf_slopes_params 结构
         default_mtf_slopes_config = {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}}
@@ -248,7 +248,6 @@ class BehavioralIntelligence:
             elif 'weights' not in mtf_slopes_params_from_config:
                 # 如果配置中没有 'weights' 键，则使用默认的 'weights'
                 mtf_slopes_params['weights'] = default_mtf_slopes_config['weights']
-        # 修改结束
 
         mtf_periods = mtf_slopes_params.get('periods', [5])
         multi_level_resonance_params = get_param_value(p_behavioral_div_conf.get('multi_level_resonance_params'), {"enabled": True, "long_term_period": 21, "resonance_bonus": 0.2})
@@ -677,9 +676,8 @@ class BehavioralIntelligence:
         wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
         # --- 3. 计算核心组件 ---
         # 组件一：舞台剧本向量
-        # 修改开始：修正 normalize_to_bipolar 的调用参数
+        # 修正 normalize_to_bipolar 的调用参数
         narrative_vector = normalize_to_bipolar(narrative_raw, 55)
-        # 修改结束
         # 组件二：幕后意图向量
         intent_vector = get_adaptive_mtf_normalized_bipolar_score(intent_raw, df.index, default_weights)
         # 计算认知失调向量 (先计算，以便后续选择欺骗证据)
@@ -1171,9 +1169,8 @@ class BehavioralIntelligence:
             (deceptive_narrative_score + 1e-9).pow(action_weights.get('deception_positive', 0.4))
         ).pow(1/(action_weights.get('absorption', 0.6) + action_weights.get('deception_positive', 0.4))).fillna(0.0)
         # --- 5. 维度三：突袭品质 (Strike Quality) ---
-        # 修改开始：修正 normalize_score 的调用参数
+        # 修正 normalize_score 的调用参数
         closing_strength_score = normalize_score(closing_strength_raw, 55)
-        # 修改结束
         upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
         counterattack_quality_score = (
             (closing_strength_score + 1e-9).pow(quality_weights.get('closing_strength', 0.6)) *
@@ -1457,9 +1454,8 @@ class BehavioralIntelligence:
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
         conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 修改开始：修正 normalize_score 的调用参数
+        # 修正 normalize_score 的调用参数
         result_score = normalize_score(result_raw, 55)
-        # 修改结束
         # 2.3 合成战术强攻品质分
         tactical_assault_quality_score = (
             (magnitude_score + 1e-9) * (conviction_score + 1e-9) *
@@ -1509,9 +1505,8 @@ class BehavioralIntelligence:
         # --- 3. 计算核心组件 ---
         # 组件一：战略环境门控 (The Furnace Check)
         # 只有当多头至少取得平局或优势时，门控才开启
-        # 修改开始：修正 normalize_score 的调用参数
+        # 修正 normalize_score 的调用参数
         strategic_context_gate = normalize_score(vwap_control_raw, 55)
-        # 修改结束
         # 组件二：基础萎缩分
         base_atrophy_score = 1 - get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
         # 组件三：筹码纯度诊断 (The Purity Test)
@@ -1830,9 +1825,8 @@ class BehavioralIntelligence:
         tactical_action_score = absorption_strength
         # 维度三：执行品质分 (工匠指数)
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 修改开始：修正 normalize_score 的调用参数
+        # 修正 normalize_score 的调用参数
         control_score = normalize_score(control_raw, 55) # VWAP控制力本身就是[-1,1]附近，用简单归一化即可
-        # 修改结束
         decisiveness_score = ((close - low) / (high - low + 1e-9)).fillna(0.5).clip(0, 1)
         execution_quality_score = (
             efficiency_score * quality_weights.get('efficiency', 0.4) +
@@ -1935,9 +1929,8 @@ class BehavioralIntelligence:
         active_buying = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
         raw_trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
-        # 修改开始：修正 normalize_score 的调用参数
+        # 修正 normalize_score 的调用参数
         trend_vitality = normalize_score(raw_trend_vitality, 55)
-        # 修改结束
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
         high_price = self._get_safe_series(df, 'high_D', df['close_D'], method_name=method_name)
         low_price = self._get_safe_series(df, 'low_D', df['close_D'], method_name=method_name)
@@ -2076,9 +2069,8 @@ class BehavioralIntelligence:
             active_flow_conf * conf_weights.get('buying_support' if is_bullish else 'selling_pressure', 0.2) +
             norm_atr * conf_weights.get('volatility_high', 0.2)
         )
-        # 修改开始：修正 normalize_score 的调用参数
+        # 修正 normalize_score 的调用参数
         norm_total_conf_factor = normalize_score(total_conf_factor, 55)
-        # 修改结束
         # 行为强度与持续性 - 持续性 (Persistence Factor with Quality)
         persistence_factor = pd.Series(0.0, index=df.index)
         if persistence_params.get('enabled'):
@@ -2192,7 +2184,7 @@ class BehavioralIntelligence:
         if purity_assessment_params.get('enabled'):
             short_term_close_slopes = self._get_safe_series(df, f'SLOPE_{mtf_slopes_params.get("periods", [5])[0]}_close_D', 0.0, method_name=method_name)
             slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             norm_slope_std_dev = normalize_score(slope_std_dev, 55, ascending=False)
             # 修改结束
             purity_penalty = pd.Series(0.0, index=df.index)
@@ -2209,7 +2201,7 @@ class BehavioralIntelligence:
             adx_ranging_threshold = market_regime_params.get('adx_ranging_threshold', 20)
             adx_div_max_adjust = market_regime_params.get('adx_div_weight_max_adjust', 0.3)
             adx_conf_max_adjust = market_regime_params.get('adx_conf_weight_max_adjust', 0.3)
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             norm_adx = normalize_score(adx_val, 55)
             # 修改结束
             dynamic_div_weight_multiplier = 1 + norm_adx * adx_div_max_adjust
@@ -2308,7 +2300,7 @@ class BehavioralIntelligence:
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold)
             long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             norm_long_term_slope_std_dev = normalize_score(long_term_slope_std_dev, 55, ascending=False)
             # 修改结束
             is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
@@ -2332,7 +2324,7 @@ class BehavioralIntelligence:
             adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(
                 is_ranging_market, adaptive_fusion_weight_multiplier * (1 + ranging_bonus_factor)
             )
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             is_high_volatility = (normalize_score(atr_val, 55) > 0.8)
             # 修改结束
             adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(

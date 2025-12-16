@@ -8,7 +8,7 @@ import gc
 # 这个文件包含所有层级都可能用到的通用辅助函数
 
 def get_param_value(param: Any, default: Any = None) -> Any:
-    # 修改开始：恢复 get_param_value 到其原始的、简单的逻辑
+    # 恢复 get_param_value 到其原始的、简单的逻辑
     if isinstance(param, dict) and 'value' in param:
         return param['value']
     if param is not None:
