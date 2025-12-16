@@ -540,7 +540,7 @@ class AdvancedFundFlowMetricsService:
         # 计算净流入指标
         for col_name in ['net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated', 'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated', 'net_sh_amount_calibrated']:
             results[col_name] = get_calibrated_value(col_name)
-        # 新增：计算拆分后的买入/卖出金额指标
+        # 计算拆分后的买入/卖出金额指标
         # 这些指标直接从 Tushare 的原始 buy/sell amount 字段计算，不进行复杂的校准，因为它们是原始数据。
         # 确保这些字段在 daily_data_series 中存在，如果不存在则默认为0或NaN
         buy_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_sm_amount'), errors='coerce'), nan=0.0) # 修改行

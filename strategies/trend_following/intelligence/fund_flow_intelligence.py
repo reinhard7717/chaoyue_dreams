@@ -125,14 +125,14 @@ class FundFlowIntelligence:
                              ).clip(0.5, 1.5)
         posture_core = attack_score * (1 + structure_score) / 2
         strategic_posture_score = (posture_core * context_modulator).clip(-1, 1)
-        # --- 3. 新增：和谐拐点计算 ---
+        # --- 3. 和谐拐点计算 ---
         posture_velocity = strategic_posture_score.diff().fillna(0)
         posture_acceleration = posture_velocity.diff().fillna(0)
         norm_velocity = get_adaptive_mtf_normalized_score(posture_velocity, df.index, ascending=True, tf_weights={3:1.0})
         norm_acceleration = get_adaptive_mtf_normalized_score(posture_acceleration, df.index, ascending=True, tf_weights={3:1.0})
         # 核心裁决：速度和加速度必须同时为正
         harmony_inflection_score = (norm_velocity.clip(lower=0) * norm_acceleration.clip(lower=0)).pow(0.5)
-        # --- 4. 新增：资金流看涨/看跌背离信号 ---
+        # --- 4. 资金流看涨/看跌背离信号 ---
         # 将所有原子公理存储到 self.strategy.atomic_states，以便 _diagnose_fund_flow_divergence_signals 可以获取
         self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus

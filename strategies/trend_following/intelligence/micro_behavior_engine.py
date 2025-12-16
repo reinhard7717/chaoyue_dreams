@@ -89,7 +89,7 @@ class MicroBehaviorEngine:
         )
         all_states['SCORE_MICRO_STRATEGIC_INTENT'] = strategic_intent
         print(f"    -> [微观行为情报校验] 计算“战略意图(SCORE_MICRO_STRATEGIC_INTENT)” 分数：{strategic_intent.mean():.4f}")
-        # --- 新增：调用和谐拐点诊断器，生成终极机会信号 ---
+        # --- 调用和谐拐点诊断器，生成终极机会信号 ---
         harmony_inflection = self._diagnose_harmony_inflection(strategic_intent) # 新增代码
         all_states['SCORE_MICRO_HARMONY_INFLECTION'] = harmony_inflection # 新增代码
         # 引入微观行为层面的看涨/看跌背离信号

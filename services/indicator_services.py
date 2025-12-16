@@ -476,9 +476,9 @@ class IndicatorService:
             platform_feature_renames = {
                 'high_D': 'platform_high_D',
                 'low_D': 'platform_low_D',
-                'slope_D': 'platform_slope_D', # 新增：确保平台特征的 slope 也重命名
-                'intercept_D': 'platform_intercept_D', # 新增：确保平台特征的 intercept 也重命名
-                'validity_score_D': 'platform_validity_score_D' # 新增：确保平台特征的 validity_score 也重命名
+                'slope_D': 'platform_slope_D', # 确保平台特征的 slope 也重命名
+                'intercept_D': 'platform_intercept_D', # 确保平台特征的 intercept 也重命名
+                'validity_score_D': 'platform_validity_score_D' # 确保平台特征的 validity_score 也重命名
             }
             df_supp_std.rename(columns=platform_feature_renames, inplace=True)
         elif tag == 'trendline_feature':
@@ -486,8 +486,8 @@ class IndicatorService:
                 'slope_D': 'trendline_slope_D',
                 'intercept_D': 'trendline_intercept_D',
                 'validity_score_D': 'trendline_validity_score_D',
-                'touch_points_D': 'trendline_touch_points_D', # 新增：确保 touch_points 也重命名
-                'touch_conviction_score_D': 'trendline_touch_conviction_score_D' # 新增：确保 touch_conviction_score 也重命名
+                'touch_points_D': 'trendline_touch_points_D', # 确保 touch_points 也重命名
+                'touch_conviction_score_D': 'trendline_touch_conviction_score_D' # 确保 touch_conviction_score 也重命名
             }
             df_supp_std.rename(columns=trendline_feature_renames, inplace=True)
         elif tag == 'multi_timeframe_trendline':
