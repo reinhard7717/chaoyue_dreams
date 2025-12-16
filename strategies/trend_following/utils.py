@@ -8,25 +8,13 @@ import gc
 # 这个文件包含所有层级都可能用到的通用辅助函数
 
 def get_param_value(param: Any, default: Any = None) -> Any:
-    # 增强对嵌套字典的自动解包能力
-    if isinstance(param, dict):
-        if 'value' in param:
-            return param['value']
-        
-        # 尝试解包 {'weights': {...}} 结构
-        if 'weights' in param and isinstance(param['weights'], dict):
-            return param['weights']
-        
-        # 尝试解包 {'default': {...}} 结构
-        if 'default' in param and isinstance(param['default'], dict):
-            # 如果 default 内部又包含 weights，则进一步解包
-            if 'weights' in param['default'] and isinstance(param['default']['weights'], dict):
-                return param['default']['weights']
-            return param['default'] # 否则，default 内部就是我们需要的字典
-    # 修改结束
+    # 修改开始：恢复 get_param_value 到其原始的、简单的逻辑
+    if isinstance(param, dict) and 'value' in param:
+        return param['value']
     if param is not None:
         return param
     return default
+    # 修改结束
 
 def get_params_block(strategy_instance, block_name: str, default_return: Any = None) -> dict:
     """
