@@ -8,8 +8,22 @@ import gc
 # 这个文件包含所有层级都可能用到的通用辅助函数
 
 def get_param_value(param: Any, default: Any = None) -> Any:
-    if isinstance(param, dict) and 'value' in param:
-        return param['value']
+    # 修改开始：增强对嵌套字典的自动解包能力
+    if isinstance(param, dict):
+        if 'value' in param:
+            return param['value']
+        
+        # 尝试解包 {'weights': {...}} 结构
+        if 'weights' in param and isinstance(param['weights'], dict):
+            return param['weights']
+        
+        # 尝试解包 {'default': {...}} 结构
+        if 'default' in param and isinstance(param['default'], dict):
+            # 如果 default 内部又包含 weights，则进一步解包
+            if 'weights' in param['default'] and isinstance(param['default']['weights'], dict):
+                return param['default']['weights']
+            return param['default'] # 否则，default 内部就是我们需要的字典
+    # 修改结束
     if param is not None:
         return param
     return default
@@ -880,19 +894,7 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_weights: dict, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
-    """
-    计算多时间框架 (MTF) 自适应归一化分数。
-    该函数通过对不同时间窗口的归一化分数进行加权平均，以提供一个更稳定和全面的指标。
-    参数:
-        series (pd.Series): 原始数据序列。
-        index (pd.Index): 原始数据序列的索引。
-        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {"5": 0.5, "8": 0.3, "13": 0.2}。
-        ascending (bool): 如果为True，则分数越高表示越好；如果为False，则分数越低表示越好。
-        debug_probe_enabled (bool): 是否启用调试探针输出。
-    返回:
-        pd.Series: 最终的MTF归一化分数序列。
-    """
-    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_score - 接收到的 tf_weights: {tf_weights}") # 保留此探针
+    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_score - 接收到的 tf_weights: {tf_weights}")
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     final_scores = pd.Series(0.0, index=index)
@@ -904,9 +906,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
             print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
             continue
         if window > 0 and weight > 0:
-            # 修改开始：确保传递正确的 debug_probe_enabled 参数
             normalized_score_window = normalize_score(series, window, ascending, debug_probe_enabled=debug_probe_enabled)
-            # 修改结束
             final_scores += normalized_score_window * weight
             total_weight += weight
     if total_weight > 0:
@@ -914,19 +914,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
     return final_scores
 
 def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, debug_probe_enabled: bool = False) -> pd.Series:
-    """
-    计算多时间框架 (MTF) 自适应双极归一化分数。
-    该函数通过对不同时间窗口的双极归一化分数进行加权平均，以提供一个更稳定和全面的、具有方向性的指标。
-    参数:
-        series (pd.Series): 原始数据序列。
-        index (pd.Index): 原始数据序列的索引。
-        tf_weights (dict): 包含不同时间窗口及其对应权重的字典，例如 {"5": 0.5, "13": 0.3, "21": 0.2}。
-        sensitivity (float): Tanh函数的敏感度参数，用于调整分数对Z-score变化的响应程度。
-        debug_probe_enabled (bool): 是否启用调试探针输出。
-    返回:
-        pd.Series: 最终的MTF双极归一化分数序列。
-    """
-    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_bipolar_score - 接收到的 tf_weights: {tf_weights}") # 保留此探针
+    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_bipolar_score - 接收到的 tf_weights: {tf_weights}")
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     final_scores = pd.Series(0.0, index=index)
@@ -938,15 +926,12 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
             print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
             continue
         if window > 0 and weight > 0:
-            # 修改开始：确保传递正确的 debug_probe_enabled 参数
             normalized_score_window = normalize_to_bipolar(series, window, sensitivity, debug_probe_enabled=debug_probe_enabled)
-            # 修改结束
             final_scores += normalized_score_window * weight
             total_weight += weight
     if total_weight > 0:
         final_scores /= total_weight
     return final_scores
-
 
 def normalize_score(series: pd.Series, window: int, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
     """

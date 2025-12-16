@@ -12,6 +12,7 @@ class CyclicalIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -20,6 +21,7 @@ class CyclicalIntelligence:
             print(f"    -> [周期情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def run_cyclical_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · 双星系统版】周期情报分析总指挥
@@ -51,6 +53,7 @@ class CyclicalIntelligence:
         final_trend_regime_score = (fft_trend_score * hurst_trend_score).pow(0.5)
         all_cyclical_states['SCORE_TRENDING_REGIME'] = final_trend_regime_score.astype(np.float32)
         return all_cyclical_states
+
     def _diagnose_cyclical_top_risk(self, df: pd.DataFrame, fft_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.0】诊断认知风险信号：周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)
@@ -71,6 +74,7 @@ class CyclicalIntelligence:
         # 只有当周期强度高且处于波峰时，风险才高
         cyclical_top_risk = (dominant_power * phase_contribution).fillna(0.0)
         return {'COGNITIVE_RISK_CYCLICAL_TOP': cyclical_top_risk.astype(np.float32)}
+
     def diagnose_market_cycles_with_fft(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V2.0 · 命名净化版】使用FFT诊断市场周期 (公理一)
@@ -162,44 +166,19 @@ class CyclicalIntelligence:
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5
 
-        # 修改开始：强化权重提取逻辑并添加更多探针
-        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 接收到的 params: {params}")
-
-        # 获取 mtf_normalization_weights 整个配置块
-        mtf_norm_config_block = get_param_value(params.get('mtf_normalization_weights'), {})
-        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - mtf_norm_config_block (从 params 中获取): {mtf_norm_config_block}")
-
-        # 从配置块中获取 'default' 键对应的值
-        # 预期这里会得到 {"5": 0.4, "13": 0.3, ...} 或者 {"value": {"5": 0.4, ...}}
-        # 或者 {"weights": {"5": 0.4, ...}}
-        potential_weights_dict = get_param_value(mtf_norm_config_block.get('default'), {})
-        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - potential_weights_dict (从 default 键获取): {potential_weights_dict}")
-
-        # 最终确定要传递给 get_adaptive_mtf_normalized_bipolar_score 的权重字典
-        final_tf_weights = {}
-        if isinstance(potential_weights_dict, dict):
-            if 'weights' in potential_weights_dict:
-                # 如果是 {"weights": {"5": 0.4, ...}} 这种结构
-                print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 发现 'weights' 嵌套键。")
-                final_tf_weights = get_param_value(potential_weights_dict.get('weights'), {})
-            elif 'value' in potential_weights_dict:
-                # 如果是 {"value": {"5": 0.4, ...}} 这种结构
-                print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 发现 'value' 嵌套键。")
-                final_tf_weights = get_param_value(potential_weights_dict.get('value'), {})
-            else:
-                # 否则，potential_weights_dict 本身就是 {"5": 0.4, ...} 这种结构
-                print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 权重字典结构直接可用。")
-                final_tf_weights = potential_weights_dict
+        # 修改开始：简化权重提取逻辑，依赖于 get_param_value 的增强解包能力
+        # 从 params (cyclical_analysis_params) 中获取 mtf_normalization_weights
+        # get_param_value 会自动解包 {'default': {...}} 或 {'weights': {...}}
+        default_weights = get_param_value(params.get('mtf_normalization_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1})
         
         # 如果最终还是空，或者不是字典，则使用硬编码默认值
-        if not isinstance(final_tf_weights, dict) or not final_tf_weights:
-            print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 最终权重字典为空或无效，使用硬编码默认值。")
-            final_tf_weights = {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
+        if not isinstance(default_weights, dict) or not default_weights:
+            default_weights = {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
 
-        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst - 最终传递的 final_tf_weights: {final_tf_weights}")
+        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst: 传递给 get_adaptive_mtf_normalized_bipolar_score 的 default_weights: {default_weights}")
         # 修改结束
 
-        hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, final_tf_weights, sensitivity=0.1)
+        hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=0.1)
         states['SCORE_CYCLICAL_HURST_MEMORY'] = hurst_memory_score
         # 将双极性分数分解为互斥的单极性“政权”分
         trend_regime_score, reversion_regime_score = bipolar_to_exclusive_unipolar(hurst_memory_score)
