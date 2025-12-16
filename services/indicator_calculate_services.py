@@ -979,7 +979,7 @@ class IndicatorCalculator:
     async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict, suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V1.2 · 接口净化版】计算斐波那契回撤/扩展位。
-        - 核心修改: 移除 timeframe_key 参数，改为接收一个通用的 suffix，由调用方构建。
+        - 移除 timeframe_key 参数，改为接收一个通用的 suffix，由调用方构建。
         """
         result_df = pd.DataFrame(index=df.index)
         periods = params.get('periods', [])
@@ -1003,7 +1003,7 @@ class IndicatorCalculator:
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict, suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V4.2 · 接口净化版】计算价格/成交量与各自均线的比率。
-        - 核心修改: 移除 timeframe_key 参数，改为接收一个通用的 suffix，由调用方构建。
+        - 移除 timeframe_key 参数，改为接收一个通用的 suffix，由调用方构建。
         """
         result_df = pd.DataFrame(index=df.index)
         periods = params.get('periods', [])

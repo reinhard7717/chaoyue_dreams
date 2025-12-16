@@ -6,7 +6,7 @@ from strategies.trend_following.utils import get_params_block, get_param_value, 
 class PatternIntelligence:
     """
     【V8.0 · 清洁版】形态智能引擎
-    - 核心修改: 移除了所有用于调试的print探针和过程性打印，恢复静默运行模式。
+    - 移除了所有用于调试的print探针和过程性打印，恢复静默运行模式。
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance

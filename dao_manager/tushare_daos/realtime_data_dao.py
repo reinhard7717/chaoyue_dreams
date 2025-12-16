@@ -57,7 +57,7 @@ class StockRealtimeDAO(BaseDAO):
     async def save_realtime_tick_in_bulk(self, stock_codes: List[str], trade_date: str) -> Tuple[bool, str]:
         """
         【V2.2 逐笔数据分表-无缓存版】并发获取、清洗、并持久化多支股票的当日实时逐笔数据。
-        - 核心修改: 将新增的 `price_change` 字段加入持久化列表。
+        - 将新增的 `price_change` 字段加入持久化列表。
         """
         if not stock_codes:
             return True, "股票列表为空，无需处理。"
@@ -113,7 +113,7 @@ class StockRealtimeDAO(BaseDAO):
     async def _fetch_raw_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
         """
         【辅助】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
-        - 核心修改: 新增对 `CHANGE` (价格变动) 字段的获取和处理。
+        - 新增对 `CHANGE` (价格变动) 字段的获取和处理。
         """
         type_mapping = {'买盘': 'B', '卖盘': 'S', '中性盘': 'M'}
         async def fetch_one_stock(code: str):
@@ -161,7 +161,7 @@ class StockRealtimeDAO(BaseDAO):
     async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
         【核心读取-无缓存版】获取单只股票指定日期的真实逐笔数据。
-        - 核心修改: 移除缓存优先策略，直接从数据库获取。
+        - 移除缓存优先策略，直接从数据库获取。
         """
         try:
             # 移除缓存读取和回填逻辑，直接从数据库获取
@@ -176,7 +176,7 @@ class StockRealtimeDAO(BaseDAO):
     async def _get_daily_real_ticks_from_db(self, stock_code: str, trade_date_str: str) -> Optional[pd.DataFrame]:
         """
         【辅助】从数据库获取指定股票和日期的真实逐笔数据。
-        - 核心修改: 在查询时增加 `price_change` 字段。
+        - 在查询时增加 `price_change` 字段。
         """
         from django.utils import timezone
         from datetime import datetime, time, timedelta
@@ -236,7 +236,7 @@ class StockRealtimeDAO(BaseDAO):
     async def save_quote_data_by_stock_codes(self, stock_codes: List[str]) -> List:
         """
         【改造-分表版-健壮性增强-无缓存】获取实时行情快照(realtime_quote)并持久化到对应的分表。
-        - 核心修改: 移除所有缓存操作，只进行数据库持久化。
+        - 移除所有缓存操作，只进行数据库持久化。
         """
         if not self.ts:
             logger.error("Tushare 实例未成功初始化，跳过 save_quote_data_by_stock_codes 任务。")
@@ -301,7 +301,7 @@ class StockRealtimeDAO(BaseDAO):
     async def get_daily_quotes_and_level5_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
         """
         【改造-无缓存版】从数据库批量获取行情快照(Quote)和Level5数据。
-        - 核心修改: 移除缓存读取，直接从数据库分表查询。
+        - 移除缓存读取，直接从数据库分表查询。
         """
         if not stock_codes: return {}
         bulk_data_map = {}
@@ -378,7 +378,7 @@ class StockRealtimeDAO(BaseDAO):
     async def get_latest_tick_data(self, stock_code: str) -> dict:
         """
         【无缓存版】从数据库获取最新一条行情快照数据。
-        - 核心修改: 移除缓存读取，直接从数据库查询最新记录。
+        - 移除缓存读取，直接从数据库查询最新记录。
         """
         realtime_model = get_stock_realtime_data_model_by_code(stock_code)
         if not realtime_model:

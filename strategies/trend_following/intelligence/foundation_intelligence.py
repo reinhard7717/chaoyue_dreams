@@ -60,7 +60,7 @@ class FoundationIntelligence:
             axiom_relative_strength,
             axiom_tide,
             axiom_pendulum,
-            axiom_tension, # 修改: 修正变量名，从 tension -> axiom_tension
+            axiom_tension, # 修正变量名，从 tension -> axiom_tension
             environmental_modulator
         )
         all_states['SCORE_FOUNDATION_STRATEGIC_POSTURE'] = strategic_posture
@@ -89,7 +89,7 @@ class FoundationIntelligence:
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 1. 趋势强度 (ADX) - 逻辑不变
         adx_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, ascending=True, tf_weights=default_weights)
         # 2. 趋势方向 (PDI/NDI) - 逻辑不变
@@ -113,8 +113,8 @@ class FoundationIntelligence:
         - 核心逻辑: 融合均线结构(骨架)、换手健康度(新陈代谢)、趋势信念(意志力)以及新增的“下跌承接力(免疫韧性)”。
         - A股特性: 健康的上涨不仅结构稳固、换手温和，更应具备强大的下跌抵抗能力。此升级旨在识别这种“抗揍”的健康体质。
         """
-        print("    -> [基础层] 正在诊断“市场体质”公理 (V3.0 · 韧性诊断版)...") # 修改: 更新版本号和描述
-        # 修改: 新增 dip_absorption_power_D 作为韧性指标
+        print("    -> [基础层] 正在诊断“市场体质”公理 (V3.0 · 韧性诊断版)...")
+        # 新增 dip_absorption_power_D 作为韧性指标
         required_signals = [
             'MACDh_13_34_8_D', 'SLOPE_5_DMA_D', 'turnover_rate_f_D', 'trend_alignment_index_D',
             'dip_absorption_power_D'
@@ -127,7 +127,7 @@ class FoundationIntelligence:
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 1. 均线结构分 (骨架) - 逻辑不变
         macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         macd_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df_index, default_weights)
@@ -150,7 +150,7 @@ class FoundationIntelligence:
         # 新增: 4. 免疫韧性 (下跌承接力)
         resilience = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         resilience_score = get_adaptive_mtf_normalized_score(resilience, df_index, ascending=True, tf_weights=default_weights)
-        # 5. 融合 - 修改: 在健康度调节器中加入韧性评分
+        # 5. 融合 - 在健康度调节器中加入韧性评分
         health_modulator = (turnover_health_score * 0.4 + conviction_score * 0.3 + resilience_score * 0.3).clip(0, 1)
         constitution_score = base_trend_score.copy()
         bullish_mask = base_trend_score > 0
@@ -170,7 +170,7 @@ class FoundationIntelligence:
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_axiom_sentiment_pendulum")
         rsi_score = get_adaptive_mtf_normalized_bipolar_score(rsi - 50.0, df_index, default_weights, sensitivity=10.0)
         panic_index = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
@@ -179,7 +179,7 @@ class FoundationIntelligence:
         fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=default_weights)
         base_pendulum_score = (rsi_score + (fomo_score * 0.5) - (panic_score * 0.5)).clip(-1, 1)
         deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
-        # 修改: 将诡道调节器的惩罚因子从 0.5 提升至 0.75，增强压制力
+        # 将诡道调节器的惩罚因子从 0.5 提升至 0.75，增强压制力
         reality_check_modulator = 1 - (base_pendulum_score * deception_index.clip(-1, 1) < 0) * np.abs(deception_index.clip(-1, 1)) * 0.75
         pendulum_score = base_pendulum_score * reality_check_modulator
         return pendulum_score.clip(-1, 1).astype(np.float32)
@@ -190,15 +190,15 @@ class FoundationIntelligence:
         - 核心逻辑: 融合CMF(方向)、成交额趋势(能量)与换手率趋势(活跃度)，并引入“对倒强度”作为品质过滤器。
         - A股特性: 成交量可以作假。此升级旨在通过惩罚对倒行为，还原真实的流动性状态。
         """
-        print("    -> [基础层] 正在诊断“流动性潮汐”公理 (V3.0 · 品质过滤版)...") # 修改: 更新版本号和描述
-        # 修改: 新增 wash_trade_intensity_D 作为品质过滤器
+        print("    -> [基础层] 正在诊断“流动性潮汐”公理 (V3.0 · 品质过滤版)...")
+        # 新增 wash_trade_intensity_D 作为品质过滤器
         required_signals = ['CMF_21_D', 'SLOPE_5_amount_D', 'SLOPE_5_turnover_rate_f_D', 'wash_trade_intensity_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_liquidity_tide"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 1. 潮汐方向 (CMF) - 逻辑不变
         cmf = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         direction_score = get_adaptive_mtf_normalized_bipolar_score(cmf, df_index, default_weights, sensitivity=0.5)
@@ -225,15 +225,15 @@ class FoundationIntelligence:
         - 核心逻辑: 在融合BBW、均线压缩率等张力指标的基础上，引入“主力姿态指数”作为方向调节器。
         - A股特性: 盘整末端的方向选择，关键看主力意图。此升级旨在为“张力”赋予方向，预判突破概率。
         """
-        print("    -> [基础层] 正在诊断“市场张力”公理 (V3.0 · 意图方向版)...") # 修改: 更新版本号和描述
-        # 修改: 新增 main_force_posture_index_D 作为方向调节器
+        print("    -> [基础层] 正在诊断“市场张力”公理 (V3.0 · 意图方向版)...")
+        # 新增 main_force_posture_index_D 作为方向调节器
         required_signals = ['BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'MA_POTENTIAL_TENSION_INDEX_D', 'main_force_posture_index_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_market_tension"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 1. 波动收敛度 (BBW越小，分数越高) - 逻辑不变
         bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_market_tension")
         squeeze_score = get_adaptive_mtf_normalized_score(bbw, df_index, ascending=False, tf_weights=default_weights)
@@ -258,8 +258,8 @@ class FoundationIntelligence:
         - 核心逻辑: 融合个股在行业内的“强度排名(状态)”与“排名变化趋势(动量)”。
         - A股特性: 市场的焦点是动态变化的。此升级旨在捕捉从强到更强的“领涨龙头”，而非仅仅是静态的“强者”。
         """
-        print("    -> [基础层] 正在诊断“相对强度”公理 (V2.0 · 动量增强版)...") # 修改: 更新版本号和描述
-        # 修改: 新增 industry_rank_slope_D 用于动量评估
+        print("    -> [基础层] 正在诊断“相对强度”公理 (V2.0 · 动量增强版)...")
+        # 新增 industry_rank_slope_D 用于动量评估
         required_signals = [
             'industry_strength_rank_D', 'industry_rank_slope_D'
         ]
@@ -268,7 +268,7 @@ class FoundationIntelligence:
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 1. 强度状态分 (当前排名)
         industry_rank = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_relative_strength")
         state_score = (industry_rank - 0.5) * 2
@@ -279,7 +279,7 @@ class FoundationIntelligence:
         relative_strength_score = (state_score * 0.6 + momentum_score * 0.4)
         return relative_strength_score.clip(-1, 1).astype(np.float32)
 
-    def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 修改: 接收调节器
+    def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 接收调节器
         """
         【V2.0 · 环境共振版】诊断“和谐拐点”
         - 核心逻辑: 对“战略态势”进行二阶求导，并应用环境共振调节器。
@@ -293,30 +293,27 @@ class FoundationIntelligence:
         acceleration = velocity.diff(periods=1).rolling(window=acceleration_period, min_periods=1).mean()
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        short_term_weights = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
+        short_term_weights = get_param_value(p_mtf.get('short_term'), {'3': 0.5, '5': 0.3, '8': 0.2})
         velocity_norm = get_adaptive_mtf_normalized_score(velocity.fillna(0), df_index, ascending=True, tf_weights=short_term_weights)
         acceleration_norm = get_adaptive_mtf_normalized_score(acceleration.fillna(0), df_index, ascending=True, tf_weights=short_term_weights)
         gate = (velocity_norm > 0) & (acceleration_norm > 0)
-        raw_inflection_score = ((velocity_norm * acceleration_norm).pow(0.5) * gate).fillna(0.0) # 修改: 变量重命名为 raw_
+        raw_inflection_score = ((velocity_norm * acceleration_norm).pow(0.5) * gate).fillna(0.0) # 变量重命名为 raw_
         # 新增: 应用环境调节器
         inflection_score = raw_inflection_score * modulator
         return inflection_score.clip(0, 1).astype(np.float32)
 
-    def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 修改: 增加df参数
+    def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 增加df参数
         """
         【V1.0 · 新增】计算“环境共振调节器”
         - 核心逻辑: 融合市场趋势代理、板块强度、主题热度，生成一个[0.75, 1.25]区间的调节器。
         """
         print("    -> [基础层] 正在计算“环境共振调节器”...")
         p_conf = params.get('environmental_modulator_params', {})
-        # 修改: 使用传入的df的index
         if not p_conf.get('enabled', True):
             return pd.Series(1.0, index=df.index)
         required_signals = ['SLOPE_55_close_D', 'industry_strength_rank_D', 'THEME_HOTNESS_SCORE_D']
-        # 修改: 使用传入的df进行校验
         if not self._validate_required_signals(df, required_signals, "_calculate_environmental_modulator"):
             return pd.Series(1.0, index=df.index)
-        # 修改: 使用传入的df的index
         df_index = df.index
         weights = p_conf.get('weights', {})
         w_mkt = weights.get('market_proxy', 0.3)
@@ -325,14 +322,11 @@ class FoundationIntelligence:
         bonus_factor = p_conf.get('bonus_factor', 0.25)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 修改: 从传入的df中获取Series
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         market_proxy_raw = self._get_safe_series(df, 'SLOPE_55_close_D', 0.0, "_calculate_environmental_modulator")
         market_proxy_score = get_adaptive_mtf_normalized_bipolar_score(market_proxy_raw, df_index, default_weights)
-        # 修改: 从传入的df中获取Series
         sector_strength_raw = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, "_calculate_environmental_modulator")
         sector_strength_score = (sector_strength_raw - 0.5) * 2
-        # 修改: 从传入的df中获取Series
         theme_hotness_raw = self._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.0, "_calculate_environmental_modulator")
         theme_hotness_score = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=default_weights)
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
@@ -347,7 +341,7 @@ class FoundationIntelligence:
         liquidity: pd.Series,
         sentiment: pd.Series,
         tension: pd.Series,
-        modulator: pd.Series # 修改: 接收调节器
+        modulator: pd.Series # 接收调节器
     ) -> pd.Series:
         """
         【V2.0 · 环境共振版】顶层融合：合成“基础层战略态势”
@@ -363,7 +357,7 @@ class FoundationIntelligence:
         w_l = weights.get("liquidity", 0.20)
         w_s = weights.get("sentiment", 0.15)
         w_t = weights.get("tension", 0.10)
-        raw_strategic_posture = ( # 修改: 变量重命名为 raw_
+        raw_strategic_posture = ( # 变量重命名为 raw_
             constitution * w_c +
             relative_strength * w_rs +
             liquidity * w_l +

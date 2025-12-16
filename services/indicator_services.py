@@ -184,7 +184,7 @@ class IndicatorService:
         【V118.12 · 原始列名输出版】
         异步获取足够用于计算的原始历史数据 DataFrame。
         此函数仅负责从 DAO 获取并执行最通用的列名标准化，不进行任何特定于场景的数据准备。
-        - 核心修改: 确保返回的 DataFrame 列名不带任何时间级别后缀，只包含原始的 OHLCV 列名。
+        - 确保返回的 DataFrame 列名不带任何时间级别后缀，只包含原始的 OHLCV 列名。
         """
         # 预处理 time_level 字符串，移除 'min' 后缀，以匹配 DAO 层的模型查找逻辑
         processed_time_level = str(time_level).lower()

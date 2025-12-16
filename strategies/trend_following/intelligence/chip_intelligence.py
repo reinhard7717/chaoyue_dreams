@@ -74,7 +74,7 @@ class ChipIntelligence:
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-        # 修改开始：移除微观行为引擎相关的方法调用和信号存储
+        # 移除微观行为引擎相关的方法调用和信号存储
         # --- 移除“诡道三策”和“背离”公理的调用 ---
         # strategy_stealth_ops = self._diagnose_strategy_stealth_ops(df, default_weights)
         # strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights)
@@ -101,7 +101,6 @@ class ChipIntelligence:
         # bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         # all_chip_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         # all_chip_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        # 修改结束
 
         # 调用并记录持仓信念韧性信号
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -797,7 +796,7 @@ class ChipIntelligence:
         final_impurity_effect = pd.Series(0.0, index=df_index)
         if impurity_non_linear_enabled:
             current_sentiment_strength = conviction_base.abs()
-            # 修改开始：修正 normalize_score 的调用参数，移除 df_index
+            # 修正 normalize_score 的调用参数，移除 df_index
             normalized_sentiment_strength = normalize_score(current_sentiment_strength, window=21, ascending=True)
             # 修改结束
             context_adjustment_factor = pd.Series(1.0, index=df_index)
@@ -1267,7 +1266,7 @@ class ChipIntelligence:
                 base_damp_sensitivity_series.loc[negative_health_mask] = chip_health_sensitivity_damp_negative_health
             if chip_health_sensitivity_modulation_enabled:
                 modulator_signal_raw = self._get_safe_series(df, df, chip_sensitivity_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
-                # 修改开始：修正 normalize_score 的调用参数，移除 df.index
+                # 修正 normalize_score 的调用参数，移除 df.index
                 normalized_modulator_signal = normalize_score(
                     modulator_signal_raw,
                     window=chip_sensitivity_mod_norm_window,
@@ -1372,7 +1371,7 @@ class ChipIntelligence:
         coherent_drive_raw = activated_holder_sentiment_scores * modulation_factor
         if final_score_sensitivity_modulation_enabled:
             final_score_modulator_signal_raw = self._get_safe_series(df, df, final_score_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
-            # 修改开始：修正 normalize_score 的调用参数，移除 df.index
+            # 修正 normalize_score 的调用参数，移除 df.index
             final_score_normalized_modulator_signal = normalize_score(
                 final_score_modulator_signal_raw,
                 window=final_score_mod_norm_window,

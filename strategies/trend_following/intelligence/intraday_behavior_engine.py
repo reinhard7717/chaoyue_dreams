@@ -128,7 +128,8 @@ class IntradayBehaviorEngine:
         axis_weights = get_param_value(params.get('primary_axis_weights'), {'opening': 0.2, 'control': 0.5, 'closing': 0.3})
         # --- 反脆弱归一化层 ---
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         raw_opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_offensive_purity")
         raw_midday_control = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_offensive_purity")
         raw_upper_shadow_pressure = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, "_diagnose_offensive_purity")
@@ -203,7 +204,8 @@ class IntradayBehaviorEngine:
             return {signal_name: pd.Series(0.0, index=df.index)}
         # --- 获取参数与归一化配置 ---
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- [核心逻辑] V2.2 ---
         # 1. 获取并归一化所有原料信号
         raw_panic = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_conviction_reversal")
@@ -254,7 +256,8 @@ class IntradayBehaviorEngine:
         battlefield_intensity_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_tactical_arc")
         # 2. “符号保护”归一化
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 归一化开篇向量
         norm_opening_magnitude = get_adaptive_mtf_normalized_score(raw_opening_vector.abs(), df.index, default_weights)
         norm_opening_vector = norm_opening_magnitude * np.sign(raw_opening_vector)
@@ -290,7 +293,8 @@ class IntradayBehaviorEngine:
         raw_closing_vector = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_auction_intent")
         # 2. 采用“符号保护”归一化
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         norm_opening_magnitude = get_adaptive_mtf_normalized_score(raw_opening_vector.abs(), df.index, default_weights)
         norm_opening_vector = (norm_opening_magnitude * np.sign(raw_opening_vector)).fillna(0.0)
         norm_closing_magnitude = get_adaptive_mtf_normalized_score(raw_closing_vector.abs(), df.index, default_weights)
@@ -335,7 +339,8 @@ class IntradayBehaviorEngine:
         conviction_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_recovery_quality")
         # 2. 校准所有参与计算的原始信号
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         norm_base_recovery = get_adaptive_mtf_normalized_score(base_recovery_raw, df.index, default_weights).fillna(0.0)
         norm_panic_context = get_adaptive_mtf_normalized_score(panic_context_raw, df.index, default_weights).fillna(0.0)
         # 3. 构建环境放大器 (基于校准后的恐慌分)
@@ -381,7 +386,8 @@ class IntradayBehaviorEngine:
         execution_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_ambush_and_flank")
         counter_attack_score = self._get_safe_series(df, 'SCORE_INTRADAY_RECOVERY_QUALITY', 0.0, "_diagnose_ambush_and_flank")
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         norm_opportunity = get_adaptive_mtf_normalized_score(opportunity_raw, df.index, default_weights).fillna(0.0)
         norm_execution = get_adaptive_mtf_normalized_score(execution_raw, df.index, default_weights).fillna(0.0)
         # 4. 融合计算
@@ -412,7 +418,8 @@ class IntradayBehaviorEngine:
         intent_raw = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
         verdict_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         norm_intent_magnitude = get_adaptive_mtf_normalized_score(intent_raw.abs(), df.index, default_weights)
         norm_intent_vector = (norm_intent_magnitude * np.sign(intent_raw)).fillna(0.0)
         norm_verdict_magnitude = get_adaptive_mtf_normalized_score(verdict_raw.abs(), df.index, default_weights)
@@ -451,7 +458,8 @@ class IntradayBehaviorEngine:
         instability_raw = self._get_safe_series(df, 'vwap_crossing_intensity_D', 0.0, "_diagnose_vwap_battlefield")
         # 3. 校准不稳定性向量
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
+        # 修正键名 'default_weights' 为 'default'，并提供默认字典
+        default_weights = get_param_value(mtf_params.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         instability_vector = get_adaptive_mtf_normalized_score(instability_raw, df.index, default_weights).fillna(0.0)
         # 4. 计算最终得分
         final_score = (directional_vector - k_instability * instability_vector).fillna(0.0)

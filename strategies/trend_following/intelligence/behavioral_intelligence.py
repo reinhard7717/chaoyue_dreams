@@ -184,7 +184,7 @@ class BehavioralIntelligence:
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.3 · 意图解读重构版】行为K线质量分计算引擎
-        - 核心修改: 废弃了基础的K线形态指标，全面转向使用更能反映主力意图和过程质量的微观结构信号。
+        - 废弃了基础的K线形态指标，全面转向使用更能反映主力意图和过程质量的微观结构信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         # 更新依赖信号列表，使用新一代的意图解读型信号
@@ -844,7 +844,7 @@ class BehavioralIntelligence:
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """
         【V3.3 · 情报校验加固版】压力-承接能量转化模型
-        - 核心修改: 调用从 utils.py 导入的公共归一化工具。
+        - 调用从 utils.py 导入的公共归一化工具。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `absorption_efficiency` 和 `absorption_control` 的归一化方式改为多时间维度自适应归一化。
         - 【新增】增加战前情报校验，确保所有依赖信号存在。

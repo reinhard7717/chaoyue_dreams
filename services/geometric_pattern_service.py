@@ -142,7 +142,7 @@ class GeometricPatternService:
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
         【V2.34 · 核心诊断探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - 核心修改: 移除此方法内的所有旧探针，将诊断焦点集中到下游。
+        - 移除此方法内的所有旧探针，将诊断焦点集中到下游。
         """
         # 移除了所有探针print语句
         chip_metrics_qs = self.chip_metrics_model.objects.filter(stock=self.stock_instance).values()
