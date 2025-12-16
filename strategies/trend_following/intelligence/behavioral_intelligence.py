@@ -22,6 +22,7 @@ class BehavioralIntelligence:
         """
         self.strategy = strategy_instance
         self.pattern_recognizer = strategy_instance.pattern_recognizer
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -30,6 +31,7 @@ class BehavioralIntelligence:
             print(f"    -> [行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -39,6 +41,7 @@ class BehavioralIntelligence:
             print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
+
     def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V30.2 · 依赖感知型背离品质重构版】行为情报模块总指挥
@@ -85,6 +88,7 @@ class BehavioralIntelligence:
         self.strategy.atomic_states.update(df[dynamic_cols])
         all_behavioral_states.update(df[dynamic_cols])
         return all_behavioral_states
+
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.0】安全地从原子状态库或主数据帧中获取分数。
@@ -98,6 +102,7 @@ class BehavioralIntelligence:
         else:
             print(f"     -> [行为情报引擎警告] 信号 '{name}' 不存在，使用默认值 {default}。")
             return pd.Series(default, index=df.index)
+
     def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
         【V1.0】信号获取哨兵方法
@@ -108,6 +113,7 @@ class BehavioralIntelligence:
             print(f"    -> [行为情报引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[signal_name]
+
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.0 · 职责净化版】原子信号中心
@@ -124,6 +130,7 @@ class BehavioralIntelligence:
         self.strategy.atomic_states.update(atomic_signals)
         atomic_signals.update(self._diagnose_upper_shadow_intent(df))
         return atomic_signals
+
     def _calculate_signal_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V4.3 · 上涨衰竭动态增强与多时间维度归一化版】信号动态计算引擎
@@ -173,6 +180,7 @@ class BehavioralIntelligence:
                 print(f"     - [警告] 信号 '{signal_name}' 在原子状态库中不存在，跳过动态因子计算。")
         final_df = pd.concat([df, dynamics_df], axis=1)
         return final_df
+
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.3 · 意图解读重构版】行为K线质量分计算引擎
@@ -207,17 +215,8 @@ class BehavioralIntelligence:
         ).clip(-1, 1)
         print("【意图解读重构版行为K线质量分】计算完成。")
         return day_quality_score.astype(np.float32)
+
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V34.11 · 依赖编排与调试增强版】原子信号中心
-        - 核心升级: 适配了 V5.0 "派发罪证链" 和 V3.0 "战略反击许可" 模型，
-                      并调整了内部调用顺序以确保逻辑依赖的正确性。
-        - 【修正】确保所有派生信号在被需要时已添加到df中。
-        - 【新增】将鲁棒斜率计算提升到方法开头，解决循环依赖问题。
-        - 【调试】增加详细打印，追踪df列的添加情况，包括df的内存地址和完整列列表。
-        - 【重要修正】确保所有新生成的信号在添加到states字典的同时，也立即添加到传入的df中，以解决内部依赖问题。
-        - 【命名修正】统一long_term_斜率的命名，使其与robust_斜率的命名风格一致。
-        """
         method_name = "_diagnose_behavioral_axioms"
         # 获取所有参数配置，用于动态构建required_signals
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
@@ -310,23 +309,42 @@ class BehavioralIntelligence:
         price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', pct_change.diff(5).fillna(0.0), method_name=method_name)
         # 1. 计算鲁棒斜率 (Robust Slopes)
         robust_slopes = {}
+        # 收集所有相关斜率列名
+        all_slope_cols_to_extract = []
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
-            weighted_slope = pd.Series(0.0, index=df.index)
-            total_weight = 0.0
             for period in mtf_periods:
                 col_name = f'SLOPE_{period}_{indicator}_D'
-                weight = mtf_slopes_params['weights'].get(str(period), 0.0)
                 if col_name in df.columns:
-                    weighted_slope += self._get_safe_series(df, col_name, 0.0, method_name=method_name) * weight
-                    total_weight += weight
-                else:
-                    if is_debug_enabled and probe_ts and probe_ts in df.index:
-                        print(f"    -> [行为情报警告] {method_name}: 缺少MTF斜率数据 '{col_name}'，跳过该周期。")
-            if total_weight > 0:
+                    all_slope_cols_to_extract.append(col_name)
+        
+        # 从df中一次性提取所有相关斜率数据
+        if all_slope_cols_to_extract:
+            slopes_df_extracted = df[all_slope_cols_to_extract]
+        else:
+            slopes_df_extracted = pd.DataFrame(index=df.index) # 如果没有列，则创建一个空的DataFrame
+            
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
+            weighted_slope = pd.Series(0.0, index=df.index, dtype=np.float32)
+            total_weight = 0.0
+            
+            # 筛选当前指标可用的斜率列和对应的权重
+            indicator_slopes_cols = []
+            current_weights = []
+            for period in mtf_periods:
+                col_name = f'SLOPE_{period}_{indicator}_D'
+                if col_name in slopes_df_extracted.columns:
+                    indicator_slopes_cols.append(col_name)
+                    current_weights.append(mtf_slopes_params['weights'].get(str(period), 0.0))
+            
+            if indicator_slopes_cols and sum(current_weights) > 0:
+                # 向量化加权求和
+                weighted_slope = (slopes_df_extracted[indicator_slopes_cols] * current_weights).sum(axis=1)
+                total_weight = sum(current_weights)
                 robust_slopes[indicator] = weighted_slope / total_weight
-            else:
+            else: # 如果没有有效斜率数据或所有权重为零，则使用第一个周期的斜率作为回退
                 first_period_col = f'SLOPE_{mtf_periods[0]}_{indicator}_D' if mtf_periods else None
                 robust_slopes[indicator] = self._get_safe_series(df, first_period_col, 0.0, method_name=method_name)
+            
             # 将鲁棒斜率添加到df中，并添加到states中
             df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
@@ -462,6 +480,7 @@ class BehavioralIntelligence:
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
         return states
+
     def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V2.1 · 生产版】诊断高品质上涨动能。
@@ -496,6 +515,7 @@ class BehavioralIntelligence:
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
         return upward_momentum_score.clip(0, 1).astype(np.float32)
+
     def _diagnose_downward_momentum(self, df: pd.DataFrame) -> pd.Series:
         """
         【V3.0 · Production Ready版】诊断价格下跌动能。
@@ -539,6 +559,7 @@ class BehavioralIntelligence:
             (command_vacuum_score + 1e-9).pow(weights.get('command_vacuum', 0.3))
         ).fillna(0.0)
         return downward_momentum_score.clip(0, 1).astype(np.float32)
+
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
         【V4.0 · Production Ready版】诊断进攻性承接意图。
@@ -580,6 +601,7 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         final_offensive_absorption_intent = (base_quality_score * strategic_prerequisite_score).clip(0, 1)
         return final_offensive_absorption_intent.astype(np.float32)
+
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V6.0 · Production Ready版】诊断“日内多头控制力”
@@ -625,6 +647,7 @@ class BehavioralIntelligence:
         final_control_score = (strategic_position_score * quality_modulator).clip(-1, 1)
         # 移除整个探针逻辑块，恢复生产状态
         return final_control_score.astype(np.float32)
+
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
         【V2.1 · Production Ready版】诊断博弈欺骗指数
@@ -678,6 +701,7 @@ class BehavioralIntelligence:
         final_deception_index = (cognitive_dissonance_vector * evidence_amplifier).clip(-1, 1)
         print(f"    -> [行为情报调试] {method_name} 计算完成。")
         return final_deception_index.astype(np.float32)
+
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
         """
         【V2.1 · 生产版】诊断价格过热风险。
@@ -715,6 +739,7 @@ class BehavioralIntelligence:
         # 对结果进行非线性放大和归一化，使得中低风险区差异不大，高风险区被显著放大
         final_overextension_score = np.tanh(bubble_fragility_score * 0.5)
         return final_overextension_score.clip(0, 1).astype(np.float32)
+
     def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V3.0 · Production Ready版】诊断高品质上涨效率。
@@ -758,6 +783,7 @@ class BehavioralIntelligence:
         final_upward_efficiency = (tactical_assault_score * strategic_environment_score).clip(0, 1)
         # 移除整个探针逻辑块，恢复生产状态
         return final_upward_efficiency.astype(np.float32)
+
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V3.0 · Production Ready版】诊断高品质下跌抵抗。
@@ -800,6 +826,7 @@ class BehavioralIntelligence:
         final_downward_resistance = (tactical_response_score * strategic_intent_score).clip(0, 1)
         # 移除整个探针逻辑块，恢复生产状态
         return final_downward_resistance.astype(np.float32)
+
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.2 · 信号校验增强版】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
@@ -820,6 +847,7 @@ class BehavioralIntelligence:
         bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
         new_high_strength = (price_breakthrough_score * ma_slope_score * bias_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_NEW_HIGH_STRENGTH': new_high_strength.astype(np.float32)}
+
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """
         【V3.3 · 情报校验加固版】压力-承接能量转化模型
@@ -857,6 +885,7 @@ class BehavioralIntelligence:
         states['SCORE_RISK_UNRESOLVED_PRESSURE'] = final_risk_score.astype(np.float32)
         states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
         return states
+
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · Production Ready版】微观结构意图诊断引擎
@@ -933,6 +962,7 @@ class BehavioralIntelligence:
         print(f"    -> [行为情报调试] {method_name} 计算完成。")
         states = {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': final_micro_intent.astype(np.float32)}
         return states
+
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
         【V4.1 · 生产版】诊断内部行为信号：滞涨证据
@@ -982,6 +1012,7 @@ class BehavioralIntelligence:
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
         # 移除探针代码，恢复生产版本
         return final_stagnation_evidence.astype(np.float32)
+
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
         【V13.0 · Production Ready版】诊断下影线承接品质。
@@ -1025,6 +1056,7 @@ class BehavioralIntelligence:
         base_drama_quality = (script_quality_score * performance_quality_score).pow(0.5).fillna(0.0)
         final_lower_shadow_quality = (base_drama_quality * directors_intent_score).clip(0, 1)
         return final_lower_shadow_quality.astype(np.float32)
+
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict, overextension_raw: pd.Series) -> pd.Series:
         """
         【V7.0 · Production Ready版】诊断派发意图。
@@ -1079,6 +1111,7 @@ class BehavioralIntelligence:
         synergy_amplifier = 1 + (tactical_risk_score * strategic_risk_score).pow(0.5) * synergy_bonus
         final_distribution_intent = (base_risk * synergy_amplifier).clip(0, 1)
         return final_distribution_intent.astype(np.float32)
+
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
         【V5.1 · 诡道反击协议】诊断伏击式反攻信号。
@@ -1158,6 +1191,7 @@ class BehavioralIntelligence:
         ).pow(1/(fusion_weights.get('context', 0.3) + fusion_weights.get('action', 0.4) + fusion_weights.get('quality', 0.3))).fillna(0.0)
         print(f"    -> [行为情报调试] {method_name} 计算完成。")
         return ambush_counterattack_score.clip(0, 1).astype(np.float32)
+
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
         【V5.3 · 行为模式精微化版】诊断突破失败级联风险
@@ -1314,6 +1348,7 @@ class BehavioralIntelligence:
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base_initial * final_amplifier * risk_dynamic_modulator).clip(0, 1)
         return breakout_failure_risk.astype(np.float32)
+
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
         【V5.1 · Production Ready版】诊断高品质价量/价资背离
@@ -1402,6 +1437,7 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         print(f"    -> [行为情报调试] {method_name} 计算完成。")
         return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
+
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V3.0 · Production Ready版】计算高品质看涨量能爆发信号。
@@ -1448,6 +1484,7 @@ class BehavioralIntelligence:
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_burst_quality = (tactical_assault_quality_score * strategic_environment_score).clip(0, 1)
         return final_burst_quality.astype(np.float32)
+
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V3.0 · Production Ready版】计算高品质成交量萎缩信号。
@@ -1495,6 +1532,7 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         final_atrophy_quality = (strategic_context_gate * base_atrophy_score * quality_modulator).clip(0, 1)
         return final_atrophy_quality.astype(np.float32)
+
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V3.0 · Production Ready版】计算高品质承接强度信号。
@@ -1539,6 +1577,7 @@ class BehavioralIntelligence:
         ).pow(1/3).fillna(0.0)
         # 移除整个探针逻辑块，恢复生产状态
         return absorption_strength.clip(0, 1).astype(np.float32)
+
     def _calculate_behavioral_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
         【V4.0 · 行为纯化版】计算纯粹基于行为类原始数据的价格超买亢奋原始分。
@@ -1640,6 +1679,7 @@ class BehavioralIntelligence:
             (intraday_extremity_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1) # 归一化到0-1
         return overextension_score.astype(np.float32)
+
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
         【V4.0 · 行为纯化版】计算纯粹基于行为类原始数据的滞涨证据原始分。
@@ -1759,6 +1799,7 @@ class BehavioralIntelligence:
             (intraday_control_weakness_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1) # 归一化到0-1
         return stagnation_score.astype(np.float32)
+
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
         【V3.0 · Production Ready版】诊断震荡洗盘确认信号。
@@ -1804,6 +1845,7 @@ class BehavioralIntelligence:
         shakeout_confirmation_score = (strategic_intent_score * base_confirmation).clip(0, 1)
         # 移除整个探针逻辑块，恢复生产状态
         return shakeout_confirmation_score.astype(np.float32)
+
     def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:
         """
         【V8.1 · 行为背离强度惯性与自适应引擎版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
@@ -1946,6 +1988,7 @@ class BehavioralIntelligence:
             dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic
         )
         return bullish_divergence_score, bearish_divergence_score
+
     def _calculate_single_divergence_type(self, df: pd.DataFrame, is_bullish: bool, params: Dict, tf_weights: Dict,
                                           # Pre-computed common signals
                                           robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
@@ -1958,9 +2001,6 @@ class BehavioralIntelligence:
                                           internal_price_overextension_raw, internal_stagnation_evidence_raw,
                                           norm_active_buying, norm_active_selling, norm_atr,
                                           dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic) -> pd.Series:
-        """
-        【V8.1 · 行为背离强度惯性与自适应引擎版】辅助方法：计算单一类型的行为背离（看涨或看跌）。
-        """
         method_name = "_calculate_single_divergence_type"
         # 从params字典中获取所有子参数
         mtf_slopes_params = params['mtf_slopes_params']
@@ -1998,7 +2038,7 @@ class BehavioralIntelligence:
             accel_period = mtf_slopes_params.get("periods", [5])[0]
             accel_rsi_condition = (accel_rsi > 0) if is_bullish else (accel_rsi < 0)
             accel_macd_condition = (accel_macd > 0) if is_bullish else (accel_macd < 0)
-            accel_volume_condition = (accel_volume > 0) if is_bullish else (accel_volume < 0)
+            accel_volume_condition = (accel_volume > 0) if is_bullish else (accel_volume < 0) # Volume drying up for bullish, volume decreasing for bearish
             accel_strength_rsi = (rsi_indicator_trend & accel_rsi_condition).astype(int) * acceleration_bonus
             accel_strength_macd = (macd_indicator_trend & accel_macd_condition).astype(int) * acceleration_bonus
             accel_strength_volume = (volume_indicator_trend & accel_volume_condition).astype(int) * acceleration_bonus
@@ -2044,7 +2084,8 @@ class BehavioralIntelligence:
             accel_close_condition = (accel_close > 0) if is_bullish else (accel_close < 0)
             accel_volume_condition = (accel_volume < 0) if is_bullish else (accel_volume < 0) # Volume drying up for bullish, volume decreasing for bearish
             persistence_quality = (accel_close_condition.astype(int) + accel_volume_condition.astype(int)).clip(0, 2)
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window).apply(lambda x: (x == 1).sum(), raw=True).fillna(0)
+            # 优化: 使用 rolling().sum() 替代 rolling().apply(lambda x: (x == 1).sum())
+            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0) # MODIFIED LINE
             persistence_factor = (persistence_count / max_persistence_window) * (1 + persistence_quality * quality_decay_factor * persistence_count)
             persistence_factor = persistence_factor.where(persistence_count >= min_persistence_duration, 0.0)
             persistence_factor = persistence_factor.clip(0, 1.5)
@@ -2206,7 +2247,8 @@ class BehavioralIntelligence:
         freshness_factor = pd.Series(1.0, index=df.index)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window).apply(lambda x: (x == 1).sum(), raw=True).fillna(0) # [修改的代码行] 重新计算persistence_count
+            # 优化: 使用 rolling().sum() 替代 rolling().apply(lambda x: (x == 1).sum())
+            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0) # MODIFIED LINE
             freshness_factor = freshness_factor.mask(
                 persistence_count == 1, 1 + freshness_bonus
             )
@@ -2314,6 +2356,7 @@ class BehavioralIntelligence:
         ).pow(1 / (2.2 * adaptive_fusion_weight_multiplier)).fillna(0.0).clip(0, 1)
         divergence_score = divergence_score.where(div_condition_raw, 0.0)
         return divergence_score.astype(np.float32)
+
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
         """
         【V1.0 · 新增】应用中性“死区”过滤器。
@@ -2322,6 +2365,7 @@ class BehavioralIntelligence:
         if threshold > 0:
             return series.where(series.abs() > threshold, 0.0)
         return series
+
     def _probe_raw_material_diagnostics(self, df: pd.DataFrame, probe_ts: pd.Timestamp):
         """
         【V1.0 · 新增】原料数据深度探针。
