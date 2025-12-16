@@ -219,12 +219,15 @@ class StructuralIntelligence:
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('short_term_geometry', {5: 0.5, 8: 0.3, 13: 0.2})
-        # 修改开始：修复 debug_params 访问方式
+        # 修改开始：修复 current_date 访问方式
         debug_config = get_params_block(self.strategy, 'debug_params', {})
+        # 从DataFrame的索引中获取当前处理的日期
+        current_processing_date_str = df.index[-1].strftime('%Y-%m-%d') if not df.empty else ""
+
         is_probe_date = debug_config.get('should_probe', False) and \
-                        self.strategy.current_date.strftime('%Y-%m-%d') in debug_config.get('probe_dates', [])
+                        current_processing_date_str in debug_config.get('probe_dates', [])
         if is_probe_date:
-            print(f"\n--- [结构公理] 趋势形态探针 @ {self.strategy.current_date.strftime('%Y-%m-%d')} ---")
+            print(f"\n--- [结构公理] 趋势形态探针 @ {current_processing_date_str} ---")
             print(f"  -> 原始输入:")
             print(f"    MA_POTENTIAL_ORDERLINESS_SCORE_D: {df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].iloc[-1]:.4f}")
             print(f"    ATAN_ANGLE_EMA_55_D: {df['ATAN_ANGLE_EMA_55_D'].iloc[-1]:.4f}")

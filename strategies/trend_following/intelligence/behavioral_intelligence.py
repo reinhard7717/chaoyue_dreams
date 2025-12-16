@@ -220,7 +220,6 @@ class BehavioralIntelligence:
         method_name = "_diagnose_behavioral_axioms"
         # 获取所有参数配置，用于动态构建required_signals
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
-        
         # 健壮地获取 mtf_slopes_params，确保 'weights' 键存在
         mtf_slopes_params_from_config = p_behavioral_div_conf.get('multi_timeframe_slopes')
         # 定义一个完整的默认 mtf_slopes_params 结构
@@ -256,7 +255,7 @@ class BehavioralIntelligence:
             'control_solidity_index_D', 'trend_vitality_index_D', 'BIAS_21_D', 'RSI_13_D',
             'ACCEL_5_pct_change_D', 'closing_strength_index_D', 'active_selling_pressure_D',
             'chip_fatigue_index_D', 'main_force_ofi_D', 'retail_ofi_D', 'buy_quote_exhaustion_rate_D',
-            'sell_quote_exhaustion_rate_D', 'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', 
+            'sell_quote_exhaustion_rate_D', 'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
             'microstructure_efficiency_index_D', 'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D',
             'support_validation_strength_D', 'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
@@ -316,17 +315,14 @@ class BehavioralIntelligence:
                 col_name = f'SLOPE_{period}_{indicator}_D'
                 if col_name in df.columns:
                     all_slope_cols_to_extract.append(col_name)
-        
         # 从df中一次性提取所有相关斜率数据
         if all_slope_cols_to_extract:
             slopes_df_extracted = df[all_slope_cols_to_extract]
         else:
             slopes_df_extracted = pd.DataFrame(index=df.index) # 如果没有列，则创建一个空的DataFrame
-            
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
             weighted_slope = pd.Series(0.0, index=df.index, dtype=np.float32)
             total_weight = 0.0
-            
             # 筛选当前指标可用的斜率列和对应的权重
             indicator_slopes_cols = []
             current_weights = []
@@ -335,16 +331,14 @@ class BehavioralIntelligence:
                 if col_name in slopes_df_extracted.columns:
                     indicator_slopes_cols.append(col_name)
                     current_weights.append(mtf_slopes_params['weights'].get(str(period), 0.0))
-            
             if indicator_slopes_cols and sum(current_weights) > 0:
                 # 向量化加权求和
-                weighted_slope = (slopes_df_extracted[indicator_slopes_cols] * current_weights).sum(axis=1)
+                weighted_slope = (slopes_df_extracted[indicator_slopes_cols] * current_weights).sum(axis=1) # MODIFIED LINE
                 total_weight = sum(current_weights)
                 robust_slopes[indicator] = weighted_slope / total_weight
             else: # 如果没有有效斜率数据或所有权重为零，则使用第一个周期的斜率作为回退
                 first_period_col = f'SLOPE_{mtf_periods[0]}_{indicator}_D' if mtf_periods else None
                 robust_slopes[indicator] = self._get_safe_series(df, first_period_col, 0.0, method_name=method_name)
-            
             # 将鲁棒斜率添加到df中，并添加到states中
             df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
