@@ -892,9 +892,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
     返回:
         pd.Series: 最终的MTF归一化分数序列。
     """
-    # 修改开始：添加探针
-    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_score - 接收到的 tf_weights: {tf_weights}")
-    # 修改结束
+    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_score - 接收到的 tf_weights: {tf_weights}") # 保留此探针
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     final_scores = pd.Series(0.0, index=index)
@@ -906,7 +904,9 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
             print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
             continue
         if window > 0 and weight > 0:
-            normalized_score_window = normalize_score(series, window, ascending, debug_probe_enabled)
+            # 修改开始：确保传递正确的 debug_probe_enabled 参数
+            normalized_score_window = normalize_score(series, window, ascending, debug_probe_enabled=debug_probe_enabled)
+            # 修改结束
             final_scores += normalized_score_window * weight
             total_weight += weight
     if total_weight > 0:
@@ -926,9 +926,7 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
     返回:
         pd.Series: 最终的MTF双极归一化分数序列。
     """
-    # 修改开始：添加探针
-    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_bipolar_score - 接收到的 tf_weights: {tf_weights}")
-    # 修改结束
+    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_bipolar_score - 接收到的 tf_weights: {tf_weights}") # 保留此探针
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     final_scores = pd.Series(0.0, index=index)
@@ -940,12 +938,15 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
             print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
             continue
         if window > 0 and weight > 0:
-            normalized_score_window = normalize_to_bipolar(series, window, sensitivity, debug_probe_enabled)
+            # 修改开始：确保传递正确的 debug_probe_enabled 参数
+            normalized_score_window = normalize_to_bipolar(series, window, sensitivity, debug_probe_enabled=debug_probe_enabled)
+            # 修改结束
             final_scores += normalized_score_window * weight
             total_weight += weight
     if total_weight > 0:
         final_scores /= total_weight
     return final_scores
+
 
 def normalize_score(series: pd.Series, window: int, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
     """
