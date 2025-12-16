@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0081_trendlineevent_bj_trendlineevent_cy_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='platformfeature_bj',

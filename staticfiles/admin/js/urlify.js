@@ -141,7 +141,6 @@
             return Downcoder.map[m];
         });
     }
-
     function URLify(s, num_chars, allowUnicode) {
         // changes, e.g., "Petty theft" to "petty-theft"
         if (!allowUnicode) {

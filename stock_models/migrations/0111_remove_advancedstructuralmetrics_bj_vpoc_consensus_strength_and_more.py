@@ -4,11 +4,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0110_advancedstructuralmetrics_bj_equilibrium_compression_index_and_more'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='advancedstructuralmetrics_bj',

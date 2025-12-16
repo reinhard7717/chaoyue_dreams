@@ -21,7 +21,6 @@ urlpatterns = [
     path('profile/', views.profile_view, name='profile'), # 个人设置页 URL (示例)
     # 注册账户
     path('register/', views.register, name='register'),
-
     # 个人资料
     path('profile/', views.profile_view, name='profile'),
     # 自选股管理

@@ -46,7 +46,6 @@ class ChipFeatureCalculator:
         self.processed_intraday_df = self._prepare_intraday_data_features(intraday_data_raw, trade_date, debug_params)
         # 将处理后的日内数据存入 self.ctx，供后续方法使用
         self.ctx['processed_intraday_df'] = self.processed_intraday_df # 使用 self.ctx
-
     def calculate_all_metrics(self) -> dict:
         """
         【V12.5 · 情境融合版】
@@ -129,7 +128,6 @@ class ChipFeatureCalculator:
         all_metrics.pop('peak_range_high', None)
         all_metrics['cost_gini_coefficient'] = self.ctx.get('cost_gini_coefficient')
         return all_metrics
-
     def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
         import pytz
         results = {}
@@ -149,7 +147,6 @@ class ChipFeatureCalculator:
         start_time = datetime.time(9, 25)
         processed_intraday_df = intraday_df[intraday_df.index.time >= start_time].copy()
         return processed_intraday_df
-
     def _get_summary_metrics_from_context(self) -> dict:
         """
         【V14.0 · 稳定性前置注入版】
@@ -168,7 +165,6 @@ class ChipFeatureCalculator:
             'total_winner_rate': total_winner_rate,
             'concentration_70pct': concentration_70pct, # 注入上下文
         }
-
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         """
         【V1.2 · 净胜结果重构版】
@@ -250,7 +246,6 @@ class ChipFeatureCalculator:
             results['main_force_flow_gini'] = _calculate_gini_for_flow(intraday_df['main_force_net_vol'])
         results.update(self._compute_legacy_cross_day_metrics(context))
         return results
-
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
         【V1.3 · 神经探针植入版】
@@ -317,7 +312,6 @@ class ChipFeatureCalculator:
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
         return results
-
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
         """
         【V1.1 · 信念悖论修复版】
@@ -375,7 +369,6 @@ class ChipFeatureCalculator:
                  (results['trend_vitality_index'] / 100)
         results['overall_t1_rating'] = np.clip(rating, -100, 100)
         return results
-
     def _compute_static_structure_metrics(self) -> dict:
         """
         【V11.2 · 心理学重构版】
@@ -528,7 +521,6 @@ class ChipFeatureCalculator:
         total_daily_volume = self.ctx.get('daily_turnover_volume')
         results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
         return results
-
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
         【V2.3 · 多级诊断探针版】
@@ -578,7 +570,6 @@ class ChipFeatureCalculator:
                 final_score_raw *= score ** weight
         final_score = final_score_raw * 100
         return final_score
-
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
         【V2.2 · 探针植入版】
@@ -648,7 +639,6 @@ class ChipFeatureCalculator:
             if not active_sell_df.empty:
                 results['active_selling_pressure'] = abs(np.average(active_sell_df['net_flow_rate'], weights=active_sell_df['vol_shares']))
         return results
-
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
         【V5.0 · 绝对真理版】
@@ -734,7 +724,6 @@ class ChipFeatureCalculator:
             final_score_normalized = final_score_raw ** (1.0 / valid_dims)
             results['chip_health_score'] = final_score_normalized * 100
         return results
-
     def _calculate_active_winner_profit_margin(self, close_price: float, atr_14d: float, context: dict) -> tuple[float, float]:
         """
         【V1.0】计算活跃获利盘利润率。
@@ -763,7 +752,6 @@ class ChipFeatureCalculator:
                     else:
                         active_profit_margin = 0.0 # 默认利润率为0
         return active_winner_avg_cost, active_profit_margin
-
     def _calculate_winner_conviction_index(self, context: dict, active_profit_margin: float) -> float:
         """
         【V1.5 · 压力缓和器版】计算赢家信念指数。
@@ -790,7 +778,6 @@ class ChipFeatureCalculator:
             if (close_price / pre_close - 1) > 0.098 and active_profit_margin > 0:
                 winner_conviction_index = np.maximum(winner_conviction_index, 10.0)
         return winner_conviction_index
-
     def _calculate_cost_structure_skewness(self, context: dict) -> float:
         """
         【V2.0 · 认知重塑版】计算成本结构偏度，修正“镜像悖论”。
@@ -813,7 +800,6 @@ class ChipFeatureCalculator:
                 # 直接使用scipy计算的偏度值，其符号与我们的战术意图完美对齐
                 skewness = skew(unweighted_sample)
         return skewness
-
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
             return np.nan
@@ -838,7 +824,6 @@ class ChipFeatureCalculator:
         max_entropy = np.log2(len(volume_per_bin)) if len(volume_per_bin) > 1 else 0
         normalized_entropy = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
         return normalized_entropy
-
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
         """
         【V1.2 · 隐蔽吸筹逻辑修正版】
@@ -931,7 +916,6 @@ class ChipFeatureCalculator:
                     efficiency = normalized_range / normalized_volume
                     results['vacuum_traversal_efficiency'] = np.log1p(efficiency)
         return results
-
     def _compute_legacy_intraday_metrics(self, context: dict) -> dict:
         """
         【V1.1 · 重构清理版】
@@ -969,7 +953,6 @@ class ChipFeatureCalculator:
                 absorption_vol = decline_df['main_force_net_vol'].clip(lower=0).sum()
                 results['capitulation_absorption_index'] = (absorption_vol / capitulation_vol) * 100
         return results
-
     def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 兼容性补丁】计算在第三象限升级后保留的旧版跨日迁徙指标。
@@ -1014,7 +997,6 @@ class ChipFeatureCalculator:
         fatigue_increment = turnover_rate * (1 + price_range) * 100
         results['chip_fatigue_index'] = prev_fatigue * 0.9 + fatigue_increment # 每日衰减
         return results
-
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
         【V2.3 · 记忆传递修复版】
@@ -1062,7 +1044,6 @@ class ChipFeatureCalculator:
                 results['auction_intent_signal'] = gap_pct * np.log1p(auction_vol_ratio * 100)
                 results['auction_closing_position'] = ((open_price - low_price) / (high_price - low_price) * 2 - 1) * 100
         return results
-
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
         【V3.2 · 索引对齐修复版】
@@ -1186,7 +1167,6 @@ class ChipFeatureCalculator:
                     weighted_avg_score = np.average(scores_df['score'], weights=scores_df['volume'])
                     results['floating_chip_cleansing_efficiency'] = np.clip(weighted_avg_score * 10, -100, 100)
         return results
-
     def _compute_microstructure_dynamics(self, context: dict) -> dict:
         """
         【V1.0 · 微观动力学引擎】
@@ -1255,7 +1235,6 @@ class ChipFeatureCalculator:
             if slopes and snapshot_volumes.sum() > 0:
                 results['liquidity_slope'] = np.average(slopes, weights=snapshot_volumes.iloc[:len(slopes)])
         return results
-
     def _compute_tactical_intent_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 战术归因引擎】
@@ -1299,7 +1278,6 @@ class ChipFeatureCalculator:
         else:
             results['supportive_distribution_intensity'] = 0.0
         return results
-
     def _get_absolute_normalized_score(self, value: float, neutral_point: float, sensitivity: float, ascending: bool = True) -> float:
         """
         【V1.0 · 绝对真理映射】对具有绝对意义的指标进行非线性归一化。
@@ -1317,7 +1295,6 @@ class ChipFeatureCalculator:
         if not ascending:
             tanh_score = -tanh_score
         return (tanh_score + 1) / 2 # 映射到 [0, 1]
-
     def _prepare_behavioral_data_for_chips(self, context: dict) -> tuple:
         """
         【V12.5 · 新增】高频数据准备器。
@@ -1358,7 +1335,6 @@ class ChipFeatureCalculator:
         }
         return raw_hf_df, common_data
         # [新增的代码块] 结束
-
     def _engineer_hf_features_for_chips(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
         """
         【V12.6 · 依赖补全修复版】
@@ -1398,7 +1374,6 @@ class ChipFeatureCalculator:
             features['mf_buy_vol'] = mf_trades[buy_trades_mask]['volume'].sum()
             features['mf_sell_vol'] = mf_trades[sell_trades_mask]['volume'].sum()
         return hf_analysis_df, features
-
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
         """
         【V12.7 · 零强度原则版】

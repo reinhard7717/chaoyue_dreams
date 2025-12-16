@@ -1777,7 +1777,6 @@ class IndustryDao(BaseDAO):
         # print(f"    - [DAO-查询] 成功获取 {len(df)} 条原始生命周期记录。")
         return df
     # ============ V3.0 多维概念融合分析 - 核心数据获取方法 ============
-
     async def get_stock_all_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """
         【V3.0 生产级】获取一个股票所属的所有行业/概念及其来源。

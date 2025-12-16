@@ -88,7 +88,6 @@ class TradeCalendar(models.Model):
         null=True,
         blank=True
     )
-
     @classmethod
     def is_trade_date(cls, check_date: datetime.date = None, exchange: str = 'SSE') -> bool:
         """
@@ -105,7 +104,6 @@ class TradeCalendar(models.Model):
             is_open=True
         ).exists()
         return is_open
-
     @classmethod
     def get_latest_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
         """
@@ -125,7 +123,6 @@ class TradeCalendar(models.Model):
             return trade_day.cal_date
         else:
             return None
-
     @classmethod
     def get_latest_n_trade_dates(cls, n: int, reference_date: datetime.date = None, exchange: str = 'SSE') -> list[datetime.date]:
         """
@@ -145,7 +142,6 @@ class TradeCalendar(models.Model):
         trade_dates_list = list(trade_dates_queryset)
         trade_dates_list.sort(reverse=True)
         return trade_dates_list
-
     @classmethod
     def is_trade_day(cls, date_to_check: datetime.date | datetime.datetime) -> bool: # type: ignore
         """
@@ -166,7 +162,6 @@ class TradeCalendar(models.Model):
             return False
         is_open = cls.objects.filter(cal_date=check_date, is_open=True).exists()
         return is_open
-
     @classmethod
     def get_next_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
         """
@@ -186,7 +181,6 @@ class TradeCalendar(models.Model):
             return trade_day.cal_date
         else:
             return None
-
     @classmethod
     async def get_next_trade_date_async(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
         """
@@ -197,7 +191,6 @@ class TradeCalendar(models.Model):
         get_next_date_func = sync_to_async(cls.get_next_trade_date, thread_sensitive=True)
         next_date = await get_next_date_func(reference_date=reference_date, exchange=exchange)
         return next_date
-
     @classmethod
     def get_trade_dates_between(cls, start_date: datetime.date, end_date: datetime.date, exchange: str = 'SSE') -> list[datetime.date]:
         """
@@ -214,7 +207,6 @@ class TradeCalendar(models.Model):
             cal_date__lte=end_date
         ).order_by('cal_date').values_list('cal_date', flat=True)
         return list(trade_dates_qs)
-
     @classmethod
     def get_trade_date_offset(cls, reference_date: datetime.date, offset: int, exchange: str = 'SSE') -> datetime.date | None:
         """
@@ -246,7 +238,6 @@ class TradeCalendar(models.Model):
         except IndexError:
             # 如果切片超出范围，说明没有足够的交易日
             return None
-
     @classmethod
     def get_trade_date_offset_list(cls, reference_date: datetime.date, start_offset: int, num_days: int, exchange: str = 'SSE') -> list[datetime.date]:
         """
@@ -271,7 +262,6 @@ class TradeCalendar(models.Model):
         # 使用切片获取所需的日期列表
         # [start_offset:start_offset + num_days]
         return list(qs[start_offset : start_offset + num_days])
-
     class Meta:
         db_table = 'trade_calendar'
         verbose_name = '交易日历'

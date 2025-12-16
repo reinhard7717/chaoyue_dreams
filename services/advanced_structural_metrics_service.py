@@ -37,7 +37,6 @@ class AdvancedStructuralMetricsService:
         """
         self.max_lookback_days = 300 # 为计算衍生指标所需的最大回溯天数
         self.debug_params = debug_params if debug_params is not None else {} # 接收并存储调试参数
-
     async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame, intraday_data_map: dict):
         """
         【V3.0 · 纯计算引擎版】高级结构与行为指标预计算总指挥
@@ -73,7 +72,6 @@ class AdvancedStructuralMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
-
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
         【V1.0】初始化计算上下文，确定股票实体、目标模型、计算模式和日期范围。
@@ -106,7 +104,6 @@ class AdvancedStructuralMetricsService:
                 fetch_start_date = None
                 
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
-
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
         【V2.4 · 范围查询修正版】
@@ -181,7 +178,6 @@ class AdvancedStructuralMetricsService:
                     minute_df_fallback['date'] = minute_df_fallback['trade_time'].dt.date
                     intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
         return intraday_data_map
-
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
         【V46.0 · 潜龙在渊】
@@ -275,7 +271,6 @@ class AdvancedStructuralMetricsService:
         new_metrics_df.set_index('trade_time', inplace=True)
         final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
         return final_metrics_df
-
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame,
                                             tick_df: pd.DataFrame | None, level5_df: pd.DataFrame | None,
                                             realtime_df: pd.DataFrame | None, daily_info: pd.Series,
@@ -341,7 +336,6 @@ class AdvancedStructuralMetricsService:
             **derivative_metrics,
         }
         return all_metrics
-
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1 · 导数净化版】为所有核心结构指标计算斜率和加速度。
@@ -375,7 +369,6 @@ class AdvancedStructuralMetricsService:
         # 将衍生指标合并回原始指标DataFrame
         final_df = metrics_df.join(derivatives_df)
         return final_df
-
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V1.1 · 索引修复版】从数据库加载并净化历史高级结构指标。
@@ -402,7 +395,6 @@ class AdvancedStructuralMetricsService:
                 # 'trade_time' 已成为索引，不再是列，因此无需在循环中进行特殊处理
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
-
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V37.10 · 动态因子健壮性修正】
@@ -433,7 +425,6 @@ class AdvancedStructuralMetricsService:
         else:
             df['vpin_roc3'] = np.nan
         return df
-
     def _create_continuous_minute_data(self, group: pd.DataFrame) -> pd.DataFrame:
         """
         【V31.0 · 索引访问模式统一】
@@ -456,7 +447,6 @@ class AdvancedStructuralMetricsService:
         continuous_group['minute_vwap'] = (continuous_group['amount'] / continuous_group['vol']).where(continuous_group['vol'] > 0, np.nan)
         # 移除 reset_index 和 rename，保持 DatetimeIndex
         return continuous_group
-
     def _calculate_trend_metrics(self, price_series: pd.Series) -> tuple[float, float]:
         """
         【V30.8 · 新增辅助函数】
@@ -487,7 +477,6 @@ class AdvancedStructuralMetricsService:
             return 0.0, 1.0
         r_squared = 1 - (ss_res / ss_tot)
         return slope, r_squared
-
     def _calculate_mean_reversion_speed(self, price_series: pd.Series) -> float:
         """
         【V30.9 · 新增辅助函数】
@@ -520,7 +509,6 @@ class AdvancedStructuralMetricsService:
         slope, _ = np.polyfit(x, y, 1)
         # 均值回归速度定义为 -slope
         return -slope
-
     def _calculate_tpo_metrics(self, group: pd.DataFrame) -> dict:
         """
         【V30.10 · 新增辅助函数】
@@ -585,7 +573,6 @@ class AdvancedStructuralMetricsService:
             '_today_vah': vah,
             '_today_val': val,
         }
-
     def _calculate_continuous_data_metrics(self, continuous_group: pd.DataFrame) -> dict:
         """
         【V30.12 · 索引健壮性修复】
@@ -632,7 +619,6 @@ class AdvancedStructuralMetricsService:
                 close_after_30_min = first_30_min_data['close'].iloc[-1]
                 metrics['post_gap_momentum_30min'] = (close_after_30_min / today_open) - 1
         return metrics
-
     def _calculate_atr_interaction_metrics(self, group: pd.DataFrame, atr_5: float, atr_14: float, atr_50: float) -> dict:
         """
         【V30.13 · 新增辅助函数】
@@ -667,7 +653,6 @@ class AdvancedStructuralMetricsService:
         if pd.notna(atr_5) and pd.notna(atr_50) and atr_50 > 0:
             metrics['volatility_expansion_ratio'] = atr_5 / atr_50
         return metrics
-
     def _calculate_prev_day_interaction_metrics(self, group: pd.DataFrame, prev_day_metrics: dict) -> dict:
         """
         【V30.14 · 新增辅助函数】
@@ -725,7 +710,6 @@ class AdvancedStructuralMetricsService:
             else:
                 metrics['opening_position_vs_prev_va'] = -1 # 开在价值区之下
         return metrics
-
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V30.21 · 持久化类型修复】

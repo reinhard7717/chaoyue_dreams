@@ -19,7 +19,6 @@ class MicrostructureDynamicsCalculators:
         results.update(MicrostructureDynamicsCalculators._calculate_liquidity_metrics(context))
         results.update(MicrostructureDynamicsCalculators._calculate_vwap_reversion(context))
         return results
-
     @staticmethod
     def _calculate_ofi_and_sweeps(context: dict) -> dict:
         """计算订单流失衡(OFI)与扫单强度"""
@@ -85,7 +84,6 @@ class MicrostructureDynamicsCalculators:
                 print(f"    - 原料: 卖方扫单量={sell_sweep_vol:,.0f}, 总主动卖量={total_sell_vol:,.0f}")
                 print(f"    -> 结果: {results['sell_sweep_intensity']:.4f}")
         return results
-
     @staticmethod
     def _calculate_vpin(context: dict) -> dict:
         """计算VPIN (Volume-Synchronized Probability of Informed Trading)"""
@@ -120,7 +118,6 @@ class MicrostructureDynamicsCalculators:
                     print(f"    - 节点: 平均订单失衡绝对值={abs_imbalance.mean():,.0f}, 平均失衡标准差={imbalance_std.mean():,.0f}")
                     print(f"    -> 结果: {results['vpin_score']:.4f}")
         return results
-
     @staticmethod
     def _calculate_hf_mechanics(context: dict) -> dict:
         """
@@ -166,7 +163,6 @@ class MicrostructureDynamicsCalculators:
                 print(f"    - 计算: corr(cum_thrust, cum_price_change)")
                 print(f"    -> 结果: {results.get('active_volume_price_efficiency', np.nan):.4f}")
         return results
-
     @staticmethod
     def _calculate_liquidity_metrics(context: dict) -> dict:
         """
@@ -296,7 +292,6 @@ class MicrostructureDynamicsCalculators:
                 print(f"    - 计算: 无大型挂单博弈事件，返回中性分")
             print(f"    -> 结果: {results['liquidity_authenticity_score']:.4f}")
         return results
-
     @staticmethod
     def _calculate_vwap_reversion(context: dict) -> dict:
         """计算VWAP均值回归相关性"""

@@ -41,7 +41,6 @@ class TrendFollowStrategy:
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
-
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         【V416.0 · 数据完整性卫兵版】
@@ -83,7 +82,6 @@ class TrendFollowStrategy:
         if risk_details_df is None:
             risk_details_df = pd.DataFrame(index=self.df_indicators.index)
         return self.df_indicators, score_details_df, risk_details_df
-
     def _merge_all_timeframes(self, all_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """
         将所有时间框架的数据合并到一个DataFrame中。
@@ -104,7 +102,6 @@ class TrendFollowStrategy:
                 how='left'
             )
         return ensure_numeric_types(merged_df)
-
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
         对外暴露的报告生成接口。

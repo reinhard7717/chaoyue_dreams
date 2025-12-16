@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0099_remove_advancedfundflowmetrics_bj_ofi_price_impact_factor_and_more'),
     ]
-
     operations = [
         migrations.RemoveIndex(
             model_name='advancedfundflowmetrics_bj',

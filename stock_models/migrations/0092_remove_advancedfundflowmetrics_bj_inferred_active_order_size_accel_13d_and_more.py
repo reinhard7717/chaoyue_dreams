@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0091_alter_trendlineevent_bj_event_type_and_more'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='advancedfundflowmetrics_bj',

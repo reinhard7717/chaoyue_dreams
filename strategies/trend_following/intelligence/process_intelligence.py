@@ -40,7 +40,6 @@ class ProcessIntelligence:
         # 统一获取调试参数和探针日期，提高代码效率和健壮性
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.probe_dates = get_param_value(self.debug_params.get('probe_dates'), [])
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -49,7 +48,6 @@ class ProcessIntelligence:
             print(f"    -> [过程情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False) -> pd.Series:
         """
         【V1.0 · 统一归一化引擎】
@@ -77,7 +75,6 @@ class ProcessIntelligence:
                 ascending=True,
                 tf_weights=default_weights
             )
-
     def _get_atomic_score(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> pd.Series:
         """
         【V1.0 · 原子信号访问器】
@@ -92,7 +89,6 @@ class ProcessIntelligence:
             print(f"    -> [过程情报警告] 依赖的原子信号 '{score_name}' 不存在，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return score_series
-
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
         """
         【V1.0 · 新增】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -106,7 +102,6 @@ class ProcessIntelligence:
             print(f"    -> [过程情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
-
     def _extract_and_validate_config_signals(self, df: pd.DataFrame, config: Dict, method_name: str) -> bool:
         """
         【V1.0 · 新增】蓝图审查官。解析诊断配置，提取所有信号依赖，并进行统一校验。
@@ -134,7 +129,6 @@ class ProcessIntelligence:
             return True
         # 调用通用的校验器进行检查
         return self._validate_required_signals(df, required_signals, method_name)
-
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
         【V5.6 · 帅帐中军版】过程情报分析总指挥
@@ -182,7 +176,6 @@ class ProcessIntelligence:
                 self.strategy.atomic_states.update(score)
         print(f"【V5.6 · 帅帐中军版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
         return all_process_states
-
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V1.1 · 蓝图审查版】元分析调度中心
@@ -205,7 +198,6 @@ class ProcessIntelligence:
         else:
             print(f"    -> [过程情报警告] 未知的元分析诊断类型: '{diagnosis_type}'，跳过信号 '{config.get('name')}' 的计算。")
             return {}
-
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【生产版】计算“权力转移”信号。
@@ -244,7 +236,6 @@ class ProcessIntelligence:
         final_score = np.sign(normalized_score) * normalized_score.abs().pow(1.2)
         final_score = final_score.clip(-1, 1)
         return final_score.astype(np.float32)
-
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V5.1 · 风险审判修正版】计算“主力拉升意图”的专属关系分数。
@@ -343,7 +334,6 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_rally_bearish_score"] = bearish_score
         self.strategy.atomic_states["_DEBUG_rally_distribution_risk"] = distribution_risk_score # 新增调试信号
         return final_rally_intent.astype(np.float32)
-
     def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.0 · 控盘杠杆版】计算“主力控盘”的专属关系分数。
@@ -377,7 +367,6 @@ class ProcessIntelligence:
         control_leverage = 1 + fused_control_score.clip(lower=0) # 杠杆效应只在控盘为正时生效
         final_control_score = (main_force_flow_score * control_leverage).clip(-1, 1)
         return final_control_score.astype(np.float32)
-
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V5.15 · 诡道反击版】对“关系分”进行元分析，输出分数。
@@ -465,7 +454,6 @@ class ProcessIntelligence:
             return {}
         print(f"    -> [过程层] {signal_name} 计算完成，最新分值: {meta_score.iloc[-1]:.4f}")
         return {signal_name: meta_score}
-
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V2.4 · 探针可控版】分裂型元关系诊断器
@@ -524,7 +512,6 @@ class ProcessIntelligence:
             print(f"    - 风险部分({risk_signal_name}): {risk_part.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return states
-
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.0 · 承接验证版】计算“价格与散户投降”的专属瞬时关系分。
@@ -558,7 +545,6 @@ class ProcessIntelligence:
             print(f"    - 瞬时关系分(承接验证后): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score
-
     def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.0 · 信念校准版】计算“价格效率”的专属瞬时关系分。
@@ -593,7 +579,6 @@ class ProcessIntelligence:
             print(f"    - 瞬时关系分(信念校准后): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score
-
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.0 · 战场纵深版】计算“博弈背离”的专属瞬时关系分。
@@ -627,7 +612,6 @@ class ProcessIntelligence:
             print(f"    - 瞬时关系分(战场纵深校准后): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score
-
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V1.4 · 信念侵蚀版】信号衰减诊断器
@@ -672,7 +656,6 @@ class ProcessIntelligence:
             print(f"    - 衰减分数(归一化): {decay_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return {signal_name: decay_score.astype(np.float32)}
-
     def _calculate_price_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.1 · 阴阳易位版】“价势背离”专属关系计算引擎
@@ -696,7 +679,6 @@ class ProcessIntelligence:
         # 底背离: (负的价格分) - (正的动能分) = 显著负分 (机会)
         relationship_score = (price_direction_score - momentum_direction_score).clip(-1, 1)
         return relationship_score
-
     def _calculate_winner_belief_erosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.0 · 信念侵蚀版】“赢家信念衰减”专属计算引擎
@@ -722,7 +704,6 @@ class ProcessIntelligence:
         pressure_amplifier = 1 + pressure_score
         erosion_score = (base_decay_score * pressure_amplifier).clip(0, 1)
         return erosion_score
-
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V2.0 · 神谕调度版】通用领域反转诊断调度中心
@@ -757,7 +738,6 @@ class ProcessIntelligence:
         bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1)
         # [修改] 将健康度呈送给新的“神谕审判”方法进行最终裁决
         return self._judge_domain_reversal(bipolar_domain_health, config)
-
     def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict) -> Dict[str, pd.Series]:
         """
         【V1.1 · 神谕审判生产版】领域反转信号的核心审判庭
@@ -784,7 +764,6 @@ class ProcessIntelligence:
             output_bottom_name: bottom_reversal_score.astype(np.float32),
             output_top_name: top_reversal_score.astype(np.float32)
         }
-
     def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V5.1 · 全息融合版】计算“隐蔽吸筹”的专属关系分数。
@@ -850,7 +829,6 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
         self.strategy.atomic_states["_DEBUG_accum_gentle_push_score"] = gentle_push_score
         return final_score.clip(0, 1).astype(np.float32)
-
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V4.4 · 战果审判版】计算“恐慌洗盘吸筹”的专属信号。
@@ -909,7 +887,6 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_washout_repair_score"] = repair_score
         self.strategy.atomic_states["_DEBUG_washout_judged_base_score"] = judged_base_score
         return final_score.astype(np.float32)
-
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.3 · 矛盾博弈版】计算“诡道吸筹”信号。
@@ -941,7 +918,6 @@ class ProcessIntelligence:
         coherence_penalty_factor = (1 - coherent_drive_score.clip(upper=0).abs()).clip(0, 1)
         final_score = (core_action_score * deceptive_context_score * coherence_penalty_factor * price_gating_score).fillna(0.0)
         return final_score.astype(np.float32)
-
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.0 · 强证优先版】识别主力利用“上冲回落”阴线进行的洗盘行为。
@@ -984,7 +960,6 @@ class ProcessIntelligence:
         final_score = net_washout_intent.where(context_mask, 0.0).fillna(0.0)
         # [删除] 移除所有探针及调试信号存储代码
         return final_score.astype(np.float32)
-
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.3 · 势能衰减版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
@@ -1021,7 +996,6 @@ class ProcessIntelligence:
         final_score = (potential_energy_score * ignition_intent_score).fillna(0.0)
         # [删除] 移除所有探针及调试信号存储代码
         return final_score.astype(np.float32)
-
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.2 · 状态对抗版】“赢家信念”专属关系计算引擎
@@ -1048,7 +1022,6 @@ class ProcessIntelligence:
         # 核心逻辑变为状态对抗：信念状态分 - 压力状态分
         relationship_score = (k * conviction_state_score - pressure_state_score) / (k + 1)
         return relationship_score.clip(-1, 1)
-
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.1 · 战场扩展版】计算“套牢盘投降”信号。
@@ -1077,7 +1050,6 @@ class ProcessIntelligence:
         # 最终审判：恐慌与吸收的乘积
         final_score = (panic_score * absorption_score).where(context_mask, 0.0).fillna(0.0)
         return final_score.astype(np.float32)
-
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V4.1 · 象限审判版】计算成本优势趋势。
@@ -1125,7 +1097,6 @@ class ProcessIntelligence:
         Q4_final = (Q4_base * Q4_trap_evidence * -1).clip(-1, 0)
         final_score = (Q1_final + Q2_final + Q3_final + Q4_final).clip(-1, 1)
         return final_score.astype(np.float32)
-
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.1 · 质效校准版】计算“拆单吸筹强度”的专属信号。
@@ -1175,7 +1146,6 @@ class ProcessIntelligence:
         quality_efficiency_modulator = (1 - calibrated_holographic_score).clip(0.1, 2.0)
         final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1)
         return final_score.astype(np.float32)
-
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【生产版】计算价量关系的专属分数。
@@ -1244,7 +1214,6 @@ class ProcessIntelligence:
         if mask4.any(): final_score.loc[mask4] = score4.loc[mask4]
         final_score = final_score.clip(-1, 1)
         return final_score.astype(np.float32)
-
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.0 · 共振审判版】诊断“突破加速抢筹”战术。
@@ -1279,7 +1248,6 @@ class ProcessIntelligence:
         rs_modulator = (1 + relative_strength.clip(lower=0) * rs_amplifier)
         final_score = (resonance_score * rs_modulator).clip(0, 1).fillna(0.0)
         return final_score.astype(np.float32)
-
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.0 · 战术升级版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
@@ -1313,7 +1281,6 @@ class ProcessIntelligence:
         # 3. 最终审判
         final_score = (prelude_score * attack_score).fillna(0.0)
         return final_score.astype(np.float32)
-
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V4.1 · 战场态势版】“利润与流向”专属关系计算引擎
@@ -1336,7 +1303,6 @@ class ProcessIntelligence:
         relationship_score = drive_score - pressure_score
         final_score = relationship_score.clip(-1, 1)
         return final_score
-
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.1 · 军令直达版】“个股板块同步”专属关系计算引擎
@@ -1360,7 +1326,6 @@ class ProcessIntelligence:
         relationship_score = stock_strength_score * leadership_amplifier
         final_score = relationship_score.clip(-1, 1)
         return final_score
-
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.1 · 军令直达版】“热门板块冷却”专属关系计算引擎
@@ -1385,7 +1350,6 @@ class ProcessIntelligence:
         relationship_score = hotness_state_score * outflow_score
         final_score = relationship_score.clip(0, 1) # 这是一个单极风险信号
         return final_score
-
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V1.1 · 调用修正版】计算“价资关系”的专属方法。
@@ -1398,7 +1362,6 @@ class ProcessIntelligence:
         # [修改] 修正调用参数，同时传递 df 和 df.index
         meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
         return meta_score
-
     def _calculate_pc_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V1.1 · 调用修正版】计算“价筹关系”的专属方法。
@@ -1411,7 +1374,6 @@ class ProcessIntelligence:
         # [修改] 修正调用参数，同时传递 df 和 df.index
         meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
         return meta_score
-
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V1.2 · 丞相之印版】“风暴眼中的寂静”专属计算引擎
@@ -1441,7 +1403,6 @@ class ProcessIntelligence:
         final_score = (base_compression_score * main_force_adjudicator).clip(0, 1)
         # [删除] 移除所有探针调试代码
         return final_score.astype(np.float32)
-
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         """
         【V1.2 · 数据脉络贯通版】可复用的元分析核心引擎。
@@ -1504,7 +1465,6 @@ class ProcessIntelligence:
         if scoring_mode == 'unipolar':
             meta_score = meta_score.clip(lower=0)
         return meta_score.clip(-1, 1).astype(np.float32)
-
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.2 · 探针可控版】计算通用的瞬时关系分数。
@@ -1550,7 +1510,6 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score
-
     def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.0 · 势能加权版】计算“资金与结构”的专属瞬时关系分。
@@ -1567,7 +1526,6 @@ class ProcessIntelligence:
         strategic_context_amplifier = 1 + trend_form_score.abs()
         final_score = (base_divergence_score * strategic_context_amplifier).clip(-1, 1)
         return final_score
-
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.0 · 派发审判版】计算“动能与筹码”的专属瞬时关系分。
@@ -1589,7 +1547,6 @@ class ProcessIntelligence:
             base_consensus_score * distribution_pressure_factor
         ).clip(-1, 1)
         return final_score
-
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
         【V1.0 · 洗盘诱空反弹协议】计算“洗盘诱空反弹”信号。
@@ -1662,7 +1619,6 @@ class ProcessIntelligence:
             (rebound_quality_score + 1e-9).pow(fusion_weights.get('rebound_quality', 0.4))
         ).pow(1/(fusion_weights.get('deception_context', 0.3) + fusion_weights.get('panic_depth', 0.3) + fusion_weights.get('rebound_quality', 0.4))).fillna(0.0)
         return wash_out_rebound_score.clip(0, 1).astype(np.float32)
-
     def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 隐蔽吸筹协议】计算“隐蔽吸筹”信号。

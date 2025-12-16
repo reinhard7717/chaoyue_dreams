@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0088_platformfeature_bj_goodness_of_fit_score_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='platformfeature_bj',

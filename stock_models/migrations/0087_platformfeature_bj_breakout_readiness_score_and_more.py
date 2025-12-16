@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0086_platformfeature_bj_platform_archetype_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='platformfeature_bj',

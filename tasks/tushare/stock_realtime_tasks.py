@@ -41,7 +41,6 @@ def is_trading_time():
     # 新增代码行: 首先检查当天是否为交易日
     if not TradeCalendar.is_trade_date(check_date=now.date()):
         return False # 如果不是交易日，则直接返回False
-
     # 如果是交易日，再继续判断时间是否在交易时段内
     if now.hour in [9, 10, 11, 13, 14, 15]:
         if now.hour == 11 and now.minute >= 31:
@@ -408,7 +407,6 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         if ids_to_delete:
             deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
             logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条与上一交易日重复的Tick数据。")
-
     except Exception as e:
         logger.error(f"[{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}", exc_info=True)
 
@@ -436,7 +434,6 @@ def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = No
     except ValueError:
         logger.error(f"日期格式错误。应为 'YYYY-MM-DD'。收到的 start_date: '{start_date_str}', end_date: '{end_date_str}'")
         return {"status": "error", "message": "日期格式错误"}
-
     logger.info(f"--- 开始为日期范围 {start_date_str} 至 {end_date.strftime('%Y-%m-%d')} 分派Tick数据清理任务 ---")
     stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
     total_dispatched_count = 0

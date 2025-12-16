@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0089_platformfeature_bj_platform_conviction_score_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='multitimeframetrendline_bj',

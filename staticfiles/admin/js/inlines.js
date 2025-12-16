@@ -196,7 +196,6 @@
         removed: null, // Function called each time a form is deleted
         addButton: null // Existing add button to use
     };
-
     // Tabular inlines ---------------------------------------------------------
     $.fn.tabularFormset = function(selector, options) {
         const $rows = $(this);

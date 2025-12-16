@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0083_advancedchipmetrics_bj_floating_chip_cleansing_efficiency_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='advancedstructuralmetrics_bj',

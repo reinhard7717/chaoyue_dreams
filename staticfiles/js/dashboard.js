@@ -408,7 +408,6 @@ document.addEventListener('DOMContentLoaded', function () {
             return null;
         }
     }
-
     // --- 初始化 (使用模板传递的数据) ---
     function initializeDashboard() {
         if (typeof initialFavoritesData !== 'undefined') {
@@ -456,7 +455,6 @@ document.addEventListener('DOMContentLoaded', function () {
             favoritesTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: red;">加载自选股列表失败</td></tr>';
         }
     }
-
     // --- 辅助函数 ---
     function getCookie(name) {
         let cookieValue = null;

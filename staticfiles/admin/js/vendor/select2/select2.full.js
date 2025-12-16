@@ -5631,7 +5631,6 @@ S2.define('select2/selection/stopPropagation',[
             return this.unbind('mousewheel', fn);
         }
     });
-
     function handler(event) {
         var orgEvent   = event || window.event,
             args       = slice.call(arguments, 1),

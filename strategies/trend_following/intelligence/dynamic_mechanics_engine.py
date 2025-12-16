@@ -10,7 +10,6 @@ class DynamicMechanicsEngine:
         :param strategy_instance: 策略主实例的引用，用于访问 df_indicators。
         """
         self.strategy = strategy_instance
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -19,7 +18,6 @@ class DynamicMechanicsEngine:
             print(f"    -> [力学情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -30,7 +28,6 @@ class DynamicMechanicsEngine:
             print(f"    -> [力学情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
-
     def run_dynamic_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V7.3 · 探针增强版】动态力学引擎总指挥
@@ -66,7 +63,6 @@ class DynamicMechanicsEngine:
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_dynamic_states
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, momentum_score: pd.Series, inertia_score: pd.Series) -> pd.Series:
         """
         【V1.3 · 参数清理版】力学公理五：诊断“力学背离”
@@ -74,7 +70,6 @@ class DynamicMechanicsEngine:
         """
         divergence_score = (inertia_score - momentum_score).clip(-1, 1)
         return divergence_score.astype(np.float32)
-
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
         【V3.3 · 校准张力版】力学公理一：诊断“动量品质”
@@ -120,7 +115,6 @@ class DynamicMechanicsEngine:
             }
             print(f"  > 动量品质探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_momentum_score.astype(np.float32), z_tension.astype(np.float32)
-
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
         【V3.5 · 校准张力版】力学公理二：诊断“结构化惯性”
@@ -172,7 +166,6 @@ class DynamicMechanicsEngine:
             }
             print(f"  > 结构化惯性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_inertia_score.astype(np.float32), z_tension.astype(np.float32)
-
     def _diagnose_axiom_stability(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
         【V3.5 · 校准张力版】力学公理三：诊断“势能稳定性”
@@ -216,7 +209,6 @@ class DynamicMechanicsEngine:
             }
             print(f"  > 势能稳定性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_stability_score.astype(np.float32), z_tension.astype(np.float32)
-
     def _diagnose_axiom_energy(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> (pd.Series, pd.Series):
         """
         【V2.5 · 校准张力版】力学公理四：诊断“能量真实性”
@@ -261,7 +253,6 @@ class DynamicMechanicsEngine:
             }
             print(f"  > 能量真实性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_energy_score.astype(np.float32), z_tension.astype(np.float32)
-
     def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.5 · 参数清理版】力学公理六：诊断“均线动态”
@@ -284,7 +275,6 @@ class DynamicMechanicsEngine:
         acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, default_weights)
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
         return ma_dynamics_score.astype(np.float32)
-
     def _synthesize_grand_unification_score(self, momentum: pd.Series, inertia: pd.Series, stability: pd.Series, energy: pd.Series) -> pd.Series:
         """
         【V1.0 · 矛与盾】大统一力场合成器
@@ -314,7 +304,6 @@ class DynamicMechanicsEngine:
         # 将numpy数组转换回带索引的pandas Series
         grand_unification_score = pd.Series(grand_unification_score_raw, index=momentum.index).fillna(0)
         return grand_unification_score.astype(np.float32)
-
     def _get_mtf_calibrated_z_score(self, raw_series: pd.Series, p_conf_dyn: Dict) -> (pd.Series, pd.Series):
         """
         【V2.0 · 张力诊断版】内部辅助方法，计算MTF融合Z-Score和“校准张力”。

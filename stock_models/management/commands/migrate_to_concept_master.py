@@ -38,7 +38,6 @@ class Command(BaseCommand):
         total_migrated = sum(results)
         # 成功信息移到 handle 方法中，确保事务提交后才显示
         # self.stdout.write(self.style.SUCCESS(f"\n====== 数据迁移成功！共迁移 {total_migrated} 条记录。 ======"))
-
     async def migrate_sw_industry(self):
         self.stdout.write("  -> 正在迁移 [申万行业] 数据...")
         # 使用 aall() 替代 sync_to_async(list) 以获得更好的异步性能

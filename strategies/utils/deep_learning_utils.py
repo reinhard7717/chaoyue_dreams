@@ -495,7 +495,6 @@ def prepare_data_for_transformer(
     logger.info(f"最终 NaN/Inf 处理完成。特征矩阵形状: {current_features_np.shape}, 目标数组形状: {targets_np.shape}")
     print(f"prepare_data_for_transformer: 最终NaN/Inf处理后，特征数组形状: {current_features_np.shape}, dtype: {current_features_np.dtype}")
     print(f"prepare_data_for_transformer: 最终NaN/Inf处理后，目标数组形状: {targets_np.shape}, dtype: {targets_np.dtype}")
-
     # 显式删除不再需要的 DataFrame，释放内存
     del features_df, targets_series, features_filled_df, targets_filled_series, data_processed
     print("prepare_data_for_transformer: 已删除中间 DataFrame。")
@@ -570,7 +569,6 @@ def prepare_data_for_transformer(
     print(f"prepare_data_for_transformer: 分割后，训练集特征形状: {features_train_raw.shape}, 目标形状: {targets_train_raw.shape}")
     print(f"prepare_data_for_transformer: 分割后，验证集特征形状: {features_val_raw.shape}, 目标形状: {targets_val_raw.shape}")
     print(f"prepare_data_for_transformer: 分割后，测试集特征形状: {features_test_raw.shape}, 目标形状: {targets_test_raw.shape}")
-
     # 初始化用于后续特征工程的变量
     features_eng_train = features_train_raw
     features_eng_val = features_val_raw
@@ -746,7 +744,6 @@ def prepare_data_for_transformer(
     logger.info(f"所有特征工程处理完成。最终用于缩放的特征维度: {final_features_train.shape[1]}")
     logger.debug(f"最终选定特征名 (部分): {final_selected_feature_names[:10]}...")
     print(f"prepare_data_for_transformer: 特征工程后，训练集特征形状: {final_features_train.shape}, dtype: {final_features_train.dtype}")
-
     # --- 8. 特征缩放 (Feature Scaling) ---
     # 缩放器应在处理后的训练集特征上拟合，然后应用到所有数据集
     feature_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler, None] = None
@@ -780,7 +777,6 @@ def prepare_data_for_transformer(
         features_scaled_train = final_features_train.astype(np.float32) if final_features_train.size > 0 else np.array([], dtype=np.float32)
         features_scaled_val = final_features_val.astype(np.float32) if final_features_val.size > 0 else np.array([], dtype=np.float32)
         features_scaled_test = final_features_test.astype(np.float32) if final_features_test.size > 0 else np.array([], dtype=np.float32)
-
     # --- 9. 目标变量缩放 (Target Scaling) ---
     # 目标变量缩放器在原始训练集目标上拟合
     target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler, None] = None
@@ -813,7 +809,6 @@ def prepare_data_for_transformer(
         targets_scaled_train = targets_train_raw.astype(np.float32) if targets_train_raw.size > 0 else np.array([], dtype=np.float32)
         targets_scaled_val = targets_val_raw.astype(np.float32) if targets_val_raw.size > 0 else np.array([], dtype=np.float32)
         targets_scaled_test = targets_test_raw.astype(np.float32) if targets_test_raw.size > 0 else np.array([], dtype=np.float32)
-
     logger.info("Transformer 数据准备流程结束。")
     # 返回 NumPy 数组 (确保 float32 类型以匹配 PyTorch 默认) 和 scaler 对象
     # 注意：如果 PCA 或特征选择器被使用，它们也应该被返回，以便在预测新数据时能够复现相同的转换。
@@ -954,7 +949,6 @@ def train_transformer_model(
         # 兼容旧版本PyTorch没有 set_detect_anomaly 的情况，增加 hasattr 检查
         if hasattr(torch.autograd, 'set_detect_anomaly'):
             torch.autograd.set_detect_anomaly(False) # pylint: disable=not-callable
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"使用设备: {device}")
     model.to(device) # 将模型移动到指定设备
@@ -1031,7 +1025,6 @@ def train_transformer_model(
          total_warmup_steps = 0
     else:
         logger.info("学习率 Warmup 未启用。")
-
     # 初始化学习率调度器
     lr_scheduler_type = training_config.get('lr_scheduler', 'ReduceLROnPlateau').lower()
     scheduler = None
@@ -1073,7 +1066,6 @@ def train_transformer_model(
         writer = SummaryWriter(log_dir=run_log_dir)
         logger.info(f"启用 TensorBoard: 日志将保存到 '{run_log_dir}'")
     # --- 动态路径生成结束 ---
-
     # 早停和最佳模型保存相关变量
     best_monitored_value = float('inf') if scheduler_mode == 'min' else float('-inf')
     epochs_no_improve = 0

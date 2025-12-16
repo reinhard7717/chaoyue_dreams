@@ -18,7 +18,6 @@ class FeatureEngineeringService:
     """
     def __init__(self, calculator):
         self.calculator = calculator
-
     async def calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.4 · 调试信息清理版】计算所有配置的斜率特征。
@@ -72,7 +71,6 @@ class FeatureEngineeringService:
                 df[slope_col_name] = slope_series.fillna(0)
             all_dfs[timeframe] = df
         return all_dfs
-
     async def calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.4 · 调试信息清理版】计算所有配置的加速度特征。
@@ -117,7 +115,6 @@ class FeatureEngineeringService:
                 accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
                 df[accel_col_name] = accel_series.fillna(0)
         return all_dfs
-
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.2 · 细粒度VPA升级版】VPA效率指标生产线
@@ -160,7 +157,6 @@ class FeatureEngineeringService:
         df['VPA_SELL_EFFICIENCY_D'] = sell_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
-
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.5 · nolds样本熵集成版】元特征计算车间
@@ -339,7 +335,6 @@ class FeatureEngineeringService:
             
         all_dfs[timeframe] = df
         return all_dfs
-
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.9 · 几何特征列名修复版】高级模式识别信号生产线
@@ -520,7 +515,6 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("高级模式识别引擎(V3.9 几何特征列名修复版)分析完成。")
         return all_dfs
-
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V1.0】计算通达信 AAA 指标。
@@ -550,7 +544,6 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("AAA 指标计算完成。")
         return all_dfs
-
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.2 · 细粒度意图与斐波那契周期升级版】根据多因子共振识别盘整期。
@@ -619,7 +612,6 @@ class FeatureEngineeringService:
         df[f'dynamic_consolidation_duration_{timeframe}'] = df.get(f'dynamic_consolidation_duration_{timeframe}', pd.Series(index=df.index)).fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
-
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
         """
         【V1.4 · 后门封堵与命名修复版】形态增强信号编排器
@@ -661,7 +653,6 @@ class FeatureEngineeringService:
         all_dfs['D'] = df_daily
         logger.info("分钟级形态增强信号计算完成并已集成。")
         return all_dfs
-
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.0】均线系统势能分析引擎
@@ -721,7 +712,6 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
         return all_dfs
-
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
         【V3.3 · 幂等性优化版】突破质量分计算专用通道
@@ -736,12 +726,10 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
         df_daily = all_dfs[timeframe]
-
         # 修改代码行：新增幂等性检查
         if 'breakout_quality_score_D' in df_daily.columns:
             logger.debug(f"突破质量分 (breakout_quality_score_D) 已存在于周期 '{timeframe}' 的DataFrame中，跳过重复计算。")
             return all_dfs
-
         # 修改代码行: 补充 calculate_breakout_quality_score 所需的所有列
         required_materials = [
             'volume', 'VOL_MA_21', 'main_force_flow_directionality',
@@ -778,7 +766,6 @@ class FeatureEngineeringService:
         else:
             logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
         return all_dfs
-
     async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V1.1 · 细粒度NMFNF升级版】计算标准化主力净流量 (Normalized Main Force Net Flow, NMFNF)。
@@ -811,7 +798,6 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("NMFNF 指标计算完成。")
         return all_dfs
-
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V3.3 · 结构动力学与细粒度博弈升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
@@ -1063,7 +1049,6 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("OCH 指标计算完成。")
         return all_dfs
-
     async def calculate_structural_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.0 · 结构特征合成版】
@@ -1103,7 +1088,6 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("结构特征计算完成。")
         return all_dfs
-
     async def calculate_geometric_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.1 · 几何特征计算与列名冲突修复】

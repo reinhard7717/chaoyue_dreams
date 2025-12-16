@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0097_remove_advancedfundflowmetrics_bj_closing_price_deviation_score_and_more'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='advancedfundflowmetrics_bj',

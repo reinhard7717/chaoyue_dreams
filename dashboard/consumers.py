@@ -29,7 +29,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         )
         await self.accept()
         print(f"WebSocket connected for user {self.user.username}")
-
     async def disconnect(self, close_code):
         if hasattr(self, 'user_group_name'):
             await self.channel_layer.group_discard(

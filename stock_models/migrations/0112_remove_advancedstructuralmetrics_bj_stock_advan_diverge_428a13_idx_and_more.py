@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0111_remove_advancedstructuralmetrics_bj_vpoc_consensus_strength_and_more'),
     ]
-
     operations = [
         migrations.RemoveIndex(
             model_name='advancedstructuralmetrics_bj',

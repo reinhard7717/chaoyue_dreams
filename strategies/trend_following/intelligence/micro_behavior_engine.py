@@ -18,7 +18,6 @@ class MicroBehaviorEngine:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -27,11 +26,9 @@ class MicroBehaviorEngine:
             print(f"    -> [微观行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
         """安全地从原子状态库中获取分数。"""
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
-
     def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
         【V1.0】信号获取哨兵方法
@@ -42,7 +39,6 @@ class MicroBehaviorEngine:
             print(f"    -> [微观行为引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[signal_name]
-
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -53,7 +49,6 @@ class MicroBehaviorEngine:
             print(f"    -> [微观行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
-
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.2 · 和谐拐点升维版】微观行为诊断引擎总指挥
@@ -98,7 +93,6 @@ class MicroBehaviorEngine:
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V2.2 · 探针逻辑重构版】微观行为公理四：诊断“微观背离”
@@ -119,7 +113,6 @@ class MicroBehaviorEngine:
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, tf_weights)
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
-
     def _diagnose_strategy_stealth_ops(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V2.1 · 探针文本优化版】微观诡道一策：诊断“隐秘行动”
@@ -143,7 +136,6 @@ class MicroBehaviorEngine:
         base_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
         stealth_ops_score = (base_score * purity_modulator).fillna(0.0)
         return stealth_ops_score.astype(np.float32)
-
     def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V2.1 · 数据溯源注释版】微观诡道二策：诊断“震慑突袭”
@@ -173,7 +165,6 @@ class MicroBehaviorEngine:
         base_score = (shock_magnitude * outcome_intent)
         shock_and_awe_score = (base_score * awe_amplifier).clip(-1, 1)
         return shock_and_awe_score.astype(np.float32)
-
     def _diagnose_strategy_cost_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V2.1 · 加法融合重构版】微观诡道三策：诊断“成本控制”
@@ -197,7 +188,6 @@ class MicroBehaviorEngine:
         cost_control_score = (base_intent_score * 0.7 + solidity_score * 0.3).clip(-1, 1)
        
         return cost_control_score.astype(np.float32)
-
     def _diagnose_harmony_inflection(self, strategic_intent: pd.Series) -> pd.Series:
         """
         【V1.1 · 探针回溯版】微观和谐拐点诊断器
@@ -220,7 +210,6 @@ class MicroBehaviorEngine:
         # 修正 normalize_score 的调用参数，将 harmony_inflection_score.index 移除
         final_score = normalize_score(harmony_inflection_score, 55)
         return final_score.astype(np.float32)
-
     def _synthesize_strategic_intent(self, stealth_ops: pd.Series, shock_awe: pd.Series, cost_control: pd.Series, divergence: pd.Series) -> pd.Series:
         """
         【V2.0 · 控制力门控版】微观战略意图合成器

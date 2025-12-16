@@ -1037,7 +1037,6 @@ class BaseTrendlineFeature(models.Model):
     validity_score = models.FloatField(verbose_name='趋势线有效性得分(0-1)')
     # V2.0 微观指标
     touch_conviction_score = models.FloatField(verbose_name='触及信念得分', null=True, blank=True, help_text='所有触及点微观博弈强度的平均分')
-
     class Meta:
         abstract = True
         ordering = ['-validity_score']
@@ -1163,7 +1162,6 @@ class BaseTrendlineEvent(models.Model):
     event_date = models.DateField(verbose_name='事件发生日期', db_index=True)
     event_type = models.CharField(max_length=50, choices=EVENT_TYPE_CHOICES, verbose_name='事件类型')
     details = models.JSONField(verbose_name='事件详情') # 存储相关周期、概率、特征等
-
     class Meta:
         abstract = True
         ordering = ['-event_date']

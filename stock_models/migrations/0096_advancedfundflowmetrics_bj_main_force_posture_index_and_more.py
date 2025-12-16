@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0095_advancedfundflowmetrics_bj_imbalance_effectiveness_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='advancedfundflowmetrics_bj',

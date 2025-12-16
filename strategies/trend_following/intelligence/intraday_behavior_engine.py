@@ -21,7 +21,6 @@ class IntradayBehaviorEngine:
         self.strategy = strategy_instance
         self.calculator = strategy_instance.orchestrator.indicator_service.calculator
         self.params = get_params_block(self.strategy, 'intraday_behavior_engine_params', {})
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -30,7 +29,6 @@ class IntradayBehaviorEngine:
             print(f"    -> [日内行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -41,7 +39,6 @@ class IntradayBehaviorEngine:
             print(f"    -> [日内行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
-
     def run_intraday_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V4.4 · 依赖感知型指挥系统】日内诊断总指挥
@@ -103,7 +100,6 @@ class IntradayBehaviorEngine:
                     df_cumulative[signal_name] = signal_series
         print(f"日内行为诊断完成，生成 {len(final_scores)} 个信号序列。")
         return final_scores
-
     def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V5.1 · Production Ready版】日内战报之一：诊断“进攻纯度”
@@ -157,7 +153,6 @@ class IntradayBehaviorEngine:
         # 5. 将最终向量映射回 [0, 1] 区间作为最终得分
         final_score = (final_vector / 2) + 0.5
         return {signal_name: final_score.clip(0, 1)}
-
     def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V4.4 · Production Ready版】日内战报之二：诊断“支配共识”
@@ -184,7 +179,6 @@ class IntradayBehaviorEngine:
             conviction_trend_vector * weights.get('trend', 0.4)
         ).fillna(0.0)
         return {signal_name: final_score.clip(-1, 1)}
-
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.3 · Production Ready版】日内战报之三：诊断“信念反转”
@@ -233,7 +227,6 @@ class IntradayBehaviorEngine:
         conflict_intensity = np.minimum(bullish_final_score, bearish_final_score)
         final_score = (directional_score * (1 - conflict_intensity)).fillna(0.0)
         return {signal_name: final_score.clip(-1, 1)}
-
     def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.3 · Production Ready版】日内叙事之一：诊断“战术弧线”
@@ -272,7 +265,6 @@ class IntradayBehaviorEngine:
         # 5. 最终裁决
         final_score = (arc_direction * context_amplifier).fillna(0.0)
         return {signal_name: final_score.clip(-1, 1)}
-
     def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.2 · Production Ready版】日内叙事之二：诊断“竞价意图”
@@ -315,7 +307,6 @@ class IntradayBehaviorEngine:
         # 5. 最终裁决
         final_score = (base_intent * synergy_factor).fillna(0.0)
         return {signal_name: final_score.clip(-1, 1)}
-
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.3 · Production Ready版】日内叙事之三：诊断“恢复质量”
@@ -352,7 +343,6 @@ class IntradayBehaviorEngine:
         # 5. 最终认证
         final_score = (norm_base_recovery * panic_amplifier * resolution_factor).fillna(0.0)
         return {signal_name: final_score.clip(-1, 1)}
-
     def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · Production Ready版】日内诡道之一：诊断“伏击与侧翼”
@@ -396,7 +386,6 @@ class IntradayBehaviorEngine:
                        counter_attack_score * weights.get('counter_attack', 0.4)
                       ).where(gate_condition, 0.0).fillna(0.0)
         return {signal_name: final_score.clip(0, 1)}
-
     def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.1 · Production Ready版】日内诡道之二：诊断“终末强袭”
@@ -435,7 +424,6 @@ class IntradayBehaviorEngine:
         # 4. 最终裁决
         final_score = (norm_verdict_vector * final_amplifier).fillna(0.0)
         return {signal_name: final_score.clip(-1, 1)}
-
     def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · Production Ready版】日内诡道之三：诊断“VWAP攻防”

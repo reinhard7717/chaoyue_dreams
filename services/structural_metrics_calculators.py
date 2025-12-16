@@ -230,7 +230,6 @@ class StructuralMetricsCalculators:
                         opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
                         results['opening_period_thrust'] = (opening_buy_vol - opening_sell_vol) / opening_total_vol
         return results
-
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
@@ -367,7 +366,6 @@ class StructuralMetricsCalculators:
                 conviction_purity = tail_thrust_purity if pd.notna(tail_thrust_purity) else np.sign(day_close_qfq - vpoc)
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor * conviction_purity
         return results
-
     @staticmethod
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
@@ -445,7 +443,6 @@ class StructuralMetricsCalculators:
                         print(f"    - 计算: {weighted_avg_slippage_down:.6f} / {atr_14:.4f}")
                         print(f"    -> 结果: {results.get('defense_cost_index', np.nan):.4f}")
         return results
-
     @staticmethod
     def calculate_gini(array: np.ndarray) -> float:
         """

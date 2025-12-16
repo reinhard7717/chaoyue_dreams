@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0106_advancedstructuralmetrics_bj_reversal_recovery_rate_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='stocktickdata_bj',

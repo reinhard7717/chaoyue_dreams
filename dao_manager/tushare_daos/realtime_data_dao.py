@@ -50,9 +50,7 @@ class StockRealtimeDAO(BaseDAO):
             logger.critical(f"Tushare 库初始化失败，可能是 token 文件问题或网络问题: {e}", exc_info=True)
             self.ts = None # 初始化失败时，将 ts 设置为 None
             self.pro = None # 初始化失败时，将 pro 设置为 None
-
     # =================== 真实逐笔数据 (Tick Data) 核心接口 =============
-
     # --- 写操作 (Write Operation) ---
     async def save_realtime_tick_in_bulk(self, stock_codes: List[str], trade_date: str) -> Tuple[bool, str]:
         """
@@ -109,7 +107,6 @@ class StockRealtimeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"save_realtime_tick_in_bulk 发生严重异常: {e}", exc_info=True)
             return False, f"save_realtime_tick_in_bulk 发生严重异常: {e}"
-
     async def _fetch_raw_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
         """
         【辅助】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
@@ -172,7 +169,6 @@ class StockRealtimeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"get_daily_real_ticks 发生严重异常 for {stock_code}: {e}", exc_info=True)
             return None
-
     async def _get_daily_real_ticks_from_db(self, stock_code: str, trade_date_str: str) -> Optional[pd.DataFrame]:
         """
         【辅助】从数据库获取指定股票和日期的真实逐笔数据。
@@ -212,7 +208,6 @@ class StockRealtimeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 逐笔数据失败: {e}", exc_info=True)
             return None
-
     # =================== 市场整体快照 (Market Snapshot) 接口 ==========
     async def get_realtime_market_snapshot(self, src: str = 'dc') -> Optional[pd.DataFrame]:
         """
@@ -230,7 +225,6 @@ class StockRealtimeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取实时市场快照 (realtime_list) 失败: {e}", exc_info=True)
             return None
-
     # =================== 行情快照 (Quote) 历史接口 ===================
     # ▼▼▼ 此方法现在专用于获取行情快照 ▼▼▼
     async def save_quote_data_by_stock_codes(self, stock_codes: List[str]) -> List:

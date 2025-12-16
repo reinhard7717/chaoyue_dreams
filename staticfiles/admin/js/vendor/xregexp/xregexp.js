@@ -119,7 +119,6 @@ var _default = function _default(XRegExp) {
       var _context2;
       combined += (0, _concat["default"])(_context2 = "".concat(item.astral ? '|' : '', "[")).call(_context2, item.bmp, "]");
     } // Astral Unicode tokens always match a code point, never a code unit
-
     return isNegated ? "(?:(?!".concat(combined, ")(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[\0-\uFFFF]))") : "(?:".concat(combined, ")");
   } // Builds a complete astral pattern on first use
 
@@ -150,7 +149,6 @@ var _default = function _default(XRegExp) {
         typePrefix = _match[3],
         tokenName = _match[4],
         tokenSingleCharName = _match[5]; // Negated via \P{..} or \p{^..}
-
     var isNegated = pPrefix === 'P' || !!caretNegation; // Switch from BMP (0-FFFF) to astral (0-10FFFF) mode via flag A
     var isAstralMode = (0, _indexOf["default"])(flags).call(flags, 'A') !== -1; // Token lookup name. Check `tokenSingleCharName` first to avoid passing `undefined`
     // via `\p{}`
@@ -167,7 +165,6 @@ var _default = function _default(XRegExp) {
         throw new SyntaxError(ERR_UNKNOWN_NAME + fullToken);
       }
     } // Switch to the negated form of the referenced Unicode token
-
     if (item.inverseOf) {
       slug = normalize(item.inverseOf);
       if (!unicode.hasOwnProperty(slug)) {
@@ -618,7 +615,6 @@ function copyRegex(regex, options) {
       xregexpSource = xData.source;
     } // null or undefined; don't want to add to `flags` if the previous value was null, since
     // that indicates we're not tracking original precompilation flags
-
     if ((0, _flags["default"])(xData) != null) {
       // Flags are only added for non-internal regexes by `XRegExp.globalize`. Flags are never
       // removed for non-internal regexes, so don't need to handle it
@@ -806,7 +802,6 @@ function prepareFlags(pattern, flags) {
     if (/[dgy]/.test($1)) {
       throw new SyntaxError("Cannot use flags dgy in mode modifier ".concat($0));
     } // Allow duplicate flags within the mode modifier
-
     flags = clipDuplicates(flags + $1);
     return '';
   }); // Throw on unknown native or nonnative flags
@@ -1885,7 +1880,6 @@ fixed.exec = function (str) {
         }
       });
     } // Attach named capture properties
-
     if (this[REGEX_DATA] && this[REGEX_DATA].captureNames) {
       var groupsObject = match;
       if (XRegExp.isInstalled('namespacing')) {
@@ -1893,7 +1887,6 @@ fixed.exec = function (str) {
         match.groups = (0, _create["default"])(null);
         groupsObject = match.groups;
       } // Skip index 0
-
       for (var i = 1; i < match.length; ++i) {
         var name = this[REGEX_DATA].captureNames[i - 1];
         if (name) {
@@ -1903,7 +1896,6 @@ fixed.exec = function (str) {
     } else if (!match.groups && XRegExp.isInstalled('namespacing')) {
       match.groups = undefined;
     } // Fix browsers that increment `lastIndex` after zero-length matches
-
     if (this.global && !match[0].length && this.lastIndex > match.index) {
       this.lastIndex = match.index;
     }
@@ -1977,7 +1969,6 @@ fixed.replace = function (search, replacement) {
     if (search[REGEX_DATA]) {
       captureNames = search[REGEX_DATA].captureNames;
     } // Only needed if `search` is nonglobal
-
     origLastIndex = search.lastIndex;
   } else {
     search += ''; // Type-convert
@@ -2009,7 +2000,6 @@ fixed.replace = function (search, replacement) {
           }
         }
       } // ES6 specs the context for replacement functions as `undefined`
-
       return replacement.apply(void 0, args);
     });
   } else {

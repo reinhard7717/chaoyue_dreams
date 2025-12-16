@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0082_platformfeature_bj_character_score_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='advancedchipmetrics_bj',

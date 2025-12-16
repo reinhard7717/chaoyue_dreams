@@ -542,7 +542,6 @@ class StrategyCacheGet(CacheGet):
             if data is not None:
                 result[stock_code] = data
         return result
-
     async def analyze_signals_trend_following_datas(self, stock_code: str, days_count: int = 1) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
         return await self._stock_strategy_datas(stock_code=stock_code, cache_key=cache_key, days_count=days_count)

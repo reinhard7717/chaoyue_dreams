@@ -70,7 +70,6 @@ class IndicatorService:
         except ImportError:
             logger.error("pandas-ta 库未安装，请运行 'pip install pandas-ta'")
             ta = None
-
     # ▼▼▼ 调试辅助函数，用于打印DataFrame时间范围 ▼▼▼
     def _log_df_time_range(self, df: Optional[pd.DataFrame], df_name: str):
         """【调试函数】打印DataFrame的时间范围、数据量等基本信息。"""
@@ -85,7 +84,6 @@ class IndicatorService:
         end_time = df.index.max().strftime('%Y-%m-%d %H:%M:%S')
         count = len(df)
         print(f"      -> 结果: 数据量={count}, 开始时间='{start_time}', 结束时间='{end_time}'")
-
     def _log_final_data_columns(self, all_dfs: Dict[str, pd.DataFrame]):
         """
         【V225.0 新增】军械库清单生成器
@@ -138,7 +136,6 @@ class IndicatorService:
         ):
             print(sampled_df)
         print(f"--- [数据清查-阶段2: 检查完成] ---\n")
-
     # ▼▼▼ 一个可复用的、健壮的时区标准化辅助函数 ▼▼▼
     def _standardize_df_index_to_utc(self, df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
         """
@@ -164,7 +161,6 @@ class IndicatorService:
             # print(f"    - [时区标准化] 检测到 aware 时间索引，统一转换为 'UTC'。")
             df_copy.index = df_copy.index.tz_convert('UTC')
         return df_copy
-
     def _load_config(self, path: str) -> Dict:
         """
         【辅助函数】从给定的路径加载JSON配置文件。
@@ -178,7 +174,6 @@ class IndicatorService:
         except json.JSONDecodeError:
             print(f"    - 警告: 配置文件格式错误: {path}")
             return {}
-
     async def _get_ohlcv_data(self, stock_code: str, time_level: Union['TimeLevel', str], needed_bars: int, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         【V118.12 · 原始列名输出版】
@@ -222,7 +217,6 @@ class IndicatorService:
                 return None
         logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据。")
         return df
-
     def _find_params_recursively(self, config_dict: Dict, key_to_find: str) -> Optional[Dict]:
         """
         在配置字典中递归查找指定的键。
@@ -240,7 +234,6 @@ class IndicatorService:
                 if result is not None:
                     return result
         return None
-
     def _discover_required_timeframes_from_config(self, config: Dict) -> Set[str]:
         """
         【V7.2 终极递归版】通过递归扫描整个配置，智能、全面地找出所有需要加载数据的时间框架。
@@ -277,7 +270,6 @@ class IndicatorService:
             timeframes.add('D')
         # 移除可能存在的空字符串并返回
         return {tf for tf in timeframes if tf}
-
     def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V4.1 · 衍生指标基名_D后缀修复版】预计算衍生指标列名适配器
@@ -317,7 +309,6 @@ class IndicatorService:
             return df_renamed
         else:
             return df
-
     def _get_max_lookback_period(self, config: dict) -> int:
         """
         【军需官】扫描整个策略配置，找出所有指标中要求的最长回溯期。
@@ -328,7 +319,6 @@ class IndicatorService:
         calculated_max = 350 # 保守估计，足以满足EMA(55周)等大周期指标
         # print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
         return calculated_max
-
     async def prepare_data_for_strategy(
         self,
         stock_code: str,
@@ -439,7 +429,6 @@ class IndicatorService:
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
         # self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
-
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:
         """
         【V8.31 · 几何特征命名统一版】
@@ -449,12 +438,10 @@ class IndicatorService:
         """
         if df_supp is None or df_supp.empty:
             return pd.DataFrame()
-
         df_supp_std = self._standardize_df_index_to_utc(df_supp.copy())
         if df_supp_std is None or df_supp_std.empty:
             return pd.DataFrame()
         df_supp_std.index = df_supp_std.index.normalize()
-
         # 1. 统一添加 _D 后缀到所有非衍生指标列
         # 排除 'trade_time', 'end_date', 'period', 'line_type' 等索引或特殊列
         # 排除已经带有时间级别后缀的列
@@ -467,10 +454,8 @@ class IndicatorService:
         ]
         rename_map_explicit_suffix = {col: f"{col}_D" for col in cols_to_suffix}
         df_supp_std.rename(columns=rename_map_explicit_suffix, inplace=True)
-
         # 2. 处理预计算的衍生指标（如 SLOPE_X_Y_slope_Ad）
         df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
-
         # 3. 处理特定数据源的列名冲突，例如平台特征的 high/low 与 OHLCV 冲突
         if tag == 'platform_feature':
             platform_feature_renames = {
@@ -501,9 +486,7 @@ class IndicatorService:
             # 确保 total_mv 被正确重命名为 total_market_value
             if 'total_mv_D' in df_supp_std.columns:
                 df_supp_std.rename(columns={'total_mv_D': 'total_market_value_D'}, inplace=True)
-
         return df_supp_std
-
     async def _prepare_base_data_and_indicators(
         self,
         stock_code: str,
@@ -857,7 +840,6 @@ class IndicatorService:
                 else:
                     print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
         return processed_dfs
-
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
         【V8.3 · 命名协议同步版】高级指标合成室
@@ -893,7 +875,6 @@ class IndicatorService:
             rsi = 100 - (100 / (1 + rs))
             synthetic_indicators['RSI_13_W'] = rsi
         return synthetic_indicators
-
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
         """
         解析指标配置，获取指定时间周期所需的最大计算周期。
@@ -914,7 +895,6 @@ class IndicatorService:
                 elif isinstance(periods, (int, float)): flat_periods.append(periods)
                 if flat_periods: max_period = max(max_period, max(flat_periods))
         return int(max_period * 1.2) if max_period > 0 else 1
-
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
         【V110.23 · 指标计算前重复索引终极清理版】根据配置为指定时间周期计算所有技术指标。
@@ -1100,7 +1080,6 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}) 时出错: {e}", exc_info=True)
         return df_for_calc
-
     async def _calculate_breadth_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """计算内部强度分"""
         members = await self.indicator_dao.get_industry_members(industry_code)
@@ -1115,7 +1094,6 @@ class IndicatorService:
         # 综合打分
         score = up_ratio * 10
         return score
-
     async def _calculate_leader_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
         计算龙头效应得分。
@@ -1132,7 +1110,6 @@ class IndicatorService:
             return 0.5 # 弱龙头效应
         # print(f"      - [龙头效应] 未找到领涨股数据，得分: 0.0")
         return 0.0 # 无龙头效应
-
     async def _calculate_cohesion_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
         计算板块协同性（上涨广度）得分。
@@ -1161,7 +1138,6 @@ class IndicatorService:
             score = 0.2 # 弱协同性：部分上涨
         # print(f"      - [协同性] 上涨家数/总数: {rising_count}/{total_count} (占比: {rising_ratio:.2%}), 大涨家数: {strong_rising_count}，得分: {score}")
         return score
-
     async def _calculate_limit_up_echelon_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
         【新增-核心】计算涨停梯队得分。
@@ -1188,7 +1164,6 @@ class IndicatorService:
             score = 0.4 # 有涨停股，热点发酵
         # print(f"      - [涨停梯队] 发现 {limit_up_count} 家涨停，得分: {score}")
         return score
-
     def calculate_relative_strength(self, df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
         """
         计算股票相对于基准指数/板块的相对强度/超额收益。

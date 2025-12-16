@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0085_advancedstructuralmetrics_bj_liquidity_authenticity_score_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='platformfeature_bj',

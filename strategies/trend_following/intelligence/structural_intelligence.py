@@ -24,7 +24,6 @@ class StructuralIntelligence:
         self.probe_dates = debug_params.get('probe_dates', [])
         self.is_probe_date = False
         # --- 新增代码结束 ---
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -33,7 +32,6 @@ class StructuralIntelligence:
             print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -43,7 +41,6 @@ class StructuralIntelligence:
             print(f"    -> [结构情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
-
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V8.0 · 荣耀代价版】结构情报分析总指挥
@@ -129,7 +126,6 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
         return all_states
         # --- 修改代码结束 ---
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.4 · MTF重构版】结构公理四：诊断“结构背离”
@@ -151,7 +147,6 @@ class StructuralIntelligence:
         divergence_score = (ma_structure_trend_score - price_trend_score).clip(-1, 1)
         final_score = divergence_score.astype(np.float32)
         return final_score
-
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
         """
         【V3.3 · 趋势共振版】结构公理一：诊断“趋势形态”
@@ -193,10 +188,8 @@ class StructuralIntelligence:
         feature_eng_params = get_params_block(self.strategy, 'feature_engineering_params', {})
         slope_params = feature_eng_params.get('slope_params', {})
         accel_params = feature_eng_params.get('accel_params', {})
-
         series_to_slope_config = slope_params.get('series_to_slope', {})
         series_to_accel_config = accel_params.get('series_to_accel', {})
-
         all_slope_cols = []
         all_accel_cols = []
         for p in ema_periods:
@@ -211,7 +204,6 @@ class StructuralIntelligence:
                 accel_col = f'ACCEL_{ap}_{base_ema_col}'
                 required_signals.append(accel_col)
                 all_accel_cols.append(accel_col)
-
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
@@ -249,7 +241,6 @@ class StructuralIntelligence:
                 print(f"            原始数据 - {col}: {raw_accel_series.iloc[-1]:.4f}")
                 print(f"            归一化分数 - {col}: {normalized_accel_score.iloc[-1]:.4f}")
         avg_accel_score = pd.Series(np.mean([s.values for s in individual_accel_scores_list], axis=0) if individual_accel_scores_list else 0.0, index=df_index)
-
         # 维度4: 共振 (Resonance)
         slope_consistency_score = pd.Series(0.0, index=df_index)
         if len(individual_slope_scores_list) > 1:
@@ -271,14 +262,12 @@ class StructuralIntelligence:
             # 如果同向，乘积为正；如果反向，乘积为负。然后归一化到[-1, 1]
             # 假设avg_slope_score和avg_accel_score已经在[-1, 1]
             slope_accel_directional_alignment_score = (avg_slope_score * avg_accel_score).clip(-1, 1)
-
         # 融合共振分数
         overall_resonance_score = (
             slope_consistency_score * resonance_params['slope_consistency_weight'] +
             accel_consistency_score * resonance_params['accel_consistency_weight'] +
             slope_accel_directional_alignment_score * resonance_params['slope_accel_alignment_weight']
         ).clip(-1, 1)
-
         # 维度5: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
         orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, ascending=True, tf_weights=tf_weights, debug_probe_enabled=self.is_probe_date)
@@ -359,7 +348,6 @@ class StructuralIntelligence:
             print(f"        融合分数 - 看跌形态分 (Bearish Form Score): {bearish_form_score.iloc[-1]:.4f}")
             print(f"        最终结果 - SCORE_STRUCT_AXIOM_TREND_FORM: {final_score.iloc[-1]:.4f}")
         return final_score
-
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
         """
         【V5.4 · 纯粹防御重构版】结构公理三：诊断“结构稳定性”
@@ -408,7 +396,6 @@ class StructuralIntelligence:
         ).clip(0, 1)
         final_score = (stability_score * 2 - 1).astype(np.float32)
         return final_score
-
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
         """
         【V2.7 · 自适应通道风险版】结构公理二：诊断“宏观趋势健康度”
@@ -462,7 +449,6 @@ class StructuralIntelligence:
         final_score_raw = bullish_harmony - bearish_harmony
         final_score = final_score_raw.clip(-1, 1).astype(np.float32)
         return final_score
-
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
         """
         【V1.2 · 探针植入版】结构公理五：诊断“底分型”结构
@@ -504,7 +490,6 @@ class StructuralIntelligence:
             if is_bottom:
                 bottom_fractal_score.iloc[i] = 1.0
         return bottom_fractal_score
-
     def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series, breakout_readiness: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
         【V3.0 · 双通道防御版】诊断顶层“战略态势”
@@ -543,7 +528,6 @@ class StructuralIntelligence:
         strategic_posture = (offense_score * (1 + defense_modifier)).clip(0, 1)
         final_score = strategic_posture.astype(np.float32)
         return final_score, defense_strength
-
     def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 势能压缩版】结构公理六：诊断“结构张力”
@@ -580,7 +564,6 @@ class StructuralIntelligence:
         ).clip(0, 1)
         final_score = tension_score.astype(np.float32)
         return final_score
-
     def _diagnose_playbook_secondary_launch(self, df: pd.DataFrame, axiom_stability: pd.Series, strategic_posture: pd.Series, structural_momentum: pd.Series) -> pd.Series:
         """
         【V1.0 · 战术剧本识别】识别“暴力洗盘后二次启动”剧本
@@ -620,7 +603,6 @@ class StructuralIntelligence:
             if washout_found:
                 playbook_score.iloc[i] = 1.0
         return playbook_score
-
     def _diagnose_axiom_environment(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 审时度势版】结构公理七：诊断“战场环境”
@@ -648,7 +630,6 @@ class StructuralIntelligence:
         ).clip(0, 1)
         final_score = environment_score.astype(np.float32)
         return final_score
-
     def _diagnose_leadership_potential(self, strategic_posture: pd.Series, axiom_environment: pd.Series, structural_momentum: pd.Series, axiom_tension: pd.Series) -> pd.Series:
         """
         【V1.0 · 逆势王者版】裁决“龙头潜力”
@@ -669,7 +650,6 @@ class StructuralIntelligence:
         # 只有在矛盾区域内，才输出龙头潜力的证据分
         final_score = (leadership_evidence_score * is_conflict_zone).astype(np.float32)
         return final_score
-
     def _diagnose_platform_foundation(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
         """
         【V3.0 · 法医鉴定版】对平台进行法医级鉴定并勘探其战场边界
@@ -741,7 +721,6 @@ class StructuralIntelligence:
         dynamic_low.ffill(inplace=True)
         vpoc.ffill(inplace=True)
         return platform_quality, dynamic_high, dynamic_low, vpoc
-
     def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
         """
         【V1.0 · 总司令版】执行终极裁决
@@ -768,7 +747,6 @@ class StructuralIntelligence:
         final_judgment_score = (contextual_posture - final_penalty).clip(-1, 1)
         final_score = final_judgment_score.astype(np.float32)
         return final_score
-
     def _diagnose_breakout_readiness(self, df: pd.DataFrame, axiom_tension: pd.Series) -> pd.Series:
         """
         【V2.0 · 无条件监理版】诊断“突破准备度”

@@ -104,7 +104,6 @@ class ThematicMetricsCalculators:
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
         return results
-
     @staticmethod
     def calculate_forward_looking_metrics(context: dict) -> dict:
         """
@@ -184,7 +183,6 @@ class ThematicMetricsCalculators:
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
         return results
-
     @staticmethod
     def calculate_battlefield_metrics(context: dict) -> dict:
         """
@@ -322,7 +320,6 @@ class ThematicMetricsCalculators:
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
         return results
-
     @staticmethod
     def _calculate_value_area(vp: pd.Series, total_volume: float, vpoc_interval: pd.Interval) -> tuple:
         """计算日内价值区域 (VAH/VAL)"""

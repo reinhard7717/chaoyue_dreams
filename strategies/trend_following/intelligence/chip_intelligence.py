@@ -26,7 +26,6 @@ class ChipIntelligence:
         self.should_probe = self.debug_params.get('should_probe', False)
         # 将 probe_dates 转换为 datetime.date 对象的集合，以便高效查找
         self.probe_dates_set = {pd.to_datetime(d).date() for d in self.debug_params.get('probe_dates', [])}
-
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         【V2.0 · 上下文修复版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
@@ -50,7 +49,6 @@ class ChipIntelligence:
         else:
             print(f"    -> [筹码情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df_index)
-
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -60,7 +58,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
-
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V19.0 · 诡道反吸版】筹码情报总指挥
@@ -101,7 +98,6 @@ class ChipIntelligence:
         # bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         # all_chip_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         # all_chip_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-
         # 调用并记录持仓信念韧性信号
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
@@ -174,7 +170,6 @@ class ChipIntelligence:
         # 更新最终生成的筹码原子信号数量
         print(f"【V19.0 · 诡道反吸版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。")
         return all_chip_states
-
     def _diagnose_strategic_posture(self, df: pd.DataFrame) -> pd.Series:
         """
         【V9.1 · 诡道情境自适应版】诊断主力的综合战略态势。
@@ -404,7 +399,6 @@ class ChipIntelligence:
             ).clip(0.5, 1.5) # 限制调制范围
             final_score = final_score * global_modulator_effect
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
         """
         【V9.1 · 诡道地形判别版】诊断筹码的战场地形，旨在提供一个双极的、具备诡道过滤和情境自适应能力的信号。
@@ -540,7 +534,6 @@ class ChipIntelligence:
         # 核心地形优势 * 路径调制 * 动态演化调制 * 诡道过滤 * 情境调制
         final_score = base_terrain_advantage_score * path_modulation_factor * dynamic_evolution_modulator * deception_filter_factor * context_modulator
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V9.0 · 诡道反噬与韧性重构版】筹码公理三：诊断“持仓信念韧性”
@@ -866,7 +859,6 @@ class ChipIntelligence:
         final_score = (conviction_base * (1 - final_impurity_effect)) * 2 - 1
         final_score = final_score * global_modulator_effect
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
         """
         【V7.2 · 战略推力引擎版】筹码公理六：诊断“结构性推力”
@@ -1037,7 +1029,6 @@ class ChipIntelligence:
             nozzle_score_normalized.pow(final_nozzle_weight)
         ).pow(1 / (final_engine_weight + final_fuel_weight + final_nozzle_weight)) * 2 - 1
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V7.2 · 情境自适应张力版】筹码公理五：诊断“价筹张力”
@@ -1144,7 +1135,6 @@ class ChipIntelligence:
         safe_base_score = base_final_score.clip(-0.999, 0.999)
         final_score = np.tanh(np.arctanh(safe_base_score) * conflict_amplifier)
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
         【V7.18 · 最终分数敏感度动态版 (生产就绪版)】诊断筹码同调驱动力
@@ -1387,7 +1377,6 @@ class ChipIntelligence:
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * dynamic_final_score_sensitivity_multiplier))
         print(f"    -> [筹码情报校验] 计算“筹码一致驱动” 分数：{final_score.mean():.4f}")
         return final_score.astype(np.float32)
-
     def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
         """
         【V5.1 · 诡道反吸强化版】吸筹回声探针
@@ -1665,7 +1654,6 @@ class ChipIntelligence:
         final_score = base_score * deception_modulator * context_modulator
         final_score = final_score.pow(final_fusion_exponent)
         return final_score.clip(0.0, 1.0).fillna(0.0).astype(np.float32)
-
     def _diagnose_distribution_whisper(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
         """
         【V4.0 · 深度高频诡道派发版】诊断“派发诡影”信号
@@ -1852,7 +1840,6 @@ class ChipIntelligence:
         ).pow(1 / (3 * final_fusion_exponent))
         final_score = (base_score * deception_modulator) * is_fomo_context
         return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
         """
         【V5.0 · 势能博弈临界版】筹码公理六：诊断“筹码势能”
@@ -2079,7 +2066,6 @@ class ChipIntelligence:
         dgm_multiplier = dgm_multiplier.clip(0.1, 2.0)
         final_potential_score = (base_potential_score * dgm_multiplier).clip(0, 1)
         return final_potential_score.clip(0, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
         """
         【V6.0 · 筹码脉动版】诊断战术换手博弈的质量与意图
@@ -2337,7 +2323,6 @@ class ChipIntelligence:
             rhythm_and_persistence_score * normalized_dynamic_weights.get('rhythm_persistence', 0.1)
         ).clip(-1, 1)
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series: # 增加 holder_sentiment_scores 参数
         """
         【V3.0 · 诡道微观共振版】诊断战略与战术的和谐度
@@ -2456,7 +2441,6 @@ class ChipIntelligence:
         # 基础意图分 * 和谐因子 * 冲突惩罚 + 趋势奖励
         final_score = base_intent_score * harmony_factor * conflict_penalty_factor_adjusted + alignment_bonus
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
         """
         【V3.0 · 诡道确认版】诊断战略与战术和谐度的动态转折点，旨在构建一个诡道拐点判别与确认系统。
@@ -2599,7 +2583,6 @@ class ChipIntelligence:
         # 拐点强度 (诡道调制后) * 动态位置敏感度 * 情境调制器 + 延续性奖励
         final_score = (inflection_strength_modulated * position_sensitivity_factor * context_modulator) + persistence_bonus
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-
     def _diagnose_chip_retail_vulnerability(self, df: pd.DataFrame) -> pd.Series:
         """
         【筹码】散户筹码脆弱性指数
@@ -2669,7 +2652,6 @@ class ChipIntelligence:
         final_score = retail_vulnerability_score.clip(0, 1).fillna(0.0).astype(np.float32)
         if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终散户筹码脆弱性指数: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score
-
     def _diagnose_chip_main_force_cost_intent(self, df: pd.DataFrame) -> pd.Series:
         """
         【筹码】主力成本区攻防意图
@@ -2759,7 +2741,6 @@ class ChipIntelligence:
         final_score = main_force_cost_intent.clip(-1, 1).fillna(0.0).astype(np.float32)
         if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终主力成本区攻防意图: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score
-
     def _diagnose_chip_hollowing_out_risk(self, df: pd.DataFrame) -> pd.Series:
         """
         【筹码】筹码空心化风险
@@ -2811,7 +2792,6 @@ class ChipIntelligence:
         hollowing_out_risk_score = np.tanh(hollowing_out_risk_score * 2) # 放大因子可调
         final_score = hollowing_out_risk_score.clip(0, 1).fillna(0.0).astype(np.float32)
         return final_score
-
     def _diagnose_chip_turnover_purity_cost_optimization(self, df: pd.DataFrame) -> pd.Series:
         """
         【筹码】换手纯度与成本优化
@@ -2858,7 +2838,6 @@ class ChipIntelligence:
         turnover_purity_cost_optimization = turnover_quality_factor * (1 + norm_turnover_rate * 0.5) # 调制强度可调
         final_score = turnover_purity_cost_optimization.clip(-1, 1).fillna(0.0).astype(np.float32)
         return final_score
-
     def _diagnose_chip_despair_temptation_zones(self, df: pd.DataFrame) -> pd.Series:
         """
         【筹码】筹码绝望与诱惑区

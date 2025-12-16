@@ -189,7 +189,6 @@ def run_local_transformer_training_batch(
     if not actual_params_file.is_file():
         logger.error(f"错误：指定的指标参数文件 '{actual_params_file}' 不存在或不是一个文件。")
         return {"status": "error", "message": f"指标参数文件 '{actual_params_file}' 未找到。"}
-
     # 获取所有股票文件夹名称并根据参数排序
     all_item_names = [item.name for item in actual_model_base_dir.iterdir() if item.is_dir()]
     all_item_names.sort(reverse=(processing_order == 'desc')) # 根据 order 参数排序

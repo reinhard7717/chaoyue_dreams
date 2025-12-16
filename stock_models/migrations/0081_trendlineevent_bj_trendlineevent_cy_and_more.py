@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0080_advancedstructuralmetrics_bj_buy_sweep_intensity_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='TrendlineEvent_BJ',

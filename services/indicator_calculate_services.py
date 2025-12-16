@@ -1121,7 +1121,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
             return None
-
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
         【V2.3 · 解耦聚合与命名修复版】计算对手盘衰竭指数。
@@ -1169,7 +1168,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算对手盘衰竭指数(V2.3)时发生错误: {e}", exc_info=True)
             return None
-
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
         【V2.7 · 细粒度斐波那契突破质量增强版】计算突破质量分。
@@ -1241,7 +1239,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算突破质量分(V2.7)时发生错误: {e}", exc_info=True)
             return None
-
     async def calculate_nolds_sample_entropy(self, df: pd.DataFrame, period: int, column: str, tolerance_ratio: float = 0.2) -> pd.Series:
         """
         【V1.7 · nolds样本熵集成版】计算样本熵 (Sample Entropy) 使用 nolds 库。

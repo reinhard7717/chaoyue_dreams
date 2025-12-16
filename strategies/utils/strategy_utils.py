@@ -902,7 +902,6 @@ def calculate_macd_score(macd_series: pd.Series, macd_d: pd.Series, macd_h: pd.S
         # 将交叉信号的第一个NaN（由于shift产生）填充为False
         buy_cross.iloc[0] = False
         sell_cross.iloc[0] = False
-
     # DEA线斜率 (趋势辅助)
     dea_slope = macd_d_s.diff().fillna(0) # DEA线的变化，正表示向上，负表示向下
     DEA_SLOPE_UP_THRESHOLD = 0.005 # DEA显著向上的阈值 (可调)
@@ -1492,7 +1491,6 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # mfi_s, = _safe_fillna_series([mfi], [50.0]) # 假设已实现
     # 为确保代码可独立运行，此处进行简单填充
     mfi_s = mfi.fillna(50.0)
-
     if mfi_s.isnull().all():
         return pd.Series(50.0, index=mfi.index).clip(0, 100)
     # 初始化评分为中性值 50

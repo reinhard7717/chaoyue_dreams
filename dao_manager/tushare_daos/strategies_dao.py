@@ -600,7 +600,6 @@ class StrategiesDAO(BaseDAO):
         df = df.set_index('trade_time')
         df = df.sort_index(ascending=True)
         return df
-
     async def get_advanced_structural_metrics_data(
         self,
         stock_code: str,
@@ -638,7 +637,6 @@ class StrategiesDAO(BaseDAO):
         df = df.set_index('trade_time')
         df = df.sort_index(ascending=True)
         return df
-
     async def get_platform_feature_data(
         self,
         stock_code: str,
@@ -676,7 +674,6 @@ class StrategiesDAO(BaseDAO):
         df = df.set_index('end_date') # 以结束日期作为索引
         df = df.sort_index(ascending=True)
         return df
-
     async def get_trendline_feature_data(
         self,
         stock_code: str,
@@ -714,7 +711,6 @@ class StrategiesDAO(BaseDAO):
         df = df.set_index('end_date') # 以结束日期作为索引
         df = df.sort_index(ascending=True)
         return df
-
     async def get_multi_timeframe_trendline_data(
         self,
         stock_code: str,
@@ -752,7 +748,6 @@ class StrategiesDAO(BaseDAO):
         df = df.set_index('trade_date')
         df = df.sort_index(ascending=True)
         return df
-
     async def get_daily_buy_signals(self, trade_date: date) -> List['TrendFollowStrategySignalLog']:
         """
         【V1.0 - 盘中引擎专用】

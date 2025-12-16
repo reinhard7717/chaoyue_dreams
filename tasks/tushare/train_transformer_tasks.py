@@ -134,7 +134,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         if data_df is not None:
             del data_df
             print(f"{task_id_str} [{stock_code}]：已删除原始 data_df。")
-
     # 阶段 3: 使用 prepare_data_for_transformer 准备数据 (特征选择、标准化、分割)
     # 使用精简后的 data_for_transformer_prep 作为输入
     features_scaled_train = features_scaled_val = features_scaled_test = np.array([], dtype=np.float32) # 初始化为 float32 空数组
