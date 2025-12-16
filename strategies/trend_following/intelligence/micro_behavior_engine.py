@@ -69,7 +69,9 @@ class MicroBehaviorEngine:
         # 借用行为层的MTF权重配置
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 修改开始：修正键名 'default_weights' 为 'default'，并使用正确的默认字典结构
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # 修改结束
         # --- 调用“诡道三策”和“背离”公理 ---
         strategy_stealth_ops = self._diagnose_strategy_stealth_ops(df, default_weights)
         strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights)
@@ -89,7 +91,7 @@ class MicroBehaviorEngine:
         )
         all_states['SCORE_MICRO_STRATEGIC_INTENT'] = strategic_intent
         print(f"    -> [微观行为情报校验] 计算“战略意图(SCORE_MICRO_STRATEGIC_INTENT)” 分数：{strategic_intent.mean():.4f}")
-        # --- 调用和谐拐点诊断器，生成终极机会信号 ---
+        # --- 新增：调用和谐拐点诊断器，生成终极机会信号 ---
         harmony_inflection = self._diagnose_harmony_inflection(strategic_intent) # 新增代码
         all_states['SCORE_MICRO_HARMONY_INFLECTION'] = harmony_inflection # 新增代码
         # 引入微观行为层面的看涨/看跌背离信号
@@ -108,14 +110,15 @@ class MicroBehaviorEngine:
         required_signals = ['SLOPE_5_EMA_5_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 修改开始：从 chip_ultimate_params 获取 tf_fusion_weights，而不是 behavioral_dynamics_params
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # 修改结束
         price_trend_raw = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', method_name="_diagnose_axiom_divergence")
-        price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, default_weights)
+        price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, tf_weights)
         micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
         micro_intent_trend_raw = micro_intent.ewm(span=5, adjust=False).mean().diff().fillna(0)
-        micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, default_weights)
+        micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, tf_weights)
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
