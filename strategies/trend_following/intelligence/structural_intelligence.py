@@ -18,12 +18,7 @@ class StructuralIntelligence:
         """
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
-        # --- 新增代码开始 ---
-        # 初始化探针参数
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        self.probe_dates = debug_params.get('probe_dates', [])
-        self.is_probe_date = False
-        # --- 新增代码结束 ---
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -32,6 +27,7 @@ class StructuralIntelligence:
             print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -41,6 +37,7 @@ class StructuralIntelligence:
             print(f"    -> [结构情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
+
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V8.0 · 荣耀代价版】结构情报分析总指挥
@@ -52,10 +49,12 @@ class StructuralIntelligence:
         if not get_param_value(p_conf.get('enabled'), True):
             print("结构情报引擎已在配置中禁用，跳过。")
             return {}
-        current_date_str = df.index[-1].strftime('%Y-%m-%d')
-        self.is_probe_date = current_date_str in self.probe_dates
-        if self.is_probe_date:
-            print(f"\n--- [结构情报探针] @ {current_date_str} ---")
+        # --- 移除代码开始 ---
+        # current_date_str = df.index[-1].strftime('%Y-%m-%d')
+        # self.is_probe_date = current_date_str in self.probe_dates
+        # if self.is_probe_date:
+        #     print(f"\n--- [结构情报探针] @ {current_date_str} ---")
+        # --- 移除代码结束 ---
         # --- 步骤一: 诊断原子公理 ---
         axiom_trend_form = self._diagnose_axiom_trend_form(df)
         axiom_mtf_cohesion = self._diagnose_axiom_mtf_cohesion(df, axiom_trend_form)
@@ -126,6 +125,7 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
         return all_states
         # --- 修改代码结束 ---
+
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.4 · MTF重构版】结构公理四：诊断“结构背离”
@@ -147,6 +147,7 @@ class StructuralIntelligence:
         divergence_score = (ma_structure_trend_score - price_trend_score).clip(-1, 1)
         final_score = divergence_score.astype(np.float32)
         return final_score
+
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
         """
         【V3.3 · 趋势共振版】结构公理一：诊断“趋势形态”
@@ -219,27 +220,20 @@ class StructuralIntelligence:
         alignment_score = bull_alignment_raw / sum(alignment_weights_internal)
         # 维度2: 斜率 (Slope)
         individual_slope_scores_list = [] # 修改：存储所有归一化斜率Series
-        if self.is_probe_date:
-            print(f"        [探针] 维度2 - 斜率 (Slope) 详细信息:")
         for col in all_slope_cols:
             raw_slope_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
-            normalized_slope_score = get_adaptive_mtf_normalized_bipolar_score(raw_slope_series, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
+            normalized_slope_score = get_adaptive_mtf_normalized_bipolar_score(raw_slope_series, df_index, tf_weights)
             individual_slope_scores_list.append(normalized_slope_score) # 修改：存储Series
-            if self.is_probe_date:
-                print(f"            原始数据 - {col}: {raw_slope_series.iloc[-1]:.4f}")
-                print(f"            归一化分数 - {col}: {normalized_slope_score.iloc[-1]:.4f}")
         avg_slope_score = pd.Series(np.mean([s.values for s in individual_slope_scores_list], axis=0) if individual_slope_scores_list else 0.0, index=df_index)
         # 维度3: 加速度 (Acceleration)
         individual_accel_scores_list = [] # 修改：存储所有归一化加速度Series
-        if self.is_probe_date:
-            print(f"        [探针] 维度3 - 加速度 (Acceleration) 详细信息:")
+        # 修改开始：移除探针输出中对 self.is_probe_date 的依赖
+        # if self.is_probe_date:
+        #     print(f"        [探针] 维度3 - 加速度 (Acceleration) 详细信息:")
         for col in all_accel_cols:
             raw_accel_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
-            normalized_accel_score = get_adaptive_mtf_normalized_bipolar_score(raw_accel_series, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
+            normalized_accel_score = get_adaptive_mtf_normalized_bipolar_score(raw_accel_series, df_index, tf_weights)
             individual_accel_scores_list.append(normalized_accel_score) # 修改：存储Series
-            if self.is_probe_date:
-                print(f"            原始数据 - {col}: {raw_accel_series.iloc[-1]:.4f}")
-                print(f"            归一化分数 - {col}: {normalized_accel_score.iloc[-1]:.4f}")
         avg_accel_score = pd.Series(np.mean([s.values for s in individual_accel_scores_list], axis=0) if individual_accel_scores_list else 0.0, index=df_index)
         # 维度4: 共振 (Resonance)
         slope_consistency_score = pd.Series(0.0, index=df_index)
@@ -270,14 +264,14 @@ class StructuralIntelligence:
         ).clip(-1, 1)
         # 维度5: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, ascending=True, tf_weights=tf_weights, debug_probe_enabled=self.is_probe_date)
+        orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, ascending=True, tf_weights=tf_weights)
         # 逻辑仲裁
         corrected_orderliness_score = orderliness_score.copy()
         arbitration_triggered = (alignment_score > 0.9) & (orderliness_score < alignment_score)
         corrected_orderliness_score[arbitration_triggered] = alignment_score[arbitration_triggered]
         # 维度6: 角度 (Angle)
         angle_raw = self._get_safe_series(df, 'ATAN_ANGLE_EMA_55_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        angle_score = get_adaptive_mtf_normalized_bipolar_score(angle_raw, df_index, tf_weights, debug_probe_enabled=self.is_probe_date)
+        angle_score = get_adaptive_mtf_normalized_bipolar_score(angle_raw, df_index, tf_weights)
         # --- 融合形态分 ---
         bullish_alignment_contrib = alignment_score * fusion_weights['alignment']
         bullish_slope_contrib = avg_slope_score.clip(lower=0) * fusion_weights['slope']
@@ -311,43 +305,8 @@ class StructuralIntelligence:
         ).clip(0, 1)
         trend_form_score = bullish_form_score - bearish_form_score
         final_score = pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
-        # 探针输出
-        if self.is_probe_date:
-            current_date = df.index[-1]
-            print(f"    [探针] _diagnose_axiom_trend_form @ {current_date.strftime('%Y-%m-%d')}:")
-            print(f"        原始数据 - MA_POTENTIAL_ORDERLINESS_SCORE_D: {orderliness_raw.iloc[-1]:.4f}")
-            print(f"        原始数据 - ATAN_ANGLE_EMA_55_D: {angle_raw.iloc[-1]:.4f}")
-            for p in ema_periods:
-                print(f"        原始数据 - EMA_{p}_D: {self._get_safe_series(df, f'EMA_{p}_D', method_name='_diagnose_axiom_trend_form').iloc[-1]:.4f}")
-            print(f"        中间分数 - 排列 (Alignment Score): {alignment_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 平均斜率 (Avg Slope Score): {avg_slope_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 平均加速度 (Avg Acceleration Score): {avg_accel_score.iloc[-1]:.4f}")
-            # 新增共振探针输出
-            print(f"        中间分数 - 斜率一致性 (Slope Consistency Score): {slope_consistency_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 加速度一致性 (Accel Consistency Score): {accel_consistency_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 斜率加速度方向对齐 (Slope-Accel Alignment Score): {slope_accel_directional_alignment_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 整体共振 (Overall Resonance Score): {overall_resonance_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 有序度 (Orderliness Score): {orderliness_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 修正有序度 (Corrected Orderliness Score): {corrected_orderliness_score.iloc[-1]:.4f}")
-            print(f"        中间分数 - 角度 (Angle Score): {angle_score.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看涨排列贡献: {bullish_alignment_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看涨斜率贡献: {bullish_slope_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看涨加速度贡献: {bullish_accel_contrib.iloc[-1]:.4f}")
-            # 新增看涨共振贡献探针输出
-            print(f"        融合分数组件 - 看涨共振贡献: {bullish_resonance_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看涨有序度贡献: {bullish_orderliness_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看涨角度贡献: {bullish_angle_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数 - 看涨形态分 (Bullish Form Score): {bullish_form_score.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看跌排列贡献: {bearish_alignment_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看跌斜率贡献: {bearish_slope_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看跌加速度贡献: {bearish_accel_contrib.iloc[-1]:.4f}")
-            # 新增看跌共振贡献探针输出
-            print(f"        融合分数组件 - 看跌共振贡献: {bearish_resonance_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看跌有序度贡献: {bearish_orderliness_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数组件 - 看跌角度贡献: {bearish_angle_contrib.iloc[-1]:.4f}")
-            print(f"        融合分数 - 看跌形态分 (Bearish Form Score): {bearish_form_score.iloc[-1]:.4f}")
-            print(f"        最终结果 - SCORE_STRUCT_AXIOM_TREND_FORM: {final_score.iloc[-1]:.4f}")
         return final_score
+
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
         """
         【V5.4 · 纯粹防御重构版】结构公理三：诊断“结构稳定性”
@@ -396,6 +355,7 @@ class StructuralIntelligence:
         ).clip(0, 1)
         final_score = (stability_score * 2 - 1).astype(np.float32)
         return final_score
+
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
         """
         【V2.7 · 自适应通道风险版】结构公理二：诊断“宏观趋势健康度”
@@ -449,6 +409,7 @@ class StructuralIntelligence:
         final_score_raw = bullish_harmony - bearish_harmony
         final_score = final_score_raw.clip(-1, 1).astype(np.float32)
         return final_score
+
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
         """
         【V1.2 · 探针植入版】结构公理五：诊断“底分型”结构
@@ -490,6 +451,7 @@ class StructuralIntelligence:
             if is_bottom:
                 bottom_fractal_score.iloc[i] = 1.0
         return bottom_fractal_score
+
     def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series, breakout_readiness: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
         【V3.0 · 双通道防御版】诊断顶层“战略态势”
@@ -528,6 +490,7 @@ class StructuralIntelligence:
         strategic_posture = (offense_score * (1 + defense_modifier)).clip(0, 1)
         final_score = strategic_posture.astype(np.float32)
         return final_score, defense_strength
+
     def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 势能压缩版】结构公理六：诊断“结构张力”
@@ -564,6 +527,7 @@ class StructuralIntelligence:
         ).clip(0, 1)
         final_score = tension_score.astype(np.float32)
         return final_score
+
     def _diagnose_playbook_secondary_launch(self, df: pd.DataFrame, axiom_stability: pd.Series, strategic_posture: pd.Series, structural_momentum: pd.Series) -> pd.Series:
         """
         【V1.0 · 战术剧本识别】识别“暴力洗盘后二次启动”剧本
@@ -603,6 +567,7 @@ class StructuralIntelligence:
             if washout_found:
                 playbook_score.iloc[i] = 1.0
         return playbook_score
+
     def _diagnose_axiom_environment(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 审时度势版】结构公理七：诊断“战场环境”
@@ -630,6 +595,7 @@ class StructuralIntelligence:
         ).clip(0, 1)
         final_score = environment_score.astype(np.float32)
         return final_score
+
     def _diagnose_leadership_potential(self, strategic_posture: pd.Series, axiom_environment: pd.Series, structural_momentum: pd.Series, axiom_tension: pd.Series) -> pd.Series:
         """
         【V1.0 · 逆势王者版】裁决“龙头潜力”
@@ -650,6 +616,7 @@ class StructuralIntelligence:
         # 只有在矛盾区域内，才输出龙头潜力的证据分
         final_score = (leadership_evidence_score * is_conflict_zone).astype(np.float32)
         return final_score
+
     def _diagnose_platform_foundation(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
         """
         【V3.0 · 法医鉴定版】对平台进行法医级鉴定并勘探其战场边界
@@ -721,6 +688,7 @@ class StructuralIntelligence:
         dynamic_low.ffill(inplace=True)
         vpoc.ffill(inplace=True)
         return platform_quality, dynamic_high, dynamic_low, vpoc
+
     def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
         """
         【V1.0 · 总司令版】执行终极裁决
@@ -747,6 +715,7 @@ class StructuralIntelligence:
         final_judgment_score = (contextual_posture - final_penalty).clip(-1, 1)
         final_score = final_judgment_score.astype(np.float32)
         return final_score
+
     def _diagnose_breakout_readiness(self, df: pd.DataFrame, axiom_tension: pd.Series) -> pd.Series:
         """
         【V2.0 · 无条件监理版】诊断“突破准备度”

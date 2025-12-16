@@ -894,9 +894,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
     # 计算所有有效窗口的归一化分数，并进行加权
     normalized_results = {}
     for window, weight in valid_windows_weights:
-        # 修改开始：移除 debug_probe_enabled 参数
         normalized_score_window = normalize_score(series, window, ascending)
-        # 修改结束
         # 确保所有 Series 都与目标索引对齐并填充 NaN，然后乘以权重
         normalized_results[window] = normalized_score_window.reindex(index).fillna(0.0) * weight
     # 将所有加权分数转换为 DataFrame 并进行向量化求和
@@ -928,9 +926,7 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         return pd.Series(0.0, index=index)
     normalized_results = {}
     for window, weight in valid_windows_weights:
-        # 修改开始：移除 debug_probe_enabled 参数
         normalized_score_window = normalize_to_bipolar(series, window, sensitivity)
-        # 修改结束
         normalized_results[window] = normalized_score_window.reindex(index).fillna(0.0) * weight
     if not normalized_results:
         return pd.Series(0.0, index=index)
