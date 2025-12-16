@@ -882,7 +882,6 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_weights: dict, ascending: bool = True, debug_probe_enabled: bool = False) -> pd.Series:
-    print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_score - 接收到的 tf_weights: {tf_weights}")
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
     final_scores = pd.Series(0.0, index=index)
@@ -891,6 +890,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
         try:
             window = int(window_str)
         except ValueError:
+            print(f"        [DEBUG PROBE] get_adaptive_mtf_normalized_score - 接收到的 tf_weights: {tf_weights}")
             print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
             continue
         if window > 0 and weight > 0:
