@@ -1835,8 +1835,10 @@ class BehavioralIntelligence:
         body_ratio_threshold = stagnation_params.get('body_ratio_threshold', 0.3)
         volume_stagnation_multiplier = stagnation_params.get('volume_stagnation_multiplier', 1.2)
         momentum_divergence_penalty = stagnation_params.get('momentum_divergence_penalty', 0.15)
-        upward_efficiency_decay_bonus = stagnation_params.get('upward_efficiency_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
-        intraday_control_decay_bonus = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
+        # 修改开始：移除重复的变量定义，直接在计算中使用参数字典获取值
+        # upward_efficiency_decay_penalty = stagnation_params.get('upward_efficiency_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
+        # intraday_control_decay_penalty = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
+        # 修改结束
         dynamic_kline_atr_multiplier = stagnation_params.get('dynamic_kline_atr_multiplier', 0.005) # [新增]
         momentum_deceleration_bonus = stagnation_params.get('momentum_deceleration_bonus', 0.1) # [新增]
         volume_drying_up_multiplier = stagnation_params.get('volume_drying_up_multiplier', 0.8) # [新增]
@@ -1874,12 +1876,11 @@ class BehavioralIntelligence:
         volume_drying_up_score = is_volume_drying_up.astype(float) * (1 - (current_volume / volume_avg)).clip(0, 1) # 萎缩越多，分数越高
         volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1) # 两种情况叠加
         # 4. 日内控制力减弱 (Intraday Control Weakness)
-        upward_efficiency_decay_penalty = stagnation_params.get('upward_efficiency_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
-        intraday_control_decay_bonus = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
-        # 上涨效率衰减 (效率越低，滞涨风险越高)
-        norm_upward_efficiency_decay = (1 - upward_efficiency).clip(0, 1) * upward_efficiency_decay_penalty
+        # 修改开始：直接从参数字典获取值，避免中间变量未定义问题
+        norm_upward_efficiency_decay = (1 - upward_efficiency).clip(0, 1) * stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
         # 日内多头控制力减弱 (控制力越弱，滞涨风险越高)
-        norm_intraday_control_decay = (1 - intraday_bull_control).clip(0, 1) * intraday_control_decay_penalty
+        norm_intraday_control_decay = (1 - intraday_bull_control).clip(0, 1) * stagnation_params.get('intraday_control_decay_bonus', 0.1)
+        # 修改结束
         intraday_control_weakness_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
         # 非线性融合所有滞涨证据
         # 采用几何平均，确保所有因子都贡献，且因子为0时整体为0
