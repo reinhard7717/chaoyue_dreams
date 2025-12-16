@@ -174,9 +174,6 @@ class CyclicalIntelligence:
         # 如果最终还是空，或者不是字典，则使用硬编码默认值
         if not isinstance(default_weights, dict) or not default_weights:
             default_weights = {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
-
-        print(f"        [DEBUG PROBE] diagnose_market_memory_with_hurst: 传递给 get_adaptive_mtf_normalized_bipolar_score 的 default_weights: {default_weights}")
-
         hurst_memory_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=0.1)
         states['SCORE_CYCLICAL_HURST_MEMORY'] = hurst_memory_score
         # 将双极性分数分解为互斥的单极性“政权”分
