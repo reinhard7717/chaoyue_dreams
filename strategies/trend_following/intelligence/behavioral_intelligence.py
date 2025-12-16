@@ -230,7 +230,26 @@ class BehavioralIntelligence:
         method_name = "_diagnose_behavioral_axioms"
         # 获取所有参数配置，用于动态构建required_signals
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
-        mtf_slopes_params = get_param_value(p_behavioral_div_conf.get('multi_timeframe_slopes'), {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}})
+        
+        # 修改开始：健壮地获取 mtf_slopes_params，确保 'weights' 键存在
+        mtf_slopes_params_from_config = p_behavioral_div_conf.get('multi_timeframe_slopes')
+        # 定义一个完整的默认 mtf_slopes_params 结构
+        default_mtf_slopes_config = {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}}
+
+        if mtf_slopes_params_from_config is None:
+            # 如果配置中没有 multi_timeframe_slopes，则使用完整的默认值
+            mtf_slopes_params = default_mtf_slopes_config
+        else:
+            # 如果配置中有，则将其与默认值合并，确保所有键都存在
+            mtf_slopes_params = {**default_mtf_slopes_config, **mtf_slopes_params_from_config}
+            # 特别处理 'weights' 子字典，进行深度合并
+            if 'weights' in mtf_slopes_params_from_config and isinstance(mtf_slopes_params_from_config['weights'], dict):
+                mtf_slopes_params['weights'] = {**default_mtf_slopes_config['weights'], **mtf_slopes_params_from_config['weights']}
+            elif 'weights' not in mtf_slopes_params_from_config:
+                # 如果配置中没有 'weights' 键，则使用默认的 'weights'
+                mtf_slopes_params['weights'] = default_mtf_slopes_config['weights']
+        # 修改结束
+
         mtf_periods = mtf_slopes_params.get('periods', [5])
         multi_level_resonance_params = get_param_value(p_behavioral_div_conf.get('multi_level_resonance_params'), {"enabled": True, "long_term_period": 21, "resonance_bonus": 0.2})
         long_term_period = multi_level_resonance_params.get('long_term_period', 21)
@@ -285,6 +304,7 @@ class BehavioralIntelligence:
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        # 修正键名 'default_weights' 为 'default'
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 修正键名 'long_term_weights' 为 'long_term_stability'
         long_term_weights = get_param_value(p_mtf.get('long_term_stability'), {'21': 0.5, '55': 0.3, '89': 0.2})
