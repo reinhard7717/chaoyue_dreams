@@ -3608,7 +3608,7 @@
           "volatility_orderliness": 0.25,
           "structural_movement_efficiency": 0.15
         },
-        "comment_stability_fusion_weights": "【V5.8 · 纯结构自适应归一化版】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
+        "comment_stability_fusion_weights": "【V5.8.1 · 纯结构自适应归一化版 - 鲁棒性增强】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
         "stability_params": {
           "enabled": true,
           "structural_support_strength_weights": {
