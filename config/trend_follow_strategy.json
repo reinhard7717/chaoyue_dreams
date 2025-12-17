@@ -322,14 +322,7 @@
         "vpoc_D": [5, 8, 13, 21],
         "total_volume_D": [5, 8, 13, 21],
         "breakout_readiness_score_D": [5, 8, 13, 21],
-        "goodness_of_fit_score_D": [5, 8, 13, 21],
-        "说明_liquidity_tide_v5": "--- 为流动性潮汐V5.0提供支持 ---",
-        "bid_ask_spread_D": [5, 8, 13, 21],
-        "market_depth_ratio_D": [5, 8, 13, 21],
-        "order_flow_imbalance_D": [5, 8, 13, 21],
-        "liquidity_persistence_index_D": [5, 8, 13, 21],
-        "volume_profile_density_D": [5, 8, 13, 21],
-        "vwap_deviation_D": [5, 8, 13, 21]
+        "goodness_of_fit_score_D": [5, 8, 13, 21]
       }
     },
     "accel_params": {
@@ -524,14 +517,7 @@
         "vpoc_D": [5, 8, 13, 21],
         "total_volume_D": [5, 8, 13, 21],
         "breakout_readiness_score_D": [5, 8, 13, 21],
-        "goodness_of_fit_score_D": [5, 8, 13, 21],
-        "说明_liquidity_tide_v5": "--- 为流动性潮汐V5.0提供支持 ---",
-        "bid_ask_spread_D": [5, 8, 13, 21],
-        "market_depth_ratio_D": [5, 8, 13, 21],
-        "order_flow_imbalance_D": [5, 8, 13, 21],
-        "liquidity_persistence_index_D": [5, 8, 13, 21],
-        "volume_profile_density_D": [5, 8, 13, 21],
-        "vwap_deviation_D": [5, 8, 13, 21]
+        "goodness_of_fit_score_D": [5, 8, 13, 21]
       }
     }
   },
@@ -2751,42 +2737,57 @@
           "enable_probe": true
         },
         "liquidity_tide_params": {
-          "description": "【V4.0 · 深度情境与结构洞察版】流动性潮汐公理的专属参数。",
+          "description": "【V5.0 · 多尺度结构与微观博弈版】流动性潮汐公理的专属参数。",
           "enable_probe": true,
           "tide_direction_weights": {
             "description": "潮汐方向融合权重。",
-            "cmf": 0.4,
-            "main_force_flow_directionality": 0.6
+            "cmf": 0.3,
+            "main_force_flow_directionality": 0.4,
+            "order_book_imbalance": 0.2,
+            "main_force_vwap_guidance": 0.1
           },
           "tide_energy_weights": {
             "description": "潮汐能量融合权重。",
-            "amount_slope": 0.4,
-            "volume_burstiness": 0.3,
-            "volume_slope": 0.3
+            "amount_slope": 0.3,
+            "volume_burstiness": 0.25,
+            "volume_slope": 0.25,
+            "volume_structure_skew": 0.1,
+            "upward_impulse_purity": 0.1
           },
           "tide_activity_weights": {
             "description": "潮汐活跃度融合权重。",
-            "turnover_slope": 0.5,
-            "turnover_rate_level": 0.5
+            "turnover_slope": 0.4,
+            "turnover_rate_level": 0.3,
+            "flow_efficiency": 0.2,
+            "order_book_clearing_rate": 0.1
           },
           "tide_structural_quality_weights": {
             "description": "潮汐结构品质融合权重。",
-            "price_volume_entropy": 0.4,
-            "volatility_instability": 0.3,
-            "flow_credibility": 0.3
+            "price_volume_entropy": 0.25,
+            "volatility_instability": 0.2,
+            "flow_credibility": 0.2,
+            "hurst_memory": 0.15,
+            "fractal_dimension": 0.1,
+            "structural_tension": 0.1
           },
           "deception_context_modulator_params": {
             "description": "诡道情境调制器参数。",
             "base_penalty_factor": 0.5,
             "comment_base_penalty_factor": "对倒惩罚的基础因子。",
-            "sentiment_sensitivity": 0.3,
+            "sentiment_sensitivity": 0.2,
             "comment_sentiment_sensitivity": "市场情绪对对倒惩罚的敏感度。",
-            "conviction_sensitivity": 0.4,
+            "conviction_sensitivity": 0.3,
             "comment_conviction_sensitivity": "主力信念对对倒惩罚的敏感度。",
+            "lure_long_sensitivity": 0.2,
+            "comment_lure_long_sensitivity": "诱多强度对对倒惩罚的敏感度。",
+            "main_force_slippage_sensitivity": 0.1,
+            "comment_main_force_slippage_sensitivity": "主力滑点对对倒惩罚的敏感度。",
             "positive_tide_penalty_multiplier": 1.2,
             "comment_positive_tide_penalty_multiplier": "涨潮时对倒惩罚的额外乘数。",
             "negative_tide_bonus_multiplier": 0.8,
-            "comment_negative_tide_bonus_multiplier": "退潮时对倒惩罚的乘数（小于1表示减轻惩罚，可能视为洗盘）。"
+            "comment_negative_tide_bonus_multiplier": "退潮时对倒惩罚的乘数（小于1表示减轻惩罚，可能视为洗盘）。",
+            "lure_short_bonus_factor": 0.2,
+            "comment_lure_short_bonus_factor": "退潮且有诱空时，额外减轻惩罚的因子。"
           },
           "final_fusion_weights": {
             "description": "四大维度最终融合权重。",
@@ -2794,6 +2795,38 @@
             "energy": 0.25,
             "activity": 0.2,
             "structural_quality": 0.3
+          },
+          "dynamic_fusion_modulator_params": {
+            "enabled": true,
+            "description": "动态融合权重调制器参数。",
+            "modulator_signal_1": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "comment_modulator_signal_1": "调制器信号1（波动不稳定性）。",
+            "modulator_signal_2": "market_sentiment_score_D",
+            "comment_modulator_signal_2": "调制器信号2（市场情绪）。",
+            "sensitivity_volatility": 0.4,
+            "comment_sensitivity_volatility": "波动不稳定性对权重调整的敏感度。",
+            "sensitivity_sentiment": 0.3,
+            "comment_sensitivity_sentiment": "市场情绪对权重调整的敏感度。",
+            "base_weights": {
+              "direction": 0.25,
+              "energy": 0.25,
+              "activity": 0.2,
+              "structural_quality": 0.3
+            },
+            "volatility_impact_weights": {
+              "direction": -0.1,
+              "energy": -0.1,
+              "activity": -0.05,
+              "structural_quality": 0.25
+            },
+            "comment_volatility_impact_weights": "波动不稳定性对各维度权重的调整量。",
+            "sentiment_impact_weights": {
+              "direction": 0.1,
+              "energy": 0.05,
+              "activity": 0.05,
+              "structural_quality": -0.2
+            },
+            "comment_sentiment_impact_weights": "市场情绪对各维度权重的调整量。"
           }
         }
       },
