@@ -490,12 +490,16 @@ class StructuralIntelligence:
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
-        stability_fusion_weights = get_param_value(p_conf_struct.get('stability_fusion_weights'), {
+        
+        # 修改开始：过滤 stability_fusion_weights，确保只包含数值类型的权重
+        raw_stability_fusion_weights = get_param_value(p_conf_struct.get('stability_fusion_weights'), {
             "structural_support_strength": 0.3,
             "chip_health": 0.3,
             "platform_structure_quality": 0.2,
             "main_force_control_intent": 0.2
         })
+        stability_fusion_weights = {k: v for k, v in raw_stability_fusion_weights.items() if isinstance(v, (int, float))}
+        # 修改结束
 
         # 修改开始：探针输出 - 原始输入和配置
         if self.is_probe_date:
@@ -568,7 +572,7 @@ class StructuralIntelligence:
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name="_diagnose_axiom_stability")
         value_area_overlap_raw = self._get_safe_series(df, 'value_area_overlap_pct_D', 0.0, method_name="_diagnose_axiom_stability")
 
-        equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df_index, ascending=True, tf_weights=tf_weights)
+        equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df_index, ascending=True, tf_weights=tf_weights).fillna(0.5) # 修改：nan值填充为0.5
         bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, ascending=False, tf_weights=tf_weights)
         volatility_instability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
         value_area_overlap_score = get_adaptive_mtf_normalized_score(value_area_overlap_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -582,7 +586,7 @@ class StructuralIntelligence:
         # 修改开始：探针输出 - 平台结构质量
         if self.is_probe_date:
             print(f"  -> 3. 平台结构质量 (Platform Structure Quality):")
-            print(f"    equilibrium_compression_index_D (末值): {equilibrium_compression_raw.iloc[-1]:.4f} -> score: {equilibrium_compression_score.iloc[-1]:.4f}")
+            print(f"    equilibrium_compression_index_D (末值): {equilibrium_compression_raw.iloc[-1]:.4f} -> score: {equilibrium_compression_score.iloc[-1]:.4f} (nan修正)") # 修改：探针提示nan修正
             print(f"    BBW_21_2.0_D (末值): {bbw_raw.iloc[-1]:.4f} -> score: {bbw_score.iloc[-1]:.4f}")
             print(f"    VOLATILITY_INSTABILITY_INDEX_21d_D (末值): {volatility_instability_raw.iloc[-1]:.4f} -> score: {volatility_instability_score.iloc[-1]:.4f}")
             print(f"    value_area_overlap_pct_D (末值): {value_area_overlap_raw.iloc[-1]:.4f} -> score: {value_area_overlap_score.iloc[-1]:.4f}")
