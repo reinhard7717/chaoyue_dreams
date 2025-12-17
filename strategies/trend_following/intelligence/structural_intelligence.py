@@ -64,26 +64,18 @@ class StructuralIntelligence:
             # 沿用原有的MTF自适应归一化逻辑
             return get_adaptive_mtf_normalized_score(processed_series, df_index, tf_weights, ascending=ascending)
         elif method == "quantile":
-            # 分位数归一化
-            # 计算历史分位数，这里简化为使用当前Series的滚动分位数，
-            # 实际应用中可能需要更复杂的历史分位数计算（例如，基于更长期的历史数据）
-            # 为了保持与get_adaptive_mtf_normalized_score的MTF逻辑一致性，
-            # 这里的quantile也应该考虑MTF，但为了简化和快速实现，先使用简单的滚动分位数。
-            # 理想情况下，get_adaptive_mtf_normalized_score内部应该支持不同的归一化方法。
-            # 暂时先用一个简单的滚动分位数，未来可以考虑将MTF逻辑融入到quantile方法中。
             window_sizes = sorted(tf_weights.keys(), reverse=True)
             quantile_scores = pd.Series(0.0, index=df_index)
             for window in window_sizes:
-                # 计算滚动分位数，min_periods确保有足够数据才计算
-                # 使用 rank(pct=True) 获取百分位数，然后根据 ascending 调整
-                rank = processed_series.rolling(window=window, min_periods=min(window_sizes)).apply(
+                # 修改开始：min_periods 修正为 window，确保为整数
+                rank = processed_series.rolling(window=window, min_periods=window).apply(
                     lambda x: x.rank(pct=True).iloc[-1], raw=False
                 )
-                # 如果ascending为False，则反转分位数
+                # 修改结束
                 if not ascending:
                     rank = 1 - rank
                 quantile_scores += rank * tf_weights.get(window, 0)
-            # 确保总权重为1，避免分数超出[0,1]
+            
             total_weight = sum(tf_weights.values())
             if total_weight > 0:
                 quantile_scores /= total_weight
@@ -593,6 +585,15 @@ class StructuralIntelligence:
             print(f"  -> 结构运动效率子权重: {structural_movement_efficiency_weights}")
             print(f"  -> 指标归一化配置 (normalization_configs): {normalization_configs}")
 
+        # Helper to get normalization config for a signal
+        def get_norm_config(signal_name, default_method="mtf_adaptive", default_ascending=True, default_clip_range=None):
+            config = normalization_configs.get(signal_name, {})
+            return {
+                "method": config.get("method", default_method),
+                "ascending": config.get("ascending", default_ascending),
+                "clip_range": config.get("clip_range", default_clip_range)
+            }
+
         # --- 1. 结构支撑强度 (Structural Support Strength) ---
         support_validation_strength_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_stability")
         pressure_rejection_strength_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_axiom_stability")
@@ -600,11 +601,18 @@ class StructuralIntelligence:
         defense_solidity_score_raw = self._get_safe_series(df, 'defense_solidity_score_D', 0.0, method_name="_diagnose_axiom_stability")
         opening_gap_defense_strength_raw = self._get_safe_series(df, 'opening_gap_defense_strength_D', 0.0, method_name="_diagnose_axiom_stability")
 
-        support_validation_strength_score = self.get_dynamic_normalized_score(support_validation_strength_raw, df_index, tf_weights, ascending=True)
-        pressure_rejection_strength_score = self.get_dynamic_normalized_score(pressure_rejection_strength_raw, df_index, tf_weights, ascending=True)
-        lower_shadow_absorption_strength_score = self.get_dynamic_normalized_score(lower_shadow_absorption_strength_raw, df_index, tf_weights, ascending=True)
-        defense_solidity_score = self.get_dynamic_normalized_score(defense_solidity_score_raw, df_index, tf_weights, ascending=True)
-        opening_gap_defense_strength_score = self.get_dynamic_normalized_score(opening_gap_defense_strength_raw, df_index, tf_weights, ascending=True)
+        # 修改开始：统一使用 self.get_dynamic_normalized_score
+        support_validation_strength_score = self.get_dynamic_normalized_score(
+            support_validation_strength_raw, df_index, tf_weights, **get_norm_config('support_validation_strength_D', default_ascending=True))
+        pressure_rejection_strength_score = self.get_dynamic_normalized_score(
+            pressure_rejection_strength_raw, df_index, tf_weights, **get_norm_config('pressure_rejection_strength_D', default_ascending=True))
+        lower_shadow_absorption_strength_score = self.get_dynamic_normalized_score(
+            lower_shadow_absorption_strength_raw, df_index, tf_weights, **get_norm_config('lower_shadow_absorption_strength_D', default_ascending=True))
+        defense_solidity_score = self.get_dynamic_normalized_score(
+            defense_solidity_score_raw, df_index, tf_weights, **get_norm_config('defense_solidity_score_D', default_ascending=True))
+        opening_gap_defense_strength_score = self.get_dynamic_normalized_score(
+            opening_gap_defense_strength_raw, df_index, tf_weights, **get_norm_config('opening_gap_defense_strength_D', default_ascending=True))
+        # 修改结束
 
         structural_support_strength_score = (
             support_validation_strength_score * structural_support_strength_weights.get('support_validation_strength', 0.3) +
@@ -629,11 +637,18 @@ class StructuralIntelligence:
         goodness_of_fit_score_raw = self._get_safe_series(df, 'goodness_of_fit_score_D', 0.0, method_name="_diagnose_axiom_stability")
         structural_node_count_raw = self._get_safe_series(df, 'structural_node_count_D', 0.0, method_name="_diagnose_axiom_stability")
 
-        equilibrium_compression_score = self.get_dynamic_normalized_score(equilibrium_compression_raw, df_index, tf_weights, ascending=True)
-        platform_conviction_score = self.get_dynamic_normalized_score(platform_conviction_score_raw, df_index, tf_weights, ascending=True)
-        value_area_overlap_score = self.get_dynamic_normalized_score(value_area_overlap_raw, df_index, tf_weights, ascending=True)
-        goodness_of_fit_score = self.get_dynamic_normalized_score(goodness_of_fit_score_raw, df_index, tf_weights, ascending=True)
-        structural_node_count_score = self.get_dynamic_normalized_score(structural_node_count_raw, df_index, tf_weights, ascending=True)
+        # 修改开始：统一使用 self.get_dynamic_normalized_score
+        equilibrium_compression_score = self.get_dynamic_normalized_score(
+            equilibrium_compression_raw, df_index, tf_weights, **get_norm_config('equilibrium_compression_index_D', default_ascending=True))
+        platform_conviction_score = self.get_dynamic_normalized_score(
+            platform_conviction_score_raw, df_index, tf_weights, **get_norm_config('platform_conviction_score_D', default_ascending=True))
+        value_area_overlap_score = self.get_dynamic_normalized_score(
+            value_area_overlap_raw, df_index, tf_weights, **get_norm_config('value_area_overlap_pct_D', default_ascending=True))
+        goodness_of_fit_score = self.get_dynamic_normalized_score(
+            goodness_of_fit_score_raw, df_index, tf_weights, **get_norm_config('goodness_of_fit_score_D', default_ascending=True))
+        structural_node_count_score = self.get_dynamic_normalized_score(
+            structural_node_count_raw, df_index, tf_weights, **get_norm_config('structural_node_count_D', default_ascending=True))
+        # 修改结束
 
         structural_form_solidity_score = (
             equilibrium_compression_score * structural_form_solidity_weights.get('equilibrium_compression_index', 0.3) +
@@ -654,30 +669,26 @@ class StructuralIntelligence:
         # --- 3. 波动率秩序性 (Volatility Orderliness) ---
         bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name="_diagnose_axiom_stability")
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name="_diagnose_axiom_stability")
-        
         fractal_dimension_raw = self._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 1.5, method_name="_diagnose_axiom_stability")
-        fd_norm_config = normalization_configs.get('FRACTAL_DIMENSION_89d_D', {"method": "mtf_adaptive", "ascending": False, "clip_range": [1.0, 2.0]})
-        fractal_dimension_score = self.get_dynamic_normalized_score(
-            fractal_dimension_raw, df_index, tf_weights,
-            ascending=fd_norm_config.get("ascending", False),
-            method=fd_norm_config.get("method", "mtf_adaptive"),
-            clip_range=fd_norm_config.get("clip_range", [1.0, 2.0])
-        )
-        
         sample_entropy_raw = self._get_safe_series(df, 'SAMPLE_ENTROPY_13d_D', 1.0, method_name="_diagnose_axiom_stability")
-        
         hurst_raw = self._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="_diagnose_axiom_stability")
-        hurst_norm_config = normalization_configs.get('HURST_144d_D', {"method": "mtf_adaptive", "ascending": True, "clip_range": [0.0, 1.0]})
-        hurst_score = self.get_dynamic_normalized_score(
-            hurst_raw, df_index, tf_weights,
-            ascending=hurst_norm_config.get("ascending", True),
-            method=hurst_norm_config.get("method", "mtf_adaptive"),
-            clip_range=hurst_norm_config.get("clip_range", [0.0, 1.0])
-        )
 
-        bbw_score = self.get_dynamic_normalized_score(bbw_raw, df_index, tf_weights, ascending=False)
-        volatility_instability_score = self.get_dynamic_normalized_score(volatility_instability_raw, df_index, tf_weights, ascending=False)
-        sample_entropy_score = self.get_dynamic_normalized_score(sample_entropy_raw, df_index, tf_weights, ascending=False)
+        # 修改开始：统一使用 self.get_dynamic_normalized_score，并获取配置
+        bbw_norm_config = get_norm_config('BBW_21_2.0_D', default_ascending=False)
+        bbw_score = self.get_dynamic_normalized_score(bbw_raw, df_index, tf_weights, **bbw_norm_config)
+
+        volatility_instability_norm_config = get_norm_config('VOLATILITY_INSTABILITY_INDEX_21d_D', default_ascending=False)
+        volatility_instability_score = self.get_dynamic_normalized_score(volatility_instability_raw, df_index, tf_weights, **volatility_instability_norm_config)
+
+        fd_norm_config = get_norm_config('FRACTAL_DIMENSION_89d_D', default_ascending=False, default_clip_range=[1.0, 2.0])
+        fractal_dimension_score = self.get_dynamic_normalized_score(fractal_dimension_raw, df_index, tf_weights, **fd_norm_config)
+        
+        sample_entropy_norm_config = get_norm_config('SAMPLE_ENTROPY_13d_D', default_ascending=False)
+        sample_entropy_score = self.get_dynamic_normalized_score(sample_entropy_raw, df_index, tf_weights, **sample_entropy_norm_config)
+        
+        hurst_norm_config = get_norm_config('HURST_144d_D', default_ascending=True, default_clip_range=[0.0, 1.0])
+        hurst_score = self.get_dynamic_normalized_score(hurst_raw, df_index, tf_weights, **hurst_norm_config)
+        # 修改结束
 
         volatility_orderliness_score = (
             bbw_score * volatility_orderliness_weights.get('BBW_21_2.0', 0.3) +
@@ -690,9 +701,15 @@ class StructuralIntelligence:
             print(f"  -> 3. 波动率秩序性 (Volatility Orderliness):")
             print(f"    BBW_21_2.0_D (末值): {bbw_raw.iloc[-1]:.4f} -> score: {bbw_score.iloc[-1]:.4f}")
             print(f"    VOLATILITY_INSTABILITY_INDEX_21d_D (末值): {volatility_instability_raw.iloc[-1]:.4f} -> score: {volatility_instability_score.iloc[-1]:.4f}")
-            print(f"    FRACTAL_DIMENSION_89d_D (原始末值): {fractal_dimension_raw.iloc[-1]:.4f} -> 裁剪后: {fractal_dimension_raw.clip(lower=fd_norm_config.get('clip_range', [1.0, 2.0])[0], upper=fd_norm_config.get('clip_range', [1.0, 2.0])[1]).iloc[-1]:.4f} -> score: {fractal_dimension_score.iloc[-1]:.4f}")
+            # 修改开始：探针输出裁剪前后的值，使用 pd.notna 检查 NaN
+            fd_val = fractal_dimension_raw.iloc[-1]
+            fd_clipped_val = fd_val.clip(lower=fd_norm_config['clip_range'][0], upper=fd_norm_config['clip_range'][1]) if pd.notna(fd_val) and fd_norm_config['clip_range'] else fd_val
+            print(f"    FRACTAL_DIMENSION_89d_D (原始末值): {fd_val:.4f} -> 裁剪后: {fd_clipped_val:.4f} -> score: {fractal_dimension_score.iloc[-1]:.4f}")
             print(f"    SAMPLE_ENTROPY_13d_D (末值): {sample_entropy_raw.iloc[-1]:.4f} -> score: {sample_entropy_score.iloc[-1]:.4f}")
-            print(f"    HURST_144d_D (原始末值): {hurst_raw.iloc[-1]:.4f} -> 裁剪后: {hurst_raw.clip(lower=hurst_norm_config.get('clip_range', [0.0, 1.0])[0], upper=hurst_norm_config.get('clip_range', [0.0, 1.0])[1]).iloc[-1]:.4f} -> score: {hurst_score.iloc[-1]:.4f}")
+            hurst_val = hurst_raw.iloc[-1]
+            hurst_clipped_val = hurst_val.clip(lower=hurst_norm_config['clip_range'][0], upper=hurst_norm_config['clip_range'][1]) if pd.notna(hurst_val) and hurst_norm_config['clip_range'] else hurst_val
+            print(f"    HURST_144d_D (原始末值): {hurst_val:.4f} -> 裁剪后: {hurst_clipped_val:.4f} -> score: {hurst_score.iloc[-1]:.4f}")
+            # 修改结束
             print(f"    volatility_orderliness_score (融合末值): {volatility_orderliness_score.iloc[-1]:.4f}")
 
         # --- 4. 结构运动效率 (Structural Movement Efficiency) ---
@@ -701,16 +718,19 @@ class StructuralIntelligence:
         impulse_quality_ratio_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_axiom_stability")
         ma_potential_orderliness_score_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_stability")
 
-        trend_efficiency_ratio_score = self.get_dynamic_normalized_score(trend_efficiency_ratio_raw, df_index, tf_weights, ascending=True)
-        afi_norm_config = normalization_configs.get('asymmetric_friction_index_D', {"method": "mtf_adaptive", "ascending": False})
-        asymmetric_friction_index_score = self.get_dynamic_normalized_score(
-            asymmetric_friction_index_raw, df_index, tf_weights,
-            ascending=afi_norm_config.get("ascending", False),
-            method=afi_norm_config.get("method", "mtf_adaptive"),
-            clip_range=afi_norm_config.get("clip_range", None)
-        )
-        impulse_quality_ratio_score = self.get_dynamic_normalized_score(impulse_quality_ratio_raw, df_index, tf_weights, ascending=True)
-        ma_potential_orderliness_score = self.get_dynamic_normalized_score(ma_potential_orderliness_score_raw, df_index, tf_weights, ascending=True)
+        # 修改开始：统一使用 self.get_dynamic_normalized_score，并获取配置
+        trend_efficiency_ratio_norm_config = get_norm_config('trend_efficiency_ratio_D', default_ascending=True)
+        trend_efficiency_ratio_score = self.get_dynamic_normalized_score(trend_efficiency_ratio_raw, df_index, tf_weights, **trend_efficiency_ratio_norm_config)
+        
+        afi_norm_config = get_norm_config('asymmetric_friction_index_D', default_ascending=False)
+        asymmetric_friction_index_score = self.get_dynamic_normalized_score(asymmetric_friction_index_raw, df_index, tf_weights, **afi_norm_config)
+        
+        impulse_quality_ratio_norm_config = get_norm_config('impulse_quality_ratio_D', default_ascending=True)
+        impulse_quality_ratio_score = self.get_dynamic_normalized_score(impulse_quality_ratio_raw, df_index, tf_weights, **impulse_quality_ratio_norm_config)
+        
+        ma_potential_orderliness_score_norm_config = get_norm_config('MA_POTENTIAL_ORDERLINESS_SCORE_D', default_ascending=True)
+        ma_potential_orderliness_score = self.get_dynamic_normalized_score(ma_potential_orderliness_score_raw, df_index, tf_weights, **ma_potential_orderliness_score_norm_config)
+        # 修改结束
 
         structural_movement_efficiency_score = (
             trend_efficiency_ratio_score * structural_movement_efficiency_weights.get('trend_efficiency_ratio', 0.3) +

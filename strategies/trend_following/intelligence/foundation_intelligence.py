@@ -489,11 +489,11 @@ class FoundationIntelligence:
         retail_fomo_bipolar = retail_fomo_score * 2 - 1
         retail_panic_bipolar = -(retail_panic_score * 2 - 1)
         # V5.0 新增: 情绪结构品质 (Sentiment Structure Quality)
-        ssq_weights = p_conf_sp.get('sentiment_structure_quality_weights', {'activity': 0.4, 'consistency': 0.3, 'rsi_dynamics': 0.3})
+        ssq_weights = p_conf_sp.get('sentiment_structure_quality_weights', {'activity_turnover': 0.5, 'activity_burstiness': 0.5, 'consistency': 0.4, 'rsi_dynamics_slope': 0.5, 'rsi_dynamics_accel': 0.5}) # 修改: 调整权重结构
         # 情绪活跃度: 换手率和成交量爆发性
-        turnover_rate_score = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, default_weights, ascending=True)
-        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, default_weights, ascending=True)
+        # 修改开始
         sentiment_activity_score = (turnover_rate_score * ssq_weights.get('activity_turnover', 0.5) + volume_burstiness_score * ssq_weights.get('activity_burstiness', 0.5)).clip(0, 1)
+        # 修改结束
         # 情绪一致性: 价量熵 (负向)
         price_volume_entropy_score = get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df_index, default_weights, ascending=False)
         sentiment_consistency_score = price_volume_entropy_score.clip(0, 1)
@@ -502,7 +502,7 @@ class FoundationIntelligence:
         rsi_accel_score = get_adaptive_mtf_normalized_bipolar_score(rsi_accel_raw, df_index, default_weights)
         rsi_dynamics_score = (rsi_slope_score * ssq_weights.get('rsi_dynamics_slope', 0.5) + rsi_accel_score * ssq_weights.get('rsi_dynamics_accel', 0.5)).clip(-1, 1)
         sentiment_structure_quality_score = (
-            sentiment_activity_score * ssq_weights.get('activity', 0.4) +
+            sentiment_activity_score * ssq_weights.get('activity', 0.4) + # 这里activity权重需要重新定义
             sentiment_consistency_score * ssq_weights.get('consistency', 0.3) +
             (rsi_dynamics_score + 1) / 2 * ssq_weights.get('rsi_dynamics', 0.3)
         ).clip(0, 1)
@@ -544,10 +544,10 @@ class FoundationIntelligence:
         # 诱空确认：收盘接受度越高，偏度越正，纯度越高，效率越高，越确认诱空
         # 这里构建一个双极性的确认分，正向确认诱多，负向确认诱空
         deception_behavior_confirmation_score = (
-            (1 - closing_acceptance_score) * dbc_weights.get('closing_acceptance', 0.3) + # 负向确认诱多
-            (1 - (volume_structure_skew_score + 1) / 2) * dbc_weights.get('volume_skew', 0.3) + # 负向确认诱多
-            (1 - upward_impulse_purity_score) * dbc_weights.get('upward_purity', 0.2) + # 负向确认诱多
-            (1 - thrust_efficiency_score) * dbc_weights.get('thrust_efficiency', 0.2) # 负向确认诱多
+            (1 - closing_acceptance_score) * dbc_weights.get('closing_acceptance', 0.3) +
+            (1 - (volume_structure_skew_score + 1) / 2) * dbc_weights.get('volume_skew', 0.3) +
+            (1 - upward_impulse_purity_score) * dbc_weights.get('upward_purity', 0.2) +
+            (1 - thrust_efficiency_score) * dbc_weights.get('thrust_efficiency', 0.2)
         ).clip(0, 1)
         # 诱多惩罚: 如果情绪核心为正 (贪婪) 且有诱多行为，则惩罚，并由诡道行为确认分强化
         bull_trap_condition = (sentiment_core > 0) & (lure_long_score > 0)
@@ -576,17 +576,17 @@ class FoundationIntelligence:
         volatility_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, default_weights, ascending=True)
         main_force_conviction_score = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, default_weights)
         # V5.0 新增: 市场结构稳定性 (Market Structure Stability)
-        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, default_weights, ascending=False) # BBW越小越稳定
-        ma_potential_tension_score = get_adaptive_mtf_normalized_score(ma_potential_tension_raw, df_index, default_weights, ascending=True) # 张力越大越稳定
+        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, default_weights, ascending=False)
+        ma_potential_tension_score = get_adaptive_mtf_normalized_score(ma_potential_tension_raw, df_index, default_weights, ascending=True)
         market_structure_stability_score = (bbw_score * 0.5 + ma_potential_tension_score * 0.5).clip(0, 1)
         # V5.0 新增: 行业情绪共振 (Sector Sentiment Resonance)
-        industry_strength_rank_score = (industry_strength_rank_raw - 0.5) * 2 # 转换为双极性
+        industry_strength_rank_score = (industry_strength_rank_raw - 0.5) * 2
         industry_strength_rank_slope_score = get_adaptive_mtf_normalized_bipolar_score(industry_strength_rank_slope_raw, df_index, default_weights)
         sector_sentiment_resonance_score = (industry_strength_rank_score * 0.5 + industry_strength_rank_slope_score * 0.5).clip(-1, 1)
         context_amplifier_score = (
             volatility_score * volatility_weight +
             main_force_conviction_score * main_force_conviction_weight +
-            (market_structure_stability_score * 2 - 1) * market_structure_stability_weight + # 转换为双极性
+            (market_structure_stability_score * 2 - 1) * market_structure_stability_weight +
             sector_sentiment_resonance_score * sector_sentiment_resonance_weight
         ).clip(-1, 1)
         context_multiplier = 1 + context_amplifier_score * base_amplifier_factor
