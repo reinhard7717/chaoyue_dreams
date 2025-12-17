@@ -511,7 +511,7 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.9 · 纯结构深度进化版】结构公理三：诊断“结构稳定性”
+        【V5.9.1 · 纯结构深度进化版 - 权重匹配修正】结构公理三：诊断“结构稳定性”
         - 核心升级: 彻底重构为六大核心支柱：结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率、结构突破强度、结构回撤效率。
                     严格限定在纯粹的【结构】类原始数据范畴内，移除筹码、资金等其他维度的数据。
         - 核心证据:
@@ -525,6 +525,7 @@ class StructuralIntelligence:
         - 【探针植入】增加了详细的探针输出，以便于检查和调试。
         - 【数据鲁棒性】对分形维度和赫斯特指数进行合理性裁剪，避免异常值影响。
         - 【V5.9 信号替换】根据数据层实际提供的信号，替换了结构突破强度和结构回撤效率的原始信号。
+        - 【V5.9.1 权重匹配修正】统一了子维度权重字典的键名和实际获取权重时的键名，确保与JSON配置中的概念名称一致。
         """
         required_signals = [
             'support_validation_strength_D', 'pressure_rejection_strength_D', 'lower_shadow_absorption_strength_D',
@@ -535,10 +536,8 @@ class StructuralIntelligence:
             'SAMPLE_ENTROPY_13d_D', 'HURST_144d_D',
             'trend_efficiency_ratio_D', 'asymmetric_friction_index_D', 'impulse_quality_ratio_D',
             'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'close_D',
-            # 修改开始：替换为数据层中存在的代理信号
             'volume_burstiness_index_D', 'volatility_expansion_ratio_D', 'breakout_quality_score_D', 'thrust_efficiency_score_D',
             'pullback_depth_ratio_D', 'price_reversion_velocity_D', 'counterparty_exhaustion_index_D', 'control_solidity_index_D'
-            # 修改结束
         ]
 
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
@@ -575,12 +574,12 @@ class StructuralIntelligence:
             "trend_efficiency_ratio": 0.3, "asymmetric_friction_index": 0.3, "impulse_quality_ratio": 0.2,
             "MA_POTENTIAL_ORDERLINESS_SCORE": 0.2
         })
-        # 修改开始：更新结构突破强度和结构回撤效率的权重配置，使用代理信号的名称
+        # 修改开始：统一默认字典的键名，使其与JSON配置中的概念名称一致
         structural_break_strength_weights = get_param_value(stability_params.get('structural_break_strength_weights'), {
-            "volume_burstiness_index": 0.3, "volatility_expansion_ratio": 0.3, "breakout_quality_score": 0.2, "thrust_efficiency_score": 0.2
+            "breakout_volume_ratio": 0.3, "breakout_range_expansion": 0.3, "breakout_retest_success": 0.2, "breakout_duration": 0.2
         })
         structural_retracement_efficiency_weights = get_param_value(stability_params.get('structural_retracement_efficiency_weights'), {
-            "pullback_depth_ratio": 0.3, "price_reversion_velocity": 0.3, "counterparty_exhaustion_index": 0.2, "control_solidity_index": 0.2
+            "retracement_depth_pct": 0.3, "retracement_speed_ratio": 0.3, "retracement_volume_decay": 0.2, "retracement_MA_adherence": 0.2
         })
         # 修改结束
         normalization_configs = get_param_value(stability_params.get('normalization_configs'), {})
@@ -597,10 +596,8 @@ class StructuralIntelligence:
             print(f"  -> 结构形态坚固性子权重: {structural_form_solidity_weights}")
             print(f"  -> 波动率秩序性子权重: {volatility_orderliness_weights}")
             print(f"  -> 结构运动效率子权重: {structural_movement_efficiency_weights}")
-            # 修改开始：新增探针输出新支柱的权重
             print(f"  -> 结构突破强度子权重: {structural_break_strength_weights}")
             print(f"  -> 结构回撤效率子权重: {structural_retracement_efficiency_weights}")
-            # 修改结束
             print(f"  -> 指标归一化配置 (normalization_configs): {normalization_configs}")
 
         # Helper to get normalization config for a signal
@@ -764,7 +761,7 @@ class StructuralIntelligence:
             print(f"    MA_POTENTIAL_ORDERLINESS_SCORE_D (末值): {ma_potential_orderliness_score_raw.iloc[-1]:.4f} -> score: {ma_potential_orderliness_score.iloc[-1]:.4f}")
             print(f"    structural_movement_efficiency_score (融合末值): {structural_movement_efficiency_score.iloc[-1]:.4f}")
 
-        # 修改开始：新增 5. 结构突破强度 (Structural Break Strength) - 使用代理信号
+        # --- 5. 结构突破强度 (Structural Break Strength) - 使用代理信号 ---
         breakout_volume_ratio_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name="_diagnose_axiom_stability")
         breakout_range_expansion_raw = self._get_safe_series(df, 'volatility_expansion_ratio_D', 0.0, method_name="_diagnose_axiom_stability")
         breakout_retest_success_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name="_diagnose_axiom_stability")
@@ -775,12 +772,14 @@ class StructuralIntelligence:
         breakout_retest_success_score = self.get_dynamic_normalized_score(breakout_retest_success_raw, df_index, tf_weights, **get_norm_config('breakout_quality_score_D', default_ascending=True))
         breakout_duration_score = self.get_dynamic_normalized_score(breakout_duration_raw, df_index, tf_weights, **get_norm_config('thrust_efficiency_score_D', default_ascending=True))
 
+        # 修改开始：使用概念名称作为键来获取权重
         structural_break_strength_score = (
-            breakout_volume_ratio_score * structural_break_strength_weights.get('volume_burstiness_index', 0.3) +
-            breakout_range_expansion_score * structural_break_strength_weights.get('volatility_expansion_ratio', 0.3) +
-            breakout_retest_success_score * structural_break_strength_weights.get('breakout_quality_score', 0.2) +
-            breakout_duration_score * structural_break_strength_weights.get('thrust_efficiency_score', 0.2)
+            breakout_volume_ratio_score * structural_break_strength_weights.get('breakout_volume_ratio', 0.3) +
+            breakout_range_expansion_score * structural_break_strength_weights.get('breakout_range_expansion', 0.3) +
+            breakout_retest_success_score * structural_break_strength_weights.get('breakout_retest_success', 0.2) +
+            breakout_duration_score * structural_break_strength_weights.get('breakout_duration', 0.2)
         ).clip(0, 1)
+        # 修改结束
         if self.is_probe_date:
             print(f"  -> 5. 结构突破强度 (Structural Break Strength):")
             print(f"    volume_burstiness_index_D (末值): {breakout_volume_ratio_raw.iloc[-1]:.4f} -> score: {breakout_volume_ratio_score.iloc[-1]:.4f}")
@@ -788,9 +787,8 @@ class StructuralIntelligence:
             print(f"    breakout_quality_score_D (末值): {breakout_retest_success_raw.iloc[-1]:.4f} -> score: {breakout_retest_success_score.iloc[-1]:.4f}")
             print(f"    thrust_efficiency_score_D (末值): {breakout_duration_raw.iloc[-1]:.4f} -> score: {breakout_duration_score.iloc[-1]:.4f}")
             print(f"    structural_break_strength_score (融合末值): {structural_break_strength_score.iloc[-1]:.4f}")
-        # 修改结束
 
-        # 修改开始：新增 6. 结构回撤效率 (Structural Retracement Efficiency) - 使用代理信号
+        # --- 6. 结构回撤效率 (Structural Retracement Efficiency) - 使用代理信号 ---
         retracement_depth_pct_raw = self._get_safe_series(df, 'pullback_depth_ratio_D', 0.0, method_name="_diagnose_axiom_stability")
         retracement_speed_ratio_raw = self._get_safe_series(df, 'price_reversion_velocity_D', 0.0, method_name="_diagnose_axiom_stability")
         retracement_volume_decay_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name="_diagnose_axiom_stability")
@@ -802,12 +800,14 @@ class StructuralIntelligence:
         retracement_volume_decay_score = self.get_dynamic_normalized_score(retracement_volume_decay_raw, df_index, tf_weights, **get_norm_config('counterparty_exhaustion_index_D', default_ascending=True))
         retracement_MA_adherence_score = self.get_dynamic_normalized_score(retracement_MA_adherence_raw, df_index, tf_weights, **get_norm_config('control_solidity_index_D', default_ascending=True))
 
+        # 修改开始：使用概念名称作为键来获取权重
         structural_retracement_efficiency_score = (
-            retracement_depth_pct_score * structural_retracement_efficiency_weights.get('pullback_depth_ratio', 0.3) +
-            retracement_speed_ratio_score * structural_retracement_efficiency_weights.get('price_reversion_velocity', 0.3) +
-            retracement_volume_decay_score * structural_retracement_efficiency_weights.get('counterparty_exhaustion_index', 0.2) +
-            retracement_MA_adherence_score * structural_retracement_efficiency_weights.get('control_solidity_index', 0.2)
+            retracement_depth_pct_score * structural_retracement_efficiency_weights.get('retracement_depth_pct', 0.3) +
+            retracement_speed_ratio_score * structural_retracement_efficiency_weights.get('retracement_speed_ratio', 0.3) +
+            retracement_volume_decay_score * structural_retracement_efficiency_weights.get('retracement_volume_decay', 0.2) +
+            retracement_MA_adherence_score * structural_retracement_efficiency_weights.get('retracement_MA_adherence', 0.2)
         ).clip(0, 1)
+        # 修改结束
         if self.is_probe_date:
             print(f"  -> 6. 结构回撤效率 (Structural Retracement Efficiency):")
             print(f"    pullback_depth_ratio_D (末值): {retracement_depth_pct_raw.iloc[-1]:.4f} -> score: {retracement_depth_pct_score.iloc[-1]:.4f}")
@@ -815,7 +815,6 @@ class StructuralIntelligence:
             print(f"    counterparty_exhaustion_index_D (末值): {retracement_volume_decay_raw.iloc[-1]:.4f} -> score: {retracement_volume_decay_score.iloc[-1]:.4f}")
             print(f"    control_solidity_index_D (末值): {retracement_MA_adherence_raw.iloc[-1]:.4f} -> score: {retracement_MA_adherence_score.iloc[-1]:.4f}")
             print(f"    structural_retracement_efficiency_score (融合末值): {structural_retracement_efficiency_score.iloc[-1]:.4f}")
-        # 修改结束
 
         # --- 7. 最终融合 ---
         stability_score = (
@@ -823,10 +822,8 @@ class StructuralIntelligence:
             structural_form_solidity_score * stability_fusion_weights.get('structural_form_solidity', 0.25) +
             volatility_orderliness_score * stability_fusion_weights.get('volatility_orderliness', 0.2) +
             structural_movement_efficiency_score * stability_fusion_weights.get('structural_movement_efficiency', 0.15) +
-            # 修改开始：新增融合结构突破强度和结构回撤效率
             structural_break_strength_score * stability_fusion_weights.get('structural_break_strength', 0.075) +
             structural_retracement_efficiency_score * stability_fusion_weights.get('structural_retracement_efficiency', 0.075)
-            # 修改结束
         ).clip(0, 1)
         final_score = (stability_score * 2 - 1).astype(np.float32)
 
@@ -836,10 +833,8 @@ class StructuralIntelligence:
             print(f"    structural_form_solidity_score (末值): {structural_form_solidity_score.iloc[-1]:.4f}")
             print(f"    volatility_orderliness_score (末值): {volatility_orderliness_score.iloc[-1]:.4f}")
             print(f"    structural_movement_efficiency_score (末值): {structural_movement_efficiency_score.iloc[-1]:.4f}")
-            # 修改开始：新增探针输出新支柱的融合分数
             print(f"    structural_break_strength_score (末值): {structural_break_strength_score.iloc[-1]:.4f}")
             print(f"    structural_retracement_efficiency_score (末值): {structural_retracement_efficiency_score.iloc[-1]:.4f}")
-            # 修改结束
             print(f"    SCORE_STRUCT_AXIOM_STABILITY (最终分数末值): {final_score.iloc[-1]:.4f}")
             print(f"--- [结构公理] 稳定性探针结束 ---")
         return final_score

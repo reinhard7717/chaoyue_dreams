@@ -33,11 +33,10 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V11.0 · 环境共振版】基础情报分析总指挥
-        - 核心新增: 引入“环境共振调节器”，将个股信号与市场/板块/主题环境耦合，
-                      实现对顶层信号的宏观上下文校准。
+        【V11.1 · 市场摩擦增强版】基础情报分析总指挥
+        - 核心新增: 引入“市场摩擦”公理，全面评估价格发现过程中的阻力、偏向和效率。
         """
-        print("启动【V11.0 · 环境共振版】基础情报分析...")
+        print("启动【V11.1 · 市场摩擦增强版】基础情报分析...")
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -49,18 +48,21 @@ class FoundationIntelligence:
         axiom_tide = self._diagnose_axiom_liquidity_tide(df)
         axiom_tension = self._diagnose_axiom_market_tension(df)
         axiom_relative_strength = self._diagnose_axiom_relative_strength(df)
+        axiom_friction = self._diagnose_axiom_market_friction(df) # 新增行
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION'] = axiom_constitution
         all_states['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] = axiom_pendulum
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = axiom_tension
         all_states['SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'] = axiom_relative_strength
+        all_states['SCORE_FOUNDATION_AXIOM_MARKET_FRICTION'] = axiom_friction # 新增行
         strategic_posture = self._synthesize_strategic_posture(
             p_conf,
             axiom_constitution,
             axiom_relative_strength,
             axiom_tide,
             axiom_pendulum,
-            axiom_tension, # 修正变量名，从 tension -> axiom_tension
+            axiom_tension,
+            axiom_friction, # 新增行
             environmental_modulator
         )
         all_states['SCORE_FOUNDATION_STRATEGIC_POSTURE'] = strategic_posture
@@ -68,7 +70,7 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_HARMONY_INFLECTION'] = harmony_inflection
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df)
         all_states.update(context_trend_confirmed)
-        print(f"【V11.0 · 环境共振版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。")
+        print(f"【V11.1 · 市场摩擦增强版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。")
         return all_states
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -680,8 +682,6 @@ class FoundationIntelligence:
                 activity_score * current_weights['activity'] +
                 structural_quality_score * current_weights['structural_quality']
             ).clip(-1, 1)
-            if probe_enabled:
-                print(f"    -> [探针] 关键计算节点: 动态融合权重 (current_weights) 尾部: {current_weights.tail().to_dict()}")
         else:
             final_fusion_weights = p_conf_lt.get('final_fusion_weights', {'direction': 0.25, 'energy': 0.25, 'activity': 0.2, 'structural_quality': 0.3})
             base_tide_score = (
@@ -783,21 +783,6 @@ class FoundationIntelligence:
         wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_market_tension")
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_market_tension")
         chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_market_tension")
-        if probe_enabled:
-            print(f"    -> [探针] 原始数据: BBW_21_2.0_D 尾部: {bbw_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: MA_POTENTIAL_COMPRESSION_RATE_D 尾部: {ma_compression_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: MA_POTENTIAL_TENSION_INDEX_D 尾部: {ma_tension_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: main_force_posture_index_D 尾部: {main_force_posture_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: equilibrium_compression_index_D 尾部: {equilibrium_compression_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: volume_structure_skew_D 尾部: {volume_structure_skew_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: structural_tension_index_D 尾部: {structural_tension_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: VOLATILITY_INSTABILITY_INDEX_21d_D 尾部: {volatility_instability_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: order_book_imbalance_D 尾部: {order_book_imbalance_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: main_force_conviction_index_D 尾部: {main_force_conviction_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: deception_index_D 尾部: {deception_index_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_intensity_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: market_sentiment_score_D 尾部: {market_sentiment_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: chip_health_score_D 尾部: {chip_health_raw.tail().to_dict()}")
         # --- 2. 张力强度 (Tension Magnitude) - 结构化品质与健康度 ---
         tm_weights = p_conf_mt.get('tension_magnitude_weights', {
             'squeeze': 0.2, 'compression': 0.2, 'ma_tension': 0.15,
@@ -820,15 +805,6 @@ class FoundationIntelligence:
             structural_tension_score * tm_weights.get('structural_tension', 0.1) +
             volatility_instability_score_inverse * tm_weights.get('volatility_instability_inverse', 0.1)
         ).clip(0, 1) # 张力强度为单极性
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 波动收敛度得分 (squeeze_score) 尾部: {squeeze_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 均线压缩率得分 (compression_score) 尾部: {compression_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 均线张力得分 (ma_tension_score) 尾部: {ma_tension_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 均衡压缩指数得分 (equilibrium_compression_score) 尾部: {equilibrium_compression_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 成交量结构偏度得分 (volume_structure_skew_score) 尾部: {volume_structure_skew_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 结构张力指数得分 (structural_tension_score) 尾部: {structural_tension_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 波动不稳定性逆向得分 (volatility_instability_score_inverse) 尾部: {volatility_instability_score_inverse.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 张力强度得分 (tension_magnitude_score) 尾部: {tension_magnitude_score.tail().to_dict()}")
         # --- 3. 方向意图 (Directional Intent) - 微观博弈与信念确认 ---
         di_weights = p_conf_mt.get('directional_intent_weights', {
             'main_force_posture': 0.4, 'order_book_imbalance': 0.3, 'main_force_conviction': 0.3
@@ -841,11 +817,6 @@ class FoundationIntelligence:
             order_book_imbalance_score * di_weights.get('order_book_imbalance', 0.3) +
             main_force_conviction_score * di_weights.get('main_force_conviction', 0.3)
         ).clip(-1, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 主力姿态得分 (main_force_posture_score) 尾部: {main_force_posture_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 订单簿不平衡得分 (order_book_imbalance_score) 尾部: {order_book_imbalance_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 主力信念得分 (main_force_conviction_score) 尾部: {main_force_conviction_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 方向意图得分 (directional_intent_score) 尾部: {directional_intent_score.tail().to_dict()}")
         # --- 4. 诡道调制 (Deception Modulation) ---
         dm_params = p_conf_mt.get('deception_modulator_params', {})
         deception_penalty_factor = get_param_value(dm_params.get('deception_penalty_factor'), 0.6)
@@ -870,11 +841,6 @@ class FoundationIntelligence:
             negative_intent_bonus_multiplier
         ).clip(0, 1)
         directional_intent_score_modulated = directional_intent_score * deception_modulator
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 欺骗指数得分 (deception_index_score) 尾部: {deception_index_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 对倒强度得分 (wash_trade_intensity_score) 尾部: {wash_trade_intensity_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 诡道调制器 (deception_modulator) 尾部: {deception_modulator.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 调制后的方向意图得分 (directional_intent_score_modulated) 尾部: {directional_intent_score_modulated.tail().to_dict()}")
         # --- 5. 动态融合 (Dynamic Fusion) ---
         dynamic_fusion_modulator_params = p_conf_mt.get('dynamic_fusion_modulator_params', {})
         if get_param_value(dynamic_fusion_modulator_params.get('enabled'), False):
@@ -898,10 +864,6 @@ class FoundationIntelligence:
                 tension_magnitude_score * current_weights['tension_magnitude'] +
                 directional_intent_score_modulated * current_weights['directional_intent']
             ).clip(-1, 1)
-            if probe_enabled:
-                print(f"    -> [探针] 关键计算节点: 市场情绪调制得分 (modulator_signal_1_score) 尾部: {modulator_signal_1_score.tail().to_dict()}")
-                print(f"    -> [探针] 关键计算节点: 波动不稳定性调制得分 (modulator_signal_2_score) 尾部: {modulator_signal_2_score.tail().to_dict()}")
-                print(f"    -> [探针] 关键计算节点: 动态融合权重 (current_weights) 尾部: {current_weights.tail().to_dict()}")
         else:
             # 如果动态权重禁用，使用默认的50/50融合（或配置中的base_weights）
             base_weights = dynamic_fusion_modulator_params.get('base_weights', {'tension_magnitude': 0.5, 'directional_intent': 0.5})
@@ -909,8 +871,6 @@ class FoundationIntelligence:
                 tension_magnitude_score * base_weights.get('tension_magnitude', 0.5) +
                 directional_intent_score_modulated * base_weights.get('directional_intent', 0.5)
             ).clip(-1, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 基础张力得分 (base_tension_score) 尾部: {base_tension_score.tail().to_dict()}")
         # --- 6. 最终风险过滤 (Final Risk Filter) ---
         frf_params = p_conf_mt.get('final_risk_filter_params', {})
         if get_param_value(frf_params.get('enabled'), False):
@@ -924,15 +884,9 @@ class FoundationIntelligence:
             deception_penalty = deception_index_score_unipolar * deception_index_penalty_factor
             total_penalty = (chip_health_penalty + deception_penalty).clip(0, 1)
             tension_final_score = base_tension_score * (1 - total_penalty)
-            if probe_enabled:
-                print(f"    -> [探针] 关键计算节点: 筹码健康度得分 (chip_health_score) 尾部: {chip_health_score.tail().to_dict()}")
-                print(f"    -> [探针] 关键计算节点: 欺骗指数单极得分 (deception_index_score_unipolar) 尾部: {deception_index_score_unipolar.tail().to_dict()}")
-                print(f"    -> [探针] 关键计算节点: 最终风险过滤惩罚 (total_penalty) 尾部: {total_penalty.tail().to_dict()}")
         else:
             tension_final_score = base_tension_score
         tension_final_score = tension_final_score.clip(-1, 1).astype(np.float32)
-        if probe_enabled:
-            print(f"    -> [探针] 最终结果: 市场张力分 (tension_final_score) 尾部: {tension_final_score.tail().to_dict()}")
         print("    -> [基础层] “市场张力”公理诊断完成。")
         return tension_final_score
 
@@ -1153,32 +1107,175 @@ class FoundationIntelligence:
         liquidity: pd.Series,
         sentiment: pd.Series,
         tension: pd.Series,
-        modulator: pd.Series # 接收调节器
+        friction: pd.Series, # 新增行
+        modulator: pd.Series
     ) -> pd.Series:
         """
-        【V2.0 · 环境共振版】顶层融合：合成“基础层战略态势”
-        - 核心逻辑: 对五大公理进行加权融合，并应用环境共振调节器。
+        【V2.1 · 市场摩擦增强版】顶层融合：合成“基础层战略态势”
+        - 核心逻辑: 对六大公理进行加权融合，并应用环境共振调节器。
         """
         print("    -> [基础层] 正在合成“战略态势”顶层信号...")
         weights = params.get('strategic_posture_weights', {
-            "constitution": 0.30, "relative_strength": 0.25, "liquidity": 0.20,
-            "sentiment": 0.15, "tension": 0.10
+            "constitution": 0.25, "relative_strength": 0.20, "liquidity": 0.15,
+            "sentiment": 0.15, "tension": 0.15, "friction": 0.10 # 修改行
         })
-        w_c = weights.get("constitution", 0.30)
-        w_rs = weights.get("relative_strength", 0.25)
-        w_l = weights.get("liquidity", 0.20)
+        w_c = weights.get("constitution", 0.25)
+        w_rs = weights.get("relative_strength", 0.20)
+        w_l = weights.get("liquidity", 0.15)
         w_s = weights.get("sentiment", 0.15)
-        w_t = weights.get("tension", 0.10)
-        raw_strategic_posture = ( # 变量重命名为 raw_
+        w_t = weights.get("tension", 0.15)
+        w_f = weights.get("friction", 0.10) # 新增行
+        raw_strategic_posture = (
             constitution * w_c +
             relative_strength * w_rs +
             liquidity * w_l +
             sentiment * w_s +
-            tension * w_t
+            tension * w_t +
+            friction * w_f # 新增行
         )
-        # 新增: 应用环境调节器
         strategic_posture = raw_strategic_posture * modulator
         return strategic_posture.clip(-1, 1).astype(np.float32)
+
+    def _diagnose_axiom_market_friction(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 非对称阻力与效率版】基础公理六：诊断“市场摩擦”
+        - 核心逻辑: 量化市场价格发现过程中固有的阻力、偏向和效率。
+                      旨在理解价格上涨或下跌的“成本”，以及市场在不同方向上运动的“顺畅度”。
+        - 核心维度:
+            1) 非对称阻力 (Asymmetric Resistance - AR): 衡量价格运动的偏向性。
+            2) 流动性效率 (Liquidity Efficiency - LE): 衡量价格变动的顺畅度。
+            3) 结构性成本 (Structural Cost - SC): 衡量市场内在的隐性成本。
+            4) 诡道摩擦 (Deceptive Friction - DF): 识别主力通过欺骗行为制造的虚假摩擦。
+        - A股特性: 市场中存在大量非对称博弈和隐性成本，此公理旨在穿透表象，揭示真实的市场阻力。
+        """
+        print("    -> [基础层] 正在诊断“市场摩擦”公理 (V1.0 · 非对称阻力与效率版)...")
+        # 获取市场摩擦公理的专属参数
+        p_conf_mf = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('market_friction_params', {})
+        probe_enabled = get_param_value(p_conf_mf.get('enable_probe'), True)
+        # 获取MTF归一化默认权重
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        df_index = df.index
+        # 1. 校验所需信号
+        required_signals = [
+            'asymmetric_friction_index_D', 'micro_price_impact_asymmetry_D', 'volatility_asymmetry_index_D',
+            'flow_efficiency_index_D', 'order_book_clearing_rate_D', 'liquidity_slope_D',
+            'liquidity_authenticity_score_D', 'cost_structure_skewness_D', 'market_impact_cost_D',
+            'vwap_mean_reversion_corr_D', 'deception_index_D', 'wash_trade_intensity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_market_friction"):
+            return pd.Series(0.0, index=df.index)
+        # --- 原始数据获取 ---
+        asymmetric_friction_raw = self._get_safe_series(df, 'asymmetric_friction_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        micro_price_impact_asymmetry_raw = self._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        volatility_asymmetry_raw = self._get_safe_series(df, 'volatility_asymmetry_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        flow_efficiency_raw = self._get_safe_series(df, 'flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        order_book_clearing_rate_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        liquidity_slope_raw = self._get_safe_series(df, 'liquidity_slope_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        liquidity_authenticity_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        cost_structure_skewness_raw = self._get_safe_series(df, 'cost_structure_skewness_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        market_impact_cost_raw = self._get_safe_series(df, 'market_impact_cost_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        vwap_mean_reversion_corr_raw = self._get_safe_series(df, 'vwap_mean_reversion_corr_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        if probe_enabled:
+            print(f"    -> [探针] 原始数据: asymmetric_friction_index_D 尾部: {asymmetric_friction_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: micro_price_impact_asymmetry_D 尾部: {micro_price_impact_asymmetry_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: volatility_asymmetry_index_D 尾部: {volatility_asymmetry_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: flow_efficiency_index_D 尾部: {flow_efficiency_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: order_book_clearing_rate_D 尾部: {order_book_clearing_rate_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: liquidity_slope_D 尾部: {liquidity_slope_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: liquidity_authenticity_score_D 尾部: {liquidity_authenticity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: cost_structure_skewness_D 尾部: {cost_structure_skewness_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: market_impact_cost_D 尾部: {market_impact_cost_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: vwap_mean_reversion_corr_D 尾部: {vwap_mean_reversion_corr_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: deception_index_D 尾部: {deception_index_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_intensity_raw.tail().to_dict()}")
+        # --- 2. 非对称阻力 (Asymmetric Resistance - AR) ---
+        ar_weights = p_conf_mf.get('asymmetric_resistance_weights', {'asymmetric_friction': 0.4, 'micro_price_impact_asymmetry': 0.3, 'volatility_asymmetry': 0.3})
+        asymmetric_friction_score = get_adaptive_mtf_normalized_bipolar_score(asymmetric_friction_raw, df_index, default_weights)
+        micro_price_impact_asymmetry_score = get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_raw, df_index, default_weights)
+        volatility_asymmetry_score = get_adaptive_mtf_normalized_bipolar_score(volatility_asymmetry_raw, df_index, default_weights)
+        asymmetric_resistance_score = (
+            asymmetric_friction_score * ar_weights.get('asymmetric_friction', 0.4) +
+            micro_price_impact_asymmetry_score * ar_weights.get('micro_price_impact_asymmetry', 0.3) +
+            volatility_asymmetry_score * ar_weights.get('volatility_asymmetry', 0.3)
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 非对称摩擦得分 (asymmetric_friction_score) 尾部: {asymmetric_friction_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 微观价格冲击不对称得分 (micro_price_impact_asymmetry_score) 尾部: {micro_price_impact_asymmetry_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 波动率不对称得分 (volatility_asymmetry_score) 尾部: {volatility_asymmetry_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 非对称阻力得分 (asymmetric_resistance_score) 尾部: {asymmetric_resistance_score.tail().to_dict()}")
+        # --- 3. 流动性效率 (Liquidity Efficiency - LE) ---
+        le_weights = p_conf_mf.get('liquidity_efficiency_weights', {'flow_efficiency': 0.3, 'order_book_clearing_rate': 0.3, 'liquidity_slope': 0.2, 'liquidity_authenticity': 0.2})
+        flow_efficiency_score = get_adaptive_mtf_normalized_score(flow_efficiency_raw, df_index, default_weights, ascending=True)
+        order_book_clearing_rate_score = get_adaptive_mtf_normalized_score(order_book_clearing_rate_raw, df_index, default_weights, ascending=True)
+        liquidity_slope_score = get_adaptive_mtf_normalized_score(liquidity_slope_raw, df_index, default_weights, ascending=True)
+        liquidity_authenticity_score = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df_index, default_weights, ascending=True)
+        liquidity_efficiency_score = (
+            flow_efficiency_score * le_weights.get('flow_efficiency', 0.3) +
+            order_book_clearing_rate_score * le_weights.get('order_book_clearing_rate', 0.3) +
+            liquidity_slope_score * le_weights.get('liquidity_slope', 0.2) +
+            liquidity_authenticity_score * le_weights.get('liquidity_authenticity', 0.2)
+        ).clip(0, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 资金流效率得分 (flow_efficiency_score) 尾部: {flow_efficiency_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 订单簿清算率得分 (order_book_clearing_rate_score) 尾部: {order_book_clearing_rate_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 流动性斜率得分 (liquidity_slope_score) 尾部: {liquidity_slope_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 流动性真实性得分 (liquidity_authenticity_score) 尾部: {liquidity_authenticity_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 流动性效率得分 (liquidity_efficiency_score) 尾部: {liquidity_efficiency_score.tail().to_dict()}")
+        # --- 4. 结构性成本 (Structural Cost - SC) ---
+        sc_weights = p_conf_mf.get('structural_cost_weights', {'cost_structure_skewness': 0.4, 'market_impact_cost': 0.3, 'vwap_mean_reversion_corr': 0.3})
+        cost_structure_skewness_score = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_raw, df_index, default_weights)
+        market_impact_cost_score = get_adaptive_mtf_normalized_bipolar_score(market_impact_cost_raw, df_index, default_weights, ascending=False) # 冲击成本越高，分数越低
+        vwap_mean_reversion_corr_score = get_adaptive_mtf_normalized_bipolar_score(vwap_mean_reversion_corr_raw, df_index, default_weights)
+        structural_cost_score = (
+            cost_structure_skewness_score * sc_weights.get('cost_structure_skewness', 0.4) +
+            market_impact_cost_score * sc_weights.get('market_impact_cost', 0.3) +
+            vwap_mean_reversion_corr_score * sc_weights.get('vwap_mean_reversion_corr', 0.3)
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 成本结构偏度得分 (cost_structure_skewness_score) 尾部: {cost_structure_skewness_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 市场冲击成本得分 (market_impact_cost_score) 尾部: {market_impact_cost_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: VWAP均值回归相关性得分 (vwap_mean_reversion_corr_score) 尾部: {vwap_mean_reversion_corr_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 结构性成本得分 (structural_cost_score) 尾部: {structural_cost_score.tail().to_dict()}")
+        # --- 5. 基础市场摩擦分 (融合前三项) ---
+        final_fusion_weights = p_conf_mf.get('final_fusion_weights', {'asymmetric_resistance': 0.4, 'liquidity_efficiency': 0.3, 'structural_cost': 0.3})
+        # 将单极性的流动性效率转换为双极性，以便与非对称阻力和结构性成本融合
+        liquidity_efficiency_bipolar = liquidity_efficiency_score * 2 - 1
+        base_market_friction_score = (
+            asymmetric_resistance_score * final_fusion_weights.get('asymmetric_resistance', 0.4) +
+            liquidity_efficiency_bipolar * final_fusion_weights.get('liquidity_efficiency', 0.3) +
+            structural_cost_score * final_fusion_weights.get('structural_cost', 0.3)
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 基础市场摩擦得分 (base_market_friction_score) 尾部: {base_market_friction_score.tail().to_dict()}")
+        # --- 6. 诡道摩擦调制 (Deceptive Friction Modulation) ---
+        dfm_params = p_conf_mf.get('deceptive_friction_modulator_params', {})
+        deception_penalty_factor = get_param_value(dfm_params.get('deception_penalty_factor'), 0.6)
+        wash_trade_penalty_factor = get_param_value(dfm_params.get('wash_trade_penalty_factor'), 0.4)
+        modulator_strength = get_param_value(dfm_params.get('modulator_strength'), 0.5)
+        deception_index_score = get_adaptive_mtf_normalized_score(deception_index_raw, df_index, default_weights, ascending=True)
+        wash_trade_intensity_score = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, default_weights, ascending=True)
+        deceptive_friction_penalty = (
+            deception_index_score * deception_penalty_factor +
+            wash_trade_intensity_score * wash_trade_penalty_factor
+        ).clip(0, 1)
+        # 诡道摩擦调制器：当惩罚越高时，调制器越小，对市场摩擦分进行削弱
+        deceptive_friction_modulator = (1 - deceptive_friction_penalty * modulator_strength).clip(0, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 欺骗指数得分 (deception_index_score) 尾部: {deception_index_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 对倒强度得分 (wash_trade_intensity_score) 尾部: {wash_trade_intensity_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 诡道摩擦惩罚 (deceptive_friction_penalty) 尾部: {deceptive_friction_penalty.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 诡道摩擦调制器 (deceptive_friction_modulator) 尾部: {deceptive_friction_modulator.tail().to_dict()}")
+        # --- 7. 最终市场摩擦分数 ---
+        market_friction_score = (base_market_friction_score * deceptive_friction_modulator).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 最终结果: 市场摩擦分 (market_friction_score) 尾部: {market_friction_score.tail().to_dict()}")
+        print("    -> [基础层] “市场摩擦”公理诊断完成。")
+        return market_friction_score.astype(np.float32)
+
 
 
 

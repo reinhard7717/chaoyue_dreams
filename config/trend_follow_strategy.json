@@ -2571,12 +2571,51 @@
           "context_modulator_sensitivity_conviction": 0.4
         },
         "strategic_posture_weights": {
-          "description": "【V1.0 · 新增】顶层战略态势融合权重，用于合成五大基础公理。",
-          "constitution": 0.30,
-          "relative_strength": 0.25,
-          "liquidity": 0.20,
+          "description": "【V2.1 · 市场摩擦增强版】顶层战略态势融合权重，用于合成六大基础公理。",
+          "constitution": 0.25,
+          "relative_strength": 0.20,
+          "liquidity": 0.15,
           "sentiment": 0.15,
-          "tension": 0.10
+          "tension": 0.15,
+          "friction": 0.10
+        },
+        "market_friction_params": {
+          "description": "【V1.0 · 非对称阻力与效率版】市场摩擦公理的专属参数。",
+          "enable_probe": true,
+          "asymmetric_resistance_weights": {
+            "description": "非对称阻力融合权重。",
+            "asymmetric_friction": 0.4,
+            "micro_price_impact_asymmetry": 0.3,
+            "volatility_asymmetry": 0.3
+          },
+          "liquidity_efficiency_weights": {
+            "description": "流动性效率融合权重。",
+            "flow_efficiency": 0.3,
+            "order_book_clearing_rate": 0.3,
+            "liquidity_slope": 0.2,
+            "liquidity_authenticity": 0.2
+          },
+          "structural_cost_weights": {
+            "description": "结构性成本融合权重。",
+            "cost_structure_skewness": 0.4,
+            "market_impact_cost": 0.3,
+            "vwap_mean_reversion_corr": 0.3
+          },
+          "deceptive_friction_modulator_params": {
+            "description": "诡道摩擦调制器参数。",
+            "deception_penalty_factor": 0.6,
+            "comment_deception_penalty_factor": "欺骗指数对市场摩擦的惩罚因子。",
+            "wash_trade_penalty_factor": 0.4,
+            "comment_wash_trade_penalty_factor": "对倒强度对市场摩擦的惩罚因子。",
+            "modulator_strength": 0.5,
+            "comment_modulator_strength": "诡道摩擦调制器的整体强度。"
+          },
+          "final_fusion_weights": {
+            "description": "三大维度最终融合权重。",
+            "asymmetric_resistance": 0.4,
+            "liquidity_efficiency": 0.3,
+            "structural_cost": 0.3
+          }
         },
         "description_axiom_weights": "融合四大基础公理时的权重。",
         "axiom_weights": {
