@@ -268,9 +268,7 @@ class FoundationIntelligence:
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 获取探针启用状态
         probe_enabled = get_param_value(p_conf_rs.get('enable_probe'), False)
-
         df_index = df.index
-
         # 获取参数
         state_weights = p_conf_rs.get('state_weights', {'current_rank': 0.7, 'rank_stability': 0.3})
         momentum_weights = p_conf_rs.get('momentum_weights', {'rank_slope': 0.6, 'rank_acceleration': 0.4})
@@ -279,7 +277,6 @@ class FoundationIntelligence:
         synergy_threshold = get_param_value(p_conf_rs.get('synergy_threshold'), 0.2)
         rank_stability_window = get_param_value(p_conf_rs.get('rank_stability_window'), 5)
         rank_acceleration_window = get_param_value(p_conf_rs.get('rank_acceleration_window'), 5)
-
         # 1. 校验所需信号 (动态构建信号名称)
         required_signals = [
             'industry_strength_rank_D',
@@ -288,17 +285,15 @@ class FoundationIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_relative_strength"):
             return pd.Series(0.0, index=df.index)
-
         # --- 原始数据获取与探针输出 ---
         industry_rank_raw = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_relative_strength")
         industry_rank_slope_raw = self._get_safe_series(df, f'SLOPE_{rank_stability_window}_industry_strength_rank_D', 0.0, method_name="_diagnose_axiom_relative_strength")
         industry_rank_accel_raw = self._get_safe_series(df, f'ACCEL_{rank_acceleration_window}_industry_strength_rank_D', 0.0, method_name="_diagnose_axiom_relative_strength")
-
         if probe_enabled:
             print(f"    -> [探针] 原始数据: industry_strength_rank_D 尾部: {industry_rank_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: SLOPE_{rank_stability_window}_industry_strength_rank_D 尾部: {industry_rank_slope_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: ACCEL_{rank_acceleration_window}_industry_strength_rank_D 尾部: {industry_rank_accel_raw.tail().to_dict()}")
-
+            print(f"    -> [探针] 原始数据: SLOPE_{rank_stability_window}_industry_strength_rank_D 绝对值 (用于稳定性) 尾部: {industry_rank_slope_raw.abs().tail().to_dict()}") # 新增: 探针输出绝对值
         # --- 1. 强度状态分 (当前排名与稳定性) ---
         # 1.1 当前排名归一化到 [-1, 1]
         state_score_normalized = (industry_rank_raw - 0.5) * 2
@@ -312,12 +307,10 @@ class FoundationIntelligence:
             state_score_normalized * state_weights.get('current_rank', 0.7) +
             rank_stability_score * state_weights.get('rank_stability', 0.3)
         ).clip(-1, 1)
-
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 状态分 (state_score_normalized) 尾部: {state_score_normalized.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 排名稳定性分 (rank_stability_score) 尾部: {rank_stability_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 强化状态分 (enhanced_state_score) 尾部: {enhanced_state_score.tail().to_dict()}")
-
         # --- 2. 强度动量分 (排名斜率与加速度) ---
         # 2.1 排名斜率归一化到 [-1, 1]
         momentum_score_normalized = get_adaptive_mtf_normalized_bipolar_score(
@@ -333,18 +326,15 @@ class FoundationIntelligence:
             momentum_score_normalized * momentum_weights.get('rank_slope', 0.6) +
             rank_acceleration_score * momentum_weights.get('rank_acceleration', 0.4)
         ).clip(-1, 1)
-
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 动量分 (momentum_score_normalized) 尾部: {momentum_score_normalized.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 排名加速度分 (rank_acceleration_score) 尾部: {rank_acceleration_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 强化动量分 (enhanced_momentum_score) 尾部: {enhanced_momentum_score.tail().to_dict()}")
-
         # --- 3. 最终融合: 强化状态与动量，并引入协同奖励 ---
         relative_strength_score = (
             enhanced_state_score * fusion_weights.get('enhanced_state', 0.6) +
             enhanced_momentum_score * fusion_weights.get('enhanced_momentum', 0.4)
         )
-
         # 协同奖励: 当强化状态分和强化动量分都为正且超过阈值时，给予额外奖励
         synergy_condition = (enhanced_state_score > synergy_threshold) & (enhanced_momentum_score > synergy_threshold)
         if synergy_condition.any():
@@ -353,10 +343,12 @@ class FoundationIntelligence:
             relative_strength_score.loc[synergy_condition] = (
                 relative_strength_score.loc[synergy_condition] * (1 + synergy_boost)
             )
-
+        if probe_enabled: # 新增: 探针输出协同条件和奖励
+            print(f"    -> [探针] 关键计算节点: 协同条件 (synergy_condition) 尾部: {synergy_condition.tail().to_dict()}")
+            if synergy_condition.any():
+                print(f"    -> [探针] 关键计算节点: 协同奖励 (synergy_boost) 尾部: {synergy_boost.tail().to_dict()}")
         # 确保最终分数在 [-1, 1] 范围内
         relative_strength_score = relative_strength_score.clip(-1, 1).astype(np.float32)
-
         if probe_enabled:
             print(f"    -> [探针] 最终结果: 相对强度分 (relative_strength_score) 尾部: {relative_strength_score.tail().to_dict()}")
         print("    -> [基础层] “相对强度”公理诊断完成。")
