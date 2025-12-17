@@ -544,7 +544,7 @@
         "enable_asm_probe": true,
         "enable_ogds_probe": false,
         "enable_gt_probe": false,
-        "target_date": "2025-11-23"
+        "target_date": "2025-12-10"
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
@@ -2526,7 +2526,7 @@
       },
       "foundation_ultimate_params": {
         "enabled": true,
-        "description": "【V6.0 · 四大公理版】定义了基于“趋势、摆动、流体、波动”四大基础公理的引擎参数。",
+        "description": "【V6.0 · 五大公理版】定义了基于“市场体质、情绪钟摆、流动性潮汐、市场张力、相对强度”五大基础公理的引擎参数。",
         "environmental_modulator_params": {
           "enabled": true,
           "description": "【V1.0 · 新增】环境共振调节器，用于根据市场/板块/主题环境调整顶层信号。",
@@ -2590,7 +2590,7 @@
           "slope": 0.5
         },
         "relative_strength_params": {
-          "description": "【V4.0 · 情境与品质校准版】相对强度公理的专属参数。",
+          "description": "【V4.1 · 数据鲁棒性与调节器精细化版】相对强度公理的专属参数。",
           "state_weights": {
             "current_rank": 0.7,
             "rank_stability": 0.3
@@ -2607,7 +2607,7 @@
           "synergy_threshold": 0.2,
           "rank_stability_window": 5,
           "rank_acceleration_window": 5,
-          "enable_probe": true,
+          "enable_probe": false,
           "sector_leadership_quality_weights": {
             "description": "行业领导力质量融合权重。",
             "leader_score": 0.4,
@@ -2639,7 +2639,7 @@
           "comment_slq_activation_window": "行业领导力质量激活窗口，用于计算原始输入平均值。"
         },
         "market_constitution_params": {
-          "description": "【V4.0 · 深度体质诊断版】市场体质公理的专属参数。",
+          "description": "【V5.0 · 微观结构与筹码博弈版】市场体质公理的专属参数。",
           "ma_periods": [5, 13, 21, 55],
           "ma_structure_quality_weights": {
             "description": "均线骨架质量融合权重。",
@@ -2652,29 +2652,50 @@
           },
           "turnover_health_weights": {
             "description": "筹码新陈代谢健康度融合权重。",
-            "turnover_rate": 0.5,
+            "turnover_rate": 0.4,
             "volume_burstiness": 0.2,
-            "constructive_turnover": 0.3
+            "constructive_turnover": 0.3,
+            "volume_structure_skew": 0.1
           },
           "market_conviction_strength_weights": {
             "description": "市场信念强度融合权重。",
-            "trend_alignment": 0.4,
+            "trend_alignment": 0.3,
             "main_force_conviction": 0.3,
-            "flow_credibility": 0.3
+            "flow_credibility": 0.2,
+            "main_force_flow_directionality": 0.1,
+            "main_force_cost_advantage": 0.1
           },
           "immune_resilience_weights": {
             "description": "免疫韧性与抗压能力融合权重。",
-            "dip_absorption": 0.4,
+            "dip_absorption": 0.3,
             "pressure_rejection": 0.2,
             "chip_health": 0.2,
-            "capitulation_absorption": 0.2
+            "capitulation_absorption": 0.1,
+            "winner_stability": 0.1,
+            "loser_pain": 0.1
+          },
+          "price_action_quality_weights": {
+            "description": "【新增】价格行为品质融合权重。",
+            "upward_impulse_purity": 0.3,
+            "thrust_efficiency": 0.3,
+            "closing_acceptance_type": 0.2,
+            "volume_structure_skew": 0.2
+          },
+          "chip_game_depth_weights": {
+            "description": "【新增】筹码博弈深度融合权重。",
+            "winner_stability": 0.3,
+            "loser_pain": 0.2,
+            "main_force_flow_directionality": 0.3,
+            "main_force_cost_advantage": 0.2
           },
           "final_fusion_weights": {
-            "description": "四大核心维度最终融合权重。",
-            "msq": 0.3,
-            "th": 0.2,
-            "mcs": 0.3,
-            "ir": 0.2
+            "description": "六大核心维度最终融合权重。",
+            "msq": 0.2,
+            "th": 0.15,
+            "mcs": 0.2,
+            "ir": 0.15,
+            "paq": 0.15,
+            "cgd": 0.15
           },
           "short_board_penalty_threshold": 0.2,
           "comment_short_board_penalty_threshold": "短板效应惩罚阈值，当任一核心维度得分低于此值时触发惩罚。",

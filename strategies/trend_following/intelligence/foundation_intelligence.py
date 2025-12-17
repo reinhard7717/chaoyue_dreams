@@ -109,14 +109,16 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V4.1 · 均衡与敏感度校准版】基础公理一：诊断“市场体质”
-        - 核心逻辑: 融合均线骨架质量(MSQ)、筹码新陈代谢健康度(TH)、市场信念强度(MCS)以及免疫韧性与抗压能力(IR)。
-                      通过多维度、更精细的原始数据，并优化融合逻辑，以更全面、更准确地评估市场体质。
-                      修正了双极性原始数据的处理方式和加权融合中的数学转换顺序，以提高信号的鉴别力。
-        - A股特性: 健康的上涨不仅结构稳固、换手温和，更应具备强大的下跌抵抗能力和主力资金的真实信念。
-                    此升级旨在识别这种“抗揍”且有“内生动力”的健康体质。
+        【V5.0 · 微观结构与筹码博弈版】基础公理一：诊断“市场体质”
+        - 核心逻辑: 融合均线骨架质量(MSQ)、筹码新陈代谢健康度(TH)、市场信念强度(MCS)、免疫韧性与抗压能力(IR)，
+                      并新增价格行为品质(PAQ)和筹码博弈深度(CGD)两大维度。
+                      通过更精细的原始数据和优化的融合逻辑，全面捕捉A股市场的“体质”，识别具备高质量、深层博弈优势的标的。
+                      引入“短板效应”惩罚和“协同奖励”机制，使评估更贴近A股博弈特性。
+        - A股特性: 健康的上涨不仅结构稳固、换手温和，更应具备强大的下跌抵抗能力、主力资金的真实信念，
+                    以及高质量的价格行为和健康的筹码分布。此升级旨在识别这种“抗揍”、有“内生动力”、
+                    “行为纯粹”且“筹码稳固”的健康体质。
         """
-        print("    -> [基础层] 正在诊断“市场体质”公理 (V4.1 · 均衡与敏感度校准版)...") # 修改: 更新版本描述
+        print("    -> [基础层] 正在诊断“市场体质”公理 (V5.0 · 微观结构与筹码博弈版)...") # 修改: 更新版本描述
         # 获取市场体质公理的专属参数
         p_conf_mc = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('market_constitution_params', {})
         # 获取行为动态参数中的MTF归一化默认权重
@@ -124,17 +126,20 @@ class FoundationIntelligence:
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 获取探针启用状态
-        probe_enabled = get_param_value(p_conf_mc.get('enable_probe'), True) # 启用探针
+        probe_enabled = get_param_value(p_conf_mc.get('enable_probe'), True)
 
         df_index = df.index
 
         # 获取参数
         ma_periods = p_conf_mc.get('ma_periods', [5, 13, 21, 55])
         msq_weights = p_conf_mc.get('ma_structure_quality_weights', {'macd_score': 0.2, 'alignment_score': 0.3, 'slope_score': 0.3, 'dma_slope_score': 0.1, 'orderliness_score': 0.05, 'tension_score': 0.05})
-        th_weights = p_conf_mc.get('turnover_health_weights', {'turnover_rate': 0.5, 'volume_burstiness': 0.2, 'constructive_turnover': 0.3})
-        mcs_weights = p_conf_mc.get('market_conviction_strength_weights', {'trend_alignment': 0.4, 'main_force_conviction': 0.3, 'flow_credibility': 0.3})
-        ir_weights = p_conf_mc.get('immune_resilience_weights', {'dip_absorption': 0.4, 'pressure_rejection': 0.2, 'chip_health': 0.2, 'capitulation_absorption': 0.2})
-        final_fusion_weights = p_conf_mc.get('final_fusion_weights', {'msq': 0.3, 'th': 0.2, 'mcs': 0.3, 'ir': 0.2})
+        th_weights = p_conf_mc.get('turnover_health_weights', {'turnover_rate': 0.4, 'volume_burstiness': 0.2, 'constructive_turnover': 0.3, 'volume_structure_skew': 0.1}) # 修改: 新增 volume_structure_skew
+        mcs_weights = p_conf_mc.get('market_conviction_strength_weights', {'trend_alignment': 0.3, 'main_force_conviction': 0.3, 'flow_credibility': 0.2, 'main_force_flow_directionality': 0.1, 'main_force_cost_advantage': 0.1}) # 修改: 新增 main_force_flow_directionality, main_force_cost_advantage
+        ir_weights = p_conf_mc.get('immune_resilience_weights', {'dip_absorption': 0.3, 'pressure_rejection': 0.2, 'chip_health': 0.2, 'capitulation_absorption': 0.1, 'winner_stability': 0.1, 'loser_pain': 0.1}) # 修改: 新增 winner_stability, loser_pain
+        paq_weights = p_conf_mc.get('price_action_quality_weights', {'upward_impulse_purity': 0.3, 'thrust_efficiency': 0.3, 'closing_acceptance_type': 0.2, 'volume_structure_skew': 0.2}) # 新增: PAQ权重
+        cgd_weights = p_conf_mc.get('chip_game_depth_weights', {'winner_stability': 0.3, 'loser_pain': 0.2, 'main_force_flow_directionality': 0.3, 'main_force_cost_advantage': 0.2}) # 新增: CGD权重
+
+        final_fusion_weights = p_conf_mc.get('final_fusion_weights', {'msq': 0.2, 'th': 0.15, 'mcs': 0.2, 'ir': 0.15, 'paq': 0.15, 'cgd': 0.15}) # 修改: 新增 paq, cgd 权重
         short_board_penalty_threshold = get_param_value(p_conf_mc.get('short_board_penalty_threshold'), 0.2)
         short_board_penalty_factor = get_param_value(p_conf_mc.get('short_board_penalty_factor'), 0.5)
         synergy_bonus_threshold = get_param_value(p_conf_mc.get('synergy_bonus_threshold'), 0.8)
@@ -144,19 +149,25 @@ class FoundationIntelligence:
         required_signals = [
             'MACDh_13_34_8_D', 'SLOPE_5_DMA_D', 'turnover_rate_f_D', 'trend_alignment_index_D',
             'dip_absorption_power_D',
-            # 新增 MSQ 所需信号
             'MA_POTENTIAL_ORDERLINESS_SCORE_D',
             'MA_POTENTIAL_TENSION_INDEX_D',
-            # 新增 TH 所需信号
             'volume_burstiness_index_D',
             'constructive_turnover_ratio_D',
-            # 新增 MCS 所需信号
             'main_force_conviction_index_D',
             'flow_credibility_index_D',
-            # 新增 IR 所需信号
             'pressure_rejection_strength_D',
             'chip_health_score_D',
-            'capitulation_absorption_index_D'
+            'capitulation_absorption_index_D',
+            # 新增 PAQ 所需信号
+            'upward_impulse_purity_D',
+            'thrust_efficiency_score_D',
+            'closing_acceptance_type_D',
+            'volume_structure_skew_D', # TH和PAQ都可能用到
+            # 新增 CGD 所需信号
+            'winner_stability_index_D',
+            'loser_pain_index_D',
+            'main_force_flow_directionality_D',
+            'main_force_cost_advantage_D'
         ]
         required_signals.extend([f'EMA_{p}_D' for p in ma_periods])
         required_signals.extend([f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods])
@@ -165,14 +176,12 @@ class FoundationIntelligence:
             return pd.Series(0.0, index=df.index)
 
         # --- 原始数据获取 ---
-        # 沿用 V3.0 原始数据
+        # 沿用 V4.1 原始数据
         macd_h_raw = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         dma_slope_raw = self._get_safe_series(df, 'SLOPE_5_DMA_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         trend_alignment_raw = self._get_safe_series(df, 'trend_alignment_index_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         dip_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_axiom_market_constitution")
-
-        # 新增原始数据
         ma_orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         ma_tension_raw = self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name="_diagnose_axiom_market_constitution")
@@ -182,6 +191,16 @@ class FoundationIntelligence:
         pressure_rejection_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         capitulation_absorption_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+
+        # 新增原始数据
+        upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        thrust_efficiency_score_raw = self._get_safe_series(df, 'thrust_efficiency_score_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        closing_acceptance_type_raw = self._get_safe_series(df, 'closing_acceptance_type_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        winner_stability_index_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        loser_pain_index_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        main_force_flow_directionality_raw = self._get_safe_series(df, 'main_force_flow_directionality_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        main_force_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_axiom_market_constitution")
 
         if probe_enabled:
             print(f"    -> [探针] 原始数据: MACDh_13_34_8_D 尾部: {macd_h_raw.tail().to_dict()}")
@@ -198,6 +217,14 @@ class FoundationIntelligence:
             print(f"    -> [探针] 原始数据: pressure_rejection_strength_D 尾部: {pressure_rejection_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: chip_health_score_D 尾部: {chip_health_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: capitulation_absorption_index_D 尾部: {capitulation_absorption_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: upward_impulse_purity_D 尾部: {upward_impulse_purity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: thrust_efficiency_score_D 尾部: {thrust_efficiency_score_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: closing_acceptance_type_D 尾部: {closing_acceptance_type_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: volume_structure_skew_D 尾部: {volume_structure_skew_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: winner_stability_index_D 尾部: {winner_stability_index_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: loser_pain_index_D 尾部: {loser_pain_index_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: main_force_flow_directionality_D 尾部: {main_force_flow_directionality_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: main_force_cost_advantage_D 尾部: {main_force_cost_advantage_raw.tail().to_dict()}")
             for p in ma_periods:
                 print(f"    -> [探针] 原始数据: EMA_{p}_D 尾部: {self._get_safe_series(df, f'EMA_{p}_D', 0.0, method_name='_diagnose_axiom_market_constitution').tail().to_dict()}")
                 print(f"    -> [探针] 原始数据: SLOPE_{p}_EMA_{p}_D 尾部: {self._get_safe_series(df, f'SLOPE_{p}_EMA_{p}_D', 0.0, method_name='_diagnose_axiom_market_constitution').tail().to_dict()}")
@@ -205,16 +232,14 @@ class FoundationIntelligence:
         # --- 1. 均线骨架质量 (MA Structure Quality - MSQ) ---
         macd_score = get_adaptive_mtf_normalized_bipolar_score(macd_h_raw, df_index, default_weights)
         
-        # 均线排列得分
         bull_alignment_scores = []
         for i in range(len(ma_periods) - 1):
             ema_current = self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', 0.0, method_name="_diagnose_axiom_market_constitution")
             ema_next = self._get_safe_series(df, f'EMA_{ma_periods[i+1]}_D', 0.0, method_name="_diagnose_axiom_market_constitution")
             bull_alignment_scores.append((ema_current > ema_next).astype(float).values)
         alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df_index), 0.5)
-        alignment_bipolar = (pd.Series(alignment_score, index=df_index) - 0.5) * 2 # 归一化到 [-1, 1]
+        alignment_bipolar = (pd.Series(alignment_score, index=df_index) - 0.5) * 2
 
-        # 均线斜率得分
         slope_scores = []
         for p in ma_periods:
             slope_raw = self._get_safe_series(df, f'SLOPE_{p}_EMA_{p}_D', 0.0, method_name="_diagnose_axiom_market_constitution")
@@ -223,17 +248,16 @@ class FoundationIntelligence:
 
         dma_slope_score = get_adaptive_mtf_normalized_bipolar_score(dma_slope_raw, df_index, default_weights)
 
-        # 修正: 均线有序性得分和均线张力得分直接使用 get_adaptive_mtf_normalized_bipolar_score
-        ma_orderliness_score = get_adaptive_mtf_normalized_bipolar_score(ma_orderliness_raw, df_index, default_weights) # 修改: 使用 bipolar 归一化
-        ma_tension_score = get_adaptive_mtf_normalized_bipolar_score(ma_tension_raw, df_index, default_weights) # 修改: 使用 bipolar 归一化
+        ma_orderliness_score = get_adaptive_mtf_normalized_bipolar_score(ma_orderliness_raw, df_index, default_weights)
+        ma_tension_score = get_adaptive_mtf_normalized_bipolar_score(ma_tension_raw, df_index, default_weights)
 
         ma_structure_quality_score = (
             macd_score * msq_weights.get('macd_score', 0.2) +
             alignment_bipolar * msq_weights.get('alignment_score', 0.3) +
             avg_slope_bipolar * msq_weights.get('slope_score', 0.3) +
             dma_slope_score * msq_weights.get('dma_slope_score', 0.1) +
-            ma_orderliness_score * msq_weights.get('orderliness_score', 0.05) + # 修改: 移除 * 2 - 1
-            ma_tension_score * msq_weights.get('tension_score', 0.05) # 修改: 移除 * 2 - 1
+            ma_orderliness_score * msq_weights.get('orderliness_score', 0.05) +
+            ma_tension_score * msq_weights.get('tension_score', 0.05)
         ).clip(-1, 1)
 
         if probe_enabled:
@@ -246,58 +270,68 @@ class FoundationIntelligence:
             print(f"    -> [探针] 关键计算节点: 均线骨架质量分 (ma_structure_quality_score) 尾部: {ma_structure_quality_score.tail().to_dict()}")
 
         # --- 2. 筹码新陈代谢健康度 (Turnover Health - TH) ---
-        # 换手率健康度 (越低越健康，但不能过低)
         turnover_health_score_v3 = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, ascending=False, tf_weights=default_weights)
-        # 新增: 成交量爆发性 (越低越健康)
         volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, default_weights, ascending=False)
-        # 新增: 建设性换手率 (越高越健康)
         constructive_turnover_score = get_adaptive_mtf_normalized_score(constructive_turnover_raw, df_index, default_weights, ascending=True)
+        # 新增: 成交量结构偏度 (越高越健康，正偏度表示上涨时量能集中在上方)
+        volume_structure_skew_score_th = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw, df_index, default_weights) # 修改: 新增
 
         turnover_health_score = (
-            turnover_health_score_v3 * th_weights.get('turnover_rate', 0.5) +
+            turnover_health_score_v3 * th_weights.get('turnover_rate', 0.4) +
             volume_burstiness_score * th_weights.get('volume_burstiness', 0.2) +
-            constructive_turnover_score * th_weights.get('constructive_turnover', 0.3)
-        ).clip(0, 1)
+            constructive_turnover_score * th_weights.get('constructive_turnover', 0.3) +
+            volume_structure_skew_score_th * th_weights.get('volume_structure_skew', 0.1) # 修改: 新增
+        ).clip(0, 1) # TH 维度保持 [0,1] 范围，因为其本质是健康度
 
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 换手率健康度得分 (turnover_health_score_v3) 尾部: {turnover_health_score_v3.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 成交量爆发性得分 (volume_burstiness_score) 尾部: {volume_burstiness_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 建设性换手率得分 (constructive_turnover_score) 尾部: {constructive_turnover_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 成交量结构偏度得分 (volume_structure_skew_score_th) 尾部: {volume_structure_skew_score_th.tail().to_dict()}") # 新增
             print(f"    -> [探针] 关键计算节点: 筹码新陈代谢健康度分 (turnover_health_score) 尾部: {turnover_health_score.tail().to_dict()}")
 
         # --- 3. 市场信念强度 (Market Conviction Strength - MCS) ---
         conviction_score_v3 = get_adaptive_mtf_normalized_score(trend_alignment_raw, df_index, ascending=True, tf_weights=default_weights)
-        # 新增: 主力信念 (双极)
         main_force_conviction_score = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, default_weights)
-        # 新增: 资金流可信度 (0-1)
         flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, default_weights, ascending=True)
+        # 新增: 主力资金流方向性 (双极)
+        main_force_flow_directionality_score = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, default_weights) # 修改: 新增
+        # 新增: 主力成本优势 (双极)
+        main_force_cost_advantage_score = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, default_weights) # 修改: 新增
 
         market_conviction_strength_score = (
-            conviction_score_v3 * mcs_weights.get('trend_alignment', 0.4) +
+            conviction_score_v3 * mcs_weights.get('trend_alignment', 0.3) +
             main_force_conviction_score * mcs_weights.get('main_force_conviction', 0.3) +
-            (flow_credibility_score * 2 - 1) * mcs_weights.get('flow_credibility', 0.3) # 修改: 修正转换顺序
+            (flow_credibility_score * 2 - 1) * mcs_weights.get('flow_credibility', 0.2) +
+            main_force_flow_directionality_score * mcs_weights.get('main_force_flow_directionality', 0.1) + # 修改: 新增
+            main_force_cost_advantage_score * mcs_weights.get('main_force_cost_advantage', 0.1) # 修改: 新增
         ).clip(-1, 1)
 
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 趋势一致性得分 (conviction_score_v3) 尾部: {conviction_score_v3.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 主力信念得分 (main_force_conviction_score) 尾部: {main_force_conviction_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 资金流可信度得分 (flow_credibility_score) 尾部: {flow_credibility_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 主力资金流方向性得分 (main_force_flow_directionality_score) 尾部: {main_force_flow_directionality_score.tail().to_dict()}") # 新增
+            print(f"    -> [探针] 关键计算节点: 主力成本优势得分 (main_force_cost_advantage_score) 尾部: {main_force_cost_advantage_score.tail().to_dict()}") # 新增
             print(f"    -> [探针] 关键计算节点: 市场信念强度分 (market_conviction_strength_score) 尾部: {market_conviction_strength_score.tail().to_dict()}")
 
         # --- 4. 免疫韧性与抗压能力 (Immune Resilience - IR) ---
         dip_absorption_score = get_adaptive_mtf_normalized_score(dip_absorption_raw, df_index, ascending=True, tf_weights=default_weights)
-        # 新增: 压力拒绝强度 (越高越好)
         pressure_rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection_raw, df_index, default_weights, ascending=True)
-        # 新增: 筹码健康度 (越高越好)
         chip_health_score = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, default_weights, ascending=True)
-        # 新增: 投降吸收指数 (越高越好)
         capitulation_absorption_score = get_adaptive_mtf_normalized_score(capitulation_absorption_raw, df_index, default_weights, ascending=True)
+        # 新增: 赢家稳定性指数 (越高越好)
+        winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_index_raw, df_index, default_weights, ascending=True) # 修改: 新增
+        # 新增: 输家痛苦指数 (越低越好，即痛苦程度越低，筹码越稳定)
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_index_raw, df_index, default_weights, ascending=False) # 修改: 新增
 
         immune_resilience_score = (
-            dip_absorption_score * ir_weights.get('dip_absorption', 0.4) +
+            dip_absorption_score * ir_weights.get('dip_absorption', 0.3) +
             pressure_rejection_score * ir_weights.get('pressure_rejection', 0.2) +
             chip_health_score * ir_weights.get('chip_health', 0.2) +
-            capitulation_absorption_score * ir_weights.get('capitulation_absorption', 0.2)
+            capitulation_absorption_score * ir_weights.get('capitulation_absorption', 0.1) +
+            winner_stability_score * ir_weights.get('winner_stability', 0.1) + # 修改: 新增
+            loser_pain_score * ir_weights.get('loser_pain', 0.1) # 修改: 新增
         ).clip(0, 1)
 
         if probe_enabled:
@@ -305,19 +339,65 @@ class FoundationIntelligence:
             print(f"    -> [探针] 关键计算节点: 压力拒绝强度得分 (pressure_rejection_score) 尾部: {pressure_rejection_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 筹码健康度得分 (chip_health_score) 尾部: {chip_health_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 投降吸收指数得分 (capitulation_absorption_score) 尾部: {capitulation_absorption_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 赢家稳定性得分 (winner_stability_score) 尾部: {winner_stability_score.tail().to_dict()}") # 新增
+            print(f"    -> [探针] 关键计算节点: 输家痛苦得分 (loser_pain_score) 尾部: {loser_pain_score.tail().to_dict()}") # 新增
             print(f"    -> [探针] 关键计算节点: 免疫韧性与抗压能力分 (immune_resilience_score) 尾部: {immune_resilience_score.tail().to_dict()}")
 
-        # --- 5. 最终融合: 四大核心维度 + 非线性调节 ---
+        # --- 5. 价格行为品质 (Price Action Quality - PAQ) --- # 新增维度
+        upward_impulse_purity_score = get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, default_weights, ascending=True)
+        thrust_efficiency_score = get_adaptive_mtf_normalized_score(thrust_efficiency_score_raw, df_index, default_weights, ascending=True)
+        closing_acceptance_type_score = get_adaptive_mtf_normalized_score(closing_acceptance_type_raw, df_index, default_weights, ascending=True)
+        volume_structure_skew_score_paq = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw, df_index, default_weights)
+
+        price_action_quality_score = (
+            upward_impulse_purity_score * paq_weights.get('upward_impulse_purity', 0.3) +
+            thrust_efficiency_score * paq_weights.get('thrust_efficiency', 0.3) +
+            (closing_acceptance_type_score * 2 - 1) * paq_weights.get('closing_acceptance_type', 0.2) + # 假设 closing_acceptance_type_D 是 0-100，归一化到 0-1 后再转为 -1到1
+            volume_structure_skew_score_paq * paq_weights.get('volume_structure_skew', 0.2)
+        ).clip(-1, 1)
+
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 上涨脉冲纯度得分 (upward_impulse_purity_score) 尾部: {upward_impulse_purity_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 推力效率得分 (thrust_efficiency_score) 尾部: {thrust_efficiency_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 收盘接受类型得分 (closing_acceptance_type_score) 尾部: {closing_acceptance_type_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 成交量结构偏度得分 (volume_structure_skew_score_paq) 尾部: {volume_structure_skew_score_paq.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 价格行为品质分 (price_action_quality_score) 尾部: {price_action_quality_score.tail().to_dict()}")
+
+        # --- 6. 筹码博弈深度 (Chip Game Depth - CGD) --- # 新增维度
+        winner_stability_score_cgd = get_adaptive_mtf_normalized_score(winner_stability_index_raw, df_index, default_weights, ascending=True)
+        loser_pain_score_cgd = get_adaptive_mtf_normalized_score(loser_pain_index_raw, df_index, default_weights, ascending=False)
+        main_force_flow_directionality_score_cgd = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, default_weights)
+        main_force_cost_advantage_score_cgd = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, default_weights)
+
+        chip_game_depth_score = (
+            winner_stability_score_cgd * cgd_weights.get('winner_stability', 0.3) +
+            (loser_pain_score_cgd * 2 - 1) * cgd_weights.get('loser_pain', 0.2) + # 输家痛苦指数越低越好，所以归一化到 [0,1] 后转为 [-1,1]
+            main_force_flow_directionality_score_cgd * cgd_weights.get('main_force_flow_directionality', 0.3) +
+            main_force_cost_advantage_score_cgd * cgd_weights.get('main_force_cost_advantage', 0.2)
+        ).clip(-1, 1)
+
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 赢家稳定性得分 (winner_stability_score_cgd) 尾部: {winner_stability_score_cgd.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 输家痛苦得分 (loser_pain_score_cgd) 尾部: {loser_pain_score_cgd.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 主力资金流方向性得分 (main_force_flow_directionality_score_cgd) 尾部: {main_force_flow_directionality_score_cgd.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 主力成本优势得分 (main_force_cost_advantage_score_cgd) 尾部: {main_force_cost_advantage_score_cgd.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 筹码博弈深度分 (chip_game_depth_score) 尾部: {chip_game_depth_score.tail().to_dict()}")
+
+        # --- 7. 最终融合: 六大核心维度 + 非线性调节 --- # 修改: 融合六个维度
         # 将所有维度归一化到 [0, 1] 范围，以便进行短板效应和协同奖励
         msq_unipolar = (ma_structure_quality_score + 1) / 2
         mcs_unipolar = (market_conviction_strength_score + 1) / 2
+        paq_unipolar = (price_action_quality_score + 1) / 2
+        cgd_unipolar = (chip_game_depth_score + 1) / 2
 
         # 核心维度加权融合，注意将 [0,1] 的分数转换为 [-1,1] 再进行融合
         raw_constitution_score = (
-            ma_structure_quality_score * final_fusion_weights.get('msq', 0.3) +
-            (turnover_health_score * 2 - 1) * final_fusion_weights.get('th', 0.2) +
-            market_conviction_strength_score * final_fusion_weights.get('mcs', 0.3) +
-            (immune_resilience_score * 2 - 1) * final_fusion_weights.get('ir', 0.2)
+            ma_structure_quality_score * final_fusion_weights.get('msq', 0.2) +
+            (turnover_health_score * 2 - 1) * final_fusion_weights.get('th', 0.15) +
+            market_conviction_strength_score * final_fusion_weights.get('mcs', 0.2) +
+            (immune_resilience_score * 2 - 1) * final_fusion_weights.get('ir', 0.15) +
+            price_action_quality_score * final_fusion_weights.get('paq', 0.15) + # 新增
+            chip_game_depth_score * final_fusion_weights.get('cgd', 0.15) # 新增
         ).clip(-1, 1)
 
         # 短板效应惩罚: 如果任何一个核心维度（归一化到[0,1]）低于阈值，则进行惩罚
@@ -325,30 +405,34 @@ class FoundationIntelligence:
             'msq': msq_unipolar,
             'th': turnover_health_score,
             'mcs': mcs_unipolar,
-            'ir': immune_resilience_score
+            'ir': immune_resilience_score,
+            'paq': paq_unipolar, # 新增
+            'cgd': cgd_unipolar # 新增
         }).min(axis=1)
 
         short_board_penalty = pd.Series(1.0, index=df_index)
         penalty_condition = min_score_components < short_board_penalty_threshold
         if penalty_condition.any():
-            # 惩罚因子与短板程度成正比，并由 short_board_penalty_factor 控制强度
             penalty_amount = (short_board_penalty_threshold - min_score_components[penalty_condition]) / short_board_penalty_threshold * short_board_penalty_factor
-            short_board_penalty.loc[penalty_condition] = (1 - penalty_amount).clip(lower=0.0) # 惩罚因子至少为0
+            short_board_penalty.loc[penalty_condition] = (1 - penalty_amount).clip(lower=0.0)
 
         # 协同奖励: 如果所有核心维度（归一化到[0,1]）都高于阈值，则给予奖励
         synergy_condition = (msq_unipolar > synergy_bonus_threshold) & \
                             (turnover_health_score > synergy_bonus_threshold) & \
                             (mcs_unipolar > synergy_bonus_threshold) & \
-                            (immune_resilience_score > synergy_bonus_threshold)
+                            (immune_resilience_score > synergy_bonus_threshold) & \
+                            (paq_unipolar > synergy_bonus_threshold) & \
+                            (cgd_unipolar > synergy_bonus_threshold) # 修改: 新增 PAQ 和 CGD
         
         synergy_bonus = pd.Series(0.0, index=df_index)
         if synergy_condition.any():
-            # 奖励因子与平均表现成正比，并由 synergy_bonus_factor 控制强度
             avg_high_score = pd.DataFrame({
                 'msq': msq_unipolar[synergy_condition],
                 'th': turnover_health_score[synergy_condition],
                 'mcs': mcs_unipolar[synergy_condition],
-                'ir': immune_resilience_score[synergy_condition]
+                'ir': immune_resilience_score[synergy_condition],
+                'paq': paq_unipolar[synergy_condition], # 新增
+                'cgd': cgd_unipolar[synergy_condition] # 新增
             }).mean(axis=1)
             synergy_bonus.loc[synergy_condition] = (avg_high_score - synergy_bonus_threshold) / (1 - synergy_bonus_threshold) * synergy_bonus_factor
 

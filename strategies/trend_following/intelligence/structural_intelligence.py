@@ -49,7 +49,7 @@ class StructuralIntelligence:
         if not get_param_value(p_conf.get('enabled'), True):
             print("结构情报引擎已在配置中禁用，跳过。")
             return {}
-        # 修改开始：引入探针机制
+        # 修改开始：恢复探针机制的初始化
         debug_config = get_params_block(self.strategy, 'debug_params', {})
         current_processing_date_str = df.index[-1].strftime('%Y-%m-%d') if not df.empty else ""
         self.is_probe_date = debug_config.get('should_probe', False) and \
@@ -475,18 +475,14 @@ class StructuralIntelligence:
         - 【优化】使用专属的 `long_term_stability` MTF权重进行归一化。
         - 【探针植入】增加了详细的探针输出，以便于检查和调试。
         """
-        # 修改开始：更新 required_signals，移除旧的，新增新的
         required_signals = [
             'support_validation_strength_D', 'pressure_rejection_strength_D', 'lower_shadow_absorption_strength_D',
             'dominant_peak_solidity_D', 'chip_health_score_D', 'cost_dispersion_index_D',
             'winner_stability_index_D', 'chip_fatigue_index_D', 'equilibrium_compression_index_D',
             'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'value_area_overlap_pct_D',
             'control_solidity_index_D', 'mf_cost_zone_defense_intent_D', 'main_force_conviction_index_D',
-            'panic_buy_absorption_contribution_D', 'close_D' # close_D 用于 _get_safe_series 的默认值
+            'panic_buy_absorption_contribution_D', 'close_D'
         ]
-        # 移除 long_term_ma_periods 相关信号，因为不再直接使用 (close - MA)
-        # 移除 'flow_credibility_index_D', 'main_force_slippage_index_D'
-        # 修改结束
 
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
             return pd.Series(0.0, index=df.index)
@@ -501,15 +497,18 @@ class StructuralIntelligence:
             "main_force_control_intent": 0.2
         })
 
-        # 修改开始：探针输出
+        # 修改开始：探针输出 - 原始输入和配置
         if self.is_probe_date:
             print(f"\n--- [结构公理] 稳定性探针 @ {df.index[-1].strftime('%Y-%m-%d')} ---")
+            print(f"  -> 原始输入:")
+            for signal in required_signals:
+                if signal in df.columns:
+                    print(f"    {signal}: {df[signal].iloc[-1]:.4f}")
             print(f"  -> MTF归一化权重 (tf_weights): {tf_weights}")
             print(f"  -> 稳定性融合权重 (stability_fusion_weights): {stability_fusion_weights}")
         # 修改结束
 
         # --- 1. 结构支撑强度 (Structural Support Strength) ---
-        # 修改开始：新增和调整指标
         support_validation_strength_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_stability")
         pressure_rejection_strength_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_axiom_stability")
         lower_shadow_absorption_strength_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_axiom_stability")
@@ -526,6 +525,7 @@ class StructuralIntelligence:
             lower_shadow_absorption_strength_score * 0.2 +
             dominant_peak_solidity_score * 0.2
         ).clip(0, 1)
+        # 修改开始：探针输出 - 结构支撑强度
         if self.is_probe_date:
             print(f"  -> 1. 结构支撑强度 (Structural Support Strength):")
             print(f"    support_validation_strength_D (末值): {support_validation_strength_raw.iloc[-1]:.4f} -> score: {support_validation_strength_score.iloc[-1]:.4f}")
@@ -536,16 +536,15 @@ class StructuralIntelligence:
         # 修改结束
 
         # --- 2. 筹码健康度 (Chip Health) ---
-        # 修改开始：新增和调整指标
         chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_stability")
         cost_dispersion_raw = self._get_safe_series(df, 'cost_dispersion_index_D', 1.0, method_name="_diagnose_axiom_stability")
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_stability")
         chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 1.0, method_name="_diagnose_axiom_stability")
 
         chip_health_score = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
-        cost_dispersion_score = get_adaptive_mtf_normalized_score(cost_dispersion_raw, df_index, ascending=False, tf_weights=tf_weights) # 分散度越低越好
+        cost_dispersion_score = get_adaptive_mtf_normalized_score(cost_dispersion_raw, df_index, ascending=False, tf_weights=tf_weights)
         winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df_index, ascending=True, tf_weights=tf_weights)
-        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=False, tf_weights=tf_weights) # 疲劳度越低越好
+        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=False, tf_weights=tf_weights)
 
         chip_health_score_overall = (
             chip_health_score * 0.4 +
@@ -553,6 +552,7 @@ class StructuralIntelligence:
             winner_stability_score * 0.2 +
             chip_fatigue_score * 0.2
         ).clip(0, 1)
+        # 修改开始：探针输出 - 筹码健康度
         if self.is_probe_date:
             print(f"  -> 2. 筹码健康度 (Chip Health):")
             print(f"    chip_health_score_D (末值): {chip_health_raw.iloc[-1]:.4f} -> score: {chip_health_score.iloc[-1]:.4f}")
@@ -563,15 +563,14 @@ class StructuralIntelligence:
         # 修改结束
 
         # --- 3. 平台结构质量 (Platform Structure Quality) ---
-        # 修改开始：新增和调整指标
         equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.0, method_name="_diagnose_axiom_stability")
         bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name="_diagnose_axiom_stability")
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name="_diagnose_axiom_stability")
         value_area_overlap_raw = self._get_safe_series(df, 'value_area_overlap_pct_D', 0.0, method_name="_diagnose_axiom_stability")
 
         equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df_index, ascending=True, tf_weights=tf_weights)
-        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, ascending=False, tf_weights=tf_weights) # BBW越小越好
-        volatility_instability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights) # 不稳定性越低越好
+        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, ascending=False, tf_weights=tf_weights)
+        volatility_instability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
         value_area_overlap_score = get_adaptive_mtf_normalized_score(value_area_overlap_raw, df_index, ascending=True, tf_weights=tf_weights)
 
         platform_structure_quality_score = (
@@ -580,6 +579,7 @@ class StructuralIntelligence:
             volatility_instability_score * 0.2 +
             value_area_overlap_score * 0.2
         ).clip(0, 1)
+        # 修改开始：探针输出 - 平台结构质量
         if self.is_probe_date:
             print(f"  -> 3. 平台结构质量 (Platform Structure Quality):")
             print(f"    equilibrium_compression_index_D (末值): {equilibrium_compression_raw.iloc[-1]:.4f} -> score: {equilibrium_compression_score.iloc[-1]:.4f}")
@@ -590,7 +590,6 @@ class StructuralIntelligence:
         # 修改结束
 
         # --- 4. 主力控盘意愿 (Main Force Control Intent) ---
-        # 修改开始：新增和调整指标
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name="_diagnose_axiom_stability")
         mf_cost_zone_defense_intent_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_axiom_stability")
         main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_stability")
@@ -607,6 +606,7 @@ class StructuralIntelligence:
             main_force_conviction_score * 0.2 +
             panic_buy_absorption_contribution_score * 0.2
         ).clip(0, 1)
+        # 修改开始：探针输出 - 主力控盘意愿
         if self.is_probe_date:
             print(f"  -> 4. 主力控盘意愿 (Main Force Control Intent):")
             print(f"    control_solidity_index_D (末值): {control_solidity_raw.iloc[-1]:.4f} -> score: {control_solidity_score.iloc[-1]:.4f}")
