@@ -369,6 +369,32 @@ class FoundationIntelligence:
         print("    -> [基础层] “市场体质”公理诊断完成。")
         return constitution_score
 
+    def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V3.0 · 诡道甄别版】基础公理二：诊断“市场情绪钟摆”
+        - 核心逻辑: 融合RSI、散户恐慌/FOMO指数，并引入“博弈欺骗指数”作为核心调节器。
+        - A股特性: 情绪常常是陷阱。此升级旨在利用欺骗指数来甄别情绪的真实性，过滤主力诱多或诱空行为。
+        """
+        print("    -> [基础层] 正在诊断“情绪钟摆”公理 (V3.0 · 诡道甄别版)...")
+        required_signals = ['RSI_13_D', 'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'deception_index_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_sentiment_pendulum"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        rsi_score = get_adaptive_mtf_normalized_bipolar_score(rsi - 50.0, df_index, default_weights, sensitivity=10.0)
+        panic_index = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        panic_score = get_adaptive_mtf_normalized_score(panic_index, df_index, ascending=True, tf_weights=default_weights)
+        fomo_index = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=default_weights)
+        base_pendulum_score = (rsi_score + (fomo_score * 0.5) - (panic_score * 0.5)).clip(-1, 1)
+        deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        # 将诡道调节器的惩罚因子从 0.5 提升至 0.75，增强压制力
+        reality_check_modulator = 1 - (base_pendulum_score * deception_index.clip(-1, 1) < 0) * np.abs(deception_index.clip(-1, 1)) * 0.75
+        pendulum_score = base_pendulum_score * reality_check_modulator
+        return pendulum_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
         """
