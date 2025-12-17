@@ -2632,7 +2632,11 @@
           "rsc_mod_factor": 0.5,
           "comment_rsc_mod_factor": "相对强度信念调节因子，控制其对最终分数的乘性影响强度。",
           "paa_mod_factor": 0.4,
-          "comment_paa_mod_factor": "价格行为对齐调节因子，控制其对最终分数的乘性影响强度。"
+          "comment_paa_mod_factor": "价格行为对齐调节因子，控制其对最终分数的乘性影响强度。",
+          "slq_activation_threshold": 0.1,
+          "comment_slq_activation_threshold": "行业领导力质量激活阈值，原始输入平均值低于此阈值时，SLQ分数为0。",
+          "slq_activation_window": 21,
+          "comment_slq_activation_window": "行业领导力质量激活窗口，用于计算原始输入平均值。"
         }
       },
       "fund_flow_ultimate_params": {

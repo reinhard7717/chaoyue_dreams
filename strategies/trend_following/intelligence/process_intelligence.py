@@ -1223,33 +1223,33 @@ class ProcessIntelligence:
         price = self._get_safe_series(df, 'close_D', method_name="_calculate_price_volume_relationship")
         volume = self._get_safe_series(df, 'volume_D', method_name="_calculate_price_volume_relationship")
         main_force_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_price_volume_relationship")
-        # 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
+        # MODIFIED: 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
-        # 修正 get_param_value 的默认值，避免嵌套的 'weights' 键
+        # MODIFIED: 修正 get_param_value 的默认值，避免嵌套的 'weights' 键
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 使用修正后的权重字典
-        wash_trade_penalty = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights, bipolar=False)
+        # MODIFIED: 移除 bipolar=False 参数
+        wash_trade_penalty = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights)
         volume_atrophy_quality = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
         chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        # 使用修正后的权重字典
-        suppressive_accum = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights, bipolar=False)
-        # 使用修正后的权重字典
-        panic_evidence = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights, bipolar=False)
-        # 使用修正后的权重字典
-        upward_purity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights, bipolar=False)
+        # MODIFIED: 移除 bipolar=False 参数
+        suppressive_accum = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights)
+        # MODIFIED: 移除 bipolar=False 参数
+        panic_evidence = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights)
+        # MODIFIED: 移除 bipolar=False 参数
+        upward_purity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights)
         reversal_confirmation_shape = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
         reversal_confirmation_flow = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        # 使用修正后的权重字典
+        # MODIFIED: 使用修正后的权重字典
         reversal_confirmation_psyche = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction.diff(1).fillna(0), df_index, actual_mtf_weights, self.bipolar_sensitivity)
-        # 使用修正后的权重字典
-        active_buying_confirm = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights, bipolar=False)
-        # 使用修正后的权重字典
-        accel_shape = get_adaptive_mtf_normalized_score(reversal_confirmation_shape.diff(2).fillna(0), df_index, actual_mtf_weights, bipolar=False)
-        # 使用修正后的权重字典
-        accel_flow = get_adaptive_mtf_normalized_score(reversal_confirmation_flow.diff(2).fillna(0), df_index, actual_mtf_weights, bipolar=False)
-        # 使用修正后的权重字典
-        accel_psyche = get_adaptive_mtf_normalized_score(reversal_confirmation_psyche.diff(2).fillna(0), df_index, actual_mtf_weights, bipolar=False)
+        # MODIFIED: 移除 bipolar=False 参数
+        active_buying_confirm = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, actual_mtf_weights)
+        # MODIFIED: 移除 bipolar=False 参数
+        accel_shape = get_adaptive_mtf_normalized_score(reversal_confirmation_shape.diff(2).fillna(0), df_index, actual_mtf_weights)
+        # MODIFIED: 移除 bipolar=False 参数
+        accel_flow = get_adaptive_mtf_normalized_score(reversal_confirmation_flow.diff(2).fillna(0), df_index, actual_mtf_weights)
+        # MODIFIED: 移除 bipolar=False 参数
+        accel_psyche = get_adaptive_mtf_normalized_score(reversal_confirmation_psyche.diff(2).fillna(0), df_index, actual_mtf_weights)
         acceleration_bonus = (accel_shape * 0.3 + accel_flow * 0.4 + accel_psyche * 0.3).clip(0, 1)
         base_resonance_score = (
             reversal_confirmation_shape * 0.2 +
@@ -1263,12 +1263,12 @@ class ProcessIntelligence:
         resonance_components = pd.concat([reversal_confirmation_shape, reversal_confirmation_flow, reversal_confirmation_psyche, active_buying_confirm], axis=1)
         harmony_degree = (1 - (resonance_components.max(axis=1) - resonance_components.min(axis=1))).clip(0, 1)
         resonance_confirmation_factor = (fused_resonance_score * (1 + harmony_degree)).clip(0, 1)
-        # 使用修正后的权重字典
+        # MODIFIED: 使用修正后的权重字典
         p_mom = get_adaptive_mtf_normalized_bipolar_score(price.pct_change().fillna(0), df_index, actual_mtf_weights, self.bipolar_sensitivity)
-        # 使用修正后的权重字典
+        # MODIFIED: 使用修正后的权重字典
         v_mom = get_adaptive_mtf_normalized_bipolar_score(volume.pct_change().fillna(0), df_index, actual_mtf_weights, self.bipolar_sensitivity)
         final_score = pd.Series(0.0, index=df_index)
-        # 使用修正后的权重字典
+        # MODIFIED: 使用修正后的权重字典
         quality_factor = (get_adaptive_mtf_normalized_bipolar_score(main_force_conviction, df_index, actual_mtf_weights, self.bipolar_sensitivity).clip(lower=0) * (1 - wash_trade_penalty)).pow(0.5)
         score1 = (p_mom * v_mom).pow(0.5) * quality_factor
         intent_factor = (volume_atrophy_quality * chip_posture.clip(lower=0) * upward_purity).pow(1/3)

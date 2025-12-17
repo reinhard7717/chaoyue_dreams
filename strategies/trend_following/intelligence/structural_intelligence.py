@@ -165,7 +165,7 @@ class StructuralIntelligence:
         - 【V3.3 核心升级】引入“共振”维度，评估多级别斜率和加速度的方向一致性与强度稳定性。
         - 【V3.5 核心修正】严格限定为纯粹的趋势几何形态分析，移除“结构健康度”和“市场博弈”维度，将这些更高层级的融合交由上层逻辑处理。
         - 【V3.6 核心进化】
-            - 引入**动态权重调整**：根据市场波动率动态调整各维度融合权重。
+            - 引入**动态权重调整**：根据市场波动率动态调整趋势形态的最终融合分数。
             - 引入**均线粘合度**维度：量化均线簇的紧密程度，作为趋势形态健康的新指标。
             - **波动率调整的斜率/角度敏感度**：使斜率、加速度和角度指标在高波动率时更稳健，低波动率时更灵敏。
         - 【V3.7 核心进化】
@@ -176,7 +176,7 @@ class StructuralIntelligence:
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 34, 55])
         ma_periods = get_param_value(p_conf_struct.get('trend_form_ma_periods'), [5, 13, 21, 34, 55])
-        # 修改开始：定义一个完整的默认融合权重字典，新增价格均线乖离、布林带动态、趋势效率维度
+        # 定义一个完整的默认融合权重字典，新增价格均线乖离、布林带动态、趋势效率维度
         default_fusion_weights = {
             'alignment': 0.15,
             'slope': 0.1,
@@ -196,8 +196,6 @@ class StructuralIntelligence:
         fusion_weights.update(configured_fusion_weights)
         # 过滤非数值类型的融合权重
         fusion_weights = {k: v for k, v in fusion_weights.items() if isinstance(v, (int, float))}
-        # 修改结束
-
         # 获取共振参数
         resonance_params = get_param_value(p_conf_struct.get('trend_form_resonance_params'), {
             'enabled': True,
@@ -205,16 +203,14 @@ class StructuralIntelligence:
             'accel_consistency_weight': 0.4,
             'slope_accel_alignment_weight': 0.2
         })
-        # 修改开始：获取动态权重、均线粘合度、斜率/角度波动率调整、价格均线乖离、布林带动态、趋势效率参数
+        # 获取动态权重、均线粘合度、斜率/角度波动率调整、价格均线乖离、布林带动态、趋势效率参数
         dynamic_weights_params = get_param_value(p_conf_struct.get('trend_form_dynamic_weights_params'), {})
         ma_cluster_cohesion_params = get_param_value(p_conf_struct.get('ma_cluster_cohesion_params'), {})
         slope_angle_volatility_adjustment_params = get_param_value(p_conf_struct.get('slope_angle_volatility_adjustment_params'), {})
         price_ma_gap_params = get_param_value(p_conf_struct.get('price_ma_gap_params'), {})
         bb_dynamics_params = get_param_value(p_conf_struct.get('bb_dynamics_params'), {})
         trend_efficiency_params = get_param_value(p_conf_struct.get('trend_efficiency_params'), {})
-        # 修改结束
-
-        # 修改开始：更新required_signals，新增ATR、波动率指标、布林带指标、价格均线乖离指标、趋势效率指标
+        # 更新required_signals，新增ATR、波动率指标、布林带指标、价格均线乖离指标、趋势效率指标
         required_signals = [
             'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ATAN_ANGLE_EMA_55_D', 'close_D',
             'ATR_14_D', # 用于均线粘合度和斜率/角度波动率调整
@@ -227,8 +223,6 @@ class StructuralIntelligence:
         # 价格均线乖离指标
         price_ma_gap_periods = get_param_value(price_ma_gap_params.get('ma_periods'), [5, 13, 21])
         required_signals.extend([f'price_vs_ma_{p}_ratio_D' for p in price_ma_gap_periods])
-        # 修改结束
-
         feature_eng_params = get_params_block(self.strategy, 'feature_engineering_params', {})
         slope_params = feature_eng_params.get('slope_params', {})
         accel_params = feature_eng_params.get('accel_params', {})
@@ -236,7 +230,6 @@ class StructuralIntelligence:
         series_to_accel_config = accel_params.get('series_to_accel', {})
         all_slope_cols = []
         all_accel_cols = []
-
         # 收集EMA的斜率和加速度
         for p in ema_periods:
             base_ema_col = f'EMA_{p}_D'
@@ -263,7 +256,6 @@ class StructuralIntelligence:
                 accel_col = f'ACCEL_{ap}_{base_ma_col}'
                 required_signals.append(accel_col)
                 all_accel_cols.append(accel_col)
-
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
@@ -272,7 +264,6 @@ class StructuralIntelligence:
         tf_weights = mtf_weights_conf.get('short_term_geometry', {5: 0.5, 8: 0.3, 13: 0.2})
         debug_config = get_params_block(self.strategy, 'debug_params', {})
         current_processing_date_str = df.index[-1].strftime('%Y-%m-%d') if not df.empty else ""
-
         is_probe_date = debug_config.get('should_probe', False) and \
                         current_processing_date_str in debug_config.get('probe_dates', [])
         if is_probe_date:
@@ -284,7 +275,6 @@ class StructuralIntelligence:
                 print(f"    EMA_{p}_D: {df[f'EMA_{p}_D'].iloc[-1]:.4f}")
             for p in ma_periods:
                 print(f"    MA_{p}_D: {df[f'MA_{p}_D'].iloc[-1]:.4f}")
-            # 修改开始：探针输出新增的原始数据
             print(f"    ATR_14_D: {df['ATR_14_D'].iloc[-1]:.4f}")
             print(f"    VOLATILITY_INSTABILITY_INDEX_21d_D: {df['VOLATILITY_INSTABILITY_INDEX_21d_D'].iloc[-1]:.4f}")
             print(f"    BBW_21_2.0_D: {df['BBW_21_2.0_D'].iloc[-1]:.4f}")
@@ -292,35 +282,27 @@ class StructuralIntelligence:
             for p in price_ma_gap_periods:
                 print(f"    price_vs_ma_{p}_ratio_D: {df[f'price_vs_ma_{p}_ratio_D'].iloc[-1]:.4f}")
             print(f"    trend_efficiency_ratio_D: {df['trend_efficiency_ratio_D'].iloc[-1]:.4f}")
-            # 修改结束
             print(f"  -> MTF归一化权重 (tf_weights): {tf_weights}")
-            print(f"  -> 融合权重 (fusion_weights): {fusion_weights}")
-
-        # 动态权重计算
+            print(f"  -> 融合权重 (fusion_weights): {fusion_weights}") # 此时 fusion_weights 仍是初始静态权重
+        # 修改开始：动态权重计算逻辑调整，不再修改 fusion_weights，而是计算一个 Series 调整因子
+        volatility_adjustment_factor_series = pd.Series(1.0, index=df_index) # 默认不调整
         if dynamic_weights_params.get('enabled', False):
             volatility_source_col = dynamic_weights_params.get('volatility_source', 'VOLATILITY_INSTABILITY_INDEX_21d_D')
             volatility_series = self._get_safe_series(df, volatility_source_col, 0.0, method_name="_diagnose_axiom_trend_form")
             volatility_sensitivity = dynamic_weights_params.get('volatility_sensitivity', 2.0)
             volatility_threshold = dynamic_weights_params.get('volatility_threshold', 0.5)
             adjustment_factor_range = dynamic_weights_params.get('adjustment_factor_range', 0.5)
-
             norm_volatility = get_adaptive_mtf_normalized_score(volatility_series, df_index, tf_weights, ascending=True)
-            current_volatility_adjustment_factor = (1 + adjustment_factor_range * (volatility_threshold - norm_volatility.iloc[-1]) * volatility_sensitivity)
-            current_volatility_adjustment_factor = np.clip(current_volatility_adjustment_factor, 1 - adjustment_factor_range, 1 + adjustment_factor_range)
-
-            for key in fusion_weights:
-                fusion_weights[key] = fusion_weights[key] * current_volatility_adjustment_factor
-            total_dynamic_weight = sum(fusion_weights.values())
-            if total_dynamic_weight > 0:
-                fusion_weights = {k: v / total_dynamic_weight for k, v in fusion_weights.items()}
-
+            # 计算完整的 Series 调整因子
+            volatility_adjustment_factor_series = 1 + adjustment_factor_range * (volatility_threshold - norm_volatility) * volatility_sensitivity
+            volatility_adjustment_factor_series = volatility_adjustment_factor_series.clip(1 - adjustment_factor_range, 1 + adjustment_factor_range)
             if is_probe_date:
                 print(f"  -> 动态权重调整:")
                 print(f"    {volatility_source_col} (末值): {volatility_series.iloc[-1]:.4f}")
                 print(f"    norm_volatility (末值): {norm_volatility.iloc[-1]:.4f}")
-                print(f"    current_volatility_adjustment_factor (末值): {current_volatility_adjustment_factor:.4f}")
-                print(f"    调整后的融合权重 (fusion_weights): {fusion_weights}")
-
+                print(f"    volatility_adjustment_factor_series (末值): {volatility_adjustment_factor_series.iloc[-1]:.4f}")
+                print(f"    注意: 此调整因子将应用于最终的趋势形态分数。")
+        # 修改结束
         # 维度1: 排列 (Alignment) - 融合EMA和MA
         bull_alignment_raw_ema = pd.Series(0.0, index=df_index)
         alignment_weights_internal = np.linspace(0.5, 0.2, len(ema_periods) - 1)
@@ -329,7 +311,6 @@ class StructuralIntelligence:
             ema_i_plus_1 = self._get_safe_series(df, f'EMA_{ema_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
             bull_alignment_raw_ema += (ema_i > ema_i_plus_1).astype(float) * alignment_weights_internal[i]
         alignment_score_ema = bull_alignment_raw_ema / sum(alignment_weights_internal)
-
         bull_alignment_raw_ma = pd.Series(0.0, index=df_index)
         alignment_weights_internal_ma = np.linspace(0.5, 0.2, len(ma_periods) - 1)
         for i in range(len(ma_periods) - 1):
@@ -337,34 +318,28 @@ class StructuralIntelligence:
             ma_i_plus_1 = self._get_safe_series(df, f'MA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
             bull_alignment_raw_ma += (ma_i > ma_i_plus_1).astype(float) * alignment_weights_internal_ma[i]
         alignment_score_ma = bull_alignment_raw_ma / sum(alignment_weights_internal_ma)
-
         alignment_fusion_weights = get_param_value(p_conf_struct.get('trend_form_alignment_fusion_weights'), {'ema': 0.6, 'ma': 0.4})
         alignment_score = (alignment_score_ema * alignment_fusion_weights.get('ema', 0.5) +
                            alignment_score_ma * alignment_fusion_weights.get('ma', 0.5))
-
         if is_probe_date:
             print(f"  -> 维度1: 排列 (Alignment)")
             print(f"    alignment_score_ema (末值): {alignment_score_ema.iloc[-1]:.4f}")
             print(f"    alignment_score_ma (末值): {alignment_score_ma.iloc[-1]:.4f}")
             print(f"    alignment_score (融合末值): {alignment_score.iloc[-1]:.4f}")
-
         # 波动率调整斜率和角度的敏感度
         adjusted_sensitivity_series = pd.Series(1.0, index=df_index)
         if slope_angle_volatility_adjustment_params.get('enabled', False):
             volatility_source_col = slope_angle_volatility_adjustment_params.get('volatility_source', 'ATR_14_D')
             volatility_series = self._get_safe_series(df, volatility_source_col, 0.0, method_name="_diagnose_axiom_trend_form")
             adjustment_strength = slope_angle_volatility_adjustment_params.get('adjustment_strength', 0.5)
-
             norm_volatility = get_adaptive_mtf_normalized_score(volatility_series, df_index, tf_weights, ascending=True)
             sensitivity_adjustment_factor = 1 - adjustment_strength * (norm_volatility - 0.5) * 2
             adjusted_sensitivity_series = sensitivity_adjustment_factor.clip(0.1, 2.0)
-
             if is_probe_date:
                 print(f"  -> 斜率/角度波动率调整:")
                 print(f"    {volatility_source_col} (末值): {volatility_series.iloc[-1]:.4f}")
                 print(f"    norm_volatility (末值): {norm_volatility.iloc[-1]:.4f}")
                 print(f"    adjusted_sensitivity_series (末值): {adjusted_sensitivity_series.iloc[-1]:.4f}")
-
         # 维度2: 斜率 (Slope) - 使用调整后的敏感度
         individual_slope_scores_list = []
         for col in all_slope_cols:
@@ -375,7 +350,6 @@ class StructuralIntelligence:
         if is_probe_date:
             print(f"  -> 维度2: 斜率 (Slope)")
             print(f"    avg_slope_score (末值): {avg_slope_score.iloc[-1]:.4f}")
-
         # 维度3: 加速度 (Acceleration) - 同样使用调整后的敏感度
         individual_accel_scores_list = []
         for col in all_accel_cols:
@@ -386,7 +360,6 @@ class StructuralIntelligence:
         if is_probe_date:
             print(f"  -> 维度3: 加速度 (Acceleration)")
             print(f"    avg_accel_score (末值): {avg_accel_score.iloc[-1]:.4f}")
-
         # 维度4: 共振 (Resonance)
         slope_consistency_score = pd.Series(0.0, index=df_index)
         if len(individual_slope_scores_list) > 1:
@@ -414,7 +387,6 @@ class StructuralIntelligence:
             print(f"    accel_consistency_score (末值): {accel_consistency_score.iloc[-1]:.4f}")
             print(f"    slope_accel_directional_alignment_score (末值): {slope_accel_directional_alignment_score.iloc[-1]:.4f}")
             print(f"    overall_resonance_score (末值): {overall_resonance_score.iloc[-1]:.4f}")
-
         # 维度5: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
         orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, tf_weights, ascending=True)
@@ -426,7 +398,6 @@ class StructuralIntelligence:
             print(f"    orderliness_raw (末值): {orderliness_raw.iloc[-1]:.4f}")
             print(f"    orderliness_score (归一化末值): {orderliness_score.iloc[-1]:.4f}")
             print(f"    corrected_orderliness_score (仲裁后末值): {corrected_orderliness_score.iloc[-1]:.4f}")
-
         # 维度6: 角度 (Angle) - 使用调整后的敏感度
         angle_raw_ema = self._get_safe_series(df, 'ATAN_ANGLE_EMA_55_D', 0.0, method_name="_diagnose_axiom_trend_form")
         angle_score_ema = get_adaptive_mtf_normalized_bipolar_score(angle_raw_ema, df_index, tf_weights, sensitivity=adjusted_sensitivity_series)
@@ -436,33 +407,27 @@ class StructuralIntelligence:
             print(f"  -> 维度6: 角度 (Angle)")
             print(f"    angle_raw_ema (末值): {angle_raw_ema.iloc[-1]:.4f}")
             print(f"    angle_score (融合末值): {angle_score.iloc[-1]:.4f}")
-
         # 维度7: 均线粘合度 (MA Cluster Cohesion)
         ma_cluster_cohesion_score = pd.Series(0.0, index=df_index)
         if ma_cluster_cohesion_params.get('enabled', False):
-            # normalization_period = ma_cluster_cohesion_params.get('normalization_period', 55) # Not directly used in this calculation
             all_ma_series = []
             for p in ema_periods:
                 all_ma_series.append(self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form"))
             for p in ma_periods:
                 all_ma_series.append(self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_trend_form"))
-
             if all_ma_series:
                 ma_df_for_std = pd.concat(all_ma_series, axis=1).fillna(df['close_D'])
                 ma_std = ma_df_for_std.std(axis=1)
-
                 atr_series = self._get_safe_series(df, 'ATR_14_D', 1.0, method_name="_diagnose_axiom_trend_form").replace(0, 1e-9)
                 normalized_ma_std = (ma_std / atr_series).replace([np.inf, -np.inf], np.nan).fillna(0)
                 ma_cluster_cohesion_score = get_adaptive_mtf_normalized_score(normalized_ma_std, df_index, tf_weights, ascending=False)
-
             if is_probe_date:
                 print(f"  -> 维度7: 均线粘合度 (MA Cluster Cohesion)")
                 print(f"    ma_std (末值): {ma_std.iloc[-1]:.4f}")
                 print(f"    atr_series (末值): {atr_series.iloc[-1]:.4f}")
                 print(f"    normalized_ma_std (末值): {normalized_ma_std.iloc[-1]:.4f}")
                 print(f"    ma_cluster_cohesion_score (末值): {ma_cluster_cohesion_score.iloc[-1]:.4f}")
-
-        # 修改开始：新增维度8: 价格均线乖离 (Price-MA Gap)
+        # 维度8: 价格均线乖离 (Price-MA Gap)
         price_ma_gap_score = pd.Series(0.0, index=df_index)
         if price_ma_gap_params.get('enabled', False):
             price_ma_gap_periods = get_param_value(price_ma_gap_params.get('ma_periods'), [5, 13, 21])
@@ -477,24 +442,17 @@ class StructuralIntelligence:
                 print(f"  -> 维度8: 价格均线乖离 (Price-MA Gap)")
                 print(f"    avg_price_ma_ratio (末值): {avg_price_ma_ratio.iloc[-1]:.4f}")
                 print(f"    price_ma_gap_score (末值): {price_ma_gap_score.iloc[-1]:.4f}")
-        # 修改结束
-
-        # 修改开始：新增维度9: 布林带动态 (Bollinger Band Dynamics)
+        # 维度9: 布林带动态 (Bollinger Band Dynamics)
         bb_dynamics_score = pd.Series(0.0, index=df_index)
         if bb_dynamics_params.get('enabled', False):
             bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_trend_form")
-            bbp_raw = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name="_diagnose_axiom_trend_form") # BBP默认值0.5
-
-            # BBW分数：宽度扩张通常是趋势的标志，宽度收缩是盘整的标志。这里我们奖励扩张。
+            bbp_raw = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name="_diagnose_axiom_trend_form")
             bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, tf_weights, ascending=True)
-            # BBP分数：价格在布林带中的位置，高值看涨，低值看跌
             bbp_score = get_adaptive_mtf_normalized_bipolar_score(bbp_raw, df_index, tf_weights)
-
             bb_dynamics_score = (
                 bbw_score * bb_dynamics_params.get('bbw_weight', 0.5) +
                 bbp_score * bb_dynamics_params.get('bbp_weight', 0.5)
-            ).clip(-1, 1) # 融合后裁剪到[-1, 1]
-
+            ).clip(-1, 1)
             if is_probe_date:
                 print(f"  -> 维度9: 布林带动态 (Bollinger Band Dynamics)")
                 print(f"    bbw_raw (末值): {bbw_raw.iloc[-1]:.4f}")
@@ -502,9 +460,7 @@ class StructuralIntelligence:
                 print(f"    bbw_score (末值): {bbw_score.iloc[-1]:.4f}")
                 print(f"    bbp_score (末值): {bbp_score.iloc[-1]:.4f}")
                 print(f"    bb_dynamics_score (融合末值): {bb_dynamics_score.iloc[-1]:.4f}")
-        # 修改结束
-
-        # 修改开始：新增维度10: 趋势效率 (Trend Efficiency)
+        # 维度10: 趋势效率 (Trend Efficiency)
         trend_efficiency_score = pd.Series(0.0, index=df_index)
         if trend_efficiency_params.get('enabled', False):
             trend_efficiency_raw = self._get_safe_series(df, 'trend_efficiency_ratio_D', 0.0, method_name="_diagnose_axiom_trend_form")
@@ -513,8 +469,6 @@ class StructuralIntelligence:
                 print(f"  -> 维度10: 趋势效率 (Trend Efficiency)")
                 print(f"    trend_efficiency_raw (末值): {trend_efficiency_raw.iloc[-1]:.4f}")
                 print(f"    trend_efficiency_score (末值): {trend_efficiency_score.iloc[-1]:.4f}")
-        # 修改结束
-
         # --- 融合形态分 ---
         bullish_alignment_contrib = alignment_score * fusion_weights['alignment']
         bullish_slope_contrib = avg_slope_score.clip(lower=0) * fusion_weights['slope']
@@ -523,11 +477,9 @@ class StructuralIntelligence:
         bullish_orderliness_contrib = corrected_orderliness_score * fusion_weights['orderliness']
         bullish_angle_contrib = angle_score.clip(lower=0) * fusion_weights['angle']
         bullish_ma_cluster_cohesion_contrib = ma_cluster_cohesion_score * fusion_weights.get('ma_cluster_cohesion', 0.0)
-        # 修改开始：新增价格均线乖离、布林带动态、趋势效率的看涨贡献
         bullish_price_ma_gap_contrib = price_ma_gap_score.clip(lower=0) * fusion_weights.get('price_ma_gap', 0.0)
         bullish_bb_dynamics_contrib = bb_dynamics_score.clip(lower=0) * fusion_weights.get('bb_dynamics', 0.0)
         bullish_trend_efficiency_contrib = trend_efficiency_score * fusion_weights.get('trend_efficiency', 0.0)
-        # 修改结束
         bullish_form_score = (
             bullish_alignment_contrib +
             bullish_slope_contrib +
@@ -536,11 +488,10 @@ class StructuralIntelligence:
             bullish_orderliness_contrib +
             bullish_angle_contrib +
             bullish_ma_cluster_cohesion_contrib +
-            bullish_price_ma_gap_contrib + # 修改：加入价格均线乖离贡献
-            bullish_bb_dynamics_contrib + # 修改：加入布林带动态贡献
-            bullish_trend_efficiency_contrib # 修改：加入趋势效率贡献
+            bullish_price_ma_gap_contrib +
+            bullish_bb_dynamics_contrib +
+            bullish_trend_efficiency_contrib
         ).clip(0, 1)
-
         bearish_alignment_contrib = (1 - alignment_score) * fusion_weights['alignment']
         bearish_slope_contrib = avg_slope_score.clip(upper=0).abs() * fusion_weights['slope']
         bearish_accel_contrib = avg_accel_score.clip(upper=0).abs() * fusion_weights['acceleration']
@@ -548,11 +499,9 @@ class StructuralIntelligence:
         bearish_orderliness_contrib = (1 - corrected_orderliness_score) * fusion_weights['orderliness']
         bearish_angle_contrib = angle_score.clip(upper=0).abs() * fusion_weights['angle']
         bearish_ma_cluster_cohesion_contrib = (1 - ma_cluster_cohesion_score) * fusion_weights.get('ma_cluster_cohesion', 0.0)
-        # 修改开始：新增价格均线乖离、布林带动态、趋势效率的看跌贡献
         bearish_price_ma_gap_contrib = price_ma_gap_score.clip(upper=0).abs() * fusion_weights.get('price_ma_gap', 0.0)
         bearish_bb_dynamics_contrib = bb_dynamics_score.clip(upper=0).abs() * fusion_weights.get('bb_dynamics', 0.0)
-        bearish_trend_efficiency_contrib = (1 - trend_efficiency_score) * fusion_weights.get('trend_efficiency', 0.0) # 效率越低，看跌贡献越高
-        # 修改结束
+        bearish_trend_efficiency_contrib = (1 - trend_efficiency_score) * fusion_weights.get('trend_efficiency', 0.0)
         bearish_form_score = (
             bearish_alignment_contrib +
             bearish_slope_contrib +
@@ -561,12 +510,21 @@ class StructuralIntelligence:
             bearish_orderliness_contrib +
             bearish_angle_contrib +
             bearish_ma_cluster_cohesion_contrib +
-            bearish_price_ma_gap_contrib + # 修改：加入价格均线乖离贡献
-            bearish_bb_dynamics_contrib + # 修改：加入布林带动态贡献
-            bearish_trend_efficiency_contrib # 修改：加入趋势效率贡献
+            bearish_price_ma_gap_contrib +
+            bearish_bb_dynamics_contrib +
+            bearish_trend_efficiency_contrib
         ).clip(0, 1)
-
         trend_form_score = bullish_form_score - bearish_form_score
+        # 修改开始：应用动态权重调整因子到最终分数
+        if dynamic_weights_params.get('enabled', False):
+            if is_probe_date:
+                print(f"  -> 动态权重调整应用于最终分数:")
+                print(f"    volatility_adjustment_factor_series (末值): {volatility_adjustment_factor_series.iloc[-1]:.4f}")
+                print(f"    调整前的 trend_form_score (末值): {trend_form_score.iloc[-1]:.4f}")
+            trend_form_score = trend_form_score * volatility_adjustment_factor_series
+            if is_probe_date:
+                print(f"    调整后的 trend_form_score (末值): {trend_form_score.iloc[-1]:.4f}")
+        # 修改结束
         final_score = pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
         if is_probe_date:
             print(f"  -> 最终融合:")
