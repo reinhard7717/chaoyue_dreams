@@ -60,22 +60,24 @@ class ProcessIntelligence:
         """
         #  实现了统一的归一化逻辑
         # 获取MTF权重配置
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # MODIFIED: 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        
         if bipolar:
             return get_adaptive_mtf_normalized_bipolar_score(
                 series=series,
-                index=target_index, # 将 target_index 改为 index
-                tf_weights=default_weights,
+                index=target_index, # MODIFIED: 将 target_index 改为 index
+                tf_weights=actual_mtf_weights, # MODIFIED: 使用修正后的权重字典
                 sensitivity=self.bipolar_sensitivity
             )
         else:
             return get_adaptive_mtf_normalized_score(
                 series=series,
-                index=target_index, # 将 target_index 改为 index
+                index=target_index, # MODIFIED: 将 target_index 改为 index
                 ascending=True,
-                tf_weights=default_weights
+                tf_weights=actual_mtf_weights # MODIFIED: 使用修正后的权重字典
             )
 
     def _get_atomic_score(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> pd.Series:
@@ -274,9 +276,11 @@ class ProcessIntelligence:
         capital_signature = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CAPITAL_SIGNATURE', 0.0)
         cs_modulator_weight = config.get('capital_signature_modulator_weight', 0.0)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # MODIFIED: 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
         price_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_main_force_rally_intent")
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_main_force_rally_intent")
         price_impact_ratio = self._get_safe_series(df, 'main_force_slippage_index_D', 0.0, method_name="_calculate_main_force_rally_intent")
@@ -289,18 +293,19 @@ class ProcessIntelligence:
         active_buying_support = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_main_force_rally_intent")
         pressure_rejection = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_calculate_main_force_rally_intent")
         profit_realization_quality = self._get_safe_series(df, 'profit_realization_quality_D', 0.5, method_name="_calculate_main_force_rally_intent")
-        price_change_norm = get_adaptive_mtf_normalized_bipolar_score(price_change, df_index, default_weights, self.bipolar_sensitivity)
-        net_flow_norm = get_adaptive_mtf_normalized_bipolar_score(main_force_net_flow, df_index, default_weights, self.bipolar_sensitivity)
-        price_impact_norm = get_adaptive_mtf_normalized_bipolar_score(price_impact_ratio, df_index, default_weights, self.bipolar_sensitivity)
-        impulse_purity_norm = get_adaptive_mtf_normalized_bipolar_score(upward_impulse_purity, df_index, default_weights, self.bipolar_sensitivity)
-        volume_ratio_norm = get_adaptive_mtf_normalized_bipolar_score(volume_ratio - 1.0, df_index, default_weights, self.bipolar_sensitivity)
-        control_solidity_norm = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, default_weights, self.bipolar_sensitivity)
-        cost_advantage_norm = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, default_weights, self.bipolar_sensitivity)
-        concentration_slope_norm = get_adaptive_mtf_normalized_bipolar_score(concentration_slope, df_index, default_weights, self.bipolar_sensitivity)
-        peak_solidity_norm = get_adaptive_mtf_normalized_bipolar_score(peak_solidity, df_index, default_weights, self.bipolar_sensitivity)
-        buying_support_norm = get_adaptive_mtf_normalized_bipolar_score(active_buying_support, df_index, default_weights, self.bipolar_sensitivity)
-        pressure_rejection_norm = get_adaptive_mtf_normalized_bipolar_score(pressure_rejection, df_index, default_weights, self.bipolar_sensitivity)
-        profit_absorption_norm = get_adaptive_mtf_normalized_bipolar_score((1 - profit_realization_quality) - 0.5, df_index, default_weights, self.bipolar_sensitivity)
+        # MODIFIED: 使用修正后的权重字典
+        price_change_norm = get_adaptive_mtf_normalized_bipolar_score(price_change, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        net_flow_norm = get_adaptive_mtf_normalized_bipolar_score(main_force_net_flow, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        price_impact_norm = get_adaptive_mtf_normalized_bipolar_score(price_impact_ratio, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        impulse_purity_norm = get_adaptive_mtf_normalized_bipolar_score(upward_impulse_purity, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        volume_ratio_norm = get_adaptive_mtf_normalized_bipolar_score(volume_ratio - 1.0, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        control_solidity_norm = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        cost_advantage_norm = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        concentration_slope_norm = get_adaptive_mtf_normalized_bipolar_score(concentration_slope, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        peak_solidity_norm = get_adaptive_mtf_normalized_bipolar_score(peak_solidity, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        buying_support_norm = get_adaptive_mtf_normalized_bipolar_score(active_buying_support, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        pressure_rejection_norm = get_adaptive_mtf_normalized_bipolar_score(pressure_rejection, df_index, actual_mtf_weights, self.bipolar_sensitivity)
+        profit_absorption_norm = get_adaptive_mtf_normalized_bipolar_score((1 - profit_realization_quality) - 0.5, df_index, actual_mtf_weights, self.bipolar_sensitivity)
         aggressiveness_score = (
             price_change_norm.clip(lower=0) * 0.30 +
             net_flow_norm.clip(lower=0) * 0.30 +
@@ -1452,19 +1457,21 @@ class ProcessIntelligence:
         signal_name = config.get('name')
         relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
         relationship_momentum = relationship_displacement.diff(1).fillna(0)
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # MODIFIED: 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
         bipolar_displacement_strength = get_adaptive_mtf_normalized_bipolar_score(
             series=relationship_displacement,
-            target_index=df_index,
-            tf_weights=default_weights,
+            index=df_index, # MODIFIED: 将 target_index 改为 index
+            tf_weights=actual_mtf_weights, # MODIFIED: 使用修正后的权重字典
             sensitivity=self.bipolar_sensitivity
         )
         bipolar_momentum_strength = get_adaptive_mtf_normalized_bipolar_score(
             series=relationship_momentum,
-            target_index=df_index,
-            tf_weights=default_weights,
+            index=df_index, # MODIFIED: 将 target_index 改为 index
+            tf_weights=actual_mtf_weights, # MODIFIED: 使用修正后的权重字典
             sensitivity=self.bipolar_sensitivity
         )
         instant_score_normalized = (relationship_score + 1) / 2
@@ -1609,8 +1616,11 @@ class ProcessIntelligence:
         deception_context_weights = get_param_value(params.get('deception_context_weights'), {"wash_trade": 0.4, "active_selling": 0.3, "deception_negative": 0.3})
         panic_depth_weights = get_param_value(params.get('panic_depth_weights'), {"panic_cascade": 0.4, "retail_surrender": 0.3, "loser_pain": 0.3})
         rebound_quality_weights = get_param_value(params.get('rebound_quality_weights'), {"absorption_intent": 0.4, "closing_strength": 0.3, "upward_purity": 0.3})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # MODIFIED: 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
         # --- 2. 获取所有原始数据 ---
         required_signals = [
             'wash_trade_intensity_D', 'deception_index_D', 'active_selling_pressure_D',
@@ -1629,18 +1639,20 @@ class ProcessIntelligence:
         closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_process_wash_out_rebound")
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_process_wash_out_rebound")
         # --- 3. 维度一：洗盘诱空背景 (Wash-out Deception Context) ---
-        wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, ascending=True, tf_weights=default_weights)
-        active_selling_score = get_adaptive_mtf_normalized_score(active_selling_raw, df_index, ascending=True, tf_weights=default_weights)
-        deception_negative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
+        # MODIFIED: 使用修正后的权重字典
+        wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, actual_mtf_weights, ascending=True)
+        active_selling_score = get_adaptive_mtf_normalized_score(active_selling_raw, df_index, actual_mtf_weights, ascending=True)
+        deception_negative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df_index, actual_mtf_weights, ascending=True)
         deception_context_score = (
             (wash_trade_score + 1e-9).pow(deception_context_weights.get('wash_trade', 0.4)) *
             (active_selling_score + 1e-9).pow(deception_context_weights.get('active_selling', 0.3)) *
             (deception_negative_score + 1e-9).pow(deception_context_weights.get('deception_negative', 0.3))
         ).pow(1/(deception_context_weights.get('wash_trade', 0.4) + deception_context_weights.get('active_selling', 0.3) + deception_context_weights.get('deception_negative', 0.3))).fillna(0.0)
         # --- 4. 维度二：恐慌割肉深度 (Panic Capitulation Depth) ---
-        panic_cascade_score = get_adaptive_mtf_normalized_score(panic_cascade_raw, df_index, ascending=True, tf_weights=default_weights)
-        retail_surrender_score = get_adaptive_mtf_normalized_score(retail_surrender_raw, df_index, ascending=True, tf_weights=default_weights)
-        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=default_weights)
+        # MODIFIED: 使用修正后的权重字典
+        panic_cascade_score = get_adaptive_mtf_normalized_score(panic_cascade_raw, df_index, actual_mtf_weights, ascending=True)
+        retail_surrender_score = get_adaptive_mtf_normalized_score(retail_surrender_raw, df_index, actual_mtf_weights, ascending=True)
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, actual_mtf_weights, ascending=True)
         panic_depth_score = (
             (panic_cascade_score + 1e-9).pow(panic_depth_weights.get('panic_cascade', 0.4)) *
             (retail_surrender_score + 1e-9).pow(panic_depth_weights.get('retail_surrender', 0.3)) *
@@ -1649,7 +1661,8 @@ class ProcessIntelligence:
         # --- 5. 维度三：承接反弹品质 (Absorption Rebound Quality) ---
         absorption_intent_score = offensive_absorption_intent
         closing_strength_score = normalize_score(closing_strength_raw, df_index, 55)
-        upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df_index, ascending=True, tf_weights=default_weights)
+        # MODIFIED: 使用修正后的权重字典
+        upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df_index, actual_mtf_weights, ascending=True)
         rebound_quality_score = (
             (absorption_intent_score + 1e-9).pow(rebound_quality_weights.get('absorption_intent', 0.4)) *
             (closing_strength_score + 1e-9).pow(rebound_quality_weights.get('closing_strength', 0.3)) *
@@ -1684,8 +1697,11 @@ class ProcessIntelligence:
         chip_optimization_weights = get_param_value(params.get('chip_optimization_weights'), {"chip_fatigue": 0.5, "loser_pain": 0.5})
         price_weakness_slope_window = get_param_value(params.get('price_weakness_slope_window'), 5)
         low_volatility_bbw_window = get_param_value(params.get('low_volatility_bbw_window'), 21)
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # MODIFIED: 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
         # --- 2. 获取所有原始数据 ---
         required_signals = [
             'retail_panic_surrender_index_D', f'SLOPE_{price_weakness_slope_window}_close_D', f'BBW_{low_volatility_bbw_window}_2.0_D',
@@ -1704,26 +1720,29 @@ class ProcessIntelligence:
         chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
         # --- 3. 维度一：市场背景 (Market Context) ---
-        retail_panic_score = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, ascending=True, tf_weights=default_weights)
-        price_weakness_score = get_adaptive_mtf_normalized_score(price_weakness_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
-        low_volatility_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, ascending=False, tf_weights=default_weights) # BBW越小，波动率越低，得分越高
+        # MODIFIED: 使用修正后的权重字典
+        retail_panic_score = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, actual_mtf_weights, ascending=True)
+        price_weakness_score = get_adaptive_mtf_normalized_score(price_weakness_slope_raw.clip(upper=0).abs(), df_index, actual_mtf_weights, ascending=True)
+        low_volatility_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, actual_mtf_weights, ascending=False) # BBW越小，波动率越低，得分越高
         market_context_score = (
             (retail_panic_score + 1e-9).pow(market_context_weights.get('retail_panic', 0.3)) *
             (price_weakness_score + 1e-9).pow(market_context_weights.get('price_weakness', 0.4)) *
             (low_volatility_score + 1e-9).pow(market_context_weights.get('low_volatility', 0.3))
         ).pow(1/(market_context_weights.get('retail_panic', 0.3) + market_context_weights.get('price_weakness', 0.4) + market_context_weights.get('low_volatility', 0.3))).fillna(0.0)
         # --- 4. 维度二：隐蔽行动 (Covert Action) ---
-        suppressive_accum_score = get_adaptive_mtf_normalized_score(suppressive_accum_raw, df_index, ascending=True, tf_weights=default_weights)
-        main_force_flow_score = get_adaptive_mtf_normalized_score(main_force_flow_raw.clip(lower=0), df_index, ascending=True, tf_weights=default_weights)
-        deception_positive_score = get_adaptive_mtf_normalized_score(deception_raw.clip(lower=0), df_index, ascending=True, tf_weights=default_weights)
+        # MODIFIED: 使用修正后的权重字典
+        suppressive_accum_score = get_adaptive_mtf_normalized_score(suppressive_accum_raw, df_index, actual_mtf_weights, ascending=True)
+        main_force_flow_score = get_adaptive_mtf_normalized_score(main_force_flow_raw.clip(lower=0), df_index, actual_mtf_weights, ascending=True)
+        deception_positive_score = get_adaptive_mtf_normalized_score(deception_raw.clip(lower=0), df_index, actual_mtf_weights, ascending=True)
         covert_action_score = (
             (suppressive_accum_score + 1e-9).pow(covert_action_weights.get('suppressive_accum', 0.4)) *
             (main_force_flow_score + 1e-9).pow(covert_action_weights.get('main_force_flow', 0.3)) *
             (deception_positive_score + 1e-9).pow(covert_action_weights.get('deception_positive', 0.3))
         ).pow(1/(covert_action_weights.get('suppressive_accum', 0.4) + covert_action_weights.get('main_force_flow', 0.3) + covert_action_weights.get('deception_positive', 0.3))).fillna(0.0)
         # --- 5. 维度三：筹码优化 (Chip Optimization) ---
-        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=default_weights)
-        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=default_weights)
+        # MODIFIED: 使用修正后的权重字典
+        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, actual_mtf_weights, ascending=True)
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, actual_mtf_weights, ascending=True)
         chip_optimization_score = (
             (chip_fatigue_score + 1e-9).pow(chip_optimization_weights.get('chip_fatigue', 0.5)) *
             (loser_pain_score + 1e-9).pow(chip_optimization_weights.get('loser_pain', 0.5))
