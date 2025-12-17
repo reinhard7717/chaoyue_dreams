@@ -398,139 +398,207 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V4.0 · 情绪博弈与诡道精算版】基础公理二：诊断“市场情绪钟摆”
-        - 核心逻辑: 融合市场情绪、散户恐慌/FOMO、RSI动量，并通过“诡道精算器”进行非对称调节，
+        【V5.0 · 情绪结构与诡道共振版】基础公理二：诊断“市场情绪钟摆”
+        - 核心逻辑: 融合市场整体情绪、散户恐慌/FOMO、RSI动量，并通过“诡道精算器”进行非对称调节，
                       同时引入“情境放大器”进行宏观上下文校准。旨在穿透表层情绪，识别真实的市场心理状态。
+        - 核心升级:
+            1. 情绪核心重构：引入“情绪结构品质”，融合情绪活跃度、情绪一致性，更细致刻画情绪质地。
+            2. 诡道精算器增强：引入“诡道行为确认”，利用量价行为交叉验证诱多/诱空，提升甄别精度。
+            3. 情境放大器深化：引入“市场结构稳定性”和“行业情绪共振”，提供更全面的宏观情境校准。
         - A股特性: 情绪常常是陷阱。此升级旨在利用更精细的诡道甄别和情境感知，过滤主力诱多或诱空行为，
                       并捕捉情绪在不同市场环境下的真实价值。
         """
-        print("    -> [基础层] 正在诊断“情绪钟摆”公理 (V4.0 · 情绪博弈与诡道精算版)...") # 修改: 更新版本描述
+        print("    -> [基础层] 正在诊断“情绪钟摆”公理 (V5.0 · 情绪结构与诡道共振版)...")
         # 获取情绪钟摆公理的专属参数
         p_conf_sp = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('sentiment_pendulum_params', {})
         probe_enabled = get_param_value(p_conf_sp.get('enable_probe'), True)
-
         # 获取行为动态参数中的MTF归一化默认权重
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-
         df_index = df.index
-
         # 1. 校验所需信号
         required_signals = [
             'RSI_13_D', 'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D',
-            'market_sentiment_score_D', # 新增
-            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', 'wash_trade_intensity_D', # 新增
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'main_force_conviction_index_D' # 新增
+            'market_sentiment_score_D',
+            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', 'wash_trade_intensity_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'main_force_conviction_index_D',
+            # V5.0 新增原始数据 (情绪核心)
+            'turnover_rate_f_D', 'volume_burstiness_index_D', 'PRICE_VOLUME_ENTROPY_D',
+            'SLOPE_5_RSI_13_D', 'ACCEL_5_RSI_13_D',
+            # V5.0 新增原始数据 (诡道精算器)
+            'closing_acceptance_type_D', 'volume_structure_skew_D', 'upward_impulse_purity_D', 'thrust_efficiency_score_D',
+            # V5.0 新增原始数据 (情境放大器)
+            'BBW_21_2.0_D', 'MA_POTENTIAL_TENSION_INDEX_D', 'industry_strength_rank_D', 'SLOPE_5_industry_strength_rank_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_sentiment_pendulum"):
             return pd.Series(0.0, index=df.index)
-
         # --- 原始数据获取 ---
         rsi_raw = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_axiom_sentiment_pendulum")
         retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
-        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum") # 新增
-        deception_lure_long_raw = self._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum") # 新增
-        deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum") # 新增
-        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum") # 新增
-        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum") # 新增
-        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum") # 新增
-
+        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        deception_lure_long_raw = self._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        # V5.0 新增原始数据
+        turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        rsi_slope_raw = self._get_safe_series(df, 'SLOPE_5_RSI_13_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        rsi_accel_raw = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        closing_acceptance_type_raw = self._get_safe_series(df, 'closing_acceptance_type_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        thrust_efficiency_score_raw = self._get_safe_series(df, 'thrust_efficiency_score_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        ma_potential_tension_raw = self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        industry_strength_rank_raw = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_sentiment_pendulum")
+        industry_strength_rank_slope_raw = self._get_safe_series(df, 'SLOPE_5_industry_strength_rank_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         if probe_enabled:
             print(f"    -> [探针] 原始数据: RSI_13_D 尾部: {rsi_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: retail_panic_surrender_index_D 尾部: {retail_panic_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: retail_fomo_premium_index_D 尾部: {retail_fomo_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: market_sentiment_score_D 尾部: {market_sentiment_raw.tail().to_dict()}") # 新增
-            print(f"    -> [探针] 原始数据: deception_lure_long_intensity_D 尾部: {deception_lure_long_raw.tail().to_dict()}") # 新增
-            print(f"    -> [探针] 原始数据: deception_lure_short_intensity_D 尾部: {deception_lure_short_raw.tail().to_dict()}") # 新增
-            print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_raw.tail().to_dict()}") # 新增
-            print(f"    -> [探针] 原始数据: VOLATILITY_INSTABILITY_INDEX_21d_D 尾部: {volatility_instability_raw.tail().to_dict()}") # 新增
-            print(f"    -> [探针] 原始数据: main_force_conviction_index_D 尾部: {main_force_conviction_raw.tail().to_dict()}") # 新增
-
+            print(f"    -> [探针] 原始数据: market_sentiment_score_D 尾部: {market_sentiment_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: deception_lure_long_intensity_D 尾部: {deception_lure_long_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: deception_lure_short_intensity_D 尾部: {deception_lure_short_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: VOLATILITY_INSTABILITY_INDEX_21d_D 尾部: {volatility_instability_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: main_force_conviction_index_D 尾部: {main_force_conviction_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: turnover_rate_f_D 尾部: {turnover_rate_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: volume_burstiness_index_D 尾部: {volume_burstiness_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: PRICE_VOLUME_ENTROPY_D 尾部: {price_volume_entropy_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: SLOPE_5_RSI_13_D 尾部: {rsi_slope_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: ACCEL_5_RSI_13_D 尾部: {rsi_accel_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: closing_acceptance_type_D 尾部: {closing_acceptance_type_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: volume_structure_skew_D 尾部: {volume_structure_skew_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: upward_impulse_purity_D 尾部: {upward_impulse_purity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: thrust_efficiency_score_D 尾部: {thrust_efficiency_score_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: BBW_21_2.0_D 尾部: {bbw_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: MA_POTENTIAL_TENSION_INDEX_D 尾部: {ma_potential_tension_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: industry_strength_rank_D 尾部: {industry_strength_rank_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: SLOPE_5_industry_strength_rank_D 尾部: {industry_strength_rank_slope_raw.tail().to_dict()}")
         # --- 2. 情绪核心 (Sentiment Core) ---
-        sc_weights = p_conf_sp.get('sentiment_core_weights', {'market_sentiment': 0.4, 'retail_fomo': 0.2, 'retail_panic': 0.2, 'rsi_momentum': 0.2})
-
+        sc_weights = p_conf_sp.get('sentiment_core_weights', {'market_sentiment': 0.3, 'retail_fomo': 0.15, 'retail_panic': 0.15, 'rsi_momentum': 0.2, 'sentiment_structure_quality': 0.2})
         market_sentiment_score = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, default_weights)
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw, df_index, default_weights, ascending=True)
         retail_panic_score = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, default_weights, ascending=True)
         rsi_momentum_score = get_adaptive_mtf_normalized_bipolar_score(rsi_raw - 50.0, df_index, default_weights, sensitivity=10.0)
-
-        # 将单极性散户情绪转换为双极性，以便融合
-        retail_fomo_bipolar = retail_fomo_score * 2 - 1 # 高FOMO -> 正，低FOMO -> 负
-        retail_panic_bipolar = -(retail_panic_score * 2 - 1) # 高Panic -> 负，低Panic -> 正
-
+        retail_fomo_bipolar = retail_fomo_score * 2 - 1
+        retail_panic_bipolar = -(retail_panic_score * 2 - 1)
+        # V5.0 新增: 情绪结构品质 (Sentiment Structure Quality)
+        ssq_weights = p_conf_sp.get('sentiment_structure_quality_weights', {'activity': 0.4, 'consistency': 0.3, 'rsi_dynamics': 0.3})
+        # 情绪活跃度: 换手率和成交量爆发性
+        turnover_rate_score = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, default_weights, ascending=True)
+        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, default_weights, ascending=True)
+        sentiment_activity_score = (turnover_rate_score * ssq_weights.get('activity_turnover', 0.5) + volume_burstiness_score * ssq_weights.get('activity_burstiness', 0.5)).clip(0, 1)
+        # 情绪一致性: 价量熵 (负向)
+        price_volume_entropy_score = get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df_index, default_weights, ascending=False)
+        sentiment_consistency_score = price_volume_entropy_score.clip(0, 1)
+        # RSI动态分: RSI斜率和加速度
+        rsi_slope_score = get_adaptive_mtf_normalized_bipolar_score(rsi_slope_raw, df_index, default_weights)
+        rsi_accel_score = get_adaptive_mtf_normalized_bipolar_score(rsi_accel_raw, df_index, default_weights)
+        rsi_dynamics_score = (rsi_slope_score * ssq_weights.get('rsi_dynamics_slope', 0.5) + rsi_accel_score * ssq_weights.get('rsi_dynamics_accel', 0.5)).clip(-1, 1)
+        sentiment_structure_quality_score = (
+            sentiment_activity_score * ssq_weights.get('activity', 0.4) +
+            sentiment_consistency_score * ssq_weights.get('consistency', 0.3) +
+            (rsi_dynamics_score + 1) / 2 * ssq_weights.get('rsi_dynamics', 0.3)
+        ).clip(0, 1)
         sentiment_core = (
-            market_sentiment_score * sc_weights.get('market_sentiment', 0.4) +
-            retail_fomo_bipolar * sc_weights.get('retail_fomo', 0.2) +
-            retail_panic_bipolar * sc_weights.get('retail_panic', 0.2) +
-            rsi_momentum_score * sc_weights.get('rsi_momentum', 0.2)
+            market_sentiment_score * sc_weights.get('market_sentiment', 0.3) +
+            retail_fomo_bipolar * sc_weights.get('retail_fomo', 0.15) +
+            retail_panic_bipolar * sc_weights.get('retail_panic', 0.15) +
+            rsi_momentum_score * sc_weights.get('rsi_momentum', 0.2) +
+            (sentiment_structure_quality_score * 2 - 1) * sc_weights.get('sentiment_structure_quality', 0.2)
         ).clip(-1, 1)
-
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 市场情绪得分 (market_sentiment_score) 尾部: {market_sentiment_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 散户FOMO得分 (retail_fomo_score) 尾部: {retail_fomo_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 散户恐慌得分 (retail_panic_score) 尾部: {retail_panic_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: RSI动量得分 (rsi_momentum_score) 尾部: {rsi_momentum_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 情绪活跃度得分 (sentiment_activity_score) 尾部: {sentiment_activity_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 情绪一致性得分 (sentiment_consistency_score) 尾部: {sentiment_consistency_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: RSI动态得分 (rsi_dynamics_score) 尾部: {rsi_dynamics_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 情绪结构品质分 (sentiment_structure_quality_score) 尾部: {sentiment_structure_quality_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 情绪核心分 (sentiment_core) 尾部: {sentiment_core.tail().to_dict()}")
-
         # --- 3. 诡道精算器 (Deception Modulator) ---
         dm_params = p_conf_sp.get('deception_modulator_params', {})
         lure_long_penalty_factor = get_param_value(dm_params.get('lure_long_penalty_factor'), 0.7)
         lure_short_bonus_factor = get_param_value(dm_params.get('lure_short_bonus_factor'), 0.5)
         wash_trade_credibility_reduction_factor = get_param_value(dm_params.get('wash_trade_credibility_reduction_factor'), 0.5)
-
+        deception_confirmation_weight = get_param_value(dm_params.get('deception_confirmation_weight'), 0.3)
         lure_long_score = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, default_weights, ascending=True)
         lure_short_score = get_adaptive_mtf_normalized_score(deception_lure_short_raw, df_index, default_weights, ascending=True)
         wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, default_weights, ascending=True)
-
         deception_modulator = pd.Series(1.0, index=df_index)
-
-        # 诱多惩罚: 如果情绪核心为正 (贪婪) 且有诱多行为，则惩罚
+        # V5.0 新增: 诡道行为确认 (Deception Behavior Confirmation)
+        dbc_weights = p_conf_sp.get('deception_behavior_confirmation_weights', {'closing_acceptance': 0.3, 'volume_skew': 0.3, 'upward_purity': 0.2, 'thrust_efficiency': 0.2})
+        closing_acceptance_score = get_adaptive_mtf_normalized_score(closing_acceptance_type_raw, df_index, default_weights, ascending=True)
+        volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw, df_index, default_weights)
+        upward_impulse_purity_score = get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, default_weights, ascending=True)
+        thrust_efficiency_score = get_adaptive_mtf_normalized_score(thrust_efficiency_score_raw, df_index, default_weights, ascending=True)
+        # 诡道行为确认分 (0-1)
+        # 诱多确认：收盘接受度越低，偏度越负，纯度越低，效率越低，越确认诱多
+        # 诱空确认：收盘接受度越高，偏度越正，纯度越高，效率越高，越确认诱空
+        # 这里构建一个双极性的确认分，正向确认诱多，负向确认诱空
+        deception_behavior_confirmation_score = (
+            (1 - closing_acceptance_score) * dbc_weights.get('closing_acceptance', 0.3) + # 负向确认诱多
+            (1 - (volume_structure_skew_score + 1) / 2) * dbc_weights.get('volume_skew', 0.3) + # 负向确认诱多
+            (1 - upward_impulse_purity_score) * dbc_weights.get('upward_purity', 0.2) + # 负向确认诱多
+            (1 - thrust_efficiency_score) * dbc_weights.get('thrust_efficiency', 0.2) # 负向确认诱多
+        ).clip(0, 1)
+        # 诱多惩罚: 如果情绪核心为正 (贪婪) 且有诱多行为，则惩罚，并由诡道行为确认分强化
         bull_trap_condition = (sentiment_core > 0) & (lure_long_score > 0)
-        deception_modulator.loc[bull_trap_condition] -= lure_long_score.loc[bull_trap_condition] * lure_long_penalty_factor
-
-        # 诱空奖励: 如果情绪核心为负 (恐慌) 且有诱空行为，则奖励 (视为潜在底部机会)
+        deception_modulator.loc[bull_trap_condition] -= lure_long_score.loc[bull_trap_condition] * lure_long_penalty_factor * (1 + deception_behavior_confirmation_score.loc[bull_trap_condition] * deception_confirmation_weight)
+        # 诱空奖励: 如果情绪核心为负 (恐慌) 且有诱空行为，则奖励 (视为潜在底部机会)，并由诡道行为确认分强化
         bear_trap_opportunity_condition = (sentiment_core < 0) & (lure_short_score > 0)
-        deception_modulator.loc[bear_trap_opportunity_condition] += lure_short_score.loc[bear_trap_opportunity_condition] * lure_short_bonus_factor
-
+        # 诱空时，诡道行为确认分应该反向作用，即行为越“好”，越确认诱空是机会
+        # 所以这里使用 (1 - deception_behavior_confirmation_score) 来表示行为的“好”
+        deception_modulator.loc[bear_trap_opportunity_condition] += lure_short_score.loc[bear_trap_opportunity_condition] * lure_short_bonus_factor * (1 + (1 - deception_behavior_confirmation_score.loc[bear_trap_opportunity_condition]) * deception_confirmation_weight)
         # 对倒削弱情绪可信度
         deception_modulator *= (1 - wash_trade_score * wash_trade_credibility_reduction_factor)
-        
-        deception_modulator = deception_modulator.clip(0.0, 2.0) # 确保调节器在合理范围 [0, 2]
-
+        deception_modulator = deception_modulator.clip(0.0, 2.0)
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 诱多得分 (lure_long_score) 尾部: {lure_long_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 诱空得分 (lure_short_score) 尾部: {lure_short_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 对倒得分 (wash_trade_score) 尾部: {wash_trade_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 诡道行为确认分 (deception_behavior_confirmation_score) 尾部: {deception_behavior_confirmation_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 诡道精算器 (deception_modulator) 尾部: {deception_modulator.tail().to_dict()}")
-
         # --- 4. 情境放大器 (Contextual Amplifier) ---
         ca_params = p_conf_sp.get('contextual_amplification_params', {})
-        volatility_weight = get_param_value(ca_params.get('volatility_weight'), 0.3)
-        main_force_conviction_weight = get_param_value(ca_params.get('main_force_conviction_weight'), 0.7)
+        volatility_weight = get_param_value(ca_params.get('volatility_weight', 0.2))
+        main_force_conviction_weight = get_param_value(ca_params.get('main_force_conviction_weight', 0.3))
+        market_structure_stability_weight = get_param_value(ca_params.get('market_structure_stability_weight', 0.3))
+        sector_sentiment_resonance_weight = get_param_value(ca_params.get('sector_sentiment_resonance_weight', 0.2))
         base_amplifier_factor = get_param_value(ca_params.get('base_amplifier_factor'), 0.25)
-
         volatility_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, default_weights, ascending=True)
         main_force_conviction_score = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, default_weights)
-
+        # V5.0 新增: 市场结构稳定性 (Market Structure Stability)
+        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, default_weights, ascending=False) # BBW越小越稳定
+        ma_potential_tension_score = get_adaptive_mtf_normalized_score(ma_potential_tension_raw, df_index, default_weights, ascending=True) # 张力越大越稳定
+        market_structure_stability_score = (bbw_score * 0.5 + ma_potential_tension_score * 0.5).clip(0, 1)
+        # V5.0 新增: 行业情绪共振 (Sector Sentiment Resonance)
+        industry_strength_rank_score = (industry_strength_rank_raw - 0.5) * 2 # 转换为双极性
+        industry_strength_rank_slope_score = get_adaptive_mtf_normalized_bipolar_score(industry_strength_rank_slope_raw, df_index, default_weights)
+        sector_sentiment_resonance_score = (industry_strength_rank_score * 0.5 + industry_strength_rank_slope_score * 0.5).clip(-1, 1)
         context_amplifier_score = (
             volatility_score * volatility_weight +
-            main_force_conviction_score * main_force_conviction_weight
+            main_force_conviction_score * main_force_conviction_weight +
+            (market_structure_stability_score * 2 - 1) * market_structure_stability_weight + # 转换为双极性
+            sector_sentiment_resonance_score * sector_sentiment_resonance_weight
         ).clip(-1, 1)
-
-        # 将情境放大器转换为乘数形式，使其在 [1 - base_amplifier_factor, 1 + base_amplifier_factor] 范围内
         context_multiplier = 1 + context_amplifier_score * base_amplifier_factor
-        context_multiplier = context_multiplier.clip(0.5, 1.5) # 确保乘数在合理范围 [0.5, 1.5]
-
+        context_multiplier = context_multiplier.clip(0.5, 1.5)
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 波动不稳定性得分 (volatility_score) 尾部: {volatility_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 主力信念得分 (main_force_conviction_score) 尾部: {main_force_conviction_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 市场结构稳定性分 (market_structure_stability_score) 尾部: {market_structure_stability_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 行业情绪共振分 (sector_sentiment_resonance_score) 尾部: {sector_sentiment_resonance_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 情境放大器 (context_multiplier) 尾部: {context_multiplier.tail().to_dict()}")
-
         # --- 5. 最终情绪钟摆分数 ---
         sentiment_pendulum_score = (sentiment_core * deception_modulator * context_multiplier).clip(-1, 1)
-
         if probe_enabled:
             print(f"    -> [探针] 最终结果: 情绪钟摆分 (sentiment_pendulum_score) 尾部: {sentiment_pendulum_score.tail().to_dict()}")
         print("    -> [基础层] “情绪钟摆”公理诊断完成。")

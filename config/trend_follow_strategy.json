@@ -3515,7 +3515,7 @@
           "volatility_orderliness": 0.25,
           "structural_movement_efficiency": 0.15
         },
-        "comment_stability_fusion_weights": "【V5.7 · 纯结构深度进化版】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
+        "comment_stability_fusion_weights": "【V5.8 · 纯结构自适应归一化版】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
         "stability_params": {
           "enabled": true,
           "structural_support_strength_weights": {
@@ -3545,7 +3545,12 @@
             "impulse_quality_ratio": 0.2,
             "MA_POTENTIAL_ORDERLINESS_SCORE": 0.2
           },
-          "comment": "结构稳定性维度参数，包含各子维度的融合权重。"
+          "normalization_configs": {
+            "HURST_144d_D": {"method": "quantile", "ascending": true, "clip_range": [0.0, 1.0]},
+            "asymmetric_friction_index_D": {"method": "quantile", "ascending": false},
+            "FRACTAL_DIMENSION_89d_D": {"method": "quantile", "ascending": false, "clip_range": [1.0, 2.0]}
+          },
+          "comment": "结构稳定性维度参数，包含各子维度的融合权重和指标归一化配置。"
         }
       },
       "fusion_intelligence_params": {
