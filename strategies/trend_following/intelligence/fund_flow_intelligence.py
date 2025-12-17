@@ -1698,13 +1698,12 @@ class FundFlowIntelligence:
         flow_structure_health_score = (enhanced_flow_efficiency * 0.5 + health_core * np.sign(enhanced_flow_efficiency) * 0.5) * enhanced_risk_filter
         return flow_structure_health_score.clip(-1, 1).astype(np.float32)
 
-    def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict) -> pd.Series:
+    def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
         """
-        【V4.0 升级 · 探针移除版】计算双极性多时间框架的共振/背离因子。
-        分析短期和长期斜率/加速度的一致性及其方向。
-        返回 -1 到 1 的分数，正值表示看涨共振，负值表示看跌共振。
+        【V4.1 升级 · 效率优化版】计算双极性多时间框架的共振/背离因子。
+        - 核心优化: 增加了 `pre_fetched_data` 参数，允许预先传入数据，避免重复调用 `_get_safe_series`。
         """
-        method_name_str = "_calculate_mtf_cohesion_divergence" # 硬编码方法名
+        method_name_str = "_calculate_mtf_cohesion_divergence"
         short_slope_scores = []
         short_accel_scores = []
         long_slope_scores = []
@@ -1713,8 +1712,16 @@ class FundFlowIntelligence:
         for p in short_periods:
             slope_col = f'SLOPE_{p}_{signal_base_name}'
             accel_col = f'ACCEL_{p}_{signal_base_name}'
-            slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
-            accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
+            # 修改开始: 优先从预取数据中获取
+            if pre_fetched_data and slope_col in pre_fetched_data:
+                slope_raw = pre_fetched_data[slope_col]
+            else:
+                slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
+            if pre_fetched_data and accel_col in pre_fetched_data:
+                accel_raw = pre_fetched_data[accel_col]
+            else:
+                accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
+            # 修改结束
             if is_bipolar:
                 short_slope_scores.append(get_adaptive_mtf_normalized_bipolar_score(slope_raw, df.index, tf_weights))
                 short_accel_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
@@ -1725,8 +1732,16 @@ class FundFlowIntelligence:
         for p in long_periods:
             slope_col = f'SLOPE_{p}_{signal_base_name}'
             accel_col = f'ACCEL_{p}_{signal_base_name}'
-            slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
-            accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
+            # 修改开始: 优先从预取数据中获取
+            if pre_fetched_data and slope_col in pre_fetched_data:
+                slope_raw = pre_fetched_data[slope_col]
+            else:
+                slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
+            if pre_fetched_data and accel_col in pre_fetched_data:
+                accel_raw = pre_fetched_data[accel_col]
+            else:
+                accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
+            # 修改结束
             if is_bipolar:
                 long_slope_scores.append(get_adaptive_mtf_normalized_bipolar_score(slope_raw, df.index, tf_weights))
                 long_accel_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
