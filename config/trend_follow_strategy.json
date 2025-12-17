@@ -2637,6 +2637,54 @@
           "comment_slq_activation_threshold": "行业领导力质量激活阈值，原始输入平均值低于此阈值时，SLQ分数为0。",
           "slq_activation_window": 21,
           "comment_slq_activation_window": "行业领导力质量激活窗口，用于计算原始输入平均值。"
+        },
+        "market_constitution_params": {
+          "description": "【V4.0 · 深度体质诊断版】市场体质公理的专属参数。",
+          "ma_periods": [5, 13, 21, 55],
+          "ma_structure_quality_weights": {
+            "description": "均线骨架质量融合权重。",
+            "macd_score": 0.2,
+            "alignment_score": 0.3,
+            "slope_score": 0.3,
+            "dma_slope_score": 0.1,
+            "orderliness_score": 0.05,
+            "tension_score": 0.05
+          },
+          "turnover_health_weights": {
+            "description": "筹码新陈代谢健康度融合权重。",
+            "turnover_rate": 0.5,
+            "volume_burstiness": 0.2,
+            "constructive_turnover": 0.3
+          },
+          "market_conviction_strength_weights": {
+            "description": "市场信念强度融合权重。",
+            "trend_alignment": 0.4,
+            "main_force_conviction": 0.3,
+            "flow_credibility": 0.3
+          },
+          "immune_resilience_weights": {
+            "description": "免疫韧性与抗压能力融合权重。",
+            "dip_absorption": 0.4,
+            "pressure_rejection": 0.2,
+            "chip_health": 0.2,
+            "capitulation_absorption": 0.2
+          },
+          "final_fusion_weights": {
+            "description": "四大核心维度最终融合权重。",
+            "msq": 0.3,
+            "th": 0.2,
+            "mcs": 0.3,
+            "ir": 0.2
+          },
+          "short_board_penalty_threshold": 0.2,
+          "comment_short_board_penalty_threshold": "短板效应惩罚阈值，当任一核心维度得分低于此值时触发惩罚。",
+          "short_board_penalty_factor": 0.5,
+          "comment_short_board_penalty_factor": "短板效应惩罚强度因子，控制惩罚的力度。",
+          "synergy_bonus_threshold": 0.8,
+          "comment_synergy_bonus_threshold": "协同奖励阈值，当所有核心维度得分高于此值时触发奖励。",
+          "synergy_bonus_factor": 0.2,
+          "comment_synergy_bonus_factor": "协同奖励强度因子，控制奖励的力度。",
+          "enable_probe": true
         }
       },
       "fund_flow_ultimate_params": {
@@ -3396,20 +3444,31 @@
           "adjustment_strength": 0.5,
           "comment": "根据波动率调整斜率和角度的敏感度。"
         },
-        "price_ma_gap_params": { 
+        "price_ma_gap_params": {
           "enabled": true,
           "ma_periods": [5, 13, 21],
           "comment": "价格与均线乖离度维度参数，指定用于计算的均线周期。"
         },
-        "bb_dynamics_params": { 
+        "bb_dynamics_params": {
           "enabled": true,
           "bbw_weight": 0.5,
           "bbp_weight": 0.5,
           "comment": "布林带动态维度参数，BBW和BBP的融合权重。"
         },
-        "trend_efficiency_params": { 
+        "trend_efficiency_params": {
           "enabled": true,
           "comment": "趋势效率维度参数。"
+        },
+        "stability_fusion_weights": {
+          "description": "【结构稳定性公理】融合结构支撑强度、筹码健康度、平台结构质量、主力控盘意愿的权重。",
+          "structural_support_strength": 0.3,
+          "chip_health": 0.3,
+          "platform_structure_quality": 0.2,
+          "main_force_control_intent": 0.2
+        },
+        "stability_params": {
+          "enabled": true,
+          "comment": "结构稳定性维度参数。"
         }
       },
       "fusion_intelligence_params": {
