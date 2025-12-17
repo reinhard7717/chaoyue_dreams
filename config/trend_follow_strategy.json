@@ -2588,6 +2588,26 @@
         "ma_health_fusion_weights": {
           "alignment": 0.5,
           "slope": 0.5
+        },
+        "relative_strength_params": {
+          "description": "【V3.0 · 深度洞察版】相对强度公理的专属参数。",
+          "state_weights": {
+            "current_rank": 0.7,
+            "rank_stability": 0.3
+          },
+          "momentum_weights": {
+            "rank_slope": 0.6,
+            "rank_acceleration": 0.4
+          },
+          "fusion_weights": {
+            "enhanced_state": 0.6,
+            "enhanced_momentum": 0.4
+          },
+          "synergy_bonus_factor": 0.2,
+          "synergy_threshold": 0.2,
+          "rank_stability_window": 5,
+          "rank_acceleration_window": 5,
+          "enable_probe": true
         }
       },
       "fund_flow_ultimate_params": {
