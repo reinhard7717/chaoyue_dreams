@@ -489,10 +489,20 @@ class FoundationIntelligence:
         retail_fomo_bipolar = retail_fomo_score * 2 - 1
         retail_panic_bipolar = -(retail_panic_score * 2 - 1)
         # V5.0 新增: 情绪结构品质 (Sentiment Structure Quality)
-        ssq_weights = p_conf_sp.get('sentiment_structure_quality_weights', {'activity_turnover': 0.5, 'activity_burstiness': 0.5, 'consistency': 0.4, 'rsi_dynamics_slope': 0.5, 'rsi_dynamics_accel': 0.5}) # 修改: 调整权重结构
-        # 情绪活跃度: 换手率和成交量爆发性
         # 修改开始
-        sentiment_activity_score = (turnover_rate_score * ssq_weights.get('activity_turnover', 0.5) + volume_burstiness_score * ssq_weights.get('activity_burstiness', 0.5)).clip(0, 1)
+        ssq_weights = p_conf_sp.get('sentiment_structure_quality_weights', {
+            'activity_overall': 0.4, 'consistency_overall': 0.3, 'rsi_dynamics_overall': 0.3,
+            'activity_sub_weights': {'turnover': 0.5, 'burstiness': 0.5},
+            'rsi_dynamics_sub_weights': {'slope': 0.5, 'accel': 0.5}
+        })
+        # 定义 turnover_rate_score 和 volume_burstiness_score
+        turnover_rate_score = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, default_weights, ascending=True)
+        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, default_weights, ascending=True)
+        # 情绪活跃度: 换手率和成交量爆发性
+        sentiment_activity_score = (
+            turnover_rate_score * ssq_weights.get('activity_sub_weights', {}).get('turnover', 0.5) +
+            volume_burstiness_score * ssq_weights.get('activity_sub_weights', {}).get('burstiness', 0.5)
+        ).clip(0, 1)
         # 修改结束
         # 情绪一致性: 价量熵 (负向)
         price_volume_entropy_score = get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df_index, default_weights, ascending=False)
@@ -500,11 +510,14 @@ class FoundationIntelligence:
         # RSI动态分: RSI斜率和加速度
         rsi_slope_score = get_adaptive_mtf_normalized_bipolar_score(rsi_slope_raw, df_index, default_weights)
         rsi_accel_score = get_adaptive_mtf_normalized_bipolar_score(rsi_accel_raw, df_index, default_weights)
-        rsi_dynamics_score = (rsi_slope_score * ssq_weights.get('rsi_dynamics_slope', 0.5) + rsi_accel_score * ssq_weights.get('rsi_dynamics_accel', 0.5)).clip(-1, 1)
+        rsi_dynamics_score = (
+            rsi_slope_score * ssq_weights.get('rsi_dynamics_sub_weights', {}).get('slope', 0.5) +
+            rsi_accel_score * ssq_weights.get('rsi_dynamics_sub_weights', {}).get('accel', 0.5)
+        ).clip(-1, 1)
         sentiment_structure_quality_score = (
-            sentiment_activity_score * ssq_weights.get('activity', 0.4) + # 这里activity权重需要重新定义
-            sentiment_consistency_score * ssq_weights.get('consistency', 0.3) +
-            (rsi_dynamics_score + 1) / 2 * ssq_weights.get('rsi_dynamics', 0.3)
+            sentiment_activity_score * ssq_weights.get('activity_overall', 0.4) +
+            sentiment_consistency_score * ssq_weights.get('consistency_overall', 0.3) +
+            (rsi_dynamics_score + 1) / 2 * ssq_weights.get('rsi_dynamics_overall', 0.3)
         ).clip(0, 1)
         sentiment_core = (
             market_sentiment_score * sc_weights.get('market_sentiment', 0.3) +

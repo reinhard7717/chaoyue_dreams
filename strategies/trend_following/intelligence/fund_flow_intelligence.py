@@ -13,6 +13,7 @@ class FundFlowIntelligence:
         # 修正: 在初始化时加载 tf_weights_ff，确保其始终可用
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         【V1.1 · 上下文修复版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
@@ -40,31 +41,37 @@ class FundFlowIntelligence:
             print(f"    -> [资金流情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             series = pd.Series(default_value, index=df_index)
         return series
-    def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False, method_name: str = "未知方法") -> pd.Series:
+
+    def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False, method_name: str = "未知方法", pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
         """
-        【V1.2 · 修复与增强版】计算多时间框架的动态得分。
-        - 核心修复: 修复了 `else` 分支中 `raw_data` 未定义的 bug。
-        - 核心增强: 增加了 `method_name` 参数，以便在 `_get_safe_series` 中提供更详细的警告信息。
+        【V1.3 · 效率优化版】计算多时间框架的动态得分。
+        - 核心优化: 增加了 `pre_fetched_data` 参数，允许预先传入数据，避免重复调用 `_get_safe_series`。
         """
         mtf_scores = []
         numeric_weights = {k: v for k, v in weights_dict.items() if isinstance(v, (int, float))}
         total_weight = sum(numeric_weights.values())
         if total_weight == 0:
-            # 如果权重总和为0，则返回一个全为0的Series，避免除以零错误
+            print(f"    -> [资金流情报警告] 方法 '{method_name}' 中权重总和为0，返回全0 Series。")
             return pd.Series(0.0, index=df.index)
         for period_str, weight in numeric_weights.items():
             period = int(period_str)
             prefix = 'ACCEL' if is_accel else 'SLOPE'
             col_name = f'{prefix}_{period}_{signal_base_name}'
-            raw_data = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name) # 修正: 传入 method_name
+            # 修改开始: 优先从预取数据中获取
+            if pre_fetched_data and col_name in pre_fetched_data:
+                raw_data = pre_fetched_data[col_name]
+            else:
+                raw_data = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
+            # 修改结束
             if is_bipolar:
                 norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, self.tf_weights_ff)
             else:
-                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=self.tf_weights_ff) # 修正: 确保使用 raw_data
+                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=self.tf_weights_ff)
             mtf_scores.append(norm_score * weight)
         if not mtf_scores:
             return pd.Series(0.0, index=df.index)
         return sum(mtf_scores) / total_weight
+
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str, atomic_states: Optional[Dict[str, pd.Series]] = None) -> bool:
         """
         【V1.1 · 扩展校验源版】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -80,6 +87,7 @@ class FundFlowIntelligence:
             print(f"    -> [资金流情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
+
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V29.0 · 拐点洞察版】资金流情报分析总指挥
@@ -152,6 +160,7 @@ class FundFlowIntelligence:
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         print(f"【V29.0 · 拐点洞察版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。")
         return all_states
+
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V5.0 · 动态共振与微观脉冲版】资金流公理四：诊断“资金流内部分歧与意图张力”
@@ -414,6 +423,7 @@ class FundFlowIntelligence:
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
         return final_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V5.1 · 意图推断与情境预测版】资金流公理一：诊断“战场控制权”
@@ -728,6 +738,7 @@ class FundFlowIntelligence:
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
         return final_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V4.1 · 多维时空与自适应粒度版】资金流公理二：诊断“信念韧性”
@@ -1004,6 +1015,7 @@ class FundFlowIntelligence:
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
         return final_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V6.1 · 深度情境与结构洞察版】资金流公理三：诊断“资金流纯度与动能”
@@ -1329,6 +1341,7 @@ class FundFlowIntelligence:
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
         # 删除探针
         return final_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.1 · 意图博弈与结构演化版】资金流公理五：诊断“资本属性”
@@ -1591,6 +1604,7 @@ class FundFlowIntelligence:
         agile_modulated_score = agile_capital_score * dynamic_agile_weight * liquidity_mod * volatility_mod * sentiment_mod * (1 + inter_capital_game_score.clip(upper=0).abs())
         capital_signature_score = np.tanh(patient_modulated_score - agile_modulated_score).pow(fusion_exponent).clip(-1, 1)
         return capital_signature_score.astype(np.float32)
+
     def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 新增】资金流公理六：诊断“资金流结构健康度”
@@ -1675,6 +1689,7 @@ class FundFlowIntelligence:
         health_core = (norm_flow_steadiness * 0.4 + norm_cost_cohesion * 0.6)
         flow_structure_health_score = (enhanced_flow_efficiency * 0.5 + health_core * np.sign(enhanced_flow_efficiency) * 0.5) * enhanced_risk_filter
         return flow_structure_health_score.clip(-1, 1).astype(np.float32)
+
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict) -> pd.Series:
         """
         【V4.0 升级 · 探针移除版】计算双极性多时间框架的共振/背离因子。
@@ -1726,6 +1741,7 @@ class FundFlowIntelligence:
         # 3. 最终双极性共振分数：方向 * 强度
         mtf_resonance_score = strength_cohesion * direction_alignment
         return mtf_resonance_score.astype(np.float32)
+
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
         【V4.1 · 动态共振与微观意图精炼版】诊断资金流看涨/看跌背离信号。
