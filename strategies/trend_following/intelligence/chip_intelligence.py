@@ -1179,8 +1179,8 @@ class ChipIntelligence:
         chip_sensitivity_mod_norm_window = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_norm_window'), 21)
         chip_sensitivity_mod_factor_amp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_factor_amp'), 1.0)
         chip_sensitivity_mod_factor_damp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_factor_damp'), 1.0)
-        chip_sensitivity_mod_tanh_factor_amp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_tanh_factor_amp'), 1.0)
-        chip_sensitivity_mod_tanh_factor_damp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_tanh_factor_damp'), 1.0)
+        chip_sensitivity_mod_tanh_factor_amp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_mod_tanh_factor_amp'), 1.0)
+        chip_sensitivity_mod_tanh_factor_damp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_mod_tanh_factor_damp'), 1.0)
         cost_structure_asymmetric_impact_enabled = get_param_value(coherent_drive_params.get('cost_structure_asymmetric_impact_enabled'), False)
         cost_structure_impact_base_factor_bullish = get_param_value(coherent_drive_params.get('cost_structure_impact_base_factor_bullish'), 1.0)
         cost_structure_impact_base_factor_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_base_factor_bearish'), 1.0)
@@ -1244,6 +1244,20 @@ class ChipIntelligence:
         dynamic_structural_power_sensitivity_amp = pd.Series(default_structural_power_sensitivity_amp, index=df.index)
         dynamic_structural_power_sensitivity_damp = pd.Series(default_structural_power_sensitivity_damp, index=df.index)
         dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
+
+        # 修改代码行：添加信号依赖校验
+        required_signals = [
+            'chip_health_score_D', # 用于 current_chip_health_score_raw
+        ]
+        # 动态添加调制器信号，如果它们与默认值不同或尚未添加
+        if chip_sensitivity_modulator_signal_name not in required_signals:
+            required_signals.append(chip_sensitivity_modulator_signal_name)
+        if final_score_modulator_signal_name not in required_signals:
+            required_signals.append(final_score_modulator_signal_name)
+
+        if not self._validate_required_signals(df, required_signals, "_diagnose_structural_consensus"):
+            return pd.Series(0.0, index=df.index)
+
         if chip_health_modulation_enabled:
             current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
             normalized_chip_health = get_adaptive_mtf_normalized_bipolar_score(

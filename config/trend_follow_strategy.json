@@ -1749,6 +1749,7 @@
       "chip_ultimate_params": {
         "enabled": true,
         "description": "【V8.2 · 筹码趋势动量版】定义了基于“聚散、成本、心态、形态、趋势动量”五大核心公理的新筹码引擎参数。",
+        "cost_zone_tolerance": 0.02,
         "description_tf_fusion_weights": "【全息共振】在融合多时间级别(MTF)的公理分数时，赋予不同周期的权重。",
         "tf_fusion_weights": {
           "5": 0.4,
@@ -2828,6 +2829,71 @@
               "structural_quality": -0.2
             },
             "comment_sentiment_impact_weights": "市场情绪对各维度权重的调整量。"
+          }
+        },
+        "market_tension_params": {
+          "description": "【V4.0 · 结构化张力与博弈意图版】市场张力公理的专属参数。",
+          "enable_probe": true,
+          "tension_magnitude_weights": {
+            "description": "张力强度融合权重。",
+            "squeeze": 0.2,
+            "compression": 0.2,
+            "ma_tension": 0.15,
+            "equilibrium_compression": 0.15,
+            "volume_structure_skew": 0.1,
+            "structural_tension": 0.1,
+            "volatility_instability_inverse": 0.1
+          },
+          "directional_intent_weights": {
+            "description": "方向意图融合权重。",
+            "main_force_posture": 0.4,
+            "order_book_imbalance": 0.3,
+            "main_force_conviction": 0.3
+          },
+          "deception_modulator_params": {
+            "description": "诡道调制器参数。",
+            "deception_penalty_factor": 0.6,
+            "comment_deception_penalty_factor": "欺骗指数对方向意图的惩罚因子。",
+            "wash_trade_penalty_factor": 0.4,
+            "comment_wash_trade_penalty_factor": "对倒强度对方向意图的惩罚因子。",
+            "positive_intent_penalty_multiplier": 1.5,
+            "comment_positive_intent_penalty_multiplier": "看涨意图时欺骗的额外惩罚乘数。",
+            "negative_intent_bonus_multiplier": 0.8,
+            "comment_negative_intent_bonus_multiplier": "看跌意图时欺骗的乘数（小于1表示减轻惩罚，可能视为洗盘）。"
+          },
+          "dynamic_fusion_modulator_params": {
+            "enabled": true,
+            "description": "动态融合权重调制器参数。",
+            "modulator_signal_1": "market_sentiment_score_D",
+            "comment_modulator_signal_1": "调制器信号1（市场情绪）。",
+            "modulator_signal_2": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "comment_modulator_signal_2": "调制器信号2（波动不稳定性）。",
+            "sensitivity_sentiment": 0.4,
+            "comment_sensitivity_sentiment": "市场情绪对权重调整的敏感度。",
+            "sensitivity_volatility": 0.3,
+            "comment_sensitivity_volatility": "波动不稳定性对权重调整的敏感度。",
+            "base_weights": {
+              "tension_magnitude": 0.5,
+              "directional_intent": 0.5
+            },
+            "sentiment_impact_weights": {
+              "tension_magnitude": -0.1,
+              "directional_intent": 0.1
+            },
+            "comment_sentiment_impact_weights": "市场情绪对各维度权重的调整量。",
+            "volatility_impact_weights": {
+              "tension_magnitude": 0.15,
+              "directional_intent": -0.15
+            },
+            "comment_volatility_impact_weights": "波动不稳定性对各维度权重的调整量。"
+          },
+          "final_risk_filter_params": {
+            "enabled": true,
+            "description": "最终风险过滤器参数。",
+            "chip_health_penalty_factor": 0.5,
+            "comment_chip_health_penalty_factor": "筹码健康度对最终分数的惩罚因子（健康度越低，惩罚越重）。",
+            "deception_index_penalty_factor": 0.7,
+            "comment_deception_index_penalty_factor": "欺骗指数对最终分数的惩罚因子（欺骗指数越高，惩罚越重）。"
           }
         }
       },
