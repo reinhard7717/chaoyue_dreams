@@ -160,9 +160,8 @@ class MicroBehaviorEngine:
         # --- 获取量能证据 ---
         volume_ratio_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_strategy_shock_and_awe")
         # 数据净化步骤
-        # 修改开始：修正 normalize_score 的调用参数，添加 df.index
+        # 修正 normalize_score 的调用参数，添加 df.index
         outcome_normalized = normalize_score(outcome_raw, df.index, 55)
-        # 修改结束
         impact_score = get_adaptive_mtf_normalized_score(impact_raw.abs(), df.index, ascending=True, tf_weights=tf_weights)
         clearing_score = get_adaptive_mtf_normalized_score(clearing_raw, df.index, ascending=True, tf_weights=tf_weights)
         # --- 归一化量能放大器 ---
@@ -217,9 +216,8 @@ class MicroBehaviorEngine:
         # 应用掩码
         harmony_inflection_score = pd.Series(np.where(bullish_inflection_mask, inflection_strength, 0), index=strategic_intent.index)
         # 使用 normalize_score 进行最终的归一化，使其在历史数据中具有可比性
-        # 修改开始：修正 normalize_score 的调用参数，添加 harmony_inflection_score.index
+        # 修正 normalize_score 的调用参数，添加 harmony_inflection_score.index
         final_score = normalize_score(harmony_inflection_score, harmony_inflection_score.index, 55)
-        # 修改结束
         return final_score.astype(np.float32)
 
     def _synthesize_strategic_intent(self, stealth_ops: pd.Series, shock_awe: pd.Series, cost_control: pd.Series, divergence: pd.Series) -> pd.Series:

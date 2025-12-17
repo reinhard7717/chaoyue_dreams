@@ -3291,18 +3291,18 @@
         },
         "trend_form_ema_periods": [5, 13, 21, 34, 55],
         "comment_trend_form_ema_periods": "【趋势形态公理】用于趋势形态判断的EMA周期列表。",
-        "trend_form_ma_periods": [5, 13, 21, 55],
+        "trend_form_ma_periods": [5, 13, 21, 34, 55],
         "comment_trend_form_ma_periods": "【趋势形态公理】用于趋势形态判断的MA周期列表。",
         "trend_form_alignment_fusion_weights": {
           "ema": 0.6,
           "ma": 0.4
         },
         "comment_trend_form_alignment_fusion_weights": "【趋势形态公理】EMA和MA排列分数的融合权重。",
-        "trend_form_velocity_fusion_weights": {
-          "ema": 0.6,
-          "ma": 0.4
+        "trend_form_angle_fusion_weights": {
+          "ema": 1.0,
+          "ma": 0.0
         },
-        "comment_trend_form_velocity_fusion_weights": "【趋势形态公理】EMA和MA速度分数的融合权重。",
+        "comment_trend_form_angle_fusion_weights": "【趋势形态公理】EMA和MA角度分数的融合权重。",
         "mtf_normalization_weights": {
             "description": "【V1.0 · 新增】为结构层不同类型的信号定义多时间框架(MTF)归一化权重。",
             "default": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
@@ -3311,9 +3311,9 @@
         },
         "trend_form_fusion_weights": {
           "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振的权重。",
-          "alignment": 0.25,
-          "slope": 0.25,
-          "acceleration": 0.2,
+          "alignment": 0.2,
+          "slope": 0.15,
+          "acceleration": 0.15,
           "orderliness": 0.15,
           "angle": 0.15,
           "resonance": 0.2

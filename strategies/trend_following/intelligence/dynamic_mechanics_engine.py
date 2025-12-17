@@ -179,14 +179,19 @@ class DynamicMechanicsEngine:
             print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_inertia' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
             actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         # 将 default_weights 替换为 actual_mtf_weights
-        adx_strength = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0), df.index, True, actual_mtf_weights)
+        # 修改行: 修正 get_adaptive_mtf_normalized_score 的参数顺序
+        adx_strength = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0), df.index, actual_mtf_weights, True) # MODIFIED
         hurst = self._get_safe_series(df, hurst_col, 0.5).fillna(0.5)
         # hurst_quality的计算依赖于hurst，这里无需修改
-        hurst_quality = get_adaptive_mtf_normalized_score(hurst, df.index, True, actual_mtf_weights)
+        # 修改行: 修正 get_adaptive_mtf_normalized_score 的参数顺序
+        hurst_quality = get_adaptive_mtf_normalized_score(hurst, df.index, actual_mtf_weights, True) # MODIFIED
         fractal_dim = self._get_safe_series(df, fractal_col, 1.5).fillna(1.5)
-        fractal_smoothness = get_adaptive_mtf_normalized_score(fractal_dim, df.index, False, actual_mtf_weights)
-        ma_velocity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, actual_mtf_weights)
-        ma_acceleration = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, actual_mtf_weights)
+        # 修改行: 修正 get_adaptive_mtf_normalized_score 的参数顺序
+        fractal_smoothness = get_adaptive_mtf_normalized_score(fractal_dim, df.index, actual_mtf_weights, False) # MODIFIED
+        # 修改行: 修正 get_adaptive_mtf_normalized_score 的参数顺序
+        ma_velocity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0), df.index, actual_mtf_weights, True) # MODIFIED
+        # 修改行: 修正 get_adaptive_mtf_normalized_score 的参数顺序
+        ma_acceleration = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0), df.index, actual_mtf_weights, True) # MODIFIED
         base_inertia_quality = (adx_strength * 0.3 + hurst_quality * 0.3 + fractal_smoothness * 0.1 + ma_velocity * 0.15 + ma_acceleration * 0.15).clip(0, 1)
         raw_alignment = self._get_safe_series(df, 'trend_alignment_index_D', 0.0)
         raw_leverage = self._get_safe_series(df, 'structural_leverage_D', 0.0)
@@ -295,7 +300,8 @@ class DynamicMechanicsEngine:
         z_score, z_tension = self._get_mtf_calibrated_z_score(composite_quality_raw, p_conf_dyn)
         base_quality_score = (np.tanh(z_score) + 1) / 2
         # 将 default_weights 替换为 actual_mtf_weights
-        wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, True, actual_mtf_weights).clip(0, 1)
+        # 修改行: 修正 get_adaptive_mtf_normalized_score 的参数顺序
+        wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, actual_mtf_weights, True).clip(0, 1) # MODIFIED
         energy_quality_modulator = (base_quality_score * wash_trade_penalty_factor).clip(0, 1)
         final_energy_score = (raw_energy_score * energy_quality_modulator).clip(-1, 1)
         if is_probe_day:

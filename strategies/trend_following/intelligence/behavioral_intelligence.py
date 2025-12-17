@@ -1377,7 +1377,7 @@ class BehavioralIntelligence:
             risk_ema = core_risk_base_initial.ewm(span=risk_ema_span, adjust=False).mean()
             risk_trend = risk_ema.diff(risk_trend_slope_window).fillna(0.0)
             risk_momentum = risk_trend.diff(risk_momentum_diff_window).fillna(0.0)
-            # 修改开始：get_adaptive_mtf_normalized_bipolar_score 内部已处理 df.index
+            # get_adaptive_mtf_normalized_bipolar_score 内部已处理 df.index
             risk_trend_score = get_adaptive_mtf_normalized_bipolar_score(risk_trend, df.index, default_weights)
             risk_momentum_score = get_adaptive_mtf_normalized_bipolar_score(risk_momentum, df.index, default_weights)
             risk_dynamic_modulator = (
@@ -1781,7 +1781,7 @@ class BehavioralIntelligence:
         body_ratio_threshold = stagnation_params.get('body_ratio_threshold', 0.3)
         volume_stagnation_multiplier = stagnation_params.get('volume_stagnation_multiplier', 1.2)
         momentum_divergence_penalty = stagnation_params.get('momentum_divergence_penalty', 0.15)
-        # 修改开始：移除重复的变量定义，直接在计算中使用参数字典获取值
+        # 移除重复的变量定义，直接在计算中使用参数字典获取值
         # upward_efficiency_decay_penalty = stagnation_params.get('upward_efficiency_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
         # intraday_control_decay_penalty = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
         dynamic_kline_atr_multiplier = stagnation_params.get('dynamic_kline_atr_multiplier', 0.005) # [新增]
@@ -1821,7 +1821,7 @@ class BehavioralIntelligence:
         volume_drying_up_score = is_volume_drying_up.astype(float) * (1 - (current_volume / volume_avg)).clip(0, 1) # 萎缩越多，分数越高
         volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1) # 两种情况叠加
         # 4. 日内控制力减弱 (Intraday Control Weakness)
-        # 修改开始：直接从参数字典获取值，避免中间变量未定义问题
+        # 直接从参数字典获取值，避免中间变量未定义问题
         norm_upward_efficiency_decay = (1 - upward_efficiency).clip(0, 1) * stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
         # 日内多头控制力减弱 (控制力越弱，滞涨风险越高)
         norm_intraday_control_decay = (1 - intraday_bull_control).clip(0, 1) * stagnation_params.get('intraday_control_decay_bonus', 0.1)
@@ -2095,12 +2095,12 @@ class BehavioralIntelligence:
         # 确认因子 (精细化为连续值)
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
-            # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
+            # get_adaptive_mtf_normalized_score 内部已处理 df.index
             rsi_conf = get_adaptive_mtf_normalized_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
             volume_change_conf = get_adaptive_mtf_normalized_score(robust_volume_slope.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
             active_flow_conf = norm_active_buying
         else: # Bearish
-            # 修改开始：get_adaptive_mtf_normalized_score 内部已处理 df.index
+            # get_adaptive_mtf_normalized_score 内部已处理 df.index
             rsi_conf = get_adaptive_mtf_normalized_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
             volume_change_conf = get_adaptive_mtf_normalized_score(robust_volume_slope.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
             active_flow_conf = norm_active_selling
@@ -2226,7 +2226,7 @@ class BehavioralIntelligence:
             short_term_close_slopes = self._get_safe_series(df, f'SLOPE_{mtf_slopes_params.get("periods", [5])[0]}_close_D', 0.0, method_name=method_name)
             slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
             # 修正 normalize_score 的调用参数
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             norm_slope_std_dev = normalize_score(slope_std_dev, df.index, 55, ascending=False)
             purity_penalty = pd.Series(0.0, index=df.index)
             purity_penalty = purity_penalty.mask(
@@ -2243,7 +2243,7 @@ class BehavioralIntelligence:
             adx_div_max_adjust = market_regime_params.get('adx_div_weight_max_adjust', 0.3)
             adx_conf_max_adjust = market_regime_params.get('adx_conf_weight_max_adjust', 0.3)
             # 修正 normalize_score 的调用参数
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             norm_adx = normalize_score(adx_val, df.index, 55, default_value=0.5)
             dynamic_div_weight_multiplier = 1 + norm_adx * adx_div_max_adjust
             dynamic_conf_weight_multiplier = dynamic_conf_weight_multiplier.mask(
@@ -2343,7 +2343,7 @@ class BehavioralIntelligence:
             long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
             # 修正 normalize_score 的调用参数
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             norm_long_term_slope_std_dev = normalize_score(long_term_slope_std_dev, df.index, 55, ascending=False)
             is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
             is_high_inertia_market = is_strong_long_term_trend & is_stable_long_term_slope
@@ -2367,7 +2367,7 @@ class BehavioralIntelligence:
                 is_ranging_market, adaptive_fusion_weight_multiplier * (1 + ranging_bonus_factor)
             )
             # 修正 normalize_score 的调用参数
-            # 修改开始：修正 normalize_score 的调用参数
+            # 修正 normalize_score 的调用参数
             is_high_volatility = (normalize_score(atr_val, df.index, 55, default_value=0.5) > 0.8)
             adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(
                 is_high_volatility, adaptive_fusion_weight_multiplier * (1 - volatility_high_penalty_factor)

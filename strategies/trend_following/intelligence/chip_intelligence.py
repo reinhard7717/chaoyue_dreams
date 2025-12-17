@@ -1263,7 +1263,7 @@ class ChipIntelligence:
                 base_damp_sensitivity_series.loc[negative_health_mask] = chip_health_sensitivity_damp_negative_health
             if chip_health_sensitivity_modulation_enabled:
                 modulator_signal_raw = self._get_safe_series(df, df, chip_sensitivity_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
-                # 修改开始：修正 normalize_score 的调用参数，添加 df_index
+                # 修正 normalize_score 的调用参数，添加 df_index
                 normalized_modulator_signal = normalize_score(
                     modulator_signal_raw,
                     df_index, # 添加 df_index

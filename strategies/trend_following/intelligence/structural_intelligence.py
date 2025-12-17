@@ -150,7 +150,7 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.3 · 趋势共振版】结构公理一：诊断“趋势形态”
+        【V3.6 · 纯粹几何形态生产版】结构公理一：诊断“趋势形态”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 废弃了旧版对“能量”的评估，更纯粹地聚焦于趋势的“几何形态品质”。
         - 核心证据: 融合均线排列的“有序度”、“均线簇的角度”、“均线本身的“斜率”、“加速度”和“共振”。
@@ -158,22 +158,23 @@ class StructuralIntelligence:
         - 核心优化: 引入逻辑仲裁机制。当均线排列分极高时，将修正与之矛盾的“有序度”分，解决底层信号冲突问题。
         - 【优化】使用专属的 `short_term_geometry` MTF权重进行归一化。
         - 【V3.0 核心升级】移除了对当日价格涨跌幅（pct_change_D）的直接依赖来判断最终方向。现在，最终的双极性分数直接由看涨形态分减去看跌形态分得出, 更纯粹地反映了趋势形态本身的内在方向和强度，避免了当日价格波动对趋势形态判断的干扰。
-        - 【V3.0 探针植入】增加了详细的探针输出，以便于检查和调试。
         - 【V3.0 参数化】融合权重现在从配置文件中读取。
-        - 【V3.1 探针增强】增强了斜率和有序度维度的探针输出，以诊断其归一化结果。
         - 【V3.2 核心升级】引入多级别时间维度斜率和加速度，并将其纳入融合计算。
         - 【V3.3 核心升级】引入“共振”维度，评估多级别斜率和加速度的方向一致性与强度稳定性。
+        - 【V3.5 核心修正】严格限定为纯粹的趋势几何形态分析，移除“结构健康度”和“市场博弈”维度，将这些更高层级的融合交由上层逻辑处理。
+        - 【V3.6 生产状态】移除所有调试探针（print语句）。
         """
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 34, 55])
-        # 定义一个完整的默认融合权重字典
+        ma_periods = get_param_value(p_conf_struct.get('trend_form_ma_periods'), [5, 13, 21, 34, 55])
+        # 修改开始：定义一个完整的默认融合权重字典，移除结构健康度和市场博弈维度
         default_fusion_weights = {
             'alignment': 0.2,
             'slope': 0.15,
             'acceleration': 0.15,
             'orderliness': 0.15,
             'angle': 0.15,
-            'resonance': 0.2 # 新增共振权重
+            'resonance': 0.2
         }
         # 从配置中获取融合权重，如果配置中没有，则使用空字典
         configured_fusion_weights = get_param_value(p_conf_struct.get('trend_form_fusion_weights'), {})
@@ -182,17 +183,22 @@ class StructuralIntelligence:
         fusion_weights.update(configured_fusion_weights)
         # 过滤非数值类型的融合权重
         fusion_weights = {k: v for k, v in fusion_weights.items() if isinstance(v, (int, float))}
+        # 修改结束
+
         # 获取共振参数
         resonance_params = get_param_value(p_conf_struct.get('trend_form_resonance_params'), {
             'slope_consistency_weight': 0.4,
             'accel_consistency_weight': 0.4,
             'slope_accel_alignment_weight': 0.2
         })
+
+        # 更新required_signals，仅包含几何形态相关指标
         required_signals = [
-            'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ATAN_ANGLE_EMA_55_D',
-            'close_D'
+            'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ATAN_ANGLE_EMA_55_D', 'close_D'
         ]
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
+        required_signals.extend([f'MA_{p}_D' for p in ma_periods])
+
         feature_eng_params = get_params_block(self.strategy, 'feature_engineering_params', {})
         slope_params = feature_eng_params.get('slope_params', {})
         accel_params = feature_eng_params.get('accel_params', {})
@@ -200,6 +206,8 @@ class StructuralIntelligence:
         series_to_accel_config = accel_params.get('series_to_accel', {})
         all_slope_cols = []
         all_accel_cols = []
+
+        # 收集EMA的斜率和加速度
         for p in ema_periods:
             base_ema_col = f'EMA_{p}_D'
             configured_slope_periods = series_to_slope_config.get(base_ema_col, [])
@@ -212,71 +220,69 @@ class StructuralIntelligence:
                 accel_col = f'ACCEL_{ap}_{base_ema_col}'
                 required_signals.append(accel_col)
                 all_accel_cols.append(accel_col)
+        # 收集MA的斜率和加速度
+        for p in ma_periods:
+            base_ma_col = f'MA_{p}_D'
+            configured_slope_periods = series_to_slope_config.get(base_ma_col, [])
+            for sp in configured_slope_periods:
+                slope_col = f'SLOPE_{sp}_{base_ma_col}'
+                required_signals.append(slope_col)
+                all_slope_cols.append(slope_col)
+            configured_accel_periods = series_to_accel_config.get(base_ma_col, [])
+            for ap in configured_accel_periods:
+                accel_col = f'ACCEL_{ap}_{base_ma_col}'
+                required_signals.append(accel_col)
+                all_accel_cols.append(accel_col)
+
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('short_term_geometry', {5: 0.5, 8: 0.3, 13: 0.2})
-        # 修复 current_date 访问方式
-        debug_config = get_params_block(self.strategy, 'debug_params', {})
-        # 从DataFrame的索引中获取当前处理的日期
-        current_processing_date_str = df.index[-1].strftime('%Y-%m-%d') if not df.empty else ""
-        is_probe_date = debug_config.get('should_probe', False) and \
-                        current_processing_date_str in debug_config.get('probe_dates', [])
-        if is_probe_date:
-            print(f"\n--- [结构公理] 趋势形态探针 @ {current_processing_date_str} ---")
-            print(f"  -> 原始输入:")
-            print(f"    MA_POTENTIAL_ORDERLINESS_SCORE_D: {df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].iloc[-1]:.4f}")
-            print(f"    ATAN_ANGLE_EMA_55_D: {df['ATAN_ANGLE_EMA_55_D'].iloc[-1]:.4f}")
-            for p in ema_periods:
-                print(f"    EMA_{p}_D: {df[f'EMA_{p}_D'].iloc[-1]:.4f}")
-            print(f"  -> MTF归一化权重 (tf_weights): {tf_weights}")
-            print(f"  -> 融合权重 (fusion_weights): {fusion_weights}")
-        # 维度1: 排列 (Alignment)
-        bull_alignment_raw = pd.Series(0.0, index=df_index)
+
+        # 维度1: 排列 (Alignment) - 融合EMA和MA
+        bull_alignment_raw_ema = pd.Series(0.0, index=df_index)
         alignment_weights_internal = np.linspace(0.5, 0.2, len(ema_periods) - 1)
         for i in range(len(ema_periods) - 1):
             ema_i = self._get_safe_series(df, f'EMA_{ema_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
             ema_i_plus_1 = self._get_safe_series(df, f'EMA_{ema_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
-            bull_alignment_raw += (ema_i > ema_i_plus_1).astype(float) * alignment_weights_internal[i]
-        alignment_score = bull_alignment_raw / sum(alignment_weights_internal)
-        # 添加探针输出
-        if is_probe_date:
-            print(f"  -> 维度1: 排列 (Alignment)")
-            print(f"    bull_alignment_raw (末值): {bull_alignment_raw.iloc[-1]:.4f}")
-            print(f"    alignment_score (末值): {alignment_score.iloc[-1]:.4f}")
+            bull_alignment_raw_ema += (ema_i > ema_i_plus_1).astype(float) * alignment_weights_internal[i]
+        alignment_score_ema = bull_alignment_raw_ema / sum(alignment_weights_internal)
+
+        bull_alignment_raw_ma = pd.Series(0.0, index=df_index)
+        alignment_weights_internal_ma = np.linspace(0.5, 0.2, len(ma_periods) - 1)
+        for i in range(len(ma_periods) - 1):
+            ma_i = self._get_safe_series(df, f'MA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
+            ma_i_plus_1 = self._get_safe_series(df, f'MA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
+            bull_alignment_raw_ma += (ma_i > ma_i_plus_1).astype(float) * alignment_weights_internal_ma[i]
+        alignment_score_ma = bull_alignment_raw_ma / sum(alignment_weights_internal_ma)
+
+        alignment_fusion_weights = get_param_value(p_conf_struct.get('trend_form_alignment_fusion_weights'), {'ema': 0.6, 'ma': 0.4})
+        alignment_score = (alignment_score_ema * alignment_fusion_weights.get('ema', 0.5) +
+                           alignment_score_ma * alignment_fusion_weights.get('ma', 0.5))
+
         # 维度2: 斜率 (Slope)
-        individual_slope_scores_list = [] # 修改：存储所有归一化斜率Series
+        individual_slope_scores_list = []
         for col in all_slope_cols:
             raw_slope_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
             normalized_slope_score = get_adaptive_mtf_normalized_bipolar_score(raw_slope_series, df_index, tf_weights)
-            individual_slope_scores_list.append(normalized_slope_score) # 修改：存储Series
+            individual_slope_scores_list.append(normalized_slope_score)
         avg_slope_score = pd.Series(np.mean([s.values for s in individual_slope_scores_list], axis=0) if individual_slope_scores_list else 0.0, index=df_index)
-        # 添加探针输出
-        if is_probe_date:
-            print(f"  -> 维度2: 斜率 (Slope)")
-            print(f"    avg_slope_score (末值): {avg_slope_score.iloc[-1]:.4f}")
+
         # 维度3: 加速度 (Acceleration)
-        individual_accel_scores_list = [] # 修改：存储所有归一化加速度Series
+        individual_accel_scores_list = []
         for col in all_accel_cols:
             raw_accel_series = self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form")
             normalized_accel_score = get_adaptive_mtf_normalized_bipolar_score(raw_accel_series, df_index, tf_weights)
-            individual_accel_scores_list.append(normalized_accel_score) # 修改：存储Series
+            individual_accel_scores_list.append(normalized_accel_score)
         avg_accel_score = pd.Series(np.mean([s.values for s in individual_accel_scores_list], axis=0) if individual_accel_scores_list else 0.0, index=df_index)
-        # 添加探针输出
-        if is_probe_date:
-            print(f"  -> 维度3: 加速度 (Acceleration)")
-            print(f"    avg_accel_score (末值): {avg_accel_score.iloc[-1]:.4f}")
+
         # 维度4: 共振 (Resonance)
         slope_consistency_score = pd.Series(0.0, index=df_index)
         if len(individual_slope_scores_list) > 1:
-            # 计算所有归一化斜率序列的滚动标准差
-            # max_possible_std_dev_for_bipolar_scores = 1.0 (当一半为-1，一半为1时，标准差为1)
             std_norm_slopes = pd.concat(individual_slope_scores_list, axis=1).std(axis=1)
-            # 将标准差反向归一化为一致性分数 (0-1)，然后乘以平均斜率赋予方向性
-            # 避免除以0，如果所有值都相同，std_norm_slopes可能为0
-            slope_consistency_factor = (1 - (std_norm_slopes / 1.0)).clip(0, 1) # 1.0是理论最大标准差
+            slope_consistency_factor = (1 - (std_norm_slopes / 1.0)).clip(0, 1)
             slope_consistency_score = avg_slope_score * slope_consistency_factor
         accel_consistency_score = pd.Series(0.0, index=df_index)
         if len(individual_accel_scores_list) > 1:
@@ -285,49 +291,30 @@ class StructuralIntelligence:
             accel_consistency_score = avg_accel_score * accel_consistency_factor
         slope_accel_directional_alignment_score = pd.Series(0.0, index=df_index)
         if not avg_slope_score.empty and not avg_accel_score.empty:
-            # 检查平均斜率和平均加速度的方向一致性
-            # 如果同向，乘积为正；如果反向，乘积为负。然后归一化到[-1, 1]
-            # 假设avg_slope_score和avg_accel_score已经在[-1, 1]
             slope_accel_directional_alignment_score = (avg_slope_score * avg_accel_score).clip(-1, 1)
-        # 融合共振分数
         overall_resonance_score = (
             slope_consistency_score * resonance_params['slope_consistency_weight'] +
             accel_consistency_score * resonance_params['accel_consistency_weight'] +
             slope_accel_directional_alignment_score * resonance_params['slope_accel_alignment_weight']
         ).clip(-1, 1)
-        # 添加探针输出
-        if is_probe_date:
-            print(f"  -> 维度4: 共振 (Resonance)")
-            print(f"    slope_consistency_score (末值): {slope_consistency_score.iloc[-1]:.4f}")
-            print(f"    accel_consistency_score (末值): {accel_consistency_score.iloc[-1]:.4f}")
-            print(f"    slope_accel_directional_alignment_score (末值): {slope_accel_directional_alignment_score.iloc[-1]:.4f}")
-            print(f"    overall_resonance_score (末值): {overall_resonance_score.iloc[-1]:.4f}")
+
         # 维度5: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 逻辑仲裁
+        orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, tf_weights, ascending=True)
         corrected_orderliness_score = orderliness_score.copy()
         arbitration_triggered = (alignment_score > 0.9) & (orderliness_score < alignment_score)
         corrected_orderliness_score[arbitration_triggered] = alignment_score[arbitration_triggered]
-        # 添加探针输出
-        if is_probe_date:
-            print(f"  -> 维度5: 有序度 (Orderliness)")
-            print(f"    orderliness_raw (末值): {orderliness_raw.iloc[-1]:.4f}")
-            print(f"    orderliness_score (归一化末值): {orderliness_score.iloc[-1]:.4f}")
-            print(f"    corrected_orderliness_score (仲裁后末值): {corrected_orderliness_score.iloc[-1]:.4f}")
+
         # 维度6: 角度 (Angle)
-        angle_raw = self._get_safe_series(df, 'ATAN_ANGLE_EMA_55_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        angle_score = get_adaptive_mtf_normalized_bipolar_score(angle_raw, df_index, tf_weights)
-        # 添加探针输出
-        if is_probe_date:
-            print(f"  -> 维度6: 角度 (Angle)")
-            print(f"    angle_raw (末值): {angle_raw.iloc[-1]:.4f}")
-            print(f"    angle_score (归一化末值): {angle_score.iloc[-1]:.4f}")
+        angle_raw_ema = self._get_safe_series(df, 'ATAN_ANGLE_EMA_55_D', 0.0, method_name="_diagnose_axiom_trend_form")
+        angle_score_ema = get_adaptive_mtf_normalized_bipolar_score(angle_raw_ema, df_index, tf_weights)
+        angle_fusion_weights = get_param_value(p_conf_struct.get('trend_form_angle_fusion_weights'), {'ema': 1.0, 'ma': 0.0})
+        angle_score = (angle_score_ema * angle_fusion_weights.get('ema', 1.0))
+
         # --- 融合形态分 ---
         bullish_alignment_contrib = alignment_score * fusion_weights['alignment']
         bullish_slope_contrib = avg_slope_score.clip(lower=0) * fusion_weights['slope']
         bullish_accel_contrib = avg_accel_score.clip(lower=0) * fusion_weights['acceleration']
-        # 新增看涨共振贡献
         bullish_resonance_contrib = overall_resonance_score.clip(lower=0) * fusion_weights['resonance']
         bullish_orderliness_contrib = corrected_orderliness_score * fusion_weights['orderliness']
         bullish_angle_contrib = angle_score.clip(lower=0) * fusion_weights['angle']
@@ -335,14 +322,14 @@ class StructuralIntelligence:
             bullish_alignment_contrib +
             bullish_slope_contrib +
             bullish_accel_contrib +
-            bullish_resonance_contrib + # 修改：加入共振贡献
+            bullish_resonance_contrib +
             bullish_orderliness_contrib +
             bullish_angle_contrib
         ).clip(0, 1)
+
         bearish_alignment_contrib = (1 - alignment_score) * fusion_weights['alignment']
         bearish_slope_contrib = avg_slope_score.clip(upper=0).abs() * fusion_weights['slope']
         bearish_accel_contrib = avg_accel_score.clip(upper=0).abs() * fusion_weights['acceleration']
-        # 新增看跌共振贡献
         bearish_resonance_contrib = overall_resonance_score.clip(upper=0).abs() * fusion_weights['resonance']
         bearish_orderliness_contrib = (1 - corrected_orderliness_score) * fusion_weights['orderliness']
         bearish_angle_contrib = angle_score.clip(upper=0).abs() * fusion_weights['angle']
@@ -350,19 +337,13 @@ class StructuralIntelligence:
             bearish_alignment_contrib +
             bearish_slope_contrib +
             bearish_accel_contrib +
-            bearish_resonance_contrib + # 修改：加入共振贡献
+            bearish_resonance_contrib +
             bearish_orderliness_contrib +
             bearish_angle_contrib
         ).clip(0, 1)
+
         trend_form_score = bullish_form_score - bearish_form_score
         final_score = pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
-        # 添加探针输出
-        if is_probe_date:
-            print(f"  -> 最终融合:")
-            print(f"    bullish_form_score (末值): {bullish_form_score.iloc[-1]:.4f}")
-            print(f"    bearish_form_score (末值): {bearish_form_score.iloc[-1]:.4f}")
-            print(f"    SCORE_STRUCT_AXIOM_TREND_FORM (最终分数末值): {final_score.iloc[-1]:.4f}")
-            print(f"--- [结构公理] 趋势形态探针结束 ---")
         return final_score
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
