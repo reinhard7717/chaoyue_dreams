@@ -2590,7 +2590,7 @@
           "slope": 0.5
         },
         "relative_strength_params": {
-          "description": "【V3.0 · 深度洞察版】相对强度公理的专属参数。",
+          "description": "【V4.0 · 情境与品质校准版】相对强度公理的专属参数。",
           "state_weights": {
             "current_rank": 0.7,
             "rank_stability": 0.3
@@ -2607,7 +2607,32 @@
           "synergy_threshold": 0.2,
           "rank_stability_window": 5,
           "rank_acceleration_window": 5,
-          "enable_probe": true
+          "enable_probe": true,
+          "sector_leadership_quality_weights": {
+            "description": "行业领导力质量融合权重。",
+            "leader_score": 0.4,
+            "markup_score": 0.3,
+            "theme_hotness": 0.3
+          },
+          "relative_strength_conviction_weights": {
+            "description": "相对强度信念融合权重。",
+            "main_force_conviction": 0.4,
+            "flow_credibility": 0.3,
+            "wash_trade_penalty": 0.2,
+            "deception_penalty": 0.1
+          },
+          "price_action_alignment_weights": {
+            "description": "价格行为对齐融合权重。",
+            "breakout_quality": 0.4,
+            "trend_vitality": 0.3,
+            "upward_impulse_purity": 0.3
+          },
+          "slq_mod_factor": 0.3,
+          "comment_slq_mod_factor": "行业领导力质量调节因子，控制其对最终分数的乘性影响强度。",
+          "rsc_mod_factor": 0.5,
+          "comment_rsc_mod_factor": "相对强度信念调节因子，控制其对最终分数的乘性影响强度。",
+          "paa_mod_factor": 0.4,
+          "comment_paa_mod_factor": "价格行为对齐调节因子，控制其对最终分数的乘性影响强度。"
         }
       },
       "fund_flow_ultimate_params": {
@@ -3330,16 +3355,19 @@
             "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 }
         },
         "trend_form_fusion_weights": {
-          "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振、均线粘合度的权重。",
-          "alignment": 0.2,
-          "slope": 0.15,
-          "acceleration": 0.15,
-          "orderliness": 0.15,
-          "angle": 0.15,
-          "resonance": 0.15,
-          "ma_cluster_cohesion": 0.05 
+          "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振、均线粘合度、价格均线乖离、布林带动态、趋势效率的权重。",
+          "alignment": 0.15,
+          "slope": 0.1,
+          "acceleration": 0.1,
+          "orderliness": 0.1,
+          "angle": 0.1,
+          "resonance": 0.1,
+          "ma_cluster_cohesion": 0.1,
+          "price_ma_gap": 0.1,
+          "bb_dynamics": 0.1,
+          "trend_efficiency": 0.05
         },
-        "trend_form_dynamic_weights_params": { 
+        "trend_form_dynamic_weights_params": {
           "enabled": true,
           "volatility_source": "VOLATILITY_INSTABILITY_INDEX_21d_D",
           "volatility_sensitivity": 2.0,
@@ -3347,22 +3375,37 @@
           "adjustment_factor_range": 0.5,
           "comment": "根据波动率动态调整趋势形态各维度的融合权重。"
         },
-        "ma_cluster_cohesion_params": { 
+        "ma_cluster_cohesion_params": {
           "enabled": true,
           "normalization_period": 55,
           "comment": "均线粘合度维度参数。"
         },
-        "trend_form_resonance_params": { 
+        "trend_form_resonance_params": {
           "enabled": true,
           "slope_consistency_weight": 0.4,
           "accel_consistency_weight": 0.4,
           "slope_accel_alignment_weight": 0.2
         },
-        "slope_angle_volatility_adjustment_params": { 
+        "slope_angle_volatility_adjustment_params": {
           "enabled": true,
           "volatility_source": "ATR_14_D",
           "adjustment_strength": 0.5,
           "comment": "根据波动率调整斜率和角度的敏感度。"
+        },
+        "price_ma_gap_params": { 
+          "enabled": true,
+          "ma_periods": [5, 13, 21],
+          "comment": "价格与均线乖离度维度参数，指定用于计算的均线周期。"
+        },
+        "bb_dynamics_params": { 
+          "enabled": true,
+          "bbw_weight": 0.5,
+          "bbp_weight": 0.5,
+          "comment": "布林带动态维度参数，BBW和BBP的融合权重。"
+        },
+        "trend_efficiency_params": { 
+          "enabled": true,
+          "comment": "趋势效率维度参数。"
         }
       },
       "fusion_intelligence_params": {

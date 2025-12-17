@@ -254,12 +254,12 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.0 · 深度洞察版】基础公理五：诊断“相对强度”
-        - 核心逻辑: 融合个股在行业内的“强度排名(状态)”与“排名变化趋势(动量)”，并引入排名稳定性与加速度，
-                      通过非线性融合和协同奖励，更精准捕捉“从强到更强”的领涨龙头。
+        【V4.0 · 情境与品质校准版】基础公理五：诊断“相对强度”
+        - 核心逻辑: 在融合个股“状态”与“动量”的基础上，引入“行业领导力质量”、“相对强度信念”和“价格行为对齐”
+                      三大维度进行情境感知与品质校准，通过非线性乘性调节器，更精准捕捉具备高质量、可持续性的领涨龙头。
         - A股特性: 市场的焦点是动态变化的。此升级旨在捕捉从强到更强的“领涨龙头”，而非仅仅是静态的“强者”。
         """
-        print("    -> [基础层] 正在诊断“相对强度”公理 (V3.0 · 深度洞察版)...")
+        print("    -> [基础层] 正在诊断“相对强度”公理 (V4.0 · 情境与品质校准版)...") # 修改: 更新版本描述
         # 获取相对强度公理的专属参数
         p_conf_rs = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('relative_strength_params', {})
         # 获取行为动态参数中的MTF归一化默认权重
@@ -268,7 +268,9 @@ class FoundationIntelligence:
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # 获取探针启用状态
         probe_enabled = get_param_value(p_conf_rs.get('enable_probe'), False)
+
         df_index = df.index
+
         # 获取参数
         state_weights = p_conf_rs.get('state_weights', {'current_rank': 0.7, 'rank_stability': 0.3})
         momentum_weights = p_conf_rs.get('momentum_weights', {'rank_slope': 0.6, 'rank_acceleration': 0.4})
@@ -277,79 +279,183 @@ class FoundationIntelligence:
         synergy_threshold = get_param_value(p_conf_rs.get('synergy_threshold'), 0.2)
         rank_stability_window = get_param_value(p_conf_rs.get('rank_stability_window'), 5)
         rank_acceleration_window = get_param_value(p_conf_rs.get('rank_acceleration_window'), 5)
+
+        # 新增: 情境与品质校准参数
+        slq_weights = p_conf_rs.get('sector_leadership_quality_weights', {'leader_score': 0.4, 'markup_score': 0.3, 'theme_hotness': 0.3})
+        rsc_weights = p_conf_rs.get('relative_strength_conviction_weights', {'main_force_conviction': 0.4, 'flow_credibility': 0.3, 'wash_trade_penalty': 0.2, 'deception_penalty': 0.1})
+        paa_weights = p_conf_rs.get('price_action_alignment_weights', {'breakout_quality': 0.4, 'trend_vitality': 0.3, 'upward_impulse_purity': 0.3})
+        slq_mod_factor = get_param_value(p_conf_rs.get('slq_mod_factor'), 0.3) # 新增: SLQ调节因子
+        rsc_mod_factor = get_param_value(p_conf_rs.get('rsc_mod_factor'), 0.5) # 新增: RSC调节因子
+        paa_mod_factor = get_param_value(p_conf_rs.get('paa_mod_factor'), 0.4) # 新增: PAA调节因子
+
         # 1. 校验所需信号 (动态构建信号名称)
         required_signals = [
             'industry_strength_rank_D',
             f'SLOPE_{rank_stability_window}_industry_strength_rank_D',
-            f'ACCEL_{rank_acceleration_window}_industry_strength_rank_D'
+            f'ACCEL_{rank_acceleration_window}_industry_strength_rank_D',
+            # 新增: 行业领导力质量所需信号
+            'industry_leader_score_D',
+            'industry_markup_score_D',
+            'THEME_HOTNESS_SCORE_D',
+            # 新增: 相对强度信念所需信号
+            'main_force_conviction_index_D',
+            'flow_credibility_index_D',
+            'wash_trade_intensity_D',
+            'deception_index_D',
+            # 新增: 价格行为对齐所需信号
+            'breakout_quality_score_D',
+            'trend_vitality_index_D',
+            'upward_impulse_purity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_relative_strength"):
             return pd.Series(0.0, index=df.index)
+
         # --- 原始数据获取与探针输出 ---
         industry_rank_raw = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_relative_strength")
         industry_rank_slope_raw = self._get_safe_series(df, f'SLOPE_{rank_stability_window}_industry_strength_rank_D', 0.0, method_name="_diagnose_axiom_relative_strength")
         industry_rank_accel_raw = self._get_safe_series(df, f'ACCEL_{rank_acceleration_window}_industry_strength_rank_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        
+        # 新增: 获取情境与品质校准的原始数据
+        industry_leader_score_raw = self._get_safe_series(df, 'industry_leader_score_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        industry_markup_score_raw = self._get_safe_series(df, 'industry_markup_score_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        theme_hotness_score_raw = self._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+
+
         if probe_enabled:
             print(f"    -> [探针] 原始数据: industry_strength_rank_D 尾部: {industry_rank_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: SLOPE_{rank_stability_window}_industry_strength_rank_D 尾部: {industry_rank_slope_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: ACCEL_{rank_acceleration_window}_industry_strength_rank_D 尾部: {industry_rank_accel_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: SLOPE_{rank_stability_window}_industry_strength_rank_D 绝对值 (用于稳定性) 尾部: {industry_rank_slope_raw.abs().tail().to_dict()}") # 新增: 探针输出绝对值
-        # --- 1. 强度状态分 (当前排名与稳定性) ---
-        # 1.1 当前排名归一化到 [-1, 1]
+            print(f"    -> [探针] 原始数据: SLOPE_{rank_stability_window}_industry_strength_rank_D 绝对值 (用于稳定性) 尾部: {industry_rank_slope_raw.abs().tail().to_dict()}")
+            # 新增: 探针输出情境与品质校准的原始数据
+            print(f"    -> [探针] 原始数据: industry_leader_score_D 尾部: {industry_leader_score_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: industry_markup_score_D 尾部: {industry_markup_score_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: THEME_HOTNESS_SCORE_D 尾部: {theme_hotness_score_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: main_force_conviction_index_D 尾部: {main_force_conviction_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: flow_credibility_index_D 尾部: {flow_credibility_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_intensity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: deception_index_D 尾部: {deception_index_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: breakout_quality_score_D 尾部: {breakout_quality_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: trend_vitality_index_D 尾部: {trend_vitality_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: upward_impulse_purity_D 尾部: {upward_impulse_purity_raw.tail().to_dict()}")
+
+
+        # --- 1. 核心相对强度 (CRS) - 沿用 V3.0 逻辑 ---
+        # 1.1 强度状态分 (当前排名与稳定性)
         state_score_normalized = (industry_rank_raw - 0.5) * 2
-        # 1.2 排名稳定性分 (斜率绝对值越小，稳定性越高，分数越高)
-        # 使用 rank_stability_window 对应的斜率来衡量稳定性
         rank_stability_score = get_adaptive_mtf_normalized_score(
             industry_rank_slope_raw.abs(), df_index, default_weights, ascending=False
         )
-        # 1.3 融合强化状态分
         enhanced_state_score = (
             state_score_normalized * state_weights.get('current_rank', 0.7) +
             rank_stability_score * state_weights.get('rank_stability', 0.3)
         ).clip(-1, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 状态分 (state_score_normalized) 尾部: {state_score_normalized.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 排名稳定性分 (rank_stability_score) 尾部: {rank_stability_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 强化状态分 (enhanced_state_score) 尾部: {enhanced_state_score.tail().to_dict()}")
-        # --- 2. 强度动量分 (排名斜率与加速度) ---
-        # 2.1 排名斜率归一化到 [-1, 1]
+
+        # 1.2 强度动量分 (排名斜率与加速度)
         momentum_score_normalized = get_adaptive_mtf_normalized_bipolar_score(
             industry_rank_slope_raw, df_index, default_weights
         )
-        # 2.2 排名加速度分归一化到 [-1, 1]
-        # 使用 rank_acceleration_window 对应的加速度
         rank_acceleration_score = get_adaptive_mtf_normalized_bipolar_score(
             industry_rank_accel_raw, df_index, default_weights
         )
-        # 2.3 融合强化动量分
         enhanced_momentum_score = (
             momentum_score_normalized * momentum_weights.get('rank_slope', 0.6) +
             rank_acceleration_score * momentum_weights.get('rank_acceleration', 0.4)
         ).clip(-1, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 动量分 (momentum_score_normalized) 尾部: {momentum_score_normalized.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 排名加速度分 (rank_acceleration_score) 尾部: {rank_acceleration_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 强化动量分 (enhanced_momentum_score) 尾部: {enhanced_momentum_score.tail().to_dict()}")
-        # --- 3. 最终融合: 强化状态与动量，并引入协同奖励 ---
-        relative_strength_score = (
+
+        # 1.3 基础融合与协同奖励
+        core_relative_strength_score = ( # 修改: 变量名更新为 core_relative_strength_score
             enhanced_state_score * fusion_weights.get('enhanced_state', 0.6) +
             enhanced_momentum_score * fusion_weights.get('enhanced_momentum', 0.4)
         )
-        # 协同奖励: 当强化状态分和强化动量分都为正且超过阈值时，给予额外奖励
         synergy_condition = (enhanced_state_score > synergy_threshold) & (enhanced_momentum_score > synergy_threshold)
         if synergy_condition.any():
-            # 奖励因子基于两者平均强度，并乘以配置的奖励系数
             synergy_boost = (enhanced_state_score[synergy_condition] + enhanced_momentum_score[synergy_condition]) / 2 * synergy_bonus_factor
-            relative_strength_score.loc[synergy_condition] = (
-                relative_strength_score.loc[synergy_condition] * (1 + synergy_boost)
+            core_relative_strength_score.loc[synergy_condition] = (
+                core_relative_strength_score.loc[synergy_condition] * (1 + synergy_boost)
             )
-        if probe_enabled: # 新增: 探针输出协同条件和奖励
+
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 状态分 (state_score_normalized) 尾部: {state_score_normalized.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 排名稳定性分 (rank_stability_score) 尾部: {rank_stability_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 强化状态分 (enhanced_state_score) 尾部: {enhanced_state_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 动量分 (momentum_score_normalized) 尾部: {momentum_score_normalized.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 排名加速度分 (rank_acceleration_score) 尾部: {rank_acceleration_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 强化动量分 (enhanced_momentum_score) 尾部: {enhanced_momentum_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 协同条件 (synergy_condition) 尾部: {synergy_condition.tail().to_dict()}")
             if synergy_condition.any():
                 print(f"    -> [探针] 关键计算节点: 协同奖励 (synergy_boost) 尾部: {synergy_boost.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 核心相对强度分 (core_relative_strength_score) 尾部: {core_relative_strength_score.tail().to_dict()}")
+
+
+        # --- 2. 行业领导力质量 (SLQ) ---
+        # 行业领导力得分 (0-1), 行业溢价得分 (0-1), 主题热度得分 (0-1)
+        sector_leadership_quality_score = (
+            get_adaptive_mtf_normalized_score(industry_leader_score_raw, df_index, default_weights, ascending=True) * slq_weights.get('leader_score', 0.4) +
+            get_adaptive_mtf_normalized_score(industry_markup_score_raw, df_index, default_weights, ascending=True) * slq_weights.get('markup_score', 0.3) +
+            get_adaptive_mtf_normalized_score(theme_hotness_score_raw, df_index, default_weights, ascending=True) * slq_weights.get('theme_hotness', 0.3)
+        ).clip(0, 1) # 归一化到 [0, 1]
+
+        if probe_enabled: # 新增: 探针输出 SLQ 中间结果
+            print(f"    -> [探针] 关键计算节点: 行业领导力质量分 (sector_leadership_quality_score) 尾部: {sector_leadership_quality_score.tail().to_dict()}")
+
+        # --- 3. 相对强度信念 (RSC) ---
+        # 主力信念 (双极), 资金流可信度 (0-1), 对倒强度 (0-1, 负向), 欺骗指数 (双极, 负向)
+        main_force_conviction_score = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, default_weights)
+        flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, default_weights, ascending=True)
+        wash_trade_penalty_score = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, default_weights, ascending=True)
+        deception_penalty_score = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, default_weights) # 欺骗指数本身是双极的，正值代表诱多，负值代表诱空
+
+        relative_strength_conviction_score = (
+            main_force_conviction_score * rsc_weights.get('main_force_conviction', 0.4) +
+            flow_credibility_score * rsc_weights.get('flow_credibility', 0.3) -
+            wash_trade_penalty_score * rsc_weights.get('wash_trade_penalty', 0.2) - # 对倒强度越高，惩罚越大
+            deception_penalty_score.clip(lower=0) * rsc_weights.get('deception_penalty', 0.1) # 仅惩罚正向欺骗（诱多）
+        ).clip(-1, 1) # 归一化到 [-1, 1]
+
+        if probe_enabled: # 新增: 探针输出 RSC 中间结果
+            print(f"    -> [探针] 关键计算节点: 相对强度信念分 (relative_strength_conviction_score) 尾部: {relative_strength_conviction_score.tail().to_dict()}")
+
+        # --- 4. 价格行为对齐 (PAA) ---
+        # 突破质量 (0-1), 趋势活力 (0-1), 上涨脉冲纯度 (0-1)
+        price_action_alignment_score = (
+            get_adaptive_mtf_normalized_score(breakout_quality_raw, df_index, default_weights, ascending=True) * paa_weights.get('breakout_quality', 0.4) +
+            get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, default_weights, ascending=True) * paa_weights.get('trend_vitality', 0.3) +
+            get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, default_weights, ascending=True) * paa_weights.get('upward_impulse_purity', 0.3)
+        ).clip(0, 1) # 归一化到 [0, 1]
+
+        if probe_enabled: # 新增: 探针输出 PAA 中间结果
+            print(f"    -> [探针] 关键计算节点: 价格行为对齐分 (price_action_alignment_score) 尾部: {price_action_alignment_score.tail().to_dict()}")
+
+        # --- 5. 最终融合: 核心相对强度 + 情境与品质校准 ---
+        # 将情境和品质作为乘性调节器，调节范围 [1 - factor, 1 + factor]
+        # SLQ 和 PAA 是 [0,1] 分数，RSC 是 [-1,1] 分数
+        slq_modulator = 1 + (sector_leadership_quality_score * 2 - 1) * slq_mod_factor # 映射到 [-factor, factor] 再加1
+        rsc_modulator = 1 + relative_strength_conviction_score * rsc_mod_factor
+        paa_modulator = 1 + (price_action_alignment_score * 2 - 1) * paa_mod_factor # 映射到 [-factor, factor] 再加1
+
+        # 确保调节器不会出现负值或过小值，避免不合理惩罚
+        slq_modulator = slq_modulator.clip(lower=0.5)
+        rsc_modulator = rsc_modulator.clip(lower=0.5)
+        paa_modulator = paa_modulator.clip(lower=0.5)
+
+        relative_strength_score = (
+            core_relative_strength_score * slq_modulator * rsc_modulator * paa_modulator
+        )
+
         # 确保最终分数在 [-1, 1] 范围内
         relative_strength_score = relative_strength_score.clip(-1, 1).astype(np.float32)
+
         if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: SLQ调节器 (slq_modulator) 尾部: {slq_modulator.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: RSC调节器 (rsc_modulator) 尾部: {rsc_modulator.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: PAA调节器 (paa_modulator) 尾部: {paa_modulator.tail().to_dict()}")
             print(f"    -> [探针] 最终结果: 相对强度分 (relative_strength_score) 尾部: {relative_strength_score.tail().to_dict()}")
         print("    -> [基础层] “相对强度”公理诊断完成。")
         return relative_strength_score
