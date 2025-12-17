@@ -1355,7 +1355,7 @@ class FundFlowIntelligence:
             'SLOPE_5_deception_index_D', 'SLOPE_5_wash_trade_intensity_D',
             'cost_structure_skewness_D', 'chip_fatigue_index_D', 'winner_loser_momentum_D',
             'structural_leverage_D', 'structural_node_count_D',
-            'main_force_ofi_D', 'deception_index_D',
+            'main_force_ofi_D', 'deception_index_D', 'wash_trade_intensity_D',
             'SLOPE_5_main_force_ofi_D', 'ACCEL_5_main_force_ofi_D',
             'SLOPE_13_main_force_ofi_D', 'ACCEL_13_main_force_ofi_D',
             'SLOPE_21_main_force_ofi_D', 'ACCEL_21_main_force_ofi_D',
@@ -1419,25 +1419,13 @@ class FundFlowIntelligence:
         main_force_cost_advantage_raw = raw_data_cache['main_force_cost_advantage_D']
         main_force_vwap_guidance_raw = raw_data_cache['main_force_vwap_guidance_D']
         main_force_execution_alpha_raw = raw_data_cache['main_force_execution_alpha_D']
-        covert_accumulation_signal_raw = raw_data_cache['covert_accumulation_signal_D']
-        suppressive_accumulation_intensity_raw = raw_data_cache['suppressive_accumulation_intensity_D']
-        deception_index_raw = raw_data_cache['deception_index_D']
-        wash_trade_intensity_raw = raw_data_cache['wash_trade_intensity_D']
         cost_structure_skewness_raw = raw_data_cache['cost_structure_skewness_D']
         chip_fatigue_index_raw = raw_data_cache['chip_fatigue_index_D']
         winner_loser_momentum_raw = raw_data_cache['winner_loser_momentum_D']
         structural_leverage_raw = raw_data_cache['structural_leverage_D']
         structural_node_count_raw = raw_data_cache['structural_node_count_D']
-        flow_credibility_raw = raw_data_cache['flow_credibility_index_D']
         # 敏捷资本相关
-        main_force_ofi_raw = raw_data_cache['main_force_ofi_D']
         micro_price_impact_asymmetry_raw = raw_data_cache['micro_price_impact_asymmetry_D']
-        retail_fomo_premium_index_raw = raw_data_cache['retail_fomo_premium_index_D']
-        retail_panic_surrender_index_raw = raw_data_cache['retail_panic_surrender_index_D']
-        market_sentiment_score_raw = raw_data_cache['market_sentiment_score_D']
-        main_force_t0_efficiency_raw = raw_data_cache['main_force_t0_efficiency_D']
-        main_force_slippage_index_raw = raw_data_cache['main_force_slippage_index_D']
-        nmfnf_raw = raw_data_cache['net_lg_amount_calibrated_D'] # NMFNF_D is net_lg_amount_calibrated_D
         theme_hotness_raw = raw_data_cache['THEME_HOTNESS_SCORE_D']
         # 资本间意图博弈相关
         mf_retail_battle_intensity_raw = raw_data_cache['mf_retail_battle_intensity_D']

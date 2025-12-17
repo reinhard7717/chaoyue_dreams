@@ -537,38 +537,158 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.0 · 品质过滤版】基础公理三：诊断“流动性潮汐”
-        - 核心逻辑: 融合CMF(方向)、成交额趋势(能量)与换手率趋势(活跃度)，并引入“对倒强度”作为品质过滤器。
-        - A股特性: 成交量可以作假。此升级旨在通过惩罚对倒行为，还原真实的流动性状态。
+        【V4.0 · 深度情境与结构洞察版】基础公理三：诊断“流动性潮汐”
+        - 核心逻辑: 在融合流动性方向、能量与活跃度的基础上，引入“流动性结构品质”维度，并对“诡道情境调制器”进行动态与非对称升级。
+        - A股特性: 成交量可以作假。此升级旨在穿透表层流动性数据，还原市场真实的、由多空双方真金白银博弈产生的流动性状态，并评估其内在品质和主力意图。
         """
-        print("    -> [基础层] 正在诊断“流动性潮汐”公理 (V3.0 · 品质过滤版)...")
-        # 新增 wash_trade_intensity_D 作为品质过滤器
-        required_signals = ['CMF_21_D', 'SLOPE_5_amount_D', 'SLOPE_5_turnover_rate_f_D', 'wash_trade_intensity_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_liquidity_tide"):
-            return pd.Series(0.0, index=df.index)
-        df_index = df.index
+        print("    -> [基础层] 正在诊断“流动性潮汐”公理 (V4.0 · 深度情境与结构洞察版)...")
+        # 获取流动性潮汐公理的专属参数
+        p_conf_lt = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('liquidity_tide_params', {})
+        probe_enabled = get_param_value(p_conf_lt.get('enable_probe'), True)
+        # 获取行为动态参数中的MTF归一化默认权重
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-        # 1. 潮汐方向 (CMF) - 逻辑不变
-        cmf = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
-        direction_score = get_adaptive_mtf_normalized_bipolar_score(cmf, df_index, default_weights, sensitivity=0.5)
-        # 2. 潮汐能量 (成交额趋势) - 逻辑不变
-        amount_slope = self._get_safe_series(df, 'SLOPE_5_amount_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
-        energy_score = get_adaptive_mtf_normalized_bipolar_score(amount_slope, df_index, default_weights)
-        # 3. 潮汐活跃度 (换手率趋势) - 逻辑不变
-        turnover_slope = self._get_safe_series(df, 'SLOPE_5_turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
-        activity_score = get_adaptive_mtf_normalized_bipolar_score(turnover_slope, df_index, default_weights)
-        # 4. 融合基础流动性分
-        base_tide_score = (direction_score * 0.5 + energy_score * 0.3 + activity_score * 0.2)
-        # 新增: 5. 流动性品质调节器 (对倒强度)
-        wash_trade = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
-        # 对倒强度越高，品质越差，惩罚越大
-        wash_trade_penalty = get_adaptive_mtf_normalized_score(wash_trade, df_index, ascending=True, tf_weights=default_weights)
-        quality_modulator = (1 - wash_trade_penalty * 0.75).clip(0, 1) # 最多惩罚75%
-        # 6. 最终融合
-        tide_score = base_tide_score * quality_modulator
-        return tide_score.clip(-1, 1).astype(np.float32)
+        df_index = df.index
+        # 1. 校验所需信号
+        required_signals = [
+            'CMF_21_D', 'SLOPE_5_amount_D', 'SLOPE_5_turnover_rate_f_D', 'wash_trade_intensity_D',
+            # V4.0 新增原始数据
+            'main_force_flow_directionality_D', 'volume_burstiness_index_D', 'SLOPE_5_volume_D',
+            'turnover_rate_f_D', 'PRICE_VOLUME_ENTROPY_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'flow_credibility_index_D', 'market_sentiment_score_D', 'main_force_conviction_index_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_liquidity_tide"):
+            return pd.Series(0.0, index=df.index)
+        # --- 原始数据获取 ---
+        cmf_raw = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        amount_slope_raw = self._get_safe_series(df, 'SLOPE_5_amount_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        turnover_slope_raw = self._get_safe_series(df, 'SLOPE_5_turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        # V4.0 新增原始数据
+        main_force_flow_directionality_raw = self._get_safe_series(df, 'main_force_flow_directionality_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        volume_slope_raw = self._get_safe_series(df, 'SLOPE_5_volume_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        turnover_rate_level_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        if probe_enabled:
+            print(f"    -> [探针] 原始数据: CMF_21_D 尾部: {cmf_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: SLOPE_5_amount_D 尾部: {amount_slope_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: SLOPE_5_turnover_rate_f_D 尾部: {turnover_slope_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: main_force_flow_directionality_D 尾部: {main_force_flow_directionality_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: volume_burstiness_index_D 尾部: {volume_burstiness_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: SLOPE_5_volume_D 尾部: {volume_slope_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: turnover_rate_f_D 尾部: {turnover_rate_level_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: PRICE_VOLUME_ENTROPY_D 尾部: {price_volume_entropy_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: VOLATILITY_INSTABILITY_INDEX_21d_D 尾部: {volatility_instability_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: flow_credibility_index_D 尾部: {flow_credibility_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: market_sentiment_score_D 尾部: {market_sentiment_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: main_force_conviction_index_D 尾部: {main_force_conviction_raw.tail().to_dict()}")
+        # --- 2. 潮汐方向 (Tide Direction) ---
+        td_weights = p_conf_lt.get('tide_direction_weights', {'cmf': 0.4, 'main_force_flow_directionality': 0.6})
+        cmf_score = get_adaptive_mtf_normalized_bipolar_score(cmf_raw, df_index, default_weights, sensitivity=0.5)
+        main_force_flow_directionality_score = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, default_weights)
+        direction_score = (
+            cmf_score * td_weights.get('cmf', 0.4) +
+            main_force_flow_directionality_score * td_weights.get('main_force_flow_directionality', 0.6)
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: CMF得分 (cmf_score) 尾部: {cmf_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 主力资金流方向性得分 (main_force_flow_directionality_score) 尾部: {main_force_flow_directionality_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 潮汐方向得分 (direction_score) 尾部: {direction_score.tail().to_dict()}")
+        # --- 3. 潮汐能量 (Tide Energy) ---
+        te_weights = p_conf_lt.get('tide_energy_weights', {'amount_slope': 0.4, 'volume_burstiness': 0.3, 'volume_slope': 0.3})
+        amount_slope_score = get_adaptive_mtf_normalized_bipolar_score(amount_slope_raw, df_index, default_weights)
+        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, default_weights, ascending=True)
+        volume_slope_score = get_adaptive_mtf_normalized_bipolar_score(volume_slope_raw, df_index, default_weights)
+        energy_score = (
+            amount_slope_score * te_weights.get('amount_slope', 0.4) +
+            (volume_burstiness_score * 2 - 1) * te_weights.get('volume_burstiness', 0.3) + # 转换为双极性
+            volume_slope_score * te_weights.get('volume_slope', 0.3)
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 成交额斜率得分 (amount_slope_score) 尾部: {amount_slope_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 成交量爆发性得分 (volume_burstiness_score) 尾部: {volume_burstiness_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 成交量斜率得分 (volume_slope_score) 尾部: {volume_slope_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 潮汐能量得分 (energy_score) 尾部: {energy_score.tail().to_dict()}")
+        # --- 4. 潮汐活跃度 (Tide Activity) ---
+        ta_weights = p_conf_lt.get('tide_activity_weights', {'turnover_slope': 0.5, 'turnover_rate_level': 0.5})
+        turnover_slope_score = get_adaptive_mtf_normalized_bipolar_score(turnover_slope_raw, df_index, default_weights)
+        turnover_rate_level_score = get_adaptive_mtf_normalized_score(turnover_rate_level_raw, df_index, default_weights, ascending=True)
+        activity_score = (
+            turnover_slope_score * ta_weights.get('turnover_slope', 0.5) +
+            (turnover_rate_level_score * 2 - 1) * ta_weights.get('turnover_rate_level', 0.5) # 转换为双极性
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 换手率斜率得分 (turnover_slope_score) 尾部: {turnover_slope_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 换手率水平得分 (turnover_rate_level_score) 尾部: {turnover_rate_level_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 潮汐活跃度得分 (activity_score) 尾部: {activity_score.tail().to_dict()}")
+        # --- 5. 潮汐结构品质 (Tide Structural Quality) ---
+        tsq_weights = p_conf_lt.get('tide_structural_quality_weights', {'price_volume_entropy': 0.4, 'volatility_instability': 0.3, 'flow_credibility': 0.3})
+        # 价量熵越高，品质越差 (负向)
+        price_volume_entropy_score = get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df_index, default_weights, ascending=False)
+        # 波动不稳定性越高，品质越差 (负向)
+        volatility_instability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, default_weights, ascending=False)
+        # 资金流可信度越高，品质越好 (正向)
+        flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, default_weights, ascending=True)
+        structural_quality_score = (
+            (price_volume_entropy_score * 2 - 1) * tsq_weights.get('price_volume_entropy', 0.4) +
+            (volatility_instability_score * 2 - 1) * tsq_weights.get('volatility_instability', 0.3) +
+            (flow_credibility_score * 2 - 1) * tsq_weights.get('flow_credibility', 0.3)
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 价量熵得分 (price_volume_entropy_score) 尾部: {price_volume_entropy_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 波动不稳定性得分 (volatility_instability_score) 尾部: {volatility_instability_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 资金流可信度得分 (flow_credibility_score) 尾部: {flow_credibility_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 潮汐结构品质得分 (structural_quality_score) 尾部: {structural_quality_score.tail().to_dict()}")
+        # --- 6. 基础流动性分 (融合前四项) ---
+        final_fusion_weights = p_conf_lt.get('final_fusion_weights', {'direction': 0.25, 'energy': 0.25, 'activity': 0.2, 'structural_quality': 0.3})
+        base_tide_score = (
+            direction_score * final_fusion_weights.get('direction', 0.25) +
+            energy_score * final_fusion_weights.get('energy', 0.25) +
+            activity_score * final_fusion_weights.get('activity', 0.2) +
+            structural_quality_score * final_fusion_weights.get('structural_quality', 0.3)
+        ).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 基础流动性得分 (base_tide_score) 尾部: {base_tide_score.tail().to_dict()}")
+        # --- 7. 诡道情境调制 (Deception Contextual Modulation) ---
+        dcm_params = p_conf_lt.get('deception_context_modulator_params', {})
+        base_penalty_factor = get_param_value(dcm_params.get('base_penalty_factor'), 0.5)
+        sentiment_sensitivity = get_param_value(dcm_params.get('sentiment_sensitivity'), 0.3)
+        conviction_sensitivity = get_param_value(dcm_params.get('conviction_sensitivity'), 0.4)
+        positive_tide_penalty_multiplier = get_param_value(dcm_params.get('positive_tide_penalty_multiplier'), 1.2)
+        negative_tide_bonus_multiplier = get_param_value(dcm_params.get('negative_tide_bonus_multiplier'), 0.8)
+        wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, default_weights, ascending=True)
+        market_sentiment_score = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, default_weights)
+        main_force_conviction_score = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, default_weights)
+        # 动态惩罚因子：当市场情绪乐观 (sentiment_score > 0) 且主力信念不足 (conviction_score < 0) 时，惩罚更重
+        dynamic_penalty_factor = base_penalty_factor + market_sentiment_score * sentiment_sensitivity + (1 - main_force_conviction_score) * conviction_sensitivity
+        dynamic_penalty_factor = dynamic_penalty_factor.clip(0.1, 1.0) # 确保在合理范围
+        deception_modulator = pd.Series(1.0, index=df_index)
+        # 非对称调制
+        # 如果是涨潮 (base_tide_score > 0)，高对倒意味着虚假繁荣，惩罚更重
+        positive_tide_mask = base_tide_score > 0
+        deception_modulator.loc[positive_tide_mask] = (1 - wash_trade_score.loc[positive_tide_mask] * dynamic_penalty_factor.loc[positive_tide_mask] * positive_tide_penalty_multiplier).clip(0, 1)
+        # 如果是退潮 (base_tide_score <= 0)，高对倒可能意味着洗盘，惩罚适当减轻
+        negative_tide_mask = base_tide_score <= 0
+        deception_modulator.loc[negative_tide_mask] = (1 - wash_trade_score.loc[negative_tide_mask] * dynamic_penalty_factor.loc[negative_tide_mask] * negative_tide_bonus_multiplier).clip(0, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 对倒得分 (wash_trade_score) 尾部: {wash_trade_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 市场情绪得分 (market_sentiment_score) 尾部: {market_sentiment_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 主力信念得分 (main_force_conviction_score) 尾部: {main_force_conviction_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 动态惩罚因子 (dynamic_penalty_factor) 尾部: {dynamic_penalty_factor.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 诡道情境调制器 (deception_modulator) 尾部: {deception_modulator.tail().to_dict()}")
+        # --- 8. 最终流动性潮汐分数 ---
+        tide_score = (base_tide_score * deception_modulator).clip(-1, 1)
+        if probe_enabled:
+            print(f"    -> [探针] 最终结果: 流动性潮汐分 (tide_score) 尾部: {tide_score.tail().to_dict()}")
+        print("    -> [基础层] “流动性潮汐”公理诊断完成。")
+        return tide_score.astype(np.float32)
 
     def _diagnose_axiom_market_tension(self, df: pd.DataFrame) -> pd.Series:
         """

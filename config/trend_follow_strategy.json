@@ -2735,6 +2735,52 @@
           "synergy_bonus_factor": 0.2,
           "comment_synergy_bonus_factor": "协同奖励强度因子，控制奖励的力度。",
           "enable_probe": true
+        },
+        "liquidity_tide_params": {
+          "description": "【V4.0 · 深度情境与结构洞察版】流动性潮汐公理的专属参数。",
+          "enable_probe": true,
+          "tide_direction_weights": {
+            "description": "潮汐方向融合权重。",
+            "cmf": 0.4,
+            "main_force_flow_directionality": 0.6
+          },
+          "tide_energy_weights": {
+            "description": "潮汐能量融合权重。",
+            "amount_slope": 0.4,
+            "volume_burstiness": 0.3,
+            "volume_slope": 0.3
+          },
+          "tide_activity_weights": {
+            "description": "潮汐活跃度融合权重。",
+            "turnover_slope": 0.5,
+            "turnover_rate_level": 0.5
+          },
+          "tide_structural_quality_weights": {
+            "description": "潮汐结构品质融合权重。",
+            "price_volume_entropy": 0.4,
+            "volatility_instability": 0.3,
+            "flow_credibility": 0.3
+          },
+          "deception_context_modulator_params": {
+            "description": "诡道情境调制器参数。",
+            "base_penalty_factor": 0.5,
+            "comment_base_penalty_factor": "对倒惩罚的基础因子。",
+            "sentiment_sensitivity": 0.3,
+            "comment_sentiment_sensitivity": "市场情绪对对倒惩罚的敏感度。",
+            "conviction_sensitivity": 0.4,
+            "comment_conviction_sensitivity": "主力信念对对倒惩罚的敏感度。",
+            "positive_tide_penalty_multiplier": 1.2,
+            "comment_positive_tide_penalty_multiplier": "涨潮时对倒惩罚的额外乘数。",
+            "negative_tide_bonus_multiplier": 0.8,
+            "comment_negative_tide_bonus_multiplier": "退潮时对倒惩罚的乘数（小于1表示减轻惩罚，可能视为洗盘）。"
+          },
+          "final_fusion_weights": {
+            "description": "四大维度最终融合权重。",
+            "direction": 0.25,
+            "energy": 0.25,
+            "activity": 0.2,
+            "structural_quality": 0.3
+          }
         }
       },
       "fund_flow_ultimate_params": {
