@@ -55,28 +55,35 @@ class StructuralIntelligence:
         """
         if series.empty:
             return pd.Series(0.0, index=df_index)
+
         processed_series = series.copy()
-        if clip_range:
+        if clip_range and len(clip_range) == 2: # 确保 clip_range 是有效的 (min, max) 元组
             processed_series = processed_series.clip(lower=clip_range[0], upper=clip_range[1])
+
         if method == "mtf_adaptive":
             # 沿用原有的MTF自适应归一化逻辑
             return get_adaptive_mtf_normalized_score(processed_series, df_index, tf_weights, ascending=ascending)
         elif method == "quantile":
             window_sizes = sorted(tf_weights.keys(), reverse=True)
             quantile_scores = pd.Series(0.0, index=df_index)
-            for window in window_sizes:
-                # 修改开始：显式将 window 转换为 int 类型
-                rank = processed_series.rolling(window=int(window), min_periods=int(window)).apply(
+            for window_val in window_sizes:
+                # 修改开始：显式将 window_val 转换为 int 类型，确保 min_periods 为整数
+                _window = int(window_val)
+                _min_periods = int(window_val)
+                rank = processed_series.rolling(window=_window, min_periods=_min_periods).apply(
                     lambda x: x.rank(pct=True).iloc[-1], raw=False
                 )
+                # 修改结束
                 if not ascending:
                     rank = 1 - rank
-                quantile_scores += rank * tf_weights.get(window, 0)
+                quantile_scores += rank * tf_weights.get(window_val, 0)
+            
             total_weight = sum(tf_weights.values())
             if total_weight > 0:
                 quantile_scores /= total_weight
             else:
                 quantile_scores = pd.Series(0.5, index=df_index) # 默认中性分数
+
             return quantile_scores.clip(0, 1).fillna(0.5) # 填充NaN为中性分数
         else:
             # 默认回退到MTF自适应归一化

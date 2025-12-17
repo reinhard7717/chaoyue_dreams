@@ -322,7 +322,14 @@
         "vpoc_D": [5, 8, 13, 21],
         "total_volume_D": [5, 8, 13, 21],
         "breakout_readiness_score_D": [5, 8, 13, 21],
-        "goodness_of_fit_score_D": [5, 8, 13, 21]
+        "goodness_of_fit_score_D": [5, 8, 13, 21],
+        "说明_liquidity_tide_v5": "--- 为流动性潮汐V5.0提供支持 ---",
+        "bid_ask_spread_D": [5, 8, 13, 21],
+        "market_depth_ratio_D": [5, 8, 13, 21],
+        "order_flow_imbalance_D": [5, 8, 13, 21],
+        "liquidity_persistence_index_D": [5, 8, 13, 21],
+        "volume_profile_density_D": [5, 8, 13, 21],
+        "vwap_deviation_D": [5, 8, 13, 21]
       }
     },
     "accel_params": {
@@ -517,7 +524,14 @@
         "vpoc_D": [5, 8, 13, 21],
         "total_volume_D": [5, 8, 13, 21],
         "breakout_readiness_score_D": [5, 8, 13, 21],
-        "goodness_of_fit_score_D": [5, 8, 13, 21]
+        "goodness_of_fit_score_D": [5, 8, 13, 21],
+        "说明_liquidity_tide_v5": "--- 为流动性潮汐V5.0提供支持 ---",
+        "bid_ask_spread_D": [5, 8, 13, 21],
+        "market_depth_ratio_D": [5, 8, 13, 21],
+        "order_flow_imbalance_D": [5, 8, 13, 21],
+        "liquidity_persistence_index_D": [5, 8, 13, 21],
+        "volume_profile_density_D": [5, 8, 13, 21],
+        "vwap_deviation_D": [5, 8, 13, 21]
       }
     }
   },
