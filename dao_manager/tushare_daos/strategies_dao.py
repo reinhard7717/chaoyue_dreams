@@ -43,7 +43,7 @@ class StrategiesDAO(BaseDAO):
         :param stock_code: 股票代码
         :return: 最新的策略信号对象或None
         """
-        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
+        # 替换为使用 self.stock_basic_dao 而不是创建新实例
         # 异步获取股票对象
         stock_obj = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_obj:

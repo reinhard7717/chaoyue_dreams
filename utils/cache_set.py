@@ -49,7 +49,7 @@ class CacheSet():
     def __init__(self, cache_manager_instance):
         from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
         from utils.data_format_process import IndexDataFormatProcess
-        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
+        # 调用父类构造函数时，传递 cache_manager_instance
         self.cache_manager = cache_manager_instance
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
@@ -176,10 +176,10 @@ class CacheSet():
             if isinstance(value, datetime):
                 data_to_cache[key] = value.isoformat()
             elif isinstance(value, StockInfo):
-                # MODIFIED: 修正了 StockInfo 对象的属性访问，从 __code__() 改为 stock_code
+                # 修正了 StockInfo 对象的属性访问，从 __code__() 改为 stock_code
                 data_to_cache[key] = value.stock_code
             elif isinstance(value, IndexInfo):
-                # MODIFIED: 修正了 IndexInfo 对象的属性访问，从 __code__() 改为 code
+                # 修正了 IndexInfo 对象的属性访问，从 __code__() 改为 code
                 data_to_cache[key] = value.code
         return data_to_cache
 
@@ -522,7 +522,7 @@ class StockIndicatorsCacheSet(CacheSet):
 
 class StockRealtimeCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
+        # 调用父类构造函数时，传递 cache_manager_instance
         super().__init__(cache_manager_instance)
     async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
         """

@@ -2676,12 +2676,12 @@ def calculate_cmf_score(cmf: pd.Series) -> pd.Series:
     深化指标的评分规则，丰富计算规则，增加得分难度，使评分更具层次感，更具洞察力，并对代码做效率优化。
     """
     # 使用 _safe_fillna_series 填充 CMF 中的 NaN 值，将中性 CMF 设为 0。
-    # MODIFIED: 确保 cmf_s 是一个 Series，并处理 _safe_fillna_series 的返回。
+    # 确保 cmf_s 是一个 Series，并处理 _safe_fillna_series 的返回。
     cmf_s, = _safe_fillna_series([cmf], [0.0])
     # 如果填充后的 CMF Series 中所有值都为 NaN（例如，原始 Series 为空或全 NaN），则返回中性分数。
-    # MODIFIED: 检查填充后的 Series 是否全为 NaN。
+    # 检查填充后的 Series 是否全为 NaN。
     if cmf_s.isnull().all():
-        # MODIFIED: 返回一个与原始 CMF 索引相同的 Series，值为 50.0。
+        # 返回一个与原始 CMF 索引相同的 Series，值为 50.0。
         return pd.Series(50.0, index=cmf.index).clip(0, 100)
     # --- 第一层：基于 CMF 绝对值的评分 ---
     # 定义 CMF 值区间和对应的基础分数。CMF 范围通常在 -1 到 1 之间。
@@ -2706,7 +2706,7 @@ def calculate_cmf_score(cmf: pd.Series) -> pd.Series:
         90   # 极度看涨
     ]
     # 使用 numpy.select 进行矢量化赋值，效率高，避免多次 .loc 操作。
-    # MODIFIED: 使用 np.select 计算基础分数。
+    # 使用 np.select 计算基础分数。
     base_score = pd.Series(np.select(cmf_conditions, cmf_choices, default=50), index=cmf_s.index)
     # --- 第二层：基于 CMF 趋势（变化率）的调整 ---
     # 计算 CMF 的日变化量，反映资金流动的加速或减速。
@@ -2729,19 +2729,19 @@ def calculate_cmf_score(cmf: pd.Series) -> pd.Series:
         -5   # 强劲下跌，减分
     ]
     # 使用 numpy.select 计算趋势调整值。
-    # MODIFIED: 使用 np.select 计算趋势调整值。
+    # 使用 np.select 计算趋势调整值。
     trend_adjustment = pd.Series(np.select(diff_conditions, diff_choices, default=0), index=cmf_s.index)
     # CMF.diff() 的第一个值会是 NaN，导致 trend_adjustment 的第一个值也是 NaN。
     # 填充 NaN 值为 0，确保计算的连续性。
-    # MODIFIED: 填充 trend_adjustment 中的 NaN 值。
+    # 填充 trend_adjustment 中的 NaN 值。
     trend_adjustment = trend_adjustment.fillna(0)
     # 将趋势调整值加到基础分数上，形成初步的最终分数。
-    # MODIFIED: 将趋势调整值加到基础分数上。
+    # 将趋势调整值加到基础分数上。
     final_score = base_score + trend_adjustment
     # --- 第三层：极端值惩罚/奖励 ---
     # 对 CMF 接近极端值（1 或 -1）的情况给予额外的奖励或惩罚，
     # 以进一步突出其强度，使评分更具洞察力。
-    # MODIFIED: 增加极端值调整逻辑。
+    # 增加极端值调整逻辑。
     extreme_adjustment = pd.Series(0.0, index=cmf_s.index)
     # 如果 CMF 极度看涨（接近1），且分数未达到最高，给予额外奖励。
     extreme_adjustment.loc[cmf_s > 0.9] = 5
@@ -2750,7 +2750,7 @@ def calculate_cmf_score(cmf: pd.Series) -> pd.Series:
     # 将极端值调整加到最终分数上。
     final_score += extreme_adjustment
     # 确保最终分数在 0 到 100 之间，防止越界。
-    # MODIFIED: 确保最终分数在 0 到 100 之间。
+    # 确保最终分数在 0 到 100 之间。
     return final_score.clip(0, 100)
 
 def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period: int = None) -> pd.Series:

@@ -1485,7 +1485,7 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
     async def main():
         # 1. 初始化总指挥
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
-        # MODIFIED: 调用新的分析方法并接收返回的原始数据
+        # 调用新的分析方法并接收返回的原始数据
         raw_results = await strategy_orchestrator.analyze_signal_performance_for_period(
             stock_code=stock_code,
             start_date=start_date,

@@ -94,7 +94,7 @@ class CacheManager:
                 if not cls._instance:
                     print("DEBUG: Initializing new CacheManager singleton instance...")
                     instance = super().__new__(cls)
-                    # MODIFIED: 初始化上下文管理器和保护它的同步锁
+                    # 初始化上下文管理器和保护它的同步锁
                     instance._contexts = {}
                     instance._context_lock = threading.Lock()
                     cls._instance = instance
@@ -105,7 +105,7 @@ class CacheManager:
             return
         self.is_initialized = True
         print("DEBUG: CacheManager __init__ is executing (once per instance).")
-    # MODIFIED: initialize 方法现在是私有的，因为它由 _ensure_client 内部调用
+    # initialize 方法现在是私有的，因为它由 _ensure_client 内部调用
     async def _initialize_for_loop(self, loop: asyncio.AbstractEventLoop):
         """
         为指定的 event loop 初始化 Redis 客户端连接。
@@ -143,7 +143,7 @@ class CacheManager:
         except Exception as e:
             logger.error(f"为 Event Loop {id(loop)} 初始化 Redis 客户端失败: {e}", exc_info=True)
             raise
-    # MODIFIED: 这是最核心的修改，重写 _ensure_client 方法
+    # 这是最核心的修改，重写 _ensure_client 方法
     async def _ensure_client(self) -> Redis:
         """
         【核心 V3.4】确保返回一个与当前事件循环匹配的、已初始化的 Redis 客户端。
@@ -225,13 +225,13 @@ class CacheManager:
     def _deserialize(self, data: bytes) -> Any:
         """反序列化数据"""
         if not data:
-            # MODIFIED: 添加调试打印，显示当传入空数据时的情况
+            # 添加调试打印，显示当传入空数据时的情况
             print("DEBUG: _deserialize received empty data.")
             return None
         try:
             return umsgpack.unpackb(data, raw=False)
         except Exception as e:
-            # MODIFIED: 添加调试打印，显示反序列化失败时的原始数据（截断）和错误信息
+            # 添加调试打印，显示反序列化失败时的原始数据（截断）和错误信息
             print(f"DEBUG: _deserialize failed for data: {data[:100]}... (truncated). Error: {e}")
             logger.error(f"反序列化失败: {e}", exc_info=True)
             return None
@@ -551,7 +551,7 @@ class CacheManager:
             serialized_result = await redis_client.zrangebyscore(key, min_score, max_score, withscores=withscores)
             if serialized_result is None:
                 logger.debug(f"ZRANGEBYSCORE 未找到匹配项: key='{key}', range=[{min_score}, {max_score}]")
-                # MODIFIED: 添加调试打印，显示zrangebyscore返回None的情况
+                # 添加调试打印，显示zrangebyscore返回None的情况
                 print(f"DEBUG: zrangebyscore returned None for key: {key}")
                 return []
             logger.debug(f"ZRANGEBYSCORE 命中: key='{key}', range=[{min_score}, {max_score}], withscores={withscores}")
@@ -562,7 +562,7 @@ class CacheManager:
                     if deserialized_member is not None:
                         deserialized_list.append((deserialized_member, score))
                     else:
-                        # MODIFIED: 添加调试打印，显示zrangebyscore中成员反序列化失败的情况
+                        # 添加调试打印，显示zrangebyscore中成员反序列化失败的情况
                         print(f"DEBUG: zrangebyscore: Deserialized member is None for key: {key}, member_bytes: {member_bytes[:50]}...")
                         logger.warning(f"ZRANGEBYSCORE 反序列化成员失败: key='{key}', member_bytes={member_bytes}")
             else:
@@ -571,10 +571,10 @@ class CacheManager:
                     if deserialized_member is not None:
                         deserialized_list.append(deserialized_member)
                     else:
-                         # MODIFIED: 添加调试打印，显示zrangebyscore中成员反序列化失败的情况
+                         # 添加调试打印，显示zrangebyscore中成员反序列化失败的情况
                          print(f"DEBUG: zrangebyscore: Deserialized member is None for key: {key}, member_bytes: {member_bytes[:50]}...")
                          logger.warning(f"ZRANGEBYSCORE 反序列化成员失败: key='{key}', member_bytes={member_bytes}")
-            # MODIFIED: 添加调试打印，显示最终反序列化成功的项目数量
+            # 添加调试打印，显示最终反序列化成功的项目数量
             print(f"DEBUG: zrangebyscore returning {len(deserialized_list)} deserialized items for key: {key}")
             return deserialized_list
         except ConnectionError as e:

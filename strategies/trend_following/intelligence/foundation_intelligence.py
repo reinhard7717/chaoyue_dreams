@@ -10,6 +10,7 @@ class FoundationIntelligence:
         :param strategy_instance: 策略主实例的引用，用于访问df和atomic_states。
         """
         self.strategy = strategy_instance
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -18,6 +19,7 @@ class FoundationIntelligence:
             print(f"    -> [基础情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -28,6 +30,7 @@ class FoundationIntelligence:
             print(f"    -> [基础情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
+
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V11.0 · 环境共振版】基础情报分析总指挥
@@ -67,6 +70,7 @@ class FoundationIntelligence:
         all_states.update(context_trend_confirmed)
         print(f"【V11.0 · 环境共振版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。")
         return all_states
+
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.0 · 健康度重构版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
@@ -102,6 +106,7 @@ class FoundationIntelligence:
         # 4. 最终融合
         trend_confirmed = (adx_score * direction_score * trend_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
+
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V3.0 · 韧性诊断版】基础公理一：诊断“市场体质”
@@ -151,6 +156,7 @@ class FoundationIntelligence:
         bullish_mask = base_trend_score > 0
         constitution_score[bullish_mask] = (base_trend_score[bullish_mask] * health_modulator[bullish_mask]).pow(0.5)
         return constitution_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
         """
         【V3.0 · 诡道甄别版】基础公理二：诊断“市场情绪钟摆”
@@ -177,6 +183,7 @@ class FoundationIntelligence:
         reality_check_modulator = 1 - (base_pendulum_score * deception_index.clip(-1, 1) < 0) * np.abs(deception_index.clip(-1, 1)) * 0.75
         pendulum_score = base_pendulum_score * reality_check_modulator
         return pendulum_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
         """
         【V3.0 · 品质过滤版】基础公理三：诊断“流动性潮汐”
@@ -211,6 +218,7 @@ class FoundationIntelligence:
         # 6. 最终融合
         tide_score = base_tide_score * quality_modulator
         return tide_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_market_tension(self, df: pd.DataFrame) -> pd.Series:
         """
         【V3.0 · 意图方向版】基础公理四：诊断“市场张力”
@@ -243,6 +251,7 @@ class FoundationIntelligence:
         # 6. 最终融合: 张力强度 * 意图方向
         tension_final_score = unipolar_tension_score * directional_bias
         return tension_final_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
         """
         【V2.0 · 动量增强版】基础公理五：诊断“相对强度”
@@ -269,6 +278,7 @@ class FoundationIntelligence:
         # 3. 融合: 状态与动量加权
         relative_strength_score = (state_score * 0.6 + momentum_score * 0.4)
         return relative_strength_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 接收调节器
         """
         【V2.0 · 环境共振版】诊断“和谐拐点”
@@ -291,6 +301,7 @@ class FoundationIntelligence:
         # 新增: 应用环境调节器
         inflection_score = raw_inflection_score * modulator
         return inflection_score.clip(0, 1).astype(np.float32)
+
     def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 增加df参数
         """
         【V1.0 · 新增】计算“环境共振调节器”
@@ -321,6 +332,7 @@ class FoundationIntelligence:
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
         modulator = 1.0 + (env_score * bonus_factor)
         return modulator.astype(np.float32)
+
     def _synthesize_strategic_posture(
         self,
         params: dict,

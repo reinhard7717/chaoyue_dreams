@@ -12,6 +12,7 @@ class CyclicalIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -20,6 +21,7 @@ class CyclicalIntelligence:
             print(f"    -> [周期情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def run_cyclical_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · 双星系统版】周期情报分析总指挥
@@ -51,6 +53,7 @@ class CyclicalIntelligence:
         final_trend_regime_score = (fft_trend_score * hurst_trend_score).pow(0.5)
         all_cyclical_states['SCORE_TRENDING_REGIME'] = final_trend_regime_score.astype(np.float32)
         return all_cyclical_states
+
     def _diagnose_cyclical_top_risk(self, df: pd.DataFrame, fft_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.0】诊断认知风险信号：周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)
@@ -71,6 +74,7 @@ class CyclicalIntelligence:
         # 只有当周期强度高且处于波峰时，风险才高
         cyclical_top_risk = (dominant_power * phase_contribution).fillna(0.0)
         return {'COGNITIVE_RISK_CYCLICAL_TOP': cyclical_top_risk.astype(np.float32)}
+
     def diagnose_market_cycles_with_fft(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V2.0 · 命名净化版】使用FFT诊断市场周期 (公理一)
@@ -153,10 +157,11 @@ class CyclicalIntelligence:
             results_df[name].iloc[start_index:] = arr
         states = {col: results_df[col] for col in results_df.columns}
         return states
+
     def diagnose_market_memory_with_hurst(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         states = {}
         hurst_period = get_param_value(params.get('hurst_period'), 144)
-        hurst_signal_name = f'hurst_{hurst_period}d_D'
+        hurst_signal_name = f'HURST_{hurst_period}d_D'
         hurst_series = self._get_safe_series(df, hurst_signal_name, 0.5, method_name="diagnose_market_memory_with_hurst").fillna(0.5)
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5

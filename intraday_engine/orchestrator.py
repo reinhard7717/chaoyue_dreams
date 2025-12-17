@@ -4,7 +4,7 @@ import json
 import logging
 from asgiref.sync import sync_to_async # 异步转换工具
 from datetime import datetime, date, time
-from typing import Dict, List, Set, Union # MODIFIED: 导入 Union
+from typing import Dict, List, Set, Union # 导入 Union
 from channels.layers import get_channel_layer
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
@@ -14,7 +14,7 @@ from services.realtime_services import RealtimeServices
 from strategies.realtime_strategy import RealtimeStrategy
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
-import pandas as pd # MODIFIED: 导入 pandas
+import pandas as pd # 导入 pandas
 
 logger = logging.getLogger("intraday_engine")
 
@@ -22,7 +22,7 @@ class IntradayEngineOrchestrator:
     # ... __init__ 和 initialize_pools 方法保持不变 ...
     def __init__(self, params: Dict):
         self.params = params
-        # MODIFIED: 直接调用 CacheManager() 获取单例实例
+        # 直接调用 CacheManager() 获取单例实例
         self.cache_manager = CacheManager()
         self.stock_dao = StockBasicInfoDao(self.cache_manager)
         self.stock_time_trade_dao = StockTimeTradeDAO(self.cache_manager)
@@ -120,7 +120,7 @@ class IntradayEngineOrchestrator:
             await pipe.execute()
         logger.info(f"待买入池 ({len(watchlist)}只) 和持仓池 ({len(position_list)}只) 已成功写入Redis。")
         return True
-    # MODIFIED: 重写此方法以增加健壮性
+    # 重写此方法以增加健壮性
     async def run_single_cycle(self, time_level: str = '1'):
         """
         【盘中循环 V2.1 - 健壮版】从Redis读取状态，执行分析，并将结果写回Redis。
@@ -144,10 +144,10 @@ class IntradayEngineOrchestrator:
         print(f"本轮循环准备分析 {len(all_stocks_to_analyze)} 只股票: {all_stocks_to_analyze[:5]}...")
         # 2. 并发获取所有需要分析的股票的盘中数据
         tasks = [self.services.prepare_intraday_data(code, time_level, self.today_str) for code in all_stocks_to_analyze]
-        # MODIFIED: 添加 return_exceptions=True，这是解决问题的关键！
+        # 添加 return_exceptions=True，这是解决问题的关键！
         results: List[Union[pd.DataFrame, Exception]] = await asyncio.gather(*tasks, return_exceptions=True)
         intraday_data_map = {}
-        # MODIFIED: 循环检查结果，分离成功和失败的任务
+        # 循环检查结果，分离成功和失败的任务
         for stock_code, result in zip(all_stocks_to_analyze, results):
             if isinstance(result, Exception):
                 # 如果是异常，打印详细错误日志，而不是让程序崩溃

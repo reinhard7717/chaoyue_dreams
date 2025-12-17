@@ -1336,7 +1336,7 @@ class StockTimeTradeDAO(BaseDAO):
         logger.info(f"所有股票的每日筹码及胜率数据处理完成。")
         return result
     @with_rate_limit(name='api_cyq_perf') #: 添加速率限制装饰器
-    async def save_cyq_perf_for_stock(self, stock, start_date: date = None, end_date: date = None, *, limiter) -> None: # MODIFIED: 修改方法签名，接收limiter
+    async def save_cyq_perf_for_stock(self, stock, start_date: date = None, end_date: date = None, *, limiter) -> None: # 修改方法签名，接收limiter
         """
         获取并保存单个股票的历史筹码及胜率数据。
         此方法被并行的Celery任务调用。

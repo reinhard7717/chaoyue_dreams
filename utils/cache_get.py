@@ -14,7 +14,7 @@ logger = logging.getLogger("dao")
 
 class CacheGet():
     def __init__(self, cache_manager_instance):
-        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
+        # 调用父类构造函数时，传递 cache_manager_instance
         self.cache_manager = cache_manager_instance
         self.cache_key_user = UserCashKey()
         self.cache_key_index = IndexCashKey()
@@ -99,13 +99,13 @@ class CacheGet():
                 logger.info(f"缓存命中: 找到股票[{stock_code}] 近三日策略数据, 共 {len(cached_members)} 条原始数据, key: {cache_key}")
                 for json_data_bytes in cached_members:
                     try:
-                        # MODIFIED: 使用 CacheManager 的 _deserialize 方法来反序列化数据
+                        # 使用 CacheManager 的 _deserialize 方法来反序列化数据
                         cached_data = self.cache_manager._deserialize(json_data_bytes)
                         if isinstance(cached_data, dict):
                             result_data.append(cached_data)
                         else:
                             logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 的缓存值解析后不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}, 值: {json_data_bytes.decode('utf-8', errors='ignore')}. 将跳过此条数据。")
-                    # MODIFIED: 捕获更通用的 Exception，因为 _deserialize 内部已处理具体错误
+                    # 捕获更通用的 Exception，因为 _deserialize 内部已处理具体错误
                     except Exception as e:
                         logger.error(f"缓存数据解析失败: 股票[{stock_code}] 的缓存值不是有效的 MessagePack 格式, key: {cache_key}, 值: {json_data_bytes.decode('utf-8', errors='ignore')}, 错误: {e}. 将跳过此条数据。")
                 if result_data:
@@ -317,7 +317,7 @@ class StockTimeTradeCacheGet(CacheGet):
 
 class StockRealtimeCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
+        # 调用父类构造函数时，传递 cache_manager_instance
         super().__init__(cache_manager_instance)
     async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
@@ -363,7 +363,7 @@ class StockRealtimeCacheGet(CacheGet):
             logger.debug(f"成功从Redis获取并合并了 {len(df_ticks)} 条Tick数据 for {stock_code}")
             return df_ticks
         except Exception as e:
-            # MODIFIED: 明确地记录下当前方法名，便于追踪
+            # 明确地记录下当前方法名，便于追踪
             logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)
             return None
     async def latest_tick_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
