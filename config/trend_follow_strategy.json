@@ -3330,13 +3330,39 @@
             "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 }
         },
         "trend_form_fusion_weights": {
-          "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振的权重。",
+          "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振、均线粘合度的权重。",
           "alignment": 0.2,
           "slope": 0.15,
           "acceleration": 0.15,
           "orderliness": 0.15,
           "angle": 0.15,
-          "resonance": 0.2
+          "resonance": 0.15,
+          "ma_cluster_cohesion": 0.05 
+        },
+        "trend_form_dynamic_weights_params": { 
+          "enabled": true,
+          "volatility_source": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+          "volatility_sensitivity": 2.0,
+          "volatility_threshold": 0.5,
+          "adjustment_factor_range": 0.5,
+          "comment": "根据波动率动态调整趋势形态各维度的融合权重。"
+        },
+        "ma_cluster_cohesion_params": { 
+          "enabled": true,
+          "normalization_period": 55,
+          "comment": "均线粘合度维度参数。"
+        },
+        "trend_form_resonance_params": { 
+          "enabled": true,
+          "slope_consistency_weight": 0.4,
+          "accel_consistency_weight": 0.4,
+          "slope_accel_alignment_weight": 0.2
+        },
+        "slope_angle_volatility_adjustment_params": { 
+          "enabled": true,
+          "volatility_source": "ATR_14_D",
+          "adjustment_strength": 0.5,
+          "comment": "根据波动率调整斜率和角度的敏感度。"
         }
       },
       "fusion_intelligence_params": {

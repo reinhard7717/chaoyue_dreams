@@ -488,19 +488,21 @@ class ProcessIntelligence:
             return {}
         relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
         relationship_momentum = relationship_displacement.diff(1).fillna(0)
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # MODIFIED: 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
         bipolar_displacement_strength = get_adaptive_mtf_normalized_bipolar_score(
             series=relationship_displacement,
-            target_index=df.index,
-            tf_weights=default_weights,
+            index=df.index, # MODIFIED: 将 target_index 改为 index
+            tf_weights=actual_mtf_weights, # MODIFIED: 使用修正后的权重字典
             sensitivity=self.bipolar_sensitivity
         )
         bipolar_momentum_strength = get_adaptive_mtf_normalized_bipolar_score(
             series=relationship_momentum,
-            target_index=df.index,
-            tf_weights=default_weights,
+            index=df.index, # MODIFIED: 将 target_index 改为 index
+            tf_weights=actual_mtf_weights, # MODIFIED: 使用修正后的权重字典
             sensitivity=self.bipolar_sensitivity
         )
         displacement_weight = self.meta_score_weights[0]
