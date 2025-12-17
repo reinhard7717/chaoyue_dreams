@@ -202,7 +202,6 @@ class AdvancedStructuralMetricsService:
         for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
             # 将当前的 datetime.date 对象转换为 pandas.Timestamp，用于后续操作
             current_trade_timestamp = pd.to_datetime(trade_date_dt_obj)
-            
             # 使用 Timestamp 进行 daily_df_with_atr 的索引查找
             if current_trade_timestamp not in daily_df_with_atr.index:
                 logger.warning(f"[{stock_code}] 在日期 {trade_date_dt_obj} 对应的日线数据缺失，跳过当日计算。")

@@ -967,7 +967,6 @@ class BehavioralIntelligence:
             upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             downward_purity_score = get_adaptive_mtf_normalized_score(downward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             deception_score = get_adaptive_mtf_normalized_score(deception_raw, df.index, ascending=True, tf_weights=default_weights) # 修改行
-            
             # MODIFIED LINE: 使用 np.where 替代 mask
             purity_coherence = pd.Series(np.where(
                 core_intent_magnitude > 0,

@@ -1270,7 +1270,6 @@ class ChipIntelligence:
                     window=chip_sensitivity_mod_norm_window,
                     ascending=True
                 )
-                # 修改结束
                 modulator_bipolar = (normalized_modulator_signal * 2) - 1
                 non_linear_modulator_effect_amp = np.tanh(modulator_bipolar * chip_sensitivity_mod_tanh_factor_amp)
                 non_linear_modulator_effect_damp = np.tanh(modulator_bipolar * chip_sensitivity_mod_tanh_factor_damp)
