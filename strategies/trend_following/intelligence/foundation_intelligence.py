@@ -109,14 +109,14 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V4.0 · 深度体质诊断版】基础公理一：诊断“市场体质”
+        【V4.1 · 均衡与敏感度校准版】基础公理一：诊断“市场体质”
         - 核心逻辑: 融合均线骨架质量(MSQ)、筹码新陈代谢健康度(TH)、市场信念强度(MCS)以及免疫韧性与抗压能力(IR)。
                       通过多维度、更精细的原始数据，并优化融合逻辑，以更全面、更准确地评估市场体质。
-                      引入“短板效应”惩罚和“协同奖励”机制，使评估更贴近A股博弈特性。
+                      修正了双极性原始数据的处理方式和加权融合中的数学转换顺序，以提高信号的鉴别力。
         - A股特性: 健康的上涨不仅结构稳固、换手温和，更应具备强大的下跌抵抗能力和主力资金的真实信念。
                     此升级旨在识别这种“抗揍”且有“内生动力”的健康体质。
         """
-        print("    -> [基础层] 正在诊断“市场体质”公理 (V4.0 · 深度体质诊断版)...") # 修改: 更新版本描述
+        print("    -> [基础层] 正在诊断“市场体质”公理 (V4.1 · 均衡与敏感度校准版)...") # 修改: 更新版本描述
         # 获取市场体质公理的专属参数
         p_conf_mc = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('market_constitution_params', {})
         # 获取行为动态参数中的MTF归一化默认权重
@@ -223,18 +223,17 @@ class FoundationIntelligence:
 
         dma_slope_score = get_adaptive_mtf_normalized_bipolar_score(dma_slope_raw, df_index, default_weights)
 
-        # 新增: 均线有序性得分 (0-1)
-        ma_orderliness_score = get_adaptive_mtf_normalized_score(ma_orderliness_raw, df_index, default_weights, ascending=True)
-        # 新增: 均线张力得分 (0-1)
-        ma_tension_score = get_adaptive_mtf_normalized_score(ma_tension_raw, df_index, default_weights, ascending=True)
+        # 修正: 均线有序性得分和均线张力得分直接使用 get_adaptive_mtf_normalized_bipolar_score
+        ma_orderliness_score = get_adaptive_mtf_normalized_bipolar_score(ma_orderliness_raw, df_index, default_weights) # 修改: 使用 bipolar 归一化
+        ma_tension_score = get_adaptive_mtf_normalized_bipolar_score(ma_tension_raw, df_index, default_weights) # 修改: 使用 bipolar 归一化
 
         ma_structure_quality_score = (
             macd_score * msq_weights.get('macd_score', 0.2) +
             alignment_bipolar * msq_weights.get('alignment_score', 0.3) +
             avg_slope_bipolar * msq_weights.get('slope_score', 0.3) +
             dma_slope_score * msq_weights.get('dma_slope_score', 0.1) +
-            ma_orderliness_score * msq_weights.get('orderliness_score', 0.05) * 2 - 1 + # 归一化到 [-1, 1]
-            ma_tension_score * msq_weights.get('tension_score', 0.05) * 2 - 1 # 归一化到 [-1, 1]
+            ma_orderliness_score * msq_weights.get('orderliness_score', 0.05) + # 修改: 移除 * 2 - 1
+            ma_tension_score * msq_weights.get('tension_score', 0.05) # 修改: 移除 * 2 - 1
         ).clip(-1, 1)
 
         if probe_enabled:
@@ -248,20 +247,20 @@ class FoundationIntelligence:
 
         # --- 2. 筹码新陈代谢健康度 (Turnover Health - TH) ---
         # 换手率健康度 (越低越健康，但不能过低)
-        turnover_health_score = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, ascending=False, tf_weights=default_weights)
+        turnover_health_score_v3 = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, ascending=False, tf_weights=default_weights)
         # 新增: 成交量爆发性 (越低越健康)
         volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, default_weights, ascending=False)
         # 新增: 建设性换手率 (越高越健康)
         constructive_turnover_score = get_adaptive_mtf_normalized_score(constructive_turnover_raw, df_index, default_weights, ascending=True)
 
         turnover_health_score = (
-            turnover_health_score * th_weights.get('turnover_rate', 0.5) +
+            turnover_health_score_v3 * th_weights.get('turnover_rate', 0.5) +
             volume_burstiness_score * th_weights.get('volume_burstiness', 0.2) +
             constructive_turnover_score * th_weights.get('constructive_turnover', 0.3)
         ).clip(0, 1)
 
         if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 换手率健康度得分 (turnover_health_score) 尾部: {turnover_health_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 换手率健康度得分 (turnover_health_score_v3) 尾部: {turnover_health_score_v3.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 成交量爆发性得分 (volume_burstiness_score) 尾部: {volume_burstiness_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 建设性换手率得分 (constructive_turnover_score) 尾部: {constructive_turnover_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 筹码新陈代谢健康度分 (turnover_health_score) 尾部: {turnover_health_score.tail().to_dict()}")
@@ -276,7 +275,7 @@ class FoundationIntelligence:
         market_conviction_strength_score = (
             conviction_score_v3 * mcs_weights.get('trend_alignment', 0.4) +
             main_force_conviction_score * mcs_weights.get('main_force_conviction', 0.3) +
-            flow_credibility_score * mcs_weights.get('flow_credibility', 0.3) * 2 - 1 # 归一化到 [-1, 1]
+            (flow_credibility_score * 2 - 1) * mcs_weights.get('flow_credibility', 0.3) # 修改: 修正转换顺序
         ).clip(-1, 1)
 
         if probe_enabled:
@@ -313,11 +312,12 @@ class FoundationIntelligence:
         msq_unipolar = (ma_structure_quality_score + 1) / 2
         mcs_unipolar = (market_conviction_strength_score + 1) / 2
 
+        # 核心维度加权融合，注意将 [0,1] 的分数转换为 [-1,1] 再进行融合
         raw_constitution_score = (
             ma_structure_quality_score * final_fusion_weights.get('msq', 0.3) +
-            turnover_health_score * final_fusion_weights.get('th', 0.2) * 2 - 1 + # TH是[0,1]，转为[-1,1]
+            (turnover_health_score * 2 - 1) * final_fusion_weights.get('th', 0.2) +
             market_conviction_strength_score * final_fusion_weights.get('mcs', 0.3) +
-            immune_resilience_score * final_fusion_weights.get('ir', 0.2) * 2 - 1 # IR是[0,1]，转为[-1,1]
+            (immune_resilience_score * 2 - 1) * final_fusion_weights.get('ir', 0.2)
         ).clip(-1, 1)
 
         # 短板效应惩罚: 如果任何一个核心维度（归一化到[0,1]）低于阈值，则进行惩罚
