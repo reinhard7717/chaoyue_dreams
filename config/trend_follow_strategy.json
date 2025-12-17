@@ -2638,6 +2638,35 @@
           "slq_activation_window": 21,
           "comment_slq_activation_window": "行业领导力质量激活窗口，用于计算原始输入平均值。"
         },
+        "sentiment_pendulum_params": {
+          "description": "【V4.0 · 情绪博弈与诡道精算版】情绪钟摆公理的专属参数。",
+          "enable_probe": true,
+          "sentiment_core_weights": {
+            "description": "情绪核心融合权重。",
+            "market_sentiment": 0.4,
+            "retail_fomo": 0.2,
+            "retail_panic": 0.2,
+            "rsi_momentum": 0.2
+          },
+          "deception_modulator_params": {
+            "description": "诡道精算器参数。",
+            "lure_long_penalty_factor": 0.7,
+            "comment_lure_long_penalty_factor": "诱多惩罚因子，当情绪贪婪且有诱多时，惩罚情绪核心。",
+            "lure_short_bonus_factor": 0.5,
+            "comment_lure_short_bonus_factor": "诱空奖励因子，当情绪恐慌且有诱空时，奖励情绪核心。",
+            "wash_trade_credibility_reduction_factor": 0.5,
+            "comment_wash_trade_credibility_reduction_factor": "对倒强度对情绪可信度的削弱因子。"
+          },
+          "contextual_amplification_params": {
+            "description": "情境放大器参数。",
+            "volatility_weight": 0.3,
+            "comment_volatility_weight": "波动不稳定性对情境放大器的权重。",
+            "main_force_conviction_weight": 0.7,
+            "comment_main_force_conviction_weight": "主力信念对情境放大器的权重。",
+            "base_amplifier_factor": 0.25,
+            "comment_base_amplifier_factor": "情境放大器的基础放大因子。"
+          }
+        },
         "market_constitution_params": {
           "description": "【V5.0 · 微观结构与筹码博弈版】市场体质公理的专属参数。",
           "ma_periods": [5, 13, 21, 55],
@@ -3486,7 +3515,7 @@
           "volatility_orderliness": 0.25,
           "structural_movement_efficiency": 0.15
         },
-        "comment_stability_fusion_weights": "【V5.6 · 纯结构防御体系】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
+        "comment_stability_fusion_weights": "【V5.7 · 纯结构深度进化版】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
         "stability_params": {
           "enabled": true,
           "structural_support_strength_weights": {
