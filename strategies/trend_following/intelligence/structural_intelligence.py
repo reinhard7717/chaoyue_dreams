@@ -464,25 +464,29 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.5 · 结构防御体系重构版】结构公理三：诊断“结构稳定性”
-        - 核心升级: 彻底重构为四大核心支柱：结构支撑强度、筹码健康度、平台结构质量、主力控盘意愿。
-                    更精准地捕捉A股市场的结构稳定性特征，移除与结构本身关联度较低的微观流动性指标。
+        【V5.6 · 纯结构防御体系重构版】结构公理三：诊断“结构稳定性”
+        - 核心升级: 彻底重构为四大核心支柱：结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率。
+                    严格限定在纯粹的【结构】类原始数据范畴内，移除筹码、资金等其他维度的数据。
         - 核心证据:
-            - 结构支撑强度: 支撑验证强度、压力拒绝强度、下影线吸收强度、主力成本峰坚实度。
-            - 筹码健康度: 筹码健康评分、筹码分散度、盈利盘稳定性、筹码疲劳度。
-            - 平台结构质量: 均衡压缩、布林带宽度、波动率不稳定性、价值区域重叠度。
-            - 主力控盘意愿: 主力控盘坚实度、主力成本区防御意愿、主力信念指数、恐慌买盘吸收贡献。
+            - 结构支撑强度: 支撑验证强度、压力拒绝强度、下影线吸收强度、防御坚实度、开盘跳空防御强度。
+            - 结构形态坚固性: 均衡压缩、平台信念分数、价值区域重叠度、拟合优度分数、结构节点数量。
+            - 波动率秩序性: 布林带宽度、波动率不稳定性、分形维度、样本熵、赫斯特指数。
+            - 结构运动效率: 趋势效率比、非对称摩擦指数、脉冲质量比、均线有序度。
         - 【优化】使用专属的 `long_term_stability` MTF权重进行归一化。
         - 【探针植入】增加了详细的探针输出，以便于检查和调试。
         """
+        # 修改开始：更新 required_signals，移除筹码/资金相关指标，新增纯结构指标
         required_signals = [
             'support_validation_strength_D', 'pressure_rejection_strength_D', 'lower_shadow_absorption_strength_D',
-            'dominant_peak_solidity_D', 'chip_health_score_D', 'cost_dispersion_index_D',
-            'winner_stability_index_D', 'chip_fatigue_index_D', 'equilibrium_compression_index_D',
-            'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'value_area_overlap_pct_D',
-            'control_solidity_index_D', 'mf_cost_zone_defense_intent_D', 'main_force_conviction_index_D',
-            'panic_buy_absorption_contribution_D', 'close_D'
+            'defense_solidity_score_D', 'opening_gap_defense_strength_D',
+            'equilibrium_compression_index_D', 'platform_conviction_score_D', 'value_area_overlap_pct_D',
+            'goodness_of_fit_score_D', 'structural_node_count_D',
+            'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'FRACTAL_DIMENSION_89d_D',
+            'SAMPLE_ENTROPY_13d_D', 'HURST_144d_D',
+            'trend_efficiency_ratio_D', 'asymmetric_friction_index_D', 'impulse_quality_ratio_D',
+            'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'close_D' # close_D 用于 _get_safe_series 的默认值
         ]
+        # 修改结束
 
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
             return pd.Series(0.0, index=df.index)
@@ -490,15 +494,33 @@ class StructuralIntelligence:
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
-        
-        # 修改开始：过滤 stability_fusion_weights，确保只包含数值类型的权重
+
+        # 修改开始：获取主融合权重和子维度权重
         raw_stability_fusion_weights = get_param_value(p_conf_struct.get('stability_fusion_weights'), {
             "structural_support_strength": 0.3,
-            "chip_health": 0.3,
-            "platform_structure_quality": 0.2,
-            "main_force_control_intent": 0.2
+            "structural_form_solidity": 0.3,
+            "volatility_orderliness": 0.25,
+            "structural_movement_efficiency": 0.15
         })
         stability_fusion_weights = {k: v for k, v in raw_stability_fusion_weights.items() if isinstance(v, (int, float))}
+
+        stability_params = get_param_value(p_conf_struct.get('stability_params'), {})
+        structural_support_strength_weights = get_param_value(stability_params.get('structural_support_strength_weights'), {
+            "support_validation_strength": 0.3, "pressure_rejection_strength": 0.3, "lower_shadow_absorption_strength": 0.2,
+            "defense_solidity_score": 0.1, "opening_gap_defense_strength": 0.1
+        })
+        structural_form_solidity_weights = get_param_value(stability_params.get('structural_form_solidity_weights'), {
+            "equilibrium_compression_index": 0.3, "platform_conviction_score": 0.25, "value_area_overlap_pct": 0.2,
+            "goodness_of_fit_score": 0.15, "structural_node_count": 0.1
+        })
+        volatility_orderliness_weights = get_param_value(stability_params.get('volatility_orderliness_weights'), {
+            "BBW_21_2.0": 0.3, "VOLATILITY_INSTABILITY_INDEX_21d": 0.3, "FRACTAL_DIMENSION_89d": 0.2,
+            "SAMPLE_ENTROPY_13d": 0.1, "HURST_144d": 0.1
+        })
+        structural_movement_efficiency_weights = get_param_value(stability_params.get('structural_movement_efficiency_weights'), {
+            "trend_efficiency_ratio": 0.3, "asymmetric_friction_index": 0.3, "impulse_quality_ratio": 0.2,
+            "MA_POTENTIAL_ORDERLINESS_SCORE": 0.2
+        })
         # 修改结束
 
         # 修改开始：探针输出 - 原始输入和配置
@@ -509,123 +531,139 @@ class StructuralIntelligence:
                 if signal in df.columns:
                     print(f"    {signal}: {df[signal].iloc[-1]:.4f}")
             print(f"  -> MTF归一化权重 (tf_weights): {tf_weights}")
-            print(f"  -> 稳定性融合权重 (stability_fusion_weights): {stability_fusion_weights}")
+            print(f"  -> 稳定性主融合权重 (stability_fusion_weights): {stability_fusion_weights}")
+            print(f"  -> 结构支撑强度子权重: {structural_support_strength_weights}")
+            print(f"  -> 结构形态坚固性子权重: {structural_form_solidity_weights}")
+            print(f"  -> 波动率秩序性子权重: {volatility_orderliness_weights}")
+            print(f"  -> 结构运动效率子权重: {structural_movement_efficiency_weights}")
         # 修改结束
 
         # --- 1. 结构支撑强度 (Structural Support Strength) ---
+        # 修改开始：更新指标和权重
         support_validation_strength_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_stability")
         pressure_rejection_strength_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_axiom_stability")
         lower_shadow_absorption_strength_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_axiom_stability")
-        dominant_peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.0, method_name="_diagnose_axiom_stability")
+        defense_solidity_score_raw = self._get_safe_series(df, 'defense_solidity_score_D', 0.0, method_name="_diagnose_axiom_stability")
+        opening_gap_defense_strength_raw = self._get_safe_series(df, 'opening_gap_defense_strength_D', 0.0, method_name="_diagnose_axiom_stability")
 
         support_validation_strength_score = get_adaptive_mtf_normalized_score(support_validation_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
         pressure_rejection_strength_score = get_adaptive_mtf_normalized_score(pressure_rejection_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
         lower_shadow_absorption_strength_score = get_adaptive_mtf_normalized_score(lower_shadow_absorption_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
-        dominant_peak_solidity_score = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=True, tf_weights=tf_weights)
+        defense_solidity_score = get_adaptive_mtf_normalized_score(defense_solidity_score_raw, df_index, ascending=True, tf_weights=tf_weights)
+        opening_gap_defense_strength_score = get_adaptive_mtf_normalized_score(opening_gap_defense_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
 
         structural_support_strength_score = (
-            support_validation_strength_score * 0.3 +
-            pressure_rejection_strength_score * 0.3 +
-            lower_shadow_absorption_strength_score * 0.2 +
-            dominant_peak_solidity_score * 0.2
+            support_validation_strength_score * structural_support_strength_weights.get('support_validation_strength', 0.3) +
+            pressure_rejection_strength_score * structural_support_strength_weights.get('pressure_rejection_strength', 0.3) +
+            lower_shadow_absorption_strength_score * structural_support_strength_weights.get('lower_shadow_absorption_strength', 0.2) +
+            defense_solidity_score * structural_support_strength_weights.get('defense_solidity_score', 0.1) +
+            opening_gap_defense_strength_score * structural_support_strength_weights.get('opening_gap_defense_strength', 0.1)
         ).clip(0, 1)
-        # 修改开始：探针输出 - 结构支撑强度
         if self.is_probe_date:
             print(f"  -> 1. 结构支撑强度 (Structural Support Strength):")
             print(f"    support_validation_strength_D (末值): {support_validation_strength_raw.iloc[-1]:.4f} -> score: {support_validation_strength_score.iloc[-1]:.4f}")
             print(f"    pressure_rejection_strength_D (末值): {pressure_rejection_strength_raw.iloc[-1]:.4f} -> score: {pressure_rejection_strength_score.iloc[-1]:.4f}")
             print(f"    lower_shadow_absorption_strength_D (末值): {lower_shadow_absorption_strength_raw.iloc[-1]:.4f} -> score: {lower_shadow_absorption_strength_score.iloc[-1]:.4f}")
-            print(f"    dominant_peak_solidity_D (末值): {dominant_peak_solidity_raw.iloc[-1]:.4f} -> score: {dominant_peak_solidity_score.iloc[-1]:.4f}")
+            print(f"    defense_solidity_score_D (末值): {defense_solidity_score_raw.iloc[-1]:.4f} -> score: {defense_solidity_score.iloc[-1]:.4f}")
+            print(f"    opening_gap_defense_strength_D (末值): {opening_gap_defense_strength_raw.iloc[-1]:.4f} -> score: {opening_gap_defense_strength_score.iloc[-1]:.4f}")
             print(f"    structural_support_strength_score (融合末值): {structural_support_strength_score.iloc[-1]:.4f}")
         # 修改结束
 
-        # --- 2. 筹码健康度 (Chip Health) ---
-        chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_stability")
-        cost_dispersion_raw = self._get_safe_series(df, 'cost_dispersion_index_D', 1.0, method_name="_diagnose_axiom_stability")
-        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_stability")
-        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 1.0, method_name="_diagnose_axiom_stability")
+        # --- 2. 结构形态坚固性 (Structural Form Solidity) ---
+        # 修改开始：更新指标和权重
+        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.0, method_name="_diagnose_axiom_stability")
+        platform_conviction_score_raw = self._get_safe_series(df, 'platform_conviction_score_D', 0.0, method_name="_diagnose_axiom_stability")
+        value_area_overlap_raw = self._get_safe_series(df, 'value_area_overlap_pct_D', 0.0, method_name="_diagnose_axiom_stability")
+        goodness_of_fit_score_raw = self._get_safe_series(df, 'goodness_of_fit_score_D', 0.0, method_name="_diagnose_axiom_stability")
+        structural_node_count_raw = self._get_safe_series(df, 'structural_node_count_D', 0.0, method_name="_diagnose_axiom_stability")
 
-        chip_health_score = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
-        cost_dispersion_score = get_adaptive_mtf_normalized_score(cost_dispersion_raw, df_index, ascending=False, tf_weights=tf_weights)
-        winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df_index, ascending=True, tf_weights=tf_weights)
-        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=False, tf_weights=tf_weights)
+        equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df_index, ascending=True, tf_weights=tf_weights)
+        platform_conviction_score = get_adaptive_mtf_normalized_score(platform_conviction_score_raw, df_index, ascending=True, tf_weights=tf_weights)
+        value_area_overlap_score = get_adaptive_mtf_normalized_score(value_area_overlap_raw, df_index, ascending=True, tf_weights=tf_weights)
+        goodness_of_fit_score = get_adaptive_mtf_normalized_score(goodness_of_fit_score_raw, df_index, ascending=True, tf_weights=tf_weights)
+        structural_node_count_score = get_adaptive_mtf_normalized_score(structural_node_count_raw, df_index, ascending=True, tf_weights=tf_weights)
 
-        chip_health_score_overall = (
-            chip_health_score * 0.4 +
-            cost_dispersion_score * 0.2 +
-            winner_stability_score * 0.2 +
-            chip_fatigue_score * 0.2
+        structural_form_solidity_score = (
+            equilibrium_compression_score * structural_form_solidity_weights.get('equilibrium_compression_index', 0.3) +
+            platform_conviction_score * structural_form_solidity_weights.get('platform_conviction_score', 0.25) +
+            value_area_overlap_score * structural_form_solidity_weights.get('value_area_overlap_pct', 0.2) +
+            goodness_of_fit_score * structural_form_solidity_weights.get('goodness_of_fit_score', 0.15) +
+            structural_node_count_score * structural_form_solidity_weights.get('structural_node_count', 0.1)
         ).clip(0, 1)
-        # 修改开始：探针输出 - 筹码健康度
         if self.is_probe_date:
-            print(f"  -> 2. 筹码健康度 (Chip Health):")
-            print(f"    chip_health_score_D (末值): {chip_health_raw.iloc[-1]:.4f} -> score: {chip_health_score.iloc[-1]:.4f}")
-            print(f"    cost_dispersion_index_D (末值): {cost_dispersion_raw.iloc[-1]:.4f} -> score: {cost_dispersion_score.iloc[-1]:.4f}")
-            print(f"    winner_stability_index_D (末值): {winner_stability_raw.iloc[-1]:.4f} -> score: {winner_stability_score.iloc[-1]:.4f}")
-            print(f"    chip_fatigue_index_D (末值): {chip_fatigue_raw.iloc[-1]:.4f} -> score: {chip_fatigue_score.iloc[-1]:.4f}")
-            print(f"    chip_health_score_overall (融合末值): {chip_health_score_overall.iloc[-1]:.4f}")
+            print(f"  -> 2. 结构形态坚固性 (Structural Form Solidity):")
+            print(f"    equilibrium_compression_index_D (末值): {equilibrium_compression_raw.iloc[-1]:.4f} -> score: {equilibrium_compression_score.iloc[-1]:.4f}")
+            print(f"    platform_conviction_score_D (末值): {platform_conviction_score_raw.iloc[-1]:.4f} -> score: {platform_conviction_score.iloc[-1]:.4f}")
+            print(f"    value_area_overlap_pct_D (末值): {value_area_overlap_raw.iloc[-1]:.4f} -> score: {value_area_overlap_score.iloc[-1]:.4f}")
+            print(f"    goodness_of_fit_score_D (末值): {goodness_of_fit_score_raw.iloc[-1]:.4f} -> score: {goodness_of_fit_score.iloc[-1]:.4f}")
+            print(f"    structural_node_count_D (末值): {structural_node_count_raw.iloc[-1]:.4f} -> score: {structural_node_count_score.iloc[-1]:.4f}")
+            print(f"    structural_form_solidity_score (融合末值): {structural_form_solidity_score.iloc[-1]:.4f}")
         # 修改结束
 
-        # --- 3. 平台结构质量 (Platform Structure Quality) ---
-        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.0, method_name="_diagnose_axiom_stability")
+        # --- 3. 波动率秩序性 (Volatility Orderliness) ---
+        # 修改开始：更新指标和权重
         bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name="_diagnose_axiom_stability")
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name="_diagnose_axiom_stability")
-        value_area_overlap_raw = self._get_safe_series(df, 'value_area_overlap_pct_D', 0.0, method_name="_diagnose_axiom_stability")
+        fractal_dimension_raw = self._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 1.5, method_name="_diagnose_axiom_stability") # 默认值1.5，随机游走
+        sample_entropy_raw = self._get_safe_series(df, 'SAMPLE_ENTROPY_13d_D', 1.0, method_name="_diagnose_axiom_stability")
+        hurst_raw = self._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="_diagnose_axiom_stability") # 默认值0.5，随机游走
 
-        equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df_index, ascending=True, tf_weights=tf_weights).fillna(0.5) # 修改：nan值填充为0.5
         bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, ascending=False, tf_weights=tf_weights)
         volatility_instability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
-        value_area_overlap_score = get_adaptive_mtf_normalized_score(value_area_overlap_raw, df_index, ascending=True, tf_weights=tf_weights)
+        fractal_dimension_score = get_adaptive_mtf_normalized_score(fractal_dimension_raw, df_index, ascending=False, tf_weights=tf_weights) # 奖励低分形维度
+        sample_entropy_score = get_adaptive_mtf_normalized_score(sample_entropy_raw, df_index, ascending=False, tf_weights=tf_weights) # 奖励低样本熵
+        hurst_score = get_adaptive_mtf_normalized_score(hurst_raw, df_index, ascending=True, tf_weights=tf_weights) # 奖励 H > 0.5 的趋势性
 
-        platform_structure_quality_score = (
-            equilibrium_compression_score * 0.4 +
-            bbw_score * 0.2 +
-            volatility_instability_score * 0.2 +
-            value_area_overlap_score * 0.2
+        volatility_orderliness_score = (
+            bbw_score * volatility_orderliness_weights.get('BBW_21_2.0', 0.3) +
+            volatility_instability_score * volatility_orderliness_weights.get('VOLATILITY_INSTABILITY_INDEX_21d', 0.3) +
+            fractal_dimension_score * volatility_orderliness_weights.get('FRACTAL_DIMENSION_89d', 0.2) +
+            sample_entropy_score * volatility_orderliness_weights.get('SAMPLE_ENTROPY_13d', 0.1) +
+            hurst_score * volatility_orderliness_weights.get('HURST_144d', 0.1)
         ).clip(0, 1)
-        # 修改开始：探针输出 - 平台结构质量
         if self.is_probe_date:
-            print(f"  -> 3. 平台结构质量 (Platform Structure Quality):")
-            print(f"    equilibrium_compression_index_D (末值): {equilibrium_compression_raw.iloc[-1]:.4f} -> score: {equilibrium_compression_score.iloc[-1]:.4f} (nan修正)") # 修改：探针提示nan修正
+            print(f"  -> 3. 波动率秩序性 (Volatility Orderliness):")
             print(f"    BBW_21_2.0_D (末值): {bbw_raw.iloc[-1]:.4f} -> score: {bbw_score.iloc[-1]:.4f}")
             print(f"    VOLATILITY_INSTABILITY_INDEX_21d_D (末值): {volatility_instability_raw.iloc[-1]:.4f} -> score: {volatility_instability_score.iloc[-1]:.4f}")
-            print(f"    value_area_overlap_pct_D (末值): {value_area_overlap_raw.iloc[-1]:.4f} -> score: {value_area_overlap_score.iloc[-1]:.4f}")
-            print(f"    platform_structure_quality_score (融合末值): {platform_structure_quality_score.iloc[-1]:.4f}")
+            print(f"    FRACTAL_DIMENSION_89d_D (末值): {fractal_dimension_raw.iloc[-1]:.4f} -> score: {fractal_dimension_score.iloc[-1]:.4f}")
+            print(f"    SAMPLE_ENTROPY_13d_D (末值): {sample_entropy_raw.iloc[-1]:.4f} -> score: {sample_entropy_score.iloc[-1]:.4f}")
+            print(f"    HURST_144d_D (末值): {hurst_raw.iloc[-1]:.4f} -> score: {hurst_score.iloc[-1]:.4f}")
+            print(f"    volatility_orderliness_score (融合末值): {volatility_orderliness_score.iloc[-1]:.4f}")
         # 修改结束
 
-        # --- 4. 主力控盘意愿 (Main Force Control Intent) ---
-        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name="_diagnose_axiom_stability")
-        mf_cost_zone_defense_intent_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_axiom_stability")
-        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_stability")
-        panic_buy_absorption_contribution_raw = self._get_safe_series(df, 'panic_buy_absorption_contribution_D', 0.0, method_name="_diagnose_axiom_stability")
+        # --- 4. 结构运动效率 (Structural Movement Efficiency) ---
+        # 修改开始：更新指标和权重
+        trend_efficiency_ratio_raw = self._get_safe_series(df, 'trend_efficiency_ratio_D', 0.0, method_name="_diagnose_axiom_stability")
+        asymmetric_friction_index_raw = self._get_safe_series(df, 'asymmetric_friction_index_D', 0.0, method_name="_diagnose_axiom_stability")
+        impulse_quality_ratio_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_axiom_stability")
+        ma_potential_orderliness_score_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_stability")
 
-        control_solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        mf_cost_zone_defense_intent_score = get_adaptive_mtf_normalized_score(mf_cost_zone_defense_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
-        main_force_conviction_score = get_adaptive_mtf_normalized_score(main_force_conviction_raw, df_index, ascending=True, tf_weights=tf_weights)
-        panic_buy_absorption_contribution_score = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=True, tf_weights=tf_weights)
+        trend_efficiency_ratio_score = get_adaptive_mtf_normalized_score(trend_efficiency_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
+        asymmetric_friction_index_score = get_adaptive_mtf_normalized_score(asymmetric_friction_index_raw, df_index, ascending=False, tf_weights=tf_weights) # 奖励低摩擦
+        impulse_quality_ratio_score = get_adaptive_mtf_normalized_score(impulse_quality_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
+        ma_potential_orderliness_score = get_adaptive_mtf_normalized_score(ma_potential_orderliness_score_raw, df_index, ascending=True, tf_weights=tf_weights)
 
-        main_force_control_intent_score = (
-            control_solidity_score * 0.3 +
-            mf_cost_zone_defense_intent_score * 0.3 +
-            main_force_conviction_score * 0.2 +
-            panic_buy_absorption_contribution_score * 0.2
+        structural_movement_efficiency_score = (
+            trend_efficiency_ratio_score * structural_movement_efficiency_weights.get('trend_efficiency_ratio', 0.3) +
+            asymmetric_friction_index_score * structural_movement_efficiency_weights.get('asymmetric_friction_index', 0.3) +
+            impulse_quality_ratio_score * structural_movement_efficiency_weights.get('impulse_quality_ratio', 0.2) +
+            ma_potential_orderliness_score * structural_movement_efficiency_weights.get('MA_POTENTIAL_ORDERLINESS_SCORE', 0.2)
         ).clip(0, 1)
-        # 修改开始：探针输出 - 主力控盘意愿
         if self.is_probe_date:
-            print(f"  -> 4. 主力控盘意愿 (Main Force Control Intent):")
-            print(f"    control_solidity_index_D (末值): {control_solidity_raw.iloc[-1]:.4f} -> score: {control_solidity_score.iloc[-1]:.4f}")
-            print(f"    mf_cost_zone_defense_intent_D (末值): {mf_cost_zone_defense_intent_raw.iloc[-1]:.4f} -> score: {mf_cost_zone_defense_intent_score.iloc[-1]:.4f}")
-            print(f"    main_force_conviction_index_D (末值): {main_force_conviction_raw.iloc[-1]:.4f} -> score: {main_force_conviction_score.iloc[-1]:.4f}")
-            print(f"    panic_buy_absorption_contribution_D (末值): {panic_buy_absorption_contribution_raw.iloc[-1]:.4f} -> score: {panic_buy_absorption_contribution_score.iloc[-1]:.4f}")
-            print(f"    main_force_control_intent_score (融合末值): {main_force_control_intent_score.iloc[-1]:.4f}")
+            print(f"  -> 4. 结构运动效率 (Structural Movement Efficiency):")
+            print(f"    trend_efficiency_ratio_D (末值): {trend_efficiency_ratio_raw.iloc[-1]:.4f} -> score: {trend_efficiency_ratio_score.iloc[-1]:.4f}")
+            print(f"    asymmetric_friction_index_D (末值): {asymmetric_friction_index_raw.iloc[-1]:.4f} -> score: {asymmetric_friction_index_score.iloc[-1]:.4f}")
+            print(f"    impulse_quality_ratio_D (末值): {impulse_quality_ratio_raw.iloc[-1]:.4f} -> score: {impulse_quality_ratio_score.iloc[-1]:.4f}")
+            print(f"    MA_POTENTIAL_ORDERLINESS_SCORE_D (末值): {ma_potential_orderliness_score_raw.iloc[-1]:.4f} -> score: {ma_potential_orderliness_score.iloc[-1]:.4f}")
+            print(f"    structural_movement_efficiency_score (融合末值): {structural_movement_efficiency_score.iloc[-1]:.4f}")
         # 修改结束
 
         # --- 5. 最终融合 ---
         stability_score = (
             structural_support_strength_score * stability_fusion_weights.get('structural_support_strength', 0.3) +
-            chip_health_score_overall * stability_fusion_weights.get('chip_health', 0.3) +
-            platform_structure_quality_score * stability_fusion_weights.get('platform_structure_quality', 0.2) +
-            main_force_control_intent_score * stability_fusion_weights.get('main_force_control_intent', 0.2)
+            structural_form_solidity_score * stability_fusion_weights.get('structural_form_solidity', 0.3) +
+            volatility_orderliness_score * stability_fusion_weights.get('volatility_orderliness', 0.25) +
+            structural_movement_efficiency_score * stability_fusion_weights.get('structural_movement_efficiency', 0.15)
         ).clip(0, 1)
         final_score = (stability_score * 2 - 1).astype(np.float32)
 
@@ -633,9 +671,9 @@ class StructuralIntelligence:
         if self.is_probe_date:
             print(f"  -> 最终融合:")
             print(f"    structural_support_strength_score (末值): {structural_support_strength_score.iloc[-1]:.4f}")
-            print(f"    chip_health_score_overall (末值): {chip_health_score_overall.iloc[-1]:.4f}")
-            print(f"    platform_structure_quality_score (末值): {platform_structure_quality_score.iloc[-1]:.4f}")
-            print(f"    main_force_control_intent_score (末值): {main_force_control_intent_score.iloc[-1]:.4f}")
+            print(f"    structural_form_solidity_score (末值): {structural_form_solidity_score.iloc[-1]:.4f}")
+            print(f"    volatility_orderliness_score (末值): {volatility_orderliness_score.iloc[-1]:.4f}")
+            print(f"    structural_movement_efficiency_score (末值): {structural_movement_efficiency_score.iloc[-1]:.4f}")
             print(f"    SCORE_STRUCT_AXIOM_STABILITY (最终分数末值): {final_score.iloc[-1]:.4f}")
             print(f"--- [结构公理] 稳定性探针结束 ---")
         # 修改结束

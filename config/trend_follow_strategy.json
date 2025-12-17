@@ -3481,15 +3481,42 @@
           "comment": "趋势效率维度参数。"
         },
         "stability_fusion_weights": {
-          "description": "【结构稳定性公理】融合结构支撑强度、筹码健康度、平台结构质量、主力控盘意愿的权重。",
           "structural_support_strength": 0.3,
-          "chip_health": 0.3,
-          "platform_structure_quality": 0.2,
-          "main_force_control_intent": 0.2
+          "structural_form_solidity": 0.3,
+          "volatility_orderliness": 0.25,
+          "structural_movement_efficiency": 0.15
         },
+        "comment_stability_fusion_weights": "【V5.6 · 纯结构防御体系】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
         "stability_params": {
           "enabled": true,
-          "comment": "结构稳定性维度参数。"
+          "structural_support_strength_weights": {
+            "support_validation_strength": 0.3,
+            "pressure_rejection_strength": 0.3,
+            "lower_shadow_absorption_strength": 0.2,
+            "defense_solidity_score": 0.1,
+            "opening_gap_defense_strength": 0.1
+          },
+          "structural_form_solidity_weights": {
+            "equilibrium_compression_index": 0.3,
+            "platform_conviction_score": 0.25,
+            "value_area_overlap_pct": 0.2,
+            "goodness_of_fit_score": 0.15,
+            "structural_node_count": 0.1
+          },
+          "volatility_orderliness_weights": {
+            "BBW_21_2.0": 0.3,
+            "VOLATILITY_INSTABILITY_INDEX_21d": 0.3,
+            "FRACTAL_DIMENSION_89d": 0.2,
+            "SAMPLE_ENTROPY_13d": 0.1,
+            "HURST_144d": 0.1
+          },
+          "structural_movement_efficiency_weights": {
+            "trend_efficiency_ratio": 0.3,
+            "asymmetric_friction_index": 0.3,
+            "impulse_quality_ratio": 0.2,
+            "MA_POTENTIAL_ORDERLINESS_SCORE": 0.2
+          },
+          "comment": "结构稳定性维度参数，包含各子维度的融合权重。"
         }
       },
       "fusion_intelligence_params": {
