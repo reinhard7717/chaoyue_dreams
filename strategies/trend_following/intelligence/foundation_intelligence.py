@@ -566,7 +566,7 @@ class FoundationIntelligence:
             'flow_credibility_index_D', 'market_sentiment_score_D', 'main_force_conviction_index_D',
             # V5.0 新增原始数据
             'order_book_imbalance_D', 'main_force_vwap_guidance_D',
-            'volume_structure_skew_D', 'upward_impulse_purity_D', 'downward_impulse_purity_D',
+            'volume_structure_skew_D', 'upward_impulse_purity_D', 'downward_impulse_strength_D', # 替换为 downward_impulse_strength_D
             'flow_efficiency_index_D', 'order_book_clearing_rate_D',
             'HURST_144d_D', 'FRACTAL_DIMENSION_89d_D', 'structural_tension_index_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', 'main_force_slippage_index_D'
@@ -592,7 +592,7 @@ class FoundationIntelligence:
         main_force_vwap_guidance_raw = self._get_safe_series(df, 'main_force_vwap_guidance_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
-        downward_impulse_purity_raw = self._get_safe_series(df, 'downward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        downward_impulse_strength_raw = self._get_safe_series(df, 'downward_impulse_strength_D', 0.0, method_name="_diagnose_axiom_liquidity_tide") # 修改行
         flow_efficiency_raw = self._get_safe_series(df, 'flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         order_book_clearing_rate_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         hurst_memory_raw = self._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="_diagnose_axiom_liquidity_tide")
@@ -619,7 +619,7 @@ class FoundationIntelligence:
             print(f"    -> [探针] 原始数据: main_force_vwap_guidance_D 尾部: {main_force_vwap_guidance_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: volume_structure_skew_D 尾部: {volume_structure_skew_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: upward_impulse_purity_D 尾部: {upward_impulse_purity_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: downward_impulse_purity_D 尾部: {downward_impulse_purity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: downward_impulse_strength_D 尾部: {downward_impulse_strength_raw.tail().to_dict()}") # 修改行
             print(f"    -> [探针] 原始数据: flow_efficiency_index_D 尾部: {flow_efficiency_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: order_book_clearing_rate_D 尾部: {order_book_clearing_rate_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: HURST_144d_D 尾部: {hurst_memory_raw.tail().to_dict()}")
@@ -653,13 +653,13 @@ class FoundationIntelligence:
         volume_slope_score = get_adaptive_mtf_normalized_bipolar_score(volume_slope_raw, df_index, default_weights)
         volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw, df_index, default_weights)
         upward_impulse_purity_score = get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, default_weights, ascending=True)
-        downward_impulse_purity_score = get_adaptive_mtf_normalized_score(downward_impulse_purity_raw, df_index, default_weights, ascending=False) # 下跌纯度越高，能量品质越差
+        downward_impulse_strength_score = get_adaptive_mtf_normalized_score(downward_impulse_strength_raw, df_index, default_weights, ascending=True) # 修改行
         energy_score = (
             amount_slope_score * te_weights.get('amount_slope', 0.3) +
             (volume_burstiness_score * 2 - 1) * te_weights.get('volume_burstiness', 0.25) +
             volume_slope_score * te_weights.get('volume_slope', 0.25) +
             volume_structure_skew_score * te_weights.get('volume_structure_skew', 0.1) +
-            (upward_impulse_purity_score - downward_impulse_purity_score) * te_weights.get('upward_impulse_purity', 0.1) # 净脉冲纯度
+            (upward_impulse_purity_score - downward_impulse_strength_score) * te_weights.get('upward_impulse_purity', 0.1) # 修改行
         ).clip(-1, 1)
         if probe_enabled:
             print(f"    -> [探针] 关键计算节点: 成交额斜率得分 (amount_slope_score) 尾部: {amount_slope_score.tail().to_dict()}")
@@ -667,7 +667,7 @@ class FoundationIntelligence:
             print(f"    -> [探针] 关键计算节点: 成交量斜率得分 (volume_slope_score) 尾部: {volume_slope_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 成交量结构偏度得分 (volume_structure_skew_score) 尾部: {volume_structure_skew_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 向上脉冲纯度得分 (upward_impulse_purity_score) 尾部: {upward_impulse_purity_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 向下脉冲纯度得分 (downward_impulse_purity_score) 尾部: {downward_impulse_purity_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 向下脉冲强度得分 (downward_impulse_strength_score) 尾部: {downward_impulse_strength_score.tail().to_dict()}") # 修改行
             print(f"    -> [探针] 关键计算节点: 潮汐能量得分 (energy_score) 尾部: {energy_score.tail().to_dict()}")
         # --- 4. 潮汐活跃度 (Tide Activity) - 效率与深度 ---
         ta_weights = p_conf_lt.get('tide_activity_weights', {'turnover_slope': 0.4, 'turnover_rate_level': 0.3, 'flow_efficiency': 0.2, 'order_book_clearing_rate': 0.1})

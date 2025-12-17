@@ -2752,7 +2752,8 @@
             "volume_burstiness": 0.25,
             "volume_slope": 0.25,
             "volume_structure_skew": 0.1,
-            "upward_impulse_purity": 0.1
+            "upward_impulse_purity": 0.1,
+            "comment_upward_impulse_purity": "此权重应用于 (向上脉冲纯度 - 向下脉冲强度) 的净值，代表净脉冲品质。"
           },
           "tide_activity_weights": {
             "description": "潮汐活跃度融合权重。",
@@ -3603,12 +3604,14 @@
           "comment": "趋势效率维度参数。"
         },
         "stability_fusion_weights": {
-          "structural_support_strength": 0.3,
-          "structural_form_solidity": 0.3,
-          "volatility_orderliness": 0.25,
-          "structural_movement_efficiency": 0.15
+          "structural_support_strength": 0.25,
+          "structural_form_solidity": 0.25,
+          "volatility_orderliness": 0.2,
+          "structural_movement_efficiency": 0.15,
+          "structural_break_strength": 0.075,
+          "structural_retracement_efficiency": 0.075
         },
-        "comment_stability_fusion_weights": "【V5.8.1 · 纯结构自适应归一化版 - 鲁棒性增强】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率的权重。",
+        "comment_stability_fusion_weights": "【V5.9 · 纯结构深度进化版】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率、结构突破强度、结构回撤效率的权重。",
         "stability_params": {
           "enabled": true,
           "structural_support_strength_weights": {
@@ -3638,8 +3641,20 @@
             "impulse_quality_ratio": 0.2,
             "MA_POTENTIAL_ORDERLINESS_SCORE": 0.2
           },
+          "structural_break_strength_weights": {
+            "breakout_volume_ratio": 0.3,
+            "breakout_range_expansion": 0.3,
+            "breakout_retest_success": 0.2,
+            "breakout_duration": 0.2
+          },
+          "structural_retracement_efficiency_weights": {
+            "retracement_depth_pct": 0.3,
+            "retracement_speed_ratio": 0.3,
+            "retracement_volume_decay": 0.2,
+            "retracement_MA_adherence": 0.2
+          },
           "normalization_configs": {
-            "HURST_144d_D": {"method": "quantile", "ascending": true, "clip_range": [0.0, 1.0]},
+            "HURST_144d_D": {"method": "quantile", "ascending": true, "clip_range": [0.0, 1.0], "mapping_func": "hurst_mapping"},
             "asymmetric_friction_index_D": {"method": "quantile", "ascending": false},
             "FRACTAL_DIMENSION_89d_D": {"method": "quantile", "ascending": false, "clip_range": [1.0, 2.0]}
           },
