@@ -945,10 +945,11 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         final_scores = pd.Series(0.0, index=index)
     return final_scores.astype(np.float32)
 
-def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
+def normalize_score(self, series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
     """
-    【V1.2 · 零值鲁棒性增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
+    【V1.3 · 零值鲁棒性增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
     - 核心升级: 增加了对输入序列全为零情况的特殊处理，确保当原始数据无有效信息时，归一化结果为0。
+                新增：确保当原始序列的当前值为0时，其归一化分数也为0，避免因窗口内历史数据导致0值被错误赋予非零分数。
     参数:
         series (pd.Series): 原始数据序列。
         target_index (pd.Index): 目标索引，用于对齐返回的Series。
@@ -958,24 +959,20 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     返回:
         pd.Series: 归一化后的分数序列，范围在 [0, 1]。
     """
-    # 使用 target_index 处理空 Series
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(default_value, index=target_index)
-
-    # 新增: 如果序列所有值都为0，则直接返回全0序列
-    # 检查是否所有非NaN值都为0
-    if (series.dropna().abs() < 1e-9).all(): # 使用一个小的阈值来处理浮点数精度问题
+    if (series.dropna().abs() < 1e-9).all():
         return pd.Series(0.0, index=target_index).astype(np.float32)
-
-    # 对齐填充，确保窗口计算有足够数据
-    padded_series = series.fillna(method='ffill').fillna(method='bfill')
-    # 滚动排名
+    series_aligned = series.reindex(target_index)
+    padded_series = series_aligned.fillna(method='ffill').fillna(method='bfill').fillna(0)
+    padded_series = pd.to_numeric(padded_series, errors='coerce').fillna(0)
     ranked_series = padded_series.rolling(window=window, min_periods=1).apply(
         lambda x: x.rank(method='average', ascending=ascending).iloc[-1] / len(x), raw=False
     )
-    # 归一化到 [0, 1]
     normalized_series = ranked_series.clip(0, 1)
-    # 确保返回的Series索引正确并填充缺失值
+    # 核心修正：如果原始序列的当前值为0（或接近0），则其归一化分数也应为0。
+    # 使用原始的 series_aligned 来判断，因为它保留了原始的0值位置。
+    normalized_series = normalized_series.where(series_aligned.abs() > 1e-9, 0.0)
     return normalized_series.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
