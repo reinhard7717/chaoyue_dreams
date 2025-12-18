@@ -1244,7 +1244,6 @@ class ChipIntelligence:
         dynamic_structural_power_sensitivity_amp = pd.Series(default_structural_power_sensitivity_amp, index=df.index)
         dynamic_structural_power_sensitivity_damp = pd.Series(default_structural_power_sensitivity_damp, index=df.index)
         dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
-
         # 修改代码行：添加信号依赖校验
         required_signals = [
             'chip_health_score_D', # 用于 current_chip_health_score_raw
@@ -1254,10 +1253,8 @@ class ChipIntelligence:
             required_signals.append(chip_sensitivity_modulator_signal_name)
         if final_score_modulator_signal_name not in required_signals:
             required_signals.append(final_score_modulator_signal_name)
-
         if not self._validate_required_signals(df, required_signals, "_diagnose_structural_consensus"):
             return pd.Series(0.0, index=df.index)
-
         if chip_health_modulation_enabled:
             current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
             normalized_chip_health = get_adaptive_mtf_normalized_bipolar_score(

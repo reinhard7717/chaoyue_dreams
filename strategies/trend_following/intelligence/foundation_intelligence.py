@@ -197,7 +197,6 @@ class FoundationIntelligence:
         main_force_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         # --- 1. 均线骨架质量 (MA Structure Quality - MSQ) ---
         macd_score = get_adaptive_mtf_normalized_bipolar_score(macd_h_raw, df_index, default_weights)
-        
         bull_alignment_scores = []
         for i in range(len(ma_periods) - 1):
             ema_current = self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', 0.0, method_name="_diagnose_axiom_market_constitution")
@@ -344,7 +343,6 @@ class FoundationIntelligence:
                             (immune_resilience_score > synergy_bonus_threshold) & \
                             (paq_unipolar > synergy_bonus_threshold) & \
                             (cgd_unipolar > synergy_bonus_threshold)
-        
         synergy_bonus = pd.Series(0.0, index=df_index)
         if synergy_condition.any():
             avg_high_score = pd.DataFrame({
@@ -950,7 +948,6 @@ class FoundationIntelligence:
         industry_rank_raw = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_relative_strength")
         industry_rank_slope_raw = self._get_safe_series(df, f'SLOPE_{rank_stability_window}_industry_strength_rank_D', 0.0, method_name="_diagnose_axiom_relative_strength")
         industry_rank_accel_raw = self._get_safe_series(df, f'ACCEL_{rank_acceleration_window}_industry_strength_rank_D', 0.0, method_name="_diagnose_axiom_relative_strength")
-        
         # 新增: 获取情境与品质校准的原始数据
         industry_leader_score_raw = self._get_safe_series(df, 'industry_leader_score_D', 0.0, method_name="_diagnose_axiom_relative_strength")
         industry_markup_score_raw = self._get_safe_series(df, 'industry_markup_score_D', 0.0, method_name="_diagnose_axiom_relative_strength")
@@ -962,7 +959,6 @@ class FoundationIntelligence:
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name="_diagnose_axiom_relative_strength")
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_axiom_relative_strength")
         upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_relative_strength")
-
         # --- 1. 核心相对强度 (CRS) ---
         # 1.1 强度状态分 (当前排名与稳定性)
         state_score_normalized = (industry_rank_raw - 0.5) * 2
@@ -995,7 +991,6 @@ class FoundationIntelligence:
             core_relative_strength_score.loc[synergy_condition] = (
                 core_relative_strength_score.loc[synergy_condition] * (1 + synergy_boost)
             )
-
         # --- 2. 行业领导力质量 (SLQ) ---
         # 行业领导力得分 (0-1), 行业溢价得分 (0-1), 主题热度得分 (0-1)
         slq_raw_inputs_avg = (industry_leader_score_raw + industry_markup_score_raw + theme_hotness_score_raw) / 3
@@ -1005,10 +1000,8 @@ class FoundationIntelligence:
             get_adaptive_mtf_normalized_score(industry_markup_score_raw, df_index, default_weights, ascending=True) * slq_weights.get('markup_score', 0.3) +
             get_adaptive_mtf_normalized_score(theme_hotness_score_raw, df_index, default_weights, ascending=True) * slq_weights.get('theme_hotness', 0.3)
         ).clip(0, 1)
-        
         # 应用激活门控
         sector_leadership_quality_score = sector_leadership_quality_score.where(slq_active_mask, 0.0)
-
         # --- 3. 相对强度信念 (RSC) ---
         # 主力信念 (双极), 资金流可信度 (0-1), 对倒强度 (0-1, 负向), 欺骗指数 (双极, 负向)
         main_force_conviction_score = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, default_weights)
@@ -1021,7 +1014,6 @@ class FoundationIntelligence:
             wash_trade_penalty_score * rsc_weights.get('wash_trade_penalty', 0.2) -
             deception_penalty_score.clip(lower=0) * rsc_weights.get('deception_penalty', 0.1)
         ).clip(-1, 1)
-
         # --- 4. 价格行为对齐 (PAA) ---
         # 突破质量 (0-1), 趋势活力 (0-1), 上涨脉冲纯度 (0-1)
         price_action_alignment_score = (
@@ -1029,7 +1021,6 @@ class FoundationIntelligence:
             get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, default_weights, ascending=True) * paa_weights.get('trend_vitality', 0.3) +
             get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, default_weights, ascending=True) * paa_weights.get('upward_impulse_purity', 0.3)
         ).clip(0, 1)
-
         # --- 5. 最终融合: 核心相对强度 + 情境与品质校准 ---
         slq_modulator = 1 + (sector_leadership_quality_score * 2 - 1) * slq_mod_factor
         rsc_modulator = 1 + relative_strength_conviction_score * rsc_mod_factor
@@ -1138,143 +1129,302 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_market_friction(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 非对称阻力与效率版】基础公理六：诊断“市场摩擦”
-        - 核心逻辑: 量化市场价格发现过程中固有的阻力、偏向和效率。
-                      旨在理解价格上涨或下跌的“成本”，以及市场在不同方向上运动的“顺畅度”。
+        【V2.0 · 动态演化与微观结构版】基础公理六：诊断“市场摩擦”
+        - 核心逻辑: 量化市场价格发现过程中固有的阻力、偏向和效率的动态演化。
+                      旨在通过多时间框架（MTF）斜率与加速度分析，理解价格上涨或下跌的“动态成本”，
+                      以及市场在不同方向上运动的“顺畅度趋势”。
         - 核心维度:
-            1) 非对称阻力 (Asymmetric Resistance - AR): 衡量价格运动的偏向性。
-            2) 流动性效率 (Liquidity Efficiency - LE): 衡量价格变动的顺畅度。
-            3) 结构性成本 (Structural Cost - SC): 衡量市场内在的隐性成本。
-            4) 诡道摩擦 (Deceptive Friction - DF): 识别主力通过欺骗行为制造的虚假摩擦。
-        - A股特性: 市场中存在大量非对称博弈和隐性成本，此公理旨在穿透表象，揭示真实的市场阻力。
+            1) 非对称阻力动态 (Asymmetric Resistance Dynamics - ARD): 衡量价格运动的偏向性趋势。
+            2) 流动性与效率动态 (Liquidity & Efficiency Dynamics - LED): 评估市场流动性及其效率的趋势健康度。
+            3) 结构性成本与障碍动态 (Structural Cost & Impairment Dynamics - SCID): 衡量市场内在结构对价格运动造成的动态成本和障碍。
+            4) 诡道摩擦调制 (Deceptive Friction Modulation - DFM): 识别主力通过欺骗行为制造的虚假摩擦，并作为非线性惩罚因子对最终分数进行调制。
+            5) 情境动态权重 (Contextual Dynamic Weighting - CDW): 根据市场情绪和波动不稳定性动态调整各维度权重。
+        - A股特性: 市场中存在大量非对称博弈和隐性成本，此公理旨在穿透表象，揭示真实的市场阻力动态。
         """
-        print("    -> [基础层] 正在诊断“市场摩擦”公理 (V1.0 · 非对称阻力与效率版)...")
+        print("    -> [基础层] 正在诊断“市场摩擦”公理 (V2.0 · 动态演化与微观结构版)...")
         # 获取市场摩擦公理的专属参数
         p_conf_mf = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('market_friction_params', {})
         probe_enabled = get_param_value(p_conf_mf.get('enable_probe'), True)
-        # 获取MTF归一化默认权重
+        # 获取MTF归一化默认权重（用于非斜率/加速度的原始信号归一化）
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # 获取MTF斜率和加速度的权重配置
+        mtf_slope_periods = p_conf_mf.get('mtf_slope_periods', {"5": 0.6, "13": 0.4})
+        mtf_accel_periods = p_conf_mf.get('mtf_accel_periods', {"5": 0.7, "13": 0.3}) # 暂未在V2.0中使用，但保留以备未来扩展
         df_index = df.index
-        # 1. 校验所需信号
-        required_signals = [
+        # 定义所有需要计算斜率的原始信号
+        base_signals_for_dynamics = [
             'asymmetric_friction_index_D', 'micro_price_impact_asymmetry_D', 'volatility_asymmetry_index_D',
+            'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
             'flow_efficiency_index_D', 'order_book_clearing_rate_D', 'liquidity_slope_D',
-            'liquidity_authenticity_score_D', 'cost_structure_skewness_D', 'market_impact_cost_D',
-            'vwap_mean_reversion_corr_D', 'deception_index_D', 'wash_trade_intensity_D'
+            'liquidity_authenticity_score_D', 'bid_side_liquidity_D', 'ask_side_liquidity_D', 'turnover_rate_f_D',
+            'cost_structure_skewness_D', 'market_impact_cost_D', 'vwap_mean_reversion_corr_D',
+            'volume_structure_skew_D', 'order_book_imbalance_D', 'PRICE_VOLUME_ENTROPY_D',
+            'deception_index_D', 'wash_trade_intensity_D'
         ]
+        # 构建所需信号列表
+        required_signals = []
+        # 添加原始信号（用于探针输出和情境/风险过滤）
+        required_signals.extend(base_signals_for_dynamics)
+        required_signals.extend([
+            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'main_force_conviction_index_D',
+            'chip_health_score_D', 'flow_credibility_index_D'
+        ])
+        # 添加所有SLOPE_X_信号
+        for p_str in mtf_slope_periods.keys():
+            p = int(p_str)
+            required_signals.extend([f'SLOPE_{p}_{sig}' for sig in base_signals_for_dynamics])
+        # 校验所需信号
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_market_friction"):
             return pd.Series(0.0, index=df.index)
-        # --- 原始数据获取 ---
+        # --- 原始数据获取 (用于探针和一些直接计算) ---
+        # 获取所有原始信号值
         asymmetric_friction_raw = self._get_safe_series(df, 'asymmetric_friction_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
         micro_price_impact_asymmetry_raw = self._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_market_friction")
         volatility_asymmetry_raw = self._get_safe_series(df, 'volatility_asymmetry_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        buy_quote_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        sell_quote_exhaustion_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_market_friction")
         flow_efficiency_raw = self._get_safe_series(df, 'flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
         order_book_clearing_rate_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_market_friction")
         liquidity_slope_raw = self._get_safe_series(df, 'liquidity_slope_D', 0.0, method_name="_diagnose_axiom_market_friction")
         liquidity_authenticity_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        bid_side_liquidity_raw = self._get_safe_series(df, 'bid_side_liquidity_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        ask_side_liquidity_raw = self._get_safe_series(df, 'ask_side_liquidity_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_market_friction")
         cost_structure_skewness_raw = self._get_safe_series(df, 'cost_structure_skewness_D', 0.0, method_name="_diagnose_axiom_market_friction")
         market_impact_cost_raw = self._get_safe_series(df, 'market_impact_cost_D', 0.0, method_name="_diagnose_axiom_market_friction")
         vwap_mean_reversion_corr_raw = self._get_safe_series(df, 'vwap_mean_reversion_corr_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_market_friction")
         deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
         wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
         if probe_enabled:
             print(f"    -> [探针] 原始数据: asymmetric_friction_index_D 尾部: {asymmetric_friction_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: micro_price_impact_asymmetry_D 尾部: {micro_price_impact_asymmetry_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: volatility_asymmetry_index_D 尾部: {volatility_asymmetry_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: buy_quote_exhaustion_rate_D 尾部: {buy_quote_exhaustion_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: sell_quote_exhaustion_rate_D 尾部: {sell_quote_exhaustion_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: flow_efficiency_index_D 尾部: {flow_efficiency_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: order_book_clearing_rate_D 尾部: {order_book_clearing_rate_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: liquidity_slope_D 尾部: {liquidity_slope_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: liquidity_authenticity_score_D 尾部: {liquidity_authenticity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: bid_side_liquidity_D 尾部: {bid_side_liquidity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: ask_side_liquidity_D 尾部: {ask_side_liquidity_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: turnover_rate_f_D 尾部: {turnover_rate_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: cost_structure_skewness_D 尾部: {cost_structure_skewness_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: market_impact_cost_D 尾部: {market_impact_cost_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: vwap_mean_reversion_corr_D 尾部: {vwap_mean_reversion_corr_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: volume_structure_skew_D 尾部: {volume_structure_skew_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: order_book_imbalance_D 尾部: {order_book_imbalance_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: PRICE_VOLUME_ENTROPY_D 尾部: {price_volume_entropy_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: deception_index_D 尾部: {deception_index_raw.tail().to_dict()}")
             print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_intensity_raw.tail().to_dict()}")
-        # --- 2. 非对称阻力 (Asymmetric Resistance - AR) ---
-        ar_weights = p_conf_mf.get('asymmetric_resistance_weights', {'asymmetric_friction': 0.4, 'micro_price_impact_asymmetry': 0.3, 'volatility_asymmetry': 0.3})
-        asymmetric_friction_score = get_adaptive_mtf_normalized_bipolar_score(asymmetric_friction_raw, df_index, default_weights)
-        micro_price_impact_asymmetry_score = get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_raw, df_index, default_weights)
-        volatility_asymmetry_score = get_adaptive_mtf_normalized_bipolar_score(volatility_asymmetry_raw, df_index, default_weights)
-        asymmetric_resistance_score = (
-            asymmetric_friction_score * ar_weights.get('asymmetric_friction', 0.4) +
-            micro_price_impact_asymmetry_score * ar_weights.get('micro_price_impact_asymmetry', 0.3) +
-            volatility_asymmetry_score * ar_weights.get('volatility_asymmetry', 0.3)
+            print(f"    -> [探针] 原始数据: market_sentiment_score_D 尾部: {market_sentiment_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: VOLATILITY_INSTABILITY_INDEX_21d_D 尾部: {volatility_instability_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: main_force_conviction_index_D 尾部: {main_force_conviction_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: chip_health_score_D 尾部: {chip_health_raw.tail().to_dict()}")
+            print(f"    -> [探针] 原始数据: flow_credibility_index_D 尾部: {flow_credibility_raw.tail().to_dict()}")
+        # --- 2. 非对称阻力动态 (Asymmetric Resistance Dynamics - ARD) ---
+        ard_weights = p_conf_mf.get('asymmetric_resistance_weights', {})
+        # 获取动态斜率信号
+        asymmetric_friction_slope = self._get_safe_series(df, f'SLOPE_5_asymmetric_friction_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        micro_price_impact_asymmetry_slope = self._get_safe_series(df, f'SLOPE_5_micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        volatility_asymmetry_slope = self._get_safe_series(df, f'SLOPE_5_volatility_asymmetry_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        # 订单簿枯竭动态：卖出枯竭斜率 - 买入枯竭斜率
+        order_book_exhaustion_dynamic_slope = self._get_safe_series(df, f'SLOPE_5_sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_market_friction") - \
+                                              self._get_safe_series(df, f'SLOPE_5_buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        # 对斜率进行MTF双极性归一化
+        asymmetric_friction_score = get_adaptive_mtf_normalized_bipolar_score(asymmetric_friction_slope, df_index, mtf_slope_periods)
+        micro_price_impact_asymmetry_score = get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_slope, df_index, mtf_slope_periods)
+        volatility_asymmetry_score = get_adaptive_mtf_normalized_bipolar_score(volatility_asymmetry_slope, df_index, mtf_slope_periods)
+        order_book_exhaustion_dynamic_score = get_adaptive_mtf_normalized_bipolar_score(order_book_exhaustion_dynamic_slope, df_index, mtf_slope_periods)
+        # 融合非对称阻力动态得分
+        asymmetric_resistance_dynamic_score = (
+            asymmetric_friction_score * ard_weights.get('asymmetric_friction_slope', 0.3) +
+            micro_price_impact_asymmetry_score * ard_weights.get('micro_price_impact_asymmetry_slope', 0.2) +
+            volatility_asymmetry_score * ard_weights.get('volatility_asymmetry_slope', 0.2) +
+            order_book_exhaustion_dynamic_score * ard_weights.get('order_book_exhaustion_dynamic', 0.3)
         ).clip(-1, 1)
         if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 非对称摩擦得分 (asymmetric_friction_score) 尾部: {asymmetric_friction_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 微观价格冲击不对称得分 (micro_price_impact_asymmetry_score) 尾部: {micro_price_impact_asymmetry_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 波动率不对称得分 (volatility_asymmetry_score) 尾部: {volatility_asymmetry_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 非对称阻力得分 (asymmetric_resistance_score) 尾部: {asymmetric_resistance_score.tail().to_dict()}")
-        # --- 3. 流动性效率 (Liquidity Efficiency - LE) ---
-        le_weights = p_conf_mf.get('liquidity_efficiency_weights', {'flow_efficiency': 0.3, 'order_book_clearing_rate': 0.3, 'liquidity_slope': 0.2, 'liquidity_authenticity': 0.2})
-        flow_efficiency_score = get_adaptive_mtf_normalized_score(flow_efficiency_raw, df_index, default_weights, ascending=True)
-        order_book_clearing_rate_score = get_adaptive_mtf_normalized_score(order_book_clearing_rate_raw, df_index, default_weights, ascending=True)
-        liquidity_slope_score = get_adaptive_mtf_normalized_score(liquidity_slope_raw, df_index, default_weights, ascending=True)
-        liquidity_authenticity_score = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df_index, default_weights, ascending=True)
-        liquidity_efficiency_score = (
-            flow_efficiency_score * le_weights.get('flow_efficiency', 0.3) +
-            order_book_clearing_rate_score * le_weights.get('order_book_clearing_rate', 0.3) +
-            liquidity_slope_score * le_weights.get('liquidity_slope', 0.2) +
-            liquidity_authenticity_score * le_weights.get('liquidity_authenticity', 0.2)
+            print(f"    -> [探针] 关键计算节点: 非对称摩擦斜率得分 (asymmetric_friction_score) 尾部: {asymmetric_friction_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 微观价格冲击不对称斜率得分 (micro_price_impact_asymmetry_score) 尾部: {micro_price_impact_asymmetry_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 波动率不对称斜率得分 (volatility_asymmetry_score) 尾部: {volatility_asymmetry_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 订单簿枯竭动态得分 (order_book_exhaustion_dynamic_score) 尾部: {order_book_exhaustion_dynamic_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 非对称阻力动态得分 (asymmetric_resistance_dynamic_score) 尾部: {asymmetric_resistance_dynamic_score.tail().to_dict()}")
+        # --- 3. 流动性与效率动态 (Liquidity & Efficiency Dynamics - LED) ---
+        led_weights = p_conf_mf.get('liquidity_efficiency_weights', {})
+        # 获取动态斜率信号
+        flow_efficiency_slope = self._get_safe_series(df, f'SLOPE_5_flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        order_book_clearing_rate_slope = self._get_safe_series(df, f'SLOPE_5_order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        liquidity_slope_slope = self._get_safe_series(df, f'SLOPE_5_liquidity_slope_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        liquidity_authenticity_slope = self._get_safe_series(df, f'SLOPE_5_liquidity_authenticity_score_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        # 流动性深度动态：买方流动性斜率 - 卖方流动性斜率
+        liquidity_depth_dynamic_slope = self._get_safe_series(df, f'SLOPE_5_bid_side_liquidity_D', 0.0, method_name="_diagnose_axiom_market_friction") - \
+                                        self._get_safe_series(df, f'SLOPE_5_ask_side_liquidity_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        turnover_rate_slope = self._get_safe_series(df, f'SLOPE_5_turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        # 对斜率进行MTF单极性/双极性归一化
+        flow_efficiency_score = get_adaptive_mtf_normalized_score(flow_efficiency_slope, df_index, mtf_slope_periods, ascending=True)
+        order_book_clearing_rate_score = get_adaptive_mtf_normalized_score(order_book_clearing_rate_slope, df_index, mtf_slope_periods, ascending=True)
+        liquidity_slope_score = get_adaptive_mtf_normalized_score(liquidity_slope_slope, df_index, mtf_slope_periods, ascending=True)
+        liquidity_authenticity_score = get_adaptive_mtf_normalized_score(liquidity_authenticity_slope, df_index, mtf_slope_periods, ascending=True)
+        liquidity_depth_dynamic_score = get_adaptive_mtf_normalized_bipolar_score(liquidity_depth_dynamic_slope, df_index, mtf_slope_periods)
+        turnover_rate_score = get_adaptive_mtf_normalized_score(turnover_rate_slope, df_index, mtf_slope_periods, ascending=True)
+        # 融合流动性效率动态得分
+        liquidity_efficiency_dynamic_score = (
+            flow_efficiency_score * led_weights.get('flow_efficiency_slope', 0.25) +
+            order_book_clearing_rate_score * led_weights.get('order_book_clearing_rate_slope', 0.25) +
+            liquidity_slope_score * led_weights.get('liquidity_slope_slope', 0.15) +
+            liquidity_authenticity_score * led_weights.get('liquidity_authenticity_slope', 0.15) +
+            (liquidity_depth_dynamic_score + 1) / 2 * led_weights.get('liquidity_depth_dynamic', 0.1) + # 转换为单极性
+            turnover_rate_score * led_weights.get('turnover_rate_slope', 0.1)
         ).clip(0, 1)
         if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 资金流效率得分 (flow_efficiency_score) 尾部: {flow_efficiency_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 订单簿清算率得分 (order_book_clearing_rate_score) 尾部: {order_book_clearing_rate_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 流动性斜率得分 (liquidity_slope_score) 尾部: {liquidity_slope_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 流动性真实性得分 (liquidity_authenticity_score) 尾部: {liquidity_authenticity_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 流动性效率得分 (liquidity_efficiency_score) 尾部: {liquidity_efficiency_score.tail().to_dict()}")
-        # --- 4. 结构性成本 (Structural Cost - SC) ---
-        sc_weights = p_conf_mf.get('structural_cost_weights', {'cost_structure_skewness': 0.4, 'market_impact_cost': 0.3, 'vwap_mean_reversion_corr': 0.3})
-        cost_structure_skewness_score = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_raw, df_index, default_weights)
-        market_impact_cost_score = get_adaptive_mtf_normalized_bipolar_score(-market_impact_cost_raw, df_index, default_weights) # 修改行：对原始数据取负值，实现逆向归一化
-        vwap_mean_reversion_corr_score = get_adaptive_mtf_normalized_bipolar_score(vwap_mean_reversion_corr_raw, df_index, default_weights)
-        structural_cost_score = (
-            cost_structure_skewness_score * sc_weights.get('cost_structure_skewness', 0.4) +
-            market_impact_cost_score * sc_weights.get('market_impact_cost', 0.3) +
-            vwap_mean_reversion_corr_score * sc_weights.get('vwap_mean_reversion_corr', 0.3)
+            print(f"    -> [探针] 关键计算节点: 资金流效率斜率得分 (flow_efficiency_score) 尾部: {flow_efficiency_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 订单簿清算率斜率得分 (order_book_clearing_rate_score) 尾部: {order_book_clearing_rate_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 流动性斜率斜率得分 (liquidity_slope_score) 尾部: {liquidity_slope_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 流动性真实性斜率得分 (liquidity_authenticity_score) 尾部: {liquidity_authenticity_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 流动性深度动态得分 (liquidity_depth_dynamic_score) 尾部: {liquidity_depth_dynamic_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 换手率斜率得分 (turnover_rate_score) 尾部: {turnover_rate_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 流动性效率动态得分 (liquidity_efficiency_dynamic_score) 尾部: {liquidity_efficiency_dynamic_score.tail().to_dict()}")
+        # --- 4. 结构性成本与障碍动态 (Structural Cost & Impairment Dynamics - SCID) ---
+        scid_weights = p_conf_mf.get('structural_cost_weights', {})
+        # 获取动态斜率信号
+        cost_structure_skewness_slope = self._get_safe_series(df, f'SLOPE_5_cost_structure_skewness_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        market_impact_cost_slope = self._get_safe_series(df, f'SLOPE_5_market_impact_cost_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        vwap_mean_reversion_corr_slope = self._get_safe_series(df, f'SLOPE_5_vwap_mean_reversion_corr_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        volume_structure_skew_slope = self._get_safe_series(df, f'SLOPE_5_volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        order_book_imbalance_slope = self._get_safe_series(df, f'SLOPE_5_order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        price_volume_entropy_slope = self._get_safe_series(df, f'SLOPE_5_PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        # 对斜率进行MTF双极性归一化
+        cost_structure_skewness_score = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_slope, df_index, mtf_slope_periods)
+        market_impact_cost_score = get_adaptive_mtf_normalized_bipolar_score(-market_impact_cost_slope, df_index, mtf_slope_periods) # 冲击成本斜率越高，分数越低
+        vwap_mean_reversion_corr_score = get_adaptive_mtf_normalized_bipolar_score(vwap_mean_reversion_corr_slope, df_index, mtf_slope_periods)
+        volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_slope, df_index, mtf_slope_periods)
+        order_book_imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_slope, df_index, mtf_slope_periods)
+        price_volume_entropy_score = get_adaptive_mtf_normalized_score(price_volume_entropy_slope, df_index, mtf_slope_periods, ascending=False) # 熵斜率越高，分数越低
+        # 融合结构性成本动态得分
+        structural_cost_dynamic_score = (
+            cost_structure_skewness_score * scid_weights.get('cost_structure_skewness_slope', 0.25) +
+            market_impact_cost_score * scid_weights.get('market_impact_cost_slope', 0.25) +
+            vwap_mean_reversion_corr_score * scid_weights.get('vwap_mean_reversion_corr_slope', 0.15) +
+            volume_structure_skew_score * scid_weights.get('volume_structure_skew_slope', 0.15) +
+            order_book_imbalance_score * scid_weights.get('order_book_imbalance_slope', 0.1) +
+            (price_volume_entropy_score * 2 - 1) * scid_weights.get('price_volume_entropy_slope', 0.1) # 转换为双极性
         ).clip(-1, 1)
         if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 成本结构偏度得分 (cost_structure_skewness_score) 尾部: {cost_structure_skewness_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 市场冲击成本得分 (market_impact_cost_score) 尾部: {market_impact_cost_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: VWAP均值回归相关性得分 (vwap_mean_reversion_corr_score) 尾部: {vwap_mean_reversion_corr_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 结构性成本得分 (structural_cost_score) 尾部: {structural_cost_score.tail().to_dict()}")
-        # --- 5. 基础市场摩擦分 (融合前三项) ---
-        final_fusion_weights = p_conf_mf.get('final_fusion_weights', {'asymmetric_resistance': 0.4, 'liquidity_efficiency': 0.3, 'structural_cost': 0.3})
+            print(f"    -> [探针] 关键计算节点: 成本结构偏度斜率得分 (cost_structure_skewness_score) 尾部: {cost_structure_skewness_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 市场冲击成本斜率得分 (market_impact_cost_score) 尾部: {market_impact_cost_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: VWAP均值回归相关性斜率得分 (vwap_mean_reversion_corr_score) 尾部: {vwap_mean_reversion_corr_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 成交量结构偏度斜率得分 (volume_structure_skew_score) 尾部: {volume_structure_skew_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 订单簿不平衡斜率得分 (order_book_imbalance_score) 尾部: {order_book_imbalance_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 价量熵斜率得分 (price_volume_entropy_score) 尾部: {price_volume_entropy_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 结构性成本动态得分 (structural_cost_dynamic_score) 尾部: {structural_cost_dynamic_score.tail().to_dict()}")
+        # --- 5. 动态融合与情境感知 (Dynamic Fusion & Contextual Awareness) ---
+        dynamic_fusion_modulator_params = p_conf_mf.get('dynamic_fusion_modulator_params', {})
+        # 获取情境调制信号的原始值
+        modulator_signal_1_raw = self._get_safe_series(df, get_param_value(dynamic_fusion_modulator_params.get('modulator_signal_1')), 0.0, method_name="_diagnose_axiom_market_friction") # market_sentiment_score_D
+        modulator_signal_2_raw = self._get_safe_series(df, get_param_value(dynamic_fusion_modulator_params.get('modulator_signal_2')), 0.0, method_name="_diagnose_axiom_market_friction") # VOLATILITY_INSTABILITY_INDEX_21d_D
+        modulator_signal_3_raw = self._get_safe_series(df, get_param_value(dynamic_fusion_modulator_params.get('modulator_signal_3')), 0.0, method_name="_diagnose_axiom_market_friction") # main_force_conviction_index_D
+        # 对情境调制信号进行MTF双极性归一化（使用默认权重）
+        modulator_signal_1_score = get_adaptive_mtf_normalized_bipolar_score(modulator_signal_1_raw, df_index, default_weights)
+        modulator_signal_2_score = get_adaptive_mtf_normalized_bipolar_score(modulator_signal_2_raw, df_index, default_weights)
+        modulator_signal_3_score = get_adaptive_mtf_normalized_bipolar_score(modulator_signal_3_raw, df_index, default_weights)
+        # 获取动态融合权重参数
+        base_weights = dynamic_fusion_modulator_params.get('base_weights', {'asymmetric_resistance': 0.4, 'liquidity_efficiency': 0.3, 'structural_cost': 0.3})
+        sentiment_impact_weights = dynamic_fusion_modulator_params.get('sentiment_impact_weights', {'asymmetric_resistance': -0.1, 'liquidity_efficiency': 0.15, 'structural_cost': 0.05})
+        volatility_impact_weights = dynamic_fusion_modulator_params.get('volatility_impact_weights', {'asymmetric_resistance': 0.15, 'liquidity_efficiency': -0.1, 'structural_cost': -0.05})
+        conviction_impact_weights = dynamic_fusion_modulator_params.get('conviction_impact_weights', {'asymmetric_resistance': 0.05, 'liquidity_efficiency': 0.05, 'structural_cost': -0.1})
+        sensitivity_sentiment = get_param_value(dynamic_fusion_modulator_params.get('sensitivity_sentiment'), 0.3)
+        sensitivity_volatility = get_param_value(dynamic_fusion_modulator_params.get('sensitivity_volatility'), 0.3)
+        sensitivity_conviction = get_param_value(dynamic_fusion_modulator_params.get('sensitivity_conviction'), 0.2)
+        # 计算动态权重
+        current_weights = pd.DataFrame(base_weights, index=df_index)
+        for dim in base_weights.keys():
+            current_weights[dim] += modulator_signal_1_score * sentiment_impact_weights.get(dim, 0) * sensitivity_sentiment
+            current_weights[dim] += modulator_signal_2_score * volatility_impact_weights.get(dim, 0) * sensitivity_volatility
+            current_weights[dim] += modulator_signal_3_score * conviction_impact_weights.get(dim, 0) * sensitivity_conviction
+        current_weights = current_weights.clip(lower=0.01) # 确保权重不为零或负
+        current_weights = current_weights.div(current_weights.sum(axis=1), axis=0) # 归一化权重，使其和为1
         # 将单极性的流动性效率转换为双极性，以便与非对称阻力和结构性成本融合
-        liquidity_efficiency_bipolar = liquidity_efficiency_score * 2 - 1
+        liquidity_efficiency_bipolar = liquidity_efficiency_dynamic_score * 2 - 1
+        # 融合基础市场摩擦得分
         base_market_friction_score = (
-            asymmetric_resistance_score * final_fusion_weights.get('asymmetric_resistance', 0.4) +
-            liquidity_efficiency_bipolar * final_fusion_weights.get('liquidity_efficiency', 0.3) +
-            structural_cost_score * final_fusion_weights.get('structural_cost', 0.3)
+            asymmetric_resistance_dynamic_score * current_weights['asymmetric_resistance'] +
+            liquidity_efficiency_bipolar * current_weights['liquidity_efficiency'] +
+            structural_cost_dynamic_score * current_weights['structural_cost']
         ).clip(-1, 1)
         if probe_enabled:
+            print(f"    -> [探针] 关键计算节点: 市场情绪调制得分 (modulator_signal_1_score) 尾部: {modulator_signal_1_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 波动不稳定性调制得分 (modulator_signal_2_score) 尾部: {modulator_signal_2_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 主力信念调制得分 (modulator_signal_3_score) 尾部: {modulator_signal_3_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 动态融合权重 (current_weights) 尾部: {current_weights.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 基础市场摩擦得分 (base_market_friction_score) 尾部: {base_market_friction_score.tail().to_dict()}")
-        # --- 6. 诡道摩擦调制 (Deceptive Friction Modulation) ---
+        # --- 6. 诡道摩擦调制 (Deceptive Friction Modulation - DFM) ---
         dfm_params = p_conf_mf.get('deceptive_friction_modulator_params', {})
-        deception_penalty_factor = get_param_value(dfm_params.get('deception_penalty_factor'), 0.6)
-        wash_trade_penalty_factor = get_param_value(dfm_params.get('wash_trade_penalty_factor'), 0.4)
+        # 获取欺骗指数和对倒强度的斜率
+        deception_index_slope = self._get_safe_series(df, f'SLOPE_5_deception_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        wash_trade_intensity_slope = self._get_safe_series(df, f'SLOPE_5_wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        # 对斜率进行MTF单极性归一化
+        deception_index_score = get_adaptive_mtf_normalized_score(deception_index_slope, df_index, mtf_slope_periods, ascending=True)
+        wash_trade_intensity_score = get_adaptive_mtf_normalized_score(wash_trade_intensity_slope, df_index, mtf_slope_periods, ascending=True)
+        # 获取诡道调制参数
+        deception_index_slope_weight = get_param_value(dfm_params.get('deception_index_slope_weight'), 0.6)
+        wash_trade_intensity_slope_weight = get_param_value(dfm_params.get('wash_trade_intensity_slope_weight'), 0.4)
         modulator_strength = get_param_value(dfm_params.get('modulator_strength'), 0.5)
-        deception_index_score = get_adaptive_mtf_normalized_score(deception_index_raw, df_index, default_weights, ascending=True)
-        wash_trade_intensity_score = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, default_weights, ascending=True)
-        deceptive_friction_penalty = (
-            deception_index_score * deception_penalty_factor +
-            wash_trade_intensity_score * wash_trade_penalty_factor
+        non_linear_sensitivity = get_param_value(dfm_params.get('non_linear_sensitivity'), 2.0)
+        # 计算动态欺骗得分
+        dynamic_deception_score = (
+            deception_index_score * deception_index_slope_weight +
+            wash_trade_intensity_score * wash_trade_intensity_slope_weight
         ).clip(0, 1)
         # 诡道摩擦调制器：当惩罚越高时，调制器越小，对市场摩擦分进行削弱
-        deceptive_friction_modulator = (1 - deceptive_friction_penalty * modulator_strength).clip(0, 1)
+        # 使用 tanh 非线性函数进行调制，使其在欺骗程度较高时，惩罚更明显
+        deceptive_friction_modulator = (1 - np.tanh(dynamic_deception_score * non_linear_sensitivity) * modulator_strength).clip(0, 1)
         if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 欺骗指数得分 (deception_index_score) 尾部: {deception_index_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 对倒强度得分 (wash_trade_intensity_score) 尾部: {wash_trade_intensity_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 诡道摩擦惩罚 (deceptive_friction_penalty) 尾部: {deceptive_friction_penalty.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 欺骗指数斜率得分 (deception_index_score) 尾部: {deception_index_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 对倒强度斜率得分 (wash_trade_intensity_score) 尾部: {wash_trade_intensity_score.tail().to_dict()}")
+            print(f"    -> [探针] 关键计算节点: 动态欺骗得分 (dynamic_deception_score) 尾部: {dynamic_deception_score.tail().to_dict()}")
             print(f"    -> [探针] 关键计算节点: 诡道摩擦调制器 (deceptive_friction_modulator) 尾部: {deceptive_friction_modulator.tail().to_dict()}")
         # --- 7. 最终市场摩擦分数 ---
+        # 基础市场摩擦得分乘以诡道摩擦调制器
         market_friction_score = (base_market_friction_score * deceptive_friction_modulator).clip(-1, 1)
+        # --- 8. 最终风险过滤 (Final Risk Filter) ---
+        frf_params = p_conf_mf.get('final_risk_filter_params', {})
+        # 如果启用最终风险过滤
+        if get_param_value(frf_params.get('enabled'), False):
+            chip_health_penalty_factor = get_param_value(frf_params.get('chip_health_penalty_factor'), 0.5)
+            flow_credibility_penalty_factor = get_param_value(frf_params.get('flow_credibility_penalty_factor'), 0.5)
+            deception_index_penalty_factor = get_param_value(frf_params.get('deception_index_penalty_factor'), 0.7)
+            # 对风险过滤信号进行MTF单极性归一化（使用默认权重）
+            chip_health_score = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, default_weights, ascending=True)
+            flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, default_weights, ascending=True)
+            deception_index_score_unipolar = get_adaptive_mtf_normalized_score(deception_index_raw, df_index, default_weights, ascending=True) # 使用原始欺骗指数进行最终过滤
+            # 计算各项惩罚
+            chip_health_penalty = (1 - chip_health_score) * chip_health_penalty_factor
+            flow_credibility_penalty = (1 - flow_credibility_score) * flow_credibility_penalty_factor
+            deception_penalty = deception_index_score_unipolar * deception_index_penalty_factor
+            # 计算总惩罚
+            total_penalty = (chip_health_penalty + flow_credibility_penalty + deception_penalty).clip(0, 1)
+            # 应用惩罚：将分数幅度向零减小
+            market_friction_score = market_friction_score * (1 - total_penalty)
+            if probe_enabled:
+                print(f"    -> [探针] 关键计算节点: 筹码健康度得分 (chip_health_score) 尾部: {chip_health_score.tail().to_dict()}")
+                print(f"    -> [探针] 关键计算节点: 资金流可信度得分 (flow_credibility_score) 尾部: {flow_credibility_score.tail().to_dict()}")
+                print(f"    -> [探针] 关键计算节点: 欺骗指数单极得分 (deception_index_score_unipolar) 尾部: {deception_index_score_unipolar.tail().to_dict()}")
+                print(f"    -> [探针] 关键计算节点: 最终风险过滤惩罚 (total_penalty) 尾部: {total_penalty.tail().to_dict()}")
+        # 最终分数裁剪并转换为float32类型
+        market_friction_score = market_friction_score.clip(-1, 1).astype(np.float32)
         if probe_enabled:
             print(f"    -> [探针] 最终结果: 市场摩擦分 (market_friction_score) 尾部: {market_friction_score.tail().to_dict()}")
         print("    -> [基础层] “市场摩擦”公理诊断完成。")
-        return market_friction_score.astype(np.float32)
+        return market_friction_score
 
 
 
