@@ -505,7 +505,7 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.9.2 · 纯结构深度进化版 - 信号映射】结构公理三：诊断“结构稳定性”
+        【V5.9.3 · 纯结构深度进化版 - 变量名修正】结构公理三：诊断“结构稳定性”
         - 核心升级: 彻底重构为六大核心支柱：结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率、结构突破强度、结构回撤效率。
                     严格限定在纯粹的【结构】类原始数据范畴内，移除筹码、资金等其他维度的数据。
         - 核心证据:
@@ -521,8 +521,9 @@ class StructuralIntelligence:
         - 【V5.9 信号替换】根据数据层实际提供的信号，替换了结构突破强度和结构回撤效率的原始信号。
         - 【V5.9.1 权重匹配修正】统一了子维度权重字典的键名和实际获取权重时的键名，确保与JSON配置中的概念名称一致。
         - 【V5.9.2 信号映射】引入集中的信号映射配置，提高代码的可读性和可维护性。
+        - 【V5.9.3 变量名修正】修正了结构支撑强度融合计算中错误的变量名。
         """
-        # 修改开始：required_signals 使用概念名称，并通过映射获取实际信号名称
+        # required_signals 使用概念名称，并通过映射获取实际信号名称
         concept_signals = [
             'support_validation_strength_D', 'pressure_rejection_strength_D', 'lower_shadow_absorption_strength_D',
             'defense_solidity_score_D', 'opening_gap_defense_strength_D',
@@ -535,18 +536,16 @@ class StructuralIntelligence:
             'breakout_volume_ratio_D', 'breakout_range_expansion_D', 'breakout_retest_success_D', 'breakout_duration_D',
             'retracement_depth_pct_D', 'retracement_speed_ratio_D', 'retracement_volume_decay_D', 'retracement_MA_adherence_D'
         ]
-        # 修改结束
 
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         stability_params = get_param_value(p_conf_struct.get('stability_params'), {})
-        signal_mapping = get_param_value(stability_params.get('signal_mapping'), {}) # 修改：获取信号映射配置
+        signal_mapping = get_param_value(stability_params.get('signal_mapping'), {})
 
-        # 修改开始：根据映射配置生成实际的 required_signals
+        # 根据映射配置生成实际的 required_signals
         required_signals = []
         for concept_signal in concept_signals:
-            actual_signal = signal_mapping.get(concept_signal, concept_signal) # 如果没有映射，则使用概念名称本身
+            actual_signal = signal_mapping.get(concept_signal, concept_signal)
             required_signals.append(actual_signal)
-        # 修改结束
 
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
             return pd.Series(0.0, index=df.index)
@@ -592,12 +591,11 @@ class StructuralIntelligence:
         if self.is_probe_date:
             print(f"\n--- [结构公理] 稳定性探针 @ {df.index[-1].strftime('%Y-%m-%d')} ---")
             print(f"  -> 原始输入:")
-            # 修改开始：探针输出时，使用概念信号名称作为标签，但获取实际信号的值
+            # 探针输出时，使用概念信号名称作为标签，但获取实际信号的值
             for concept_signal in concept_signals:
                 actual_signal_name = signal_mapping.get(concept_signal, concept_signal)
                 if actual_signal_name in df.columns:
                     print(f"    {concept_signal}: {df[actual_signal_name].iloc[-1]:.4f}")
-            # 修改结束
             print(f"  -> MTF归一化权重 (tf_weights): {tf_weights}")
             print(f"  -> 稳定性主融合权重 (stability_fusion_weights): {stability_fusion_weights}")
             print(f"  -> 结构支撑强度子权重: {structural_support_strength_weights}")
@@ -609,7 +607,7 @@ class StructuralIntelligence:
             print(f"  -> 指标归一化配置 (normalization_configs): {normalization_configs}")
 
         # Helper to get normalization config for a signal
-        # 修改开始：get_norm_config 接受概念信号名称，并查找其对应的实际信号名称来获取配置
+        # get_norm_config 接受概念信号名称，并查找其对应的实际信号名称来获取配置
         def get_norm_config(concept_signal_name, default_method="mtf_adaptive", default_ascending=True, default_clip_range=None):
             actual_signal_name = signal_mapping.get(concept_signal_name, concept_signal_name)
             config = normalization_configs.get(actual_signal_name, {})
@@ -619,10 +617,9 @@ class StructuralIntelligence:
                 "clip_range": config.get("clip_range", default_clip_range),
                 "mapping_func": config.get("mapping_func", None)
             }
-        # 修改结束
 
         # --- 1. 结构支撑强度 (Structural Support Strength) ---
-        # 修改开始：所有 _get_safe_series 调用都通过 signal_mapping 获取实际信号名称
+        # 所有 _get_safe_series 调用都通过 signal_mapping 获取实际信号名称
         support_validation_strength_raw = self._get_safe_series(df, signal_mapping.get('support_validation_strength_D', 'support_validation_strength_D'), 0.0, method_name="_diagnose_axiom_stability")
         pressure_rejection_strength_raw = self._get_safe_series(df, signal_mapping.get('pressure_rejection_strength_D', 'pressure_rejection_strength_D'), 0.0, method_name="_diagnose_axiom_stability")
         lower_shadow_absorption_strength_raw = self._get_safe_series(df, signal_mapping.get('lower_shadow_absorption_strength_D', 'lower_shadow_absorption_strength_D'), 0.0, method_name="_diagnose_axiom_stability")
@@ -645,7 +642,9 @@ class StructuralIntelligence:
             pressure_rejection_strength_score * structural_support_strength_weights.get('pressure_rejection_strength', 0.3) +
             lower_shadow_absorption_strength_score * structural_support_strength_weights.get('lower_shadow_absorption_strength', 0.2) +
             defense_solidity_score * structural_support_strength_weights.get('defense_solidity_score', 0.1) +
-            opening_gap_defense_strength_score * structural_gap_defense_strength_weights.get('opening_gap_defense_strength', 0.1) # 修正：这里应使用 structural_support_strength_weights
+            # 修改开始：修正变量名
+            opening_gap_defense_strength_score * structural_support_strength_weights.get('opening_gap_defense_strength', 0.1)
+            # 修改结束
         ).clip(0, 1)
         if self.is_probe_date:
             print(f"  -> 1. 结构支撑强度 (Structural Support Strength):")
@@ -791,14 +790,13 @@ class StructuralIntelligence:
             breakout_duration_score * structural_break_strength_weights.get('breakout_duration', 0.2)
         ).clip(0, 1)
         if self.is_probe_date:
-            # 修改开始：探针输出时，使用概念信号名称作为标签，但获取实际信号的值
+            # 探针输出时，使用概念信号名称作为标签，但获取实际信号的值
             print(f"  -> 5. 结构突破强度 (Structural Break Strength):")
             print(f"    breakout_volume_ratio_D (末值): {self._get_safe_series(df, signal_mapping.get('breakout_volume_ratio_D', 'breakout_volume_ratio_D'), 0.0).iloc[-1]:.4f} -> score: {breakout_volume_ratio_score.iloc[-1]:.4f}")
             print(f"    breakout_range_expansion_D (末值): {self._get_safe_series(df, signal_mapping.get('breakout_range_expansion_D', 'breakout_range_expansion_D'), 0.0).iloc[-1]:.4f} -> score: {breakout_range_expansion_score.iloc[-1]:.4f}")
             print(f"    breakout_retest_success_D (末值): {self._get_safe_series(df, signal_mapping.get('breakout_retest_success_D', 'breakout_retest_success_D'), 0.0).iloc[-1]:.4f} -> score: {breakout_retest_success_score.iloc[-1]:.4f}")
             print(f"    breakout_duration_D (末值): {self._get_safe_series(df, signal_mapping.get('breakout_duration_D', 'breakout_duration_D'), 0.0).iloc[-1]:.4f} -> score: {breakout_duration_score.iloc[-1]:.4f}")
             print(f"    structural_break_strength_score (融合末值): {structural_break_strength_score.iloc[-1]:.4f}")
-            # 修改结束
 
         # --- 6. 结构回撤效率 (Structural Retracement Efficiency) - 使用代理信号 ---
         retracement_depth_pct_raw = self._get_safe_series(df, signal_mapping.get('retracement_depth_pct_D', 'retracement_depth_pct_D'), 0.0, method_name="_diagnose_axiom_stability")
@@ -819,14 +817,13 @@ class StructuralIntelligence:
             retracement_MA_adherence_score * structural_retracement_efficiency_weights.get('retracement_MA_adherence', 0.2)
         ).clip(0, 1)
         if self.is_probe_date:
-            # 修改开始：探针输出时，使用概念信号名称作为标签，但获取实际信号的值
+            # 探针输出时，使用概念信号名称作为标签，但获取实际信号的值
             print(f"  -> 6. 结构回撤效率 (Structural Retracement Efficiency):")
             print(f"    retracement_depth_pct_D (末值): {self._get_safe_series(df, signal_mapping.get('retracement_depth_pct_D', 'retracement_depth_pct_D'), 0.0).iloc[-1]:.4f} -> score: {retracement_depth_pct_score.iloc[-1]:.4f}")
             print(f"    retracement_speed_ratio_D (末值): {self._get_safe_series(df, signal_mapping.get('retracement_speed_ratio_D', 'retracement_speed_ratio_D'), 0.0).iloc[-1]:.4f} -> score: {retracement_speed_ratio_score.iloc[-1]:.4f}")
             print(f"    counterparty_exhaustion_index_D (末值): {self._get_safe_series(df, signal_mapping.get('retracement_volume_decay_D', 'retracement_volume_decay_D'), 0.0).iloc[-1]:.4f} -> score: {retracement_volume_decay_score.iloc[-1]:.4f}")
             print(f"    control_solidity_index_D (末值): {self._get_safe_series(df, signal_mapping.get('retracement_MA_adherence_D', 'retracement_MA_adherence_D'), 0.0).iloc[-1]:.4f} -> score: {retracement_MA_adherence_score.iloc[-1]:.4f}")
             print(f"    structural_retracement_efficiency_score (融合末值): {structural_retracement_efficiency_score.iloc[-1]:.4f}")
-            # 修改结束
 
         # --- 7. 最终融合 ---
         stability_score = (
