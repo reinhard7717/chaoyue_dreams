@@ -233,7 +233,6 @@ class BehavioralIntelligence:
         pattern_sequence_params = get_param_value(p_behavioral_div_conf.get('pattern_sequence_params'), {"enabled": True, "lookback_window": 3, "volume_drying_up_ratio": 0.8, "volume_climax_ratio": 1.5, "reversal_pct_change_threshold": 0.01, "sequence_bonus": 0.2})
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         accel_period = mtf_periods[0]
-        # MODIFIED LINE: 移除 lockup_rally_params 的直接获取，因为已移至新方法
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
             'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
@@ -261,7 +260,14 @@ class BehavioralIntelligence:
             'retail_fomo_premium_index_D',
             'BBP_21_2.0_D', 'BIAS_5_D',
             'ATR_14_D', 'BBW_21_2.0_D', 'ADX_14_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D' # MODIFIED LINE: 添加 VOLATILITY_INSTABILITY_INDEX_21d_D
+            'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'intraday_posture_score_D',
+            'microstructure_efficiency_index_D',
+            'impulse_quality_ratio_D',
+            'volume_structure_skew_D',
+            'volume_burstiness_index_D',
+            'closing_strength_index_D',
+            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'
         ]
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
@@ -360,9 +366,15 @@ class BehavioralIntelligence:
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
+        # MODIFIED LINE: 添加调试输出
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL @ {probe_ts.strftime('%Y-%m-%d')}: {intraday_bull_control_score.loc[probe_ts]:.4f}")
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
+        # MODIFIED LINE: 添加调试输出
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW @ {probe_ts.strftime('%Y-%m-%d')}: {final_overextension_score.loc[probe_ts]:.4f}")
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
         df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
@@ -415,17 +427,15 @@ class BehavioralIntelligence:
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
-            states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
+            states['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT']
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
         df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
-        # MODIFIED BLOCK START: 调用新的方法计算 SCORE_OPPORTUNITY_LOCKUP_RALLY
         lockup_rally_score = self._calculate_lockup_rally_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
         df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
-        # MODIFIED BLOCK END: 调用新的方法计算 SCORE_OPPORTUNITY_LOCKUP_RALLY
         is_falling = (pct_change < 0).astype(float)
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
         selling_deceleration_score = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
