@@ -1010,6 +1010,22 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     # 确保返回的Series索引正确并填充缺失值
     return tanh_score.reindex(target_index).fillna(default_value)
 
+def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, float], df_index: pd.Index) -> pd.Series:
+    # 计算健壮的加权几何平均分数
+    # 值为0（或接近0）的分数将被视为缺失，并从计算中排除，同时调整总权重。
+    # 如果某个日期所有组件都为0，则结果为0。
+    aligned_scores = {name: score.reindex(df_index).fillna(0.0) for name, score in scores_dict.items()}
+    score_df = pd.DataFrame(aligned_scores, index=df_index)
+    weights_series = pd.Series(weights_dict)
+    is_valid = (score_df > 1e-9)
+    log_scores_df = np.log(score_df.where(is_valid, np.nan))
+    weighted_log_scores_df = log_scores_df.mul(weights_series.reindex(log_scores_df.columns), axis=1)
+    sum_weighted_log_scores = weighted_log_scores_df.sum(axis=1)
+    sum_valid_weights = is_valid.mul(weights_series.reindex(is_valid.columns), axis=1).sum(axis=1)
+    sum_valid_weights_safe = sum_valid_weights.replace(0, np.nan)
+    exponent = sum_weighted_log_scores / sum_valid_weights_safe
+    result = np.exp(exponent).fillna(0.0)
+    return result.astype(np.float32)
 
 
 

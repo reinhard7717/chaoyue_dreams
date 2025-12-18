@@ -170,7 +170,6 @@
         "chip_fault_magnitude_D": [5, 8, 13, 21],
         "winner_profit_margin_avg_D": [5, 8, 13, 21],
         "loser_loss_margin_avg_D": [5, 8, 13, 21],
-        "impulse_quality_ratio_D": [5, 8, 13],
         "peak_control_transfer_D": [5, 8, 13],
         "support_validation_strength_D": [5, 8, 13],
         "vacuum_traversal_efficiency_D": [5, 8, 13],
@@ -295,9 +294,14 @@
         "VOL_MA_5_D": [5, 13],
         "VOL_MA_13_D": [5, 13],
         "说明_advanced_structural_metrics": "--- 为高级结构与行为指标提供支持 ---",
+        "intraday_posture_score_D": [5, 8, 13, 21],
+        "microstructure_efficiency_index_D": [5, 8, 13, 21],
+        "impulse_quality_ratio_D": [5, 8, 13, 21],
+        "volume_structure_skew_D": [5, 8, 13, 21],
+        "volume_burstiness_index_D": [5, 8, 13, 21],
+        "closing_strength_index_D": [5, 8, 13, 21],
         "trend_acceleration_score_D": [5, 8, 13, 21],
         "final_charge_intensity_D": [5, 8, 13, 21],
-        "volume_structure_skew_D": [5, 8, 13, 21],
         "breakthrough_conviction_score_D": [5, 8, 13, 21],
         "defense_solidity_score_D": [5, 8, 13, 21],
         "equilibrium_compression_index_D": [5, 8, 13, 21],
@@ -396,11 +400,16 @@
         "main_force_buy_execution_alpha_D": [5, 8, 13, 21],
         "main_force_sell_execution_alpha_D": [5, 8, 13, 21],
         "说明_V33_advanced_chip_metrics": "--- 为V33.0新一代筹码高级指标提供支持 ---",
+        "intraday_posture_score_D": [5, 8, 13, 21],
+        "microstructure_efficiency_index_D": [5, 8, 13, 21],
+        "impulse_quality_ratio_D": [5, 8, 13, 21],
+        "volume_structure_skew_D": [5, 8, 13, 21],
+        "volume_burstiness_index_D": [5, 8, 13, 21],
+        "closing_strength_index_D": [5, 8, 13, 21],
         "peak_separation_ratio_D": [5, 8, 13, 21],
         "chip_fault_magnitude_D": [5, 8, 13, 21],
         "winner_profit_margin_avg_D": [5, 8, 13, 21],
         "loser_loss_margin_avg_D": [5, 8, 13, 21],
-        "impulse_quality_ratio_D": [5, 8, 13],
         "peak_control_transfer_D": [5, 8, 13],
         "support_validation_strength_D": [5, 8, 13],
         "vacuum_traversal_efficiency_D": [5, 8, 13],
@@ -492,7 +501,6 @@
         "说明_advanced_structural_metrics": "--- 为高级结构与行为指标提供支持 ---",
         "trend_acceleration_score_D": [5, 8, 13, 21],
         "final_charge_intensity_D": [5, 8, 13, 21],
-        "volume_structure_skew_D": [5, 8, 13, 21],
         "breakthrough_conviction_score_D": [5, 8, 13, 21],
         "defense_solidity_score_D": [5, 8, 13, 21],
         "equilibrium_compression_index_D": [5, 8, 13, 21],
@@ -761,7 +769,7 @@
         "description": "【V8.0 · 行为背离强度惯性与自适应引擎版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
         "lockup_rally_params": {
           "enabled": true,
-          "description": "【V2.0 · 锁仓拉升深度洞察版】锁仓拉升机会信号参数。",
+          "description": "【V3.0 · 锁仓拉升深度洞察与MTF行为共振版】锁仓拉升机会信号参数。",
           "fusion_weights": {
             "rally_purity": 0.3,
             "supply_exhaustion": 0.3,
@@ -769,23 +777,96 @@
             "context_modulator": 0.2
           },
           "rally_purity_weights": {
-            "upward_momentum": 0.5,
-            "upward_efficiency": 0.5
+            "upward_momentum": 0.3,
+            "upward_efficiency": 0.3,
+            "intraday_posture": 0.2,
+            "impulse_quality": 0.2
           },
           "supply_exhaustion_weights": {
-            "volume_atrophy": 0.4,
-            "low_turnover": 0.3,
-            "low_volatility_instability": 0.3
+            "volume_atrophy": 0.3,
+            "low_turnover": 0.2,
+            "low_volatility_instability": 0.2,
+            "volume_structure_skew": 0.15,
+            "volume_burstiness_inverse": 0.15
           },
           "main_force_intent_weights": {
-            "intraday_bull_control": 0.4,
+            "intraday_bull_control": 0.3,
             "no_distribution_intent": 0.3,
-            "low_deception_lure_short": 0.3
+            "low_deception_lure_short": 0.2,
+            "vwap_control": 0.1,
+            "closing_strength": 0.1
           },
           "context_modulator_weights": {
-            "low_overextension": 0.5,
-            "low_volatility_instability": 0.5
+            "low_overextension": 0.4,
+            "low_volatility_instability": 0.3,
+            "low_stagnation_evidence": 0.3
           },
+          "purity_penalty_weights": {
+            "wash_trade": 0.5,
+            "deception_lure_long": 0.5
+          },
+          "turnover_rate_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_turnover_rate_tf_weights": "换手率的多时间框架归一化权重。",
+          "volatility_instability_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_volatility_instability_tf_weights": "波动率不稳定性指数的多时间框架归一化权重。",
+          "deception_lure_short_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_deception_lure_short_tf_weights": "诱空欺骗强度的多时间框架归一化权重。",
+          "overextension_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_overextension_tf_weights": "价格超买亢奋原始分的多时间框架归一化权重。",
+          "stagnation_evidence_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_stagnation_evidence_tf_weights": "滞涨证据原始分的多时间框架归一化权重。",
+          "wash_trade_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_wash_trade_tf_weights": "对倒强度的多时间框架归一化权重。",
+          "deception_lure_long_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_deception_lure_long_tf_weights": "诱多欺骗强度的多时间框架归一化权重。",
+          "mtf_slope_weights": {
+            "5": 0.5,
+            "13": 0.3,
+            "21": 0.2
+          },
+          "comment_mtf_slope_weights": "用于MTF共振判断的斜率权重。",
+          "mtf_accel_weights": {
+            "5": 0.6,
+            "13": 0.4
+          },
+          "comment_mtf_accel_weights": "用于MTF共振判断的加速度权重。",
+          "mtf_cohesion_bonus": 0.1,
+          "comment_mtf_cohesion_bonus": "MTF共振时的额外奖励因子。",
           "final_exponent": 1.0
         },
         "multi_timeframe_slopes": {
