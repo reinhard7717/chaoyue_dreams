@@ -786,10 +786,6 @@
             "low_overextension": 0.5,
             "low_volatility_instability": 0.5
           },
-          "turnover_rate_norm_window": 55,
-          "volatility_instability_norm_window": 55,
-          "deception_lure_short_norm_window": 55,
-          "overextension_norm_window": 55,
           "final_exponent": 1.0
         },
         "multi_timeframe_slopes": {

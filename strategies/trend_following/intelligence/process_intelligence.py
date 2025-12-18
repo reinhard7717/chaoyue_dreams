@@ -1310,27 +1310,87 @@ class ProcessIntelligence:
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.1 · 军令直达版】“个股板块同步”专属关系计算引擎
-        - 核心重构: 创立“领导力加权”模型，废除僵化的动量同步逻辑。
-        - 信号升级: 个股强度由 `pct_change_D` 直接衡量，更具实战性。
-        - 核心逻辑: 瞬时关系分 = 个股强度分 * (1 + 板块强度分)。
+        【V3.0 · 协同共振版】“个股板块协同共振”专属关系计算引擎
+        - 核心重构: 创立“协同共振模型”，明确区分看涨和看跌协同，并融入板块动量。
+        - 信号升级: 个股强度由 `pct_change_D` 直接衡量，板块强度由 `industry_strength_rank_D` 衡量，
+                      并新增 `SLOPE_5_industry_strength_rank_D` 捕捉板块动量。
+        - 核心逻辑: 融合个股表现、板块强度和板块动量，通过非线性放大机制，量化看涨和看跌的协同共振。
         """
+        print("    -> [过程层] 正在计算 PROCESS_META_STOCK_SECTOR_SYNC (V3.0 · 协同共振版)...")
         stock_signal_name = 'pct_change_D'
-        sector_signal_name = 'industry_strength_rank_D'
-        required_signals = [stock_signal_name, sector_signal_name]
+        sector_rank_name = 'industry_strength_rank_D'
+        sector_momentum_name = 'SLOPE_5_industry_strength_rank_D' # 新增依赖
+        required_signals = [stock_signal_name, sector_rank_name, sector_momentum_name]
         if not self._validate_required_signals(df, required_signals, "_calculate_stock_sector_sync"):
-            return pd.Series(dtype=np.float32)
+            print(f"    -> [过程情报警告] _calculate_stock_sector_sync 缺少核心信号，返回默认值。")
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
+        # 获取原始数据
         stock_signal_raw = self._get_safe_series(df, stock_signal_name, 0.0, method_name="_calculate_stock_sector_sync")
-        sector_signal_raw = self._get_safe_series(df, sector_signal_name, 0.0, method_name="_calculate_stock_sector_sync")
-        # 归一化当前状态
+        sector_rank_raw = self._get_safe_series(df, sector_rank_name, 0.0, method_name="_calculate_stock_sector_sync")
+        sector_momentum_raw = self._get_safe_series(df, sector_momentum_name, 0.0, method_name="_calculate_stock_sector_sync")
+        # 归一化当前状态和动量
         stock_strength_score = self._normalize_series(stock_signal_raw, df_index, bipolar=True)
-        sector_strength_score = self._normalize_series(sector_signal_raw, df_index, bipolar=False) # 板块排名是[0,1]的单极信号
-        # 核心逻辑：领导力加权模型
-        leadership_amplifier = 1 + sector_strength_score
-        relationship_score = stock_strength_score * leadership_amplifier
+        sector_rank_score = self._normalize_series(sector_rank_raw, df_index, bipolar=False) # 板块排名是[0,1]的单极信号
+        sector_momentum_score = self._normalize_series(sector_momentum_raw, df_index, bipolar=True) # 板块动量是双极信号
+        # --- 看涨协同部分 (Bullish Synchronicity) ---
+        # 1. 提取个股正向运动
+        bullish_stock_movement = stock_strength_score.clip(lower=0)
+        # 2. 提取板块正向强度和正向动量
+        sector_strength_context_bullish = sector_rank_score
+        sector_momentum_context_bullish = sector_momentum_score.clip(lower=0)
+        # 3. 计算板块看涨共振因子 (几何平均，要求两者都为正才高)
+        bullish_sector_resonance = (sector_strength_context_bullish * sector_momentum_context_bullish).pow(0.5).fillna(0.0)
+        # 4. 计算看涨放大因子
+        bullish_amplification_factor = 1 + bullish_sector_resonance
+        # 5. 最终看涨协同分数
+        final_bullish_score = bullish_stock_movement * bullish_amplification_factor
+        # --- 看跌协同部分 (Bearish Synchronicity) ---
+        # 1. 提取个股负向运动的绝对值
+        bearish_stock_movement = stock_strength_score.clip(upper=0).abs()
+        # 2. 提取板块负向强度和负向动量
+        sector_weakness_context_bearish = (1 - sector_rank_score) # 板块排名越低，弱势越强
+        sector_negative_momentum_context_bearish = sector_momentum_score.clip(upper=0).abs()
+        # 3. 计算板块看跌共振因子 (几何平均)
+        bearish_sector_resonance = (sector_weakness_context_bearish * sector_negative_momentum_context_bearish).pow(0.5).fillna(0.0)
+        # 4. 计算看跌放大因子
+        bearish_amplification_factor = 1 + bearish_sector_resonance
+        # 5. 最终看跌协同分数 (转换为负分)
+        final_bearish_score = bearish_stock_movement * bearish_amplification_factor * -1
+        # --- 最终融合 ---
+        relationship_score = final_bullish_score + final_bearish_score
         final_score = relationship_score.clip(-1, 1)
-        return final_score
+        # --- 探针输出 ---
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            last_date_index = -1
+            print(f"\n--- [PROCESS_META_STOCK_SECTOR_SYNC 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
+            print("  [输入原料 (原始值)]: ")
+            print(f"    - {stock_signal_name}: {stock_signal_raw.iloc[last_date_index]:.4f}")
+            print(f"    - {sector_rank_name}: {sector_rank_raw.iloc[last_date_index]:.4f}")
+            print(f"    - {sector_momentum_name}: {sector_momentum_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算 (归一化/中间分)]: ")
+            print(f"    - stock_strength_score (bipolar): {stock_strength_score.iloc[last_date_index]:.4f}")
+            print(f"    - sector_rank_score (unipolar): {sector_rank_score.iloc[last_date_index]:.4f}")
+            print(f"    - sector_momentum_score (bipolar): {sector_momentum_score.iloc[last_date_index]:.4f}")
+            print("  [看涨协同部分]: ")
+            print(f"    - bullish_stock_movement: {bullish_stock_movement.iloc[last_date_index]:.4f}")
+            print(f"    - sector_strength_context_bullish: {sector_strength_context_bullish.iloc[last_date_index]:.4f}")
+            print(f"    - sector_momentum_context_bullish: {sector_momentum_context_bullish.iloc[last_date_index]:.4f}")
+            print(f"    - bullish_sector_resonance: {bullish_sector_resonance.iloc[last_date_index]:.4f}")
+            print(f"    - bullish_amplification_factor: {bullish_amplification_factor.iloc[last_date_index]:.4f}")
+            print(f"    - final_bullish_score: {final_bullish_score.iloc[last_date_index]:.4f}")
+            print("  [看跌协同部分]: ")
+            print(f"    - bearish_stock_movement: {bearish_stock_movement.iloc[last_date_index]:.4f}")
+            print(f"    - sector_weakness_context_bearish: {sector_weakness_context_bearish.iloc[last_date_index]:.4f}")
+            print(f"    - sector_negative_momentum_context_bearish: {sector_negative_momentum_context_bearish.iloc[last_date_index]:.4f}")
+            print(f"    - bearish_sector_resonance: {bearish_sector_resonance.iloc[last_date_index]:.4f}")
+            print(f"    - bearish_amplification_factor: {bearish_amplification_factor.iloc[last_date_index]:.4f}")
+            print(f"    - final_bearish_score: {final_bearish_score.iloc[last_date_index]:.4f}")
+            print("  [最终结果]: ")
+            print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score.astype(np.float32)
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """

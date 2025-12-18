@@ -2374,11 +2374,18 @@ class BehavioralIntelligence:
         lockup_rally_supply_exhaustion_weights = get_param_value(lockup_rally_params.get('supply_exhaustion_weights'), {"volume_atrophy": 0.4, "low_turnover": 0.3, "low_volatility_instability": 0.3})
         lockup_rally_main_force_intent_weights = get_param_value(lockup_rally_params.get('main_force_intent_weights'), {"intraday_bull_control": 0.4, "no_distribution_intent": 0.3, "low_deception_lure_short": 0.3})
         lockup_rally_context_modulator_weights = get_param_value(lockup_rally_params.get('context_modulator_weights'), {"low_overextension": 0.5, "low_volatility_instability": 0.5})
-        lockup_rally_turnover_rate_norm_window = get_param_value(lockup_rally_params.get('turnover_rate_norm_window'), 55)
-        lockup_rally_volatility_instability_norm_window = get_param_value(lockup_rally_params.get('volatility_instability_norm_window'), 55)
-        lockup_rally_deception_lure_short_norm_window = get_param_value(lockup_rally_params.get('deception_lure_short_norm_window'), 55)
-        lockup_rally_overextension_norm_window = get_param_value(lockup_rally_params.get('overextension_norm_window'), 55)
+        # MODIFIED LINE: 移除对 window 参数的获取，因为 get_adaptive_mtf_normalized_score 不接受此参数
+        # lockup_rally_turnover_rate_norm_window = get_param_value(lockup_rally_params.get('turnover_rate_norm_window'), 55)
+        # lockup_rally_volatility_instability_norm_window = get_param_value(lockup_rally_params.get('volatility_instability_norm_window'), 55)
+        # lockup_rally_deception_lure_short_norm_window = get_param_value(lockup_rally_params.get('deception_lure_short_norm_window'), 55)
+        # lockup_rally_overextension_norm_window = get_param_value(lockup_rally_params.get('overextension_norm_window'), 55)
         lockup_rally_final_exponent = get_param_value(lockup_rally_params.get('final_exponent'), 1.0)
+        # MODIFIED BLOCK START: 获取针对特定指标的tf_weights，如果未配置则使用default_weights
+        turnover_rate_tf_weights = get_param_value(lockup_rally_params.get('turnover_rate_tf_weights'), default_weights)
+        volatility_instability_tf_weights = get_param_value(lockup_rally_params.get('volatility_instability_tf_weights'), default_weights)
+        deception_lure_short_tf_weights = get_param_value(lockup_rally_params.get('deception_lure_short_tf_weights'), default_weights)
+        overextension_tf_weights = get_param_value(lockup_rally_params.get('overextension_tf_weights'), default_weights)
+        # MODIFIED BLOCK END
         # 2. 获取原始数据和依赖信号
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
         is_rising = (pct_change > 0).astype(float)
@@ -2398,8 +2405,10 @@ class BehavioralIntelligence:
             (upward_efficiency_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('upward_efficiency', 0.5))
         ).pow(1 / sum(lockup_rally_rally_purity_weights.values())).fillna(0.0)
         # 3.2 供应枯竭 (Supply Exhaustion)
-        norm_low_turnover = (1 - get_adaptive_mtf_normalized_score(turnover_rate_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_turnover_rate_norm_window)).clip(0, 1)
-        norm_low_volatility_instability = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_volatility_instability_norm_window)).clip(0, 1)
+        # MODIFIED LINE: 移除 window 参数
+        norm_low_turnover = (1 - get_adaptive_mtf_normalized_score(turnover_rate_raw, df.index, ascending=True, tf_weights=turnover_rate_tf_weights)).clip(0, 1)
+        # MODIFIED LINE: 移除 window 参数
+        norm_low_volatility_instability = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=volatility_instability_tf_weights)).clip(0, 1)
         supply_exhaustion_score = (
             (volume_atrophy_score + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('volume_atrophy', 0.4)) *
             (norm_low_turnover + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('low_turnover', 0.3)) *
@@ -2407,15 +2416,18 @@ class BehavioralIntelligence:
         ).pow(1 / sum(lockup_rally_supply_exhaustion_weights.values())).fillna(0.0)
         # 3.3 主力控盘意图 (Main Force Control Intent)
         norm_no_distribution_intent = (1 - distribution_intent_score).clip(0, 1)
-        norm_low_deception_lure_short = (1 - get_adaptive_mtf_normalized_score(deception_lure_short_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_deception_lure_short_norm_window)).clip(0, 1)
+        # MODIFIED LINE: 移除 window 参数
+        norm_low_deception_lure_short = (1 - get_adaptive_mtf_normalized_score(deception_lure_short_raw, df.index, ascending=True, tf_weights=deception_lure_short_tf_weights)).clip(0, 1)
         main_force_intent_score = (
             (intraday_bull_control_score + 1e-9).pow(lockup_rally_main_force_intent_weights.get('intraday_bull_control', 0.4)) *
             (norm_no_distribution_intent + 1e-9).pow(lockup_rally_main_force_intent_weights.get('no_distribution_intent', 0.3)) *
             (norm_low_deception_lure_short + 1e-9).pow(lockup_rally_main_force_intent_weights.get('low_deception_lure_short', 0.3))
         ).pow(1 / sum(lockup_rally_main_force_intent_weights.values())).fillna(0.0)
         # 3.4 情境调节因子 (Contextual Modulator)
-        norm_low_overextension = (1 - get_adaptive_mtf_normalized_score(price_overextension_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_overextension_norm_window)).clip(0, 1)
-        norm_low_volatility_instability_for_context = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_volatility_instability_norm_window)).clip(0, 1)
+        # MODIFIED LINE: 移除 window 参数
+        norm_low_overextension = (1 - get_adaptive_mtf_normalized_score(price_overextension_raw, df.index, ascending=True, tf_weights=overextension_tf_weights)).clip(0, 1)
+        # MODIFIED LINE: 移除 window 参数
+        norm_low_volatility_instability_for_context = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=volatility_instability_tf_weights)).clip(0, 1)
         context_modulator_score = (
             (norm_low_overextension + 1e-9).pow(lockup_rally_context_modulator_weights.get('low_overextension', 0.5)) *
             (norm_low_volatility_instability_for_context + 1e-9).pow(lockup_rally_context_modulator_weights.get('low_volatility_instability', 0.5))
