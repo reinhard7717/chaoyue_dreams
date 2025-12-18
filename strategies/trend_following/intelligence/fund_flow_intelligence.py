@@ -412,6 +412,7 @@ class FundFlowIntelligence:
         【V5.2 · 效率优化版】资金流公理一：诊断“战场控制权”
         - 核心优化: 集中所有原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         """
+        print(f"    -> [资金流层] 正在诊断 资金流公理五：诊断“资本属性”")
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -697,6 +698,7 @@ class FundFlowIntelligence:
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         """
+        print(f"    -> [资金流层] 正在诊断 资金流公理二：诊断“信念韧性”")
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -984,6 +986,7 @@ class FundFlowIntelligence:
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         """
+        print(f"    -> [资金流层] 正在诊断 资金流公理三：诊断“资金流纯度与动能”")
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -1311,6 +1314,7 @@ class FundFlowIntelligence:
         - 错误修复: 修正了 `SLOPE_5_SLOPE_5_net_lg_amount_calibrated_D` 命名错误，统一使用 `NMFNF_D` 及其衍生信号。
                     修复了 `retail_fomo_premium_index_D` 和 `retail_panic_surrender_index_D` 信号未被正确缓存导致的 KeyError。
         """
+        print(f"    -> [资金流层] 正在诊断 资金流公理五：诊断“资本属性”")
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -1617,8 +1621,7 @@ class FundFlowIntelligence:
         - 核心升级1: 流量效率增强：引入买卖流效率、订单簿清算率、VWAP控制强度等，更精细评估资金流效率。
         - 核心升级2: 结构风险过滤器增强：引入买卖方流动性，评估订单簿流动性风险。
         """
-        # 删除探针
-        # print("    -> [资金流层] 正在诊断“资金流结构健康度 (V1.1)”公理...")
+        print(f"    -> [资金流层] 正在诊断 资金流公理六：诊断“资金流结构健康度”")
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -1767,6 +1770,7 @@ class FundFlowIntelligence:
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_calculate_mtf_cohesion_divergence`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         """
+        print(f"    -> [资金流层] 正在诊断 资金流公理四：诊断“资金流看涨/看跌背离”")
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})

@@ -947,9 +947,10 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
 
 def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
     """
-    【V1.3 · 零值鲁棒性增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
+    【V1.4 · 零值鲁棒性增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
     - 核心升级: 增加了对输入序列全为零情况的特殊处理，确保当原始数据无有效信息时，归一化结果为0。
-                新增：确保当原始序列的当前值为0时，其归一化分数也为0，避免因窗口内历史数据导致0值被错误赋予非零分数。
+                确保当原始序列的当前值为0时，其归一化分数也为0，避免因窗口内历史数据导致0值被错误赋予非零分数。
+    - 核心修复: 修正了对非零但绝对值很小的数值强制设为0的逻辑，确保只有原始值为0时，归一化分数才为0。
     参数:
         series (pd.Series): 原始数据序列。
         target_index (pd.Index): 目标索引，用于对齐返回的Series。
@@ -961,18 +962,23 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     """
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(default_value, index=target_index)
+    # 检查是否所有有效值都为零，如果是，则直接返回0
     if (series.dropna().abs() < 1e-9).all():
         return pd.Series(0.0, index=target_index).astype(np.float32)
     series_aligned = series.reindex(target_index)
+    # 记录原始的0值位置
+    is_original_zero = (series_aligned.abs() < 1e-9) # 修改代码行：使用1e-9作为判断0的阈值
+    # 填充NaN值以进行滚动计算
     padded_series = series_aligned.fillna(method='ffill').fillna(method='bfill').fillna(0)
     padded_series = pd.to_numeric(padded_series, errors='coerce').fillna(0)
+    # 滚动排名归一化
     ranked_series = padded_series.rolling(window=window, min_periods=1).apply(
         lambda x: x.rank(method='average', ascending=ascending).iloc[-1] / len(x), raw=False
     )
     normalized_series = ranked_series.clip(0, 1)
     # 核心修正：如果原始序列的当前值为0（或接近0），则其归一化分数也应为0。
-    # 使用原始的 series_aligned 来判断，因为它保留了原始的0值位置。
-    normalized_series = normalized_series.where(series_aligned.abs() > 1e-9, 0.0)
+    # 这一步只针对原始值为0的情况，而不是对所有绝对值小于1e-9的归一化结果进行强制归零。
+    normalized_series = normalized_series.where(~is_original_zero, 0.0) # 修改代码行：只对原始值为0的位置进行归零
     return normalized_series.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:

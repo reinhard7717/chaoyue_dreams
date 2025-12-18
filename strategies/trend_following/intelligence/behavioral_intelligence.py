@@ -2373,91 +2373,174 @@ class BehavioralIntelligence:
 
     def _calculate_lockup_rally_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V2.0 · 锁仓拉升深度洞察版】计算锁仓拉升机会信号。
-        - 核心逻辑: 将“锁仓拉升”解构为“上涨纯度”、“供应枯竭”和“主力控盘意图”三大核心维度，
-                      并引入“情境感知”进行动态调节。
-        - 数学模型: 最终信号 = is_rising * (上涨纯度^W1 * 供应枯竭^W2 * 主力控盘意图^W3 * 情境调节因子^W4)^(1/Sum(W))
+        【V3.1 · 锁仓拉升深度洞察与多维情境感知版 - 调试模式】计算锁仓拉升机会信号。
+        - 核心升级: 将“锁仓拉升”解构为“上涨纯度”、“供应枯竭”、“主力控盘意图”和“情境共振”四大核心维度，
+                      并引入多时间维度斜率与加速度、筹码结构、市场情绪等新原始数据，深化判断。
+        - 目标: 识别在多头趋势中，主力资金高度控盘，市场抛压枯竭，且上涨动能纯粹、效率高，同时市场环境有利的锁仓拉升机会。
+        - 数学模型: 最终信号 = is_rising * (上涨纯度^W1 * 供应枯竭^W2 * 主力控盘意图^W3 * 情境共振^W4)^(1/Sum(W))
+        - 【新增】在方法开始时加入对所有原料数据的存在性检查。
+        - 【新增】在调试模式下，输出所有原始数据、关键计算节点和最终结果，以便于检查和调试。
         """
         method_name = "_calculate_lockup_rally_opportunity"
-        # 1. 获取参数
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         lockup_rally_params = get_param_value(p_behavioral_div_conf.get('lockup_rally_params'), {})
         lockup_rally_enabled = get_param_value(lockup_rally_params.get('enabled'), False)
         if not lockup_rally_enabled:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        lockup_rally_fusion_weights = get_param_value(lockup_rally_params.get('fusion_weights'), {"rally_purity": 0.3, "supply_exhaustion": 0.3, "main_force_intent": 0.2, "context_modulator": 0.2})
-        lockup_rally_rally_purity_weights = get_param_value(lockup_rally_params.get('rally_purity_weights'), {"upward_momentum": 0.5, "upward_efficiency": 0.5})
-        lockup_rally_supply_exhaustion_weights = get_param_value(lockup_rally_params.get('supply_exhaustion_weights'), {"volume_atrophy": 0.4, "low_turnover": 0.3, "low_volatility_instability": 0.3})
-        lockup_rally_main_force_intent_weights = get_param_value(lockup_rally_params.get('main_force_intent_weights'), {"intraday_bull_control": 0.4, "no_distribution_intent": 0.3, "low_deception_lure_short": 0.3})
-        lockup_rally_context_modulator_weights = get_param_value(lockup_rally_params.get('context_modulator_weights'), {"low_overextension": 0.5, "low_volatility_instability": 0.5})
-        # MODIFIED LINE: 移除对 window 参数的获取，因为 get_adaptive_mtf_normalized_score 不接受此参数
-        # lockup_rally_turnover_rate_norm_window = get_param_value(lockup_rally_params.get('turnover_rate_norm_window'), 55)
-        # lockup_rally_volatility_instability_norm_window = get_param_value(lockup_rally_params.get('volatility_instability_norm_window'), 55)
-        # lockup_rally_deception_lure_short_norm_window = get_param_value(lockup_rally_params.get('deception_lure_short_norm_window'), 55)
-        # lockup_rally_overextension_norm_window = get_param_value(lockup_rally_params.get('overextension_norm_window'), 55)
+        lockup_rally_fusion_weights = get_param_value(lockup_rally_params.get('fusion_weights'), {
+            "rally_purity": 0.25, "supply_exhaustion": 0.25, "main_force_intent": 0.25, "context_resonance": 0.25
+        })
+        lockup_rally_rally_purity_weights = get_param_value(lockup_rally_params.get('rally_purity_weights'), {
+            "upward_momentum": 0.3, "upward_efficiency": 0.3, "price_momentum_coherence": 0.4
+        })
+        lockup_rally_supply_exhaustion_weights = get_param_value(lockup_rally_params.get('supply_exhaustion_weights'), {
+            "volume_atrophy": 0.3, "low_turnover": 0.2, "low_volatility_instability": 0.2, "supply_pressure_relief": 0.3
+        })
+        lockup_rally_main_force_intent_weights = get_param_value(lockup_rally_params.get('main_force_intent_weights'), {
+            "intraday_bull_control": 0.3, "no_distribution_intent": 0.2, "low_deception_lure_short": 0.2, "mf_accumulation_conviction": 0.3
+        })
+        lockup_rally_context_resonance_weights = get_param_value(lockup_rally_params.get('context_resonance_weights'), {
+            "low_overextension": 0.3, "low_stagnation_evidence": 0.2, "trend_alignment": 0.3, "market_sentiment_health": 0.2
+        })
         lockup_rally_final_exponent = get_param_value(lockup_rally_params.get('final_exponent'), 1.0)
-        # MODIFIED BLOCK START: 获取针对特定指标的tf_weights，如果未配置则使用default_weights
         turnover_rate_tf_weights = get_param_value(lockup_rally_params.get('turnover_rate_tf_weights'), default_weights)
         volatility_instability_tf_weights = get_param_value(lockup_rally_params.get('volatility_instability_tf_weights'), default_weights)
         deception_lure_short_tf_weights = get_param_value(lockup_rally_params.get('deception_lure_short_tf_weights'), default_weights)
         overextension_tf_weights = get_param_value(lockup_rally_params.get('overextension_tf_weights'), default_weights)
-        # MODIFIED BLOCK END
-        # 2. 获取原始数据和依赖信号
-        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        stagnation_evidence_tf_weights = get_param_value(lockup_rally_params.get('stagnation_evidence_tf_weights'), default_weights)
+        retail_fomo_tf_weights = get_param_value(lockup_rally_params.get('retail_fomo_tf_weights'), default_weights)
+        required_signals = [
+            'pct_change_D', 'turnover_rate_f_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'deception_lure_short_intensity_D', 'chip_fatigue_index_D', 'loser_pain_index_D',
+            'floating_chip_cleansing_efficiency_D', 'main_force_conviction_index_D',
+            'covert_accumulation_signal_D', 'ADX_14_D', 'retail_fomo_premium_index_D',
+            'robust_close_slope', 'robust_pct_change_slope', 'robust_RSI_13_slope',
+            'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
+            'long_term_close_slope', 'long_term_adx_slope',
+            'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
+            'SLOPE_5_main_force_conviction_index_D'
+        ]
+        required_states = [
+            'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
+            'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
+            'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW',
+            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'
+        ]
+        missing_df_signals = [s for s in required_signals if s not in df.columns]
+        missing_state_signals = [s for s in required_states if s not in states]
+        if missing_df_signals or missing_state_signals:
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号。")
+            if missing_df_signals:
+                print(f"       - DataFrame中缺失: {missing_df_signals}")
+            if missing_state_signals:
+                print(f"       - States中缺失: {missing_state_signals}")
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        pct_change = df['pct_change_D']
         is_rising = (pct_change > 0).astype(float)
-        upward_momentum_score = states.get('SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', pd.Series(0.0, index=df.index))
-        upward_efficiency_score = states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.0, index=df.index))
-        volume_atrophy_score = states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.0, index=df.index))
-        intraday_bull_control_score = states.get('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', pd.Series(0.0, index=df.index))
-        distribution_intent_score = states.get('SCORE_BEHAVIOR_DISTRIBUTION_INTENT', pd.Series(0.0, index=df.index))
-        price_overextension_raw = states.get('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', pd.Series(0.0, index=df.index))
-        turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name)
-        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
-        deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
-        # 3. 计算子维度分数
-        # 3.1 上涨纯度 (Rally Purity)
+        upward_momentum_score = states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM']
+        upward_efficiency_score = states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']
+        volume_atrophy_score = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']
+        intraday_bull_control_score = states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']
+        distribution_intent_score = states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
+        price_overextension_raw = states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW']
+        stagnation_evidence_raw = states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW']
+        turnover_rate_raw = df['turnover_rate_f_D']
+        volatility_instability_raw = df['VOLATILITY_INSTABILITY_INDEX_21d_D']
+        deception_lure_short_raw = df['deception_lure_short_intensity_D']
+        chip_fatigue_raw = df['chip_fatigue_index_D']
+        loser_pain_raw = df['loser_pain_index_D']
+        cleansing_efficiency_raw = df['floating_chip_cleansing_efficiency_D']
+        main_force_conviction_raw = df['main_force_conviction_index_D']
+        covert_accumulation_raw = df['covert_accumulation_signal_D']
+        adx_raw = df['ADX_14_D']
+        retail_fomo_raw = df['retail_fomo_premium_index_D']
+        robust_close_slope = df['robust_close_slope']
+        robust_pct_change_slope = df['robust_pct_change_slope']
+        robust_rsi_slope = df['robust_RSI_13_slope']
+        robust_macd_slope = df['robust_MACDh_13_34_8_slope']
+        robust_volume_slope = df['robust_volume_slope']
+        long_term_close_slope = df['long_term_close_slope']
+        long_term_adx_slope = df['long_term_adx_slope']
+        accel_close = df['ACCEL_5_close_D']
+        accel_rsi = df['ACCEL_5_RSI_13_D']
+        accel_macd = df['ACCEL_5_MACDh_13_34_8_D']
+        accel_volume = df['ACCEL_5_volume_D']
+        mf_conviction_slope_raw = df['SLOPE_5_main_force_conviction_index_D']
+        price_momentum_coherence_score = pd.Series(0.0, index=df.index)
+        norm_robust_close_slope = get_adaptive_mtf_normalized_score(robust_close_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_robust_pct_change_slope = get_adaptive_mtf_normalized_score(robust_pct_change_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_robust_rsi_slope = get_adaptive_mtf_normalized_score(robust_rsi_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_robust_macd_slope = get_adaptive_mtf_normalized_score(robust_macd_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_long_term_close_slope = get_adaptive_mtf_normalized_score(long_term_close_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_long_term_adx_slope = get_adaptive_mtf_normalized_score(long_term_adx_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_accel_close = get_adaptive_mtf_normalized_score(accel_close.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_accel_rsi = get_adaptive_mtf_normalized_score(accel_rsi.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_accel_macd = get_adaptive_mtf_normalized_score(accel_macd.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        price_momentum_coherence_score = (
+            (norm_robust_close_slope + norm_robust_pct_change_slope + norm_robust_rsi_slope + norm_robust_macd_slope) / 4 *
+            (norm_long_term_close_slope + norm_long_term_adx_slope) / 2 *
+            (norm_accel_close + norm_accel_rsi + norm_accel_macd) / 3
+        ).pow(1/3).clip(0,1)
         rally_purity_score = (
-            (upward_momentum_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('upward_momentum', 0.5)) *
-            (upward_efficiency_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('upward_efficiency', 0.5))
+            (upward_momentum_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('upward_momentum', 0.3)) *
+            (upward_efficiency_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('upward_efficiency', 0.3)) *
+            (price_momentum_coherence_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('price_momentum_coherence', 0.4))
         ).pow(1 / sum(lockup_rally_rally_purity_weights.values())).fillna(0.0)
-        # 3.2 供应枯竭 (Supply Exhaustion)
-        # MODIFIED LINE: 移除 window 参数
+        norm_chip_fatigue = (1 - get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
+        norm_loser_pain = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
+        norm_cleansing_efficiency = get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
+        supply_pressure_relief_score = (
+            (norm_chip_fatigue + 1e-9).pow(0.4) *
+            (norm_loser_pain + 1e-9).pow(0.3) *
+            (norm_cleansing_efficiency + 1e-9).pow(0.3)
+        ).pow(1/3).clip(0,1)
         norm_low_turnover = (1 - get_adaptive_mtf_normalized_score(turnover_rate_raw, df.index, ascending=True, tf_weights=turnover_rate_tf_weights)).clip(0, 1)
-        # MODIFIED LINE: 移除 window 参数
         norm_low_volatility_instability = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=volatility_instability_tf_weights)).clip(0, 1)
         supply_exhaustion_score = (
-            (volume_atrophy_score + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('volume_atrophy', 0.4)) *
-            (norm_low_turnover + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('low_turnover', 0.3)) *
-            (norm_low_volatility_instability + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('low_volatility_instability', 0.3))
+            (volume_atrophy_score + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('volume_atrophy', 0.3)) *
+            (norm_low_turnover + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('low_turnover', 0.2)) *
+            (norm_low_volatility_instability + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('low_volatility_instability', 0.2)) *
+            (supply_pressure_relief_score + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('supply_pressure_relief', 0.3))
         ).pow(1 / sum(lockup_rally_supply_exhaustion_weights.values())).fillna(0.0)
-        # 3.3 主力控盘意图 (Main Force Control Intent)
+        norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_covert_accumulation = get_adaptive_mtf_normalized_score(covert_accumulation_raw, df.index, ascending=True, tf_weights=default_weights)
+        norm_mf_conviction_slope = get_adaptive_mtf_normalized_score(mf_conviction_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        mf_accumulation_conviction_score = (
+            (norm_main_force_conviction + 1e-9).pow(0.4) *
+            (norm_covert_accumulation + 1e-9).pow(0.3) *
+            (norm_mf_conviction_slope + 1e-9).pow(0.3)
+        ).pow(1/3).clip(0,1)
         norm_no_distribution_intent = (1 - distribution_intent_score).clip(0, 1)
-        # MODIFIED LINE: 移除 window 参数
         norm_low_deception_lure_short = (1 - get_adaptive_mtf_normalized_score(deception_lure_short_raw, df.index, ascending=True, tf_weights=deception_lure_short_tf_weights)).clip(0, 1)
         main_force_intent_score = (
-            (intraday_bull_control_score + 1e-9).pow(lockup_rally_main_force_intent_weights.get('intraday_bull_control', 0.4)) *
-            (norm_no_distribution_intent + 1e-9).pow(lockup_rally_main_force_intent_weights.get('no_distribution_intent', 0.3)) *
-            (norm_low_deception_lure_short + 1e-9).pow(lockup_rally_main_force_intent_weights.get('low_deception_lure_short', 0.3))
+            (intraday_bull_control_score + 1e-9).pow(lockup_rally_main_force_intent_weights.get('intraday_bull_control', 0.3)) *
+            (norm_no_distribution_intent + 1e-9).pow(lockup_rally_main_force_intent_weights.get('no_distribution_intent', 0.2)) *
+            (norm_low_deception_lure_short + 1e-9).pow(lockup_rally_main_force_intent_weights.get('low_deception_lure_short', 0.2)) *
+            (mf_accumulation_conviction_score + 1e-9).pow(lockup_rally_main_force_intent_weights.get('mf_accumulation_conviction', 0.3))
         ).pow(1 / sum(lockup_rally_main_force_intent_weights.values())).fillna(0.0)
-        # 3.4 情境调节因子 (Contextual Modulator)
-        # MODIFIED LINE: 移除 window 参数
+        norm_long_term_close_slope_positive = get_adaptive_mtf_normalized_score(long_term_close_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_adx_strength = get_adaptive_mtf_normalized_score(adx_raw, df.index, ascending=True, tf_weights=default_weights)
+        trend_alignment_score = (norm_long_term_close_slope_positive * norm_adx_strength).pow(0.5).clip(0,1)
+        norm_low_retail_fomo = (1 - get_adaptive_mtf_normalized_score(retail_fomo_raw, df.index, ascending=True, tf_weights=retail_fomo_tf_weights)).clip(0,1)
+        market_sentiment_health_score = norm_low_retail_fomo
         norm_low_overextension = (1 - get_adaptive_mtf_normalized_score(price_overextension_raw, df.index, ascending=True, tf_weights=overextension_tf_weights)).clip(0, 1)
-        # MODIFIED LINE: 移除 window 参数
+        norm_low_stagnation_evidence = (1 - get_adaptive_mtf_normalized_score(stagnation_evidence_raw, df.index, ascending=True, tf_weights=stagnation_evidence_tf_weights)).clip(0, 1)
         norm_low_volatility_instability_for_context = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=volatility_instability_tf_weights)).clip(0, 1)
-        context_modulator_score = (
-            (norm_low_overextension + 1e-9).pow(lockup_rally_context_modulator_weights.get('low_overextension', 0.5)) *
-            (norm_low_volatility_instability_for_context + 1e-9).pow(lockup_rally_context_modulator_weights.get('low_volatility_instability', 0.5))
-        ).pow(1 / sum(lockup_rally_context_modulator_weights.values())).fillna(0.0)
-        # 4. 最终融合
+        context_resonance_score = (
+            (norm_low_overextension + 1e-9).pow(lockup_rally_context_resonance_weights.get('low_overextension', 0.3)) *
+            (norm_low_stagnation_evidence + 1e-9).pow(lockup_rally_context_resonance_weights.get('low_stagnation_evidence', 0.2)) *
+            (trend_alignment_score + 1e-9).pow(lockup_rally_context_resonance_weights.get('trend_alignment', 0.3)) *
+            (market_sentiment_health_score + 1e-9).pow(lockup_rally_context_resonance_weights.get('market_sentiment_health', 0.2)) *
+            (norm_low_volatility_instability_for_context + 1e-9).pow(lockup_rally_context_resonance_weights.get('low_volatility_instability', 0.0)) # 确保权重和为1
+        ).pow(1 / sum(lockup_rally_context_resonance_weights.values())).fillna(0.0)
         lockup_rally_score = (
-            (rally_purity_score + 1e-9).pow(lockup_rally_fusion_weights.get('rally_purity', 0.3)) *
-            (supply_exhaustion_score + 1e-9).pow(lockup_rally_fusion_weights.get('supply_exhaustion', 0.3)) *
-            (main_force_intent_score + 1e-9).pow(lockup_rally_fusion_weights.get('main_force_intent', 0.2)) *
-            (context_modulator_score + 1e-9).pow(lockup_rally_fusion_weights.get('context_modulator', 0.2))
+            (rally_purity_score + 1e-9).pow(lockup_rally_fusion_weights.get('rally_purity', 0.25)) *
+            (supply_exhaustion_score + 1e-9).pow(lockup_rally_fusion_weights.get('supply_exhaustion', 0.25)) *
+            (main_force_intent_score + 1e-9).pow(lockup_rally_fusion_weights.get('main_force_intent', 0.25)) *
+            (context_resonance_score + 1e-9).pow(lockup_rally_fusion_weights.get('context_resonance', 0.25))
         ).pow(1 / sum(lockup_rally_fusion_weights.values()))
         lockup_rally_score = lockup_rally_score.where(is_rising > 0, 0.0).clip(0, 1).astype(np.float32)
         final_lockup_rally_score = lockup_rally_score.pow(lockup_rally_final_exponent)
-        # 5. 调试探针
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] SCORE_OPPORTUNITY_LOCKUP_RALLY @ {probe_ts.strftime('%Y-%m-%d')}")
             print(f"        - 原始数据:")
@@ -2465,25 +2548,69 @@ class BehavioralIntelligence:
             print(f"          - turnover_rate_f_D: {turnover_rate_raw.loc[probe_ts]:.4f}")
             print(f"          - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f}")
             print(f"          - deception_lure_short_intensity_D: {deception_lure_short_raw.loc[probe_ts]:.4f}")
-            print(f"        - 依赖信号:")
+            print(f"          - chip_fatigue_index_D: {chip_fatigue_raw.loc[probe_ts]:.4f}")
+            print(f"          - loser_pain_index_D: {loser_pain_raw.loc[probe_ts]:.4f}")
+            print(f"          - floating_chip_cleansing_efficiency_D: {cleansing_efficiency_raw.loc[probe_ts]:.4f}")
+            print(f"          - main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_ts]:.4f}")
+            print(f"          - covert_accumulation_signal_D: {covert_accumulation_raw.loc[probe_ts]:.4f}")
+            print(f"          - ADX_14_D: {adx_raw.loc[probe_ts]:.4f}")
+            print(f"          - retail_fomo_premium_index_D: {retail_fomo_raw.loc[probe_ts]:.4f}")
+            print(f"          - robust_close_slope: {robust_close_slope.loc[probe_ts]:.4f}")
+            print(f"          - robust_pct_change_slope: {robust_pct_change_slope.loc[probe_ts]:.4f}")
+            print(f"          - robust_RSI_13_slope: {robust_rsi_slope.loc[probe_ts]:.4f}")
+            print(f"          - robust_MACDh_13_34_8_slope: {robust_macd_slope.loc[probe_ts]:.4f}")
+            print(f"          - robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
+            print(f"          - long_term_close_slope: {long_term_close_slope.loc[probe_ts]:.4f}")
+            print(f"          - long_term_adx_slope: {long_term_adx_slope.loc[probe_ts]:.4f}")
+            print(f"          - ACCEL_5_close_D: {accel_close.loc[probe_ts]:.4f}")
+            print(f"          - ACCEL_5_RSI_13_D: {accel_rsi.loc[probe_ts]:.4f}")
+            print(f"          - ACCEL_5_MACDh_13_34_8_D: {accel_macd.loc[probe_ts]:.4f}")
+            print(f"          - ACCEL_5_volume_D: {accel_volume.loc[probe_ts]:.4f}")
+            print(f"          - SLOPE_5_main_force_conviction_index_D: {mf_conviction_slope_raw.loc[probe_ts]:.4f}")
+            print(f"        - 依赖信号 (来自states):")
             print(f"          - SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM: {upward_momentum_score.loc[probe_ts]:.4f}")
             print(f"          - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency_score.loc[probe_ts]:.4f}")
             print(f"          - SCORE_BEHAVIOR_VOLUME_ATROPHY: {volume_atrophy_score.loc[probe_ts]:.4f}")
             print(f"          - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_score.loc[probe_ts]:.4f}")
             print(f"          - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent_score.loc[probe_ts]:.4f}")
             print(f"          - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {price_overextension_raw.loc[probe_ts]:.4f}")
+            print(f"          - INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW: {stagnation_evidence_raw.loc[probe_ts]:.4f}")
             print(f"        - 关键计算节点:")
             print(f"          - is_rising: {is_rising.loc[probe_ts]:.4f}")
+            print(f"          - norm_robust_close_slope: {norm_robust_close_slope.loc[probe_ts]:.4f}")
+            print(f"          - norm_robust_pct_change_slope: {norm_robust_pct_change_slope.loc[probe_ts]:.4f}")
+            print(f"          - norm_robust_rsi_slope: {norm_robust_rsi_slope.loc[probe_ts]:.4f}")
+            print(f"          - norm_robust_macd_slope: {norm_robust_macd_slope.loc[probe_ts]:.4f}")
+            print(f"          - norm_long_term_close_slope: {norm_long_term_close_slope.loc[probe_ts]:.4f}")
+            print(f"          - norm_long_term_adx_slope: {norm_long_term_adx_slope.loc[probe_ts]:.4f}")
+            print(f"          - norm_accel_close: {norm_accel_close.loc[probe_ts]:.4f}")
+            print(f"          - norm_accel_rsi: {norm_accel_rsi.loc[probe_ts]:.4f}")
+            print(f"          - norm_accel_macd: {norm_accel_macd.loc[probe_ts]:.4f}")
+            print(f"          - price_momentum_coherence_score: {price_momentum_coherence_score.loc[probe_ts]:.4f}")
             print(f"          - rally_purity_score: {rally_purity_score.loc[probe_ts]:.4f}")
+            print(f"          - norm_chip_fatigue: {norm_chip_fatigue.loc[probe_ts]:.4f}")
+            print(f"          - norm_loser_pain: {norm_loser_pain.loc[probe_ts]:.4f}")
+            print(f"          - norm_cleansing_efficiency: {norm_cleansing_efficiency.loc[probe_ts]:.4f}")
+            print(f"          - supply_pressure_relief_score: {supply_pressure_relief_score.loc[probe_ts]:.4f}")
             print(f"          - norm_low_turnover: {norm_low_turnover.loc[probe_ts]:.4f}")
             print(f"          - norm_low_volatility_instability: {norm_low_volatility_instability.loc[probe_ts]:.4f}")
             print(f"          - supply_exhaustion_score: {supply_exhaustion_score.loc[probe_ts]:.4f}")
+            print(f"          - norm_main_force_conviction: {norm_main_force_conviction.loc[probe_ts]:.4f}")
+            print(f"          - norm_covert_accumulation: {norm_covert_accumulation.loc[probe_ts]:.4f}")
+            print(f"          - norm_mf_conviction_slope: {norm_mf_conviction_slope.loc[probe_ts]:.4f}")
+            print(f"          - mf_accumulation_conviction_score: {mf_accumulation_conviction_score.loc[probe_ts]:.4f}")
             print(f"          - norm_no_distribution_intent: {norm_no_distribution_intent.loc[probe_ts]:.4f}")
             print(f"          - norm_low_deception_lure_short: {norm_low_deception_lure_short.loc[probe_ts]:.4f}")
             print(f"          - main_force_intent_score: {main_force_intent_score.loc[probe_ts]:.4f}")
             print(f"          - norm_low_overextension: {norm_low_overextension.loc[probe_ts]:.4f}")
+            print(f"          - norm_low_stagnation_evidence: {norm_low_stagnation_evidence.loc[probe_ts]:.4f}")
+            print(f"          - norm_long_term_close_slope_positive: {norm_long_term_close_slope_positive.loc[probe_ts]:.4f}")
+            print(f"          - norm_adx_strength: {norm_adx_strength.loc[probe_ts]:.4f}")
+            print(f"          - trend_alignment_score: {trend_alignment_score.loc[probe_ts]:.4f}")
+            print(f"          - norm_low_retail_fomo: {norm_low_retail_fomo.loc[probe_ts]:.4f}")
+            print(f"          - market_sentiment_health_score: {market_sentiment_health_score.loc[probe_ts]:.4f}")
             print(f"          - norm_low_volatility_instability_for_context: {norm_low_volatility_instability_for_context.loc[probe_ts]:.4f}")
-            print(f"          - context_modulator_score: {context_modulator_score.loc[probe_ts]:.4f}")
+            print(f"          - context_resonance_score: {context_resonance_score.loc[probe_ts]:.4f}")
             print(f"        - 最终结果: SCORE_OPPORTUNITY_LOCKUP_RALLY = {final_lockup_rally_score.loc[probe_ts]:.4f}")
         return final_lockup_rally_score
 
