@@ -266,7 +266,11 @@ class BehavioralIntelligence:
             'impulse_quality_ratio_D',
             'volume_structure_skew_D',
             'volume_burstiness_index_D',
-            'closing_strength_index_D'
+            'closing_strength_index_D',
+            'SLOPE_55_close_D', # 新增：用于卖盘衰竭的强上涨趋势门控
+            'market_sentiment_score_D', # 新增：用于卖盘衰竭的动态权重调制
+            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', # 新增：用于卖盘衰竭的情境就绪
+            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT' # 新增：用于卖盘衰竭的情境就绪
         ]
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
@@ -439,19 +443,12 @@ class BehavioralIntelligence:
         lockup_rally_score = self._calculate_lockup_rally_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
         df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
-        is_falling = (pct_change < 0).astype(float)
-        capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
-        selling_deceleration_score = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
-        capitulation_confirm_score = get_adaptive_mtf_normalized_score(capitulation_raw, df.index, ascending=True, tf_weights=default_weights)
-        selling_exhaustion_score = (
-            states['SCORE_BEHAVIOR_VOLUME_ATROPHY'].pow(0.3) *
-            states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'].pow(0.3) *
-            selling_deceleration_score.pow(0.2) *
-            capitulation_confirm_score.pow(0.2)
-        ).fillna(0.0)
-        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
-        df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION']
-        states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
+        # MODIFIED BLOCK START: 移除旧的 SCORE_OPPORTUNITY_SELLING_EXHAUSTION 计算，调用新方法
+        selling_exhaustion_score = self._diagnose_selling_exhaustion_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
+        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
+        df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
+        # MODIFIED BLOCK END
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = (pct_change.clip(upper=0).abs() * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
         return states
 
@@ -2373,13 +2370,13 @@ class BehavioralIntelligence:
 
     def _calculate_lockup_rally_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V3.1 · 锁仓拉升深度洞察与多维情境感知版 - 调试模式】计算锁仓拉升机会信号。
+        【V3.2 · 锁仓拉升深度洞察与多维情境感知版 - 生产就绪】计算锁仓拉升机会信号。
         - 核心升级: 将“锁仓拉升”解构为“上涨纯度”、“供应枯竭”、“主力控盘意图”和“情境共振”四大核心维度，
                       并引入多时间维度斜率与加速度、筹码结构、市场情绪等新原始数据，深化判断。
         - 目标: 识别在多头趋势中，主力资金高度控盘，市场抛压枯竭，且上涨动能纯粹、效率高，同时市场环境有利的锁仓拉升机会。
         - 数学模型: 最终信号 = is_rising * (上涨纯度^W1 * 供应枯竭^W2 * 主力控盘意图^W3 * 情境共振^W4)^(1/Sum(W))
         - 【新增】在方法开始时加入对所有原料数据的存在性检查。
-        - 【新增】在调试模式下，输出所有原始数据、关键计算节点和最终结果，以便于检查和调试。
+        - 【清理】移除所有调试探针代码，恢复生产状态。
         """
         method_name = "_calculate_lockup_rally_opportunity"
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
@@ -2531,7 +2528,7 @@ class BehavioralIntelligence:
             (norm_low_stagnation_evidence + 1e-9).pow(lockup_rally_context_resonance_weights.get('low_stagnation_evidence', 0.2)) *
             (trend_alignment_score + 1e-9).pow(lockup_rally_context_resonance_weights.get('trend_alignment', 0.3)) *
             (market_sentiment_health_score + 1e-9).pow(lockup_rally_context_resonance_weights.get('market_sentiment_health', 0.2)) *
-            (norm_low_volatility_instability_for_context + 1e-9).pow(lockup_rally_context_resonance_weights.get('low_volatility_instability', 0.0)) # 确保权重和为1
+            (norm_low_volatility_instability_for_context + 1e-9).pow(lockup_rally_context_resonance_weights.get('low_volatility_instability', 0.0))
         ).pow(1 / sum(lockup_rally_context_resonance_weights.values())).fillna(0.0)
         lockup_rally_score = (
             (rally_purity_score + 1e-9).pow(lockup_rally_fusion_weights.get('rally_purity', 0.25)) *
@@ -2541,77 +2538,6 @@ class BehavioralIntelligence:
         ).pow(1 / sum(lockup_rally_fusion_weights.values()))
         lockup_rally_score = lockup_rally_score.where(is_rising > 0, 0.0).clip(0, 1).astype(np.float32)
         final_lockup_rally_score = lockup_rally_score.pow(lockup_rally_final_exponent)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] SCORE_OPPORTUNITY_LOCKUP_RALLY @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"        - 原始数据:")
-            print(f"          - pct_change_D: {pct_change.loc[probe_ts]:.4f}")
-            print(f"          - turnover_rate_f_D: {turnover_rate_raw.loc[probe_ts]:.4f}")
-            print(f"          - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f}")
-            print(f"          - deception_lure_short_intensity_D: {deception_lure_short_raw.loc[probe_ts]:.4f}")
-            print(f"          - chip_fatigue_index_D: {chip_fatigue_raw.loc[probe_ts]:.4f}")
-            print(f"          - loser_pain_index_D: {loser_pain_raw.loc[probe_ts]:.4f}")
-            print(f"          - floating_chip_cleansing_efficiency_D: {cleansing_efficiency_raw.loc[probe_ts]:.4f}")
-            print(f"          - main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_ts]:.4f}")
-            print(f"          - covert_accumulation_signal_D: {covert_accumulation_raw.loc[probe_ts]:.4f}")
-            print(f"          - ADX_14_D: {adx_raw.loc[probe_ts]:.4f}")
-            print(f"          - retail_fomo_premium_index_D: {retail_fomo_raw.loc[probe_ts]:.4f}")
-            print(f"          - robust_close_slope: {robust_close_slope.loc[probe_ts]:.4f}")
-            print(f"          - robust_pct_change_slope: {robust_pct_change_slope.loc[probe_ts]:.4f}")
-            print(f"          - robust_RSI_13_slope: {robust_rsi_slope.loc[probe_ts]:.4f}")
-            print(f"          - robust_MACDh_13_34_8_slope: {robust_macd_slope.loc[probe_ts]:.4f}")
-            print(f"          - robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
-            print(f"          - long_term_close_slope: {long_term_close_slope.loc[probe_ts]:.4f}")
-            print(f"          - long_term_adx_slope: {long_term_adx_slope.loc[probe_ts]:.4f}")
-            print(f"          - ACCEL_5_close_D: {accel_close.loc[probe_ts]:.4f}")
-            print(f"          - ACCEL_5_RSI_13_D: {accel_rsi.loc[probe_ts]:.4f}")
-            print(f"          - ACCEL_5_MACDh_13_34_8_D: {accel_macd.loc[probe_ts]:.4f}")
-            print(f"          - ACCEL_5_volume_D: {accel_volume.loc[probe_ts]:.4f}")
-            print(f"          - SLOPE_5_main_force_conviction_index_D: {mf_conviction_slope_raw.loc[probe_ts]:.4f}")
-            print(f"        - 依赖信号 (来自states):")
-            print(f"          - SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM: {upward_momentum_score.loc[probe_ts]:.4f}")
-            print(f"          - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency_score.loc[probe_ts]:.4f}")
-            print(f"          - SCORE_BEHAVIOR_VOLUME_ATROPHY: {volume_atrophy_score.loc[probe_ts]:.4f}")
-            print(f"          - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_score.loc[probe_ts]:.4f}")
-            print(f"          - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent_score.loc[probe_ts]:.4f}")
-            print(f"          - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {price_overextension_raw.loc[probe_ts]:.4f}")
-            print(f"          - INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW: {stagnation_evidence_raw.loc[probe_ts]:.4f}")
-            print(f"        - 关键计算节点:")
-            print(f"          - is_rising: {is_rising.loc[probe_ts]:.4f}")
-            print(f"          - norm_robust_close_slope: {norm_robust_close_slope.loc[probe_ts]:.4f}")
-            print(f"          - norm_robust_pct_change_slope: {norm_robust_pct_change_slope.loc[probe_ts]:.4f}")
-            print(f"          - norm_robust_rsi_slope: {norm_robust_rsi_slope.loc[probe_ts]:.4f}")
-            print(f"          - norm_robust_macd_slope: {norm_robust_macd_slope.loc[probe_ts]:.4f}")
-            print(f"          - norm_long_term_close_slope: {norm_long_term_close_slope.loc[probe_ts]:.4f}")
-            print(f"          - norm_long_term_adx_slope: {norm_long_term_adx_slope.loc[probe_ts]:.4f}")
-            print(f"          - norm_accel_close: {norm_accel_close.loc[probe_ts]:.4f}")
-            print(f"          - norm_accel_rsi: {norm_accel_rsi.loc[probe_ts]:.4f}")
-            print(f"          - norm_accel_macd: {norm_accel_macd.loc[probe_ts]:.4f}")
-            print(f"          - price_momentum_coherence_score: {price_momentum_coherence_score.loc[probe_ts]:.4f}")
-            print(f"          - rally_purity_score: {rally_purity_score.loc[probe_ts]:.4f}")
-            print(f"          - norm_chip_fatigue: {norm_chip_fatigue.loc[probe_ts]:.4f}")
-            print(f"          - norm_loser_pain: {norm_loser_pain.loc[probe_ts]:.4f}")
-            print(f"          - norm_cleansing_efficiency: {norm_cleansing_efficiency.loc[probe_ts]:.4f}")
-            print(f"          - supply_pressure_relief_score: {supply_pressure_relief_score.loc[probe_ts]:.4f}")
-            print(f"          - norm_low_turnover: {norm_low_turnover.loc[probe_ts]:.4f}")
-            print(f"          - norm_low_volatility_instability: {norm_low_volatility_instability.loc[probe_ts]:.4f}")
-            print(f"          - supply_exhaustion_score: {supply_exhaustion_score.loc[probe_ts]:.4f}")
-            print(f"          - norm_main_force_conviction: {norm_main_force_conviction.loc[probe_ts]:.4f}")
-            print(f"          - norm_covert_accumulation: {norm_covert_accumulation.loc[probe_ts]:.4f}")
-            print(f"          - norm_mf_conviction_slope: {norm_mf_conviction_slope.loc[probe_ts]:.4f}")
-            print(f"          - mf_accumulation_conviction_score: {mf_accumulation_conviction_score.loc[probe_ts]:.4f}")
-            print(f"          - norm_no_distribution_intent: {norm_no_distribution_intent.loc[probe_ts]:.4f}")
-            print(f"          - norm_low_deception_lure_short: {norm_low_deception_lure_short.loc[probe_ts]:.4f}")
-            print(f"          - main_force_intent_score: {main_force_intent_score.loc[probe_ts]:.4f}")
-            print(f"          - norm_low_overextension: {norm_low_overextension.loc[probe_ts]:.4f}")
-            print(f"          - norm_low_stagnation_evidence: {norm_low_stagnation_evidence.loc[probe_ts]:.4f}")
-            print(f"          - norm_long_term_close_slope_positive: {norm_long_term_close_slope_positive.loc[probe_ts]:.4f}")
-            print(f"          - norm_adx_strength: {norm_adx_strength.loc[probe_ts]:.4f}")
-            print(f"          - trend_alignment_score: {trend_alignment_score.loc[probe_ts]:.4f}")
-            print(f"          - norm_low_retail_fomo: {norm_low_retail_fomo.loc[probe_ts]:.4f}")
-            print(f"          - market_sentiment_health_score: {market_sentiment_health_score.loc[probe_ts]:.4f}")
-            print(f"          - norm_low_volatility_instability_for_context: {norm_low_volatility_instability_for_context.loc[probe_ts]:.4f}")
-            print(f"          - context_resonance_score: {context_resonance_score.loc[probe_ts]:.4f}")
-            print(f"        - 最终结果: SCORE_OPPORTUNITY_LOCKUP_RALLY = {final_lockup_rally_score.loc[probe_ts]:.4f}")
         return final_lockup_rally_score
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
@@ -2646,6 +2572,252 @@ class BehavioralIntelligence:
         vitality_diff = raw_trend_vitality.diff(3).clip(upper=0).abs().loc[probe_ts]
         print(f"        - 宏观风险 (根源): winner_rate={raw_winner_rate:.2f}, trend_vitality_decay={vitality_diff:.2f}")
 
+    def _diagnose_selling_exhaustion_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+        """
+        【V2.0 · 凤凰涅槃协议】诊断卖盘衰竭机会信号。
+        - 核心升级: 将卖盘衰竭视为一个多阶段、多维度、非线性演化的过程。
+                    解构为四大核心维度：下降与减速、净化与枯竭、吸收与意图、情境就绪。
+                    通过加权几何平均融合四大维度，并引入动态情境调制器调整融合权重。
+        - 目标: 识别由多重行为证据确认的、具备高可靠性的卖盘衰竭反转机会。
+        """
+        method_name = "_diagnose_selling_exhaustion_opportunity"
+        p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
+        selling_exhaustion_params = get_param_value(p_behavioral_div_conf.get('selling_exhaustion_params'), {})
+        if not selling_exhaustion_params.get('enabled', False):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        fusion_weights = get_param_value(selling_exhaustion_params.get('fusion_weights'), {
+            "descent_deceleration": 0.25, "purification_exhaustion": 0.25, "absorption_intent": 0.3, "contextual_readiness": 0.2
+        })
+        descent_deceleration_weights = get_param_value(selling_exhaustion_params.get('descent_deceleration_weights'), {
+            "price_accel_inverted": 0.4, "price_slope_inverted": 0.3, "rsi_slope_divergence": 0.3
+        })
+        purification_exhaustion_weights = get_param_value(selling_exhaustion_params.get('purification_exhaustion_weights'), {
+            "volume_atrophy": 0.3, "volatility_contraction": 0.2, "low_turnover": 0.15, "sell_exhaustion": 0.15, "low_active_selling": 0.1, "loser_pain": 0.1
+        })
+        absorption_intent_weights = get_param_value(selling_exhaustion_params.get('absorption_intent_weights'), {
+            "capitulation_absorption": 0.3, "downward_resistance": 0.2, "offensive_absorption_intent": 0.2, "lower_shadow_absorption": 0.15, "covert_accumulation": 0.1, "main_force_conviction_positive": 0.05
+        })
+        contextual_readiness_weights = get_param_value(selling_exhaustion_params.get('contextual_readiness_weights'), {
+            "bearish_divergence_inverse": 0.3, "bullish_divergence": 0.25, "sentiment_pendulum_negative": 0.25, "holder_sentiment_negative": 0.2
+        })
+        dynamic_modulator_params = get_param_value(selling_exhaustion_params.get('dynamic_modulator_params'), {})
+        strong_uptrend_gate_params = get_param_value(selling_exhaustion_params.get('strong_uptrend_gate_params'), {})
+        final_exponent = get_param_value(selling_exhaustion_params.get('final_exponent'), 1.5)
+        # --- 1. 获取所有原始数据和已计算的原子信号 ---
+        required_df_signals = [
+            'pct_change_D', 'ACCEL_5_pct_change_D', 'SLOPE_5_close_D', 'SLOPE_5_RSI_13_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'BBW_21_2.0_D', 'turnover_rate_f_D',
+            'sell_quote_exhaustion_rate_D', 'active_selling_pressure_D', 'loser_pain_index_D',
+            'capitulation_absorption_index_D', 'covert_accumulation_signal_D', 'main_force_conviction_index_D',
+            'SLOPE_55_close_D', 'market_sentiment_score_D'
+        ]
+        required_state_signals = [
+            'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
+            'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
+            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE',
+            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'
+        ]
+        missing_df_signals = [s for s in required_df_signals if s not in df.columns]
+        missing_state_signals = [s for s in required_state_signals if s not in states]
+        if missing_df_signals or missing_state_signals:
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号。")
+            if missing_df_signals: print(f"       - DataFrame中缺失: {missing_df_signals}")
+            if missing_state_signals: print(f"       - States中缺失: {missing_state_signals}")
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name=method_name)
+        price_slope = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
+        rsi_slope = self._get_safe_series(df, 'SLOPE_5_RSI_13_D', 0.0, method_name=method_name)
+        volatility_instability = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
+        bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name=method_name)
+        turnover_rate = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name)
+        sell_quote_exhaustion = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
+        active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
+        loser_pain = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
+        capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
+        covert_accumulation = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name=method_name)
+        main_force_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
+        long_term_close_slope = self._get_safe_series(df, 'SLOPE_55_close_D', 0.0, method_name=method_name)
+        market_sentiment = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
+        # 从states获取信号
+        volume_atrophy = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']
+        downward_resistance = states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
+        offensive_absorption_intent = states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT']
+        lower_shadow_absorption = states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION']
+        bearish_divergence_quality = states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY']
+        bullish_divergence = states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE']
+        sentiment_pendulum = states['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM']
+        holder_sentiment = states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            self._probe_raw_material_diagnostics(df, probe_ts) # 确保这个方法能打印出所有相关原始数据
+            print(f"        pct_change_D: {pct_change.loc[probe_ts]:.4f}")
+            print(f"        ACCEL_5_pct_change_D: {price_accel.loc[probe_ts]:.4f}")
+            print(f"        SLOPE_5_close_D: {price_slope.loc[probe_ts]:.4f}")
+            print(f"        SLOPE_5_RSI_13_D: {rsi_slope.loc[probe_ts]:.4f}")
+            print(f"        VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability.loc[probe_ts]:.4f}")
+            print(f"        BBW_21_2.0_D: {bbw.loc[probe_ts]:.4f}")
+            print(f"        turnover_rate_f_D: {turnover_rate.loc[probe_ts]:.4f}")
+            print(f"        sell_quote_exhaustion_rate_D: {sell_quote_exhaustion.loc[probe_ts]:.4f}")
+            print(f"        active_selling_pressure_D: {active_selling.loc[probe_ts]:.4f}")
+            print(f"        loser_pain_index_D: {loser_pain.loc[probe_ts]:.4f}")
+            print(f"        capitulation_absorption_index_D: {capitulation_raw.loc[probe_ts]:.4f}")
+            print(f"        covert_accumulation_signal_D: {covert_accumulation.loc[probe_ts]:.4f}")
+            print(f"        main_force_conviction_index_D: {main_force_conviction.loc[probe_ts]:.4f}")
+            print(f"        SLOPE_55_close_D: {long_term_close_slope.loc[probe_ts]:.4f}")
+            print(f"        market_sentiment_score_D: {market_sentiment.loc[probe_ts]:.4f}")
+            print(f"        SCORE_BEHAVIOR_VOLUME_ATROPHY: {volume_atrophy.loc[probe_ts]:.4f}")
+            print(f"        SCORE_BEHAVIOR_DOWNWARD_RESISTANCE: {downward_resistance.loc[probe_ts]:.4f}")
+            print(f"        SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT: {offensive_absorption_intent.loc[probe_ts]:.4f}")
+            print(f"        SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION: {lower_shadow_absorption.loc[probe_ts]:.4f}")
+            print(f"        SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY: {bearish_divergence_quality.loc[probe_ts]:.4f}")
+            print(f"        SCORE_BEHAVIOR_BULLISH_DIVERGENCE: {bullish_divergence.loc[probe_ts]:.4f}")
+            print(f"        SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum.loc[probe_ts]:.4f}")
+            print(f"        SCORE_CHIP_AXIOM_HOLDER_SENTIMENT: {holder_sentiment.loc[probe_ts]:.4f}")
+        # --- 2. 计算四大维度分数 ---
+        # 维度一：下降与减速 (Descent & Deceleration)
+        # 价格加速度的负向强度 (减速越快，分数越高)
+        price_accel_inverted = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
+        # 价格斜率的负向减弱 (下跌趋势减缓，分数越高)
+        price_slope_inverted = (1 - get_adaptive_mtf_normalized_score(price_slope.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
+        # RSI斜率的背离强度 (价格下跌但RSI斜率向上或减缓下跌，分数越高)
+        rsi_slope_divergence = get_adaptive_mtf_normalized_score(rsi_slope.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        descent_deceleration_score = (
+            (price_accel_inverted + 1e-9).pow(descent_deceleration_weights.get('price_accel_inverted', 0.4)) *
+            (price_slope_inverted + 1e-9).pow(descent_deceleration_weights.get('price_slope_inverted', 0.3)) *
+            (rsi_slope_divergence + 1e-9).pow(descent_deceleration_weights.get('rsi_slope_divergence', 0.3))
+        ).pow(1 / sum(descent_deceleration_weights.values())).fillna(0.0).clip(0, 1)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 下降与减速维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        price_accel_inverted: {price_accel_inverted.loc[probe_ts]:.4f}")
+            print(f"        price_slope_inverted: {price_slope_inverted.loc[probe_ts]:.4f}")
+            print(f"        rsi_slope_divergence: {rsi_slope_divergence.loc[probe_ts]:.4f}")
+            print(f"        descent_deceleration_score: {descent_deceleration_score.loc[probe_ts]:.4f}")
+        # 维度二：净化与枯竭 (Purification & Exhaustion)
+        # 波动率收缩 (低波动率不稳定性，低BBW)
+        volatility_contraction = (1 - get_adaptive_mtf_normalized_score(volatility_instability, df.index, ascending=True, tf_weights=default_weights)) * \
+                                 (1 - get_adaptive_mtf_normalized_score(bbw, df.index, ascending=True, tf_weights=default_weights))
+        # 低换手率
+        low_turnover = (1 - get_adaptive_mtf_normalized_score(turnover_rate, df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
+        # 卖盘挂单枯竭 (低卖盘枯竭率)
+        sell_exhaustion = (1 - get_adaptive_mtf_normalized_score(sell_quote_exhaustion, df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
+        # 低主动卖压
+        low_active_selling = (1 - get_adaptive_mtf_normalized_score(active_selling, df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
+        # 亏损盘痛苦 (高值代表弱手出清)
+        norm_loser_pain = get_adaptive_mtf_normalized_score(loser_pain, df.index, ascending=True, tf_weights=default_weights)
+        purification_exhaustion_score = (
+            (volume_atrophy + 1e-9).pow(purification_exhaustion_weights.get('volume_atrophy', 0.3)) *
+            (volatility_contraction + 1e-9).pow(purification_exhaustion_weights.get('volatility_contraction', 0.2)) *
+            (low_turnover + 1e-9).pow(purification_exhaustion_weights.get('low_turnover', 0.15)) *
+            (sell_exhaustion + 1e-9).pow(purification_exhaustion_weights.get('sell_exhaustion', 0.15)) *
+            (low_active_selling + 1e-9).pow(purification_exhaustion_weights.get('low_active_selling', 0.1)) *
+            (norm_loser_pain + 1e-9).pow(purification_exhaustion_weights.get('loser_pain', 0.1))
+        ).pow(1 / sum(purification_exhaustion_weights.values())).fillna(0.0).clip(0, 1)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 净化与枯竭维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        volume_atrophy: {volume_atrophy.loc[probe_ts]:.4f}")
+            print(f"        volatility_contraction: {volatility_contraction.loc[probe_ts]:.4f}")
+            print(f"        low_turnover: {low_turnover.loc[probe_ts]:.4f}")
+            print(f"        sell_exhaustion: {sell_exhaustion.loc[probe_ts]:.4f}")
+            print(f"        low_active_selling: {low_active_selling.loc[probe_ts]:.4f}")
+            print(f"        norm_loser_pain: {norm_loser_pain.loc[probe_ts]:.4f}")
+            print(f"        purification_exhaustion_score: {purification_exhaustion_score.loc[probe_ts]:.4f}")
+        # 维度三：吸收与意图 (Absorption & Intent)
+        capitulation_confirm_score = get_adaptive_mtf_normalized_score(capitulation_raw, df.index, ascending=True, tf_weights=default_weights)
+        norm_covert_accumulation = get_adaptive_mtf_normalized_score(covert_accumulation, df.index, ascending=True, tf_weights=default_weights)
+        norm_main_force_conviction_positive = get_adaptive_mtf_normalized_score(main_force_conviction.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        absorption_intent_score = (
+            (capitulation_confirm_score + 1e-9).pow(absorption_intent_weights.get('capitulation_absorption', 0.3)) *
+            (downward_resistance + 1e-9).pow(absorption_intent_weights.get('downward_resistance', 0.2)) *
+            (offensive_absorption_intent + 1e-9).pow(absorption_intent_weights.get('offensive_absorption_intent', 0.2)) *
+            (lower_shadow_absorption + 1e-9).pow(absorption_intent_weights.get('lower_shadow_absorption', 0.15)) *
+            (norm_covert_accumulation + 1e-9).pow(absorption_intent_weights.get('covert_accumulation', 0.1)) *
+            (norm_main_force_conviction_positive + 1e-9).pow(absorption_intent_weights.get('main_force_conviction_positive', 0.05))
+        ).pow(1 / sum(absorption_intent_weights.values())).fillna(0.0).clip(0, 1)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 吸收与意图维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        capitulation_confirm_score: {capitulation_confirm_score.loc[probe_ts]:.4f}")
+            print(f"        downward_resistance: {downward_resistance.loc[probe_ts]:.4f}")
+            print(f"        offensive_absorption_intent: {offensive_absorption_intent.loc[probe_ts]:.4f}")
+            print(f"        lower_shadow_absorption: {lower_shadow_absorption.loc[probe_ts]:.4f}")
+            print(f"        norm_covert_accumulation: {norm_covert_accumulation.loc[probe_ts]:.4f}")
+            print(f"        norm_main_force_conviction_positive: {norm_main_force_conviction_positive.loc[probe_ts]:.4f}")
+            print(f"        absorption_intent_score: {absorption_intent_score.loc[probe_ts]:.4f}")
+        # 维度四：情境就绪 (Contextual Readiness)
+        # 熊市背离风险低 (反向归一化)
+        bearish_divergence_inverse = (1 - bearish_divergence_quality).clip(0, 1)
+        # 情绪钟摆负向极端 (悲观情绪，但未崩溃)
+        sentiment_pendulum_negative = get_adaptive_mtf_normalized_score(sentiment_pendulum.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        # 持仓信念韧性负向极端 (弱手出清)
+        holder_sentiment_negative = get_adaptive_mtf_normalized_score(holder_sentiment.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        contextual_readiness_score = (
+            (bearish_divergence_inverse + 1e-9).pow(contextual_readiness_weights.get('bearish_divergence_inverse', 0.3)) *
+            (bullish_divergence + 1e-9).pow(contextual_readiness_weights.get('bullish_divergence', 0.25)) *
+            (sentiment_pendulum_negative + 1e-9).pow(contextual_readiness_weights.get('sentiment_pendulum_negative', 0.25)) *
+            (holder_sentiment_negative + 1e-9).pow(contextual_readiness_weights.get('holder_sentiment_negative', 0.2))
+        ).pow(1 / sum(contextual_readiness_weights.values())).fillna(0.0).clip(0, 1)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 情境就绪维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        bearish_divergence_inverse: {bearish_divergence_inverse.loc[probe_ts]:.4f}")
+            print(f"        bullish_divergence: {bullish_divergence.loc[probe_ts]:.4f}")
+            print(f"        sentiment_pendulum_negative: {sentiment_pendulum_negative.loc[probe_ts]:.4f}")
+            print(f"        holder_sentiment_negative: {holder_sentiment_negative.loc[probe_ts]:.4f}")
+            print(f"        contextual_readiness_score: {contextual_readiness_score.loc[probe_ts]:.4f}")
+        # --- 3. 核心融合 (加权几何平均) ---
+        selling_exhaustion_base_score = (
+            (descent_deceleration_score + 1e-9).pow(fusion_weights.get('descent_deceleration', 0.25)) *
+            (purification_exhaustion_score + 1e-9).pow(fusion_weights.get('purification_exhaustion', 0.25)) *
+            (absorption_intent_score + 1e-9).pow(fusion_weights.get('absorption_intent', 0.3)) *
+            (contextual_readiness_score + 1e-9).pow(fusion_weights.get('contextual_readiness', 0.2))
+        ).pow(1 / sum(fusion_weights.values())).fillna(0.0).clip(0, 1)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 核心融合分数 @ {probe_ts.strftime('%Y-%m-%d')}: {selling_exhaustion_base_score.loc[probe_ts]:.4f}")
+        # --- 4. 动态情境调制 ---
+        dynamic_modulator_factor = pd.Series(1.0, index=df.index)
+        if dynamic_modulator_params.get('enabled', False):
+            modulator_signal_1 = self._get_safe_series(df, dynamic_modulator_params.get('modulator_signal_1'), 0.0, method_name=method_name)
+            modulator_signal_2 = self._get_safe_series(df, dynamic_modulator_params.get('modulator_signal_2'), 0.0, method_name=method_name)
+            sensitivity_volatility = dynamic_modulator_params.get('sensitivity_volatility', 0.4)
+            sensitivity_sentiment = dynamic_modulator_params.get('sensitivity_sentiment', 0.3)
+            base_modulator_factor = dynamic_modulator_params.get('base_modulator_factor', 1.0)
+            min_modulator = dynamic_modulator_params.get('min_modulator', 0.5)
+            max_modulator = dynamic_modulator_params.get('max_modulator', 1.5)
+            # 波动率越低，情绪越悲观，调制因子越高
+            norm_volatility_inverse = (1 - get_adaptive_mtf_normalized_score(modulator_signal_1, df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
+            norm_sentiment_negative = get_adaptive_mtf_normalized_score(modulator_signal_2.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+            dynamic_modulator_factor = base_modulator_factor + \
+                                       norm_volatility_inverse * sensitivity_volatility + \
+                                       norm_sentiment_negative * sensitivity_sentiment
+            dynamic_modulator_factor = dynamic_modulator_factor.clip(min_modulator, max_modulator)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 动态调制因子 @ {probe_ts.strftime('%Y-%m-%d')}: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
+        final_score_modulated = (selling_exhaustion_base_score * dynamic_modulator_factor).clip(0, 1)
+        # --- 5. 门控条件 ---
+        is_falling = (pct_change < 0).astype(float)
+        final_score_gated = final_score_modulated * is_falling
+        # 强上涨趋势门控 (如果处于强劲上涨趋势，则抑制信号)
+        if strong_uptrend_gate_params.get('enabled', False):
+            long_term_slope_signal = self._get_safe_series(df, strong_uptrend_gate_params.get('long_term_slope_signal'), 0.0, method_name=method_name)
+            slope_threshold = strong_uptrend_gate_params.get('slope_threshold', 0.005)
+            gate_penalty_factor = strong_uptrend_gate_params.get('gate_penalty_factor', 0.5)
+            is_strong_uptrend = (long_term_slope_signal > slope_threshold).astype(float)
+            final_score_gated = final_score_gated * (1 - is_strong_uptrend * gate_penalty_factor)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 门控后分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score_gated.loc[probe_ts]:.4f}")
+        # --- 6. 最终非线性变换 ---
+        final_selling_exhaustion_score = final_score_gated.pow(final_exponent).astype(np.float32)
+        # 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_selling_exhaustion_score.loc[probe_ts]:.4f}")
+        return final_selling_exhaustion_score
 
 
 
