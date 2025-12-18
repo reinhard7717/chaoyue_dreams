@@ -1205,32 +1205,6 @@ class FoundationIntelligence:
         main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
         chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_market_friction")
         flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
-        if probe_enabled:
-            print(f"    -> [探针] 原始数据: asymmetric_friction_index_D 尾部: {asymmetric_friction_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: micro_price_impact_asymmetry_D 尾部: {micro_price_impact_asymmetry_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: volatility_asymmetry_index_D 尾部: {volatility_asymmetry_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: buy_quote_exhaustion_rate_D 尾部: {buy_quote_exhaustion_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: sell_quote_exhaustion_rate_D 尾部: {sell_quote_exhaustion_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: flow_efficiency_index_D 尾部: {flow_efficiency_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: order_book_clearing_rate_D 尾部: {order_book_clearing_rate_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: liquidity_slope_D 尾部: {liquidity_slope_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: liquidity_authenticity_score_D 尾部: {liquidity_authenticity_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: bid_side_liquidity_D 尾部: {bid_side_liquidity_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: ask_side_liquidity_D 尾部: {ask_side_liquidity_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: turnover_rate_f_D 尾部: {turnover_rate_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: cost_structure_skewness_D 尾部: {cost_structure_skewness_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: market_impact_cost_D 尾部: {market_impact_cost_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: vwap_mean_reversion_corr_D 尾部: {vwap_mean_reversion_corr_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: volume_structure_skew_D 尾部: {volume_structure_skew_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: order_book_imbalance_D 尾部: {order_book_imbalance_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: PRICE_VOLUME_ENTROPY_D 尾部: {price_volume_entropy_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: deception_index_D 尾部: {deception_index_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: wash_trade_intensity_D 尾部: {wash_trade_intensity_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: market_sentiment_score_D 尾部: {market_sentiment_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: VOLATILITY_INSTABILITY_INDEX_21d_D 尾部: {volatility_instability_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: main_force_conviction_index_D 尾部: {main_force_conviction_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: chip_health_score_D 尾部: {chip_health_raw.tail().to_dict()}")
-            print(f"    -> [探针] 原始数据: flow_credibility_index_D 尾部: {flow_credibility_raw.tail().to_dict()}")
         # --- 2. 非对称阻力动态 (Asymmetric Resistance Dynamics - ARD) ---
         ard_weights = p_conf_mf.get('asymmetric_resistance_weights', {})
         # 获取动态斜率信号
@@ -1252,12 +1226,6 @@ class FoundationIntelligence:
             volatility_asymmetry_score * ard_weights.get('volatility_asymmetry_slope', 0.2) +
             order_book_exhaustion_dynamic_score * ard_weights.get('order_book_exhaustion_dynamic', 0.3)
         ).clip(-1, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 非对称摩擦斜率得分 (asymmetric_friction_score) 尾部: {asymmetric_friction_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 微观价格冲击不对称斜率得分 (micro_price_impact_asymmetry_score) 尾部: {micro_price_impact_asymmetry_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 波动率不对称斜率得分 (volatility_asymmetry_score) 尾部: {volatility_asymmetry_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 订单簿枯竭动态得分 (order_book_exhaustion_dynamic_score) 尾部: {order_book_exhaustion_dynamic_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 非对称阻力动态得分 (asymmetric_resistance_dynamic_score) 尾部: {asymmetric_resistance_dynamic_score.tail().to_dict()}")
         # --- 3. 流动性与效率动态 (Liquidity & Efficiency Dynamics - LED) ---
         led_weights = p_conf_mf.get('liquidity_efficiency_weights', {})
         # 获取动态斜率信号
@@ -1285,14 +1253,6 @@ class FoundationIntelligence:
             (liquidity_depth_dynamic_score + 1) / 2 * led_weights.get('liquidity_depth_dynamic', 0.1) + # 转换为单极性
             turnover_rate_score * led_weights.get('turnover_rate_slope', 0.1)
         ).clip(0, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 资金流效率斜率得分 (flow_efficiency_score) 尾部: {flow_efficiency_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 订单簿清算率斜率得分 (order_book_clearing_rate_score) 尾部: {order_book_clearing_rate_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 流动性斜率斜率得分 (liquidity_slope_score) 尾部: {liquidity_slope_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 流动性真实性斜率得分 (liquidity_authenticity_score) 尾部: {liquidity_authenticity_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 流动性深度动态得分 (liquidity_depth_dynamic_score) 尾部: {liquidity_depth_dynamic_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 换手率斜率得分 (turnover_rate_score) 尾部: {turnover_rate_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 流动性效率动态得分 (liquidity_efficiency_dynamic_score) 尾部: {liquidity_efficiency_dynamic_score.tail().to_dict()}")
         # --- 4. 结构性成本与障碍动态 (Structural Cost & Impairment Dynamics - SCID) ---
         scid_weights = p_conf_mf.get('structural_cost_weights', {})
         # 获取动态斜率信号
@@ -1318,14 +1278,6 @@ class FoundationIntelligence:
             order_book_imbalance_score * scid_weights.get('order_book_imbalance_slope', 0.1) +
             (price_volume_entropy_score * 2 - 1) * scid_weights.get('price_volume_entropy_slope', 0.1) # 转换为双极性
         ).clip(-1, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 成本结构偏度斜率得分 (cost_structure_skewness_score) 尾部: {cost_structure_skewness_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 市场冲击成本斜率得分 (market_impact_cost_score) 尾部: {market_impact_cost_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: VWAP均值回归相关性斜率得分 (vwap_mean_reversion_corr_score) 尾部: {vwap_mean_reversion_corr_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 成交量结构偏度斜率得分 (volume_structure_skew_score) 尾部: {volume_structure_skew_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 订单簿不平衡斜率得分 (order_book_imbalance_score) 尾部: {order_book_imbalance_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 价量熵斜率得分 (price_volume_entropy_score) 尾部: {price_volume_entropy_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 结构性成本动态得分 (structural_cost_dynamic_score) 尾部: {structural_cost_dynamic_score.tail().to_dict()}")
         # --- 5. 动态融合与情境感知 (Dynamic Fusion & Contextual Awareness) ---
         dynamic_fusion_modulator_params = p_conf_mf.get('dynamic_fusion_modulator_params', {})
         # 获取情境调制信号的原始值
@@ -1360,12 +1312,6 @@ class FoundationIntelligence:
             liquidity_efficiency_bipolar * current_weights['liquidity_efficiency'] +
             structural_cost_dynamic_score * current_weights['structural_cost']
         ).clip(-1, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 市场情绪调制得分 (modulator_signal_1_score) 尾部: {modulator_signal_1_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 波动不稳定性调制得分 (modulator_signal_2_score) 尾部: {modulator_signal_2_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 主力信念调制得分 (modulator_signal_3_score) 尾部: {modulator_signal_3_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 动态融合权重 (current_weights) 尾部: {current_weights.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 基础市场摩擦得分 (base_market_friction_score) 尾部: {base_market_friction_score.tail().to_dict()}")
         # --- 6. 诡道摩擦调制 (Deceptive Friction Modulation - DFM) ---
         dfm_params = p_conf_mf.get('deceptive_friction_modulator_params', {})
         # 获取欺骗指数和对倒强度的斜率
@@ -1387,11 +1333,6 @@ class FoundationIntelligence:
         # 诡道摩擦调制器：当惩罚越高时，调制器越小，对市场摩擦分进行削弱
         # 使用 tanh 非线性函数进行调制，使其在欺骗程度较高时，惩罚更明显
         deceptive_friction_modulator = (1 - np.tanh(dynamic_deception_score * non_linear_sensitivity) * modulator_strength).clip(0, 1)
-        if probe_enabled:
-            print(f"    -> [探针] 关键计算节点: 欺骗指数斜率得分 (deception_index_score) 尾部: {deception_index_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 对倒强度斜率得分 (wash_trade_intensity_score) 尾部: {wash_trade_intensity_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 动态欺骗得分 (dynamic_deception_score) 尾部: {dynamic_deception_score.tail().to_dict()}")
-            print(f"    -> [探针] 关键计算节点: 诡道摩擦调制器 (deceptive_friction_modulator) 尾部: {deceptive_friction_modulator.tail().to_dict()}")
         # --- 7. 最终市场摩擦分数 ---
         # 基础市场摩擦得分乘以诡道摩擦调制器
         market_friction_score = (base_market_friction_score * deceptive_friction_modulator).clip(-1, 1)
@@ -1414,15 +1355,8 @@ class FoundationIntelligence:
             total_penalty = (chip_health_penalty + flow_credibility_penalty + deception_penalty).clip(0, 1)
             # 应用惩罚：将分数幅度向零减小
             market_friction_score = market_friction_score * (1 - total_penalty)
-            if probe_enabled:
-                print(f"    -> [探针] 关键计算节点: 筹码健康度得分 (chip_health_score) 尾部: {chip_health_score.tail().to_dict()}")
-                print(f"    -> [探针] 关键计算节点: 资金流可信度得分 (flow_credibility_score) 尾部: {flow_credibility_score.tail().to_dict()}")
-                print(f"    -> [探针] 关键计算节点: 欺骗指数单极得分 (deception_index_score_unipolar) 尾部: {deception_index_score_unipolar.tail().to_dict()}")
-                print(f"    -> [探针] 关键计算节点: 最终风险过滤惩罚 (total_penalty) 尾部: {total_penalty.tail().to_dict()}")
         # 最终分数裁剪并转换为float32类型
         market_friction_score = market_friction_score.clip(-1, 1).astype(np.float32)
-        if probe_enabled:
-            print(f"    -> [探针] 最终结果: 市场摩擦分 (market_friction_score) 尾部: {market_friction_score.tail().to_dict()}")
         print("    -> [基础层] “市场摩擦”公理诊断完成。")
         return market_friction_score
 
