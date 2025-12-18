@@ -57,7 +57,7 @@ class FundFlowIntelligence:
             period = int(period_str)
             prefix = 'ACCEL' if is_accel else 'SLOPE'
             col_name = f'{prefix}_{period}_{signal_base_name}'
-            # 修改开始: 优先从预取数据中获取
+            # 优先从预取数据中获取
             if pre_fetched_data and col_name in pre_fetched_data:
                 raw_data = pre_fetched_data[col_name]
             else:
@@ -244,7 +244,7 @@ class FundFlowIntelligence:
                 required_signals.append(mod_params['signal'])
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
-        # 修改开始: 预取所有斜率和加速度数据到单个字典
+        # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
         # 收集所有需要预取的信号基础名称
         signal_bases_to_prefetch = [
@@ -259,12 +259,10 @@ class FundFlowIntelligence:
             for p in divergence_accel_periods:
                 col_name = f'ACCEL_{p}_{signal_base}'
                 all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name="_diagnose_axiom_divergence")
-        # 修改结束
         # --- 原始数据获取 (用于探针和计算) ---
         retail_fomo_premium_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_divergence")
         retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_axiom_divergence")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_divergence")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_divergence")
         order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_divergence")
         buy_exhaustion_raw = self._get_safe_series(df, df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_divergence")
         sell_exhaustion_raw = self._get_safe_series(df, df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_divergence")
@@ -317,22 +315,19 @@ class FundFlowIntelligence:
         micro_exhaustion_score = (norm_sell_exhaustion - norm_buy_exhaustion).clip(-1, 1)
         # 微观动态脉冲
         obi_dynamic_params = micro_intent_dynamic_signals.get('order_book_imbalance_D', {"slope": 0.6, "accel": 0.4, "weight": 0.2})
-        # 修改开始: 传递预取数据
+        # 传递预取数据
         norm_obi_slope_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name="_diagnose_axiom_divergence", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_obi_accel_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name="_diagnose_axiom_divergence", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         obi_dynamic_pulse = (norm_obi_slope_mtf * obi_dynamic_params.get('slope', 0.6) + norm_obi_accel_mtf * obi_dynamic_params.get('accel', 0.4)).clip(-1, 1)
         buy_exh_dynamic_params = micro_intent_dynamic_signals.get('buy_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5, "weight": 0.15})
-        # 修改开始: 传递预取数据
+        # 传递预取数据
         norm_buy_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False, method_name="_diagnose_axiom_divergence", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_buy_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True, method_name="_diagnose_axiom_divergence", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         buy_exh_dynamic_pulse = (norm_buy_exh_slope_mtf * buy_exh_dynamic_params.get('slope', 0.5) + norm_buy_exh_accel_mtf * buy_exh_dynamic_params.get('accel', 0.5)).clip(0, 1)
         sell_exh_dynamic_params = micro_intent_dynamic_signals.get('sell_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5, "weight": 0.15})
-        # 修改开始: 传递预取数据
+        # 传递预取数据
         norm_sell_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False, method_name="_diagnose_axiom_divergence", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_sell_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True, method_name="_diagnose_axiom_divergence", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         sell_exh_dynamic_pulse = (norm_sell_exh_slope_mtf * sell_exh_dynamic_params.get('slope', 0.5) + norm_sell_exh_accel_mtf * sell_exh_dynamic_params.get('accel', 0.5)).clip(0, 1)
         micro_dynamic_exhaustion_score = (sell_exh_dynamic_pulse - buy_exh_dynamic_pulse).clip(-1, 1)
         micro_intent_tension_score = (
@@ -492,7 +487,7 @@ class FundFlowIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_consensus"):
             return pd.Series(0.0, index=df.index)
-        # 修改开始: 集中所有原始数据获取
+        # 集中所有原始数据获取
         raw_data_cache = {}
         for signal_name in required_signals:
             raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name="_diagnose_axiom_consensus")
@@ -543,7 +538,6 @@ class FundFlowIntelligence:
         wash_trade_sell_volume_raw = raw_data_cache['wash_trade_sell_volume_D']
         bid_side_liquidity_raw = raw_data_cache['bid_side_liquidity_D']
         ask_side_liquidity_raw = raw_data_cache['ask_side_liquidity_D']
-        # 修改结束
         # --- 1. 宏观资金流向 (Macro Fund Flow) ---
         flow_consensus_score = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_raw - retail_flow_raw, df_index, tf_weights_ff)
         # --- 2. 微观盘口意图推断 (Micro Order Book Intent Inference) ---
@@ -766,7 +760,7 @@ class FundFlowIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_conviction"):
             return pd.Series(0.0, index=df.index)
-        # 修改开始: 预取所有斜率和加速度数据到单个字典
+        # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
         # 收集所有需要预取的信号基础名称和周期
         slope_periods = [5, 13, 21] # 假设这些是所有斜率信号的最大周期
@@ -790,7 +784,6 @@ class FundFlowIntelligence:
             for p in accel_periods:
                 col_name = f'ACCEL_{p}_{signal_base}'
                 all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name="_diagnose_axiom_conviction")
-        # 修改结束
         # --- 原始数据获取 (用于探针和计算) ---
         raw_data_cache = {}
         for signal_name in required_signals:
@@ -1067,7 +1060,7 @@ class FundFlowIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_flow_momentum"):
             return pd.Series(0.0, index=df.index)
-        # 修改开始: 预取所有斜率和加速度数据到单个字典
+        # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
         # 收集所有需要预取的信号基础名称和周期
         slope_periods_all = list(set([5, 13, 21, 55])) # 包含所有可能用到的斜率周期
@@ -1089,7 +1082,6 @@ class FundFlowIntelligence:
             for p in accel_periods_all:
                 col_name = f'ACCEL_{p}_{signal_base}'
                 all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name="_diagnose_axiom_flow_momentum")
-        # 修改结束
         # --- 原始数据获取 (用于探针和计算) ---
         raw_data_cache = {}
         for signal_name in required_signals:
@@ -1716,7 +1708,7 @@ class FundFlowIntelligence:
         for p in short_periods:
             slope_col = f'SLOPE_{p}_{signal_base_name}'
             accel_col = f'ACCEL_{p}_{signal_base_name}'
-            # 修改开始: 优先从预取数据中获取
+            # 优先从预取数据中获取
             if pre_fetched_data and slope_col in pre_fetched_data:
                 slope_raw = pre_fetched_data[slope_col]
             else:
@@ -1736,7 +1728,7 @@ class FundFlowIntelligence:
         for p in long_periods:
             slope_col = f'SLOPE_{p}_{signal_base_name}'
             accel_col = f'ACCEL_{p}_{signal_base_name}'
-            # 修改开始: 优先从预取数据中获取
+            # 优先从预取数据中获取
             if pre_fetched_data and slope_col in pre_fetched_data:
                 slope_raw = pre_fetched_data[slope_col]
             else:
@@ -1837,7 +1829,7 @@ class FundFlowIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_fund_flow_divergence_signals", atomic_states=self.strategy.atomic_states):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
-        # 修改开始: 预取所有斜率和加速度数据到单个字典
+        # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
         # 收集所有需要预取的信号基础名称和周期
         short_periods = [5, 13]
@@ -1850,7 +1842,6 @@ class FundFlowIntelligence:
             for p in all_periods:
                 all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
                 all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
-        # 修改结束
         # --- 原始数据获取 (用于探针和计算) ---
         raw_data_cache = {}
         for signal_name in required_signals:
@@ -1955,10 +1946,9 @@ class FundFlowIntelligence:
         # --- V4.0 升级: 双极性多时间框架共振/背离因子 (Bipolar MTF Resonance/Divergence Factor) ---
         short_periods = [5, 13]
         long_periods = [21, 55]
-        # 修改开始: 传递预取数据
+        # 传递预取数据
         nmfnf_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', short_periods, long_periods, True, self.tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         conviction_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'main_force_conviction_index_D', short_periods, long_periods, True, self.tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         mtf_bipolar_resonance_factor = (
             nmfnf_bipolar_resonance_factor * mtf_resonance_factor_weights.get('nmfnf_cohesion', 0.6) +
             conviction_bipolar_resonance_factor * mtf_resonance_factor_weights.get('conviction_cohesion', 0.4)

@@ -1349,55 +1349,82 @@
           }
         ],
         "wash_out_rebound_params": {
-          "description": "【V2.3 · 诡道情境增强版】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。",
+          "description": "【V2.4 · 深度情境感知版】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。",
           "fusion_weights": {
             "deception_context": 0.3,
             "panic_depth": 0.3,
             "rebound_quality": 0.4
           },
           "deception_context_weights": {
-            "wash_trade": 0.4,
-            "active_selling": 0.2,
-            "deception_positive_lure_long": 0.2,
-            "deception_lure_short": 0.2
+            "wash_trade": 0.2,
+            "active_selling": 0.15,
+            "fused_deception": 0.2,
+            "behavior_deception_index": 0.2,
+            "stealth_ops": 0.15,
+            "wash_trade_slope": 0.05,
+            "active_selling_slope": 0.05
           },
           "panic_depth_weights": {
-            "panic_cascade": 0.4,
-            "retail_surrender": 0.3,
-            "loser_pain": 0.3
+            "panic_cascade": 0.2,
+            "retail_surrender": 0.2,
+            "loser_pain": 0.2,
+            "holder_sentiment_inverted": 0.15,
+            "sentiment_pendulum_negative": 0.15,
+            "retail_surrender_slope": 0.05,
+            "loser_pain_slope": 0.05
           },
           "rebound_quality_weights": {
-            "absorption_intent": 0.4,
-            "closing_strength": 0.3,
-            "upward_purity": 0.3
+            "offensive_absorption_intent": 0.2,
+            "closing_strength": 0.15,
+            "upward_purity": 0.15,
+            "absorption_strength": 0.2,
+            "offensive_absorption": 0.15,
+            "mf_buy_execution_alpha": 0.05,
+            "buy_sweep_intensity": 0.1
           },
           "context_amplification_weights": {
-            "trend_form": 0.5,
-            "stability": 0.5
+            "trend_form": 0.4,
+            "stability": 0.3,
+            "tension": 0.15,
+            "mtf_cohesion": 0.15
           },
           "max_context_bonus_factor": 0.5
         },
         "covert_accumulation_params": {
-          "description": "【V2.3 · 诡道情境增强版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
+          "description": "【V2.4 · 深度情境感知版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
           "fusion_weights": {
             "market_context": 0.3,
             "covert_action": 0.4,
             "chip_optimization": 0.3
           },
           "market_context_weights": {
-            "retail_panic": 0.3,
-            "price_weakness": 0.4,
-            "low_volatility": 0.3
+            "retail_panic": 0.2,
+            "price_weakness_inverted": 0.2,
+            "low_volatility": 0.2,
+            "sentiment_pendulum_inverted": 0.15,
+            "tension_inverted": 0.1,
+            "market_sentiment_inverted": 0.1,
+            "volatility_instability_inverted": 0.05
           },
           "covert_action_weights": {
-            "suppressive_accum": 0.4,
-            "main_force_flow": 0.2,
-            "deception_positive_lure_long": 0.2,
-            "deception_lure_short": 0.2
+            "suppressive_accum": 0.15,
+            "main_force_flow": 0.15,
+            "fused_deception": 0.15,
+            "stealth_ops": 0.15,
+            "split_order_accum": 0.1,
+            "chip_historical_potential": 0.1,
+            "mf_buy_ofi": 0.05,
+            "mf_cost_advantage": 0.05,
+            "mf_flow_slope": 0.05,
+            "suppressive_accum_slope": 0.05
           },
           "chip_optimization_weights": {
-            "chip_fatigue": 0.5,
-            "loser_pain": 0.5
+            "chip_fatigue": 0.25,
+            "loser_pain": 0.25,
+            "holder_sentiment_inverted": 0.2,
+            "turnover_purity_cost_opt": 0.15,
+            "floating_chip_cleansing": 0.1,
+            "total_loser_rate": 0.05
           },
           "price_weakness_slope_window": 5,
           "low_volatility_bbw_window": 21

@@ -445,7 +445,6 @@ class FoundationIntelligence:
             turnover_rate_score * ssq_weights.get('activity_sub_weights', {}).get('turnover', 0.5) +
             volume_burstiness_score * ssq_weights.get('activity_sub_weights', {}).get('burstiness', 0.5)
         ).clip(0, 1)
-        # 修改结束
         # 情绪一致性: 价量熵 (负向)
         price_volume_entropy_score = get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df_index, default_weights, ascending=False)
         sentiment_consistency_score = price_volume_entropy_score.clip(0, 1)

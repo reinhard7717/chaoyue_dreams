@@ -168,7 +168,6 @@ class StructuralIntelligence:
         structural_momentum = self._diagnose_structural_momentum(
             df, contextual_posture_base_for_momentum, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion, posture_type="base_for_leadership"
         )
-        # 修改结束
         # --- 步骤五: 龙头潜力裁决 ---
         leadership_potential = self._diagnose_leadership_potential(
             strategic_posture, axiom_environment, structural_momentum, axiom_tension
@@ -185,7 +184,6 @@ class StructuralIntelligence:
             df, contextual_posture, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion, posture_type="final_score"
         )
         all_states['SCORE_STRUCT_MOMENTUM'] = final_structural_momentum.astype(np.float32)
-        # 修改结束
         # --- 步骤八: 诊断剧本 ---
         playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
             df, axiom_stability, contextual_posture, final_structural_momentum
