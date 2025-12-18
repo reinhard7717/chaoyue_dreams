@@ -266,8 +266,8 @@ class BehavioralIntelligence:
             'impulse_quality_ratio_D',
             'volume_structure_skew_D',
             'volume_burstiness_index_D',
-            'closing_strength_index_D',
-            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'
+            'closing_strength_index_D'
+            # MODIFIED LINE: 移除 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'，因为它是在此方法内部计算的
         ]
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
