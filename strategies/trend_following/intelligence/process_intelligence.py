@@ -510,23 +510,6 @@ class ProcessIntelligence:
         states[opportunity_signal_name] = opportunity_part.astype(np.float32)
         risk_part = meta_score.clip(upper=0).abs()
         states[risk_signal_name] = risk_part.astype(np.float32)
-        probe_dates = self.probe_dates
-        # [修改] 增加对 enable_probe 配置的检查
-        enable_probe = config.get('enable_probe', True)
-        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [分裂元分析探针: {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 瞬时关系分(信念校准后): {relationship_score.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 关系位移强度(归一化): {bipolar_displacement_strength.iloc[last_date_index]:.4f}")
-            print(f"    - 关系动量强度(归一化): {bipolar_momentum_strength.iloc[last_date_index]:.4f}")
-            print(f"    - 元分析总分(分裂前): {meta_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 机会部分({opportunity_signal_name}): {opportunity_part.iloc[last_date_index]:.4f}")
-            print(f"    - 风险部分({risk_signal_name}): {risk_part.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return states
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -546,21 +529,6 @@ class ProcessIntelligence:
         active_buying_norm = self._normalize_series(active_buying_support, df.index, bipolar=False)
         authenticity_amplifier = 1 + active_buying_norm
         final_score = (base_divergence_score * authenticity_amplifier).clip(-1, 1)
-        probe_dates = self.probe_dates
-        enable_probe = config.get('enable_probe', True)
-        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(承接验证版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 主动承接强度(原始): {active_buying_support.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 基础背离分: {base_divergence_score.iloc[last_date_index]:.4f}")
-            print(f"    - 主动承接(归一化): {active_buying_norm.iloc[last_date_index]:.4f}")
-            print(f"    - 真实性放大器: {authenticity_amplifier.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 瞬时关系分(承接验证后): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_score
 
     def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -581,21 +549,6 @@ class ProcessIntelligence:
         wash_trade_norm = self._normalize_series(wash_trade_intensity, df.index, bipolar=False)
         quality_factor = (conviction_norm.clip(lower=0) * (1 - wash_trade_norm)).clip(0, 1)
         final_score = (base_consensus_score * quality_factor).clip(-1, 1)
-        probe_dates = self.probe_dates
-        enable_probe = config.get('enable_probe', True)
-        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(信念校准版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 主力信念(原始): {main_force_conviction.iloc[last_date_index]:.4f}")
-            print(f"    - 对倒强度(原始): {wash_trade_intensity.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 基础共识分: {base_consensus_score.iloc[last_date_index]:.4f}")
-            print(f"    - 品质因子: {quality_factor.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 瞬时关系分(信念校准后): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_score
 
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -615,21 +568,6 @@ class ProcessIntelligence:
         mf_vpoc_safe = mf_vpoc.replace(0, np.nan) # 防止除以零
         battlefield_context_factor = (1 + (close_price - mf_vpoc_safe) / mf_vpoc_safe).fillna(1).clip(0, 2)
         final_score = (base_divergence_score * battlefield_context_factor).clip(-1, 1)
-        probe_dates = self.probe_dates
-        enable_probe = config.get('enable_probe', True)
-        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(战场纵深版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 收盘价: {close_price.iloc[last_date_index]:.2f}")
-            print(f"    - 主力VPOC: {mf_vpoc.iloc[last_date_index]:.2f}")
-            print("  [关键计算]:")
-            print(f"    - 基础背离分: {base_divergence_score.iloc[last_date_index]:.4f}")
-            print(f"    - 战场纵深因子: {battlefield_context_factor.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 瞬时关系分(战场纵深校准后): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_score
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -664,19 +602,6 @@ class ProcessIntelligence:
         # 修正 get_param_value 的默认值，避免嵌套的 'weights' 键
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         decay_score = get_adaptive_mtf_normalized_score(decay_magnitude, df_index, actual_mtf_weights, ascending=True)
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [信号衰减探针: {signal_name}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 源信号 ({source_signal_name}): {source_series.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 信号变化量: {signal_change.iloc[last_date_index]:.4f}")
-            print(f"    - 衰减幅度(原始): {decay_magnitude.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 衰减分数(归一化): {decay_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return {signal_name: decay_score.astype(np.float32)}
 
     def _calculate_price_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1459,33 +1384,151 @@ class ProcessIntelligence:
         return meta_score
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V1.2 · 丞相之印版】“风暴眼中的寂静”专属计算引擎
-        - 核心重构: 创立“高能压缩”模型，并将“主力控盘”从“放大器”升格为“裁决因子”。
-        - 信号融合: 融合结构张力、量能萎缩与主力控盘度三大核心证据。
-        - 核心逻辑: 寂静分 = 基础压缩分 * 主力控盘(裁决因子)。无主力正向控盘，则一票否决。
-        """
-        tension_signal = 'SCORE_STRUCT_AXIOM_TENSION'
-        atrophy_signal = 'SCORE_BEHAVIOR_VOLUME_ATROPHY'
-        control_signal = 'control_solidity_index_D'
-        required_signals = [tension_signal, atrophy_signal, control_signal]
-        if not self._validate_required_signals(df, required_signals, "_calculate_storm_eye_calm"):
-            return pd.Series(dtype=np.float32)
+        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V2.0 · 混沌边缘版)...") # 修改代码行
         df_index = df.index
-        # 获取原料信号
-        tension_score = self._get_atomic_score(df, tension_signal, 0.0)
-        atrophy_score = self._get_atomic_score(df, atrophy_signal, 0.0)
-        control_raw = self._get_safe_series(df, control_signal, 0.0, method_name="_calculate_storm_eye_calm")
-        # 归一化主力控盘度
-        control_score = self._normalize_series(control_raw, df_index, bipolar=True)
-        # 核心逻辑：高能压缩模型
-        # 基础压缩分 = 结构张力 × 量能萎缩
-        base_compression_score = (tension_score * atrophy_score).pow(0.5)
-        # 主力控盘(裁决因子)，取其正值部分，实现“丞相之印”的一票否决权
-        main_force_adjudicator = control_score.clip(lower=0)
-        # 最终得分 = 基础压缩分 * 裁决因子
-        final_score = (base_compression_score * main_force_adjudicator).clip(0, 1)
-        # [删除] 移除所有探针调试代码
+        # 获取参数
+        params = get_param_value(self.params.get('storm_eye_calm_params'), {})
+        energy_compression_weights = get_param_value(params.get('energy_compression_weights'), {"tension": 0.4, "bbw_inverted": 0.3, "vol_instability_inverted": 0.3})
+        volume_exhaustion_weights = get_param_value(params.get('volume_exhaustion_weights'), {"volume_atrophy": 0.4, "turnover_rate_inverted": 0.3, "counterparty_exhaustion": 0.3})
+        main_force_covert_intent_weights = get_param_value(params.get('main_force_covert_intent_weights'), {"stealth_ops": 0.3, "split_order_accum": 0.2, "mf_conviction_positive": 0.2, "mf_net_flow_positive": 0.3})
+        subdued_market_sentiment_weights = get_param_value(params.get('subdued_market_sentiment_weights'), {"sentiment_pendulum_negative": 0.5, "market_sentiment_inverted": 0.5})
+        final_fusion_weights = get_param_value(params.get('final_fusion_weights'), {"energy_compression": 0.25, "volume_exhaustion": 0.25, "main_force_covert_intent": 0.3, "subdued_market_sentiment": 0.2})
+        price_calmness_modulator_params = get_param_value(params.get('price_calmness_modulator_params'), {"slope_period": 5, "modulator_factor": 0.5})
+        main_force_control_adjudicator_params = get_param_value(params.get('main_force_control_adjudicator'), {"control_signal": "control_solidity_index_D", "veto_threshold": -0.2, "amplifier_factor": 0.5})
+        # 修正 MTF 权重配置的获取路径
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 获取所有原始数据和原子信号 ---
+        required_signals = [
+            'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'control_solidity_index_D',
+            'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D',
+            'counterparty_exhaustion_index_D', 'main_force_conviction_index_D',
+            'SCORE_MICRO_STRATEGY_STEALTH_OPS', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
+            'main_force_net_flow_calibrated_D', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
+            'market_sentiment_score_D', 'SLOPE_5_close_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_storm_eye_calm"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 能量压缩度维度原料
+        tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
+        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_calculate_storm_eye_calm")
+        vol_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_storm_eye_calm")
+        # 量能枯竭度维度原料
+        atrophy_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
+        turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_calculate_storm_eye_calm")
+        counterparty_exhaustion_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name="_calculate_storm_eye_calm")
+        # 主力隐蔽意图维度原料
+        stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
+        split_order_accum_score = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
+        mf_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_storm_eye_calm")
+        mf_net_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_storm_eye_calm")
+        # 市场情绪低迷维度原料
+        sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
+        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_calculate_storm_eye_calm")
+        # 情境调制器原料
+        price_slope_raw = self._get_safe_series(df, f'SLOPE_{price_calmness_modulator_params.get("slope_period", 5)}_close_D', 0.0, method_name="_calculate_storm_eye_calm")
+        control_solidity_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), 0.0, method_name="_calculate_storm_eye_calm")
+        # --- 2. 维度计算 ---
+        # 2.1 能量压缩度 (Energy Compression Score)
+        bbw_inverted_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, actual_mtf_weights, ascending=False)
+        vol_instability_inverted_score = get_adaptive_mtf_normalized_score(vol_instability_raw, df_index, actual_mtf_weights, ascending=False)
+        energy_compression_score = (
+            (tension_score).pow(energy_compression_weights.get('tension', 0.4)) *
+            (bbw_inverted_score).pow(energy_compression_weights.get('bbw_inverted', 0.3)) *
+            (vol_instability_inverted_score).pow(energy_compression_weights.get('vol_instability_inverted', 0.3))
+        ).pow(1/sum(energy_compression_weights.values())).fillna(0.0)
+        # 2.2 量能枯竭度 (Volume Exhaustion Score)
+        turnover_rate_inverted_score = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, actual_mtf_weights, ascending=False)
+        counterparty_exhaustion_score = get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df_index, actual_mtf_weights, ascending=True)
+        volume_exhaustion_score = (
+            (atrophy_score).pow(volume_exhaustion_weights.get('volume_atrophy', 0.4)) *
+            (turnover_rate_inverted_score).pow(volume_exhaustion_weights.get('turnover_rate_inverted', 0.3)) *
+            (counterparty_exhaustion_score).pow(volume_exhaustion_weights.get('counterparty_exhaustion', 0.3))
+        ).pow(1/sum(volume_exhaustion_weights.values())).fillna(0.0)
+        # 2.3 主力隐蔽意图 (Main Force Covert Intent Score)
+        stealth_ops_normalized = get_adaptive_mtf_normalized_score(stealth_ops_score, df_index, actual_mtf_weights, ascending=True)
+        split_order_accum_normalized = get_adaptive_mtf_normalized_score(split_order_accum_score, df_index, actual_mtf_weights, ascending=True)
+        mf_conviction_positive = self._normalize_series(mf_conviction_raw, df_index, bipolar=True).clip(lower=0)
+        mf_net_flow_positive = self._normalize_series(mf_net_flow_raw, df_index, bipolar=True).clip(lower=0)
+        main_force_covert_intent_score = (
+            (stealth_ops_normalized).pow(main_force_covert_intent_weights.get('stealth_ops', 0.3)) *
+            (split_order_accum_normalized).pow(main_force_covert_intent_weights.get('split_order_accum', 0.2)) *
+            (mf_conviction_positive).pow(main_force_covert_intent_weights.get('mf_conviction_positive', 0.2)) *
+            (mf_net_flow_positive).pow(main_force_covert_intent_weights.get('mf_net_flow_positive', 0.3))
+        ).pow(1/sum(main_force_covert_intent_weights.values())).fillna(0.0)
+        # 2.4 市场情绪低迷 (Subdued Market Sentiment Score)
+        sentiment_pendulum_negative = self._normalize_series(sentiment_pendulum_score, df_index, bipolar=True).clip(upper=0).abs()
+        market_sentiment_inverted = get_adaptive_mtf_normalized_score(market_sentiment_raw, df_index, actual_mtf_weights, ascending=False)
+        subdued_market_sentiment_score = (
+            (sentiment_pendulum_negative).pow(subdued_market_sentiment_weights.get('sentiment_pendulum_negative', 0.5)) *
+            (market_sentiment_inverted).pow(subdued_market_sentiment_weights.get('market_sentiment_inverted', 0.5))
+        ).pow(1/sum(subdued_market_sentiment_weights.values())).fillna(0.0)
+        # --- 3. 基础寂静分融合 ---
+        base_calm_score = (
+            (energy_compression_score).pow(final_fusion_weights.get('energy_compression', 0.25)) *
+            (volume_exhaustion_score).pow(final_fusion_weights.get('volume_exhaustion', 0.25)) *
+            (main_force_covert_intent_score).pow(final_fusion_weights.get('main_force_covert_intent', 0.3)) *
+            (subdued_market_sentiment_score).pow(final_fusion_weights.get('subdued_market_sentiment', 0.2))
+        ).pow(1/sum(final_fusion_weights.values())).fillna(0.0)
+        # --- 4. 情境调制器 ---
+        # 4.1 价格平静度调制器
+        price_slope_norm_bipolar = self._normalize_series(price_slope_raw, df_index, bipolar=True)
+        price_calmness_modulator = (1 - price_slope_norm_bipolar.abs()).clip(0, 1)
+        price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('modulator_factor', 0.5))
+        # 4.2 主力控盘裁决器
+        control_solidity_score = self._normalize_series(control_solidity_raw, df_index, bipolar=True)
+        veto_threshold = main_force_control_adjudicator_params.get('veto_threshold', -0.2)
+        amplifier_factor = main_force_control_adjudicator_params.get('amplifier_factor', 0.5)
+        # --- 5. 最终寂静分 ---
+        final_score = base_calm_score * price_calmness_amplifier
+        # 应用主力控盘门控和放大器
+        final_score = final_score.mask(control_solidity_score < veto_threshold, 0.0) # 硬性否决
+        main_force_amplifier = 1 + (control_solidity_score * amplifier_factor) # 软性放大/惩罚
+        final_score = (final_score * main_force_amplifier).clip(0, 1).fillna(0.0)
+        # --- 6. 探针输出 ---
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            last_date_index = -1
+            print(f"\n--- [PROCESS_META_STORM_EYE_CALM 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
+            print("  [输入原料 (原始值)]: ")
+            print(f"    - SCORE_STRUCT_AXIOM_TENSION: {tension_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_BEHAVIOR_VOLUME_ATROPHY: {atrophy_score.iloc[last_date_index]:.4f}")
+            print(f"    - control_solidity_index_D: {control_solidity_raw.iloc[last_date_index]:.4f}")
+            print(f"    - BBW_21_2.0_D: {bbw_raw.iloc[last_date_index]:.4f}")
+            print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {vol_instability_raw.iloc[last_date_index]:.4f}")
+            print(f"    - turnover_rate_f_D: {turnover_rate_raw.iloc[last_date_index]:.4f}")
+            print(f"    - counterparty_exhaustion_index_D: {counterparty_exhaustion_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_MICRO_STRATEGY_STEALTH_OPS: {stealth_ops_score.iloc[last_date_index]:.4f}")
+            print(f"    - PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY: {split_order_accum_score.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_conviction_index_D: {mf_conviction_raw.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_net_flow_calibrated_D: {mf_net_flow_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SLOPE_5_close_D: {price_slope_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算 (归一化/中间分)]: ")
+            print(f"    - bbw_inverted_score: {bbw_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - vol_instability_inverted_score: {vol_instability_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - energy_compression_score: {energy_compression_score.iloc[last_date_index]:.4f}")
+            print(f"    - turnover_rate_inverted_score: {turnover_rate_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - counterparty_exhaustion_score: {counterparty_exhaustion_score.iloc[last_date_index]:.4f}")
+            print(f"    - volume_exhaustion_score: {volume_exhaustion_score.iloc[last_date_index]:.4f}")
+            print(f"    - stealth_ops_normalized: {stealth_ops_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - split_order_accum_normalized: {split_order_accum_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mf_conviction_positive: {mf_conviction_positive.iloc[last_date_index]:.4f}")
+            print(f"    - mf_net_flow_positive: {mf_net_flow_positive.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_covert_intent_score: {main_force_covert_intent_score.iloc[last_date_index]:.4f}")
+            print(f"    - sentiment_pendulum_negative: {sentiment_pendulum_negative.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_inverted: {market_sentiment_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - subdued_market_sentiment_score: {subdued_market_sentiment_score.iloc[last_date_index]:.4f}")
+            print(f"    - base_calm_score: {base_calm_score.iloc[last_date_index]:.4f}")
+            print(f"    - price_calmness_modulator: {price_calmness_modulator.iloc[last_date_index]:.4f}")
+            print(f"    - price_calmness_amplifier: {price_calmness_amplifier.iloc[last_date_index]:.4f}")
+            print(f"    - control_solidity_score: {control_solidity_score.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_amplifier: {main_force_amplifier.iloc[last_date_index]:.4f}")
+            print("  [最终结果]: ")
+            print(f"    - final_storm_eye_calm_score: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
@@ -1518,21 +1561,6 @@ class ProcessIntelligence:
         weight_momentum = (1 - instant_score_normalized).clip(0, 1)
         weight_displacement = 1 - weight_momentum
         meta_score = (bipolar_displacement_strength * weight_displacement + bipolar_momentum_strength * weight_momentum)
-        probe_dates = self.probe_dates
-        enable_probe = config.get('enable_probe', True)
-        if enable_probe and not relationship_score.empty and relationship_score.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [关系元分析探针: {signal_name}] ---")
-            last_date_index = -1
-            print(f"日期: {relationship_score.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 关系位移强度(归一化): {bipolar_displacement_strength.iloc[last_date_index]:.4f}")
-            print(f"    - 关系动量强度(归一化): {bipolar_momentum_strength.iloc[last_date_index]:.4f}")
-            print(f"    - 动态权重(位移/动量): {weight_displacement.iloc[last_date_index]:.2f}/{weight_momentum.iloc[last_date_index]:.2f}")
-            print("  [最终结果]:")
-            print(f"    - 元分析最终分: {meta_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
         if diagnosis_mode == 'gated_meta_analysis':
             gate_condition_config = config.get('gate_condition', {})
@@ -1780,76 +1808,6 @@ class ProcessIntelligence:
         ).clip(0, 1)
         final_amplifier = 1 + (structural_context_amplifier * max_context_bonus_factor)
         final_wash_out_rebound_score = (wash_out_rebound_score_base * final_amplifier).clip(0, 1)
-        # --- 7. 探针输出 ---
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            last_date_index = -1
-            print(f"\n--- [PROCESS_META_WASH_OUT_REBOUND 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
-            print("  [输入原料 (原始值)]: ")
-            print(f"    - wash_trade_intensity_D: {wash_trade_raw.iloc[last_date_index]:.4f}")
-            print(f"    - deception_index_D: {deception_raw.iloc[last_date_index]:.4f}")
-            print(f"    - deception_lure_long_intensity_D: {deception_lure_long_raw.iloc[last_date_index]:.4f}")
-            print(f"    - deception_lure_short_intensity_D: {deception_lure_short_raw.iloc[last_date_index]:.4f}")
-            print(f"    - active_selling_pressure_D: {active_selling_raw.iloc[last_date_index]:.4f}")
-            print(f"    - panic_selling_cascade_D: {panic_cascade_raw.iloc[last_date_index]:.4f}")
-            print(f"    - retail_panic_surrender_index_D: {retail_surrender_raw.iloc[last_date_index]:.4f}")
-            print(f"    - loser_pain_index_D: {loser_pain_raw.iloc[last_date_index]:.4f}")
-            print(f"    - closing_strength_index_D: {closing_strength_raw.iloc[last_date_index]:.4f}")
-            print(f"    - upward_impulse_purity_D: {upward_purity_raw.iloc[last_date_index]:.4f}")
-            print(f"    - offensive_absorption_intent: {offensive_absorption_intent.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_TREND_FORM: {trend_form_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_STABILITY: {stability_score.iloc[last_date_index]:.4f}")
-            # 修改代码：新增探针输出
-            print(f"    - SCORE_BEHAVIOR_DECEPTION_INDEX: {behavior_deception_index.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_MICRO_STRATEGY_STEALTH_OPS: {stealth_ops_score.iloc[last_date_index]:.4f}")
-            print(f"    - SLOPE_5_wash_trade_intensity_D: {wash_trade_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SLOPE_5_active_selling_pressure_D: {active_selling_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT: {holder_sentiment_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
-            print(f"    - SLOPE_5_retail_panic_surrender_index_D: {retail_surrender_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SLOPE_5_loser_pain_index_D: {loser_pain_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_BEHAVIOR_ABSORPTION_STRENGTH: {absorption_strength_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT: {offensive_absorption_score.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_buy_execution_alpha_D: {mf_buy_execution_alpha_raw.iloc[last_date_index]:.4f}")
-            print(f"    - buy_sweep_intensity_D: {buy_sweep_intensity_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_TENSION: {tension_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_MTF_COHESION: {mtf_cohesion_score.iloc[last_date_index]:.4f}")
-            print("  [关键计算 (归一化/中间分)]: ")
-            print(f"    - wash_trade_score: {wash_trade_score.iloc[last_date_index]:.4f}")
-            print(f"    - active_selling_score: {active_selling_score.iloc[last_date_index]:.4f}")
-            print(f"    - deception_positive_lure_long_score: {deception_positive_lure_long_score.iloc[last_date_index]:.4f}")
-            print(f"    - deception_lure_short_score: {deception_lure_short_score.iloc[last_date_index]:.4f}")
-            print(f"    - fused_deception_score: {fused_deception_score.iloc[last_date_index]:.4f}")
-            # 修改代码：新增探针输出
-            print(f"    - behavior_deception_score_negative: {behavior_deception_score_negative.iloc[last_date_index]:.4f}")
-            print(f"    - stealth_ops_normalized: {stealth_ops_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - wash_trade_slope_score: {wash_trade_slope_score.iloc[last_date_index]:.4f}")
-            print(f"    - active_selling_slope_score: {active_selling_slope_score.iloc[last_date_index]:.4f}")
-            print(f"    - deception_context_score: {deception_context_score.iloc[last_date_index]:.4f}")
-            print(f"    - panic_cascade_score: {panic_cascade_score.iloc[last_date_index]:.4f}")
-            print(f"    - retail_surrender_score: {retail_surrender_score.iloc[last_date_index]:.4f}")
-            print(f"    - loser_pain_score: {loser_pain_score.iloc[last_date_index]:.4f}")
-            print(f"    - holder_sentiment_inverted_score: {holder_sentiment_inverted_score.iloc[last_date_index]:.4f}")
-            print(f"    - sentiment_pendulum_negative_score: {sentiment_pendulum_negative_score.iloc[last_date_index]:.4f}")
-            print(f"    - retail_surrender_slope_score: {retail_surrender_slope_score.iloc[last_date_index]:.4f}")
-            print(f"    - loser_pain_slope_score: {loser_pain_slope_score.iloc[last_date_index]:.4f}")
-            print(f"    - panic_depth_score: {panic_depth_score.iloc[last_date_index]:.4f}")
-            print(f"    - absorption_intent_score: {absorption_intent_score.iloc[last_date_index]:.4f}")
-            print(f"    - closing_strength_score: {closing_strength_score.iloc[last_date_index]:.4f}")
-            print(f"    - upward_purity_score: {upward_purity_score.iloc[last_date_index]:.4f}")
-            print(f"    - absorption_strength_normalized: {absorption_strength_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - offensive_absorption_normalized: {offensive_absorption_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - mf_buy_execution_alpha_score: {mf_buy_execution_alpha_score.iloc[last_date_index]:.4f}")
-            print(f"    - buy_sweep_intensity_score: {buy_sweep_intensity_score.iloc[last_date_index]:.4f}")
-            print(f"    - rebound_quality_score: {rebound_quality_score.iloc[last_date_index]:.4f}")
-            print(f"    - tension_norm: {tension_norm.iloc[last_date_index]:.4f}")
-            print(f"    - mtf_cohesion_norm: {mtf_cohesion_norm.iloc[last_date_index]:.4f}")
-            print(f"    - structural_context_amplifier (raw): {structural_context_amplifier.iloc[last_date_index]:.4f}")
-            print(f"    - final_amplifier: {final_amplifier.iloc[last_date_index]:.4f}")
-            print("  [最终结果]: ")
-            print(f"    - wash_out_rebound_score_base: {wash_out_rebound_score_base.iloc[last_date_index]:.4f}")
-            print(f"    - final_wash_out_rebound_score: {final_wash_out_rebound_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_wash_out_rebound_score.clip(0, 1).astype(np.float32)
 
     def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
@@ -1980,71 +1938,6 @@ class ProcessIntelligence:
             (covert_action_score).pow(fusion_weights.get('covert_action', 0.4)) *
             (chip_optimization_score).pow(fusion_weights.get('chip_optimization', 0.3))
         ).pow(1/(fusion_weights.get('market_context', 0.3) + fusion_weights.get('covert_action', 0.4) + fusion_weights.get('chip_optimization', 0.3))).fillna(0.0)
-        # --- 7. 探针输出 ---
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            last_date_index = -1
-            print(f"\n--- [PROCESS_META_COVERT_ACCUMULATION 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
-            print("  [输入原料 (原始值)]: ")
-            print(f"    - retail_panic_surrender_index_D: {retail_panic_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SLOPE_{price_weakness_slope_window}_close_D: {price_weakness_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - BBW_{low_volatility_bbw_window}_2.0_D: {bbw_raw.iloc[last_date_index]:.4f}")
-            print(f"    - suppressive_accumulation_intensity_D: {suppressive_accum_raw.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_net_flow_calibrated_D: {main_force_flow_raw.iloc[last_date_index]:.4f}")
-            print(f"    - deception_index_D: {deception_raw.iloc[last_date_index]:.4f}")
-            print(f"    - deception_lure_long_intensity_D: {deception_lure_long_raw.iloc[last_date_index]:.4f}")
-            print(f"    - deception_lure_short_intensity_D: {deception_lure_short_raw.iloc[last_date_index]:.4f}")
-            print(f"    - chip_fatigue_index_D: {chip_fatigue_raw.iloc[last_date_index]:.4f}")
-            print(f"    - loser_pain_index_D: {loser_pain_raw.iloc[last_date_index]:.4f}")
-            # 修改代码：新增探针输出
-            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_TENSION: {tension_score.iloc[last_date_index]:.4f}")
-            print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
-            print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_MICRO_STRATEGY_STEALTH_OPS: {stealth_ops_score.iloc[last_date_index]:.4f}")
-            print(f"    - PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY: {split_order_accum_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL: {chip_historical_potential_score.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_buy_ofi_D: {mf_buy_ofi_raw.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_cost_advantage_D: {mf_cost_advantage_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SLOPE_5_main_force_net_flow_calibrated_D: {mf_flow_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SLOPE_5_suppressive_accumulation_intensity_D: {suppressive_accum_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT: {holder_sentiment_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION: {turnover_purity_cost_opt_score.iloc[last_date_index]:.4f}")
-            print(f"    - floating_chip_cleansing_efficiency_D: {floating_chip_cleansing_raw.iloc[last_date_index]:.4f}")
-            print(f"    - total_loser_rate_D: {total_loser_rate_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算 (归一化/中间分)]: ")
-            print(f"    - retail_panic_score: {retail_panic_score.iloc[last_date_index]:.4f}")
-            print(f"    - price_weakness_score_inverted: {price_weakness_score_inverted.iloc[last_date_index]:.4f}")
-            print(f"    - low_volatility_score: {low_volatility_score.iloc[last_date_index]:.4f}")
-            # 修改代码：新增探针输出
-            print(f"    - sentiment_pendulum_inverted_score: {sentiment_pendulum_inverted_score.iloc[last_date_index]:.4f}")
-            print(f"    - tension_inverted_score: {tension_inverted_score.iloc[last_date_index]:.4f}")
-            print(f"    - market_sentiment_inverted_score: {market_sentiment_inverted_score.iloc[last_date_index]:.4f}")
-            print(f"    - volatility_instability_inverted_score: {volatility_instability_inverted_score.iloc[last_date_index]:.4f}")
-            print(f"    - market_context_score: {market_context_score.iloc[last_date_index]:.4f}")
-            print(f"    - suppressive_accum_score: {suppressive_accum_score.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_flow_score: {main_force_flow_score.iloc[last_date_index]:.4f}")
-            print(f"    - deception_positive_lure_long_score: {deception_positive_lure_long_score.iloc[last_date_index]:.4f}")
-            print(f"    - deception_lure_short_score: {deception_lure_short_score.iloc[last_date_index]:.4f}")
-            print(f"    - fused_deception_score: {fused_deception_score.iloc[last_date_index]:.4f}")
-            print(f"    - stealth_ops_normalized: {stealth_ops_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - split_order_accum_normalized: {split_order_accum_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - chip_historical_potential_normalized: {chip_historical_potential_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - mf_buy_ofi_normalized: {mf_buy_ofi_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - mf_cost_advantage_normalized: {mf_cost_advantage_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - mf_flow_slope_normalized: {mf_flow_slope_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - suppressive_accum_slope_normalized: {suppressive_accum_slope_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - covert_action_score: {covert_action_score.iloc[last_date_index]:.4f}")
-            print(f"    - chip_fatigue_score: {chip_fatigue_score.iloc[last_date_index]:.4f}")
-            print(f"    - loser_pain_score: {loser_pain_score.iloc[last_date_index]:.4f}")
-            print(f"    - holder_sentiment_inverted_score: {holder_sentiment_inverted_score.iloc[last_date_index]:.4f}")
-            print(f"    - turnover_purity_cost_opt_normalized: {turnover_purity_cost_opt_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - floating_chip_cleansing_normalized: {floating_chip_cleansing_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - total_loser_rate_normalized: {total_loser_rate_normalized.iloc[last_date_index]:.4f}")
-            print(f"    - chip_optimization_score: {chip_optimization_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]: ")
-            print(f"    - covert_accumulation_score: {covert_accumulation_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return covert_accumulation_score.clip(0, 1).astype(np.float32)
 
 
