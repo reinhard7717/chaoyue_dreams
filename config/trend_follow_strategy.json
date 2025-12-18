@@ -759,6 +759,39 @@
       "behavioral_divergence_params": {
         "enabled": true,
         "description": "【V8.0 · 行为背离强度惯性与自适应引擎版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "lockup_rally_params": {
+          "enabled": true,
+          "description": "【V2.0 · 锁仓拉升深度洞察版】锁仓拉升机会信号参数。",
+          "fusion_weights": {
+            "rally_purity": 0.3,
+            "supply_exhaustion": 0.3,
+            "main_force_intent": 0.2,
+            "context_modulator": 0.2
+          },
+          "rally_purity_weights": {
+            "upward_momentum": 0.5,
+            "upward_efficiency": 0.5
+          },
+          "supply_exhaustion_weights": {
+            "volume_atrophy": 0.4,
+            "low_turnover": 0.3,
+            "low_volatility_instability": 0.3
+          },
+          "main_force_intent_weights": {
+            "intraday_bull_control": 0.4,
+            "no_distribution_intent": 0.3,
+            "low_deception_lure_short": 0.3
+          },
+          "context_modulator_weights": {
+            "low_overextension": 0.5,
+            "low_volatility_instability": 0.5
+          },
+          "turnover_rate_norm_window": 55,
+          "volatility_instability_norm_window": 55,
+          "deception_lure_short_norm_window": 55,
+          "overextension_norm_window": 55,
+          "final_exponent": 1.0
+        },
         "multi_timeframe_slopes": {
           "enabled": true,
           "periods": [5, 13],

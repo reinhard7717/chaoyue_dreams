@@ -216,31 +216,24 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         method_name = "_diagnose_behavioral_axioms"
-        # 获取所有参数配置，用于动态构建required_signals
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
-        # 健壮地获取 mtf_slopes_params，确保 'weights' 键存在
         mtf_slopes_params_from_config = p_behavioral_div_conf.get('multi_timeframe_slopes')
-        # 定义一个完整的默认 mtf_slopes_params 结构
         default_mtf_slopes_config = {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}}
         if mtf_slopes_params_from_config is None:
-            # 如果配置中没有 multi_timeframe_slopes，则使用完整的默认值
             mtf_slopes_params = default_mtf_slopes_config
         else:
-            # 如果配置中有，则将其与默认值合并，确保所有键都存在
             mtf_slopes_params = {**default_mtf_slopes_config, **mtf_slopes_params_from_config}
-            # 特别处理 'weights' 子字典，进行深度合并
             if 'weights' in mtf_slopes_params_from_config and isinstance(mtf_slopes_params_from_config['weights'], dict):
                 mtf_slopes_params['weights'] = {**default_mtf_slopes_config['weights'], **mtf_slopes_params_from_config['weights']}
             elif 'weights' not in mtf_slopes_params_from_config:
-                # 如果配置中没有 'weights' 键，则使用默认的 'weights'
                 mtf_slopes_params['weights'] = default_mtf_slopes_config['weights']
         mtf_periods = mtf_slopes_params.get('periods', [5])
         multi_level_resonance_params = get_param_value(p_behavioral_div_conf.get('multi_level_resonance_params'), {"enabled": True, "long_term_period": 21, "resonance_bonus": 0.2})
         long_term_period = multi_level_resonance_params.get('long_term_period', 21)
         pattern_sequence_params = get_param_value(p_behavioral_div_conf.get('pattern_sequence_params'), {"enabled": True, "lookback_window": 3, "volume_drying_up_ratio": 0.8, "volume_climax_ratio": 1.5, "reversal_pct_change_threshold": 0.01, "sequence_bonus": 0.2})
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
-        accel_period = mtf_periods[0] # 使用最短MTF周期作为加速度周期
-        # 重新构建required_signals，确保包含所有原始输入信号
+        accel_period = mtf_periods[0]
+        # MODIFIED LINE: 移除 lockup_rally_params 的直接获取，因为已移至新方法
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
             'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
@@ -267,19 +260,16 @@ class BehavioralIntelligence:
             'main_force_net_flow_calibrated_D',
             'retail_fomo_premium_index_D',
             'BBP_21_2.0_D', 'BIAS_5_D',
-            'ATR_14_D', 'BBW_21_2.0_D', 'ADX_14_D'
+            'ATR_14_D', 'BBW_21_2.0_D', 'ADX_14_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D' # MODIFIED LINE: 添加 VOLATILITY_INSTABILITY_INDEX_21d_D
         ]
-        # 动态添加MTF斜率信号到required_signals
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
-        # 添加长期斜率信号
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'ADX_14']:
             required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
-        # 添加模式序列所需的斜率
         for indicator in ['close', 'volume']:
             required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
-        # 添加加速度信号
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         if not self._validate_required_signals(df, required_signals, method_name):
@@ -288,9 +278,7 @@ class BehavioralIntelligence:
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        # 修正键名 'default_weights' 为 'default'
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-        # 修正键名 'long_term_weights' 为 'long_term_stability'
         long_term_weights = get_param_value(p_mtf.get('long_term_stability'), {'21': 0.5, '55': 0.3, '89': 0.2})
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -301,27 +289,22 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
-        # --- 基础信号计算 ---
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
         price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', pct_change.diff(5).fillna(0.0), method_name=method_name)
-        # 1. 计算鲁棒斜率 (Robust Slopes)
         robust_slopes = {}
-        # 收集所有相关斜率列名
         all_slope_cols_to_extract = []
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
             for period in mtf_periods:
                 col_name = f'SLOPE_{period}_{indicator}_D'
                 if col_name in df.columns:
                     all_slope_cols_to_extract.append(col_name)
-        # 从df中一次性提取所有相关斜率数据
         if all_slope_cols_to_extract:
             slopes_df_extracted = df[all_slope_cols_to_extract]
         else:
-            slopes_df_extracted = pd.DataFrame(index=df.index) # 如果没有列，则创建一个空的DataFrame
+            slopes_df_extracted = pd.DataFrame(index=df.index)
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
             weighted_slope = pd.Series(0.0, index=df.index, dtype=np.float32)
             total_weight = 0.0
-            # 筛选当前指标可用的斜率列和对应的权重
             indicator_slopes_cols = []
             current_weights = []
             for period in mtf_periods:
@@ -330,44 +313,37 @@ class BehavioralIntelligence:
                     indicator_slopes_cols.append(col_name)
                     current_weights.append(mtf_slopes_params['weights'].get(str(period), 0.0))
             if indicator_slopes_cols and sum(current_weights) > 0:
-                # 向量化加权求和
-                weighted_slope = (slopes_df_extracted[indicator_slopes_cols] * current_weights).sum(axis=1) # MODIFIED LINE
+                weighted_slope = (slopes_df_extracted[indicator_slopes_cols] * current_weights).sum(axis=1)
                 total_weight = sum(current_weights)
                 robust_slopes[indicator] = weighted_slope / total_weight
-            else: # 如果没有有效斜率数据或所有权重为零，则使用第一个周期的斜率作为回退
+            else:
                 first_period_col = f'SLOPE_{mtf_periods[0]}_{indicator}_D' if mtf_periods else None
                 robust_slopes[indicator] = self._get_safe_series(df, first_period_col, 0.0, method_name=method_name)
-            # 将鲁棒斜率添加到df中，并添加到states中
             df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
-        # 计算长期斜率 - 提升到这里
-        long_term_period = multi_level_resonance_params.get('long_term_period', 21) # 确保long_term_period已定义
+        long_term_period = multi_level_resonance_params.get('long_term_period', 21)
         long_term_close_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
         long_term_rsi_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_RSI_13_D', 0.0, method_name=method_name)
         long_term_macd_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
         long_term_volume_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_volume_D', 0.0, method_name=method_name)
         long_term_adx_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_ADX_14_D', 0.0, method_name=method_name)
-        # 将长期斜率添加到df中，并添加到states中，修正命名
         df['long_term_close_slope'] = long_term_close_slope
         states['long_term_close_slope'] = long_term_close_slope
-        df['long_term_RSI_13_slope'] = long_term_rsi_slope # 修正列名
-        states['long_term_RSI_13_slope'] = long_term_rsi_slope # 修正列名
-        df['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # 修正列名
-        states['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # 修正列名
+        df['long_term_RSI_13_slope'] = long_term_rsi_slope
+        states['long_term_RSI_13_slope'] = long_term_rsi_slope
+        df['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope
+        states['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope
         df['long_term_volume_slope'] = long_term_volume_slope
         states['long_term_volume_slope'] = long_term_volume_slope
         df['long_term_adx_slope'] = long_term_adx_slope
         states['long_term_adx_slope'] = long_term_adx_slope
-        # 模式序列所需的斜率 - 提升到这里
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         pattern_close_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_close_D', 0.0, method_name=method_name)
         pattern_volume_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name)
-        # 将模式序列斜率添加到df中，并添加到states中
         df['pattern_close_slope'] = pattern_close_slope
         states['pattern_close_slope'] = pattern_close_slope
         df['pattern_volume_slope'] = pattern_volume_slope
         states['pattern_volume_slope'] = pattern_volume_slope
-        # --- 动能信号 ---
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
         print(f"    -> [行为情校验] 计算“价格上涨动量(SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM)” 分数：{upward_momentum_score.mean():.4f}")
@@ -375,7 +351,6 @@ class BehavioralIntelligence:
         downward_momentum_score = self._diagnose_downward_momentum(df)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         df['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
-        # --- 行为铁三角 (依赖于df中的信号，所以先计算并添加到df) ---
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
@@ -385,17 +360,12 @@ class BehavioralIntelligence:
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        # --- 超买信号 (依赖于df中的信号，所以先计算并添加到df) ---
-        # 调用重构后的纯行为超买信号
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
-        # --- 滞涨信号 (依赖于df中的信号，所以先计算并添加到df) ---
-        # 调用重构后的纯行为滞涨信号
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
         df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
-        # --- 其他信号 ---
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
         df['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
@@ -432,18 +402,16 @@ class BehavioralIntelligence:
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
         df['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION']
-        # 调用新的纯行为背离诊断方法，严格遵循V1.0定义
         bullish_pure_div, bearish_pure_div = self._diagnose_pure_behavioral_divergence(
             df,
             default_weights,
             is_debug_enabled,
             probe_ts
         )
-        states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div # 新增 V1.0 看涨背离信号
+        states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div
-        states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div # 新增 V1.0 看跌背离信号
+        states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
         df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
-        # 保持对 _QUALITY 版本的调用，因为它们是不同的、更高级的信号
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
@@ -453,11 +421,12 @@ class BehavioralIntelligence:
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
         df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
-        # --- 机会与风险信号 ---
-        is_rising = (pct_change > 0).astype(float)
+        # MODIFIED BLOCK START: 调用新的方法计算 SCORE_OPPORTUNITY_LOCKUP_RALLY
+        lockup_rally_score = self._calculate_lockup_rally_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
+        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
+        df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
+        # MODIFIED BLOCK END: 调用新的方法计算 SCORE_OPPORTUNITY_LOCKUP_RALLY
         is_falling = (pct_change < 0).astype(float)
-        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_ATROPHY']).pow(1/3).astype(np.float32)
-        df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = states['SCORE_OPPORTUNITY_LOCKUP_RALLY']
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
         selling_deceleration_score = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
         capitulation_confirm_score = get_adaptive_mtf_normalized_score(capitulation_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -2385,6 +2354,110 @@ class BehavioralIntelligence:
         ).pow(1 / (2.2 * adaptive_fusion_weight_multiplier)).fillna(0.0).clip(0, 1)
         divergence_score = divergence_score.where(div_condition_raw, 0.0)
         return divergence_score.astype(np.float32)
+
+    def _calculate_lockup_rally_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+        """
+        【V2.0 · 锁仓拉升深度洞察版】计算锁仓拉升机会信号。
+        - 核心逻辑: 将“锁仓拉升”解构为“上涨纯度”、“供应枯竭”和“主力控盘意图”三大核心维度，
+                      并引入“情境感知”进行动态调节。
+        - 数学模型: 最终信号 = is_rising * (上涨纯度^W1 * 供应枯竭^W2 * 主力控盘意图^W3 * 情境调节因子^W4)^(1/Sum(W))
+        """
+        method_name = "_calculate_lockup_rally_opportunity"
+        # 1. 获取参数
+        p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
+        lockup_rally_params = get_param_value(p_behavioral_div_conf.get('lockup_rally_params'), {})
+        lockup_rally_enabled = get_param_value(lockup_rally_params.get('enabled'), False)
+        if not lockup_rally_enabled:
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        lockup_rally_fusion_weights = get_param_value(lockup_rally_params.get('fusion_weights'), {"rally_purity": 0.3, "supply_exhaustion": 0.3, "main_force_intent": 0.2, "context_modulator": 0.2})
+        lockup_rally_rally_purity_weights = get_param_value(lockup_rally_params.get('rally_purity_weights'), {"upward_momentum": 0.5, "upward_efficiency": 0.5})
+        lockup_rally_supply_exhaustion_weights = get_param_value(lockup_rally_params.get('supply_exhaustion_weights'), {"volume_atrophy": 0.4, "low_turnover": 0.3, "low_volatility_instability": 0.3})
+        lockup_rally_main_force_intent_weights = get_param_value(lockup_rally_params.get('main_force_intent_weights'), {"intraday_bull_control": 0.4, "no_distribution_intent": 0.3, "low_deception_lure_short": 0.3})
+        lockup_rally_context_modulator_weights = get_param_value(lockup_rally_params.get('context_modulator_weights'), {"low_overextension": 0.5, "low_volatility_instability": 0.5})
+        lockup_rally_turnover_rate_norm_window = get_param_value(lockup_rally_params.get('turnover_rate_norm_window'), 55)
+        lockup_rally_volatility_instability_norm_window = get_param_value(lockup_rally_params.get('volatility_instability_norm_window'), 55)
+        lockup_rally_deception_lure_short_norm_window = get_param_value(lockup_rally_params.get('deception_lure_short_norm_window'), 55)
+        lockup_rally_overextension_norm_window = get_param_value(lockup_rally_params.get('overextension_norm_window'), 55)
+        lockup_rally_final_exponent = get_param_value(lockup_rally_params.get('final_exponent'), 1.0)
+        # 2. 获取原始数据和依赖信号
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        is_rising = (pct_change > 0).astype(float)
+        upward_momentum_score = states.get('SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', pd.Series(0.0, index=df.index))
+        upward_efficiency_score = states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.0, index=df.index))
+        volume_atrophy_score = states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.0, index=df.index))
+        intraday_bull_control_score = states.get('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', pd.Series(0.0, index=df.index))
+        distribution_intent_score = states.get('SCORE_BEHAVIOR_DISTRIBUTION_INTENT', pd.Series(0.0, index=df.index))
+        price_overextension_raw = states.get('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', pd.Series(0.0, index=df.index))
+        turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name)
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
+        deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
+        # 3. 计算子维度分数
+        # 3.1 上涨纯度 (Rally Purity)
+        rally_purity_score = (
+            (upward_momentum_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('upward_momentum', 0.5)) *
+            (upward_efficiency_score + 1e-9).pow(lockup_rally_rally_purity_weights.get('upward_efficiency', 0.5))
+        ).pow(1 / sum(lockup_rally_rally_purity_weights.values())).fillna(0.0)
+        # 3.2 供应枯竭 (Supply Exhaustion)
+        norm_low_turnover = (1 - get_adaptive_mtf_normalized_score(turnover_rate_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_turnover_rate_norm_window)).clip(0, 1)
+        norm_low_volatility_instability = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_volatility_instability_norm_window)).clip(0, 1)
+        supply_exhaustion_score = (
+            (volume_atrophy_score + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('volume_atrophy', 0.4)) *
+            (norm_low_turnover + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('low_turnover', 0.3)) *
+            (norm_low_volatility_instability + 1e-9).pow(lockup_rally_supply_exhaustion_weights.get('low_volatility_instability', 0.3))
+        ).pow(1 / sum(lockup_rally_supply_exhaustion_weights.values())).fillna(0.0)
+        # 3.3 主力控盘意图 (Main Force Control Intent)
+        norm_no_distribution_intent = (1 - distribution_intent_score).clip(0, 1)
+        norm_low_deception_lure_short = (1 - get_adaptive_mtf_normalized_score(deception_lure_short_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_deception_lure_short_norm_window)).clip(0, 1)
+        main_force_intent_score = (
+            (intraday_bull_control_score + 1e-9).pow(lockup_rally_main_force_intent_weights.get('intraday_bull_control', 0.4)) *
+            (norm_no_distribution_intent + 1e-9).pow(lockup_rally_main_force_intent_weights.get('no_distribution_intent', 0.3)) *
+            (norm_low_deception_lure_short + 1e-9).pow(lockup_rally_main_force_intent_weights.get('low_deception_lure_short', 0.3))
+        ).pow(1 / sum(lockup_rally_main_force_intent_weights.values())).fillna(0.0)
+        # 3.4 情境调节因子 (Contextual Modulator)
+        norm_low_overextension = (1 - get_adaptive_mtf_normalized_score(price_overextension_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_overextension_norm_window)).clip(0, 1)
+        norm_low_volatility_instability_for_context = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=default_weights, window=lockup_rally_volatility_instability_norm_window)).clip(0, 1)
+        context_modulator_score = (
+            (norm_low_overextension + 1e-9).pow(lockup_rally_context_modulator_weights.get('low_overextension', 0.5)) *
+            (norm_low_volatility_instability_for_context + 1e-9).pow(lockup_rally_context_modulator_weights.get('low_volatility_instability', 0.5))
+        ).pow(1 / sum(lockup_rally_context_modulator_weights.values())).fillna(0.0)
+        # 4. 最终融合
+        lockup_rally_score = (
+            (rally_purity_score + 1e-9).pow(lockup_rally_fusion_weights.get('rally_purity', 0.3)) *
+            (supply_exhaustion_score + 1e-9).pow(lockup_rally_fusion_weights.get('supply_exhaustion', 0.3)) *
+            (main_force_intent_score + 1e-9).pow(lockup_rally_fusion_weights.get('main_force_intent', 0.2)) *
+            (context_modulator_score + 1e-9).pow(lockup_rally_fusion_weights.get('context_modulator', 0.2))
+        ).pow(1 / sum(lockup_rally_fusion_weights.values()))
+        lockup_rally_score = lockup_rally_score.where(is_rising > 0, 0.0).clip(0, 1).astype(np.float32)
+        final_lockup_rally_score = lockup_rally_score.pow(lockup_rally_final_exponent)
+        # 5. 调试探针
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] SCORE_OPPORTUNITY_LOCKUP_RALLY @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"        - 原始数据:")
+            print(f"          - pct_change_D: {pct_change.loc[probe_ts]:.4f}")
+            print(f"          - turnover_rate_f_D: {turnover_rate_raw.loc[probe_ts]:.4f}")
+            print(f"          - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f}")
+            print(f"          - deception_lure_short_intensity_D: {deception_lure_short_raw.loc[probe_ts]:.4f}")
+            print(f"        - 依赖信号:")
+            print(f"          - SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM: {upward_momentum_score.loc[probe_ts]:.4f}")
+            print(f"          - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency_score.loc[probe_ts]:.4f}")
+            print(f"          - SCORE_BEHAVIOR_VOLUME_ATROPHY: {volume_atrophy_score.loc[probe_ts]:.4f}")
+            print(f"          - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_score.loc[probe_ts]:.4f}")
+            print(f"          - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent_score.loc[probe_ts]:.4f}")
+            print(f"          - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {price_overextension_raw.loc[probe_ts]:.4f}")
+            print(f"        - 关键计算节点:")
+            print(f"          - is_rising: {is_rising.loc[probe_ts]:.4f}")
+            print(f"          - rally_purity_score: {rally_purity_score.loc[probe_ts]:.4f}")
+            print(f"          - norm_low_turnover: {norm_low_turnover.loc[probe_ts]:.4f}")
+            print(f"          - norm_low_volatility_instability: {norm_low_volatility_instability.loc[probe_ts]:.4f}")
+            print(f"          - supply_exhaustion_score: {supply_exhaustion_score.loc[probe_ts]:.4f}")
+            print(f"          - norm_no_distribution_intent: {norm_no_distribution_intent.loc[probe_ts]:.4f}")
+            print(f"          - norm_low_deception_lure_short: {norm_low_deception_lure_short.loc[probe_ts]:.4f}")
+            print(f"          - main_force_intent_score: {main_force_intent_score.loc[probe_ts]:.4f}")
+            print(f"          - norm_low_overextension: {norm_low_overextension.loc[probe_ts]:.4f}")
+            print(f"          - norm_low_volatility_instability_for_context: {norm_low_volatility_instability_for_context.loc[probe_ts]:.4f}")
+            print(f"          - context_modulator_score: {context_modulator_score.loc[probe_ts]:.4f}")
+            print(f"        - 最终结果: SCORE_OPPORTUNITY_LOCKUP_RALLY = {final_lockup_rally_score.loc[probe_ts]:.4f}")
+        return final_lockup_rally_score
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
         """
