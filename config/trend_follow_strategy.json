@@ -1349,7 +1349,7 @@
           }
         ],
         "wash_out_rebound_params": {
-          "description": "【V2.1 · 诡道情境增强版】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。",
+          "description": "【V2.2 · 诡道情境增强版】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。",
           "fusion_weights": {
             "deception_context": 0.3,
             "panic_depth": 0.3,
@@ -1378,7 +1378,7 @@
           "max_context_bonus_factor": 0.5
         },
         "covert_accumulation_params": {
-          "description": "【V2.1 · 诡道情境增强版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
+          "description": "【V2.2 · 诡道情境增强版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
           "fusion_weights": {
             "market_context": 0.3,
             "covert_action": 0.4,
@@ -3712,7 +3712,36 @@
             "description": "【V1.0 · 新增】为结构层不同类型的信号定义多时间框架(MTF)归一化权重。",
             "default": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
             "long_term_stability": { "13": 0.2, "21": 0.3, "55": 0.4, "89": 0.1 },
-            "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 }
+            "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 },
+            "structural_momentum": { "3": 0.4, "5": 0.3, "8": 0.2, "13": 0.1 }
+        },
+        "structural_momentum_params": {
+          "description": "【V6.0 · 结构动量深度进化版 - 势能与惯性融合】结构动量信号的专属参数。",
+          "velocity_window": 5,
+          "comment_velocity_window": "计算结构速度的斜率周期。",
+          "acceleration_window": 3,
+          "comment_acceleration_window": "计算结构加速度的斜率周期。",
+          "persistence_window": 10,
+          "comment_persistence_window": "计算动量持续性的滚动窗口。",
+          "fusion_weights": {
+            "velocity": 0.4,
+            "acceleration": 0.3,
+            "persistence": 0.15,
+            "context_quality": 0.15
+          },
+          "comment_fusion_weights": "融合结构速度、加速度、持续性、情境品质的权重。",
+          "context_weights": {
+            "favorable_tension_inverse": 0.3,
+            "comment_favorable_tension_inverse": "低张力（高张力逆向）对动量品质的权重。",
+            "favorable_breakout_readiness": 0.3,
+            "comment_favorable_breakout_readiness": "高突破准备度对动量品质的权重。",
+            "unfavorable_stability_inverse": 0.2,
+            "comment_unfavorable_stability_inverse": "低稳定性（高稳定性逆向）对动量品质的权重。",
+            "unfavorable_cohesion_inverse": 0.2,
+            "comment_unfavorable_cohesion_inverse": "低协同度（高协同度逆向）对动量品质的权重。"
+          },
+          "non_linear_exponent": 1.5,
+          "comment_non_linear_exponent": "最终融合的非线性指数，用于放大强动量。"
         },
         "trend_form_fusion_weights": {
           "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振、均线粘合度、价格均线乖离、布林带动态、趋势效率的权重。",

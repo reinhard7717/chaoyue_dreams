@@ -114,20 +114,19 @@ class StructuralIntelligence:
         【V8.0 · 荣耀代价版】结构情报分析总指挥
         - 核心升级: 引入“荣耀的代价”协议。当“龙头潜力”激活时，其分值将作为“豁免系数”，
                       部分抵消环境惩罚，而非简单叠加奖励。最终得分同时体现逆势的荣耀与代价。
+        - 【V6.0 · 结构动量深度进化版】更新结构动量计算逻辑，调用新的 `_diagnose_structural_momentum` 方法。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("结构情报引擎已在配置中禁用，跳过。")
             return {}
-        # 修改开始：恢复探针机制的初始化
         debug_config = get_params_block(self.strategy, 'debug_params', {})
         current_processing_date_str = df.index[-1].strftime('%Y-%m-%d') if not df.empty else ""
         self.is_probe_date = debug_config.get('should_probe', False) and \
                              current_processing_date_str in debug_config.get('probe_dates', [])
         if self.is_probe_date:
             print(f"\n--- [结构情报探针] @ {current_processing_date_str} ---")
-        # 修改结束
         # --- 步骤一: 诊断原子公理 ---
         axiom_trend_form = self._diagnose_axiom_trend_form(df)
         axiom_mtf_cohesion = self._diagnose_axiom_mtf_cohesion(df, axiom_trend_form)
@@ -164,12 +163,11 @@ class StructuralIntelligence:
         # --- 步骤四: 基于“基础”情境态势，诊断原始动量 ---
         # 暂时使用原始调节器计算基础态势和动量，供龙头潜力判断
         contextual_posture_base_for_momentum = (strategic_posture * (1 + env_modifier)).clip(0, 1)
-        momentum_window = 5
-        posture_slope_raw = ta.slope(contextual_posture_base_for_momentum, length=momentum_window)
-        posture_slope_raw.fillna(0, inplace=True)
-        mtf_weights_conf = get_param_value(p_conf.get('mtf_normalization_weights'), {})
-        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        structural_momentum = get_adaptive_mtf_normalized_bipolar_score(posture_slope_raw, df.index, tf_weights)
+        # 修改开始：调用新的结构动量诊断方法
+        structural_momentum = self._diagnose_structural_momentum(
+            df, contextual_posture_base_for_momentum, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion
+        )
+        # 修改结束
         # --- 步骤五: 龙头潜力裁决 ---
         leadership_potential = self._diagnose_leadership_potential(
             strategic_posture, axiom_environment, structural_momentum, axiom_tension
@@ -181,10 +179,12 @@ class StructuralIntelligence:
         contextual_posture = (strategic_posture * (1 + effective_env_modifier)).clip(0, 1)
         all_states['SCORE_STRUCT_CONTEXTUAL_POSTURE'] = contextual_posture.astype(np.float32)
         # --- 步骤七: 基于最终情境态势，更新动量 ---
-        final_posture_slope_raw = ta.slope(contextual_posture, length=momentum_window)
-        final_posture_slope_raw.fillna(0, inplace=True)
-        final_structural_momentum = get_adaptive_mtf_normalized_bipolar_score(final_posture_slope_raw, df.index, tf_weights)
+        # 修改开始：再次调用新的结构动量诊断方法，使用最终的 contextual_posture
+        final_structural_momentum = self._diagnose_structural_momentum(
+            df, contextual_posture, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion
+        )
         all_states['SCORE_STRUCT_MOMENTUM'] = final_structural_momentum.astype(np.float32)
+        # 修改结束
         # --- 步骤八: 诊断剧本 ---
         playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
             df, axiom_stability, contextual_posture, final_structural_momentum
@@ -195,10 +195,8 @@ class StructuralIntelligence:
             contextual_posture, defense_strength, final_structural_momentum
         )
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
-        # 修改开始：探针结束
         if self.is_probe_date:
             print(f"--- [结构情报探针] 结束 @ {current_processing_date_str} ---")
-        # 修改结束
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -1165,6 +1163,99 @@ class StructuralIntelligence:
         final_score = readiness_score.astype(np.float32)
         return final_score
 
+    def _diagnose_structural_momentum(self, df: pd.DataFrame, contextual_posture: pd.Series, axiom_tension: pd.Series, breakout_readiness: pd.Series, axiom_stability: pd.Series, axiom_mtf_cohesion: pd.Series) -> pd.Series:
+        """
+        【V6.0 · 结构动量深度进化版 - 势能与惯性融合】诊断“结构动量”
+        - 核心升级: 不再是简单地计算结构战略态势的斜率，而是融合了“结构速度”、“结构加速度”、“动量持续性”和“动量情境品质”四大维度。
+        - 核心证据:
+            - 结构速度: 结构战略态势的短期变化率。
+            - 结构加速度: 结构战略态态势变化率的变化率。
+            - 动量持续性: 当前动量方向的持续时间。
+            - 动量情境品质: 动量发生时所处的结构环境（如是否突破压缩，是否加速进入阻力）。
+        - 旨在提供一个更全面、更具前瞻性的结构动量信号，区分“虚假动量”与“真实势能”。
+        """
+        df_index = df.index
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        momentum_params = get_param_value(p_conf_struct.get('structural_momentum_params'), {})
+        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
+        tf_weights_momentum = mtf_weights_conf.get('structural_momentum', {3: 0.4, 5: 0.3, 8: 0.2, 13: 0.1})
+
+        velocity_window = get_param_value(momentum_params.get('velocity_window'), 5)
+        acceleration_window = get_param_value(momentum_params.get('acceleration_window'), 3)
+        persistence_window = get_param_value(momentum_params.get('persistence_window'), 10)
+        fusion_weights = get_param_value(momentum_params.get('fusion_weights'), {
+            "velocity": 0.4, "acceleration": 0.3, "persistence": 0.15, "context_quality": 0.15
+        })
+        context_weights = get_param_value(momentum_params.get('context_weights'), {
+            "favorable_tension_inverse": 0.3, "favorable_breakout_readiness": 0.3,
+            "unfavorable_stability_inverse": 0.2, "unfavorable_cohesion_inverse": 0.2
+        })
+        non_linear_exponent = get_param_value(momentum_params.get('non_linear_exponent'), 1.5)
+
+        # 1. 结构速度 (Structural Velocity)
+        velocity_raw = ta.slope(contextual_posture, length=velocity_window)
+        velocity_raw.fillna(0, inplace=True)
+        velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, tf_weights_momentum)
+
+        # 2. 结构加速度 (Structural Acceleration)
+        acceleration_raw = ta.slope(velocity_raw, length=acceleration_window)
+        acceleration_raw.fillna(0, inplace=True)
+        acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, tf_weights_momentum)
+
+        # 3. 动量持续性 (Momentum Persistence)
+        # 统计连续正向或负向的速度周期数
+        positive_velocity_count = (velocity_raw > 0).astype(int).rolling(window=persistence_window, min_periods=1).sum()
+        negative_velocity_count = (velocity_raw < 0).astype(int).rolling(window=persistence_window, min_periods=1).sum()
+        persistence_raw = positive_velocity_count - negative_velocity_count
+        persistence_score = get_adaptive_mtf_normalized_bipolar_score(persistence_raw, df_index, tf_weights_momentum)
+
+        # 4. 动量情境品质 (Momentum Context Quality)
+        # 有利情境：低张力（张力越低越好），高突破准备度
+        favorable_context_raw = (1 - axiom_tension) * context_weights.get('favorable_tension_inverse', 0.3) + \
+                                breakout_readiness * context_weights.get('favorable_breakout_readiness', 0.3)
+        favorable_context_score = get_adaptive_mtf_normalized_score(favorable_context_raw, df_index, tf_weights_momentum, ascending=True)
+
+        # 不利情境：低稳定性（稳定性越低越差），低协同度（协同度越低越差）
+        unfavorable_context_raw = (1 - ((axiom_stability + 1) / 2)) * context_weights.get('unfavorable_stability_inverse', 0.2) + \
+                                  (1 - ((axiom_mtf_cohesion + 1) / 2)) * context_weights.get('unfavorable_cohesion_inverse', 0.2)
+        unfavorable_context_score = get_adaptive_mtf_normalized_score(unfavorable_context_raw, df_index, tf_weights_momentum, ascending=True)
+
+        context_quality_score = (favorable_context_score - unfavorable_context_score).clip(-1, 1)
+
+        # 5. 最终融合
+        fused_momentum = (
+            velocity_score * fusion_weights.get('velocity', 0.4) +
+            acceleration_score * fusion_weights.get('acceleration', 0.3) +
+            persistence_score * fusion_weights.get('persistence', 0.15) +
+            context_quality_score * fusion_weights.get('context_quality', 0.15)
+        ).clip(-1, 1)
+
+        # 应用非线性放大
+        final_score = pd.Series(np.sign(fused_momentum) * (np.abs(fused_momentum) ** non_linear_exponent), index=df_index).clip(-1, 1).astype(np.float32)
+
+        if self.is_probe_date:
+            print(f"  -> 结构动量探针 @ {df.index[-1].strftime('%Y-%m-%d')} ---")
+            print(f"    原料数据:")
+            print(f"      contextual_posture (末值): {contextual_posture.iloc[-1]:.4f}")
+            print(f"      axiom_tension (末值): {axiom_tension.iloc[-1]:.4f}")
+            print(f"      breakout_readiness (末值): {breakout_readiness.iloc[-1]:.4f}")
+            print(f"      axiom_stability (末值): {axiom_stability.iloc[-1]:.4f}")
+            print(f"      axiom_mtf_cohesion (末值): {axiom_mtf_cohesion.iloc[-1]:.4f}")
+            print(f"    关键计算节点:")
+            print(f"      structural_velocity_raw (末值): {velocity_raw.iloc[-1]:.4f}")
+            print(f"      structural_acceleration_raw (末值): {acceleration_raw.iloc[-1]:.4f}")
+            print(f"      momentum_persistence_raw (末值): {persistence_raw.iloc[-1]:.4f}")
+            print(f"      favorable_context_raw (末值): {favorable_context_raw.iloc[-1]:.4f}")
+            print(f"      unfavorable_context_raw (末值): {unfavorable_context_raw.iloc[-1]:.4f}")
+            print(f"    归一化分数:")
+            print(f"      structural_velocity_score (末值): {velocity_score.iloc[-1]:.4f}")
+            print(f"      structural_acceleration_score (末值): {acceleration_score.iloc[-1]:.4f}")
+            print(f"      momentum_persistence_score (末值): {persistence_score.iloc[-1]:.4f}")
+            print(f"      momentum_context_quality_score (末值): {context_quality_score.iloc[-1]:.4f}")
+            print(f"    最终融合:")
+            print(f"      SCORE_STRUCT_MOMENTUM (最终分数末值): {final_score.iloc[-1]:.4f}")
+            print(f"  --- 结构动量探针结束 ---")
+        return final_score
 
 
 
