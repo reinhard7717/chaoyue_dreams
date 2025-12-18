@@ -2113,8 +2113,8 @@ class BehavioralIntelligence:
             accel_close_condition = (accel_close > 0) if is_bullish else (accel_close < 0)
             accel_volume_condition = (accel_volume < 0) if is_bullish else (accel_volume < 0) # Volume drying up for bullish, volume decreasing for bearish
             persistence_quality = (accel_close_condition.astype(int) + accel_volume_condition.astype(int)).clip(0, 2)
-            # 优化: 使用 rolling().sum() 替代 rolling().apply(lambda x: (x == 1).sum())
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0) # MODIFIED LINE
+            # MODIFIED LINE: 第一次计算 persistence_count
+            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0)
             persistence_factor = (persistence_count / max_persistence_window) * (1 + persistence_quality * quality_decay_factor * persistence_count)
             persistence_factor = persistence_factor.where(persistence_count >= min_persistence_duration, 0.0)
             persistence_factor = persistence_factor.clip(0, 1.5)
@@ -2276,8 +2276,8 @@ class BehavioralIntelligence:
         freshness_factor = pd.Series(1.0, index=df.index)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
-            # 优化: 使用 rolling().sum() 替代 rolling().apply(lambda x: (x == 1).sum())
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0) # MODIFIED LINE
+            # MODIFIED LINE: 重用之前计算的 persistence_count
+            # persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0)
             freshness_factor = freshness_factor.mask(
                 persistence_count == 1, 1 + freshness_bonus
             )
