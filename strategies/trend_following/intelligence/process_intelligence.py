@@ -45,11 +45,13 @@ class ProcessIntelligence:
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        新增：对获取到的Series进行fillna(0.0)操作，确保没有NaN值。
         """
         if column_name not in df.columns:
             print(f"    -> [过程情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
-        return df[column_name]
+        # 修改代码行：对获取到的Series进行fillna(0.0)操作
+        return df[column_name].fillna(default_value)
 
     def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False, ascending: bool = True) -> pd.Series: # 修改代码行：新增 ascending 参数
         """
