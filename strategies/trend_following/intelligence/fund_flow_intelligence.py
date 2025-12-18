@@ -1313,10 +1313,11 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.3 · 命名修正与效率优化版】资金流公理五：诊断“资本属性”
+        【V3.4 · 命名修正与效率优化版】资金流公理五：诊断“资本属性”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         - 错误修复: 修正了 `SLOPE_5_SLOPE_5_net_lg_amount_calibrated_D` 命名错误，统一使用 `NMFNF_D` 及其衍生信号。
+                    修复了 `retail_fomo_premium_index_D` 信号未被正确缓存导致的 KeyError。
         """
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
@@ -1344,10 +1345,10 @@ class FundFlowIntelligence:
         })
         # --- 信号依赖校验 ---
         required_signals = [
-            'net_lg_amount_calibrated_D', # 用于 patient_flow_periods
-            'NMFNF_D', # 修改行: 添加 NMFNF_D 基础信号
-            'SLOPE_5_NMFNF_D', # 修改行: 添加 SLOPE_5_NMFNF_D 信号
-            'ACCEL_5_NMFNF_D', # 修改行: 添加 ACCEL_5_NMFNF_D 信号
+            'net_lg_amount_calibrated_D',
+            'NMFNF_D',
+            'SLOPE_5_NMFNF_D',
+            'ACCEL_5_NMFNF_D',
             'SLOPE_5_net_lg_amount_calibrated_D', 'ACCEL_5_net_lg_amount_calibrated_D',
             'SLOPE_13_net_lg_amount_calibrated_D', 'ACCEL_13_net_lg_amount_calibrated_D',
             'SLOPE_21_net_lg_amount_calibrated_D', 'ACCEL_21_net_lg_amount_calibrated_D',
@@ -1367,6 +1368,7 @@ class FundFlowIntelligence:
             'SLOPE_13_main_force_ofi_D', 'ACCEL_13_main_force_ofi_D',
             'SLOPE_21_main_force_ofi_D', 'ACCEL_21_main_force_ofi_D',
             'micro_price_impact_asymmetry_D', 'THEME_HOTNESS_SCORE_D',
+            'retail_fomo_premium_index_D', # 修改行: 添加 retail_fomo_premium_index_D
             'SLOPE_5_retail_fomo_premium_index_D', 'SLOPE_5_retail_panic_surrender_index_D',
             'SLOPE_5_market_sentiment_score_D',
             'ACCEL_5_main_force_t0_efficiency_D', 'ACCEL_5_main_force_slippage_index_D', 'ACCEL_5_main_force_execution_alpha_D',
@@ -1415,7 +1417,6 @@ class FundFlowIntelligence:
         for p in [5]: # NMFNF_D
             all_pre_fetched_slopes_accels[f'SLOPE_{p}_NMFNF_D'] = self._get_safe_series(df, df, f'SLOPE_{p}_NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature")
             all_pre_fetched_slopes_accels[f'ACCEL_{p}_NMFNF_D'] = self._get_safe_series(df, df, f'ACCEL_{p}_NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-            # 修改行: 确保 SLOPE_5_NMFNF_D 的加速度也被预取，因为它是 signal_base_name
             all_pre_fetched_slopes_accels[f'SLOPE_{p}_SLOPE_{p}_NMFNF_D'] = self._get_safe_series(df, df, f'SLOPE_{p}_SLOPE_{p}_NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         # --- 原始数据获取 (用于探针和计算) ---
         raw_data_cache = {}
@@ -1439,12 +1440,12 @@ class FundFlowIntelligence:
         # 敏捷资本相关
         main_force_ofi_raw = raw_data_cache['main_force_ofi_D']
         micro_price_impact_asymmetry_raw = raw_data_cache['micro_price_impact_asymmetry_D']
-        retail_fomo_premium_index_raw = raw_data_cache['retail_fomo_premium_index_D']
+        retail_fomo_premium_index_raw = raw_data_cache['retail_fomo_premium_index_D'] # 修复点：现在 retail_fomo_premium_index_D 应该在 raw_data_cache 中
         retail_panic_surrender_index_raw = raw_data_cache['retail_panic_surrender_index_D']
         market_sentiment_score_raw = raw_data_cache['market_sentiment_score_D']
         main_force_t0_efficiency_raw = raw_data_cache['main_force_t0_efficiency_D']
         main_force_slippage_index_raw = raw_data_cache['main_force_slippage_index_D']
-        nmfnf_raw = raw_data_cache['NMFNF_D'] # 修改行: 确保 nmfnf_raw 指向 NMFNF_D
+        nmfnf_raw = raw_data_cache['NMFNF_D']
         theme_hotness_raw = raw_data_cache['THEME_HOTNESS_SCORE_D']
         # 资本间意图博弈相关
         mf_retail_battle_intensity_raw = raw_data_cache['mf_retail_battle_intensity_D']
@@ -1567,7 +1568,6 @@ class FundFlowIntelligence:
         nmfnf_accel_slope_weights = {"5": 1.0}
         norm_nmfnf_slope_5 = self._get_mtf_dynamic_score(df, 'NMFNF_D', [5], nmfnf_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_nmfnf_accel_5 = self._get_mtf_dynamic_score(df, 'NMFNF_D', [5], nmfnf_accel_weights, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改行: 修正 signal_base_name 为 'SLOPE_5_NMFNF_D'
         norm_nmfnf_accel_slope_5 = self._get_mtf_dynamic_score(df, 'SLOPE_5_NMFNF_D', [5], nmfnf_accel_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         short_term_explosiveness = (norm_nmfnf_slope_5 * 0.5 + norm_nmfnf_accel_5 * 0.3 + norm_nmfnf_accel_slope_5 * 0.2).clip(-1, 1)
         # 2.5 资金流驱动的题材热度
