@@ -267,7 +267,6 @@ class BehavioralIntelligence:
             'volume_structure_skew_D',
             'volume_burstiness_index_D',
             'closing_strength_index_D'
-            # MODIFIED LINE: 移除 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'，因为它是在此方法内部计算的
         ]
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
@@ -278,6 +277,8 @@ class BehavioralIntelligence:
             required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
+        # MODIFIED LINE: 添加 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT' 到 required_signals，因为 _diagnose_divergence_quality 依赖它
+        required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
         if not self._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [行为情报引擎] {method_name}: 核心公理诊断失败，缺少必要原始信号，行为分析中止。")
             return {}
@@ -424,10 +425,12 @@ class BehavioralIntelligence:
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
         df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
+        # MODIFIED LINE: 从 df 中获取 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
+        microstructure_intent_score = self._get_safe_series(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0, method_name=method_name)
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
-            states['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT']
+            microstructure_intent_score # MODIFIED LINE: 使用从 df 获取的信号
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
