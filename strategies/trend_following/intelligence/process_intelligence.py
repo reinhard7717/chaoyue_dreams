@@ -50,7 +50,7 @@ class ProcessIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
-    def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False) -> pd.Series:
+    def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False, ascending: bool = True) -> pd.Series: # 修改代码行：新增 ascending 参数
         """
         【V1.0 · 统一归一化引擎】
         - 核心职责: 为类内部提供一个统一的、基于多时间框架自适应归一化的方法。
@@ -75,7 +75,7 @@ class ProcessIntelligence:
             return get_adaptive_mtf_normalized_score(
                 series=series,
                 index=target_index, # 将 target_index 改为 index
-                ascending=True,
+                ascending=ascending, # 修改代码行：传递 ascending 参数
                 tf_weights=actual_mtf_weights # 使用修正后的权重字典
             )
 
@@ -448,7 +448,7 @@ class ProcessIntelligence:
             relationship_score = self._calculate_price_momentum_divergence(df, config)
             meta_score = relationship_score
         elif signal_name == 'PROCESS_META_STORM_EYE_CALM':
-            meta_score = self._calculate_storm_eye_calm(df, config)
+            meta_score = self._calculate_storm_eye_calm(df, config) # 修改代码行：直接传递 config
         elif signal_name == 'PROCESS_META_WASH_OUT_REBOUND':
             offensive_absorption_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 0.0)
             meta_score = self._calculate_process_wash_out_rebound(df, offensive_absorption_intent)
@@ -1386,8 +1386,8 @@ class ProcessIntelligence:
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V3.0 · 混沌边缘重构版)...") # 修改代码行
         df_index = df.index
-        # 获取参数
-        params = get_param_value(self.params.get('storm_eye_calm_params'), {})
+        # 修改代码：从 config 中获取 storm_eye_calm_params
+        params = get_param_value(config.get('storm_eye_calm_params'), {})
         # 修改代码：更新权重配置，增加新的维度和子维度
         energy_compression_weights = get_param_value(params.get('energy_compression_weights'), {"tension": 0.2, "bbw_inverted": 0.15, "vol_instability_inverted": 0.15, "equilibrium_compression": 0.2, "bbw_slope_inverted": 0.15, "vol_instability_slope_inverted": 0.15})
         volume_exhaustion_weights = get_param_value(params.get('volume_exhaustion_weights'), {"volume_atrophy": 0.2, "turnover_rate_inverted": 0.15, "counterparty_exhaustion": 0.15, "order_book_liquidity_inverted": 0.15, "buy_quote_exhaustion": 0.15, "sell_quote_exhaustion": 0.1, "turnover_rate_slope_inverted": 0.1})

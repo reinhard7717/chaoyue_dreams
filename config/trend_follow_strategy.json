@@ -1193,7 +1193,67 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V1.2 · 丞相之印版】诊断趋势爆发前的“高能压缩”状态。采用专属的“风暴眼”模型，将主力正向控盘作为一票否决的“裁决因子”，对“结构张力”与“量能萎缩”的融合结果进行最终审判。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。"
+            "description": "【V3.0 · 混沌边缘重构版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、波动率收缩）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、换手率萎缩）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、净流量加速）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。",
+            "storm_eye_calm_params": {
+              "energy_compression_weights": {
+                "tension": 0.2,
+                "bbw_inverted": 0.15,
+                "vol_instability_inverted": 0.15,
+                "equilibrium_compression": 0.2,
+                "bbw_slope_inverted": 0.15,
+                "vol_instability_slope_inverted": 0.15
+              },
+              "volume_exhaustion_weights": {
+                "volume_atrophy": 0.2,
+                "turnover_rate_inverted": 0.15,
+                "counterparty_exhaustion": 0.15,
+                "order_book_liquidity_inverted": 0.15,
+                "buy_quote_exhaustion": 0.15,
+                "sell_quote_exhaustion": 0.1,
+                "turnover_rate_slope_inverted": 0.1
+              },
+              "main_force_covert_intent_weights": {
+                "stealth_ops": 0.15,
+                "split_order_accum": 0.15,
+                "mf_conviction_positive": 0.15,
+                "mf_net_flow_positive": 0.15,
+                "mf_cost_advantage_positive": 0.1,
+                "mf_buy_ofi_positive": 0.1,
+                "mf_t0_buy_efficiency_positive": 0.1,
+                "mf_net_flow_slope_positive": 0.1
+              },
+              "subdued_market_sentiment_weights": {
+                "sentiment_pendulum_negative": 0.25,
+                "market_sentiment_inverted": 0.25,
+                "retail_panic_inverted": 0.15,
+                "retail_fomo_inverted": 0.15,
+                "loser_pain_positive": 0.2
+              },
+              "breakout_readiness_weights": {
+                "struct_breakout_readiness": 0.3,
+                "struct_platform_foundation": 0.25,
+                "goodness_of_fit": 0.25,
+                "platform_conviction": 0.2
+              },
+              "final_fusion_weights": {
+                "energy_compression": 0.2,
+                "volume_exhaustion": 0.2,
+                "main_force_covert_intent": 0.25,
+                "subdued_market_sentiment": 0.15,
+                "breakout_readiness": 0.2
+              },
+              "price_calmness_modulator_params": {
+                "slope_period": 5,
+                "pct_change_threshold": 0.005,
+                "modulator_factor": 0.5
+              },
+              "main_force_control_adjudicator": {
+                "control_signal": "control_solidity_index_D",
+                "activity_signal": "main_force_activity_ratio_D",
+                "veto_threshold": -0.2,
+                "amplifier_factor": 0.5
+              }
+            }
           },
           {
             "name": "PROCESS_META_WINNER_CONVICTION_DECAY",
