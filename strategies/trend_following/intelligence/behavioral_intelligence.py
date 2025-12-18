@@ -696,7 +696,7 @@ class BehavioralIntelligence:
         # 计算认知失调向量 (先计算，以便后续选择欺骗证据)
         cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2
         # 组件三：证据放大器 (根据认知失调方向选择对应的欺骗证据)
-        # MODIFIED LINE: 使用 np.where 替代 mask 进行向量化条件赋值
+        # 使用 np.where 替代 mask 进行向量化条件赋值
         relevant_deception_intensity = pd.Series(np.where(
             cognitive_dissonance_vector > 0,
             deception_lure_long_raw,
@@ -864,21 +864,14 @@ class BehavioralIntelligence:
         return {'CONTEXT_NEW_HIGH_STRENGTH': new_high_strength.astype(np.float32)}
 
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
-        """
-        【V3.3 · 情报校验加固版】压力-承接能量转化模型
-        - 调用从 utils.py 导入的公共归一化工具。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `absorption_efficiency` 和 `absorption_control` 的归一化方式改为多时间维度自适应归一化。
-        - 【新增】增加战前情报校验，确保所有依赖信号存在。
-        """
         states = {}
-        df = self.strategy.df_indicators
         # 战前情报校验
         required_signals = ['VPA_EFFICIENCY_D', 'vwap_control_strength_D']
+        # 确保 _validate_required_signals 使用传入的 df
         if not self._validate_required_signals(df, required_signals, "_resolve_pressure_absorption_dynamics"):
             return {
-                'SCORE_RISK_UNRESOLVED_PRESSURE': pd.Series(0.0, index=df.index),
-                'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': pd.Series(0.0, index=df.index)
+                'SCORE_RISK_UNRESOLVED_PRESSURE': pd.Series(0.0, index=df.index, dtype=np.float32), # 明确指定 dtype
+                'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': pd.Series(0.0, index=df.index, dtype=np.float32) # 明确指定 dtype
             }
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -895,6 +888,7 @@ class BehavioralIntelligence:
         final_risk_score = (base_risk * risk_amplifier).clip(0, 1)
         base_opportunity = provisional_pressure * absorption_quality_score
         opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0)
+        # 从 self.strategy.atomic_states 获取，因为这是全局状态
         trend_health = self.strategy.atomic_states.get('SCORE_TREND_HEALTH', pd.Series(0.5, index=df.index))
         context_modulator = 1.0 + trend_health * 0.5
         final_opportunity_score = (base_opportunity * opportunity_amplifier * context_modulator).clip(0, 1)
@@ -967,7 +961,7 @@ class BehavioralIntelligence:
             upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             downward_purity_score = get_adaptive_mtf_normalized_score(downward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             deception_score = get_adaptive_mtf_normalized_score(deception_raw, df.index, ascending=True, tf_weights=default_weights) # 修改行
-            # MODIFIED LINE: 使用 np.where 替代 mask
+            # 使用 np.where 替代 mask
             purity_coherence = pd.Series(np.where(
                 core_intent_magnitude > 0,
                 upward_purity_score * (1 - downward_purity_score),

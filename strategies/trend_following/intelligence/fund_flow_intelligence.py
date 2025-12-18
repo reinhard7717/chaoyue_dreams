@@ -1345,7 +1345,7 @@ class FundFlowIntelligence:
         })
         # --- 信号依赖校验 ---
         required_signals = [
-            'net_lg_amount_calibrated_D', 'NMFNF_D',
+            'net_lg_amount_calibrated_D', 'NMFNF_D', 'main_force_slippage_index_D',
             'SLOPE_5_NMFNF_D', 'ACCEL_5_NMFNF_D',
             'SLOPE_13_net_lg_amount_calibrated_D', 'ACCEL_13_net_lg_amount_calibrated_D',
             'SLOPE_21_net_lg_amount_calibrated_D', 'ACCEL_21_net_lg_amount_calibrated_D',
