@@ -2582,41 +2582,93 @@
           "friction": 0.10
         },
         "market_friction_params": {
-          "description": "【V1.0 · 非对称阻力与效率版】市场摩擦公理的专属参数。",
+          "description": "【V2.0 · 动态演化与微观结构版】市场摩擦公理的专属参数。",
           "enable_probe": true,
+          "mtf_slope_periods": {"5": 0.6, "13": 0.4},
+          "comment_mtf_slope_periods": "用于计算各摩擦组件动态斜率的MTF周期及权重。",
+          "mtf_accel_periods": {"5": 0.7, "13": 0.3},
+          "comment_mtf_accel_periods": "用于计算各摩擦组件动态加速度的MTF周期及权重。",
           "asymmetric_resistance_weights": {
-            "description": "非对称阻力融合权重。",
-            "asymmetric_friction": 0.4,
-            "micro_price_impact_asymmetry": 0.3,
-            "volatility_asymmetry": 0.3
+            "description": "非对称阻力动态融合权重。",
+            "asymmetric_friction_slope": 0.3,
+            "micro_price_impact_asymmetry_slope": 0.2,
+            "volatility_asymmetry_slope": 0.2,
+            "order_book_exhaustion_dynamic": 0.3
           },
           "liquidity_efficiency_weights": {
-            "description": "流动性效率融合权重。",
-            "flow_efficiency": 0.3,
-            "order_book_clearing_rate": 0.3,
-            "liquidity_slope": 0.2,
-            "liquidity_authenticity": 0.2
+            "description": "流动性效率动态融合权重。",
+            "flow_efficiency_slope": 0.25,
+            "order_book_clearing_rate_slope": 0.25,
+            "liquidity_slope_slope": 0.15,
+            "liquidity_authenticity_slope": 0.15,
+            "liquidity_depth_dynamic": 0.1,
+            "turnover_rate_slope": 0.1
           },
           "structural_cost_weights": {
-            "description": "结构性成本融合权重。",
-            "cost_structure_skewness": 0.4,
-            "market_impact_cost": 0.3,
-            "vwap_mean_reversion_corr": 0.3
+            "description": "结构性成本动态融合权重。",
+            "cost_structure_skewness_slope": 0.25,
+            "market_impact_cost_slope": 0.25,
+            "vwap_mean_reversion_corr_slope": 0.15,
+            "volume_structure_skew_slope": 0.15,
+            "order_book_imbalance_slope": 0.1,
+            "price_volume_entropy_slope": 0.1
           },
           "deceptive_friction_modulator_params": {
             "description": "诡道摩擦调制器参数。",
-            "deception_penalty_factor": 0.6,
-            "comment_deception_penalty_factor": "欺骗指数对市场摩擦的惩罚因子。",
-            "wash_trade_penalty_factor": 0.4,
-            "comment_wash_trade_penalty_factor": "对倒强度对市场摩擦的惩罚因子。",
+            "deception_index_slope_weight": 0.6,
+            "wash_trade_intensity_slope_weight": 0.4,
             "modulator_strength": 0.5,
-            "comment_modulator_strength": "诡道摩擦调制器的整体强度。"
+            "non_linear_sensitivity": 2.0,
+            "comment_non_linear_sensitivity": "非线性惩罚函数的敏感度。"
           },
-          "final_fusion_weights": {
-            "description": "三大维度最终融合权重。",
-            "asymmetric_resistance": 0.4,
-            "liquidity_efficiency": 0.3,
-            "structural_cost": 0.3
+          "dynamic_fusion_modulator_params": {
+            "enabled": true,
+            "description": "动态融合权重调制器参数。",
+            "modulator_signal_1": "market_sentiment_score_D",
+            "comment_modulator_signal_1": "调制器信号1（市场情绪）。",
+            "modulator_signal_2": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "comment_modulator_signal_2": "调制器信号2（波动不稳定性）。",
+            "modulator_signal_3": "main_force_conviction_index_D",
+            "comment_modulator_signal_3": "调制器信号3（主力信念）。",
+            "sensitivity_sentiment": 0.3,
+            "comment_sensitivity_sentiment": "市场情绪对权重调整的敏感度。",
+            "sensitivity_volatility": 0.3,
+            "comment_sensitivity_volatility": "波动不稳定性对权重调整的敏感度。",
+            "sensitivity_conviction": 0.2,
+            "comment_sensitivity_conviction": "主力信念对各维度权重的调整量。",
+            "base_weights": {
+              "asymmetric_resistance": 0.4,
+              "liquidity_efficiency": 0.3,
+              "structural_cost": 0.3
+            },
+            "sentiment_impact_weights": {
+              "asymmetric_resistance": -0.1,
+              "liquidity_efficiency": 0.15,
+              "structural_cost": 0.05
+            },
+            "comment_sentiment_impact_weights": "市场情绪对各维度权重的调整量。",
+            "volatility_impact_weights": {
+              "asymmetric_resistance": 0.15,
+              "liquidity_efficiency": -0.1,
+              "structural_cost": -0.05
+            },
+            "comment_volatility_impact_weights": "波动不稳定性对各维度权重的调整量。",
+            "conviction_impact_weights": {
+              "asymmetric_resistance": 0.05,
+              "liquidity_efficiency": 0.05,
+              "structural_cost": -0.1
+            },
+            "comment_conviction_impact_weights": "主力信念对各维度权重的调整量。"
+          },
+          "final_risk_filter_params": {
+            "enabled": true,
+            "description": "最终风险过滤器参数。",
+            "chip_health_penalty_factor": 0.5,
+            "comment_chip_health_penalty_factor": "筹码健康度对最终分数的惩罚因子（健康度越低，惩罚越重）。",
+            "flow_credibility_penalty_factor": 0.5,
+            "comment_flow_credibility_penalty_factor": "资金流可信度对最终分数的惩罚因子（可信度越低，惩罚越重）。",
+            "deception_index_penalty_factor": 0.7,
+            "comment_deception_index_penalty_factor": "欺骗指数对最终分数的惩罚因子（欺骗指数越高，惩罚越重）。"
           }
         },
         "description_axiom_weights": "融合四大基础公理时的权重。",
