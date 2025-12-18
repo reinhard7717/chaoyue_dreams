@@ -1640,7 +1640,7 @@ class ProcessIntelligence:
         return final_score
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V2.2 · 诡道情境增强版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V2.3 · 诡道情境增强版)...") # 修改代码行
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('wash_out_rebound_params'), {})
@@ -1687,35 +1687,38 @@ class ProcessIntelligence:
             deception_positive_lure_long_score * deception_context_weights.get('deception_positive_lure_long', 0.2) +
             deception_lure_short_score * deception_context_weights.get('deception_lure_short', 0.2)
         ) / (deception_context_weights.get('deception_positive_lure_long', 0.2) + deception_context_weights.get('deception_lure_short', 0.2) + 1e-9)
-        # 修改代码行：移除 fused_deception_score 在 pow 操作中的 + 1e-9
+        # 修改代码行：移除所有 + 1e-9
         deception_context_score = (
-            (wash_trade_score + 1e-9).pow(deception_context_weights.get('wash_trade', 0.4)) *
-            (active_selling_score + 1e-9).pow(deception_context_weights.get('active_selling', 0.2)) *
+            (wash_trade_score).pow(deception_context_weights.get('wash_trade', 0.4)) *
+            (active_selling_score).pow(deception_context_weights.get('active_selling', 0.2)) *
             (fused_deception_score).pow(deception_context_weights.get('deception_positive_lure_long', 0.2) + deception_context_weights.get('deception_lure_short', 0.2))
         ).pow(1/(deception_context_weights.get('wash_trade', 0.4) + deception_context_weights.get('active_selling', 0.2) + deception_context_weights.get('deception_positive_lure_long', 0.2) + deception_context_weights.get('deception_lure_short', 0.2))).fillna(0.0)
         # --- 4. 维度二：恐慌割肉深度 (Panic Capitulation Depth) ---
         panic_cascade_score = get_adaptive_mtf_normalized_score(panic_cascade_raw, df_index, actual_mtf_weights, ascending=True)
         retail_surrender_score = get_adaptive_mtf_normalized_score(retail_surrender_raw, df_index, actual_mtf_weights, ascending=True)
         loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, actual_mtf_weights, ascending=True)
+        # 修改代码行：移除所有 + 1e-9
         panic_depth_score = (
-            (panic_cascade_score + 1e-9).pow(panic_depth_weights.get('panic_cascade', 0.4)) *
-            (retail_surrender_score + 1e-9).pow(panic_depth_weights.get('retail_surrender', 0.3)) *
-            (loser_pain_score + 1e-9).pow(panic_depth_weights.get('loser_pain', 0.3))
+            (panic_cascade_score).pow(panic_depth_weights.get('panic_cascade', 0.4)) *
+            (retail_surrender_score).pow(panic_depth_weights.get('retail_surrender', 0.3)) *
+            (loser_pain_score).pow(panic_depth_weights.get('loser_pain', 0.3))
         ).pow(1/(panic_depth_weights.get('panic_cascade', 0.4) + panic_depth_weights.get('retail_surrender', 0.3) + panic_depth_weights.get('loser_pain', 0.3))).fillna(0.0)
         # --- 5. 维度三：承接反弹品质 (Absorption Rebound Quality) ---
         absorption_intent_score = offensive_absorption_intent
         closing_strength_score = normalize_score(closing_strength_raw, df_index, 55)
         upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df_index, actual_mtf_weights, ascending=True)
+        # 修改代码行：移除所有 + 1e-9
         rebound_quality_score = (
-            (absorption_intent_score + 1e-9).pow(rebound_quality_weights.get('absorption_intent', 0.4)) *
-            (closing_strength_score + 1e-9).pow(rebound_quality_weights.get('closing_strength', 0.3)) *
-            (upward_purity_score + 1e-9).pow(rebound_quality_weights.get('upward_purity', 0.3))
+            (absorption_intent_score).pow(rebound_quality_weights.get('absorption_intent', 0.4)) *
+            (closing_strength_score).pow(rebound_quality_weights.get('closing_strength', 0.3)) *
+            (upward_purity_score).pow(rebound_quality_weights.get('upward_purity', 0.3))
         ).pow(1/(rebound_quality_weights.get('absorption_intent', 0.4) + rebound_quality_weights.get('closing_strength', 0.3) + rebound_quality_weights.get('upward_purity', 0.3))).fillna(0.0)
         # --- 6. 最终合成：三维融合 ---
+        # 修改代码行：移除所有 + 1e-9
         wash_out_rebound_score_base = (
-            (deception_context_score + 1e-9).pow(fusion_weights.get('deception_context', 0.3)) *
-            (panic_depth_score + 1e-9).pow(fusion_weights.get('panic_depth', 0.3)) *
-            (rebound_quality_score + 1e-9).pow(fusion_weights.get('rebound_quality', 0.4))
+            (deception_context_score).pow(fusion_weights.get('deception_context', 0.3)) *
+            (panic_depth_score).pow(fusion_weights.get('panic_depth', 0.3)) *
+            (rebound_quality_score).pow(fusion_weights.get('rebound_quality', 0.4))
         ).pow(1/(fusion_weights.get('deception_context', 0.3) + fusion_weights.get('panic_depth', 0.3) + fusion_weights.get('rebound_quality', 0.4))).fillna(0.0)
         # 新增代码：情境放大器
         # 趋势形态是双极信号，取正向部分表示健康趋势
@@ -1773,7 +1776,7 @@ class ProcessIntelligence:
         return final_wash_out_rebound_score.clip(0, 1).astype(np.float32)
 
     def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.2 · 诡道情境增强版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.3 · 诡道情境增强版)...") # 修改代码行
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('covert_accumulation_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
@@ -1808,13 +1811,13 @@ class ProcessIntelligence:
         deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
         # --- 3. 维度一：市场背景 (Market Context) ---
         retail_panic_score = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, actual_mtf_weights, ascending=True)
-        # 修改代码行：将 price_weakness_score 转换为 (1 - score)，并移除 + 1e-9
         price_weakness_score_inverted = (1 - get_adaptive_mtf_normalized_score(price_weakness_slope_raw.clip(upper=0).abs(), df_index, actual_mtf_weights, ascending=True))
         low_volatility_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, actual_mtf_weights, ascending=False) # BBW越小，波动率越低，得分越高
+        # 修改代码行：移除所有 + 1e-9
         market_context_score = (
-            (retail_panic_score + 1e-9).pow(market_context_weights.get('retail_panic', 0.3)) *
-            (price_weakness_score_inverted).pow(market_context_weights.get('price_weakness', 0.4)) * # 修改代码行
-            (low_volatility_score + 1e-9).pow(market_context_weights.get('low_volatility', 0.3))
+            (retail_panic_score).pow(market_context_weights.get('retail_panic', 0.3)) *
+            (price_weakness_score_inverted).pow(market_context_weights.get('price_weakness', 0.4)) *
+            (low_volatility_score).pow(market_context_weights.get('low_volatility', 0.3))
         ).pow(1/(market_context_weights.get('retail_panic', 0.3) + market_context_weights.get('price_weakness', 0.4) + market_context_weights.get('low_volatility', 0.3))).fillna(0.0)
         # --- 4. 维度二：隐蔽行动 (Covert Action) ---
         suppressive_accum_score = get_adaptive_mtf_normalized_score(suppressive_accum_raw, df_index, actual_mtf_weights, ascending=True)
@@ -1826,24 +1829,26 @@ class ProcessIntelligence:
             deception_positive_lure_long_score * covert_action_weights.get('deception_positive_lure_long', 0.2) +
             deception_lure_short_score * covert_action_weights.get('deception_lure_short', 0.2)
         ) / (covert_action_weights.get('deception_positive_lure_long', 0.2) + covert_action_weights.get('deception_lure_short', 0.2) + 1e-9)
-        # 修改代码行：移除 fused_deception_score 在 pow 操作中的 + 1e-9
+        # 修改代码行：移除所有 + 1e-9
         covert_action_score = (
-            (suppressive_accum_score + 1e-9).pow(covert_action_weights.get('suppressive_accum', 0.4)) *
-            (main_force_flow_score + 1e-9).pow(covert_action_weights.get('main_force_flow', 0.2)) *
+            (suppressive_accum_score).pow(covert_action_weights.get('suppressive_accum', 0.4)) *
+            (main_force_flow_score).pow(covert_action_weights.get('main_force_flow', 0.2)) *
             (fused_deception_score).pow(covert_action_weights.get('deception_positive_lure_long', 0.2) + covert_action_weights.get('deception_lure_short', 0.2))
         ).pow(1/(covert_action_weights.get('suppressive_accum', 0.4) + covert_action_weights.get('main_force_flow', 0.2) + covert_action_weights.get('deception_positive_lure_long', 0.2) + covert_action_weights.get('deception_lure_short', 0.2))).fillna(0.0)
         # --- 5. 维度三：筹码优化 (Chip Optimization) ---
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, actual_mtf_weights, ascending=True)
         loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, actual_mtf_weights, ascending=True)
+        # 修改代码行：移除所有 + 1e-9
         chip_optimization_score = (
-            (chip_fatigue_score + 1e-9).pow(chip_optimization_weights.get('chip_fatigue', 0.5)) *
-            (loser_pain_score + 1e-9).pow(chip_optimization_weights.get('loser_pain', 0.5))
+            (chip_fatigue_score).pow(chip_optimization_weights.get('chip_fatigue', 0.5)) *
+            (loser_pain_score).pow(chip_optimization_weights.get('loser_pain', 0.5))
         ).pow(1/(chip_optimization_weights.get('chip_fatigue', 0.5) + chip_optimization_weights.get('loser_pain', 0.5))).fillna(0.0)
         # --- 6. 最终合成：三维融合 ---
+        # 修改代码行：移除所有 + 1e-9
         covert_accumulation_score = (
-            (market_context_score + 1e-9).pow(fusion_weights.get('market_context', 0.3)) *
-            (covert_action_score + 1e-9).pow(fusion_weights.get('covert_action', 0.4)) *
-            (chip_optimization_score + 1e-9).pow(fusion_weights.get('chip_optimization', 0.3))
+            (market_context_score).pow(fusion_weights.get('market_context', 0.3)) *
+            (covert_action_score).pow(fusion_weights.get('covert_action', 0.4)) *
+            (chip_optimization_score).pow(fusion_weights.get('chip_optimization', 0.3))
         ).pow(1/(fusion_weights.get('market_context', 0.3) + fusion_weights.get('covert_action', 0.4) + fusion_weights.get('chip_optimization', 0.3))).fillna(0.0)
         # --- 7. 探针输出 ---
         probe_dates = self.probe_dates
@@ -1863,7 +1868,7 @@ class ProcessIntelligence:
             print(f"    - loser_pain_index_D: {loser_pain_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算 (归一化/中间分)]: ")
             print(f"    - retail_panic_score: {retail_panic_score.iloc[last_date_index]:.4f}")
-            print(f"    - price_weakness_score_inverted: {price_weakness_score_inverted.iloc[last_date_index]:.4f}") # 修改代码行
+            print(f"    - price_weakness_score_inverted: {price_weakness_score_inverted.iloc[last_date_index]:.4f}")
             print(f"    - low_volatility_score: {low_volatility_score.iloc[last_date_index]:.4f}")
             print(f"    - market_context_score: {market_context_score.iloc[last_date_index]:.4f}")
             print(f"    - suppressive_accum_score: {suppressive_accum_score.iloc[last_date_index]:.4f}")

@@ -115,6 +115,7 @@ class StructuralIntelligence:
         - 核心升级: 引入“荣耀的代价”协议。当“龙头潜力”激活时，其分值将作为“豁免系数”，
                       部分抵消环境惩罚，而非简单叠加奖励。最终得分同时体现逆势的荣耀与代价。
         - 【V6.0 · 结构动量深度进化版】更新结构动量计算逻辑，调用新的 `_diagnose_structural_momentum` 方法。
+        - 【V6.0.1 · 探针清晰化】在调用 `_diagnose_structural_momentum` 时，增加 `posture_type` 参数，使探针输出更明确。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -163,9 +164,9 @@ class StructuralIntelligence:
         # --- 步骤四: 基于“基础”情境态势，诊断原始动量 ---
         # 暂时使用原始调节器计算基础态势和动量，供龙头潜力判断
         contextual_posture_base_for_momentum = (strategic_posture * (1 + env_modifier)).clip(0, 1)
-        # 修改开始：调用新的结构动量诊断方法
+        # 修改开始：新增 posture_type 参数
         structural_momentum = self._diagnose_structural_momentum(
-            df, contextual_posture_base_for_momentum, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion
+            df, contextual_posture_base_for_momentum, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion, posture_type="base_for_leadership"
         )
         # 修改结束
         # --- 步骤五: 龙头潜力裁决 ---
@@ -179,9 +180,9 @@ class StructuralIntelligence:
         contextual_posture = (strategic_posture * (1 + effective_env_modifier)).clip(0, 1)
         all_states['SCORE_STRUCT_CONTEXTUAL_POSTURE'] = contextual_posture.astype(np.float32)
         # --- 步骤七: 基于最终情境态势，更新动量 ---
-        # 修改开始：再次调用新的结构动量诊断方法，使用最终的 contextual_posture
+        # 修改开始：新增 posture_type 参数
         final_structural_momentum = self._diagnose_structural_momentum(
-            df, contextual_posture, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion
+            df, contextual_posture, axiom_tension, breakout_readiness, axiom_stability, axiom_mtf_cohesion, posture_type="final_score"
         )
         all_states['SCORE_STRUCT_MOMENTUM'] = final_structural_momentum.astype(np.float32)
         # 修改结束
@@ -1163,7 +1164,7 @@ class StructuralIntelligence:
         final_score = readiness_score.astype(np.float32)
         return final_score
 
-    def _diagnose_structural_momentum(self, df: pd.DataFrame, contextual_posture: pd.Series, axiom_tension: pd.Series, breakout_readiness: pd.Series, axiom_stability: pd.Series, axiom_mtf_cohesion: pd.Series) -> pd.Series:
+    def _diagnose_structural_momentum(self, df: pd.DataFrame, input_contextual_posture: pd.Series, axiom_tension: pd.Series, breakout_readiness: pd.Series, axiom_stability: pd.Series, axiom_mtf_cohesion: pd.Series, posture_type: str = "unknown") -> pd.Series:
         """
         【V6.0 · 结构动量深度进化版 - 势能与惯性融合】诊断“结构动量”
         - 核心升级: 不再是简单地计算结构战略态势的斜率，而是融合了“结构速度”、“结构加速度”、“动量持续性”和“动量情境品质”四大维度。
@@ -1173,6 +1174,7 @@ class StructuralIntelligence:
             - 动量持续性: 当前动量方向的持续时间。
             - 动量情境品质: 动量发生时所处的结构环境（如是否突破压缩，是否加速进入阻力）。
         - 旨在提供一个更全面、更具前瞻性的结构动量信号，区分“虚假动量”与“真实势能”。
+        - 【V6.0.1 · 探针清晰化】新增 `posture_type` 参数，用于在探针输出中明确当前情境态势的类型。
         """
         df_index = df.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -1193,7 +1195,7 @@ class StructuralIntelligence:
         non_linear_exponent = get_param_value(momentum_params.get('non_linear_exponent'), 1.5)
 
         # 1. 结构速度 (Structural Velocity)
-        velocity_raw = ta.slope(contextual_posture, length=velocity_window)
+        velocity_raw = ta.slope(input_contextual_posture, length=velocity_window)
         velocity_raw.fillna(0, inplace=True)
         velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, tf_weights_momentum)
 
@@ -1234,9 +1236,10 @@ class StructuralIntelligence:
         final_score = pd.Series(np.sign(fused_momentum) * (np.abs(fused_momentum) ** non_linear_exponent), index=df_index).clip(-1, 1).astype(np.float32)
 
         if self.is_probe_date:
-            print(f"  -> 结构动量探针 @ {df.index[-1].strftime('%Y-%m-%d')} ---")
+            # 修改开始：探针输出中增加 posture_type
+            print(f"  -> 结构动量探针 @ {df.index[-1].strftime('%Y-%m-%d')} (Posture Type: {posture_type}) ---")
             print(f"    原料数据:")
-            print(f"      contextual_posture (末值): {contextual_posture.iloc[-1]:.4f}")
+            print(f"      input_contextual_posture (末值): {input_contextual_posture.iloc[-1]:.4f}")
             print(f"      axiom_tension (末值): {axiom_tension.iloc[-1]:.4f}")
             print(f"      breakout_readiness (末值): {breakout_readiness.iloc[-1]:.4f}")
             print(f"      axiom_stability (末值): {axiom_stability.iloc[-1]:.4f}")
@@ -1255,6 +1258,7 @@ class StructuralIntelligence:
             print(f"    最终融合:")
             print(f"      SCORE_STRUCT_MOMENTUM (最终分数末值): {final_score.iloc[-1]:.4f}")
             print(f"  --- 结构动量探针结束 ---")
+            # 修改结束
         return final_score
 
 
