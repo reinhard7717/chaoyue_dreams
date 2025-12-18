@@ -226,11 +226,11 @@ class IndicatorCalculator:
         try:
             def _sync_cmf():
                 cmf_series = ta.cmf(
-                    high=df[high_col], 
-                    low=df[low_col], 
-                    close=df[close_col], 
-                    volume=df[volume_col], 
-                    length=period, 
+                    high=df[high_col],
+                    low=df[low_col],
+                    close=df[close_col],
+                    volume=df[volume_col],
+                    length=period,
                     append=False
                 )
                 if cmf_series is None or cmf_series.empty:

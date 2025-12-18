@@ -390,9 +390,9 @@ class RealtimeStrategy:
         except KeyError as ke:
             return False
     # 修改方法：计算盘中综合评分和评级
-    def _calculate_intraday_rating(self, stock_code: str, current_kline_5min: pd.Series, 
+    def _calculate_intraday_rating(self, stock_code: str, current_kline_5min: pd.Series,
                                    all_intraday_features: Dict[str, float], # 特征值可以是浮点数
-                                   triggered_playbooks: List[str], 
+                                   triggered_playbooks: List[str],
                                    daily_signal_info: Dict) -> Tuple[int, str, str]:
         """
         根据所有盘中特征和触发的剧本，计算综合盘中评分并给出评级。

@@ -82,7 +82,7 @@ class CustomLoginView(LoginView):
         else:
             # 如果用户没有资料，创建一个
             profile = UserProfile.objects.create(
-                user=user, 
+                user=user,
                 last_login_ip=self.request.META.get('REMOTE_ADDR')
             )
         return super().form_valid(form)

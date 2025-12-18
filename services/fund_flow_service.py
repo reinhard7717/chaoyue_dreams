@@ -2018,7 +2018,7 @@ class AdvancedFundFlowMetricsService:
             core_metric_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
             required_cols = ['trade_time'] + [col for col in core_metric_cols if hasattr(model, col)]
             qs = model.objects.filter(
-                stock=stock_info, 
+                stock=stock_info,
                 trade_time__lt=end_date
             ).order_by('trade_time')
             return pd.DataFrame.from_records(qs.values(*required_cols))

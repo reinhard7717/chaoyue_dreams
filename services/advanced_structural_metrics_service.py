@@ -379,7 +379,7 @@ class AdvancedStructuralMetricsService:
             core_metric_cols = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
             required_cols = ['trade_time'] + [col for col in core_metric_cols if hasattr(model, col)]
             qs = model.objects.filter(
-                stock=stock_info, 
+                stock=stock_info,
                 trade_time__lt=end_date
             ).order_by('trade_time').values(*required_cols)
             return pd.DataFrame.from_records(qs)
@@ -729,8 +729,8 @@ class AdvancedStructuralMetricsService:
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
                 try:
                     obj, created = model.objects.update_or_create(
-                        stock=stock_obj, 
-                        trade_time=trade_time, 
+                        stock=stock_obj,
+                        trade_time=trade_time,
                         defaults=defaults_data
                     )
                     processed_count += 1

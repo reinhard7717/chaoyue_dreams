@@ -93,7 +93,7 @@ class IndicatorService:
         print("情报锻造中心已完成所有数据准备，最终产出的数据列清单如下：")
         # 定义周期的标准排序，确保输出顺序固定
         sorted_timeframes = sorted(
-            all_dfs.keys(), 
+            all_dfs.keys(),
             key=lambda x: (
                 {'M': 0, 'W': 1, 'D': 2}.get(x, 3), # 月、周、日优先
                 -int(x) if x.isdigit() else 0 # 分钟线按从大到小排序
@@ -130,8 +130,8 @@ class IndicatorService:
         sampled_df = df.sample(n=num_samples, random_state=42) if num_samples > 0 else df
         # 设置pandas显示选项，以确保所有列都能被打印出来，不会被省略
         with pd.option_context(
-            'display.max_rows', None, 
-            'display.max_columns', None, 
+            'display.max_rows', None,
+            'display.max_columns', None,
             'display.width', 200  # 调整宽度以适应控制台
         ):
             print(sampled_df)
@@ -189,9 +189,9 @@ class IndicatorService:
         # 如果 trade_time 未提供（例如在实时触发的场景），则使用当前时间作为查询终点。
         # 这确保了DAO层能够获取到截至目前的最新数据，包括当天的盘中K线。
         df = await self.indicator_dao.get_history_ohlcv_df(
-            stock_code=stock_code, 
+            stock_code=stock_code,
             time_level=processed_time_level,
-            limit=needed_bars, 
+            limit=needed_bars,
             trade_time=trade_time # 直接传递，不做任何处理
         )
         if df is None or df.empty:

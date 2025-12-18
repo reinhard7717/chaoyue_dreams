@@ -133,7 +133,7 @@ class IntradayDynamicsCalculator:
     def _calculate_delta_and_shape(self, volume_profile: pd.Series):
         """计算成交量Delta和分布形态"""
         # 1. 计算成交量Delta
-        delta = np.where(self.df['close'] > self.df['open'], self.df['vol'], 
+        delta = np.where(self.df['close'] > self.df['open'], self.df['vol'],
                          np.where(self.df['close'] < self.df['open'], -self.df['vol'], 0))
         self.dynamics_result['volume_delta'] = int(delta.sum())
         # 2. 判断价格与CVD背离 (简化版)

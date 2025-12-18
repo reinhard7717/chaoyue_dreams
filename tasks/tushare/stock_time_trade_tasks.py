@@ -235,7 +235,7 @@ def save_stocks_minute_data_latest_days_task(batch_size: int = 310, num_days: in
             if batch_codes:
                 # 调用新的工作任务，并传入股票批次和对应的交易日
                 save_stocks_minute_data_batch.s(
-                    stock_codes=batch_codes, 
+                    stock_codes=batch_codes,
                     trade_date_str=trade_date_str
                 ).set().apply_async()
                 total_dispatched_batches += 1
@@ -653,7 +653,7 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, 
             return
         # 调用DAO方法时，同时传入 start_date 和 end_date
         await stock_time_trade_dao.save_cyq_chips_for_stock(
-            stock=stock_obj, 
+            stock=stock_obj,
             start_date=start_date,
             end_date=end_date # 传入结束日期
         )
@@ -708,7 +708,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_
         for stock_code in all_stock_codes:
             # 调用执行器任务时，使用新的关键字参数传递日期范围
             all_tasks.append(save_single_stock_cyq_chips.s(
-                stock_code=stock_code, 
+                stock_code=stock_code,
                 start_date_str=final_start_date_str,
                 end_date_str=final_end_date_str
             ))
@@ -929,8 +929,8 @@ def save_cyq_data_this_week_task(cache_manager=None):
         logger.info(f"获取到 {len(all_stocks)} 只股票，开始为每只股票分派筹码分布任务...")
         for stock in all_stocks:
             save_cyq_chips_this_week_batch.s(
-                ts_code=stock.stock_code, 
-                start_date=this_monday, 
+                ts_code=stock.stock_code,
+                start_date=this_monday,
                 end_date=this_friday
             ).set(queue='SaveHistoryData_TimeTrade').apply_async()
         logger.info(f"所有股票的筹码分布任务已分派完毕。")

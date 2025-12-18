@@ -154,7 +154,7 @@ def update_favorite_stock_trackers(self):
         # 步骤 5: 批量执行创建操作
         if snapshots_to_create:
             created_snapshots = DailyPositionSnapshot.objects.bulk_create(
-                snapshots_to_create, 
+                snapshots_to_create,
                 ignore_conflicts=True # 如果任务意外重跑，忽略已存在的记录，避免报错
             )
             logger.info(f"成功为 {len(created_snapshots)} / {len(trackers_to_snapshot)} 个活跃追踪器创建了每日快照。")

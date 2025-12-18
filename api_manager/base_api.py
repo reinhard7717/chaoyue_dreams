@@ -96,7 +96,7 @@ class BaseAPI:
             return cooldown_times[0][0]  # 返回最快可用的license
         # 按使用次数排序，优先使用次数少的
         usage_sorted = sorted(
-            available_licences, 
+            available_licences,
             key=lambda lic: self.licence_usage[lic]["count"]
         )
         # 选择使用次数最少的license
@@ -166,7 +166,7 @@ class BaseAPI:
                 return []
             else:
                 return text
-    async def _make_request(self, method: str, url: str, params: Dict = None, data: Dict = None, 
+    async def _make_request(self, method: str, url: str, params: Dict = None, data: Dict = None,
                           headers: Dict = None, expected_type: str = None, retry_count: int = 0) -> Any:
         """发送HTTP请求，带重试机制"""
         if url is None:
@@ -201,11 +201,11 @@ class BaseAPI:
                 request_headers.update(headers)
             # 发送请求
             async with session.request(
-                method, 
-                full_url, 
-                params=params, 
-                json=data, 
-                headers=request_headers, 
+                method,
+                full_url,
+                params=params,
+                json=data,
+                headers=request_headers,
                 timeout=self.timeout
             ) as response:
                 text = await response.text()

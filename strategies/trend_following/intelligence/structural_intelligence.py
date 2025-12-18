@@ -533,24 +533,20 @@ class StructuralIntelligence:
             'breakout_volume_ratio_D', 'breakout_range_expansion_D', 'breakout_retest_success_D', 'breakout_duration_D',
             'retracement_depth_pct_D', 'retracement_speed_ratio_D', 'retracement_volume_decay_D', 'retracement_MA_adherence_D'
         ]
-
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         stability_params = get_param_value(p_conf_struct.get('stability_params'), {})
         signal_mapping = get_param_value(stability_params.get('signal_mapping'), {})
-
         # 根据映射配置生成实际的 required_signals
         required_signals = []
         for concept_signal in concept_signals:
             actual_signal = signal_mapping.get(concept_signal, concept_signal)
             required_signals.append(actual_signal)
-
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
-
         raw_stability_fusion_weights = get_param_value(p_conf_struct.get('stability_fusion_weights'), {
             "structural_support_strength": 0.25,
             "structural_form_solidity": 0.25,
@@ -560,7 +556,6 @@ class StructuralIntelligence:
             "structural_retracement_efficiency": 0.075
         })
         stability_fusion_weights = {k: v for k, v in raw_stability_fusion_weights.items() if isinstance(v, (int, float))}
-
         structural_support_strength_weights = get_param_value(stability_params.get('structural_support_strength_weights'), {
             "support_validation_strength": 0.3, "pressure_rejection_strength": 0.3, "lower_shadow_absorption_strength": 0.2,
             "defense_solidity_score": 0.1, "opening_gap_defense_strength": 0.1
@@ -584,7 +579,6 @@ class StructuralIntelligence:
             "retracement_depth_pct": 0.3, "retracement_speed_ratio": 0.3, "retracement_volume_decay": 0.2, "retracement_MA_adherence": 0.2
         })
         normalization_configs = get_param_value(stability_params.get('normalization_configs'), {})
-
         # Helper to get normalization config for a signal
         # get_norm_config 接受概念信号名称，并查找其对应的实际信号名称来获取配置
         def get_norm_config(concept_signal_name, default_method="mtf_adaptive", default_ascending=True, default_clip_range=None):
@@ -596,7 +590,6 @@ class StructuralIntelligence:
                 "clip_range": config.get("clip_range", default_clip_range),
                 "mapping_func": config.get("mapping_func", None)
             }
-
         # --- 1. 结构支撑强度 (Structural Support Strength) ---
         # 所有 _get_safe_series 调用都通过 signal_mapping 获取实际信号名称
         support_validation_strength_raw = self._get_safe_series(df, signal_mapping.get('support_validation_strength_D', 'support_validation_strength_D'), 0.0, method_name="_diagnose_axiom_stability")
@@ -604,7 +597,6 @@ class StructuralIntelligence:
         lower_shadow_absorption_strength_raw = self._get_safe_series(df, signal_mapping.get('lower_shadow_absorption_strength_D', 'lower_shadow_absorption_strength_D'), 0.0, method_name="_diagnose_axiom_stability")
         defense_solidity_score_raw = self._get_safe_series(df, signal_mapping.get('defense_solidity_score_D', 'defense_solidity_score_D'), 0.0, method_name="_diagnose_axiom_stability")
         opening_gap_defense_strength_raw = self._get_safe_series(df, signal_mapping.get('opening_gap_defense_strength_D', 'opening_gap_defense_strength_D'), 0.0, method_name="_diagnose_axiom_stability")
-
         support_validation_strength_score = self.get_dynamic_normalized_score(
             support_validation_strength_raw, df_index, tf_weights, **get_norm_config('support_validation_strength_D', default_ascending=True))
         pressure_rejection_strength_score = self.get_dynamic_normalized_score(
@@ -615,7 +607,6 @@ class StructuralIntelligence:
             defense_solidity_score_raw, df_index, tf_weights, **get_norm_config('defense_solidity_score_D', default_ascending=True))
         opening_gap_defense_strength_score = self.get_dynamic_normalized_score(
             opening_gap_defense_strength_raw, df_index, tf_weights, **get_norm_config('opening_gap_defense_strength_D', default_ascending=True))
-
         structural_support_strength_score = (
             support_validation_strength_score * structural_support_strength_weights.get('support_validation_strength', 0.3) +
             pressure_rejection_strength_score * structural_support_strength_weights.get('pressure_rejection_strength', 0.3) +
@@ -625,14 +616,12 @@ class StructuralIntelligence:
             opening_gap_defense_strength_score * structural_support_strength_weights.get('opening_gap_defense_strength', 0.1)
             # 修改结束
         ).clip(0, 1)
-
         # --- 2. 结构形态坚固性 (Structural Form Solidity) ---
         equilibrium_compression_raw = self._get_safe_series(df, signal_mapping.get('equilibrium_compression_index_D', 'equilibrium_compression_index_D'), 0.0, method_name="_diagnose_axiom_stability")
         platform_conviction_score_raw = self._get_safe_series(df, signal_mapping.get('platform_conviction_score_D', 'platform_conviction_score_D'), 0.0, method_name="_diagnose_axiom_stability")
         value_area_overlap_raw = self._get_safe_series(df, signal_mapping.get('value_area_overlap_pct_D', 'value_area_overlap_pct_D'), 0.0, method_name="_diagnose_axiom_stability")
         goodness_of_fit_score_raw = self._get_safe_series(df, signal_mapping.get('goodness_of_fit_score_D', 'goodness_of_fit_score_D'), 0.0, method_name="_diagnose_axiom_stability")
         structural_node_count_raw = self._get_safe_series(df, signal_mapping.get('structural_node_count_D', 'structural_node_count_D'), 0.0, method_name="_diagnose_axiom_stability")
-
         equilibrium_compression_score = self.get_dynamic_normalized_score(
             equilibrium_compression_raw, df_index, tf_weights, **get_norm_config('equilibrium_compression_index_D', default_ascending=True))
         platform_conviction_score = self.get_dynamic_normalized_score(
@@ -643,7 +632,6 @@ class StructuralIntelligence:
             goodness_of_fit_score_raw, df_index, tf_weights, **get_norm_config('goodness_of_fit_score_D', default_ascending=True))
         structural_node_count_score = self.get_dynamic_normalized_score(
             structural_node_count_raw, df_index, tf_weights, **get_norm_config('structural_node_count_D', default_ascending=True))
-
         structural_form_solidity_score = (
             equilibrium_compression_score * structural_form_solidity_weights.get('equilibrium_compression_index', 0.3) +
             platform_conviction_score * structural_form_solidity_weights.get('platform_conviction_score', 0.25) +
@@ -651,20 +639,16 @@ class StructuralIntelligence:
             goodness_of_fit_score * structural_form_solidity_weights.get('goodness_of_fit_score', 0.15) +
             structural_node_count_score * structural_form_solidity_weights.get('structural_node_count', 0.1)
         ).clip(0, 1)
-
         # --- 3. 波动率秩序性 (Volatility Orderliness) ---
         bbw_raw = self._get_safe_series(df, signal_mapping.get('BBW_21_2.0_D', 'BBW_21_2.0_D'), 1.0, method_name="_diagnose_axiom_stability")
         volatility_instability_raw = self._get_safe_series(df, signal_mapping.get('VOLATILITY_INSTABILITY_INDEX_21d_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D'), 1.0, method_name="_diagnose_axiom_stability")
         fractal_dimension_raw = self._get_safe_series(df, signal_mapping.get('FRACTAL_DIMENSION_89d_D', 'FRACTAL_DIMENSION_89d_D'), 1.5, method_name="_diagnose_axiom_stability")
         sample_entropy_raw = self._get_safe_series(df, signal_mapping.get('SAMPLE_ENTROPY_13d_D', 'SAMPLE_ENTROPY_13d_D'), 1.0, method_name="_diagnose_axiom_stability")
         hurst_raw = self._get_safe_series(df, signal_mapping.get('HURST_144d_D', 'HURST_144d_D'), 0.5, method_name="_diagnose_axiom_stability")
-
         bbw_norm_config = get_norm_config('BBW_21_2.0_D', default_ascending=False)
         bbw_score = self.get_dynamic_normalized_score(bbw_raw, df_index, tf_weights, **bbw_norm_config)
-
         volatility_instability_norm_config = get_norm_config('VOLATILITY_INSTABILITY_INDEX_21d_D', default_ascending=False)
         volatility_instability_score = self.get_dynamic_normalized_score(volatility_instability_raw, df_index, tf_weights, **volatility_instability_norm_config)
-
         fd_norm_config = get_norm_config('FRACTAL_DIMENSION_89d_D', default_ascending=False, default_clip_range=[1.0, 2.0])
         fractal_dimension_score = self.get_dynamic_normalized_score(fractal_dimension_raw, df_index, tf_weights, **fd_norm_config)
         
@@ -673,7 +657,6 @@ class StructuralIntelligence:
         
         hurst_norm_config = get_norm_config('HURST_144d_D', default_ascending=True, default_clip_range=[0.0, 1.0])
         hurst_score = self.get_dynamic_normalized_score(hurst_raw, df_index, tf_weights, **hurst_norm_config)
-
         volatility_orderliness_score = (
             bbw_score * volatility_orderliness_weights.get('BBW_21_2.0', 0.3) +
             volatility_instability_score * volatility_orderliness_weights.get('VOLATILITY_INSTABILITY_INDEX_21d', 0.3) +
@@ -681,13 +664,11 @@ class StructuralIntelligence:
             sample_entropy_score * volatility_orderliness_weights.get('SAMPLE_ENTROPY_13d', 0.1) +
             hurst_score * volatility_orderliness_weights.get('HURST_144d', 0.1)
         ).clip(0, 1)
-
         # --- 4. 结构运动效率 (Structural Movement Efficiency) ---
         trend_efficiency_ratio_raw = self._get_safe_series(df, signal_mapping.get('trend_efficiency_ratio_D', 'trend_efficiency_ratio_D'), 0.0, method_name="_diagnose_axiom_stability")
         asymmetric_friction_index_raw = self._get_safe_series(df, signal_mapping.get('asymmetric_friction_index_D', 'asymmetric_friction_index_D'), 0.0, method_name="_diagnose_axiom_stability")
         impulse_quality_ratio_raw = self._get_safe_series(df, signal_mapping.get('impulse_quality_ratio_D', 'impulse_quality_ratio_D'), 0.0, method_name="_diagnose_axiom_stability")
         ma_potential_orderliness_score_raw = self._get_safe_series(df, signal_mapping.get('MA_POTENTIAL_ORDERLINESS_SCORE_D', 'MA_POTENTIAL_ORDERLINESS_SCORE_D'), 0.0, method_name="_diagnose_axiom_stability")
-
         trend_efficiency_ratio_norm_config = get_norm_config('trend_efficiency_ratio_D', default_ascending=True)
         trend_efficiency_ratio_score = self.get_dynamic_normalized_score(trend_efficiency_ratio_raw, df_index, tf_weights, **trend_efficiency_ratio_norm_config)
         
@@ -699,44 +680,37 @@ class StructuralIntelligence:
         
         ma_potential_orderliness_score_norm_config = get_norm_config('MA_POTENTIAL_ORDERLINESS_SCORE_D', default_ascending=True)
         ma_potential_orderliness_score = self.get_dynamic_normalized_score(ma_potential_orderliness_score_raw, df_index, tf_weights, **ma_potential_orderliness_score_norm_config)
-
         structural_movement_efficiency_score = (
             trend_efficiency_ratio_score * structural_movement_efficiency_weights.get('trend_efficiency_ratio', 0.3) +
             asymmetric_friction_index_score * structural_movement_efficiency_weights.get('asymmetric_friction_index', 0.3) +
             impulse_quality_ratio_score * structural_movement_efficiency_weights.get('impulse_quality_ratio', 0.2) +
             ma_potential_orderliness_score * structural_movement_efficiency_weights.get('MA_POTENTIAL_ORDERLINESS_SCORE', 0.2)
         ).clip(0, 1)
-
         # --- 5. 结构突破强度 (Structural Break Strength) - 使用代理信号 ---
         breakout_volume_ratio_raw = self._get_safe_series(df, signal_mapping.get('breakout_volume_ratio_D', 'breakout_volume_ratio_D'), 0.0, method_name="_diagnose_axiom_stability")
         breakout_range_expansion_raw = self._get_safe_series(df, signal_mapping.get('breakout_range_expansion_D', 'breakout_range_expansion_D'), 0.0, method_name="_diagnose_axiom_stability")
         breakout_retest_success_raw = self._get_safe_series(df, signal_mapping.get('breakout_retest_success_D', 'breakout_retest_success_D'), 0.0, method_name="_diagnose_axiom_stability")
         breakout_duration_raw = self._get_safe_series(df, signal_mapping.get('breakout_duration_D', 'breakout_duration_D'), 0.0, method_name="_diagnose_axiom_stability")
-
         breakout_volume_ratio_score = self.get_dynamic_normalized_score(breakout_volume_ratio_raw, df_index, tf_weights, **get_norm_config('breakout_volume_ratio_D', default_ascending=True))
         breakout_range_expansion_score = self.get_dynamic_normalized_score(breakout_range_expansion_raw, df_index, tf_weights, **get_norm_config('breakout_range_expansion_D', default_ascending=True))
         breakout_retest_success_score = self.get_dynamic_normalized_score(breakout_retest_success_raw, df_index, tf_weights, **get_norm_config('breakout_retest_success_D', default_ascending=True))
         breakout_duration_score = self.get_dynamic_normalized_score(breakout_duration_raw, df_index, tf_weights, **get_norm_config('breakout_duration_D', default_ascending=True))
-
         structural_break_strength_score = (
             breakout_volume_ratio_score * structural_break_strength_weights.get('breakout_volume_ratio', 0.3) +
             breakout_range_expansion_score * structural_break_strength_weights.get('breakout_range_expansion', 0.3) +
             breakout_retest_success_score * structural_break_strength_weights.get('breakout_retest_success', 0.2) +
             breakout_duration_score * structural_break_strength_weights.get('breakout_duration', 0.2)
         ).clip(0, 1)
-
         # --- 6. 结构回撤效率 (Structural Retracement Efficiency) - 使用代理信号 ---
         retracement_depth_pct_raw = self._get_safe_series(df, signal_mapping.get('retracement_depth_pct_D', 'retracement_depth_pct_D'), 0.0, method_name="_diagnose_axiom_stability")
         retracement_speed_ratio_raw = self._get_safe_series(df, signal_mapping.get('retracement_speed_ratio_D', 'retracement_speed_ratio_D'), 0.0, method_name="_diagnose_axiom_stability")
         retracement_volume_decay_raw = self._get_safe_series(df, signal_mapping.get('retracement_volume_decay_D', 'retracement_volume_decay_D'), 0.0, method_name="_diagnose_axiom_stability")
         retracement_MA_adherence_raw = self._get_safe_series(df, signal_mapping.get('retracement_MA_adherence_D', 'retracement_MA_adherence_D'), 0.0, method_name="_diagnose_axiom_stability")
-
         # 回撤深度和速度通常是越小越好，对手盘枯竭和控盘坚实度是越大越好
         retracement_depth_pct_score = self.get_dynamic_normalized_score(retracement_depth_pct_raw, df_index, tf_weights, **get_norm_config('retracement_depth_pct_D', default_ascending=False))
         retracement_speed_ratio_score = self.get_dynamic_normalized_score(retracement_speed_ratio_raw, df_index, tf_weights, **get_norm_config('retracement_speed_ratio_D', default_ascending=False))
         retracement_volume_decay_score = self.get_dynamic_normalized_score(retracement_volume_decay_raw, df_index, tf_weights, **get_norm_config('retracement_volume_decay_D', default_ascending=True))
         retracement_MA_adherence_score = self.get_dynamic_normalized_score(retracement_MA_adherence_raw, df_index, tf_weights, **get_norm_config('retracement_MA_adherence_D', default_ascending=True))
-
         structural_retracement_efficiency_score = (
             retracement_depth_pct_score * structural_retracement_efficiency_weights.get('retracement_depth_pct', 0.3) +
             retracement_speed_ratio_score * structural_retracement_efficiency_weights.get('retracement_speed_ratio', 0.3) +
@@ -1179,7 +1153,6 @@ class StructuralIntelligence:
         momentum_params = get_param_value(p_conf_struct.get('structural_momentum_params'), {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights_momentum = mtf_weights_conf.get('structural_momentum', {3: 0.4, 5: 0.3, 8: 0.2, 13: 0.1})
-
         velocity_window = get_param_value(momentum_params.get('velocity_window'), 5)
         acceleration_window = get_param_value(momentum_params.get('acceleration_window'), 3)
         persistence_window = get_param_value(momentum_params.get('persistence_window'), 10)
@@ -1191,37 +1164,30 @@ class StructuralIntelligence:
             "unfavorable_stability_inverse": 0.2, "unfavorable_cohesion_inverse": 0.2
         })
         non_linear_exponent = get_param_value(momentum_params.get('non_linear_exponent'), 1.5)
-
         # 1. 结构速度 (Structural Velocity)
         velocity_raw = ta.slope(input_contextual_posture, length=velocity_window)
         velocity_raw.fillna(0, inplace=True)
         velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, tf_weights_momentum)
-
         # 2. 结构加速度 (Structural Acceleration)
         acceleration_raw = ta.slope(velocity_raw, length=acceleration_window)
         acceleration_raw.fillna(0, inplace=True)
         acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, tf_weights_momentum)
-
         # 3. 动量持续性 (Momentum Persistence)
         # 统计连续正向或负向的速度周期数
         positive_velocity_count = (velocity_raw > 0).astype(int).rolling(window=persistence_window, min_periods=1).sum()
         negative_velocity_count = (velocity_raw < 0).astype(int).rolling(window=persistence_window, min_periods=1).sum()
         persistence_raw = positive_velocity_count - negative_velocity_count
         persistence_score = get_adaptive_mtf_normalized_bipolar_score(persistence_raw, df_index, tf_weights_momentum)
-
         # 4. 动量情境品质 (Momentum Context Quality)
         # 有利情境：低张力（张力越低越好），高突破准备度
         favorable_context_raw = (1 - axiom_tension) * context_weights.get('favorable_tension_inverse', 0.3) + \
                                 breakout_readiness * context_weights.get('favorable_breakout_readiness', 0.3)
         favorable_context_score = get_adaptive_mtf_normalized_score(favorable_context_raw, df_index, tf_weights_momentum, ascending=True)
-
         # 不利情境：低稳定性（稳定性越低越差），低协同度（协同度越低越差）
         unfavorable_context_raw = (1 - ((axiom_stability + 1) / 2)) * context_weights.get('unfavorable_stability_inverse', 0.2) + \
                                   (1 - ((axiom_mtf_cohesion + 1) / 2)) * context_weights.get('unfavorable_cohesion_inverse', 0.2)
         unfavorable_context_score = get_adaptive_mtf_normalized_score(unfavorable_context_raw, df_index, tf_weights_momentum, ascending=True)
-
         context_quality_score = (favorable_context_score - unfavorable_context_score).clip(-1, 1)
-
         # 5. 最终融合
         fused_momentum = (
             velocity_score * fusion_weights.get('velocity', 0.4) +
@@ -1229,34 +1195,8 @@ class StructuralIntelligence:
             persistence_score * fusion_weights.get('persistence', 0.15) +
             context_quality_score * fusion_weights.get('context_quality', 0.15)
         ).clip(-1, 1)
-
         # 应用非线性放大
         final_score = pd.Series(np.sign(fused_momentum) * (np.abs(fused_momentum) ** non_linear_exponent), index=df_index).clip(-1, 1).astype(np.float32)
-
-        if self.is_probe_date:
-            # 修改开始：探针输出中增加 posture_type
-            print(f"  -> 结构动量探针 @ {df.index[-1].strftime('%Y-%m-%d')} (Posture Type: {posture_type}) ---")
-            print(f"    原料数据:")
-            print(f"      input_contextual_posture (末值): {input_contextual_posture.iloc[-1]:.4f}")
-            print(f"      axiom_tension (末值): {axiom_tension.iloc[-1]:.4f}")
-            print(f"      breakout_readiness (末值): {breakout_readiness.iloc[-1]:.4f}")
-            print(f"      axiom_stability (末值): {axiom_stability.iloc[-1]:.4f}")
-            print(f"      axiom_mtf_cohesion (末值): {axiom_mtf_cohesion.iloc[-1]:.4f}")
-            print(f"    关键计算节点:")
-            print(f"      structural_velocity_raw (末值): {velocity_raw.iloc[-1]:.4f}")
-            print(f"      structural_acceleration_raw (末值): {acceleration_raw.iloc[-1]:.4f}")
-            print(f"      momentum_persistence_raw (末值): {persistence_raw.iloc[-1]:.4f}")
-            print(f"      favorable_context_raw (末值): {favorable_context_raw.iloc[-1]:.4f}")
-            print(f"      unfavorable_context_raw (末值): {unfavorable_context_raw.iloc[-1]:.4f}")
-            print(f"    归一化分数:")
-            print(f"      structural_velocity_score (末值): {velocity_score.iloc[-1]:.4f}")
-            print(f"      structural_acceleration_score (末值): {acceleration_score.iloc[-1]:.4f}")
-            print(f"      momentum_persistence_score (末值): {persistence_score.iloc[-1]:.4f}")
-            print(f"      momentum_context_quality_score (末值): {context_quality_score.iloc[-1]:.4f}")
-            print(f"    最终融合:")
-            print(f"      SCORE_STRUCT_MOMENTUM (最终分数末值): {final_score.iloc[-1]:.4f}")
-            print(f"  --- 结构动量探针结束 ---")
-            # 修改结束
         return final_score
 
 

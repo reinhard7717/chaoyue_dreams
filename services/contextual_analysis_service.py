@@ -68,8 +68,8 @@ class ContextualAnalysisService:
                 if len(group) < 5: 
                     latest_row = group.iloc[-1]
                     return pd.Series({
-                        'latest_rank': latest_row['strength_rank'], 
-                        'rank_slope': 0.0, 
+                        'latest_rank': latest_row['strength_rank'],
+                        'rank_slope': 0.0,
                         'rank_accel': 0.0,
                         'latest_breadth': latest_row.get('breadth_score', 0.0),
                         'latest_leader': latest_row.get('leader_score', 0.0)
@@ -83,8 +83,8 @@ class ContextualAnalysisService:
                     accel = slope_2 - slope_1
                 latest_row = group.iloc[-1]
                 return pd.Series({
-                    'latest_rank': ranks[-1], 
-                    'rank_slope': slope, 
+                    'latest_rank': ranks[-1],
+                    'rank_slope': slope,
                     'rank_accel': accel,
                     'latest_breadth': latest_row.get('breadth_score', 0.0),
                     'latest_leader': latest_row.get('leader_score', 0.0)
@@ -222,8 +222,8 @@ class ContextualAnalysisService:
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         # 3. 数据透视
         pivot_df = df.pivot_table(
-            index='trade_date', 
-            columns='concept_code', 
+            index='trade_date',
+            columns='concept_code',
             values=['strength_rank', 'rank_slope', 'rank_accel', 'breadth_score', 'leader_score']
         )
         final_df = pd.DataFrame(index=pivot_df.index)
@@ -433,8 +433,8 @@ class ContextualAnalysisService:
             )
             # --- 在返回结果中增加新维度的分数，供下游使用 ---
             return {
-                'concept_code': concept.code, 
-                'concept_name': concept.name, 
+                'concept_code': concept.code,
+                'concept_name': concept.name,
                 'strength_score': total_score,
                 'breadth_score': breadth_score,
                 'leader_score': leader_score

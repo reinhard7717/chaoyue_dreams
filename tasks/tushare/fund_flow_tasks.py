@@ -311,7 +311,7 @@ def save_fund_flow_daily_data_history_task():
             current_start_date = max(total_start_date, current_end_date - datetime.timedelta(days=CHUNK_SIZE_DAYS - 1))
             print(f"准备分派任务，范围: {current_start_date} -> {current_end_date}")
             save_fund_flow_daily_data_history_batch.s(
-                start_date=current_start_date, 
+                start_date=current_start_date,
                 end_date=current_end_date
             ).apply_async()
             dispatched_tasks_count += 1
@@ -346,7 +346,7 @@ def save_fund_flow_daily_data_last_n_days_task(num_days: int):
             # save_fund_flow_daily_data_history_batch 已经支持处理单个日期（start_date=end_date）
             task_signatures.append(
                 save_fund_flow_daily_data_history_batch.s(
-                    start_date=trade_date, 
+                    start_date=trade_date,
                     end_date=trade_date
                 ).set(queue='SaveHistoryData_TimeTrade') # 指定子任务的队列
             )

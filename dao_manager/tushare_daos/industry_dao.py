@@ -1213,8 +1213,8 @@ class IndustryDao(BaseDAO):
                     await asyncio.sleep(20)
                 # API调用，不指定trade_date以获取全部历史
                 df = self.ts_pro.dc_member(
-                    ts_code=ts_code, 
-                    limit=limit, 
+                    ts_code=ts_code,
+                    limit=limit,
                     offset=offset,
                     fields=["trade_date", "ts_code", "con_code", "name"]
                 )
@@ -1758,14 +1758,14 @@ class IndustryDao(BaseDAO):
         ).select_related('concept').order_by('trade_date')
         # 直接返回查询结果，不做任何处理
         data = await sync_to_async(list)(query.values(
-            'trade_date', 
-            'concept__code', 
+            'trade_date',
+            'concept__code',
             'concept__source',
-            'strength_rank', 
-            'rank_slope', 
-            'rank_accel', 
-            'lifecycle_stage', 
-            'breadth_score', 
+            'strength_rank',
+            'rank_slope',
+            'rank_accel',
+            'lifecycle_stage',
+            'breadth_score',
             'leader_score'
         ))
         if not data:

@@ -4487,8 +4487,8 @@ indicator_scoring_info: Dict[str, Dict[str, Any]] = {
         'param_passing_style': 'none',  # 评分函数只接受Series，不接受额外配置参数
         'bs_param_key_to_score_func_arg': {},  # 无需从bs_params向评分函数传递参数
         'defaults': {  # bs_params中MACD参数的默认值，主要供key_patterns使用
-            'macd_fast': 12, 
-            'macd_slow': 26, 
+            'macd_fast': 12,
+            'macd_slow': 26,
             'macd_signal': 9
         },
         'required_keys': ['macd_series', 'macd_d', 'macd_h'],  # 评分函数必需的内部数据键
@@ -4510,10 +4510,10 @@ indicator_scoring_info: Dict[str, Dict[str, Any]] = {
             'rsi_extreme_overbought': 'extreme_overbought'
         },
         'defaults': {  # bs_params中RSI参数的默认值
-            'rsi_period': 14, 
-            'rsi_oversold': 30, 
-            'rsi_overbought': 70, 
-            'rsi_extreme_oversold': 20, 
+            'rsi_period': 14,
+            'rsi_oversold': 30,
+            'rsi_overbought': 70,
+            'rsi_extreme_oversold': 20,
             'rsi_extreme_overbought': 80
         },
         'required_keys': ['rsi'],  # 必需的RSI数据列
@@ -4533,12 +4533,12 @@ indicator_scoring_info: Dict[str, Dict[str, Any]] = {
             # KDJ周期参数 (kdj_period_k等) 用于key_patterns构建列名，不直接传给评分函数
         },
         'defaults': {
-            'kdj_period_k': 9, 
-            'kdj_period_d': 3, 
-            'kdj_period_j': 3, 
-            'kdj_oversold': 20, 
-            'kdj_overbought': 80, 
-            'kdj_extreme_oversold': 10, 
+            'kdj_period_k': 9,
+            'kdj_period_d': 3,
+            'kdj_period_j': 3,
+            'kdj_oversold': 20,
+            'kdj_overbought': 80,
+            'kdj_extreme_oversold': 10,
             'kdj_extreme_overbought': 90
         },
         'required_keys': ['k', 'd', 'j'],

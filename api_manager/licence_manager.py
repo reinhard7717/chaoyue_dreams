@@ -222,7 +222,7 @@ class LicenceManager:
                 # 达到连续错误阈值，进入冷却期
                 cooldown_time = min(
                     base_cooldown * 
-                    math.pow(error_backoff, 
+                    math.pow(error_backoff,
                             (self._consecutive_errors[licence] - consecutive_error_threshold) / consecutive_error_threshold),
                     max_cooldown
                 )
@@ -233,7 +233,7 @@ class LicenceManager:
                 # 达到错误阈值，进入冷却期
                 cooldown_time = min(
                     base_cooldown * 
-                    math.pow(error_backoff, 
+                    math.pow(error_backoff,
                             (self._error_count[licence] - error_threshold) / error_threshold),
                     max_cooldown
                 )

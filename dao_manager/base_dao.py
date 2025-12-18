@@ -34,10 +34,10 @@ class BaseDAO(Generic[T]):
     基础数据访问对象 (DAO) 类。
     【V2.0 - 依赖注入版】
     """
-    def __init__(self, 
+    def __init__(self,
                  cache_manager_instance: CacheManager, # <--- 1. 新增参数
-                 model_class: Optional[Type[T]] = None, 
-                 api_service: Any = None, 
+                 model_class: Optional[Type[T]] = None,
+                 api_service: Any = None,
                  cache_timeout: int = 3600):
         """
         初始化 BaseDAO。

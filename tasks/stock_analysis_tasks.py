@@ -202,8 +202,8 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         # 将调度任务接收到的日期参数，分发给每一个具体的计算任务。
         analysis_tasks = [
             run_multi_timeframe_strategy.s(
-                stock_code=code, 
-                trade_date=None, 
+                stock_code=code,
+                trade_date=None,
                 latest_only=False,
                 start_date_str=start_date_str  # 将参数传递给子任务
             ).set(queue='calculate_strategy') for code in all_codes
@@ -909,15 +909,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 fund_flow_service.debug_params = debug_params
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
-                    stock_info, seed_ff_raw_df.index, 
-                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 
-                    level5_data_map=seed_data_dfs.get("stock_level5_data_map"), 
+                    stock_info, seed_ff_raw_df.index,
+                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"),
+                    level5_data_map=seed_data_dfs.get("stock_level5_data_map"),
                     minute_data_map=seed_data_dfs.get("stock_minute_data_map")
                 )
                 _, seed_ff_minute_map, _, cross_chunk_memory_bus['fund_flow_memory'] = fund_flow_service._synthesize_and_forge_metrics(
-                    stock_code, seed_ff_raw_df, 
-                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 
-                    level5_data_map=seed_data_dfs.get("stock_level5_data_map"), 
+                    stock_code, seed_ff_raw_df,
+                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"),
+                    level5_data_map=seed_data_dfs.get("stock_level5_data_map"),
                     minute_data_map=seed_data_dfs.get("stock_minute_data_map"),
                     realtime_data_map=seed_data_dfs.get("stock_realtime_data_map"),
                     memory=cross_chunk_memory_bus['fund_flow_memory']
@@ -930,8 +930,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 )
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 _, cross_chunk_memory_bus['chip_memory'], seed_failures = chip_service._synthesize_and_forge_metrics(
-                    stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service, 
-                    memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params, 
+                    stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service,
+                    memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params,
                     tick_data_map=seed_data_dfs.get("stock_tick_data_map"),
                     realtime_data_map=seed_data_dfs.get("stock_realtime_data_map"),
                     level5_data_map=seed_data_dfs.get("stock_level5_data_map")
@@ -1019,8 +1019,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )
             chip_metrics_df, cross_chunk_memory_bus['chip_memory'], chunk_failures = chip_service._synthesize_and_forge_metrics(
-                stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_for_chip_service, 
-                memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params, 
+                stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_for_chip_service,
+                memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params,
                 tick_data_map=tick_data_map, realtime_data_map=realtime_data_map, level5_data_map=level5_data_map
             )
             all_failures.extend(chunk_failures)
@@ -1509,7 +1509,7 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
             df['成功率(%)'] = df['success_rate'].apply(lambda x: f"{x:.1%}")
             # 4. 排序并选择最终展示的列
             report_df = df.sort_values(
-                by=['类型', 'success_rate', '触发次数'], 
+                by=['类型', 'success_rate', '触发次数'],
                 ascending=[True, False, False]
             )[['信号名称', '类型', '触发次数', '成功次数', '成功率(%)']]
             # 5. 打印最终报告

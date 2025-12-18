@@ -119,8 +119,8 @@ class StockTimeTradeDAO(BaseDAO):
             df.rename(columns={
                 'stock__stock_code': 'stock_code',
                 'open_qfq': 'open',
-                'close_qfq': 'close', 
-                'high_qfq': 'high', 
+                'close_qfq': 'close',
+                'high_qfq': 'high',
                 'low_qfq': 'low'
             }, inplace=True)
             df['trade_time'] = pd.to_datetime(df['trade_time']).dt.date
@@ -1182,7 +1182,7 @@ class StockTimeTradeDAO(BaseDAO):
             df = self.ts_pro.daily_basic(**{
                 "ts_code": stock_codes_str, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
-                "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
+                "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps",
                 "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
             ])
             if df.empty:
@@ -1200,7 +1200,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 5. 显式地选择和重命名列，替代set_stock_daily_basic_data方法
                 #    这里假设ORM模型字段与API返回字段名一致，除了 stock 和 trade_time
                 final_df = df[[
-                    "stock", "trade_time", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", 
+                    "stock", "trade_time", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps",
                     "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
                 ]]
                 # 6. 为数据库批量保存准备数据
@@ -1283,7 +1283,7 @@ class StockTimeTradeDAO(BaseDAO):
             df = self.ts_pro.cyq_perf(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
-                "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct", 
+                "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct",
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
             if df.empty:
@@ -1302,7 +1302,7 @@ class StockTimeTradeDAO(BaseDAO):
                 #    这里假设模型字段与df列名大部分一致，只需添加 stock 和 trade_time
                 #    如果模型字段名不同，需要使用 .rename() 方法
                 final_df = df[[
-                    "stock", "trade_time", "his_low", "his_high", "cost_5pct", "cost_15pct", 
+                    "stock", "trade_time", "his_low", "his_high", "cost_5pct", "cost_15pct",
                     "cost_50pct", "cost_85pct", "cost_95pct", "weight_avg", "winner_rate"
                 ]]
                 # 6. 将处理好的数据添加到总列表中

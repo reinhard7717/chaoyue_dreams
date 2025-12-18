@@ -13,7 +13,7 @@ class PerformanceAnalyzer:
     - 核心逻辑: 强制使用与所有模块一致的 get_params_block 工具来获取权威的 score_type_map，
                   从而解决了因“影子法典”导致的情报黑洞问题。
     """
-    def __init__(self, df_indicators: pd.DataFrame, score_details_df: pd.DataFrame, 
+    def __init__(self, df_indicators: pd.DataFrame, score_details_df: pd.DataFrame,
                  atomic_states: Dict, trigger_events: Dict, playbook_states: Dict,
                  analysis_params: dict, scoring_params: dict):
         """

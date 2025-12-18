@@ -1258,8 +1258,8 @@ class ChipIntelligence:
         if chip_health_modulation_enabled:
             current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
             normalized_chip_health = get_adaptive_mtf_normalized_bipolar_score(
-                current_chip_health_score_raw, 
-                df.index, 
+                current_chip_health_score_raw,
+                df.index,
                 tf_weights=chip_health_mtf_norm_params.get('weights', {}),
                 sensitivity=chip_health_mtf_norm_params.get('sensitivity', 2.0)
             )

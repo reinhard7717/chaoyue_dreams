@@ -623,8 +623,8 @@ class TransactionViewSet(viewsets.ModelViewSet):
         print(f"已为 Tracker ID {tracker.id} 调用核心服务进行状态更新。") # 调试信息
         # 4. 发送WebSocket通知给前端
         send_update_to_user_sync(
-            self.request.user.id, 
-            'snapshot_rebuilt', 
+            self.request.user.id,
+            'snapshot_rebuilt',
             {'status': 'success', 'tracker_id': tracker.id}
         )
         logger.info(f"已向用户 {self.request.user.username} 发送快照重建通知。")
@@ -649,8 +649,8 @@ class TransactionViewSet(viewsets.ModelViewSet):
         print(f"已为 Tracker ID {tracker.id} 调用核心服务进行状态更新。") # 调试信息
         # 4. 发送WebSocket通知
         send_update_to_user_sync(
-            user.id, 
-            'snapshot_rebuilt', 
+            user.id,
+            'snapshot_rebuilt',
             {'status': 'success', 'tracker_id': tracker.id}
         )
         logger.info(f"因交易删除，为 Tracker ID {tracker.id} 成功重建快照，并发送通知。")

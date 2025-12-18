@@ -204,8 +204,8 @@ class PerformanceAnalysisService:
         stock_states_df.rename(columns={'daily_score__trade_date': 'trade_date'}, inplace=True)
         stock_states_df['trade_date'] = pd.to_datetime(stock_states_df['trade_date'])
         price_df_raw = await self.time_trade_dao.get_daily_data_for_stocks(
-            [stock_code], 
-            start_date.strftime('%Y%m%d'), 
+            [stock_code],
+            start_date.strftime('%Y%m%d'),
             (end_date + timedelta(days=self.look_forward_days)).strftime('%Y%m%d')
         )
         if price_df_raw.empty:
@@ -331,8 +331,8 @@ class PerformanceAnalysisService:
             logger.warning("原子状态数据中未能提取出有效的股票代码。")
             return None, None
         all_prices_df = await self.time_trade_dao.get_daily_data_for_stocks(
-            unique_stock_codes, 
-            start_date.strftime('%Y%m%d'), 
+            unique_stock_codes,
+            start_date.strftime('%Y%m%d'),
             (end_date + timedelta(days=self.look_forward_days)).strftime('%Y%m%d')
         )
         if all_prices_df.empty:

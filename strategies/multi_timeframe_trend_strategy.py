@@ -137,8 +137,8 @@ class MultiTimeframeTrendStrategy:
             )
             # 步骤2: 运行“先知”引擎，并将主引擎的情报(atomic_states)传递给它
             prophet_records = await self.prophet_engine.apply_strategy(
-                stock_code, 
-                all_dfs['D'], 
+                stock_code,
+                all_dfs['D'],
                 self.tactical_engine.atomic_states
             )
             # 步骤3: 合并两大主权策略的战报

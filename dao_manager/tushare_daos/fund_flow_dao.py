@@ -113,12 +113,12 @@ class FundFlowDao(BaseDAO):
                 try:
                     df = self.ts_pro.moneyflow(**{
                         "ts_code": "", "trade_date": "",
-                        "start_date": chunk_start_str, "end_date": chunk_end_str, 
+                        "start_date": chunk_start_str, "end_date": chunk_end_str,
                         "limit": limit, "offset": offset
                     }, fields=[
-                        "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", 
-                        "buy_md_vol", "buy_md_amount", "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", 
-                        "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount", "sell_elg_vol", "sell_elg_amount", 
+                        "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount",
+                        "buy_md_vol", "buy_md_amount", "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount",
+                        "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount", "sell_elg_vol", "sell_elg_amount",
                         "net_mf_vol", "net_mf_amount", "trade_count"  # 新增 trade_count 字段，以获取交易笔数
                     ])
                     await asyncio.sleep(0.55)
@@ -245,10 +245,10 @@ class FundFlowDao(BaseDAO):
                     # API调用现在使用分块的起止日期，并调用 moneyflow_ths 接口
                     df = self.ts_pro.moneyflow_ths(**{
                         "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
-                        "start_date": chunk_start_str, "end_date": chunk_end_str, 
+                        "start_date": chunk_start_str, "end_date": chunk_end_str,
                         "limit": limit, "offset": offset
                     }, fields=[
-                        "trade_date", "ts_code", "pct_change", "net_amount", "net_d5_amount", "buy_lg_amount", 
+                        "trade_date", "ts_code", "pct_change", "net_amount", "net_d5_amount", "buy_lg_amount",
                         "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
                     ])
                     await asyncio.sleep(0.85) # 保持友好的API调用频率
@@ -380,7 +380,7 @@ class FundFlowDao(BaseDAO):
                     # API调用现在使用分块的起止日期，并调用 moneyflow_dc 接口
                     df = self.ts_pro.moneyflow_dc(**{
                         "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
-                        "start_date": chunk_start_str, "end_date": chunk_end_str, 
+                        "start_date": chunk_start_str, "end_date": chunk_end_str,
                         "limit": limit, "offset": offset
                     }, fields=[
                         "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
@@ -481,7 +481,7 @@ class FundFlowDao(BaseDAO):
             df = self.ts_pro.moneyflow_cnt_ths(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
-                "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
+                "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock",
                 "net_buy_amount", "net_sell_amount", "net_amount"
             ])
             if df.empty:
@@ -517,8 +517,8 @@ class FundFlowDao(BaseDAO):
             # 3.4 将NaN替换为None，以适应数据库存储
             # 选择模型需要的列，并确保顺序和命名正确
             final_columns = [
-                'ths_index', 'trade_time', 'lead_stock', 'close_price', 'pct_change', 
-                'industry_index', 'company_num', 'pct_change_stock', 'net_buy_amount', 
+                'ths_index', 'trade_time', 'lead_stock', 'close_price', 'pct_change',
+                'industry_index', 'company_num', 'pct_change_stock', 'net_buy_amount',
                 'net_sell_amount', 'net_amount'
             ]
             df_final = df[final_columns]
@@ -570,8 +570,8 @@ class FundFlowDao(BaseDAO):
             df = self.ts_pro.moneyflow_ind_dc(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
-                "trade_date", "content_type", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", 
-                "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", 
+                "trade_date", "content_type", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount",
+                "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount",
                 "buy_sm_amount_rate", "buy_sm_amount_stock", "rank"
             ])
             if df.empty:
@@ -606,9 +606,9 @@ class FundFlowDao(BaseDAO):
             # 选择模型需要的列，并确保命名与模型字段一致
             # 注意：模型中没有rank字段，所以我们不选择它
             final_columns = [
-                'dc_index', 'trade_time', 'content_type', 'name', 'pct_change', 'close', 'net_amount', 
-                'net_amount_rate', 'buy_elg_amount', 'buy_elg_amount_rate', 'buy_lg_amount', 
-                'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 
+                'dc_index', 'trade_time', 'content_type', 'name', 'pct_change', 'close', 'net_amount',
+                'net_amount_rate', 'buy_elg_amount', 'buy_elg_amount_rate', 'buy_lg_amount',
+                'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount',
                 'buy_sm_amount_rate', 'buy_sm_amount_stock'
             ]
             df_final = df[final_columns]
@@ -674,7 +674,7 @@ class FundFlowDao(BaseDAO):
             df = self.ts_pro.moneyflow_ind_ths(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
             }, fields=[
-                "trade_date", "ts_code", "industry", "lead_stock", "close", "pct_change", "company_num", "pct_change_stock", "close_price", 
+                "trade_date", "ts_code", "industry", "lead_stock", "close", "pct_change", "company_num", "pct_change_stock", "close_price",
                 "net_buy_amount", "net_sell_amount", "net_amount"
             ])
             if df.empty:
@@ -709,8 +709,8 @@ class FundFlowDao(BaseDAO):
             # 3.4 准备用于保存的数据
             # 选择模型需要的列，确保命名与模型字段一致
             final_columns = [
-                'ths_index', 'trade_time', 'industry', 'lead_stock', 'close', 'pct_change', 
-                'company_num', 'pct_change_stock', 'close_price', 'net_buy_amount', 
+                'ths_index', 'trade_time', 'industry', 'lead_stock', 'close', 'pct_change',
+                'company_num', 'pct_change_stock', 'close_price', 'net_buy_amount',
                 'net_sell_amount', 'net_amount'
             ]
             df_final = df[final_columns]
@@ -762,8 +762,8 @@ class FundFlowDao(BaseDAO):
                 df = self.ts_pro.moneyflow_mkt_dc(**{
                     "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
-                    "trade_date", "close_sh", "pct_change_sh", "close_sz", "pct_change_sz", "net_buy_amount", "net_buy_amount_rate", 
-                    "buy_elg_amount", "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", 
+                    "trade_date", "close_sh", "pct_change_sh", "close_sz", "pct_change_sz", "net_buy_amount", "net_buy_amount_rate",
+                    "buy_elg_amount", "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate",
                     "buy_sm_amount", "buy_sm_amount_rate"
                 ])
                 await asyncio.sleep(0.2) # 保持友好的API调用频率
@@ -861,8 +861,8 @@ class FundFlowDao(BaseDAO):
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         # 5. 准备数据：选择模型需要的列
         model_cols = [
-            'stock', 'trade_time', 'name', 'close', 'pct_change', 'turnover_rate', 
-            'amount', 'l_sell', 'l_buy', 'l_amount', 'net_amount', 'net_rate', 
+            'stock', 'trade_time', 'name', 'close', 'pct_change', 'turnover_rate',
+            'amount', 'l_sell', 'l_buy', 'l_amount', 'net_amount', 'net_rate',
             'amount_rate', 'float_values', 'reason'
         ]
         # 筛选出DataFrame中实际存在的列，以增强代码健壮性
@@ -970,7 +970,7 @@ class FundFlowDao(BaseDAO):
             final_df['trade_date'] = pd.to_datetime(final_df['trade_date']).dt.date
             # 5. 准备数据：选择模型需要的列
             model_cols = [
-                'stock', 'trade_date', 'exalter', 'buy', 'buy_rate', 'sell', 
+                'stock', 'trade_date', 'exalter', 'buy', 'buy_rate', 'sell',
                 'sell_rate', 'net_buy', 'side', 'reason'
             ]
             final_cols = [col for col in model_cols if col in final_df.columns]
