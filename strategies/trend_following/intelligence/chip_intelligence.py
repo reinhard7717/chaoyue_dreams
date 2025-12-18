@@ -2615,16 +2615,6 @@ class ChipIntelligence:
         """
         print("    -> [筹码层] 正在诊断“散户筹码脆弱性指数”...")
         df_index = df.index
-        probe_date_for_asof = None
-        if self.should_probe and not df.empty:
-            current_date = df.index[-1].date()
-            if current_date in self.probe_dates_set:
-                probe_date = current_date
-                probe_date_ts = pd.Timestamp(probe_date)
-                if df_index.tz is not None:
-                    probe_date_for_asof = probe_date_ts.tz_localize(df_index.tz)
-                else:
-                    probe_date_for_asof = probe_date_ts
         required_signals = [
             'total_winner_rate_D', 'total_loser_rate_D', 'winner_profit_margin_avg_D',
             'loser_pain_index_D', 'retail_fomo_premium_index_D', 'panic_buy_absorption_contribution_D'
@@ -2640,7 +2630,6 @@ class ChipIntelligence:
         loser_pain_index_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
         retail_fomo_premium_index_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
         panic_buy_absorption_contribution_raw = self._get_safe_series(df, df, 'panic_buy_absorption_contribution_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 原始信号: total_winner_rate_D={total_winner_rate_raw.asof(probe_date_for_asof):.4f}, total_loser_rate_D={total_loser_rate_raw.asof(probe_date_for_asof):.4f}, winner_profit_margin_avg_D={winner_profit_margin_avg_raw.asof(probe_date_for_asof):.4f}, loser_pain_index_D={loser_pain_index_raw.asof(probe_date_for_asof):.4f}, retail_fomo_premium_index_D={retail_fomo_premium_index_raw.asof(probe_date_for_asof):.4f}, panic_buy_absorption_contribution_D={panic_buy_absorption_contribution_raw.asof(probe_date_for_asof):.4f}")
         # 归一化各项指标，高值代表高脆弱性
         norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -2649,7 +2638,6 @@ class ChipIntelligence:
         norm_retail_fomo_premium_index = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights)
         # 恐慌买入吸收贡献越低，脆弱性越高，所以ascending=False
         norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=False, tf_weights=tf_weights)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 归一化信号: norm_total_winner_rate={norm_total_winner_rate.asof(probe_date_for_asof):.4f}, norm_total_loser_rate={norm_total_loser_rate.asof(probe_date_for_asof):.4f}, norm_winner_profit_margin_avg={norm_winner_profit_margin_avg.asof(probe_date_for_asof):.4f}, norm_loser_pain_index={norm_loser_pain_index.asof(probe_date_for_asof):.4f}, norm_retail_fomo_premium_index={norm_retail_fomo_premium_index.asof(probe_date_for_asof):.4f}, norm_panic_buy_absorption_contribution={norm_panic_buy_absorption_contribution.asof(probe_date_for_asof):.4f}")
         # 定义权重 (可配置)
         weights = {
             'total_winner_rate': 0.15,
@@ -2669,12 +2657,9 @@ class ChipIntelligence:
             norm_retail_fomo_premium_index.pow(weights['retail_fomo_premium_index']) *
             norm_panic_buy_absorption_contribution.pow(weights['panic_buy_absorption_contribution'])
         ).pow(1 / total_weight)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 散户筹码脆弱性指数 (几何平均前): {retail_vulnerability_score.asof(probe_date_for_asof):.4f}")
         # 进一步非线性放大极端值，使其更敏感
         retail_vulnerability_score = np.tanh(retail_vulnerability_score * 2) # 放大因子可调
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 散户筹码脆弱性指数 (Tanh放大后): {retail_vulnerability_score.asof(probe_date_for_asof):.4f}")
         final_score = retail_vulnerability_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终散户筹码脆弱性指数: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score
 
     def _diagnose_chip_main_force_cost_intent(self, df: pd.DataFrame) -> pd.Series:
@@ -2686,17 +2671,6 @@ class ChipIntelligence:
         """
         print("    -> [筹码层] 正在诊断“主力成本区攻防意图”...")
         df_index = df.index
-        probe_date_for_asof = None
-        if self.should_probe and not df.empty:
-            current_date = df.index[-1].date()
-            if current_date in self.probe_dates_set:
-                probe_date = current_date
-                probe_date_ts = pd.Timestamp(probe_date)
-                if df_index.tz is not None:
-                    probe_date_for_asof = probe_date_ts.tz_localize(df_index.tz)
-                else:
-                    probe_date_for_asof = probe_date_ts
-        # [修改代码行] 将 'STRUCT_PLATFORM_VPOC' 替换为 'vpoc_D'
         required_signals = [
             'vpoc_D', 'close_D', 'main_force_conviction_index_D',
             'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D'
@@ -2708,19 +2682,17 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 获取原始信号 (现在这些信号保证存在于df中，因此默认值0.0仅作为类型兼容性，实际不会被使用)
         close_raw = self._get_safe_series(df, df, 'close_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        # [修改代码行] 将 'STRUCT_PLATFORM_VPOC' 替换为 'vpoc_D'
+        # 将 'STRUCT_PLATFORM_VPOC' 替换为 'vpoc_D'
         vpoc_raw = self._get_safe_series(df, df, 'vpoc_D', close_raw.mean(), method_name="_diagnose_chip_main_force_cost_intent")
         main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         conviction_flow_buy_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         conviction_flow_sell_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        # [修改代码行] 将 'STRUCT_PLATFORM_VPOC' 替换为 'vpoc_D'
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 原始信号: vpoc_D={vpoc_raw.asof(probe_date_for_asof):.4f}, close_D={close_raw.asof(probe_date_for_asof):.4f}, main_force_conviction_index_D={main_force_conviction_raw.asof(probe_date_for_asof):.4f}, conviction_flow_buy_intensity_D={conviction_flow_buy_raw.asof(probe_date_for_asof):.4f}, conviction_flow_sell_intensity_D={conviction_flow_sell_raw.asof(probe_date_for_asof):.4f}")
+        # 将 'STRUCT_PLATFORM_VPOC' 替换为 'vpoc_D'
         # 计算主力净流量
         net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
         # 归一化主力信念和净流量
         norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         norm_net_conviction_flow = get_adaptive_mtf_normalized_bipolar_score(net_conviction_flow, df_index, tf_weights=tf_weights)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 中间计算: net_conviction_flow={net_conviction_flow.asof(probe_date_for_asof):.4f}, norm_main_force_conviction={norm_main_force_conviction.asof(probe_date_for_asof):.4f}, norm_net_conviction_flow={norm_net_conviction_flow.asof(probe_date_for_asof):.4f}")
         # 定义成本区范围 (例如，VPOC的±2%)
         cost_zone_tolerance = get_param_value(p_conf.get('cost_zone_tolerance'), 0.02)
         upper_bound = vpoc_raw * (1 + cost_zone_tolerance)
@@ -2761,10 +2733,8 @@ class ChipIntelligence:
             norm_net_conviction_flow.loc[mask_in_vpoc_sell].abs() *
             norm_main_force_conviction.loc[mask_in_vpoc_sell] * 0.5 # 在成本区内，强度减半，因为意图不那么明确
         )
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 主力成本区攻防意图 (初步): {main_force_cost_intent.asof(probe_date_for_asof):.4f}")
         # 最终分数映射到 [-1, 1]
         final_score = main_force_cost_intent.clip(-1, 1).fillna(0.0).astype(np.float32)
-        if probe_date_for_asof: print(f"        -> [探针] {probe_date_for_asof.date()} 最终主力成本区攻防意图: {final_score.asof(probe_date_for_asof):.4f}")
         return final_score
 
     def _diagnose_chip_hollowing_out_risk(self, df: pd.DataFrame) -> pd.Series:

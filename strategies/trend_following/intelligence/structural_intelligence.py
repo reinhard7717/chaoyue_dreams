@@ -126,8 +126,6 @@ class StructuralIntelligence:
         current_processing_date_str = df.index[-1].strftime('%Y-%m-%d') if not df.empty else ""
         self.is_probe_date = debug_config.get('should_probe', False) and \
                              current_processing_date_str in debug_config.get('probe_dates', [])
-        if self.is_probe_date:
-            print(f"\n--- [结构情报探针] @ {current_processing_date_str} ---")
         # --- 步骤一: 诊断原子公理 ---
         axiom_trend_form = self._diagnose_axiom_trend_form(df)
         axiom_mtf_cohesion = self._diagnose_axiom_mtf_cohesion(df, axiom_trend_form)
@@ -194,8 +192,6 @@ class StructuralIntelligence:
             contextual_posture, defense_strength, final_structural_momentum
         )
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
-        if self.is_probe_date:
-            print(f"--- [结构情报探针] 结束 @ {current_processing_date_str} ---")
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:

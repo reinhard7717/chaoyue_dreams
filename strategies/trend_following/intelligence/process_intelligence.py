@@ -1384,17 +1384,19 @@ class ProcessIntelligence:
         return meta_score
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V2.0 · 混沌边缘版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V3.0 · 混沌边缘重构版)...") # 修改代码行
         df_index = df.index
         # 获取参数
         params = get_param_value(self.params.get('storm_eye_calm_params'), {})
-        energy_compression_weights = get_param_value(params.get('energy_compression_weights'), {"tension": 0.4, "bbw_inverted": 0.3, "vol_instability_inverted": 0.3})
-        volume_exhaustion_weights = get_param_value(params.get('volume_exhaustion_weights'), {"volume_atrophy": 0.4, "turnover_rate_inverted": 0.3, "counterparty_exhaustion": 0.3})
-        main_force_covert_intent_weights = get_param_value(params.get('main_force_covert_intent_weights'), {"stealth_ops": 0.3, "split_order_accum": 0.2, "mf_conviction_positive": 0.2, "mf_net_flow_positive": 0.3})
-        subdued_market_sentiment_weights = get_param_value(params.get('subdued_market_sentiment_weights'), {"sentiment_pendulum_negative": 0.5, "market_sentiment_inverted": 0.5})
-        final_fusion_weights = get_param_value(params.get('final_fusion_weights'), {"energy_compression": 0.25, "volume_exhaustion": 0.25, "main_force_covert_intent": 0.3, "subdued_market_sentiment": 0.2})
-        price_calmness_modulator_params = get_param_value(params.get('price_calmness_modulator_params'), {"slope_period": 5, "modulator_factor": 0.5})
-        main_force_control_adjudicator_params = get_param_value(params.get('main_force_control_adjudicator'), {"control_signal": "control_solidity_index_D", "veto_threshold": -0.2, "amplifier_factor": 0.5})
+        # 修改代码：更新权重配置，增加新的维度和子维度
+        energy_compression_weights = get_param_value(params.get('energy_compression_weights'), {"tension": 0.2, "bbw_inverted": 0.15, "vol_instability_inverted": 0.15, "equilibrium_compression": 0.2, "bbw_slope_inverted": 0.15, "vol_instability_slope_inverted": 0.15})
+        volume_exhaustion_weights = get_param_value(params.get('volume_exhaustion_weights'), {"volume_atrophy": 0.2, "turnover_rate_inverted": 0.15, "counterparty_exhaustion": 0.15, "order_book_liquidity_inverted": 0.15, "buy_quote_exhaustion": 0.15, "sell_quote_exhaustion": 0.1, "turnover_rate_slope_inverted": 0.1})
+        main_force_covert_intent_weights = get_param_value(params.get('main_force_covert_intent_weights'), {"stealth_ops": 0.15, "split_order_accum": 0.15, "mf_conviction_positive": 0.15, "mf_net_flow_positive": 0.15, "mf_cost_advantage_positive": 0.1, "mf_buy_ofi_positive": 0.1, "mf_t0_buy_efficiency_positive": 0.1, "mf_net_flow_slope_positive": 0.1})
+        subdued_market_sentiment_weights = get_param_value(params.get('subdued_market_sentiment_weights'), {"sentiment_pendulum_negative": 0.25, "market_sentiment_inverted": 0.25, "retail_panic_inverted": 0.15, "retail_fomo_inverted": 0.15, "loser_pain_positive": 0.2})
+        breakout_readiness_weights = get_param_value(params.get('breakout_readiness_weights'), {"struct_breakout_readiness": 0.3, "struct_platform_foundation": 0.25, "goodness_of_fit": 0.25, "platform_conviction": 0.2}) # 修改代码行：新增爆发准备度维度
+        final_fusion_weights = get_param_value(params.get('final_fusion_weights'), {"energy_compression": 0.2, "volume_exhaustion": 0.2, "main_force_covert_intent": 0.25, "subdued_market_sentiment": 0.15, "breakout_readiness": 0.2}) # 修改代码行：更新融合权重
+        price_calmness_modulator_params = get_param_value(params.get('price_calmness_modulator_params'), {"slope_period": 5, "pct_change_threshold": 0.005, "modulator_factor": 0.5}) # 修改代码行：新增pct_change_threshold
+        main_force_control_adjudicator_params = get_param_value(params.get('main_force_control_adjudicator'), {"control_signal": "control_solidity_index_D", "activity_signal": "main_force_activity_ratio_D", "veto_threshold": -0.2, "amplifier_factor": 0.5}) # 修改代码行：新增activity_signal
         # 修正 MTF 权重配置的获取路径
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
@@ -1406,7 +1408,13 @@ class ProcessIntelligence:
             'counterparty_exhaustion_index_D', 'main_force_conviction_index_D',
             'SCORE_MICRO_STRATEGY_STEALTH_OPS', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
             'main_force_net_flow_calibrated_D', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
-            'market_sentiment_score_D', 'SLOPE_5_close_D'
+            'market_sentiment_score_D', 'SLOPE_5_close_D', 'pct_change_D', # 修改代码行：新增pct_change_D
+            'equilibrium_compression_index_D', 'SLOPE_5_BBW_21_2.0_D', 'SLOPE_5_VOLATILITY_INSTABILITY_INDEX_21d_D', # 修改代码行：新增
+            'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D', 'SLOPE_5_turnover_rate_f_D', # 修改代码行：新增
+            'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D', 'SLOPE_5_main_force_net_flow_calibrated_D', # 修改代码行：新增
+            'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'loser_pain_index_D', # 修改代码行：新增
+            'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION', 'goodness_of_fit_score_D', 'platform_conviction_score_D', # 修改代码行：新增
+            'main_force_activity_ratio_D' # 修改代码行：新增
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_storm_eye_calm"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1414,77 +1422,140 @@ class ProcessIntelligence:
         tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
         bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_calculate_storm_eye_calm")
         vol_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_storm_eye_calm")
+        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        bbw_slope_raw = self._get_safe_series(df, 'SLOPE_5_BBW_21_2.0_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        vol_instability_slope_raw = self._get_safe_series(df, 'SLOPE_5_VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
         # 量能枯竭度维度原料
         atrophy_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
         turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_calculate_storm_eye_calm")
         counterparty_exhaustion_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name="_calculate_storm_eye_calm")
+        order_book_liquidity_raw = self._get_safe_series(df, 'order_book_liquidity_supply_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        buy_quote_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        sell_quote_exhaustion_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        turnover_rate_slope_raw = self._get_safe_series(df, 'SLOPE_5_turnover_rate_f_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
         # 主力隐蔽意图维度原料
         stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         split_order_accum_score = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
         mf_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_storm_eye_calm")
         mf_net_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_storm_eye_calm")
+        mf_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        mf_buy_ofi_raw = self._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        mf_t0_buy_efficiency_raw = self._get_safe_series(df, 'main_force_t0_buy_efficiency_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        mf_net_flow_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
         # 市场情绪低迷维度原料
         sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_calculate_storm_eye_calm")
+        retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        # 爆发准备度维度原料
+        struct_breakout_readiness_score = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', 0.0) # 修改代码行：新增
+        struct_platform_foundation_score = self._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', 0.0) # 修改代码行：新增
+        goodness_of_fit_raw = self._get_safe_series(df, 'goodness_of_fit_score_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
+        platform_conviction_raw = self._get_safe_series(df, 'platform_conviction_score_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
         # 情境调制器原料
         price_slope_raw = self._get_safe_series(df, f'SLOPE_{price_calmness_modulator_params.get("slope_period", 5)}_close_D', 0.0, method_name="_calculate_storm_eye_calm")
+        pct_change_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
         control_solidity_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), 0.0, method_name="_calculate_storm_eye_calm")
+        mf_activity_ratio_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), 0.0, method_name="_calculate_storm_eye_calm") # 修改代码行：新增
         # --- 2. 维度计算 ---
         # 2.1 能量压缩度 (Energy Compression Score)
-        bbw_inverted_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, actual_mtf_weights, ascending=False)
-        vol_instability_inverted_score = get_adaptive_mtf_normalized_score(vol_instability_raw, df_index, actual_mtf_weights, ascending=False)
+        bbw_inverted_score = self._normalize_series(bbw_raw, df_index, ascending=False)
+        vol_instability_inverted_score = self._normalize_series(vol_instability_raw, df_index, ascending=False)
+        equilibrium_compression_score = self._normalize_series(equilibrium_compression_raw, df_index, ascending=True) # 修改代码行：新增
+        bbw_slope_inverted_score = self._normalize_series(bbw_slope_raw.clip(upper=0).abs(), df_index, ascending=True) # 修改代码行：新增
+        vol_instability_slope_inverted_score = self._normalize_series(vol_instability_slope_raw.clip(upper=0).abs(), df_index, ascending=True) # 修改代码行：新增
         energy_compression_score = (
-            (tension_score).pow(energy_compression_weights.get('tension', 0.4)) *
-            (bbw_inverted_score).pow(energy_compression_weights.get('bbw_inverted', 0.3)) *
-            (vol_instability_inverted_score).pow(energy_compression_weights.get('vol_instability_inverted', 0.3))
+            (tension_score).pow(energy_compression_weights.get('tension', 0.2)) *
+            (bbw_inverted_score).pow(energy_compression_weights.get('bbw_inverted', 0.15)) *
+            (vol_instability_inverted_score).pow(energy_compression_weights.get('vol_instability_inverted', 0.15)) *
+            (equilibrium_compression_score).pow(energy_compression_weights.get('equilibrium_compression', 0.2)) * # 修改代码行：新增
+            (bbw_slope_inverted_score).pow(energy_compression_weights.get('bbw_slope_inverted', 0.15)) * # 修改代码行：新增
+            (vol_instability_slope_inverted_score).pow(energy_compression_weights.get('vol_instability_slope_inverted', 0.15)) # 修改代码行：新增
         ).pow(1/sum(energy_compression_weights.values())).fillna(0.0)
         # 2.2 量能枯竭度 (Volume Exhaustion Score)
-        turnover_rate_inverted_score = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, actual_mtf_weights, ascending=False)
-        counterparty_exhaustion_score = get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df_index, actual_mtf_weights, ascending=True)
+        turnover_rate_inverted_score = self._normalize_series(turnover_rate_raw, df_index, ascending=False)
+        counterparty_exhaustion_score = self._normalize_series(counterparty_exhaustion_raw, df_index, ascending=True)
+        order_book_liquidity_inverted_score = self._normalize_series(order_book_liquidity_raw, df_index, ascending=False) # 修改代码行：新增
+        buy_quote_exhaustion_score = self._normalize_series(buy_quote_exhaustion_raw, df_index, ascending=True) # 修改代码行：新增
+        sell_quote_exhaustion_score = self._normalize_series(sell_quote_exhaustion_raw, df_index, ascending=True) # 修改代码行：新增
+        turnover_rate_slope_inverted_score = self._normalize_series(turnover_rate_slope_raw.clip(upper=0).abs(), df_index, ascending=True) # 修改代码行：新增
         volume_exhaustion_score = (
-            (atrophy_score).pow(volume_exhaustion_weights.get('volume_atrophy', 0.4)) *
-            (turnover_rate_inverted_score).pow(volume_exhaustion_weights.get('turnover_rate_inverted', 0.3)) *
-            (counterparty_exhaustion_score).pow(volume_exhaustion_weights.get('counterparty_exhaustion', 0.3))
+            (atrophy_score).pow(volume_exhaustion_weights.get('volume_atrophy', 0.2)) *
+            (turnover_rate_inverted_score).pow(volume_exhaustion_weights.get('turnover_rate_inverted', 0.15)) *
+            (counterparty_exhaustion_score).pow(volume_exhaustion_weights.get('counterparty_exhaustion', 0.15)) *
+            (order_book_liquidity_inverted_score).pow(volume_exhaustion_weights.get('order_book_liquidity_inverted', 0.15)) * # 修改代码行：新增
+            (buy_quote_exhaustion_score).pow(volume_exhaustion_weights.get('buy_quote_exhaustion', 0.15)) * # 修改代码行：新增
+            (sell_quote_exhaustion_score).pow(volume_exhaustion_weights.get('sell_quote_exhaustion', 0.1)) * # 修改代码行：新增
+            (turnover_rate_slope_inverted_score).pow(volume_exhaustion_weights.get('turnover_rate_slope_inverted', 0.1)) # 修改代码行：新增
         ).pow(1/sum(volume_exhaustion_weights.values())).fillna(0.0)
         # 2.3 主力隐蔽意图 (Main Force Covert Intent Score)
-        stealth_ops_normalized = get_adaptive_mtf_normalized_score(stealth_ops_score, df_index, actual_mtf_weights, ascending=True)
-        split_order_accum_normalized = get_adaptive_mtf_normalized_score(split_order_accum_score, df_index, actual_mtf_weights, ascending=True)
+        stealth_ops_normalized = self._normalize_series(stealth_ops_score, df_index, ascending=True)
+        split_order_accum_normalized = self._normalize_series(split_order_accum_score, df_index, ascending=True)
         mf_conviction_positive = self._normalize_series(mf_conviction_raw, df_index, bipolar=True).clip(lower=0)
         mf_net_flow_positive = self._normalize_series(mf_net_flow_raw, df_index, bipolar=True).clip(lower=0)
+        mf_cost_advantage_positive = self._normalize_series(mf_cost_advantage_raw, df_index, bipolar=True).clip(lower=0) # 修改代码行：新增
+        mf_buy_ofi_positive = self._normalize_series(mf_buy_ofi_raw, df_index, ascending=True) # 修改代码行：新增
+        mf_t0_buy_efficiency_positive = self._normalize_series(mf_t0_buy_efficiency_raw, df_index, ascending=True) # 修改代码行：新增
+        mf_net_flow_slope_positive = self._normalize_series(mf_net_flow_slope_raw.clip(lower=0), df_index, ascending=True) # 修改代码行：新增
         main_force_covert_intent_score = (
-            (stealth_ops_normalized).pow(main_force_covert_intent_weights.get('stealth_ops', 0.3)) *
-            (split_order_accum_normalized).pow(main_force_covert_intent_weights.get('split_order_accum', 0.2)) *
-            (mf_conviction_positive).pow(main_force_covert_intent_weights.get('mf_conviction_positive', 0.2)) *
-            (mf_net_flow_positive).pow(main_force_covert_intent_weights.get('mf_net_flow_positive', 0.3))
+            (stealth_ops_normalized).pow(main_force_covert_intent_weights.get('stealth_ops', 0.15)) *
+            (split_order_accum_normalized).pow(main_force_covert_intent_weights.get('split_order_accum', 0.15)) *
+            (mf_conviction_positive).pow(main_force_covert_intent_weights.get('mf_conviction_positive', 0.15)) *
+            (mf_net_flow_positive).pow(main_force_covert_intent_weights.get('mf_net_flow_positive', 0.15)) *
+            (mf_cost_advantage_positive).pow(main_force_covert_intent_weights.get('mf_cost_advantage_positive', 0.1)) * # 修改代码行：新增
+            (mf_buy_ofi_positive).pow(main_force_covert_intent_weights.get('mf_buy_ofi_positive', 0.1)) * # 修改代码行：新增
+            (mf_t0_buy_efficiency_positive).pow(main_force_covert_intent_weights.get('mf_t0_buy_efficiency_positive', 0.1)) * # 修改代码行：新增
+            (mf_net_flow_slope_positive).pow(main_force_covert_intent_weights.get('mf_net_flow_slope_positive', 0.1)) # 修改代码行：新增
         ).pow(1/sum(main_force_covert_intent_weights.values())).fillna(0.0)
         # 2.4 市场情绪低迷 (Subdued Market Sentiment Score)
         sentiment_pendulum_negative = self._normalize_series(sentiment_pendulum_score, df_index, bipolar=True).clip(upper=0).abs()
-        market_sentiment_inverted = get_adaptive_mtf_normalized_score(market_sentiment_raw, df_index, actual_mtf_weights, ascending=False)
+        market_sentiment_inverted = self._normalize_series(market_sentiment_raw, df_index, ascending=False)
+        retail_panic_inverted = self._normalize_series(retail_panic_raw, df_index, ascending=False) # 修改代码行：新增
+        retail_fomo_inverted = self._normalize_series(retail_fomo_raw, df_index, ascending=False) # 修改代码行：新增
+        loser_pain_positive = self._normalize_series(loser_pain_raw, df_index, ascending=True) # 修改代码行：新增
         subdued_market_sentiment_score = (
-            (sentiment_pendulum_negative).pow(subdued_market_sentiment_weights.get('sentiment_pendulum_negative', 0.5)) *
-            (market_sentiment_inverted).pow(subdued_market_sentiment_weights.get('market_sentiment_inverted', 0.5))
+            (sentiment_pendulum_negative).pow(subdued_market_sentiment_weights.get('sentiment_pendulum_negative', 0.25)) *
+            (market_sentiment_inverted).pow(subdued_market_sentiment_weights.get('market_sentiment_inverted', 0.25)) *
+            (retail_panic_inverted).pow(subdued_market_sentiment_weights.get('retail_panic_inverted', 0.15)) * # 修改代码行：新增
+            (retail_fomo_inverted).pow(subdued_market_sentiment_weights.get('retail_fomo_inverted', 0.15)) * # 修改代码行：新增
+            (loser_pain_positive).pow(subdued_market_sentiment_weights.get('loser_pain_positive', 0.2)) # 修改代码行：新增
         ).pow(1/sum(subdued_market_sentiment_weights.values())).fillna(0.0)
+        # 2.5 爆发准备度 (Breakout Readiness Score) # 修改代码行：新增维度
+        goodness_of_fit_score = self._normalize_series(goodness_of_fit_raw, df_index, ascending=True)
+        platform_conviction_score = self._normalize_series(platform_conviction_raw, df_index, ascending=True)
+        breakout_readiness_score = (
+            (struct_breakout_readiness_score).pow(breakout_readiness_weights.get('struct_breakout_readiness', 0.3)) *
+            (struct_platform_foundation_score).pow(breakout_readiness_weights.get('struct_platform_foundation', 0.25)) *
+            (goodness_of_fit_score).pow(breakout_readiness_weights.get('goodness_of_fit', 0.25)) *
+            (platform_conviction_score).pow(breakout_readiness_weights.get('platform_conviction', 0.2))
+        ).pow(1/sum(breakout_readiness_weights.values())).fillna(0.0)
         # --- 3. 基础寂静分融合 ---
         base_calm_score = (
-            (energy_compression_score).pow(final_fusion_weights.get('energy_compression', 0.25)) *
-            (volume_exhaustion_score).pow(final_fusion_weights.get('volume_exhaustion', 0.25)) *
-            (main_force_covert_intent_score).pow(final_fusion_weights.get('main_force_covert_intent', 0.3)) *
-            (subdued_market_sentiment_score).pow(final_fusion_weights.get('subdued_market_sentiment', 0.2))
+            (energy_compression_score).pow(final_fusion_weights.get('energy_compression', 0.2)) *
+            (volume_exhaustion_score).pow(final_fusion_weights.get('volume_exhaustion', 0.2)) *
+            (main_force_covert_intent_score).pow(final_fusion_weights.get('main_force_covert_intent', 0.25)) *
+            (subdued_market_sentiment_score).pow(final_fusion_weights.get('subdued_market_sentiment', 0.15)) *
+            (breakout_readiness_score).pow(final_fusion_weights.get('breakout_readiness', 0.2)) # 修改代码行：新增维度
         ).pow(1/sum(final_fusion_weights.values())).fillna(0.0)
         # --- 4. 情境调制器 ---
         # 4.1 价格平静度调制器
         price_slope_norm_bipolar = self._normalize_series(price_slope_raw, df_index, bipolar=True)
-        price_calmness_modulator = (1 - price_slope_norm_bipolar.abs()).clip(0, 1)
+        pct_change_abs_norm_inverted = self._normalize_series(pct_change_raw.abs(), df_index, ascending=False) # 修改代码行：新增
+        price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_slope_norm_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1) # 修改代码行：融合pct_change
         price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('modulator_factor', 0.5))
         # 4.2 主力控盘裁决器
         control_solidity_score = self._normalize_series(control_solidity_raw, df_index, bipolar=True)
+        mf_activity_ratio_score = self._normalize_series(mf_activity_ratio_raw, df_index, ascending=True) # 修改代码行：新增
         veto_threshold = main_force_control_adjudicator_params.get('veto_threshold', -0.2)
         amplifier_factor = main_force_control_adjudicator_params.get('amplifier_factor', 0.5)
         # --- 5. 最终寂静分 ---
         final_score = base_calm_score * price_calmness_amplifier
         # 应用主力控盘门控和放大器
-        final_score = final_score.mask(control_solidity_score < veto_threshold, 0.0) # 硬性否决
-        main_force_amplifier = 1 + (control_solidity_score * amplifier_factor) # 软性放大/惩罚
+        # 只有当主力控盘和活跃度都足够时，才进行放大，否则可能被否决
+        combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1) # 修改代码行：融合控盘和活跃度
+        final_score = final_score.mask(combined_control_score < veto_threshold, 0.0) # 硬性否决
+        main_force_amplifier = 1 + (combined_control_score * amplifier_factor) # 软性放大/惩罚
         final_score = (final_score * main_force_amplifier).clip(0, 1).fillna(0.0)
         # --- 6. 探针输出 ---
         probe_dates = self.probe_dates
@@ -1497,34 +1568,73 @@ class ProcessIntelligence:
             print(f"    - control_solidity_index_D: {control_solidity_raw.iloc[last_date_index]:.4f}")
             print(f"    - BBW_21_2.0_D: {bbw_raw.iloc[last_date_index]:.4f}")
             print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {vol_instability_raw.iloc[last_date_index]:.4f}")
+            print(f"    - equilibrium_compression_index_D: {equilibrium_compression_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - SLOPE_5_BBW_21_2.0_D: {bbw_slope_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - SLOPE_5_VOLATILITY_INSTABILITY_INDEX_21d_D: {vol_instability_slope_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - turnover_rate_f_D: {turnover_rate_raw.iloc[last_date_index]:.4f}")
             print(f"    - counterparty_exhaustion_index_D: {counterparty_exhaustion_raw.iloc[last_date_index]:.4f}")
+            print(f"    - order_book_liquidity_supply_D: {order_book_liquidity_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - buy_quote_exhaustion_rate_D: {buy_quote_exhaustion_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - sell_quote_exhaustion_rate_D: {sell_quote_exhaustion_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - SLOPE_5_turnover_rate_f_D: {turnover_rate_slope_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - SCORE_MICRO_STRATEGY_STEALTH_OPS: {stealth_ops_score.iloc[last_date_index]:.4f}")
             print(f"    - PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY: {split_order_accum_score.iloc[last_date_index]:.4f}")
             print(f"    - main_force_conviction_index_D: {mf_conviction_raw.iloc[last_date_index]:.4f}")
             print(f"    - main_force_net_flow_calibrated_D: {mf_net_flow_raw.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_cost_advantage_D: {mf_cost_advantage_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - main_force_buy_ofi_D: {mf_buy_ofi_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - main_force_t0_buy_efficiency_D: {mf_t0_buy_efficiency_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - SLOPE_5_main_force_net_flow_calibrated_D: {mf_net_flow_slope_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
             print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
+            print(f"    - retail_panic_surrender_index_D: {retail_panic_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - retail_fomo_premium_index_D: {retail_fomo_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - loser_pain_index_D: {loser_pain_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - SCORE_STRUCT_BREAKOUT_READINESS: {struct_breakout_readiness_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - SCORE_STRUCT_PLATFORM_FOUNDATION: {struct_platform_foundation_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - goodness_of_fit_score_D: {goodness_of_fit_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - platform_conviction_score_D: {platform_conviction_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - SLOPE_5_close_D: {price_slope_raw.iloc[last_date_index]:.4f}")
+            print(f"    - pct_change_D: {pct_change_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - main_force_activity_ratio_D: {mf_activity_ratio_raw.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print("  [关键计算 (归一化/中间分)]: ")
             print(f"    - bbw_inverted_score: {bbw_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - vol_instability_inverted_score: {vol_instability_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - equilibrium_compression_score: {equilibrium_compression_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - bbw_slope_inverted_score: {bbw_slope_inverted_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - vol_instability_slope_inverted_score: {vol_instability_slope_inverted_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - energy_compression_score: {energy_compression_score.iloc[last_date_index]:.4f}")
             print(f"    - turnover_rate_inverted_score: {turnover_rate_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - counterparty_exhaustion_score: {counterparty_exhaustion_score.iloc[last_date_index]:.4f}")
+            print(f"    - order_book_liquidity_inverted_score: {order_book_liquidity_inverted_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - buy_quote_exhaustion_score: {buy_quote_exhaustion_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - sell_quote_exhaustion_score: {sell_quote_exhaustion_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - turnover_rate_slope_inverted_score: {turnover_rate_slope_inverted_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - volume_exhaustion_score: {volume_exhaustion_score.iloc[last_date_index]:.4f}")
             print(f"    - stealth_ops_normalized: {stealth_ops_normalized.iloc[last_date_index]:.4f}")
             print(f"    - split_order_accum_normalized: {split_order_accum_normalized.iloc[last_date_index]:.4f}")
             print(f"    - mf_conviction_positive: {mf_conviction_positive.iloc[last_date_index]:.4f}")
             print(f"    - mf_net_flow_positive: {mf_net_flow_positive.iloc[last_date_index]:.4f}")
+            print(f"    - mf_cost_advantage_positive: {mf_cost_advantage_positive.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - mf_buy_ofi_positive: {mf_buy_ofi_positive.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - mf_t0_buy_efficiency_positive: {mf_t0_buy_efficiency_positive.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - mf_net_flow_slope_positive: {mf_net_flow_slope_positive.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - main_force_covert_intent_score: {main_force_covert_intent_score.iloc[last_date_index]:.4f}")
             print(f"    - sentiment_pendulum_negative: {sentiment_pendulum_negative.iloc[last_date_index]:.4f}")
             print(f"    - market_sentiment_inverted: {market_sentiment_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - retail_panic_inverted: {retail_panic_inverted.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - retail_fomo_inverted: {retail_fomo_inverted.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - loser_pain_positive: {loser_pain_positive.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - subdued_market_sentiment_score: {subdued_market_sentiment_score.iloc[last_date_index]:.4f}")
+            print(f"    - breakout_readiness_score: {breakout_readiness_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - goodness_of_fit_score: {goodness_of_fit_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - platform_conviction_score: {platform_conviction_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - base_calm_score: {base_calm_score.iloc[last_date_index]:.4f}")
             print(f"    - price_calmness_modulator: {price_calmness_modulator.iloc[last_date_index]:.4f}")
             print(f"    - price_calmness_amplifier: {price_calmness_amplifier.iloc[last_date_index]:.4f}")
             print(f"    - control_solidity_score: {control_solidity_score.iloc[last_date_index]:.4f}")
+            print(f"    - mf_activity_ratio_score: {mf_activity_ratio_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
+            print(f"    - combined_control_score: {combined_control_score.iloc[last_date_index]:.4f}") # 修改代码行：新增
             print(f"    - main_force_amplifier: {main_force_amplifier.iloc[last_date_index]:.4f}")
             print("  [最终结果]: ")
             print(f"    - final_storm_eye_calm_score: {final_score.iloc[last_date_index]:.4f}")
