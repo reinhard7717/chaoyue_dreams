@@ -1313,9 +1313,10 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.2 · 效率优化版】资金流公理五：诊断“资本属性”
+        【V3.3 · 命名修正与效率优化版】资金流公理五：诊断“资本属性”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
+        - 错误修复: 修正了 `SLOPE_5_SLOPE_5_net_lg_amount_calibrated_D` 命名错误，统一使用 `NMFNF_D` 及其衍生信号。
         """
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
@@ -1341,8 +1342,12 @@ class FundFlowIntelligence:
             'rally_sell_distribution_intensity': 0.1, 'rally_buy_support_weakness': 0.1,
             'retail_buy_ofi': 0.05, 'retail_sell_ofi': 0.05
         })
+        # --- 信号依赖校验 ---
         required_signals = [
-            'net_lg_amount_calibrated_D',
+            'net_lg_amount_calibrated_D', # 用于 patient_flow_periods
+            'NMFNF_D', # 修改行: 添加 NMFNF_D 基础信号
+            'SLOPE_5_NMFNF_D', # 修改行: 添加 SLOPE_5_NMFNF_D 信号
+            'ACCEL_5_NMFNF_D', # 修改行: 添加 ACCEL_5_NMFNF_D 信号
             'SLOPE_5_net_lg_amount_calibrated_D', 'ACCEL_5_net_lg_amount_calibrated_D',
             'SLOPE_13_net_lg_amount_calibrated_D', 'ACCEL_13_net_lg_amount_calibrated_D',
             'SLOPE_21_net_lg_amount_calibrated_D', 'ACCEL_21_net_lg_amount_calibrated_D',
@@ -1352,10 +1357,12 @@ class FundFlowIntelligence:
             'chip_health_score_D', 'control_solidity_index_D',
             'SLOPE_5_covert_accumulation_signal_D', 'ACCEL_5_covert_accumulation_signal_D',
             'SLOPE_5_suppressive_accumulation_intensity_D', 'ACCEL_5_suppressive_accumulation_intensity_D',
+            'deception_index_D',
             'SLOPE_5_deception_index_D', 'SLOPE_5_wash_trade_intensity_D',
+            'wash_trade_intensity_D',
             'cost_structure_skewness_D', 'chip_fatigue_index_D', 'winner_loser_momentum_D',
             'structural_leverage_D', 'structural_node_count_D',
-            'main_force_ofi_D', 'deception_index_D', 'wash_trade_intensity_D',
+            'main_force_ofi_D',
             'SLOPE_5_main_force_ofi_D', 'ACCEL_5_main_force_ofi_D',
             'SLOPE_13_main_force_ofi_D', 'ACCEL_13_main_force_ofi_D',
             'SLOPE_21_main_force_ofi_D', 'ACCEL_21_main_force_ofi_D',
@@ -1373,7 +1380,7 @@ class FundFlowIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_capital_signature"):
             return pd.Series(0.0, index=df.index)
-        # 修改开始: 预取所有斜率和加速度数据到单个字典
+        # --- 预取所有斜率和加速度数据到单个字典 ---
         all_pre_fetched_slopes_accels = {}
         # 收集所有需要预取的信号基础名称和周期
         # patient flow periods
@@ -1408,8 +1415,8 @@ class FundFlowIntelligence:
         for p in [5]: # NMFNF_D
             all_pre_fetched_slopes_accels[f'SLOPE_{p}_NMFNF_D'] = self._get_safe_series(df, df, f'SLOPE_{p}_NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature")
             all_pre_fetched_slopes_accels[f'ACCEL_{p}_NMFNF_D'] = self._get_safe_series(df, df, f'ACCEL_{p}_NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature")
-            all_pre_fetched_slopes_accels[f'ACCEL_{p}_SLOPE_{p}_NMFNF_D'] = self._get_safe_series(df, df, f'ACCEL_{p}_SLOPE_{p}_NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature") # ACCEL of SLOPE
-        # 修改结束
+            # 修改行: 确保 SLOPE_5_NMFNF_D 的加速度也被预取，因为它是 signal_base_name
+            all_pre_fetched_slopes_accels[f'SLOPE_{p}_SLOPE_{p}_NMFNF_D'] = self._get_safe_series(df, df, f'SLOPE_{p}_SLOPE_{p}_NMFNF_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         # --- 原始数据获取 (用于探针和计算) ---
         raw_data_cache = {}
         for signal_name in required_signals:
@@ -1419,13 +1426,25 @@ class FundFlowIntelligence:
         main_force_cost_advantage_raw = raw_data_cache['main_force_cost_advantage_D']
         main_force_vwap_guidance_raw = raw_data_cache['main_force_vwap_guidance_D']
         main_force_execution_alpha_raw = raw_data_cache['main_force_execution_alpha_D']
+        covert_accumulation_signal_raw = raw_data_cache['covert_accumulation_signal_D']
+        suppressive_accumulation_intensity_raw = raw_data_cache['suppressive_accumulation_intensity_D']
+        deception_index_raw = raw_data_cache['deception_index_D']
+        wash_trade_intensity_raw = raw_data_cache['wash_trade_intensity_D']
         cost_structure_skewness_raw = raw_data_cache['cost_structure_skewness_D']
         chip_fatigue_index_raw = raw_data_cache['chip_fatigue_index_D']
         winner_loser_momentum_raw = raw_data_cache['winner_loser_momentum_D']
         structural_leverage_raw = raw_data_cache['structural_leverage_D']
         structural_node_count_raw = raw_data_cache['structural_node_count_D']
+        flow_credibility_raw = raw_data_cache['flow_credibility_index_D']
         # 敏捷资本相关
+        main_force_ofi_raw = raw_data_cache['main_force_ofi_D']
         micro_price_impact_asymmetry_raw = raw_data_cache['micro_price_impact_asymmetry_D']
+        retail_fomo_premium_index_raw = raw_data_cache['retail_fomo_premium_index_D']
+        retail_panic_surrender_index_raw = raw_data_cache['retail_panic_surrender_index_D']
+        market_sentiment_score_raw = raw_data_cache['market_sentiment_score_D']
+        main_force_t0_efficiency_raw = raw_data_cache['main_force_t0_efficiency_D']
+        main_force_slippage_index_raw = raw_data_cache['main_force_slippage_index_D']
+        nmfnf_raw = raw_data_cache['NMFNF_D'] # 修改行: 确保 nmfnf_raw 指向 NMFNF_D
         theme_hotness_raw = raw_data_cache['THEME_HOTNESS_SCORE_D']
         # 资本间意图博弈相关
         mf_retail_battle_intensity_raw = raw_data_cache['mf_retail_battle_intensity_D']
@@ -1451,11 +1470,9 @@ class FundFlowIntelligence:
         patient_flow_slope_weights_short = {str(p): 1/len(mtf_periods_patient_flow.get('short', [1])) for p in mtf_periods_patient_flow.get('short', [1])}
         patient_flow_accel_weights_short = {str(p): 1/len(mtf_periods_patient_flow.get('short', [1])) for p in mtf_periods_patient_flow.get('short', [1])}
         patient_flow_slope_weights_long = {str(p): 1/len(mtf_periods_patient_flow.get('long', [1])) for p in mtf_periods_patient_flow.get('long', [1])}
-        # 修改开始: 传递预取数据
         norm_institutional_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('short', []), patient_flow_slope_weights_short, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_institutional_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('short', []), patient_flow_accel_weights_short, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_institutional_flow_long_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('long', []), patient_flow_slope_weights_long, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         flow_persistence = (
             norm_institutional_flow_slope_mtf * 0.4 +
             norm_institutional_flow_accel_mtf * 0.3 +
@@ -1471,12 +1488,10 @@ class FundFlowIntelligence:
         suppressive_acc_slope_weights = {"5": 1.0}
         deception_slope_weights = {"5": 1.0}
         wash_trade_slope_weights = {"5": 1.0}
-        # 修改开始: 传递预取数据
         norm_covert_accumulation_slope = self._get_mtf_dynamic_score(df, 'covert_accumulation_signal_D', [5], covert_acc_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_suppressive_accumulation_slope = self._get_mtf_dynamic_score(df, 'suppressive_accumulation_intensity_D', [5], suppressive_acc_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_deception_slope = self._get_mtf_dynamic_score(df, 'deception_index_D', [5], deception_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_wash_trade_slope = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', [5], wash_trade_slope_weights, False, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         deception_wash_trade_inverse = (1 - norm_deception_slope.abs() - norm_wash_trade_slope).clip(0, 1)
         covertness_anti_recon = (
             norm_covert_accumulation_slope * covertness_anti_recon_weights.get('covert_accumulation_slope', 0.4) +
@@ -1518,21 +1533,17 @@ class FundFlowIntelligence:
         # 2.1 高频冲击力与方向性
         agile_ofi_slope_weights_short = {str(p): 1/len(mtf_periods_agile_ofi.get('short', [1])) for p in mtf_periods_agile_ofi.get('short', [1])}
         agile_ofi_accel_weights_short = {str(p): 1/len(mtf_periods_agile_ofi.get('short', [1])) for p in mtf_periods_agile_ofi.get('short', [1])}
-        # 修改开始: 传递预取数据
         norm_ofi_slope_mtf = self._get_mtf_dynamic_score(df, 'main_force_ofi_D', mtf_periods_agile_ofi.get('short', []), agile_ofi_slope_weights_short, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_ofi_accel_mtf = self._get_mtf_dynamic_score(df, 'main_force_ofi_D', mtf_periods_agile_ofi.get('short', []), agile_ofi_accel_weights_short, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         norm_price_impact_asymmetry = get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_raw, df_index, tf_weights=tf_weights_ff)
         ofi_impact_directionality = (norm_ofi_slope_mtf * 0.4 + norm_ofi_accel_mtf * 0.3 + norm_price_impact_asymmetry * 0.3).clip(-1, 1)
         # 2.2 情绪驱动与风险偏好 (V3.0 新增)
         retail_fomo_slope_weights = {"5": 1.0}
         retail_panic_slope_weights = {"5": 1.0}
         market_sentiment_slope_weights = {"5": 1.0}
-        # 修改开始: 传递预取数据
         norm_retail_fomo_slope = self._get_mtf_dynamic_score(df, 'retail_fomo_premium_index_D', [5], retail_fomo_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_retail_panic_slope = self._get_mtf_dynamic_score(df, 'retail_panic_surrender_index_D', [5], retail_panic_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_market_sentiment_slope = self._get_mtf_dynamic_score(df, 'market_sentiment_score_D', [5], market_sentiment_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         emotion_driven_risk_appetite = (
             norm_retail_fomo_slope * emotion_driven_risk_appetite_weights.get('retail_fomo_slope', 0.4) +
             norm_retail_panic_slope * emotion_driven_risk_appetite_weights.get('retail_panic_slope', 0.3) +
@@ -1542,11 +1553,9 @@ class FundFlowIntelligence:
         mf_t0_efficiency_accel_weights = {"5": 1.0}
         mf_slippage_accel_weights = {"5": 1.0}
         mf_exec_alpha_accel_weights = {"5": 1.0}
-        # 修改开始: 传递预取数据
         norm_main_force_t0_efficiency_accel = self._get_mtf_dynamic_score(df, 'main_force_t0_efficiency_D', [5], mf_t0_efficiency_accel_weights, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_main_force_slippage_inverse_accel = self._get_mtf_dynamic_score(df, 'main_force_slippage_index_D', [5], mf_slippage_accel_weights, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels) * -1
         norm_main_force_execution_alpha_accel = self._get_mtf_dynamic_score(df, 'main_force_execution_alpha_D', [5], mf_exec_alpha_accel_weights, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
         game_efficiency_utilization = (
             norm_main_force_t0_efficiency_accel * game_efficiency_utilization_weights.get('main_force_t0_efficiency_accel', 0.4) +
             norm_main_force_slippage_inverse_accel * game_efficiency_utilization_weights.get('main_force_slippage_inverse_accel', 0.3) +
@@ -1556,11 +1565,10 @@ class FundFlowIntelligence:
         nmfnf_slope_weights = {"5": 1.0}
         nmfnf_accel_weights = {"5": 1.0}
         nmfnf_accel_slope_weights = {"5": 1.0}
-        # 修改开始: 传递预取数据
-        norm_nmfnf_slope_5 = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', [5], nmfnf_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_nmfnf_accel_5 = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', [5], nmfnf_accel_weights, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_nmfnf_accel_slope_5 = self._get_mtf_dynamic_score(df, 'SLOPE_5_net_lg_amount_calibrated_D', [5], nmfnf_accel_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
-        # 修改结束
+        norm_nmfnf_slope_5 = self._get_mtf_dynamic_score(df, 'NMFNF_D', [5], nmfnf_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_nmfnf_accel_5 = self._get_mtf_dynamic_score(df, 'NMFNF_D', [5], nmfnf_accel_weights, True, True, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
+        # 修改行: 修正 signal_base_name 为 'SLOPE_5_NMFNF_D'
+        norm_nmfnf_accel_slope_5 = self._get_mtf_dynamic_score(df, 'SLOPE_5_NMFNF_D', [5], nmfnf_accel_slope_weights, True, False, method_name="_diagnose_axiom_capital_signature", pre_fetched_data=all_pre_fetched_slopes_accels)
         short_term_explosiveness = (norm_nmfnf_slope_5 * 0.5 + norm_nmfnf_accel_5 * 0.3 + norm_nmfnf_accel_slope_5 * 0.2).clip(-1, 1)
         # 2.5 资金流驱动的题材热度
         norm_theme_hotness = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
