@@ -945,7 +945,7 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         final_scores = pd.Series(0.0, index=index)
     return final_scores.astype(np.float32)
 
-def normalize_score(self, series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
+def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
     """
     【V1.3 · 零值鲁棒性增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
     - 核心升级: 增加了对输入序列全为零情况的特殊处理，确保当原始数据无有效信息时，归一化结果为0。
