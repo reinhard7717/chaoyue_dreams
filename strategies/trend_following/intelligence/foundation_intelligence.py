@@ -1228,7 +1228,7 @@ class FoundationIntelligence:
         # --- 4. 结构性成本 (Structural Cost - SC) ---
         sc_weights = p_conf_mf.get('structural_cost_weights', {'cost_structure_skewness': 0.4, 'market_impact_cost': 0.3, 'vwap_mean_reversion_corr': 0.3})
         cost_structure_skewness_score = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_raw, df_index, default_weights)
-        market_impact_cost_score = get_adaptive_mtf_normalized_bipolar_score(market_impact_cost_raw, df_index, default_weights, ascending=False) # 冲击成本越高，分数越低
+        market_impact_cost_score = get_adaptive_mtf_normalized_bipolar_score(-market_impact_cost_raw, df_index, default_weights) # 修改行：对原始数据取负值，实现逆向归一化
         vwap_mean_reversion_corr_score = get_adaptive_mtf_normalized_bipolar_score(vwap_mean_reversion_corr_raw, df_index, default_weights)
         structural_cost_score = (
             cost_structure_skewness_score * sc_weights.get('cost_structure_skewness', 0.4) +
