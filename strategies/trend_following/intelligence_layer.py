@@ -63,6 +63,7 @@ class IntelligenceLayer:
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
         self.predictive_intel = PredictiveIntelligence(self.strategy)
         self.probes = ForensicProbes(self)
+
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
         【V426.0 · 日内引擎重构激活版】情报层总指挥官
@@ -107,6 +108,7 @@ class IntelligenceLayer:
         # 修复指挥链，在所有诊断完成后部署法医探针
         self.deploy_forensic_probes()
         return self.strategy.atomic_states
+
     def deploy_forensic_probes(self):
         """
         【V2.24 · 赢家信念探针激活版】法医探针调度中心
@@ -165,6 +167,7 @@ class IntelligenceLayer:
             if debug_params.get('enable_lockdown_scramble_probe', False):
                 self.probes._deploy_lockdown_scramble_probe(probe_date)
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
+
     def _ignite_relational_dynamics_engine(self):
         """
         【V1.0】关系动力引擎（普罗米修斯神坛）

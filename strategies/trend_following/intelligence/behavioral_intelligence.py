@@ -267,10 +267,10 @@ class BehavioralIntelligence:
             'volume_structure_skew_D',
             'volume_burstiness_index_D',
             'closing_strength_index_D',
-            'SLOPE_55_close_D', # 新增：用于卖盘衰竭的强上涨趋势门控
-            'market_sentiment_score_D', # 新增：用于卖盘衰竭的动态权重调制
-            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', # 新增：用于卖盘衰竭的情境就绪
-            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT' # 新增：用于卖盘衰竭的情境就绪
+            'SLOPE_55_close_D',
+            'market_sentiment_score_D',
+            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
+            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'
         ]
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
@@ -281,10 +281,11 @@ class BehavioralIntelligence:
             required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
-        # MODIFIED LINE: 添加 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT' 到 required_signals，因为 _diagnose_divergence_quality 依赖它
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报引擎] {method_name}: 核心公理诊断失败，缺少必要原始信号，行为分析中止。")
+            # MODIFIED LINE: 增加打印缺失信号的调试信息
+            missing_signals = [s for s in required_signals if s not in df.columns]
+            print(f"    -> [行为情报引擎] {method_name}: 核心公理诊断失败，缺少必要原始信号 {missing_signals}，行为分析中止。")
             return {}
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -371,13 +372,11 @@ class BehavioralIntelligence:
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        # MODIFIED LINE: 添加调试输出
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL @ {probe_ts.strftime('%Y-%m-%d')}: {intraday_bull_control_score.loc[probe_ts]:.4f}")
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
-        # MODIFIED LINE: 添加调试输出
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW @ {probe_ts.strftime('%Y-%m-%d')}: {final_overextension_score.loc[probe_ts]:.4f}")
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
@@ -429,12 +428,11 @@ class BehavioralIntelligence:
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
         df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
-        # MODIFIED LINE: 从 df 中获取 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
         microstructure_intent_score = self._get_safe_series(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0, method_name=method_name)
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
-            microstructure_intent_score # MODIFIED LINE: 使用从 df 获取的信号
+            microstructure_intent_score
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
@@ -443,11 +441,9 @@ class BehavioralIntelligence:
         lockup_rally_score = self._calculate_lockup_rally_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
         df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
-        # MODIFIED BLOCK START: 移除旧的 SCORE_OPPORTUNITY_SELLING_EXHAUSTION 计算，调用新方法
         selling_exhaustion_score = self._diagnose_selling_exhaustion_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
-        # MODIFIED BLOCK END
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (pct_change.clip(upper=0).abs() * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
         return states
