@@ -550,12 +550,6 @@ class BehavioralIntelligence:
         dynamic_threshold = base_threshold + (atr * atr_multiplier) + (norm_volatility_index * volatility_index_weight * base_threshold)
         # 确保阈值不会过小或过大，例如限制在 [0.001, 0.02]
         dynamic_threshold = dynamic_threshold.clip(lower=0.001, upper=0.02)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - base_threshold: {base_threshold:.4f}")
-            print(f"        - ATR_{min_atr_period}_D (pct): {atr.loc[probe_ts]:.4f}")
-            print(f"        - VOLATILITY_INSTABILITY_INDEX_{volatility_index_period}d_D: {volatility_index.loc[probe_ts]:.4f} -> norm: {norm_volatility_index.loc[probe_ts]:.4f}")
-            print(f"        - calculated dynamic_threshold: {dynamic_threshold.loc[probe_ts]:.4f}")
         return dynamic_threshold.astype(np.float32)
 
     def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -699,45 +693,86 @@ class BehavioralIntelligence:
         - 数学模型: 最终控制力 = 战略位置分 * (过程品质分 * 叙事诚信度分) ^ 0.5
         - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
         - 【清理】移除所有调试探针代码，恢复生产状态。
+        - 【新增】在调试模式下，输出详细的计算过程和中间结果。
         """
         method_name = "_diagnose_intraday_bull_control"
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        probe_ts = None
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            if valid_probe_dates:
+                probe_ts = valid_probe_dates[0]
+
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('chronos_protocol_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
+
         # --- 2. 获取三维度原始数据 ---
-        # 维度一：战略位置
-        # 注意：vwap_control_strength_D 为 0 会导致最终 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL 为 0。
-        # 如果期望在 pct_change_D > 0 时该信号非 0，需检查 vwap_control_strength_D 的上游计算逻辑。
         position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, method_name=method_name)
-        # 维度二：过程品质
         purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         resistance_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name=method_name)
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
-        # 维度三：叙事诚信度
         posture_raw = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name=method_name)
         ambush_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, method_name=method_name)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - position_raw: {position_raw.loc[probe_ts]:.4f}")
+            print(f"        - purity_raw: {purity_raw.loc[probe_ts]:.4f}")
+            print(f"        - resistance_raw: {resistance_raw.loc[probe_ts]:.4f}")
+            print(f"        - conviction_raw: {conviction_raw.loc[probe_ts]:.4f}")
+            print(f"        - posture_raw: {posture_raw.loc[probe_ts]:.4f}")
+            print(f"        - ambush_raw: {ambush_raw.loc[probe_ts]:.4f}")
+
         # --- 3. 计算各维度得分 ---
         # 维度一：战略位置分 (作为基础分)
         strategic_position_score = position_raw.clip(-1, 1)
+
         # 维度二：过程品质分 (作为调节器)
-        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
-        resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights)
-        conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights)
+        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_purity_score"))
+        resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_resistance_score"))
+        conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_conviction_score"))
         process_quality_score = ((purity_score + resistance_score) / 2 * (conviction_score.clip(0,1) + 1) / 2).clip(0, 1)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 过程品质计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - purity_score: {purity_score.loc[probe_ts]:.4f}")
+            print(f"        - resistance_score: {resistance_score.loc[probe_ts]:.4f}")
+            print(f"        - conviction_score (bipolar): {conviction_score.loc[probe_ts]:.4f}")
+            print(f"        - process_quality_score: {process_quality_score.loc[probe_ts]:.4f}")
+
         # 维度三：叙事诚信度分 (作为调节器)
         narrative_integrity_score = pd.Series(1.0, index=df.index) # 默认值
         if 'intraday_posture_score_D' in df.columns and 'closing_auction_ambush_D' in df.columns:
             posture_score = posture_raw.clip(-1, 1)
-            ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights)
+            ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_ambush_score"))
             narrative_deception_score = (ambush_score * (1 - posture_score.clip(0,1))).clip(0, 1)
             narrative_integrity_score = (1 - narrative_deception_score)
+        
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 叙事诚信度计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - posture_score: {posture_score.loc[probe_ts]:.4f}")
+            print(f"        - ambush_score: {ambush_score.loc[probe_ts]:.4f}")
+            print(f"        - narrative_deception_score: {narrative_deception_score.loc[probe_ts]:.4f}")
+            print(f"        - narrative_integrity_score: {narrative_integrity_score.loc[probe_ts]:.4f}")
+
         # --- 4. “时序裁决”三维合成 ---
         quality_modulator = (
             process_quality_score * fusion_weights.get('process_quality', 0.5) +
             narrative_integrity_score * fusion_weights.get('narrative_integrity', 0.5)
         )
         final_control_score = (strategic_position_score * quality_modulator).clip(-1, 1)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 最终合成 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - strategic_position_score: {strategic_position_score.loc[probe_ts]:.4f}")
+            print(f"        - quality_modulator: {quality_modulator.loc[probe_ts]:.4f}")
+            print(f"        - final_control_score: {final_control_score.loc[probe_ts]:.4f}")
+
         return final_control_score.astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
@@ -936,6 +971,7 @@ class BehavioralIntelligence:
         - 核心逻辑: 融合价格行为、量能、市场结构和情绪等多维度行为数据，评估新高的综合质量和可持续性。
         - 【优化】所有组成信号的归一化方式均采用多时间维度自适应归一化。
         - 【探针】加入详细探针，输出原料数据、关键计算节点、结果的值，以便于检查和调试。
+        - 【修正】优化 breakout_quality_score_D 的 nan 处理，将其视为质量缺失，赋予0分。
         """
         method_name = "_diagnose_context_new_high_strength"
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
@@ -980,7 +1016,7 @@ class BehavioralIntelligence:
             'pct_change_D', 'SLOPE_5_EMA_55_D', 'BIAS_55_D', 'breakout_quality_score_D',
             'upward_impulse_purity_D', 'trend_acceleration_score_D', 'volume_burstiness_index_D',
             'constructive_turnover_ratio_D', 'buy_sweep_intensity_D', 'upper_shadow_selling_pressure_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'market_sentiment_score_D' # 修改行：修正信号名称
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'market_sentiment_score_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少核心信号，返回0分。")
@@ -989,6 +1025,8 @@ class BehavioralIntelligence:
         ma_slope_raw = self._get_safe_series(df, 'SLOPE_5_EMA_55_D', 0.0, method_name=method_name)
         bias_raw = self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name=method_name)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
+        # 修正：如果 breakout_quality_raw 为 nan，则视为质量缺失，赋予0分
+        breakout_quality_raw = breakout_quality_raw.fillna(0.0) # 修改行
         upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         trend_acceleration_raw = self._get_safe_series(df, 'trend_acceleration_score_D', 0.0, method_name=method_name)
         volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
@@ -996,7 +1034,7 @@ class BehavioralIntelligence:
         buy_sweep_intensity_raw = self._get_safe_series(df, 'buy_sweep_intensity_D', 0.0, method_name=method_name)
         upper_shadow_selling_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name=method_name)
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
-        intraday_bull_control_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.0, method_name=method_name) # 修改行：修正信号名称
+        intraday_bull_control_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.0, method_name=method_name)
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         # --- 3. 计算各维度得分 ---
         # 维度一：价格动量与品质 (Price Momentum & Quality)
@@ -1013,7 +1051,7 @@ class BehavioralIntelligence:
             (trend_acceleration_score + 1e-9).pow(price_momentum_quality_weights.get('trend_acceleration', 0.15))
         ).pow(1 / sum(price_momentum_quality_weights.values())).fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"      [探针] {method_name} 原始数据及归一化分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - 原始 pct_change_D: {pct_change_raw.loc[probe_ts]:.4f} -> 归一化: {price_breakthrough_score.loc[probe_ts]:.4f}")
             print(f"        - 原始 SLOPE_5_EMA_55_D: {ma_slope_raw.loc[probe_ts]:.4f} -> 归一化: {ma_slope_score.loc[probe_ts]:.4f}")
             print(f"        - 原始 breakout_quality_score_D: {breakout_quality_raw.loc[probe_ts]:.4f} -> 归一化: {breakout_quality_score.loc[probe_ts]:.4f}")
@@ -1059,7 +1097,7 @@ class BehavioralIntelligence:
             (market_sentiment_score + 1e-9).pow(intraday_control_sentiment_weights.get('market_sentiment', 0.5))
         ).pow(1 / sum(intraday_control_sentiment_weights.values())).fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"        - 原始 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_raw.loc[probe_ts]:.4f} -> 归一化: {intraday_bull_control_score.loc[probe_ts]:.4f}") # 修改行：修正信号名称
+            print(f"        - 原始 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_raw.loc[probe_ts]:.4f} -> 归一化: {intraday_bull_control_score.loc[probe_ts]:.4f}")
             print(f"        - 原始 market_sentiment_score_D: {market_sentiment_raw.loc[probe_ts]:.4f} -> 归一化: {market_sentiment_score.loc[probe_ts]:.4f}")
             print(f"        - 维度四 (日内控制与情绪共振) 分数: {intraday_control_sentiment_score.loc[probe_ts]:.4f}")
         # --- 4. 最终融合 (加权几何平均) ---
@@ -3118,12 +3156,6 @@ class BehavioralIntelligence:
         # 仅在价格下跌时激活信号
         is_falling = (pct_change < -min_price_drop_pct_threshold).astype(float)
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} - is_falling 检查 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - pct_change_D: {pct_change.loc[probe_ts]:.4f}")
-            print(f"        - min_price_drop_pct_threshold: {min_price_drop_pct_threshold.loc[probe_ts]:.4f}")
-            print(f"        - Condition (pct_change < -min_price_drop_pct_threshold): {pct_change.loc[probe_ts] < -min_price_drop_pct_threshold.loc[probe_ts]}")
-            print(f"        - is_falling: {is_falling.loc[probe_ts]:.4f}")
         # --- 辅助函数：获取多时间维度融合分数 ---
         def get_mtf_fused_score(base_name: str, is_negative_indicator: bool = False, ascending: bool = True) -> pd.Series:
             # MODIFIED LINE: 获取当前指标的组件权重，如果未配置则使用默认权重
@@ -3189,16 +3221,6 @@ class BehavioralIntelligence:
             (norm_sell_sweep_intensity + 1e-9).pow(panic_selling_intensity_weights.get('sell_sweep_intensity', 0.1)) *
             (norm_loser_pain_index + 1e-9).pow(panic_selling_intensity_weights.get('loser_pain_index', 0.05))
         ).pow(1 / sum(panic_selling_intensity_weights.values())).fillna(0.0).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} - 恐慌抛售烈度 (PSI) @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - norm_panic_cascade: {norm_panic_cascade.loc[probe_ts]:.4f}")
-            print(f"        - norm_active_selling: {norm_active_selling.loc[probe_ts]:.4f}")
-            print(f"        - norm_retail_panic: {norm_retail_panic.loc[probe_ts]:.4f}")
-            print(f"        - norm_price_drop_magnitude: {norm_price_drop_magnitude.loc[probe_ts]:.4f}")
-            print(f"        - norm_main_force_net_flow_negative: {norm_main_force_net_flow_negative.loc[probe_ts]:.4f}")
-            print(f"        - norm_sell_sweep_intensity: {norm_sell_sweep_intensity.loc[probe_ts]:.4f}")
-            print(f"        - norm_loser_pain_index: {norm_loser_pain_index.loc[probe_ts]:.4f}")
-            print(f"        - PSI Score: {psi_score.loc[probe_ts]:.4f}")
         # --- 4. 计算抵抗瓦解度 (Resistance Collapse, RC) ---
         norm_downward_resistance_inverse = (1 - states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).clip(0, 1)
         # 主动买盘支撑 (反向)
@@ -3219,15 +3241,6 @@ class BehavioralIntelligence:
             (norm_support_validation_inverse + 1e-9).pow(resistance_collapse_weights.get('support_validation_inverse', 0.15)) *
             (norm_chip_fatigue_index + 1e-9).pow(resistance_collapse_weights.get('chip_fatigue_index', 0.1))
         ).pow(1 / sum(resistance_collapse_weights.values())).fillna(0.0).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} - 抵抗瓦解度 (RC) @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - norm_downward_resistance_inverse: {norm_downward_resistance_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_active_buying_inverse: {norm_active_buying_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_vwap_control_negative: {norm_vwap_control_negative.loc[probe_ts]:.4f}")
-            print(f"        - norm_buy_quote_exhaustion_inverse: {norm_buy_quote_exhaustion_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_support_validation_inverse: {norm_support_validation_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_chip_fatigue_index: {norm_chip_fatigue_index.loc[probe_ts]:.4f}")
-            print(f"        - RC Score: {rc_score.loc[probe_ts]:.4f}")
         # --- 5. 计算流动性枯竭证据 (Liquidity Exhaustion Evidence, LEE) ---
         # 卖盘报价枯竭率
         norm_sell_quote_exhaustion = get_mtf_fused_score('sell_quote_exhaustion_rate', ascending=True)
@@ -3252,16 +3265,6 @@ class BehavioralIntelligence:
             (norm_bid_side_liquidity_inverse + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('bid_side_liquidity_inverse', 0.1)) *
             (norm_market_impact_cost + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('market_impact_cost', 0.1))
         ).pow(1 / sum(liquidity_exhaustion_evidence_weights.values())).fillna(0.0).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} - 流动性枯竭证据 (LEE) @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - norm_sell_quote_exhaustion: {norm_sell_quote_exhaustion.loc[probe_ts]:.4f}")
-            print(f"        - norm_order_book_imbalance_negative: {norm_order_book_imbalance_negative.loc[probe_ts]:.4f}")
-            print(f"        - norm_volume_structure_skew_negative: {norm_volume_structure_skew_negative.loc[probe_ts]:.4f}")
-            print(f"        - norm_micro_price_impact_asymmetry_negative: {norm_micro_price_impact_asymmetry_negative.loc[probe_ts]:.4f}")
-            print(f"        - norm_ask_side_liquidity_inverse: {norm_ask_side_liquidity_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_bid_side_liquidity_inverse: {norm_bid_side_liquidity_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_market_impact_cost: {norm_market_impact_cost.loc[probe_ts]:.4f}")
-            print(f"        - LEE Score: {lee_score.loc[probe_ts]:.4f}")
         # --- 6. 计算混沌与脆弱性 (Chaos & Fragility, CF) ---
         # 买盘流动性样本熵 (反向)
         norm_bid_liquidity_sample_entropy_inverse = (1 - get_mtf_fused_score('BID_LIQUIDITY_SAMPLE_ENTROPY_13d', ascending=True)).clip(0, 1)
@@ -3277,13 +3280,6 @@ class BehavioralIntelligence:
             (norm_price_volume_entropy + 1e-9).pow(chaos_fragility_weights.get('price_volume_entropy', 0.2)) *
             (norm_volatility_expansion_ratio + 1e-9).pow(chaos_fragility_weights.get('volatility_expansion_ratio', 0.2))
         ).pow(1 / sum(chaos_fragility_weights.values())).fillna(0.0).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} - 混沌与脆弱性 (CF) @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - norm_bid_liquidity_sample_entropy_inverse: {norm_bid_liquidity_sample_entropy_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_bid_liquidity_fractal_dimension_inverse: {norm_bid_liquidity_fractal_dimension_inverse.loc[probe_ts]:.4f}")
-            print(f"        - norm_price_volume_entropy: {norm_price_volume_entropy.loc[probe_ts]:.4f}")
-            print(f"        - norm_volatility_expansion_ratio: {norm_volatility_expansion_ratio.loc[probe_ts]:.4f}")
-            print(f"        - CF Score: {cf_score.loc[probe_ts]:.4f}")
         # --- 7. 最终融合 (加权几何平均) ---
         liquidity_drain_base_score = (
             (psi_score + 1e-9).pow(fusion_weights.get('panic_selling_intensity', 0.3)) *
@@ -3295,12 +3291,6 @@ class BehavioralIntelligence:
         final_score_gated = liquidity_drain_base_score * is_falling
         # --- 9. 最终非线性变换 ---
         final_liquidity_drain_score = final_score_gated.pow(final_exponent).astype(np.float32)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} - 最终结果 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - is_falling: {is_falling.loc[probe_ts]:.4f}")
-            print(f"        - liquidity_drain_base_score: {liquidity_drain_base_score.loc[probe_ts]:.4f}")
-            print(f"        - final_score_gated: {final_score_gated.loc[probe_ts]:.4f}")
-            print(f"        - final_liquidity_drain_score (pow {final_exponent}): {final_liquidity_drain_score.loc[probe_ts]:.4f}")
         return final_liquidity_drain_score
 
 
