@@ -819,6 +819,18 @@
           "intraday_bull_control_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
           "market_sentiment_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 }
         },
+        "chronos_protocol_params": {
+          "enabled": true,
+          "description": "【V6.3 · 生产就绪版】日内多头控制力诊断参数。",
+          "fusion_weights": {
+            "process_quality": 0.5,
+            "narrative_integrity": 0.5
+          },
+          "top_level_fusion_weights": {
+            "strategic_position": 0.5,
+            "quality_modulator": 0.5
+          }
+        },
         "selling_exhaustion_params": {
           "enabled": true,
           "description": "【V3.0 · 凤凰涅槃协议 - 多时间维度动态增强版】卖盘衰竭机会信号参数。",

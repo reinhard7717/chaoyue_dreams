@@ -694,6 +694,7 @@ class BehavioralIntelligence:
         - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
         - 【清理】移除所有调试探针代码，恢复生产状态。
         - 【新增】在调试模式下，输出详细的计算过程和中间结果。
+        - 【修正】调整最终融合逻辑，避免战略位置中性时分数强制归零。
         """
         method_name = "_diagnose_intraday_bull_control"
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -710,6 +711,7 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('chronos_protocol_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
+        top_level_fusion_weights = get_param_value(params.get('top_level_fusion_weights'), {"strategic_position": 0.5, "quality_modulator": 0.5}) # 修改行：新增顶层融合权重
 
         # --- 2. 获取三维度原始数据 ---
         position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, method_name=method_name)
@@ -731,11 +733,13 @@ class BehavioralIntelligence:
         # --- 3. 计算各维度得分 ---
         # 维度一：战略位置分 (作为基础分)
         strategic_position_score = position_raw.clip(-1, 1)
+        # 修正：将 strategic_position_score 映射到 [0, 1] 范围，以便与 quality_modulator 进行加权平均
+        strategic_position_score_mapped = (strategic_position_score + 1) / 2 # 修改行：将 [-1, 1] 映射到 [0, 1]
 
         # 维度二：过程品质分 (作为调节器)
-        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights) # 修改行
-        resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights) # 修改行
-        conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights) # 修改行
+        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
+        resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights)
+        conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights)
         process_quality_score = ((purity_score + resistance_score) / 2 * (conviction_score.clip(0,1) + 1) / 2).clip(0, 1)
 
         if is_debug_enabled and probe_ts and probe_ts in df.index:
@@ -749,7 +753,7 @@ class BehavioralIntelligence:
         narrative_integrity_score = pd.Series(1.0, index=df.index) # 默认值
         if 'intraday_posture_score_D' in df.columns and 'closing_auction_ambush_D' in df.columns:
             posture_score = posture_raw.clip(-1, 1)
-            ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights) # 修改行
+            ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights)
             narrative_deception_score = (ambush_score * (1 - posture_score.clip(0,1))).clip(0, 1)
             narrative_integrity_score = (1 - narrative_deception_score)
         
@@ -765,11 +769,20 @@ class BehavioralIntelligence:
             process_quality_score * fusion_weights.get('process_quality', 0.5) +
             narrative_integrity_score * fusion_weights.get('narrative_integrity', 0.5)
         )
-        final_control_score = (strategic_position_score * quality_modulator).clip(-1, 1)
+        # 修正：使用加权平均融合 strategic_position_score_mapped 和 quality_modulator
+        total_top_level_weight = sum(top_level_fusion_weights.values())
+        if total_top_level_weight == 0: # 避免除以零
+            total_top_level_weight = 1.0
+        final_control_score = (
+            strategic_position_score_mapped * top_level_fusion_weights.get('strategic_position', 0.5) +
+            quality_modulator * top_level_fusion_weights.get('quality_modulator', 0.5)
+        ) / total_top_level_weight # 修改行：改为加权平均
+        final_control_score = final_control_score.clip(0, 1) # 确保最终分数在 [0, 1] 范围内 # 修改行
 
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 最终合成 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - strategic_position_score: {strategic_position_score.loc[probe_ts]:.4f}")
+            print(f"        - strategic_position_score_mapped: {strategic_position_score_mapped.loc[probe_ts]:.4f}") # 新增探针
             print(f"        - quality_modulator: {quality_modulator.loc[probe_ts]:.4f}")
             print(f"        - final_control_score: {final_control_score.loc[probe_ts]:.4f}")
 
