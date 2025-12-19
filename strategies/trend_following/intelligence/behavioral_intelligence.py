@@ -218,6 +218,7 @@ class BehavioralIntelligence:
         - 情境调制: 引入波动率不稳定性、市场情绪等情境调制器进行动态调整。
         - 融合逻辑: 采用加权几何平均融合三大维度，并应用非线性变换。
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
+        - 【修正】移除启用判断，该信号将始终启用。
         """
         method_name = "_calculate_behavioral_day_quality"
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -231,9 +232,6 @@ class BehavioralIntelligence:
                 probe_ts = valid_probe_dates[0]
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('day_quality_protocol_params'), {})
-        if not params.get('enabled', False):
-            if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 信号未启用，返回0分。")
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
         outcome_weights = get_param_value(params.get('outcome_weights'), {"intraday_posture": 0.4, "closing_strength": 0.3, "pct_change": 0.3})
         process_weights = get_param_value(params.get('process_weights'), {"microstructure_efficiency": 0.4, "impulse_quality": 0.3, "vwap_control": 0.3})
         narrative_weights = get_param_value(params.get('narrative_weights'), {"closing_auction_ambush_inverse": 0.4, "deception_lure_long_inverse": 0.3, "deception_lure_short_positive": 0.3})
@@ -280,7 +278,7 @@ class BehavioralIntelligence:
         # 日内姿态分 (已是双极性，映射到 [0, 1])
         intraday_posture_score = (intraday_posture_raw.clip(-1, 1) + 1) / 2
         # 收盘强度 (归一化到 [0, 1])
-        closing_strength_score = normalize_score(closing_strength_raw, df.index, window=get_param_value(tf_weights_config.get('closing_strength'), default_tf_weights).keys(), ascending=True)
+        closing_strength_score = get_adaptive_mtf_normalized_score(closing_strength_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('closing_strength'), default_tf_weights), ascending=True)
         # 日涨跌幅 (归一化到 [0, 1])
         pct_change_score = get_adaptive_mtf_normalized_score(pct_change_raw.clip(lower=0), df.index, tf_weights=get_param_value(tf_weights_config.get('pct_change'), default_tf_weights), ascending=True)
         outcome_assessment_score = _robust_geometric_mean(
@@ -370,6 +368,7 @@ class BehavioralIntelligence:
                                        norm_volatility_inverse * volatility_sensitivity + \
                                        norm_sentiment_neutrality * sentiment_sensitivity
             dynamic_modulator_factor = dynamic_modulator_factor.clip(min_modulator, max_modulator)
+        
         final_score_modulated = (day_quality_base_score * dynamic_modulator_factor).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 情境调制 @ {probe_ts.strftime('%Y-%m-%d')}:")
