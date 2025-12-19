@@ -294,7 +294,10 @@ class BehavioralIntelligence:
             'closing_strength_index_D',
             'SLOPE_55_close_D',
             'market_sentiment_score_D',
-            'SLOPE_55_ADX_14_D' # 新增长期ADX斜率
+            'SLOPE_55_ADX_14_D',
+            'order_book_imbalance_D', # 新增：流动性枯竭证据
+            'volume_structure_skew_D', # 新增：流动性枯竭证据
+            'micro_price_impact_asymmetry_D' # 新增：流动性枯竭证据
         ]
         # MODIFIED LINE: 动态添加所有可能用到的MTF斜率和加速度信号
         selling_exhaustion_mtf_periods = get_param_value(p_behavioral_div_conf.get('selling_exhaustion_params', {}).get('mtf_periods'), [5, 13, 21, 34, 55])
@@ -302,7 +305,8 @@ class BehavioralIntelligence:
             'close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'turnover_rate_f', 'sell_quote_exhaustion_rate',
             'active_selling_pressure', 'capitulation_absorption_index', 'covert_accumulation_signal',
             'main_force_conviction_index', 'retail_fomo_premium_index', 'panic_selling_cascade',
-            'chip_fatigue_index', 'loser_pain_index'
+            'chip_fatigue_index', 'loser_pain_index',
+            'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry' # 新增：流动性枯竭证据
         ]
         for period in selling_exhaustion_mtf_periods:
             for indicator in indicators_for_mtf_dynamics:
@@ -313,7 +317,7 @@ class BehavioralIntelligence:
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
-        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'ADX_14']:
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
         for indicator in ['close', 'volume']:
             required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
@@ -342,7 +346,7 @@ class BehavioralIntelligence:
         price_accel = df['ACCEL_5_pct_change_D']
         robust_slopes = {}
         all_slope_cols_to_extract = []
-        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry']: # 修改行：新增流动性枯竭相关指标
             for period in mtf_periods:
                 col_name = f'SLOPE_{period}_{indicator}_D'
                 if col_name in df.columns:
@@ -351,7 +355,7 @@ class BehavioralIntelligence:
             slopes_df_extracted = df[all_slope_cols_to_extract]
         else:
             slopes_df_extracted = pd.DataFrame(index=df.index)
-        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry']: # 修改行：新增流动性枯竭相关指标
             weighted_slope = pd.Series(0.0, index=df.index, dtype=np.float32)
             total_weight = 0.0
             indicator_slopes_cols = []
@@ -395,7 +399,7 @@ class BehavioralIntelligence:
         states['pattern_volume_slope'] = pattern_volume_slope
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        print(f"    -> [行为情校验] 计算“价格上涨动量(SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM)” 分数：{upward_momentum_score.mean():.4f}")
+        print(f"    -> [行为情校验] 计算“价格上涨动能(SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM)” 分数：{upward_momentum_score.mean():.4f}")
         df['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
         downward_momentum_score = self._diagnose_downward_momentum(df)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
@@ -469,7 +473,7 @@ class BehavioralIntelligence:
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
-            microstructure_intent_score
+            states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] # 修改行：使用 states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
@@ -481,7 +485,8 @@ class BehavioralIntelligence:
         selling_exhaustion_score = self._diagnose_selling_exhaustion_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
-        states['SCORE_RISK_LIQUIDITY_DRAIN'] = (pct_change.clip(upper=0).abs() * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
+        # MODIFIED LINE: 替换旧的 SCORE_RISK_LIQUIDITY_DRAIN 计算逻辑
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
         return states
 
@@ -2834,6 +2839,131 @@ class BehavioralIntelligence:
         final_selling_exhaustion_score = final_score_gated.pow(final_exponent).astype(np.float32)
         return final_selling_exhaustion_score
 
+    def _diagnose_liquidity_drain_risk(self, df: pd.DataFrame, states: Dict[str, pd.Series], tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+        """
+        【V2.0 · 恐慌瀑布协议】诊断流动性枯竭风险。
+        - 核心重构: 引入基于“恐慌抛售烈度-抵抗瓦解度-流动性枯竭证据”的全新三维诊断模型。
+        - 目标: 精准识别由恐慌抛售、买盘抵抗瓦解和市场流动性枯竭共同驱动的系统性风险。
+        - 探针增强: 输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
+        """
+        method_name = "_diagnose_liquidity_drain_risk"
+        p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
+        liquidity_drain_params = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params'), {})
+        if not liquidity_drain_params.get('enabled', False):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        fusion_weights = get_param_value(liquidity_drain_params.get('fusion_weights'), {
+            "panic_selling_intensity": 0.35, "resistance_collapse": 0.35, "liquidity_exhaustion_evidence": 0.3
+        })
+        panic_selling_intensity_weights = get_param_value(liquidity_drain_params.get('panic_selling_intensity_weights'), {
+            "panic_cascade": 0.3, "active_selling_pressure": 0.3, "retail_panic_surrender": 0.2, "price_drop_magnitude": 0.2
+        })
+        resistance_collapse_weights = get_param_value(liquidity_drain_params.get('resistance_collapse_weights'), {
+            "downward_resistance_inverse": 0.4, "active_buying_support_inverse": 0.3, "vwap_control_negative": 0.3
+        })
+        liquidity_exhaustion_evidence_weights = get_param_value(liquidity_drain_params.get('liquidity_exhaustion_evidence_weights'), {
+            "sell_quote_exhaustion": 0.3, "order_book_imbalance_negative": 0.3, "volume_structure_skew_negative": 0.2, "micro_price_impact_asymmetry_negative": 0.2
+        })
+        final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.5)
+        min_price_drop_pct_threshold = get_param_value(liquidity_drain_params.get('min_price_drop_pct_threshold'), 0.005)
+        # --- 1. 获取所有原始数据和已计算的原子信号 ---
+        required_df_signals = [
+            'pct_change_D', 'panic_selling_cascade_D', 'active_selling_pressure_D',
+            'retail_panic_surrender_index_D', 'active_buying_support_D',
+            'vwap_control_strength_D', 'sell_quote_exhaustion_rate_D',
+            'order_book_imbalance_D', 'volume_structure_skew_D', 'micro_price_impact_asymmetry_D'
+        ]
+        required_state_signals = [
+            'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'
+        ]
+        missing_df_signals = [s for s in required_df_signals if s not in df.columns]
+        missing_state_signals = [s for s in required_state_signals if s not in states]
+        if missing_df_signals or missing_state_signals:
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号。")
+            if missing_df_signals: print(f"       - DataFrame中缺失: {missing_df_signals}")
+            if missing_state_signals: print(f"       - States中缺失: {missing_state_signals}")
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 获取信号
+        pct_change = df['pct_change_D']
+        panic_cascade_raw = df['panic_selling_cascade_D']
+        active_selling_raw = df['active_selling_pressure_D']
+        retail_panic_raw = df['retail_panic_surrender_index_D']
+        downward_resistance_score = states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
+        active_buying_raw = df['active_buying_support_D']
+        vwap_control_raw = df['vwap_control_strength_D']
+        sell_quote_exhaustion_raw = df['sell_quote_exhaustion_rate_D']
+        order_book_imbalance_raw = df['order_book_imbalance_D']
+        volume_structure_skew_raw = df['volume_structure_skew_D']
+        micro_price_impact_asymmetry_raw = df['micro_price_impact_asymmetry_D']
+        # 仅在价格下跌时激活信号
+        is_falling = (pct_change < -min_price_drop_pct_threshold).astype(float)
+        # --- 2. 计算恐慌抛售烈度 (Panic Selling Intensity, PSI) ---
+        norm_panic_cascade = get_adaptive_mtf_normalized_score(panic_cascade_raw, df.index, ascending=True, tf_weights=tf_weights)
+        norm_active_selling = get_adaptive_mtf_normalized_score(active_selling_raw, df.index, ascending=True, tf_weights=tf_weights)
+        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df.index, ascending=True, tf_weights=tf_weights)
+        norm_price_drop_magnitude = get_adaptive_mtf_normalized_score(pct_change.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        psi_score = (
+            (norm_panic_cascade + 1e-9).pow(panic_selling_intensity_weights.get('panic_cascade', 0.3)) *
+            (norm_active_selling + 1e-9).pow(panic_selling_intensity_weights.get('active_selling_pressure', 0.3)) *
+            (norm_retail_panic + 1e-9).pow(panic_selling_intensity_weights.get('retail_panic_surrender', 0.2)) *
+            (norm_price_drop_magnitude + 1e-9).pow(panic_selling_intensity_weights.get('price_drop_magnitude', 0.2))
+        ).pow(1 / sum(panic_selling_intensity_weights.values())).fillna(0.0).clip(0, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} - 恐慌抛售烈度 (PSI) @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - panic_cascade_raw: {panic_cascade_raw.loc[probe_ts]:.4f} -> norm_panic_cascade: {norm_panic_cascade.loc[probe_ts]:.4f}")
+            print(f"        - active_selling_raw: {active_selling_raw.loc[probe_ts]:.4f} -> norm_active_selling: {norm_active_selling.loc[probe_ts]:.4f}")
+            print(f"        - retail_panic_raw: {retail_panic_raw.loc[probe_ts]:.4f} -> norm_retail_panic: {norm_retail_panic.loc[probe_ts]:.4f}")
+            print(f"        - pct_change.clip(upper=0).abs(): {pct_change.loc[probe_ts]:.4f} -> norm_price_drop_magnitude: {norm_price_drop_magnitude.loc[probe_ts]:.4f}")
+            print(f"        - PSI Score: {psi_score.loc[probe_ts]:.4f}")
+        # --- 3. 计算抵抗瓦解度 (Resistance Collapse, RC) ---
+        norm_downward_resistance_inverse = (1 - downward_resistance_score).clip(0, 1)
+        norm_active_buying_inverse = (1 - get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=tf_weights)).clip(0, 1)
+        norm_vwap_control_negative = get_adaptive_mtf_normalized_score(vwap_control_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        rc_score = (
+            (norm_downward_resistance_inverse + 1e-9).pow(resistance_collapse_weights.get('downward_resistance_inverse', 0.4)) *
+            (norm_active_buying_inverse + 1e-9).pow(resistance_collapse_weights.get('active_buying_support_inverse', 0.3)) *
+            (norm_vwap_control_negative + 1e-9).pow(resistance_collapse_weights.get('vwap_control_negative', 0.3))
+        ).pow(1 / sum(resistance_collapse_weights.values())).fillna(0.0).clip(0, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} - 抵抗瓦解度 (RC) @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - downward_resistance_score: {downward_resistance_score.loc[probe_ts]:.4f} -> norm_downward_resistance_inverse: {norm_downward_resistance_inverse.loc[probe_ts]:.4f}")
+            print(f"        - active_buying_raw: {active_buying_raw.loc[probe_ts]:.4f} -> norm_active_buying_inverse: {norm_active_buying_inverse.loc[probe_ts]:.4f}")
+            print(f"        - vwap_control_raw.clip(upper=0).abs(): {vwap_control_raw.loc[probe_ts]:.4f} -> norm_vwap_control_negative: {norm_vwap_control_negative.loc[probe_ts]:.4f}")
+            print(f"        - RC Score: {rc_score.loc[probe_ts]:.4f}")
+        # --- 4. 计算流动性枯竭证据 (Liquidity Exhaustion Evidence, LEE) ---
+        norm_sell_quote_exhaustion = get_adaptive_mtf_normalized_score(sell_quote_exhaustion_raw, df.index, ascending=True, tf_weights=tf_weights)
+        norm_order_book_imbalance_negative = get_adaptive_mtf_normalized_score(order_book_imbalance_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        norm_volume_structure_skew_negative = get_adaptive_mtf_normalized_score(volume_structure_skew_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        norm_micro_price_impact_asymmetry_negative = get_adaptive_mtf_normalized_score(micro_price_impact_asymmetry_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        lee_score = (
+            (norm_sell_quote_exhaustion + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('sell_quote_exhaustion', 0.3)) *
+            (norm_order_book_imbalance_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('order_book_imbalance_negative', 0.3)) *
+            (norm_volume_structure_skew_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('volume_structure_skew_negative', 0.2)) *
+            (norm_micro_price_impact_asymmetry_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('micro_price_impact_asymmetry_negative', 0.2))
+        ).pow(1 / sum(liquidity_exhaustion_evidence_weights.values())).fillna(0.0).clip(0, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} - 流动性枯竭证据 (LEE) @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - sell_quote_exhaustion_raw: {sell_quote_exhaustion_raw.loc[probe_ts]:.4f} -> norm_sell_quote_exhaustion: {norm_sell_quote_exhaustion.loc[probe_ts]:.4f}")
+            print(f"        - order_book_imbalance_raw.clip(upper=0).abs(): {order_book_imbalance_raw.loc[probe_ts]:.4f} -> norm_order_book_imbalance_negative: {norm_order_book_imbalance_negative.loc[probe_ts]:.4f}")
+            print(f"        - volume_structure_skew_raw.clip(upper=0).abs(): {volume_structure_skew_raw.loc[probe_ts]:.4f} -> norm_volume_structure_skew_negative: {norm_volume_structure_skew_negative.loc[probe_ts]:.4f}")
+            print(f"        - micro_price_impact_asymmetry_raw.clip(upper=0).abs(): {micro_price_impact_asymmetry_raw.loc[probe_ts]:.4f} -> norm_micro_price_impact_asymmetry_negative: {norm_micro_price_impact_asymmetry_negative.loc[probe_ts]:.4f}")
+            print(f"        - LEE Score: {lee_score.loc[probe_ts]:.4f}")
+        # --- 5. 最终融合 (加权几何平均) ---
+        liquidity_drain_base_score = (
+            (psi_score + 1e-9).pow(fusion_weights.get('panic_selling_intensity', 0.35)) *
+            (rc_score + 1e-9).pow(fusion_weights.get('resistance_collapse', 0.35)) *
+            (lee_score + 1e-9).pow(fusion_weights.get('liquidity_exhaustion_evidence', 0.3))
+        ).pow(1 / sum(fusion_weights.values())).fillna(0.0).clip(0, 1)
+        # --- 6. 门控条件: 仅在价格下跌时激活信号 ---
+        final_score_gated = liquidity_drain_base_score * is_falling
+        # --- 7. 最终非线性变换 ---
+        final_liquidity_drain_score = final_score_gated.pow(final_exponent).astype(np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} - 最终结果 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - is_falling: {is_falling.loc[probe_ts]:.4f}")
+            print(f"        - liquidity_drain_base_score: {liquidity_drain_base_score.loc[probe_ts]:.4f}")
+            print(f"        - final_score_gated: {final_score_gated.loc[probe_ts]:.4f}")
+            print(f"        - final_liquidity_drain_score (pow {final_exponent}): {final_liquidity_drain_score.loc[probe_ts]:.4f}")
+        return final_liquidity_drain_score
 
 
 

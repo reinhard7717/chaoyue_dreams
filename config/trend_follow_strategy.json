@@ -197,6 +197,7 @@
         "sell_order_book_clearing_rate_D": [5, 8, 13, 21],
         "micro_price_impact_asymmetry_D": [5, 13],
         "retail_panic_surrender_index_D": [5],
+        "downward_resistance_D": [5, 8, 13, 21, 34, 55],
         "THEME_HOTNESS_SCORE_D": [5, 8, 13, 21],
         "market_sentiment_score_D": [5, 8, 13, 21],
         "cost_structure_skewness_D": [5, 8, 13, 21],
@@ -358,6 +359,7 @@
         "ADX_14_D": [5, 8, 13, 21, 34, 55],
         "pct_change_D": [5, 13, 21, 55],
         "panic_selling_cascade_D": [5, 8, 13, 21, 34, 55],
+        "downward_resistance_D": [5, 8, 13, 21, 34, 55],
         "说明_chip_axioms": "--- 为筹码四大公理提供支持 ---",
         "main_force_execution_alpha_D": [5, 8, 13, 21, 34, 55],
         "main_force_vpoc_D": [5, 8, 13, 21, 34, 55],
@@ -844,6 +846,35 @@
           },
           "comment_mtf_accel_weights": "多时间框架加速度融合权重。",
           "comment": "融合卖盘衰竭的四大维度，并进行动态情境调制。"
+        },
+        "liquidity_drain_params": {
+          "enabled": true,
+          "description": "【V2.0 · 恐慌瀑布协议】流动性枯竭风险诊断参数。",
+          "fusion_weights": {
+            "panic_selling_intensity": 0.35,
+            "resistance_collapse": 0.35,
+            "liquidity_exhaustion_evidence": 0.3
+          },
+          "panic_selling_intensity_weights": {
+            "panic_cascade": 0.3,
+            "active_selling_pressure": 0.3,
+            "retail_panic_surrender": 0.2,
+            "price_drop_magnitude": 0.2
+          },
+          "resistance_collapse_weights": {
+            "downward_resistance_inverse": 0.4,
+            "active_buying_support_inverse": 0.3,
+            "vwap_control_negative": 0.3
+          },
+          "liquidity_exhaustion_evidence_weights": {
+            "sell_quote_exhaustion": 0.3,
+            "order_book_imbalance_negative": 0.3,
+            "volume_structure_skew_negative": 0.2,
+            "micro_price_impact_asymmetry_negative": 0.2
+          },
+          "final_exponent": 1.5,
+          "min_price_drop_pct_threshold": 0.005,
+          "comment_min_price_drop_pct_threshold": "触发流动性枯竭风险的最小价格跌幅百分比。"
         },
         "lockup_rally_params": {
           "enabled": true,

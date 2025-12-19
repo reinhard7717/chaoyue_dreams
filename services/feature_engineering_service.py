@@ -18,6 +18,7 @@ class FeatureEngineeringService:
     """
     def __init__(self, calculator):
         self.calculator = calculator
+
     async def calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.4 · 调试信息清理版】计算所有配置的斜率特征。
@@ -71,6 +72,7 @@ class FeatureEngineeringService:
                 df[slope_col_name] = slope_series.fillna(0)
             all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.4 · 调试信息清理版】计算所有配置的加速度特征。
@@ -115,6 +117,7 @@ class FeatureEngineeringService:
                 accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
                 df[accel_col_name] = accel_series.fillna(0)
         return all_dfs
+
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.2 · 细粒度VPA升级版】VPA效率指标生产线
@@ -157,9 +160,12 @@ class FeatureEngineeringService:
         df['VPA_SELL_EFFICIENCY_D'] = sell_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.5 · nolds样本熵集成版】元特征计算车间
+        【V3.6 · 分形维数修复版】元特征计算车间
+        - 核心修复: 修正了 `_higuchi_fractal_dimension` 函数，确保其返回的分形维数在合理范围内（通常为1到2），
+                  避免出现负值导致下游计算错误。
         - 核心升级: 废弃旧的简单指标，引入分形维度、样本熵、波动率不稳定性等一系列能够深度刻画市场混沌、分形与信息熵的“元特征”。
         - 新增优化: 直接集成预计算的、更高级的 `price_volume_entropy_D` 指标，作为对市场信息复杂度的核心度量。
         - 细粒度增强: 引入基于主力资金流和订单簿流动性的赫斯特指数和样本熵。
@@ -179,21 +185,58 @@ class FeatureEngineeringService:
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
+
+        # 修改代码行：_higuchi_fractal_dimension 函数修复
         def _higuchi_fractal_dimension(x, k_max):
+            """
+            计算Higuchi分形维数。
+            修复：确保返回的分形维数在合理范围内（通常为1到2）。
+            """
             L = []
             x_len = len(x)
+            if x_len < 2: # 数据点太少无法计算
+                return np.nan
+
             for k in range(1, k_max + 1):
-                Lk = 0
+                Lk_sum = 0.0
+                count = 0
                 for m in range(k):
                     series = x[m::k]
-                    if len(series) < 2: continue
-                    Lk += np.sum(np.abs(np.diff(series))) * (x_len - 1) / ((x_len - m) // k * k)
-                L.append(np.log(Lk / k) if Lk > 0 else 0)
+                    if len(series) < 2:
+                        continue
+                    # 确保 np.diff(series) 不为空
+                    diffs = np.abs(np.diff(series))
+                    if len(diffs) > 0:
+                        # 修正分母，确保不为零
+                        denominator = ((x_len - m) // k * k)
+                        if denominator == 0:
+                            continue
+                        Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
+                        count += 1
+                
+                if count > 0 and Lk_sum > 0: # 确保有有效计算且和大于0
+                    L.append(np.log(Lk_sum / count / k)) # 平均后再取对数
+                else:
+                    L.append(np.nan) # 如果无法计算，则为NaN
+
+            # 过滤掉L中的NaN值
+            valid_L = [val for val in L if not np.isnan(val)]
             k_range_log = np.log(np.arange(1, k_max + 1))
-            valid_indices = [i for i, val in enumerate(L) if val != 0]
-            if len(valid_indices) < 2: return np.nan
-            slope, _ = np.polyfit(k_range_log[valid_indices], np.array(L)[valid_indices], 1)
-            return slope
+            valid_k_range_log = k_range_log[[i for i, val in enumerate(L) if not np.isnan(val)]]
+
+            if len(valid_L) < 2: # 至少需要两个点才能拟合直线
+                return np.nan
+
+            try:
+                slope, _ = np.polyfit(valid_k_range_log, np.array(valid_L), 1)
+                # 分形维数通常是斜率的绝对值，并限制在合理范围
+                fd = np.abs(slope)
+                # 限制分形维数在合理范围，例如1到2
+                return np.clip(fd, 1.0, 2.0)
+            except Exception as e:
+                logger.debug(f"np.polyfit for Higuchi FD failed: {e}")
+                return np.nan
+
         def _sample_entropy(x, m, r):
             n = len(x)
             templates = np.array([x[i:i+m] for i in range(n - m + 1)])
@@ -204,7 +247,7 @@ class FeatureEngineeringService:
             B = np.sum(dist_plus_1 < r) - (n - m)
             if A == 0 or B == 0: return np.nan
             return -np.log(B / A)
-        # 【新增代码块】FFT能量比计算函数
+        # FFT能量比计算函数
         def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5):
             N = len(x)
             if N < 2: return np.nan
@@ -230,13 +273,10 @@ class FeatureEngineeringService:
             if isinstance(current_series, pd.DataFrame):
                 current_series = current_series.iloc[:, 0]
             # --- 1. Hurst 指数 (市场记忆性) ---
-            # 修改代码行: 调整默认窗口为斐波那契数
-            hurst_window = params.get('hurst_window', 144) # 144是斐波那契数，保持
+            hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
-            if hurst_col not in df.columns: # 移除 len(current_series.dropna()) >= hurst_window 的判断，让 rolling.apply 自己处理 NaN
+            if hurst_col not in df.columns:
                 try:
-                    # 确保传递给 hurst_exponent 的是 Series，并且处理数据不足的情况
-                    # 修改代码行: 确保 hurst_exponent 接收到的是数值类型，并处理数据不足的情况
                     df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
                         lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
                     )
@@ -244,13 +284,11 @@ class FeatureEngineeringService:
                     logger.error(f"赫斯特指数(周期{hurst_window}, 列: {source_col})计算失败: {e}")
                     df[hurst_col] = np.nan
             # --- 2. 分形维度 (市场复杂度) ---
-            # 修改代码行: 调整默认窗口为斐波那契数
-            fd_window = params.get('fractal_dimension_window', 89) # 从100改为89
+            fd_window = params.get('fractal_dimension_window', 89)
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
-            if fd_col not in df.columns: # 移除 len(current_series.dropna()) >= fd_window 的判断
+            if fd_col not in df.columns:
                 try:
                     k_max = int(np.sqrt(fd_window))
-                    # 修改代码行: 确保 _higuchi_fractal_dimension 接收到的是数值类型，并处理数据不足的情况
                     df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
                         lambda x: _higuchi_fractal_dimension(x.dropna().values, k_max) if len(x.dropna()) >= fd_window else np.nan, raw=False
                     )
@@ -258,22 +296,19 @@ class FeatureEngineeringService:
                     logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
                     df[fd_col] = np.nan
             # --- 3. 样本熵 (市场可预测性) --- (使用自定义实现)
-            # 修改代码行: 调整默认窗口为斐波那契数
-            se_window = params.get('sample_entropy_window', 13) # 从10改为13
+            se_window = params.get('sample_entropy_window', 13)
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
-            if se_col not in df.columns: # 移除 len(current_series.dropna()) >= se_window + 1 的判断
+            if se_col not in df.columns:
                 try:
-                    # 修改代码行: 重新组织样本熵的计算逻辑，使其更健壮
                     entropy_values = []
-                    # 确保 rolling_std 在足够的数据点上计算
                     log_returns_or_series = current_series.dropna()
                     if len(log_returns_or_series) < se_window + 1:
                         df[se_col] = np.nan
                     else:
                         rolling_std = log_returns_or_series.rolling(window=se_window, min_periods=se_window).std()
                         for i in range(len(log_returns_or_series)):
-                            if i < se_window - 1: # 窗口不足
+                            if i < se_window - 1:
                                 entropy_values.append(np.nan)
                                 continue
                             window_data = log_returns_or_series.iloc[i - se_window + 1 : i + 1].values
@@ -287,20 +322,18 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
                     df[se_col] = np.nan
-            # --- 4. 【修复】NOLDS样本熵 (替代近似熵) (时间序列复杂性) ---
-            # 使用新的配置参数名称和列名
-            nolds_sampen_window = params.get('approximate_entropy_window', 21) # 沿用原近似熵的窗口配置
-            nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2) # 沿用原近似熵的容忍度配置
+            # --- 4. NOLDS样本熵 (替代近似熵) (时间序列复杂性) ---
+            nolds_sampen_window = params.get('approximate_entropy_window', 21)
+            nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
             if nolds_sampen_col not in df.columns:
                 try:
-                    # 调用 self.calculator 中重命名后的方法
                     df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio)
                 except Exception as e:
                     logger.error(f"NOLDS样本熵(周期{nolds_sampen_window}, 列: {source_col})计算失败: {e}")
                     df[nolds_sampen_col] = np.nan
-            # --- 5. 【新增】FFT能量比 (FFT Energy Ratio) (频率结构) ---
-            fft_window = params.get('fft_energy_ratio_window', 34) # 斐波那契数
+            # --- 5. FFT能量比 (FFT Energy Ratio) (频率结构) ---
+            fft_window = params.get('fft_energy_ratio_window', 34)
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
             if fft_col not in df.columns:
                 try:
@@ -320,12 +353,11 @@ class FeatureEngineeringService:
                     logger.error(f"FFT能量比(周期{fft_window}, 列: {source_col})计算失败: {e}")
                     df[fft_col] = np.nan
         # --- 6. 波动率不稳定性 (状态切换前兆) ---
-        # 修改代码行: 调整默认窗口为斐波那契数
-        vi_window = params.get('volatility_instability_window', 21) # 21是斐波那契数，保持
+        vi_window = params.get('volatility_instability_window', 21)
         vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
         atr_col = f'ATR_14{suffix}'
         if atr_col in df.columns and vi_col not in df.columns:
-            df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std() # 确保有足够的min_periods
+            df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
         # --- 7. 集成价格成交量熵 (市场信息复杂度) ---
         pve_col_source = f'price_volume_entropy{suffix}'
         pve_col_target = f'PRICE_VOLUME_ENTROPY{suffix}'
@@ -335,6 +367,7 @@ class FeatureEngineeringService:
             
         all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.9 · 几何特征列名修复版】高级模式识别信号生产线
@@ -515,6 +548,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("高级模式识别引擎(V3.9 几何特征列名修复版)分析完成。")
         return all_dfs
+
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V1.0】计算通达信 AAA 指标。
@@ -544,6 +578,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("AAA 指标计算完成。")
         return all_dfs
+
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.2 · 细粒度意图与斐波那契周期升级版】根据多因子共振识别盘整期。
@@ -612,6 +647,7 @@ class FeatureEngineeringService:
         df[f'dynamic_consolidation_duration_{timeframe}'] = df.get(f'dynamic_consolidation_duration_{timeframe}', pd.Series(index=df.index)).fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
         """
         【V1.4 · 后门封堵与命名修复版】形态增强信号编排器
@@ -653,6 +689,7 @@ class FeatureEngineeringService:
         all_dfs['D'] = df_daily
         logger.info("分钟级形态增强信号计算完成并已集成。")
         return all_dfs
+
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.0】均线系统势能分析引擎
@@ -712,6 +749,7 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
         return all_dfs
+
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
         【V3.3 · 幂等性优化版】突破质量分计算专用通道
@@ -766,6 +804,7 @@ class FeatureEngineeringService:
         else:
             logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
         return all_dfs
+
     async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V1.1 · 细粒度NMFNF升级版】计算标准化主力净流量 (Normalized Main Force Net Flow, NMFNF)。
@@ -798,6 +837,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("NMFNF 指标计算完成。")
         return all_dfs
+
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V3.3 · 结构动力学与细粒度博弈升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
@@ -1049,6 +1089,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("OCH 指标计算完成。")
         return all_dfs
+
     async def calculate_structural_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.0 · 结构特征合成版】
@@ -1088,6 +1129,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("结构特征计算完成。")
         return all_dfs
+
     async def calculate_geometric_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.1 · 几何特征计算与列名冲突修复】

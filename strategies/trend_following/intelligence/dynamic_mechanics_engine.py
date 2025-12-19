@@ -161,7 +161,7 @@ class DynamicMechanicsEngine:
         timeframe_key = 'D'
         # 将hurst_col直接指定为BID_LIQUIDITY_HURST_144d_D
         hurst_col = 'BID_LIQUIDITY_HURST_144d_D'
-        fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), 'FRACTAL_DIMENSION_100d_D')
+        fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), 'FRACTAL_DIMENSION_89d_D')
         # required_signals中包含新的hurst_col
         required_signals = [
             'ADX_14_D', hurst_col, fractal_col, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}',
