@@ -49,6 +49,7 @@ class BehavioralIntelligence:
                     现在，所有依赖信号（特别是 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT）
                     都会在被使用之前生成并合并到主数据帧中，确保情报流的完整性。
         - 【修正】确保df在整个调用链中正确更新。
+        - 【新增】在调试模式下，探针检查 breakout_quality_score_D 的原始输入值。
         """
         all_behavioral_states = {}
         # 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
@@ -61,6 +62,23 @@ class BehavioralIntelligence:
         for k, v in micro_intent_signals.items():
             if k not in df.columns:
                 df[k] = v
+
+        # --- 新增探针：检查 breakout_quality_score_D 的原始值 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        probe_ts = None
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            if valid_probe_dates:
+                probe_ts = valid_probe_dates[0]
+                if 'breakout_quality_score_D' in df.columns:
+                    print(f"      [探针] run_behavioral_analysis_command: breakout_quality_score_D (原始输入) @ {probe_ts.strftime('%Y-%m-%d')}: {df['breakout_quality_score_D'].loc[probe_ts]:.4f}") # 修改行
+                else:
+                    print(f"      [探针] run_behavioral_analysis_command: breakout_quality_score_D (原始输入) @ {probe_ts.strftime('%Y-%m-%d')}: 信号不存在于df中。") # 修改行
+        # --- 探针结束 ---
+
         # 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
@@ -483,7 +501,7 @@ class BehavioralIntelligence:
         )
         df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE']
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
-        print(f"    -> [微观行为情报校验] 计算“成交量爆发(SCORE_BEHAVIOR_VOLUME_BURST)” 分数：{states['SCORE_BEHAVIOR_VOLUME_BURST'].mean():.4f}")
+        print(f"    -> [行为情报校验] 计算“成交量爆发(SCORE_BEHAVIOR_VOLUME_BURST)” 分数：{states['SCORE_BEHAVIOR_VOLUME_BURST'].mean():.4f}")
         df['SCORE_BEHAVIOR_VOLUME_BURST'] = states['SCORE_BEHAVIOR_VOLUME_BURST']
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
         df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']
