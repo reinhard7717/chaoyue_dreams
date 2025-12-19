@@ -229,13 +229,11 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
-
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('day_quality_protocol_params'), {})
         if not params.get('enabled', False):
             if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 信号未启用，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         outcome_weights = get_param_value(params.get('outcome_weights'), {"intraday_posture": 0.4, "closing_strength": 0.3, "pct_change": 0.3})
         process_weights = get_param_value(params.get('process_weights'), {"microstructure_efficiency": 0.4, "impulse_quality": 0.3, "vwap_control": 0.3})
         narrative_weights = get_param_value(params.get('narrative_weights'), {"closing_auction_ambush_inverse": 0.4, "deception_lure_long_inverse": 0.3, "deception_lure_short_positive": 0.3})
@@ -244,7 +242,6 @@ class BehavioralIntelligence:
         final_exponent = get_param_value(params.get('final_exponent'), 1.2)
         tf_weights_config = get_param_value(params.get('tf_weights'), {})
         default_tf_weights = get_param_value(tf_weights_config.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-
         # --- 1. 获取所有原始数据 ---
         required_signals = [
             'intraday_posture_score_D', 'microstructure_efficiency_index_D', 'impulse_quality_ratio_D',
@@ -255,7 +252,6 @@ class BehavioralIntelligence:
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少核心信号，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         intraday_posture_raw = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name=method_name)
         closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name=method_name)
         pct_change_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
@@ -267,7 +263,6 @@ class BehavioralIntelligence:
         deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - intraday_posture_raw: {intraday_posture_raw.loc[probe_ts]:.4f}")
@@ -281,7 +276,6 @@ class BehavioralIntelligence:
             print(f"        - deception_lure_short_raw: {deception_lure_short_raw.loc[probe_ts]:.4f}")
             print(f"        - volatility_instability_raw: {volatility_instability_raw.loc[probe_ts]:.4f}")
             print(f"        - market_sentiment_raw: {market_sentiment_raw.loc[probe_ts]:.4f}")
-
         # --- 2. 战役结果评估 (Outcome Assessment) ---
         # 日内姿态分 (已是双极性，映射到 [0, 1])
         intraday_posture_score = (intraday_posture_raw.clip(-1, 1) + 1) / 2
@@ -289,7 +283,6 @@ class BehavioralIntelligence:
         closing_strength_score = normalize_score(closing_strength_raw, df.index, window=get_param_value(tf_weights_config.get('closing_strength'), default_tf_weights).keys(), ascending=True)
         # 日涨跌幅 (归一化到 [0, 1])
         pct_change_score = get_adaptive_mtf_normalized_score(pct_change_raw.clip(lower=0), df.index, tf_weights=get_param_value(tf_weights_config.get('pct_change'), default_tf_weights), ascending=True)
-
         outcome_assessment_score = _robust_geometric_mean(
             {
                 "intraday_posture": intraday_posture_score,
@@ -305,13 +298,11 @@ class BehavioralIntelligence:
             print(f"        - closing_strength_score: {closing_strength_score.loc[probe_ts]:.4f}")
             print(f"        - pct_change_score: {pct_change_score.loc[probe_ts]:.4f}")
             print(f"        - outcome_assessment_score: {outcome_assessment_score.loc[probe_ts]:.4f}")
-
         # --- 3. 战役过程质量评估 (Process Quality) ---
         micro_efficiency_score = get_adaptive_mtf_normalized_score(micro_efficiency_raw, df.index, tf_weights=default_tf_weights, ascending=True)
         impulse_quality_score = get_adaptive_mtf_normalized_score(impulse_quality_raw, df.index, tf_weights=default_tf_weights, ascending=True)
         # VWAP控制强度 (已是双极性，映射到 [0, 1])
         vwap_control_score = (vwap_control_raw.clip(-1, 1) + 1) / 2
-
         process_quality_score = _robust_geometric_mean(
             {
                 "microstructure_efficiency": micro_efficiency_score,
@@ -327,7 +318,6 @@ class BehavioralIntelligence:
             print(f"        - impulse_quality_score: {impulse_quality_score.loc[probe_ts]:.4f}")
             print(f"        - vwap_control_score: {vwap_control_score.loc[probe_ts]:.4f}")
             print(f"        - process_quality_score: {process_quality_score.loc[probe_ts]:.4f}")
-
         # --- 4. 战役叙事诚信度 (Narrative Integrity) ---
         # 尾盘偷袭 (反向，归一化到 [0, 1])
         closing_auction_ambush_inverse = (1 - get_adaptive_mtf_normalized_score(closing_auction_ambush_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('closing_auction_ambush'), default_tf_weights), ascending=True)).clip(0, 1)
@@ -335,7 +325,6 @@ class BehavioralIntelligence:
         deception_lure_long_inverse = (1 - get_adaptive_mtf_normalized_score(deception_lure_long_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('deception_lure_long'), default_tf_weights), ascending=True)).clip(0, 1)
         # 诱空欺骗强度 (正向，归一化到 [0, 1])
         deception_lure_short_positive = get_adaptive_mtf_normalized_score(deception_lure_short_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('deception_lure_short'), default_tf_weights), ascending=True)
-
         narrative_integrity_score = _robust_geometric_mean(
             {
                 "closing_auction_ambush_inverse": closing_auction_ambush_inverse,
@@ -351,7 +340,6 @@ class BehavioralIntelligence:
             print(f"        - deception_lure_long_inverse: {deception_lure_long_inverse.loc[probe_ts]:.4f}")
             print(f"        - deception_lure_short_positive: {deception_lure_short_positive.loc[probe_ts]:.4f}")
             print(f"        - narrative_integrity_score: {narrative_integrity_score.loc[probe_ts]:.4f}")
-
         # --- 5. 顶层融合 (加权几何平均) ---
         day_quality_base_score = _robust_geometric_mean(
             {
@@ -365,7 +353,6 @@ class BehavioralIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 顶层融合基础分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - day_quality_base_score: {day_quality_base_score.loc[probe_ts]:.4f}")
-
         # --- 6. 情境调制 (Contextual Modulation) ---
         dynamic_modulator_factor = pd.Series(1.0, index=df.index)
         if context_modulator_params.get('enabled', False):
@@ -376,30 +363,24 @@ class BehavioralIntelligence:
             base_modulator_factor = context_modulator_params.get('base_modulator_factor', 1.0)
             min_modulator = context_modulator_params.get('min_modulator', 0.8)
             max_modulator = context_modulator_params.get('max_modulator', 1.2)
-
             # 波动率越低，情绪越中性，调制因子越高 (奖励稳定和理性)
             norm_volatility_inverse = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('volatility_instability'), default_tf_weights), ascending=True)).clip(0, 1)
             norm_sentiment_neutrality = (1 - get_adaptive_mtf_normalized_score(market_sentiment_raw.abs(), df.index, tf_weights=get_param_value(tf_weights_config.get('market_sentiment'), default_tf_weights), ascending=True)).clip(0, 1)
-
             dynamic_modulator_factor = base_modulator_factor + \
                                        norm_volatility_inverse * volatility_sensitivity + \
                                        norm_sentiment_neutrality * sentiment_sensitivity
             dynamic_modulator_factor = dynamic_modulator_factor.clip(min_modulator, max_modulator)
-        
         final_score_modulated = (day_quality_base_score * dynamic_modulator_factor).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 情境调制 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - dynamic_modulator_factor: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
             print(f"        - final_score_modulated: {final_score_modulated.loc[probe_ts]:.4f}")
-
         # --- 7. 最终非线性变换并映射到 [-1, 1] ---
         # 将 [0, 1] 的分数通过幂函数调整敏感度，然后映射到 [-1, 1]
         final_day_quality_score = (final_score_modulated.pow(final_exponent) * 2 - 1).clip(-1, 1)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - final_day_quality_score: {final_day_quality_score.loc[probe_ts]:.4f}")
-
         return final_day_quality_score.astype(np.float32)
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -461,24 +442,20 @@ class BehavioralIntelligence:
             'order_book_imbalance_D',
             'volume_structure_skew_D',
             'micro_price_impact_asymmetry_D',
-            # 新增流动性枯竭风险相关的原始数据和多时间维度斜率/加速度
             'sell_sweep_intensity_D', 'panic_sell_volume_contribution_D',
             'ask_side_liquidity_D', 'bid_side_liquidity_D', 'liquidity_slope_D',
             'market_impact_cost_D', 'order_book_clearing_rate_D',
             'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
             'price_volume_entropy_D', 'volatility_expansion_ratio_D',
-            # 新增 CONTEXT_NEW_HIGH_STRENGTH 信号所需的原始数据 (注意：SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL 是信号，不在此处列出)
-            'breakout_quality_score_D', # 已存在
-            'upward_impulse_purity_D', # 已存在
-            'trend_acceleration_score_D', # 已存在
-            'volume_burstiness_index_D', # 已存在
-            'constructive_turnover_ratio_D', # 已存在
-            'buy_sweep_intensity_D', # 已存在
-            'upper_shadow_selling_pressure_D', # 已存在
-            'market_sentiment_score_D' # 已存在
-            # 移除 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'，因为它是在此方法内部计算的
+            'breakout_quality_score_D',
+            'upward_impulse_purity_D',
+            'trend_acceleration_score_D',
+            'volume_burstiness_index_D',
+            'constructive_turnover_ratio_D',
+            'buy_sweep_intensity_D',
+            'upper_shadow_selling_pressure_D',
+            'market_sentiment_score_D'
         ]
-        # 动态添加所有可能用到的MTF斜率和加速度信号
         liquidity_drain_mtf_periods = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params', {}).get('mtf_slope_accel_weights'), {}).keys()
         liquidity_drain_mtf_periods = [int(p) for p in liquidity_drain_mtf_periods]
         indicators_for_mtf_dynamics = [
@@ -487,13 +464,11 @@ class BehavioralIntelligence:
             'main_force_conviction_index', 'retail_fomo_premium_index', 'panic_selling_cascade',
             'chip_fatigue_index', 'loser_pain_index',
             'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-            # 新增流动性枯竭风险相关的多时间维度斜率/加速度指标
             'main_force_net_flow_calibrated', 'sell_sweep_intensity', 'panic_sell_volume_contribution',
-            'active_buying_support', 'buy_quote_exhaustion_rate', 'support_validation_strength',
-            'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
+            'active_buying_support', 'vwap_control_strength', 'buy_quote_exhaustion_rate',
+            'support_validation_strength', 'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
             'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
             'price_volume_entropy', 'volatility_expansion_ratio',
-            # 新增 CONTEXT_NEW_HIGH_STRENGTH 信号所需的原始数据 (注意：SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL 是信号，不在此处列出)
             'breakout_quality_score',
             'upward_impulse_purity',
             'trend_acceleration_score',
@@ -502,23 +477,21 @@ class BehavioralIntelligence:
             'buy_sweep_intensity',
             'upper_shadow_selling_pressure',
             'market_sentiment_score'
-            # 移除 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'
         ]
         for period in liquidity_drain_mtf_periods:
             for indicator in indicators_for_mtf_dynamics:
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
                 required_signals.append(f'ACCEL_{period}_{indicator}_D')
-        # END MODIFIED LINE
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-                             'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
+                             'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
         for indicator in ['close', 'volume']:
             required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume',
-                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
+                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
         if not self._validate_required_signals(df, required_signals, method_name):
@@ -544,7 +517,7 @@ class BehavioralIntelligence:
         robust_slopes = {}
         all_slope_cols_to_extract = []
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
+                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
             for period in mtf_periods:
                 col_name = f'SLOPE_{period}_{indicator}_D'
                 if col_name in df.columns:
@@ -554,7 +527,7 @@ class BehavioralIntelligence:
         else:
             slopes_df_extracted = pd.DataFrame(index=df.index)
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
+                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
             weighted_slope = pd.Series(0.0, index=df.index, dtype=np.float32)
             total_weight = 0.0
             indicator_slopes_cols = []
@@ -612,9 +585,13 @@ class BehavioralIntelligence:
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL @ {probe_ts.strftime('%Y-%m-%d')}: {intraday_bull_control_score.loc[probe_ts]:.4f}")
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW @ {probe_ts.strftime('%Y-%m-%d')}: {final_overextension_score.loc[probe_ts]:.4f}")
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
         df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
@@ -680,9 +657,14 @@ class BehavioralIntelligence:
         selling_exhaustion_score = self._diagnose_selling_exhaustion_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
-        # 替换旧的 SCORE_RISK_LIQUIDITY_DRAIN 计算逻辑
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
+        # MODIFIED LINE: 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
+        day_quality_score = self._calculate_behavioral_day_quality(df)
+        states['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
+        # MODIFIED LINE: 根据日内K线质量分计算战场动量
+        battlefield_momentum = day_quality_score.ewm(span=5, adjust=False).mean()
+        states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM'] = battlefield_momentum.astype(np.float32)
         return states
 
     def _calculate_dynamic_threshold(self, df: pd.DataFrame, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
