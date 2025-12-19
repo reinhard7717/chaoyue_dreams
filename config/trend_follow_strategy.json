@@ -1380,7 +1380,7 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V5.0 · 全息共振深化版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、多时间框架波动率收缩动态、势能稳定性、市场张力、价格样本熵、价量熵、价格分形维数）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、多时间框架换手率萎缩动态、微观订单簿不平衡、微观价格冲击对称性、买卖方流动性、VPIN、买方流动性样本熵）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、多时间框架净流量加速、微观订单簿不平衡、微观价格冲击优势、主力VWAP引导、VWAP买卖方控制、大单平均规模、市场冲击成本）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦、流动性潮汐平静、Hurst平静）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。新增MTF协同性维度，评估多个关键指标在MTF层面的协同性。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。新增市场情境动态调节器，根据波动率和趋势强度动态调整各维度权重。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。",
+            "description": "【V6.0 · 深度情境自适应版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、多时间框架波动率收缩动态、势能稳定性、市场张力、价格样本熵、价量熵、价格分形维数平静、成交量结构偏度、成交量轮廓熵）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、多时间框架换手率萎缩动态、微观订单簿不平衡、微观价格冲击对称性、买卖方流动性、VPIN、买方流动性样本熵、成交量结构偏度、成交量轮廓熵、原始换手率）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、多时间框架净流量加速、微观订单簿不平衡、微观价格冲击优势、主力VWAP引导中性度、VWAP买卖方控制中性度、大单平均规模反向、市场冲击成本反向、主力资金流向中性度）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦、流动性潮汐平静、Hurst平静、市场情绪中性度、情绪钟摆中性度）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。新增MTF协同性维度，评估多个关键指标在MTF层面的协同性。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。新增市场情境动态调节器，根据波动率和趋势强度动态调整各维度权重。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。",
             "storm_eye_calm_params": {
               "energy_compression_weights": {
                 "tension": 0.2,
@@ -1393,7 +1393,9 @@
                 "market_tension": 0.05,
                 "price_sample_entropy_inverted": 0.025,
                 "price_volume_entropy_inverted": 0.025,
-                "price_fractal_dimension_inverted": 0.025
+                "price_fractal_dimension_calm": 0.025,
+                "volume_structure_skew_inverted": 0.025,
+                "volume_profile_entropy_inverted": 0.025
               },
               "volume_exhaustion_weights": {
                 "volume_atrophy": 0.15,
@@ -1408,7 +1410,10 @@
                 "bid_side_liquidity_inverted": 0.05,
                 "ask_side_liquidity_inverted": 0.05,
                 "vpin_score_inverted": 0.025,
-                "bid_liquidity_sample_entropy_inverted": 0.025
+                "bid_liquidity_sample_entropy_inverted": 0.025,
+                "volume_structure_skew_inverted": 0.05,
+                "volume_profile_entropy_inverted": 0.05,
+                "turnover_rate_raw_inverted": 0.05
               },
               "main_force_covert_intent_weights": {
                 "stealth_ops": 0.1,
@@ -1421,21 +1426,22 @@
                 "mf_net_flow_slope_positive": 0.08,
                 "order_book_imbalance_positive": 0.05,
                 "micro_price_impact_asymmetry_positive": 0.05,
-                "mf_vwap_up_guidance_positive": 0.05,
-                "mf_vwap_down_guidance_negative": 0.05,
-                "vwap_buy_control_positive": 0.05,
-                "vwap_sell_control_negative": 0.05,
+                "mf_vwap_guidance_neutrality": 0.05,
+                "vwap_control_neutrality": 0.05,
                 "observed_large_order_size_avg_inverted": 0.025,
-                "market_impact_cost_inverted": 0.025
+                "market_impact_cost_inverted": 0.025,
+                "main_force_flow_directionality_neutrality": 0.05
               },
               "subdued_market_sentiment_weights": {
-                "sentiment_pendulum_negative": 0.2,
-                "market_sentiment_inverted": 0.2,
-                "retail_panic_inverted": 0.15,
-                "retail_fomo_inverted": 0.15,
-                "loser_pain_positive": 0.15,
+                "sentiment_pendulum_negative": 0.15,
+                "market_sentiment_inverted": 0.15,
+                "retail_panic_inverted": 0.1,
+                "retail_fomo_inverted": 0.1,
+                "loser_pain_positive": 0.1,
                 "liquidity_tide_calm": 0.075,
-                "hurst_calm": 0.075
+                "hurst_calm": 0.075,
+                "sentiment_neutrality": 0.15,
+                "sentiment_pendulum_neutrality": 0.15
               },
               "breakout_readiness_weights": {
                 "struct_breakout_readiness": 0.3,
@@ -1481,7 +1487,7 @@
                 "min_modulator": 0.8,
                 "max_modulator": 1.2
               },
-              "mtf_cohesion_base_signals": ["close_D", "volume_D", "main_force_net_flow_calibrated_D", "VOLATILITY_INSTABILITY_INDEX_21d_D", "turnover_rate_f_D", "BBW_21_2.0_D"]
+              "mtf_cohesion_base_signals": ["close_D", "volume_D", "main_force_net_flow_calibrated_D", "VOLATILITY_INSTABILITY_INDEX_21d_D", "turnover_rate_f_D", "BBW_21_2.0_D", "main_force_flow_directionality_D", "volume_structure_skew_D"]
             }
           },
           {
