@@ -232,10 +232,11 @@ class GeometricPatternService:
                          确保在保存到 MySQL 数据库前，所有数值都是有效的浮点数或 None。
         - V2.56 核心修复: 增加事务管理和更详细的保存日志，以诊断数据未存入数据库的问题。
         - V2.57 核心修复: 增加保存后立即验证数据是否可读的逻辑。
+        - V2.58 核心修复: 增加对 `breakout_quality_score` 计算过程的详细调试信息。
         """
         import math
         from django.db import transaction
-        print(f"[{self.stock_code}] [平台计算] 开始执行 _calculate_and_save_platforms 方法。当前使用的平台模型: {self.platform_model.__name__}") # 修改代码行：增加模型名称输出
+        print(f"[{self.stock_code}] [平台计算] 开始执行 _calculate_and_save_platforms 方法。当前使用的平台模型: {self.platform_model.__name__}")
         if enriched_df is None or enriched_df.empty:
             print(f"[{self.stock_code}] [平台计算] enriched_df 为空，跳过平台计算。")
             return
@@ -369,26 +370,51 @@ class GeometricPatternService:
             internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
             if np.isnan(internal_accumulation_intensity) or np.isinf(internal_accumulation_intensity):
                 internal_accumulation_intensity = None
+
             # breakout_quality_score 计算及 NaN/Inf 处理
             breakout_quality_score = None
+            print(f"[{self.stock_code}] [平台计算] 尝试计算 {start_date.date()} - {end_date.date()} 的突破质量分。") # 新增调试信息
             next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
-            if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
-                breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
-                if breakout_day_close > platform_high:
-                    ofi_score_val = 0.0
-                    momentum_score_val = 0.0
-                    if next_trade_date in tick_map:
-                        ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
-                        breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
-                        if breakout_vol > 0:
-                            ofi_score_val = np.clip(ofi / breakout_vol, -1, 1)
-                    if next_trade_date in realtime_map:
-                        momentum_score_val = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
-                    if np.isnan(ofi_score_val) or np.isinf(ofi_score_val): ofi_score_val = 0.0
-                    if np.isnan(momentum_score_val) or np.isinf(momentum_score_val): momentum_score_val = 0.0
-                    temp_breakout_quality_score = (ofi_score_val * 0.6) + (momentum_score_val * 0.4)
-                    if not np.isnan(temp_breakout_quality_score) and not np.isinf(temp_breakout_quality_score):
-                        breakout_quality_score = temp_breakout_quality_score
+            if next_trade_date:
+                print(f"[{self.stock_code}] [平台计算] 下一个交易日: {next_trade_date}") # 新增调试信息
+                next_trade_date_pd = pd.to_datetime(next_trade_date)
+                if next_trade_date_pd in df_copy.index:
+                    breakout_day_close = df_copy.loc[next_trade_date_pd, 'close_qfq']
+                    print(f"[{self.stock_code}] [平台计算] 突破日收盘价: {breakout_day_close}, 平台高点: {platform_high}") # 新增调试信息
+                    if breakout_day_close > platform_high:
+                        print(f"[{self.stock_code}] [平台计算] 满足突破条件 (收盘价 > 平台高点)。") # 新增调试信息
+                        ofi_score_val = 0.0
+                        momentum_score_val = 0.0
+                        if next_trade_date in tick_map:
+                            ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
+                            breakout_vol = df_copy.loc[next_trade_date_pd, 'vol'] * 100
+                            if breakout_vol > 0:
+                                ofi_score_val = np.clip(ofi / breakout_vol, -1, 1)
+                            print(f"[{self.stock_code}] [平台计算] OFI得分: {ofi_score_val} (来自Tick数据)") # 新增调试信息
+                        else:
+                            print(f"[{self.stock_code}] [平台计算] 突破日 {next_trade_date} 无Tick数据。") # 新增调试信息
+
+                        if next_trade_date in realtime_map:
+                            momentum_score_val = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
+                            print(f"[{self.stock_code}] [平台计算] 动能得分: {momentum_score_val} (来自Realtime数据)") # 新增调试信息
+                        else:
+                            print(f"[{self.stock_code}] [平台计算] 突破日 {next_trade_date} 无Realtime数据。") # 新增调试信息
+
+                        if np.isnan(ofi_score_val) or np.isinf(ofi_score_val): ofi_score_val = 0.0
+                        if np.isnan(momentum_score_val) or np.isinf(momentum_score_val): momentum_score_val = 0.0
+                        temp_breakout_quality_score = (ofi_score_val * 0.6) + (momentum_score_val * 0.4)
+                        if not np.isnan(temp_breakout_quality_score) and not np.isinf(temp_breakout_quality_score):
+                            breakout_quality_score = temp_breakout_quality_score
+                            print(f"[{self.stock_code}] [平台计算] 突破质量分计算完成: {breakout_quality_score}") # 新增调试信息
+                        else:
+                            print(f"[{self.stock_code}] [平台计算] 突破质量分计算结果为 NaN/Inf，设为 None。") # 新增调试信息
+                    else:
+                        print(f"[{self.stock_code}] [平台计算] 未满足突破条件 (收盘价 {breakout_day_close} 未高于平台高点 {platform_high})。") # 新增调试信息
+                else:
+                    print(f"[{self.stock_code}] [平台计算] 下一个交易日 {next_trade_date} 不在 df_copy.index 中。") # 新增调试信息
+            else:
+                print(f"[{self.stock_code}] [平台计算] 未找到 {end_date.date()} 之后的下一个交易日。") # 新增调试信息
+
             # breakout_readiness 已经有处理，但再次确保
             breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
             if breakout_readiness is not None and (math.isnan(breakout_readiness) or math.isinf(breakout_readiness)):
@@ -442,14 +468,15 @@ class GeometricPatternService:
                         # 新增代码块：保存后立即验证
                         try:
                             retrieved_obj = self.platform_model.objects.get(stock=obj.stock, start_date=obj.start_date)
-                            print(f"[{self.stock_code}] [平台保存] 验证成功：数据 {retrieved_obj.start_date} - {retrieved_obj.end_date} 已在数据库中可见。") # 新增调试信息
+                            print(f"[{self.stock_code}] [平台保存] 验证成功：数据 {retrieved_obj.start_date} - {retrieved_obj.end_date} 已在数据库中可见。")
                         except self.platform_model.DoesNotExist:
-                            print(f"[{self.stock_code}] [平台保存] 验证失败：数据 {obj.start_date} - {obj.end_date} 刚刚保存，但在数据库中不可见！") # 新增调试信息
+                            print(f"[{self.stock_code}] [平台保存] 验证失败：数据 {obj.start_date} - {obj.end_date} 刚刚保存，但在数据库中不可见！")
                         except Exception as verify_e:
-                            print(f"[{self.stock_code}] [平台保存] 验证数据时发生异常: {verify_e}") # 新增调试信息
+                            print(f"[{self.stock_code}] [平台保存] 验证数据时发生异常: {verify_e}")
 
                     except Exception as e:
                         print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}")
+
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.DataFrame:
         """
