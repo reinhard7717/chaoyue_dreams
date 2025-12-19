@@ -21,7 +21,7 @@ class ChipIntelligence:
         # 注入双极归一化所需的敏感度参数
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         self.bipolar_sensitivity = get_param_value(process_params.get('bipolar_sensitivity'), 1.0)
-        # 修改代码行：注入 debug_params 并预处理 probe_dates
+        # 注入 debug_params 并预处理 probe_dates
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.should_probe = self.debug_params.get('should_probe', False)
         # 将 probe_dates 转换为 datetime.date 对象的集合，以便高效查找
@@ -616,7 +616,7 @@ class ChipIntelligence:
         impurity_resilience_mod_enabled = get_param_value(holder_sentiment_params.get('impurity_resilience_mod_enabled'), True)
         chip_health_slope_impurity_damp_factor = get_param_value(holder_sentiment_params.get('chip_health_slope_impurity_damp_factor'), 0.2)
         structural_tension_impurity_amp_factor = get_param_value(holder_sentiment_params.get('structural_tension_impurity_amp_factor'), 0.2)
-        # 修改代码行：加载 global_context_modulator_enabled 参数
+        # 加载 global_context_modulator_enabled 参数
         global_context_modulator_enabled = get_param_value(holder_sentiment_params.get('global_context_modulator_enabled'), True)
         global_context_sensitivity_health = get_param_value(holder_sentiment_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_conviction = get_param_value(holder_sentiment_params.get('global_context_sensitivity_conviction'), 0.3)
@@ -1021,11 +1021,11 @@ class ChipIntelligence:
             final_nozzle_weight = (final_fusion_weights_base.get('nozzle', 0.34) + nozzle_mod).clip(0.1, 0.6)
             # 重新归一化动态权重，使其和为1
             sum_dynamic_fusion_weights = final_engine_weight + final_fuel_weight + final_nozzle_weight
-            # 修改代码行：修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
+            # 修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
             final_engine_weight = final_engine_weight / sum_dynamic_fusion_weights
-            # 修改代码行：修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
+            # 修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
             final_fuel_weight = final_fuel_weight / sum_dynamic_fusion_weights
-            # 修改代码行：修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
+            # 修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
             final_nozzle_weight = final_nozzle_weight / sum_dynamic_fusion_weights
         # 最终融合得分
         final_score = (
@@ -1163,7 +1163,7 @@ class ChipIntelligence:
         高分代表市场不仅想涨，而且其内部筹码结构健康且具备高效转化这种意愿的能力。
         """
         df_index = df.index
-        # 修改代码行：根据 self.debug_params 设置 probe_date
+        # 根据 self.debug_params 设置 probe_date
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
         base_amplification_power = get_param_value(coherent_drive_params.get('amplification_power'), 1.2)
@@ -1244,7 +1244,7 @@ class ChipIntelligence:
         dynamic_structural_power_sensitivity_amp = pd.Series(default_structural_power_sensitivity_amp, index=df.index)
         dynamic_structural_power_sensitivity_damp = pd.Series(default_structural_power_sensitivity_damp, index=df.index)
         dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
-        # 修改代码行：添加信号依赖校验
+        # 添加信号依赖校验
         required_signals = [
             'chip_health_score_D', # 用于 current_chip_health_score_raw
         ]

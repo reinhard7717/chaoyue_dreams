@@ -45,7 +45,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的常规日级资金流数据，截止日期 {trade_date}，数量 {limit}...")
-        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
+        # 直接调用导入的辅助函数，而不是通过 self.
         model_class = get_fund_flow_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定常规资金流向数据模型。")
@@ -173,7 +173,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的同花顺资金流数据，截止日期 {trade_date}，数量 {limit}...")
-        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
+        # 直接调用导入的辅助函数，而不是通过 self.
         model_class = get_fund_flow_ths_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定同花顺资金流向数据模型。")
@@ -308,7 +308,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的东方财富资金流数据，截止日期 {trade_date}，数量 {limit}...")
-        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
+        # 直接调用导入的辅助函数，而不是通过 self.
         model_class = get_fund_flow_dc_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定东方财富资金流向数据模型。")
@@ -439,7 +439,7 @@ class FundFlowDao(BaseDAO):
         从 AdvancedFundFlowMetrics 模型获取预计算的高级资金指标。
         """
         # 动态获取对应市场的模型
-        # 修改代码行：直接调用导入的辅助函数，而不是通过 self.
+        # 直接调用导入的辅助函数，而不是通过 self.
         model = get_advanced_fund_flow_metrics_model_by_code(stock_code)
         if not model:
             return pd.DataFrame()

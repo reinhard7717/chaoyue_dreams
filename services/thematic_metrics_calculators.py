@@ -46,7 +46,7 @@ class ThematicMetricsCalculators:
                 max_entropy = np.log2(len(vp_prob))
                 results['volume_profile_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
                 if enable_probe and is_target_date:
-                    # 修改代码行：移除对废弃指标的引用，改为即时计算
+                    # 移除对废弃指标的引用，改为即时计算
                     vpoc_vol_pct = vp_hf.loc[today_vpoc] / total_volume if total_volume > 0 else 0
                     print(f"--- [探针 ASM.{trade_date_str}] market_profile (高频) ---")
                     print(f"    - 原料: {len(tick_df)} 笔Tick数据")

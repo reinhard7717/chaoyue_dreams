@@ -1248,7 +1248,7 @@ class IndicatorCalculator:
         - 参数说明: `period` 在此函数中被视为滚动窗口大小。`emb_dim` (m) 固定为 2。
         - `tolerance_ratio`: 容忍度 `r` 的比例因子，`r = tolerance_ratio * std(window_data)`。
         """
-        # 修改代码行：检查 nolds 库和 sampen 函数是否可用
+        # 检查 nolds 库和 sampen 函数是否可用
         if nolds is None or not hasattr(nolds, 'sampen'):
             logger.error("样本熵计算失败：'nolds' 库未加载或不包含 'sampen' 函数。请确保已安装 'nolds'。")
             return pd.Series(np.nan, index=df.index)
@@ -1278,7 +1278,7 @@ class IndicatorCalculator:
                 if r_tolerance == 0:
                     results.iloc[i] = 0.0
                     continue
-                # 修改代码行：调用 nolds.sampen 函数，并传递正确的参数
+                # 调用 nolds.sampen 函数，并传递正确的参数
                 samp_en = nolds.sampen(window_data, emb_dim=emb_dim, tolerance=r_tolerance)
                 results.iloc[i] = samp_en
             except Exception as e:

@@ -13,7 +13,7 @@ def hurst_exponent(series: np.ndarray) -> float:
     if np.any(np.isnan(series)) or np.any(np.isinf(series)):
         return np.nan
     # 4. 【关键】检查数据是否为常数（导致标准差为0）
-    # 修改代码行：更直接地检查是否为常数序列
+    # 更直接地检查是否为常数序列
     if np.all(series == series[0]): # 如果所有值都相同，则视为常数序列
         return 0.5 # 常数序列或白噪声的H值理论上是0.5
     try:

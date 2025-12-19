@@ -288,13 +288,13 @@ class FeatureEngineeringService:
                     logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
                     df[se_col] = np.nan
             # --- 4. 【修复】NOLDS样本熵 (替代近似熵) (时间序列复杂性) ---
-            # 修改代码行：使用新的配置参数名称和列名
+            # 使用新的配置参数名称和列名
             nolds_sampen_window = params.get('approximate_entropy_window', 21) # 沿用原近似熵的窗口配置
             nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2) # 沿用原近似熵的容忍度配置
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
             if nolds_sampen_col not in df.columns:
                 try:
-                    # 修改代码行：调用 self.calculator 中重命名后的方法
+                    # 调用 self.calculator 中重命名后的方法
                     df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio)
                 except Exception as e:
                     logger.error(f"NOLDS样本熵(周期{nolds_sampen_window}, 列: {source_col})计算失败: {e}")
@@ -392,7 +392,7 @@ class FeatureEngineeringService:
             'platform_conviction_score_D', # 来自 PlatformFeature
             'trend_conviction_score_D', # 来自 MultiTimeframeTrendline
             'quality_score_D', # 来自 PlatformFeature
-            'trendline_validity_score_D' # 修改代码行：将 validity_score_D 替换为 trendline_validity_score_D
+            'trendline_validity_score_D' # 将 validity_score_D 替换为 trendline_validity_score_D
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -726,7 +726,7 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
         df_daily = all_dfs[timeframe]
-        # 修改代码行：新增幂等性检查
+        # 新增幂等性检查
         if 'breakout_quality_score_D' in df_daily.columns:
             logger.debug(f"突破质量分 (breakout_quality_score_D) 已存在于周期 '{timeframe}' 的DataFrame中，跳过重复计算。")
             return all_dfs

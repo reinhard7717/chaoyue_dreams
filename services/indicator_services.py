@@ -59,7 +59,7 @@ class IndicatorService:
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
         # 专业服务层
         self.calculator = IndicatorCalculator()
-        self.feature_service = FeatureEngineeringService(self.calculator) # 修改代码行：注入 self.calculator
+        self.feature_service = FeatureEngineeringService(self.calculator) # 注入 self.calculator
         self.context_service = ContextualAnalysisService(cache_manager_instance) # 实例化情报分析师
         try:
             global ta
@@ -304,7 +304,7 @@ class IndicatorService:
                 # 则使用 '_D' 后缀版本作为目标 base_name。
                 # 否则，使用原始的 base_name_raw。
                 target_base_name = base_name_raw
-                # 修改代码行：确保只有当原始基名不带_D后缀，且其_D后缀版本存在时才添加
+                # 确保只有当原始基名不带_D后缀，且其_D后缀版本存在时才添加
                 if not base_name_raw.endswith('_D') and f"{base_name_raw}_D" in current_columns:
                     target_base_name = f"{base_name_raw}_D"
                 # 根据捕获组构建新的、标准化的列名
@@ -581,7 +581,7 @@ class IndicatorService:
             df = await self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('advanced_fund_flow', df)
         tasks.append(_fetch_advanced_fund_flow_tagged())
-        # 修改代码行：get_price_limit_data 应该通过 self.stock_trade_dao 实例调用
+        # get_price_limit_data 应该通过 self.stock_trade_dao 实例调用
         async def _fetch_price_limit_tagged():
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars)
             return ('price_limit', df)
