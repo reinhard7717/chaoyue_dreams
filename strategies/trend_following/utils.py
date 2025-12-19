@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from decimal import Decimal
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 import gc
 
 # 这个文件包含所有层级都可能用到的通用辅助函数
