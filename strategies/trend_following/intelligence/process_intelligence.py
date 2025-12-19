@@ -98,7 +98,7 @@ class ProcessIntelligence:
 
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
         """
-        【V1.0 · 新增】计算多时间框架信号的协同性分数。
+        【V1.1 · 修复Rolling.std()的axis参数错误】计算多时间框架信号的协同性分数。
         此方法将对多个基础信号计算其MTF斜率和加速度融合分数，然后评估这些融合分数之间的离散度，
         离散度越低（即越协同），分数越高。
         参数:
@@ -120,14 +120,17 @@ class ProcessIntelligence:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         # 将所有融合分数转换为DataFrame
         fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
-        # 计算滚动标准差，标准差越小，协同性越高（越平静）
-        # 使用较小的min_periods以确保在数据开头也能计算
-        min_periods_std = max(1, int(self.meta_window * 0.5)) # 例如，使用meta_window的一半作为最小周期
-        rolling_std = fused_scores_df.rolling(window=self.meta_window, min_periods=min_periods_std).std(axis=1)
+        # 修改代码行：直接计算每个时间点上（axis=1）不同信号之间的标准差
+        # 然后对这个标准差进行滚动平均，以平滑协同性度量
+        min_periods_std = max(1, int(self.meta_window * 0.5))
+        # 计算每个时间点上，不同信号之间的标准差
+        instant_std = fused_scores_df.std(axis=1)
+        # 对这个标准差进行滚动平均，以获得更平滑的协同性度量
+        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean()
         # 将标准差转换为协同性分数：标准差越小，分数越高
-        # 确保 rolling_std 不为0，避免除以零。填充NaN为均值，避免极端值
-        rolling_std_safe = rolling_std.replace(0, np.nan).fillna(rolling_std.mean())
-        cohesion_score = self._normalize_series(rolling_std_safe, df_index, ascending=False) # 标准差越小，分数越高
+        # 确保 smoothed_std 不为0，避免除以零。填充NaN为均值，避免极端值
+        smoothed_std_safe = smoothed_std.replace(0, np.nan).fillna(smoothed_std.mean())
+        cohesion_score = self._normalize_series(smoothed_std_safe, df_index, ascending=False) # 标准差越小，分数越高
         return cohesion_score.clip(0, 1)
 
     def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False, ascending: bool = True) -> pd.Series: # 新增 ascending 参数
