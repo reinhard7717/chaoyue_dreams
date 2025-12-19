@@ -2866,12 +2866,14 @@ class BehavioralIntelligence:
         final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.5)
         min_price_drop_pct_threshold = get_param_value(liquidity_drain_params.get('min_price_drop_pct_threshold'), 0.005)
         # --- 1. 获取所有原始数据和已计算的原子信号 ---
+        # MODIFIED LINE: 移除 downward_resistance_D，因为它不是原始数据
         required_df_signals = [
             'pct_change_D', 'panic_selling_cascade_D', 'active_selling_pressure_D',
             'retail_panic_surrender_index_D', 'active_buying_support_D',
             'vwap_control_strength_D', 'sell_quote_exhaustion_rate_D',
             'order_book_imbalance_D', 'volume_structure_skew_D', 'micro_price_impact_asymmetry_D'
         ]
+        # MODIFIED LINE: 确保 SCORE_BEHAVIOR_DOWNWARD_RESISTANCE 在 states 中
         required_state_signals = [
             'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'
         ]
@@ -2887,6 +2889,7 @@ class BehavioralIntelligence:
         panic_cascade_raw = df['panic_selling_cascade_D']
         active_selling_raw = df['active_selling_pressure_D']
         retail_panic_raw = df['retail_panic_surrender_index_D']
+        # MODIFIED LINE: 从 states 中获取 SCORE_BEHAVIOR_DOWNWARD_RESISTANCE
         downward_resistance_score = states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
         active_buying_raw = df['active_buying_support_D']
         vwap_control_raw = df['vwap_control_strength_D']
