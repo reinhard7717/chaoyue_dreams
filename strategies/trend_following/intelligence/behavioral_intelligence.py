@@ -733,9 +733,9 @@ class BehavioralIntelligence:
         strategic_position_score = position_raw.clip(-1, 1)
 
         # 维度二：过程品质分 (作为调节器)
-        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_purity_score"))
-        resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_resistance_score"))
-        conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_conviction_score"))
+        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights) # 修改行
+        resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights) # 修改行
+        conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights) # 修改行
         process_quality_score = ((purity_score + resistance_score) / 2 * (conviction_score.clip(0,1) + 1) / 2).clip(0, 1)
 
         if is_debug_enabled and probe_ts and probe_ts in df.index:
@@ -749,7 +749,7 @@ class BehavioralIntelligence:
         narrative_integrity_score = pd.Series(1.0, index=df.index) # 默认值
         if 'intraday_posture_score_D' in df.columns and 'closing_auction_ambush_D' in df.columns:
             posture_score = posture_raw.clip(-1, 1)
-            ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_ambush_score"))
+            ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights) # 修改行
             narrative_deception_score = (ambush_score * (1 - posture_score.clip(0,1))).clip(0, 1)
             narrative_integrity_score = (1 - narrative_deception_score)
         
@@ -1026,7 +1026,7 @@ class BehavioralIntelligence:
         bias_raw = self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name=method_name)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
         # 修正：如果 breakout_quality_raw 为 nan，则视为质量缺失，赋予0分
-        breakout_quality_raw = breakout_quality_raw.fillna(0.0) # 修改行
+        breakout_quality_raw = breakout_quality_raw.fillna(0.0)
         upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         trend_acceleration_raw = self._get_safe_series(df, 'trend_acceleration_score_D', 0.0, method_name=method_name)
         volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
@@ -1038,11 +1038,11 @@ class BehavioralIntelligence:
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         # --- 3. 计算各维度得分 ---
         # 维度一：价格动量与品质 (Price Momentum & Quality)
-        price_breakthrough_score = get_adaptive_mtf_normalized_score(pct_change_raw.clip(lower=0), df.index, ascending=True, tf_weights=pct_change_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_pct_change_score"))
-        ma_slope_score = get_adaptive_mtf_normalized_score(ma_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=ma_slope_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_ma_slope_score"))
-        breakout_quality_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=breakout_quality_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_breakout_quality_score"))
-        upward_impulse_purity_score = get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df.index, ascending=True, tf_weights=upward_impulse_purity_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_upward_impulse_purity_score"))
-        trend_acceleration_score = get_adaptive_mtf_normalized_score(trend_acceleration_raw, df.index, ascending=True, tf_weights=trend_acceleration_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_trend_acceleration_score"))
+        price_breakthrough_score = get_adaptive_mtf_normalized_score(pct_change_raw.clip(lower=0), df.index, ascending=True, tf_weights=pct_change_tf_weights) # 修改行
+        ma_slope_score = get_adaptive_mtf_normalized_score(ma_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=ma_slope_tf_weights) # 修改行
+        breakout_quality_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=breakout_quality_tf_weights) # 修改行
+        upward_impulse_purity_score = get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df.index, ascending=True, tf_weights=upward_impulse_purity_tf_weights) # 修改行
+        trend_acceleration_score = get_adaptive_mtf_normalized_score(trend_acceleration_raw, df.index, ascending=True, tf_weights=trend_acceleration_tf_weights) # 修改行
         price_momentum_quality_score = (
             (price_breakthrough_score + 1e-9).pow(price_momentum_quality_weights.get('pct_change', 0.25)) *
             (ma_slope_score + 1e-9).pow(price_momentum_quality_weights.get('ma_slope', 0.25)) *
@@ -1059,9 +1059,9 @@ class BehavioralIntelligence:
             print(f"        - 原始 trend_acceleration_score_D: {trend_acceleration_raw.loc[probe_ts]:.4f} -> 归一化: {trend_acceleration_score.loc[probe_ts]:.4f}")
             print(f"        - 维度一 (价格动量与品质) 分数: {price_momentum_quality_score.loc[probe_ts]:.4f}")
         # 维度二：量能与流动性确认 (Volume & Liquidity Confirmation)
-        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df.index, ascending=True, tf_weights=volume_burstiness_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_volume_burstiness_score"))
-        constructive_turnover_score = get_adaptive_mtf_normalized_score(constructive_turnover_raw, df.index, ascending=True, tf_weights=constructive_turnover_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_constructive_turnover_score"))
-        buy_sweep_intensity_score = get_adaptive_mtf_normalized_score(buy_sweep_intensity_raw, df.index, ascending=True, tf_weights=buy_sweep_intensity_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_buy_sweep_intensity_score"))
+        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df.index, ascending=True, tf_weights=volume_burstiness_tf_weights) # 修改行
+        constructive_turnover_score = get_adaptive_mtf_normalized_score(constructive_turnover_raw, df.index, ascending=True, tf_weights=constructive_turnover_tf_weights) # 修改行
+        buy_sweep_intensity_score = get_adaptive_mtf_normalized_score(buy_sweep_intensity_raw, df.index, ascending=True, tf_weights=buy_sweep_intensity_tf_weights) # 修改行
         volume_liquidity_confirmation_score = (
             (volume_burstiness_score + 1e-9).pow(volume_liquidity_confirmation_weights.get('volume_burstiness', 0.4)) *
             (constructive_turnover_score + 1e-9).pow(volume_liquidity_confirmation_weights.get('constructive_turnover', 0.3)) *
@@ -1074,11 +1074,11 @@ class BehavioralIntelligence:
             print(f"        - 维度二 (量能与流动性确认) 分数: {volume_liquidity_confirmation_score.loc[probe_ts]:.4f}")
         # 维度三：阻力与过热抑制 (Resistance & Overextension Suppression)
         # BIAS健康度：1 - 归一化后的BIAS绝对值 (BIAS越小越健康，分数越高)
-        bias_health_score = (1 - get_adaptive_mtf_normalized_score(bias_raw.abs(), df.index, ascending=True, tf_weights=bias_health_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_bias_health_score"))).clip(0, 1)
+        bias_health_score = (1 - get_adaptive_mtf_normalized_score(bias_raw.abs(), df.index, ascending=True, tf_weights=bias_health_tf_weights)).clip(0, 1) # 修改行
         # 上影线抛压反向：1 - 归一化后的上影线抛压 (抛压越小越好，分数越高)
-        upper_shadow_selling_pressure_inverse_score = (1 - get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df.index, ascending=True, tf_weights=upper_shadow_selling_pressure_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_upper_shadow_selling_pressure_inverse_score"))).clip(0, 1)
+        upper_shadow_selling_pressure_inverse_score = (1 - get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df.index, ascending=True, tf_weights=upper_shadow_selling_pressure_tf_weights)).clip(0, 1) # 修改行
         # 波动率不稳定性反向：1 - 归一化后的波动率不稳定性 (波动率越稳定越好，分数越高)
-        volatility_instability_inverse_score = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=volatility_instability_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_volatility_instability_inverse_score"))).clip(0, 1)
+        volatility_instability_inverse_score = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=volatility_instability_tf_weights)).clip(0, 1) # 修改行
         resistance_overextension_score = (
             (bias_health_score + 1e-9).pow(resistance_overextension_weights.get('bias_health', 0.4)) *
             (upper_shadow_selling_pressure_inverse_score + 1e-9).pow(resistance_overextension_weights.get('upper_shadow_selling_pressure_inverse', 0.3)) *
@@ -1090,8 +1090,8 @@ class BehavioralIntelligence:
             print(f"        - 原始 VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f} -> 归一化 (反向): {volatility_instability_inverse_score.loc[probe_ts]:.4f}")
             print(f"        - 维度三 (阻力与过热抑制) 分数: {resistance_overextension_score.loc[probe_ts]:.4f}")
         # 维度四：日内控制与情绪共振 (Intraday Control & Sentiment Resonance)
-        intraday_bull_control_score = get_adaptive_mtf_normalized_score(intraday_bull_control_raw, df.index, ascending=True, tf_weights=intraday_bull_control_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_intraday_bull_control_score"))
-        market_sentiment_score = get_adaptive_mtf_normalized_score(market_sentiment_raw, df.index, ascending=True, tf_weights=market_sentiment_tf_weights, debug_info=(is_debug_enabled, probe_ts, f"{method_name}_market_sentiment_score"))
+        intraday_bull_control_score = get_adaptive_mtf_normalized_score(intraday_bull_control_raw, df.index, ascending=True, tf_weights=intraday_bull_control_tf_weights) # 修改行
+        market_sentiment_score = get_adaptive_mtf_normalized_score(market_sentiment_raw, df.index, ascending=True, tf_weights=market_sentiment_tf_weights) # 修改行
         intraday_control_sentiment_score = (
             (intraday_bull_control_score + 1e-9).pow(intraday_control_sentiment_weights.get('intraday_bull_control', 0.5)) *
             (market_sentiment_score + 1e-9).pow(intraday_control_sentiment_weights.get('market_sentiment', 0.5))
