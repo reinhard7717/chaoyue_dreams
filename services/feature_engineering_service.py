@@ -358,12 +358,6 @@ class FeatureEngineeringService:
         atr_col = f'ATR_14{suffix}'
         if atr_col in df.columns and vi_col not in df.columns:
             df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
-        # --- 7. 集成价格成交量熵 (市场信息复杂度) ---
-        pve_col_source = f'price_volume_entropy{suffix}'
-        pve_col_target = f'PRICE_VOLUME_ENTROPY{suffix}'
-        if pve_col_source in df.columns and pve_col_target not in df.columns:
-            df[pve_col_target] = df[pve_col_source]
-            logger.info("已成功集成预计算的'价格成交量熵'指标。")
             
         all_dfs[timeframe] = df
         return all_dfs

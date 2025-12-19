@@ -743,13 +743,13 @@ class FusionIntelligence:
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0), 0.2),
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0), 0.2),
             (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0), 0.2),
-            (1 - self._get_atomic_score(df, 'PRICE_VOLUME_ENTROPY_D', 0.0), 0.15)
+            (1 - self._get_atomic_score(df, 'price_volume_entropy_D', 0.0), 0.15)
         ]
         bearish_pve_components_with_weights = [
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0), 0.3),
             (self._get_atomic_score(df, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.0), 0.3),
             (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(upper=0).abs(), 0.2),
-            (self._get_atomic_score(df, 'PRICE_VOLUME_ENTROPY_D', 0.0), 0.2)
+            (self._get_atomic_score(df, 'price_volume_entropy_D', 0.0), 0.2)
         ]
         bullish_pt_components_with_weights = [
             (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0), 0.3),

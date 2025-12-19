@@ -389,7 +389,7 @@ class FoundationIntelligence:
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', 'wash_trade_intensity_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'main_force_conviction_index_D',
             # V5.0 新增原始数据 (情绪核心)
-            'turnover_rate_f_D', 'volume_burstiness_index_D', 'PRICE_VOLUME_ENTROPY_D',
+            'turnover_rate_f_D', 'volume_burstiness_index_D', 'price_volume_entropy_D',
             'SLOPE_5_RSI_13_D', 'ACCEL_5_RSI_13_D',
             # V5.0 新增原始数据 (诡道精算器)
             'closing_acceptance_type_D', 'volume_structure_skew_D', 'upward_impulse_purity_D', 'thrust_efficiency_score_D',
@@ -411,7 +411,7 @@ class FoundationIntelligence:
         # V5.0 新增原始数据
         turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
-        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         rsi_slope_raw = self._get_safe_series(df, 'SLOPE_5_RSI_13_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         rsi_accel_raw = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         closing_acceptance_type_raw = self._get_safe_series(df, 'closing_acceptance_type_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
@@ -561,7 +561,7 @@ class FoundationIntelligence:
         required_signals = [
             'CMF_21_D', 'SLOPE_5_amount_D', 'SLOPE_5_turnover_rate_f_D', 'wash_trade_intensity_D',
             'main_force_flow_directionality_D', 'volume_burstiness_index_D', 'SLOPE_5_volume_D',
-            'turnover_rate_f_D', 'PRICE_VOLUME_ENTROPY_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'turnover_rate_f_D', 'price_volume_entropy_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'flow_credibility_index_D', 'market_sentiment_score_D', 'main_force_conviction_index_D',
             # V5.0 新增原始数据
             'order_book_imbalance_D', 'main_force_vwap_guidance_D',
@@ -581,7 +581,7 @@ class FoundationIntelligence:
         volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         volume_slope_raw = self._get_safe_series(df, 'SLOPE_5_volume_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         turnover_rate_level_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
-        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
@@ -1159,7 +1159,7 @@ class FoundationIntelligence:
             'flow_efficiency_index_D', 'order_book_clearing_rate_D', 'liquidity_slope_D',
             'liquidity_authenticity_score_D', 'bid_side_liquidity_D', 'ask_side_liquidity_D', 'turnover_rate_f_D',
             'cost_structure_skewness_D', 'market_impact_cost_D', 'vwap_mean_reversion_corr_D',
-            'volume_structure_skew_D', 'order_book_imbalance_D', 'PRICE_VOLUME_ENTROPY_D',
+            'volume_structure_skew_D', 'order_book_imbalance_D', 'price_volume_entropy_D',
             'deception_index_D', 'wash_trade_intensity_D'
         ]
         # 构建所需信号列表
@@ -1196,7 +1196,7 @@ class FoundationIntelligence:
         vwap_mean_reversion_corr_raw = self._get_safe_series(df, 'vwap_mean_reversion_corr_D', 0.0, method_name="_diagnose_axiom_market_friction")
         volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_market_friction")
         order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_market_friction")
-        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', 0.0, method_name="_diagnose_axiom_market_friction")
         deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_market_friction")
         wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_market_friction")
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_market_friction")
@@ -1260,7 +1260,7 @@ class FoundationIntelligence:
         vwap_mean_reversion_corr_slope = self._get_safe_series(df, f'SLOPE_5_vwap_mean_reversion_corr_D', 0.0, method_name="_diagnose_axiom_market_friction")
         volume_structure_skew_slope = self._get_safe_series(df, f'SLOPE_5_volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_market_friction")
         order_book_imbalance_slope = self._get_safe_series(df, f'SLOPE_5_order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_market_friction")
-        price_volume_entropy_slope = self._get_safe_series(df, f'SLOPE_5_PRICE_VOLUME_ENTROPY_D', 0.0, method_name="_diagnose_axiom_market_friction")
+        price_volume_entropy_slope = self._get_safe_series(df, f'SLOPE_5_price_volume_entropy_D', 0.0, method_name="_diagnose_axiom_market_friction")
         # 对斜率进行MTF双极性归一化
         cost_structure_skewness_score = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_slope, df_index, mtf_slope_periods)
         market_impact_cost_score = get_adaptive_mtf_normalized_bipolar_score(-market_impact_cost_slope, df_index, mtf_slope_periods) # 冲击成本斜率越高，分数越低

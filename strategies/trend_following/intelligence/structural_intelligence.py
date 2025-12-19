@@ -995,7 +995,7 @@ class StructuralIntelligence:
         """
         required_signals = [
             'BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'open_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'PRICE_VOLUME_ENTROPY_D', # 结构形态
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'price_volume_entropy_D', # 结构形态
             'dominant_peak_solidity_D', 'peak_separation_ratio_D', 'chip_fatigue_index_D', # 筹码状态
             'main_force_vpoc_D', 'mf_cost_zone_defense_intent_D', 'control_solidity_index_D', # 主力行为
             'counterparty_exhaustion_index_D', 'retail_panic_surrender_index_D', 'turnover_rate_f_D' # 市场情绪
@@ -1026,7 +1026,7 @@ class StructuralIntelligence:
         # 传递 tf_weights 参数
         s_structure = (
             get_adaptive_mtf_normalized_score(df['VOLATILITY_INSTABILITY_INDEX_21d_D'], df.index, tf_weights, ascending=False) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['PRICE_VOLUME_ENTROPY_D'], df.index, tf_weights, ascending=False) * 0.5
+            get_adaptive_mtf_normalized_score(df['price_volume_entropy_D'], df.index, tf_weights, ascending=False) * 0.5
         )
         s_chips = (
             get_adaptive_mtf_normalized_score(df['dominant_peak_solidity_D'], df.index, tf_weights, ascending=True) * 0.5 +

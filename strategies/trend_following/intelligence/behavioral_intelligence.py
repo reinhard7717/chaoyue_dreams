@@ -303,7 +303,7 @@ class BehavioralIntelligence:
             'ask_side_liquidity_D', 'bid_side_liquidity_D', 'liquidity_slope_D',
             'market_impact_cost_D', 'order_book_clearing_rate_D',
             'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
-            'PRICE_VOLUME_ENTROPY_D', 'volatility_expansion_ratio_D'
+            'price_volume_entropy_D', 'volatility_expansion_ratio_D'
         ]
         # MODIFIED LINE: 动态添加所有可能用到的MTF斜率和加速度信号
         liquidity_drain_mtf_periods = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params', {}).get('mtf_slope_accel_weights'), {}).keys()
@@ -2933,7 +2933,7 @@ class BehavioralIntelligence:
             'micro_price_impact_asymmetry_D', 'ask_side_liquidity_D', 'bid_side_liquidity_D',
             'liquidity_slope_D', 'market_impact_cost_D', 'order_book_clearing_rate_D',
             'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
-            'PRICE_VOLUME_ENTROPY_D', 'volatility_expansion_ratio_D'
+            'price_volume_entropy_D', 'volatility_expansion_ratio_D'
         ]
         required_state_signals = ['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
         # 动态添加所有MTF斜率和加速度信号
