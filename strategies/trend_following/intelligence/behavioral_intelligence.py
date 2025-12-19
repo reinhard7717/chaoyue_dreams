@@ -2885,7 +2885,8 @@ class BehavioralIntelligence:
 
     def _diagnose_liquidity_drain_risk(self, df: pd.DataFrame, states: Dict[str, pd.Series], tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V3.0 · 混沌深渊协议】诊断流动性枯竭风险。
+        【V3.1 · 混沌深渊协议 - 动态权重版】诊断流动性枯竭风险。
+        - 核心升级: 引入可配置的MTF指标内部组件权重（原始值、斜率、加速度），实现更精细的风险因子调控。
         - 核心重构: 在“恐慌瀑布协议”基础上深度进化，旨在更早期、更精准地识别由恐慌抛售、买盘抵抗瓦解、
                     市场流动性枯竭以及市场结构混沌脆弱共同驱动的系统性风险。
         - 探针增强: 输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
@@ -2919,6 +2920,9 @@ class BehavioralIntelligence:
         mtf_slope_accel_weights = get_param_value(liquidity_drain_params.get('mtf_slope_accel_weights'), {
             "5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05
         })
+        # MODIFIED LINE: 获取MTF指标内部组件权重配置
+        mtf_indicator_component_weights = get_param_value(liquidity_drain_params.get('mtf_indicator_component_weights'), {})
+        default_component_weights = get_param_value(mtf_indicator_component_weights.get('default'), {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3})
         final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.8)
         dynamic_threshold_params = get_param_value(liquidity_drain_params.get('dynamic_threshold_params'), {})
         # --- 1. 计算动态价格跌幅阈值 ---
@@ -2973,6 +2977,14 @@ class BehavioralIntelligence:
             print(f"        - is_falling: {is_falling.loc[probe_ts]:.4f}")
         # --- 辅助函数：获取多时间维度融合分数 ---
         def get_mtf_fused_score(base_name: str, is_negative_indicator: bool = False, ascending: bool = True) -> pd.Series:
+            # MODIFIED LINE: 获取当前指标的组件权重，如果未配置则使用默认权重
+            component_weights = get_param_value(mtf_indicator_component_weights.get(base_name), default_component_weights)
+            raw_w = component_weights.get('raw_weight', 0.4)
+            slope_w = component_weights.get('slope_weight', 0.3)
+            accel_w = component_weights.get('accel_weight', 0.3)
+            total_component_weight = raw_w + slope_w + accel_w
+            if total_component_weight == 0: # 避免除以零
+                total_component_weight = 1.0
             scores = []
             for period_str, weight in mtf_slope_accel_weights.items():
                 period = int(period_str)
@@ -2996,10 +3008,10 @@ class BehavioralIntelligence:
                 # 融合原始值、斜率和加速度
                 # 几何平均融合，避免某个为0导致整体为0，使用1e-9平滑
                 fused_period_score = (
-                    (norm_raw + 1e-9).pow(0.4) *
-                    (norm_slope + 1e-9).pow(0.3) *
-                    (norm_accel + 1e-9).pow(0.3)
-                ).pow(1/1.0).fillna(0.0).clip(0,1)
+                    (norm_raw + 1e-9).pow(raw_w) * # MODIFIED LINE: 使用动态 raw_w
+                    (norm_slope + 1e-9).pow(slope_w) * # MODIFIED LINE: 使用动态 slope_w
+                    (norm_accel + 1e-9).pow(accel_w) # MODIFIED LINE: 使用动态 accel_w
+                ).pow(1 / total_component_weight).fillna(0.0).clip(0,1) # MODIFIED LINE: 除以总组件权重
                 scores.append(fused_period_score * weight)
             if not scores:
                 return pd.Series(0.0, index=df.index, dtype=np.float32)
