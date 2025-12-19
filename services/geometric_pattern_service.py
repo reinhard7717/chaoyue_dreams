@@ -1639,14 +1639,12 @@ class GeometricPatternService:
             if col not in df.columns:
                 print(f"[{self.stock_code}] [多维潜力评分器] 缺少 '{col}' 列，无法计算每日潜力分数。")
                 return pd.Series(0.0, index=df.index)
-
         # 1. ADX评分 (低趋势得分高)
         # 修改代码行：调整评分函数，使ADX <= threshold时，分数从100到75线性递减
         adx_score_raw = np.where(df['ADX_14'] <= adx_threshold,
                              100 - (df['ADX_14'] / adx_threshold) * 25, # 阈值处得75分
                              75 - ((df['ADX_14'] - adx_threshold) / (2 * adx_threshold)) * 75) # 3*阈值处得0分
         adx_score = pd.Series(np.clip(adx_score_raw, 0, 100), index=df.index)
-
         # 2. BBW评分 (低波动得分高)
         bbw_rolling_quantile = df['BBW_21_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
         # 避免bbw_rolling_quantile为0导致除零错误，如果为0则设为一个小正数
@@ -1656,7 +1654,6 @@ class GeometricPatternService:
                              100 - (df['BBW_21_2.0'] / bbw_rolling_quantile) * 25, # 阈值处得75分
                              75 - ((df['BBW_21_2.0'] - bbw_rolling_quantile) / (2 * bbw_rolling_quantile)) * 75) # 3*阈值处得0分
         bbw_score = pd.Series(np.clip(bbw_score_raw, 0, 100), index=df.index)
-
         # 3. ATRr评分 (低波动得分高)
         # 避免atr_threshold_pct为0导致除零错误，如果为0则设为一个小正数
         atr_threshold_pct_safe = atr_threshold_pct if atr_threshold_pct > 0 else 1e-9
@@ -1665,7 +1662,6 @@ class GeometricPatternService:
                                  100 - (df['ATRr_14'] / atr_threshold_pct_safe) * 25, # 阈值处得75分
                                  75 - ((df['ATRr_14'] - atr_threshold_pct_safe) / (2 * atr_threshold_pct_safe)) * 75) # 3*阈值处得0分
         atr_score = pd.Series(np.clip(atr_score_raw, 0, 100), index=df.index)
-
         # 4. 成交量爆裂度评分 (低爆裂度得分高)
         # 避免vol_burst_threshold为0导致除零错误，如果为0则设为一个小正数
         vol_burst_threshold_safe = vol_burst_threshold if vol_burst_threshold > 0 else 1e-9
@@ -1674,13 +1670,11 @@ class GeometricPatternService:
                                        100 - (df['volume_burstiness_index'] / vol_burst_threshold_safe) * 25, # 阈值处得75分
                                        75 - ((df['volume_burstiness_index'] - vol_burst_threshold_safe) / (2 * vol_burst_threshold_safe)) * 75) # 3*阈值处得0分
         vol_burst_score = pd.Series(np.clip(vol_burst_score_raw, 0, 100), index=df.index)
-
         # 融合评分权重 (从archetype中获取，提供默认值)
         adx_weight = archetype.get('adx_score_weight', 0.3)
         bbw_weight = archetype.get('bbw_score_weight', 0.3)
         atr_weight = archetype.get('atr_score_weight', 0.2)
         vol_burst_weight = archetype.get('vol_burst_score_weight', 0.2)
-
         total_weight = adx_weight + bbw_weight + atr_weight + vol_burst_weight
         if total_weight == 0: # 避免除零
             daily_potential_score = pd.Series(0.0, index=df.index)
@@ -1692,7 +1686,6 @@ class GeometricPatternService:
                  vol_burst_score * vol_burst_weight) / total_weight,
                 index=df.index
             )
-
         # 探针：输出关键计算节点
         print(f"[{self.stock_code}] [多维潜力评分器] 每日潜力分数计算探针:")
         print(f"  - ADX阈值: {adx_threshold}, BBW分位数: {bbw_quantile}, ATRr阈值: {atr_threshold_pct}, 爆裂度阈值: {vol_burst_threshold}")

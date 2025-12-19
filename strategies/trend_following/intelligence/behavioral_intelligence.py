@@ -49,7 +49,7 @@ class BehavioralIntelligence:
                     现在，所有依赖信号（特别是 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT）
                     都会在被使用之前生成并合并到主数据帧中，确保情报流的完整性。
         - 【修正】确保df在整个调用链中正确更新。
-        - 【新增】在调试模式下，探针检查 breakout_quality_score_D 的原始输入值。
+        - 【清理】移除用于检查 breakout_quality_score_D 原始输入值的临时探针。
         """
         all_behavioral_states = {}
         # 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
@@ -62,21 +62,7 @@ class BehavioralIntelligence:
         for k, v in micro_intent_signals.items():
             if k not in df.columns:
                 df[k] = v
-        # --- 新增探针：检查 breakout_quality_score_D 的原始值 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        probe_ts = None
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            if valid_probe_dates:
-                probe_ts = valid_probe_dates[0]
-                if 'breakout_quality_score_D' in df.columns:
-                    print(f"      [探针] run_behavioral_analysis_command: breakout_quality_score_D (原始输入) @ {probe_ts.strftime('%Y-%m-%d')}: {df['breakout_quality_score_D'].loc[probe_ts]:.4f}") # 修改行
-                else:
-                    print(f"      [探针] run_behavioral_analysis_command: breakout_quality_score_D (原始输入) @ {probe_ts.strftime('%Y-%m-%d')}: 信号不存在于df中。") # 修改行
-        # --- 探针结束 ---
+        # --- 移除临时探针：检查 breakout_quality_score_D 的原始值 --- # 修改行
         # 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
@@ -1888,7 +1874,6 @@ class BehavioralIntelligence:
           3. 成交量极端细化: 区分放量滞涨和放量加速上涨，避免误判。
           4. 融合函数优化: 调整融合权重，并引入一个“亢奋加速度”因子。
         - 【清理】移除所有调试探针代码，恢复生产状态。
-        - 【新增】在调试模式下，输出详细的计算过程和中间结果。
         """
         method_name = "_calculate_behavioral_price_overextension"
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
@@ -1928,24 +1913,6 @@ class BehavioralIntelligence:
         robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
         upward_efficiency = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
         intraday_bull_control = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.5, method_name=method_name)
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - close_price: {close_price.loc[probe_ts]:.4f}")
-            print(f"        - rsi_val: {rsi_val.loc[probe_ts]:.4f}")
-            print(f"        - macd_val: {macd_val.loc[probe_ts]:.4f}")
-            print(f"        - current_volume: {current_volume.loc[probe_ts]:.4f}")
-            print(f"        - volume_avg: {volume_avg.loc[probe_ts]:.4f}")
-            print(f"        - bias_val: {bias_val.loc[probe_ts]:.4f}")
-            print(f"        - bbp_val: {bbp_val.loc[probe_ts]:.4f}")
-            print(f"        - atr_val: {atr_val.loc[probe_ts]:.4f}")
-            print(f"        - accel_close: {accel_close.loc[probe_ts]:.4f}")
-            print(f"        - accel_rsi: {accel_rsi.loc[probe_ts]:.4f}")
-            print(f"        - accel_macd: {accel_macd.loc[probe_ts]:.4f}")
-            print(f"        - accel_volume: {accel_volume.loc[probe_ts]:.4f}")
-            print(f"        - robust_pct_change_slope: {robust_pct_change_slope.loc[probe_ts]:.4f}")
-            print(f"        - robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
-            print(f"        - upward_efficiency: {upward_efficiency.loc[probe_ts]:.4f}")
-            print(f"        - intraday_bull_control: {intraday_bull_control.loc[probe_ts]:.4f}")
         # 1. 价格偏离度 (Price Deviation)
         rsi_overbought_threshold = overextension_params.get('rsi_overbought_threshold', 70)
         bias_overbought_threshold = overextension_params.get('bias_overbought_threshold', 0.05)
@@ -1963,11 +1930,6 @@ class BehavioralIntelligence:
         # BBP超买归一化 (0-1) - 使用动态阈值
         norm_bbp_overbought = (bbp_val - dynamic_bbp_threshold).clip(lower=0) / (1 - dynamic_bbp_threshold)
         norm_bbp_overbought = norm_bbp_overbought.fillna(0).clip(0, 1)
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 价格偏离度 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - norm_rsi_overbought: {norm_rsi_overbought.loc[probe_ts]:.4f}")
-            print(f"        - norm_bias_overbought: {norm_bias_overbought.loc[probe_ts]:.4f}")
-            print(f"        - norm_bbp_overbought: {norm_bbp_overbought.loc[probe_ts]:.4f}")
         # 2. 动量过热 (Momentum Overheating)
         # RSI和MACD加速向上，进一步增强亢奋
         momentum_accel_factor = pd.Series(0.0, index=df.index)
@@ -1980,22 +1942,12 @@ class BehavioralIntelligence:
         behavioral_inertia_bonus = behavioral_inertia_bonus.mask(is_price_accelerating & is_volume_accelerating, overextension_params.get('momentum_accel_bonus', 0.1))
         behavioral_inertia_bonus = behavioral_inertia_bonus.mask((is_price_accelerating | is_volume_accelerating) & (behavioral_inertia_bonus == 0), overextension_params.get('momentum_accel_bonus', 0.1) / 2)
         momentum_overheat_score = (norm_rsi_overbought + norm_bias_overbought + momentum_accel_factor + behavioral_inertia_bonus).clip(0, 1)
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 动量过热 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - momentum_accel_factor: {momentum_accel_factor.loc[probe_ts]:.4f}")
-            print(f"        - behavioral_inertia_bonus: {behavioral_inertia_bonus.loc[probe_ts]:.4f}")
-            print(f"        - momentum_overheat_score: {momentum_overheat_score.loc[probe_ts]:.4f}")
         # 3. 成交量极端 (Volume Extremity)
         volume_climax_multiplier = overextension_params.get('volume_climax_multiplier', 1.8)
         # [细化] 只有在价格上涨时，放量才被视为亢奋证据
         is_price_rising_for_volume = (close_price > close_price.shift(1))
         is_volume_climax = (current_volume > volume_avg * volume_climax_multiplier) & is_price_rising_for_volume
         volume_extremity_score = is_volume_climax.astype(float) * (current_volume / volume_avg).clip(1, 2)
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 成交量极端 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - is_price_rising_for_volume: {is_price_rising_for_volume.loc[probe_ts]}")
-            print(f"        - is_volume_climax: {is_volume_climax.loc[probe_ts]}")
-            print(f"        - volume_extremity_score: {volume_extremity_score.loc[probe_ts]:.4f}")
         # 4. 日内行为极端 (Intraday Behavioral Extremity)
         upward_efficiency_decay_penalty = overextension_params.get('upward_efficiency_decay_penalty', 0.1)
         intraday_control_decay_penalty = overextension_params.get('intraday_control_decay_penalty', 0.1)
@@ -2004,11 +1956,6 @@ class BehavioralIntelligence:
         # 日内多头控制力减弱 (控制力越弱，亢奋风险越高)
         norm_intraday_control_decay = (1 - intraday_bull_control).clip(0, 1) * intraday_control_decay_penalty
         intraday_extremity_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 日内行为极端 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - norm_upward_efficiency_decay: {norm_upward_efficiency_decay.loc[probe_ts]:.4f}")
-            print(f"        - norm_intraday_control_decay: {norm_intraday_control_decay.loc[probe_ts]:.4f}")
-            print(f"        - intraday_extremity_score: {intraday_extremity_score.loc[probe_ts]:.4f}")
         # 非线性融合所有亢奋证据
         # 采用几何平均，确保所有因子都贡献，且因子为0时整体为0
         # 权重分配：价格偏离 (0.3), 动量过热 (0.3), 成交量极端 (0.2), 日内行为极端 (0.2)
@@ -2018,9 +1965,6 @@ class BehavioralIntelligence:
             (volume_extremity_score + 1e-9).pow(0.2) *
             (intraday_extremity_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1)
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 最终亢奋分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - overextension_score: {overextension_score.loc[probe_ts]:.4f}")
         return overextension_score.astype(np.float32)
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
@@ -2068,11 +2012,8 @@ class BehavioralIntelligence:
         robust_close_slope = self._get_safe_series(df, 'robust_close_slope', 0.0, method_name=method_name)
         robust_rsi_slope = self._get_safe_series(df, 'robust_RSI_13_slope', 0.0, method_name=method_name)
         robust_macd_slope = self._get_safe_series(df, 'robust_MACDh_13_34_8_slope', 0.0, method_name=method_name)
-        robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
-        accel_close = self._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name) # [新增]
         accel_rsi = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name=method_name) # [新增]
         accel_macd = self._get_safe_series(df, 'ACCEL_5_MACDh_13_34_8_D', 0.0, method_name=method_name) # [新增]
-        accel_volume = self._get_safe_series(df, 'ACCEL_5_volume_D', 0.0, method_name=method_name) # [新增]
         upward_efficiency = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
         intraday_bull_control = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.5, method_name=method_name)
         # K线形态分析
