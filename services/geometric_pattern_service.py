@@ -231,10 +231,11 @@ class GeometricPatternService:
         - V2.55 核心修复: 增加对所有可能产生 NaN/Infinity 的数值字段进行检查和转换，
                          确保在保存到 MySQL 数据库前，所有数值都是有效的浮点数或 None。
         - V2.56 核心修复: 增加事务管理和更详细的保存日志，以诊断数据未存入数据库的问题。
+        - V2.57 核心修复: 增加保存后立即验证数据是否可读的逻辑。
         """
         import math
-        from django.db import transaction # 新增代码行：导入transaction
-        print(f"[{self.stock_code}] [平台计算] 开始执行 _calculate_and_save_platforms 方法。")
+        from django.db import transaction
+        print(f"[{self.stock_code}] [平台计算] 开始执行 _calculate_and_save_platforms 方法。当前使用的平台模型: {self.platform_model.__name__}") # 修改代码行：增加模型名称输出
         if enriched_df is None or enriched_df.empty:
             print(f"[{self.stock_code}] [平台计算] enriched_df 为空，跳过平台计算。")
             return
@@ -417,9 +418,8 @@ class GeometricPatternService:
         found_count = len(platforms_to_save)
         print(f"[{self.stock_code}] [平台计算] 最终确定 {found_count} 个平台待保存。")
         if found_count > 0:
-            with transaction.atomic(): # 新增代码行：引入事务管理
+            with transaction.atomic():
                 for data in platforms_to_save:
-                    # 最终兜底：对所有浮点数值进行 NaN/Infinity 检查并转换为 None
                     sanitized_data = {}
                     for k, v in data.items():
                         if isinstance(v, (float, np.floating)):
@@ -431,13 +431,23 @@ class GeometricPatternService:
                             sanitized_data[k] = v
                     print(f"[{self.stock_code}] [平台保存] 准备保存平台数据: {sanitized_data}")
                     try:
-                        obj, created = self.platform_model.objects.update_or_create( # 修改代码行：捕获created标志
+                        obj, created = self.platform_model.objects.update_or_create(
                             stock=sanitized_data['stock'], start_date=sanitized_data['start_date'], defaults=sanitized_data
                         )
-                        if created: # 新增代码行：根据created标志输出不同信息
+                        if created:
                             print(f"[{self.stock_code}] [平台保存] 成功创建新平台数据: {obj.start_date} - {obj.end_date}")
-                        else: # 新增代码行：根据created标志输出不同信息
+                        else:
                             print(f"[{self.stock_code}] [平台保存] 成功更新现有平台数据: {obj.start_date} - {obj.end_date}")
+
+                        # 新增代码块：保存后立即验证
+                        try:
+                            retrieved_obj = self.platform_model.objects.get(stock=obj.stock, start_date=obj.start_date)
+                            print(f"[{self.stock_code}] [平台保存] 验证成功：数据 {retrieved_obj.start_date} - {retrieved_obj.end_date} 已在数据库中可见。") # 新增调试信息
+                        except self.platform_model.DoesNotExist:
+                            print(f"[{self.stock_code}] [平台保存] 验证失败：数据 {obj.start_date} - {obj.end_date} 刚刚保存，但在数据库中不可见！") # 新增调试信息
+                        except Exception as verify_e:
+                            print(f"[{self.stock_code}] [平台保存] 验证数据时发生异常: {verify_e}") # 新增调试信息
+
                     except Exception as e:
                         print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}")
 
