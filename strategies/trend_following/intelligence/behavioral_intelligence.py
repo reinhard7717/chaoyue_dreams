@@ -295,27 +295,39 @@ class BehavioralIntelligence:
             'SLOPE_55_close_D',
             'market_sentiment_score_D',
             'SLOPE_55_ADX_14_D',
-            'order_book_imbalance_D', # 新增：流动性枯竭证据
-            'volume_structure_skew_D', # 新增：流动性枯竭证据
-            'micro_price_impact_asymmetry_D' # 新增：流动性枯竭证据
+            'order_book_imbalance_D',
+            'volume_structure_skew_D',
+            'micro_price_impact_asymmetry_D',
+            # MODIFIED LINE: 新增流动性枯竭风险相关的原始数据和多时间维度斜率/加速度
+            'sell_sweep_intensity_D', 'panic_sell_volume_contribution_D',
+            'ask_side_liquidity_D', 'bid_side_liquidity_D', 'liquidity_slope_D',
+            'market_impact_cost_D', 'order_book_clearing_rate_D',
+            'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
+            'PRICE_VOLUME_ENTROPY_D', 'volatility_expansion_ratio_D'
         ]
         # MODIFIED LINE: 动态添加所有可能用到的MTF斜率和加速度信号
-        selling_exhaustion_mtf_periods = get_param_value(p_behavioral_div_conf.get('selling_exhaustion_params', {}).get('mtf_periods'), [5, 13, 21, 34, 55])
+        liquidity_drain_mtf_periods = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params', {}).get('mtf_slope_accel_weights'), {}).keys()
+        liquidity_drain_mtf_periods = [int(p) for p in liquidity_drain_mtf_periods]
         indicators_for_mtf_dynamics = [
             'close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'turnover_rate_f', 'sell_quote_exhaustion_rate',
             'active_selling_pressure', 'capitulation_absorption_index', 'covert_accumulation_signal',
             'main_force_conviction_index', 'retail_fomo_premium_index', 'panic_selling_cascade',
             'chip_fatigue_index', 'loser_pain_index',
-            'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry' # 新增：流动性枯竭证据
+            'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
+            # MODIFIED LINE: 新增流动性枯竭风险相关的多时间维度斜率/加速度指标
+            'main_force_net_flow_calibrated', 'sell_sweep_intensity', 'panic_sell_volume_contribution',
+            'active_buying_support', 'buy_quote_exhaustion_rate', 'support_validation_strength',
+            'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
+            'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
+            'PRICE_VOLUME_ENTROPY', 'volatility_expansion_ratio'
         ]
-        for period in selling_exhaustion_mtf_periods:
+        for period in liquidity_drain_mtf_periods:
             for indicator in indicators_for_mtf_dynamics:
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
-                if period <= 34: # 加速度通常在较短周期内更有效
-                    required_signals.append(f'ACCEL_{period}_{indicator}_D')
+                required_signals.append(f'ACCEL_{period}_{indicator}_D') # 所有周期都计算加速度
         # END MODIFIED LINE
         for period in mtf_periods:
-            for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
+            for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry']: # 修改行：新增流动性枯竭相关指标
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
@@ -473,7 +485,7 @@ class BehavioralIntelligence:
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
-            states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] # 修改行：使用 states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
+            states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
@@ -489,6 +501,38 @@ class BehavioralIntelligence:
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
         return states
+
+    def _calculate_dynamic_threshold(self, df: pd.DataFrame, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+        """
+        【V1.0 · 自适应阈值计算器】根据市场波动率动态调整价格跌幅阈值。
+        """
+        method_name = "_calculate_dynamic_threshold"
+        if not get_param_value(params.get('enabled'), False):
+            return pd.Series(get_param_value(params.get('base_threshold'), 0.005), index=df.index, dtype=np.float32)
+        base_threshold = get_param_value(params.get('base_threshold'), 0.005)
+        atr_multiplier = get_param_value(params.get('atr_multiplier'), 0.5)
+        min_atr_period = get_param_value(params.get('min_atr_period'), 14)
+        volatility_index_weight = get_param_value(params.get('volatility_index_weight'), 0.3)
+        volatility_index_period = get_param_value(params.get('volatility_index_period'), 21)
+        required_signals = [f'ATR_{min_atr_period}_D', f'VOLATILITY_INSTABILITY_INDEX_{volatility_index_period}d_D']
+        if not self._validate_required_signals(df, required_signals, method_name):
+            print(f"    -> [行为情报引擎] {method_name}: 缺少必要波动率信号，使用固定阈值 {base_threshold}。")
+            return pd.Series(base_threshold, index=df.index, dtype=np.float32)
+        atr = df[f'ATR_{min_atr_period}_D'] / df['close_D'].shift(1) # ATR转换为百分比
+        volatility_index = df[f'VOLATILITY_INSTABILITY_INDEX_{volatility_index_period}d_D']
+        # 归一化波动率指数到 [0, 1]
+        norm_volatility_index = normalize_score(volatility_index, df.index, window=volatility_index_period * 2, ascending=True)
+        # 动态阈值 = 基础阈值 + ATR贡献 + 波动率指数贡献
+        dynamic_threshold = base_threshold + (atr * atr_multiplier) + (norm_volatility_index * volatility_index_weight * base_threshold)
+        # 确保阈值不会过小或过大，例如限制在 [0.001, 0.02]
+        dynamic_threshold = dynamic_threshold.clip(lower=0.001, upper=0.02)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - base_threshold: {base_threshold:.4f}")
+            print(f"        - ATR_{min_atr_period}_D (pct): {atr.loc[probe_ts]:.4f}")
+            print(f"        - VOLATILITY_INSTABILITY_INDEX_{volatility_index_period}d_D: {volatility_index.loc[probe_ts]:.4f} -> norm: {norm_volatility_index.loc[probe_ts]:.4f}")
+            print(f"        - calculated dynamic_threshold: {dynamic_threshold.loc[probe_ts]:.4f}")
+        return dynamic_threshold.astype(np.float32)
 
     def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -2841,40 +2885,74 @@ class BehavioralIntelligence:
 
     def _diagnose_liquidity_drain_risk(self, df: pd.DataFrame, states: Dict[str, pd.Series], tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V2.0 · 恐慌瀑布协议】诊断流动性枯竭风险。
-        - 核心重构: 引入基于“恐慌抛售烈度-抵抗瓦解度-流动性枯竭证据”的全新三维诊断模型。
-        - 目标: 精准识别由恐慌抛售、买盘抵抗瓦解和市场流动性枯竭共同驱动的系统性风险。
+        【V3.0 · 混沌深渊协议】诊断流动性枯竭风险。
+        - 核心重构: 在“恐慌瀑布协议”基础上深度进化，旨在更早期、更精准地识别由恐慌抛售、买盘抵抗瓦解、
+                    市场流动性枯竭以及市场结构混沌脆弱共同驱动的系统性风险。
         - 探针增强: 输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         """
         method_name = "_diagnose_liquidity_drain_risk"
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         liquidity_drain_params = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params'), {})
         if not liquidity_drain_params.get('enabled', False):
+            print(f"    -> [行为情报引擎] {method_name}: 信号未启用，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         fusion_weights = get_param_value(liquidity_drain_params.get('fusion_weights'), {
-            "panic_selling_intensity": 0.35, "resistance_collapse": 0.35, "liquidity_exhaustion_evidence": 0.3
+            "panic_selling_intensity": 0.3, "resistance_collapse": 0.3, "liquidity_exhaustion_evidence": 0.25, "chaos_fragility": 0.15
         })
         panic_selling_intensity_weights = get_param_value(liquidity_drain_params.get('panic_selling_intensity_weights'), {
-            "panic_cascade": 0.3, "active_selling_pressure": 0.3, "retail_panic_surrender": 0.2, "price_drop_magnitude": 0.2
+            "panic_cascade": 0.2, "active_selling_pressure": 0.2, "retail_panic_surrender": 0.15, "price_drop_magnitude": 0.15,
+            "main_force_net_flow_negative": 0.15, "sell_sweep_intensity": 0.1, "loser_pain_index": 0.05
         })
         resistance_collapse_weights = get_param_value(liquidity_drain_params.get('resistance_collapse_weights'), {
-            "downward_resistance_inverse": 0.4, "active_buying_support_inverse": 0.3, "vwap_control_negative": 0.3
+            "downward_resistance_inverse": 0.25, "active_buying_support_inverse": 0.2, "vwap_control_negative": 0.15,
+            "buy_quote_exhaustion_inverse": 0.15, "support_validation_inverse": 0.15, "chip_fatigue_index": 0.1
         })
         liquidity_exhaustion_evidence_weights = get_param_value(liquidity_drain_params.get('liquidity_exhaustion_evidence_weights'), {
-            "sell_quote_exhaustion": 0.3, "order_book_imbalance_negative": 0.3, "volume_structure_skew_negative": 0.2, "micro_price_impact_asymmetry_negative": 0.2
+            "sell_quote_exhaustion": 0.2, "order_book_imbalance_negative": 0.2, "volume_structure_skew_negative": 0.15,
+            "micro_price_impact_asymmetry_negative": 0.15, "ask_side_liquidity_inverse": 0.1, "bid_side_liquidity_inverse": 0.1,
+            "market_impact_cost": 0.1
         })
-        final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.5)
-        min_price_drop_pct_threshold = get_param_value(liquidity_drain_params.get('min_price_drop_pct_threshold'), 0.005)
-        # --- 1. 获取所有原始数据和已计算的原子信号 ---
+        chaos_fragility_weights = get_param_value(liquidity_drain_params.get('chaos_fragility_weights'), {
+            "bid_liquidity_sample_entropy_inverse": 0.3, "bid_liquidity_fractal_dimension_inverse": 0.3,
+            "price_volume_entropy": 0.2, "volatility_expansion_ratio": 0.2
+        })
+        mtf_slope_accel_weights = get_param_value(liquidity_drain_params.get('mtf_slope_accel_weights'), {
+            "5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05
+        })
+        final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.8)
+        dynamic_threshold_params = get_param_value(liquidity_drain_params.get('dynamic_threshold_params'), {})
+        # --- 1. 计算动态价格跌幅阈值 ---
+        min_price_drop_pct_threshold = self._calculate_dynamic_threshold(df, dynamic_threshold_params, is_debug_enabled, probe_ts)
+        # --- 2. 获取所有原始数据和已计算的原子信号 ---
         required_df_signals = [
             'pct_change_D', 'panic_selling_cascade_D', 'active_selling_pressure_D',
-            'retail_panic_surrender_index_D', 'active_buying_support_D',
-            'vwap_control_strength_D', 'sell_quote_exhaustion_rate_D',
-            'order_book_imbalance_D', 'volume_structure_skew_D', 'micro_price_impact_asymmetry_D'
+            'retail_panic_surrender_index_D', 'main_force_net_flow_calibrated_D', 'sell_sweep_intensity_D',
+            'loser_pain_index_D', 'active_buying_support_D', 'vwap_control_strength_D',
+            'buy_quote_exhaustion_rate_D', 'support_validation_strength_D', 'chip_fatigue_index_D',
+            'sell_quote_exhaustion_rate_D', 'order_book_imbalance_D', 'volume_structure_skew_D',
+            'micro_price_impact_asymmetry_D', 'ask_side_liquidity_D', 'bid_side_liquidity_D',
+            'liquidity_slope_D', 'market_impact_cost_D', 'order_book_clearing_rate_D',
+            'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
+            'PRICE_VOLUME_ENTROPY_D', 'volatility_expansion_ratio_D'
         ]
-        required_state_signals = [
-            'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'
+        required_state_signals = ['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
+        # 动态添加所有MTF斜率和加速度信号
+        indicators_for_mtf_dynamics = [
+            'pct_change', 'panic_selling_cascade', 'active_selling_pressure', 'retail_panic_surrender_index',
+            'main_force_net_flow_calibrated', 'sell_sweep_intensity', 'loser_pain_index',
+            'active_buying_support', 'vwap_control_strength', 'buy_quote_exhaustion_rate',
+            'support_validation_strength', 'chip_fatigue_index', 'sell_quote_exhaustion_rate',
+            'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
+            'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
+            'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
+            'PRICE_VOLUME_ENTROPY', 'volatility_expansion_ratio'
         ]
+        for period_str in mtf_slope_accel_weights.keys():
+            period = int(period_str)
+            for indicator in indicators_for_mtf_dynamics:
+                required_df_signals.append(f'SLOPE_{period}_{indicator}_D')
+                required_df_signals.append(f'ACCEL_{period}_{indicator}_D')
+        # 检查所有信号是否存在
         missing_df_signals = [s for s in required_df_signals if s not in df.columns]
         missing_state_signals = [s for s in required_state_signals if s not in states]
         if missing_df_signals or missing_state_signals:
@@ -2884,86 +2962,177 @@ class BehavioralIntelligence:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         # 获取信号
         pct_change = df['pct_change_D']
-        panic_cascade_raw = df['panic_selling_cascade_D']
-        active_selling_raw = df['active_selling_pressure_D']
-        retail_panic_raw = df['retail_panic_surrender_index_D']
-        downward_resistance_score = states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
-        active_buying_raw = df['active_buying_support_D']
-        vwap_control_raw = df['vwap_control_strength_D']
-        sell_quote_exhaustion_raw = df['sell_quote_exhaustion_rate_D']
-        order_book_imbalance_raw = df['order_book_imbalance_D']
-        volume_structure_skew_raw = df['volume_structure_skew_D']
-        micro_price_impact_asymmetry_raw = df['micro_price_impact_asymmetry_D']
         # 仅在价格下跌时激活信号
         is_falling = (pct_change < -min_price_drop_pct_threshold).astype(float)
-        # MODIFIED LINE: 创建 debug_info 元组
         debug_info = (is_debug_enabled, probe_ts, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} - is_falling 检查 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - pct_change_D: {pct_change.loc[probe_ts]:.4f}")
-            print(f"        - min_price_drop_pct_threshold: {min_price_drop_pct_threshold:.4f}")
-            print(f"        - Condition (pct_change < -min_price_drop_pct_threshold): {pct_change.loc[probe_ts] < -min_price_drop_pct_threshold}")
+            print(f"        - min_price_drop_pct_threshold: {min_price_drop_pct_threshold.loc[probe_ts]:.4f}")
+            print(f"        - Condition (pct_change < -min_price_drop_pct_threshold): {pct_change.loc[probe_ts] < -min_price_drop_pct_threshold.loc[probe_ts]}")
             print(f"        - is_falling: {is_falling.loc[probe_ts]:.4f}")
-        # --- 2. 计算恐慌抛售烈度 (Panic Selling Intensity, PSI) ---
-        norm_panic_cascade = get_adaptive_mtf_normalized_score(panic_cascade_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'panic_cascade_raw')) # MODIFIED LINE: 传递 debug_info
-        norm_active_selling = get_adaptive_mtf_normalized_score(active_selling_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'active_selling_raw')) # MODIFIED LINE: 传递 debug_info
-        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'retail_panic_raw')) # MODIFIED LINE: 传递 debug_info
-        norm_price_drop_magnitude = get_adaptive_mtf_normalized_score(pct_change.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'pct_change.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
+        # --- 辅助函数：获取多时间维度融合分数 ---
+        def get_mtf_fused_score(base_name: str, is_negative_indicator: bool = False, ascending: bool = True) -> pd.Series:
+            scores = []
+            for period_str, weight in mtf_slope_accel_weights.items():
+                period = int(period_str)
+                # 原始值
+                raw_val = df.get(f'{base_name}_D', pd.Series(0.0, index=df.index))
+                # 斜率
+                slope_col = f'SLOPE_{period}_{base_name}_D'
+                slope_val = df.get(slope_col, pd.Series(0.0, index=df.index))
+                # 加速度
+                accel_col = f'ACCEL_{period}_{base_name}_D'
+                accel_val = df.get(accel_col, pd.Series(0.0, index=df.index))
+                # 根据指标特性进行处理和归一化
+                if is_negative_indicator: # 如果是负向指标（如卖压），值越大风险越高
+                    norm_raw = get_adaptive_mtf_normalized_score(raw_val.abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_raw_abs'))
+                    norm_slope = get_adaptive_mtf_normalized_score(slope_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_slope_neg_abs'))
+                    norm_accel = get_adaptive_mtf_normalized_score(accel_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_accel_neg_abs'))
+                else: # 正向指标，值越大风险越高（如恐慌指数）
+                    norm_raw = get_adaptive_mtf_normalized_score(raw_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_raw'))
+                    norm_slope = get_adaptive_mtf_normalized_score(slope_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_slope'))
+                    norm_accel = get_adaptive_mtf_normalized_score(accel_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_accel'))
+                # 融合原始值、斜率和加速度
+                # 几何平均融合，避免某个为0导致整体为0，使用1e-9平滑
+                fused_period_score = (
+                    (norm_raw + 1e-9).pow(0.4) *
+                    (norm_slope + 1e-9).pow(0.3) *
+                    (norm_accel + 1e-9).pow(0.3)
+                ).pow(1/1.0).fillna(0.0).clip(0,1)
+                scores.append(fused_period_score * weight)
+            if not scores:
+                return pd.Series(0.0, index=df.index, dtype=np.float32)
+            return (sum(scores) / sum(mtf_slope_accel_weights.values())).astype(np.float32)
+        # --- 3. 计算恐慌抛售烈度 (Panic Selling Intensity, PSI) ---
+        # 价格跌幅的负向动能
+        norm_price_drop_magnitude = get_mtf_fused_score('pct_change', is_negative_indicator=True, ascending=True)
+        # 恐慌抛售瀑布
+        norm_panic_cascade = get_mtf_fused_score('panic_selling_cascade', ascending=True)
+        # 主动卖压
+        norm_active_selling = get_mtf_fused_score('active_selling_pressure', ascending=True)
+        # 散户恐慌投降指数
+        norm_retail_panic = get_mtf_fused_score('retail_panic_surrender_index', ascending=True)
+        # 主力净流出 (负向)
+        norm_main_force_net_flow_negative = get_mtf_fused_score('main_force_net_flow_calibrated', is_negative_indicator=True, ascending=True)
+        # 卖方扫单强度
+        norm_sell_sweep_intensity = get_mtf_fused_score('sell_sweep_intensity', ascending=True)
+        # 亏损者痛苦指数
+        norm_loser_pain_index = get_mtf_fused_score('loser_pain_index', ascending=True)
         psi_score = (
-            (norm_panic_cascade + 1e-9).pow(panic_selling_intensity_weights.get('panic_cascade', 0.3)) *
-            (norm_active_selling + 1e-9).pow(panic_selling_intensity_weights.get('active_selling_pressure', 0.3)) *
-            (norm_retail_panic + 1e-9).pow(panic_selling_intensity_weights.get('retail_panic_surrender', 0.2)) *
-            (norm_price_drop_magnitude + 1e-9).pow(panic_selling_intensity_weights.get('price_drop_magnitude', 0.2))
+            (norm_panic_cascade + 1e-9).pow(panic_selling_intensity_weights.get('panic_cascade', 0.2)) *
+            (norm_active_selling + 1e-9).pow(panic_selling_intensity_weights.get('active_selling_pressure', 0.2)) *
+            (norm_retail_panic + 1e-9).pow(panic_selling_intensity_weights.get('retail_panic_surrender', 0.15)) *
+            (norm_price_drop_magnitude + 1e-9).pow(panic_selling_intensity_weights.get('price_drop_magnitude', 0.15)) *
+            (norm_main_force_net_flow_negative + 1e-9).pow(panic_selling_intensity_weights.get('main_force_net_flow_negative', 0.15)) *
+            (norm_sell_sweep_intensity + 1e-9).pow(panic_selling_intensity_weights.get('sell_sweep_intensity', 0.1)) *
+            (norm_loser_pain_index + 1e-9).pow(panic_selling_intensity_weights.get('loser_pain_index', 0.05))
         ).pow(1 / sum(panic_selling_intensity_weights.values())).fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} - 恐慌抛售烈度 (PSI) @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - panic_cascade_raw: {panic_cascade_raw.loc[probe_ts]:.4f} -> norm_panic_cascade: {norm_panic_cascade.loc[probe_ts]:.4f}")
-            print(f"        - active_selling_raw: {active_selling_raw.loc[probe_ts]:.4f} -> norm_active_selling: {norm_active_selling.loc[probe_ts]:.4f}")
-            print(f"        - retail_panic_raw: {retail_panic_raw.loc[probe_ts]:.4f} -> norm_retail_panic: {norm_retail_panic.loc[probe_ts]:.4f}")
-            print(f"        - pct_change.clip(upper=0).abs(): {pct_change.loc[probe_ts]:.4f} -> norm_price_drop_magnitude: {norm_price_drop_magnitude.loc[probe_ts]:.4f}")
+            print(f"        - norm_panic_cascade: {norm_panic_cascade.loc[probe_ts]:.4f}")
+            print(f"        - norm_active_selling: {norm_active_selling.loc[probe_ts]:.4f}")
+            print(f"        - norm_retail_panic: {norm_retail_panic.loc[probe_ts]:.4f}")
+            print(f"        - norm_price_drop_magnitude: {norm_price_drop_magnitude.loc[probe_ts]:.4f}")
+            print(f"        - norm_main_force_net_flow_negative: {norm_main_force_net_flow_negative.loc[probe_ts]:.4f}")
+            print(f"        - norm_sell_sweep_intensity: {norm_sell_sweep_intensity.loc[probe_ts]:.4f}")
+            print(f"        - norm_loser_pain_index: {norm_loser_pain_index.loc[probe_ts]:.4f}")
             print(f"        - PSI Score: {psi_score.loc[probe_ts]:.4f}")
-        # --- 3. 计算抵抗瓦解度 (Resistance Collapse, RC) ---
-        norm_downward_resistance_inverse = (1 - downward_resistance_score).clip(0, 1)
-        norm_active_buying_inverse = (1 - get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'active_buying_raw'))).clip(0, 1) # MODIFIED LINE: 传递 debug_info
-        norm_vwap_control_negative = get_adaptive_mtf_normalized_score(vwap_control_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'vwap_control_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
+        # --- 4. 计算抵抗瓦解度 (Resistance Collapse, RC) ---
+        norm_downward_resistance_inverse = (1 - states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).clip(0, 1)
+        # 主动买盘支撑 (反向)
+        norm_active_buying_inverse = (1 - get_mtf_fused_score('active_buying_support', ascending=True)).clip(0, 1)
+        # VWAP控制强度 (负向绝对值)
+        norm_vwap_control_negative = get_mtf_fused_score('vwap_control_strength', is_negative_indicator=True, ascending=True)
+        # 买盘报价枯竭率 (反向)
+        norm_buy_quote_exhaustion_inverse = (1 - get_mtf_fused_score('buy_quote_exhaustion_rate', ascending=True)).clip(0, 1)
+        # 支撑有效性强度 (反向)
+        norm_support_validation_inverse = (1 - get_mtf_fused_score('support_validation_strength', ascending=True)).clip(0, 1)
+        # 筹码疲劳指数
+        norm_chip_fatigue_index = get_mtf_fused_score('chip_fatigue_index', ascending=True)
         rc_score = (
-            (norm_downward_resistance_inverse + 1e-9).pow(resistance_collapse_weights.get('downward_resistance_inverse', 0.4)) *
-            (norm_active_buying_inverse + 1e-9).pow(resistance_collapse_weights.get('active_buying_support_inverse', 0.3)) *
-            (norm_vwap_control_negative + 1e-9).pow(resistance_collapse_weights.get('vwap_control_negative', 0.3))
+            (norm_downward_resistance_inverse + 1e-9).pow(resistance_collapse_weights.get('downward_resistance_inverse', 0.25)) *
+            (norm_active_buying_inverse + 1e-9).pow(resistance_collapse_weights.get('active_buying_support_inverse', 0.2)) *
+            (norm_vwap_control_negative + 1e-9).pow(resistance_collapse_weights.get('vwap_control_negative', 0.15)) *
+            (norm_buy_quote_exhaustion_inverse + 1e-9).pow(resistance_collapse_weights.get('buy_quote_exhaustion_inverse', 0.15)) *
+            (norm_support_validation_inverse + 1e-9).pow(resistance_collapse_weights.get('support_validation_inverse', 0.15)) *
+            (norm_chip_fatigue_index + 1e-9).pow(resistance_collapse_weights.get('chip_fatigue_index', 0.1))
         ).pow(1 / sum(resistance_collapse_weights.values())).fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} - 抵抗瓦解度 (RC) @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - downward_resistance_score: {downward_resistance_score.loc[probe_ts]:.4f} -> norm_downward_resistance_inverse: {norm_downward_resistance_inverse.loc[probe_ts]:.4f}")
-            print(f"        - active_buying_raw: {active_buying_raw.loc[probe_ts]:.4f} -> norm_active_buying_inverse: {norm_active_buying_inverse.loc[probe_ts]:.4f}")
-            print(f"        - vwap_control_raw.clip(upper=0).abs(): {vwap_control_raw.loc[probe_ts]:.4f} -> norm_vwap_control_negative: {norm_vwap_control_negative.loc[probe_ts]:.4f}")
+            print(f"        - norm_downward_resistance_inverse: {norm_downward_resistance_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_active_buying_inverse: {norm_active_buying_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_vwap_control_negative: {norm_vwap_control_negative.loc[probe_ts]:.4f}")
+            print(f"        - norm_buy_quote_exhaustion_inverse: {norm_buy_quote_exhaustion_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_support_validation_inverse: {norm_support_validation_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_chip_fatigue_index: {norm_chip_fatigue_index.loc[probe_ts]:.4f}")
             print(f"        - RC Score: {rc_score.loc[probe_ts]:.4f}")
-        # --- 4. 计算流动性枯竭证据 (Liquidity Exhaustion Evidence, LEE) ---
-        norm_sell_quote_exhaustion = get_adaptive_mtf_normalized_score(sell_quote_exhaustion_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'sell_quote_exhaustion_raw')) # MODIFIED LINE: 传递 debug_info
-        norm_order_book_imbalance_negative = get_adaptive_mtf_normalized_score(order_book_imbalance_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'order_book_imbalance_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
-        norm_volume_structure_skew_negative = get_adaptive_mtf_normalized_score(volume_structure_skew_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'volume_structure_skew_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
-        norm_micro_price_impact_asymmetry_negative = get_adaptive_mtf_normalized_score(micro_price_impact_asymmetry_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'micro_price_impact_asymmetry_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
+        # --- 5. 计算流动性枯竭证据 (Liquidity Exhaustion Evidence, LEE) ---
+        # 卖盘报价枯竭率
+        norm_sell_quote_exhaustion = get_mtf_fused_score('sell_quote_exhaustion_rate', ascending=True)
+        # 订单簿不平衡 (负向绝对值)
+        norm_order_book_imbalance_negative = get_mtf_fused_score('order_book_imbalance', is_negative_indicator=True, ascending=True)
+        # 成交量结构偏度 (负向绝对值)
+        norm_volume_structure_skew_negative = get_mtf_fused_score('volume_structure_skew', is_negative_indicator=True, ascending=True)
+        # 微观价格冲击不对称性 (负向绝对值)
+        norm_micro_price_impact_asymmetry_negative = get_mtf_fused_score('micro_price_impact_asymmetry', is_negative_indicator=True, ascending=True)
+        # 卖盘深度 (反向)
+        norm_ask_side_liquidity_inverse = (1 - get_mtf_fused_score('ask_side_liquidity', ascending=True)).clip(0, 1)
+        # 买盘深度 (反向)
+        norm_bid_side_liquidity_inverse = (1 - get_mtf_fused_score('bid_side_liquidity', ascending=True)).clip(0, 1)
+        # 市场冲击成本
+        norm_market_impact_cost = get_mtf_fused_score('market_impact_cost', ascending=True)
         lee_score = (
-            (norm_sell_quote_exhaustion + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('sell_quote_exhaustion', 0.3)) *
-            (norm_order_book_imbalance_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('order_book_imbalance_negative', 0.3)) *
-            (norm_volume_structure_skew_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('volume_structure_skew_negative', 0.2)) *
-            (norm_micro_price_impact_asymmetry_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('micro_price_impact_asymmetry_negative', 0.2))
+            (norm_sell_quote_exhaustion + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('sell_quote_exhaustion', 0.2)) *
+            (norm_order_book_imbalance_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('order_book_imbalance_negative', 0.2)) *
+            (norm_volume_structure_skew_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('volume_structure_skew_negative', 0.15)) *
+            (norm_micro_price_impact_asymmetry_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('micro_price_impact_asymmetry_negative', 0.15)) *
+            (norm_ask_side_liquidity_inverse + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('ask_side_liquidity_inverse', 0.1)) *
+            (norm_bid_side_liquidity_inverse + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('bid_side_liquidity_inverse', 0.1)) *
+            (norm_market_impact_cost + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('market_impact_cost', 0.1))
         ).pow(1 / sum(liquidity_exhaustion_evidence_weights.values())).fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} - 流动性枯竭证据 (LEE) @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - sell_quote_exhaustion_raw: {sell_quote_exhaustion_raw.loc[probe_ts]:.4f} -> norm_sell_quote_exhaustion: {norm_sell_quote_exhaustion.loc[probe_ts]:.4f}")
-            print(f"        - order_book_imbalance_raw.clip(upper=0).abs(): {order_book_imbalance_raw.loc[probe_ts]:.4f} -> norm_order_book_imbalance_negative: {norm_order_book_imbalance_negative.loc[probe_ts]:.4f}")
-            print(f"        - volume_structure_skew_raw.clip(upper=0).abs(): {volume_structure_skew_raw.loc[probe_ts]:.4f} -> norm_volume_structure_skew_negative: {norm_volume_structure_skew_negative.loc[probe_ts]:.4f}")
-            print(f"        - micro_price_impact_asymmetry_raw.clip(upper=0).abs(): {micro_price_impact_asymmetry_raw.loc[probe_ts]:.4f} -> norm_micro_price_impact_asymmetry_negative: {norm_micro_price_impact_asymmetry_negative.loc[probe_ts]:.4f}")
+            print(f"        - norm_sell_quote_exhaustion: {norm_sell_quote_exhaustion.loc[probe_ts]:.4f}")
+            print(f"        - norm_order_book_imbalance_negative: {norm_order_book_imbalance_negative.loc[probe_ts]:.4f}")
+            print(f"        - norm_volume_structure_skew_negative: {norm_volume_structure_skew_negative.loc[probe_ts]:.4f}")
+            print(f"        - norm_micro_price_impact_asymmetry_negative: {norm_micro_price_impact_asymmetry_negative.loc[probe_ts]:.4f}")
+            print(f"        - norm_ask_side_liquidity_inverse: {norm_ask_side_liquidity_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_bid_side_liquidity_inverse: {norm_bid_side_liquidity_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_market_impact_cost: {norm_market_impact_cost.loc[probe_ts]:.4f}")
             print(f"        - LEE Score: {lee_score.loc[probe_ts]:.4f}")
-        # --- 5. 最终融合 (加权几何平均) ---
+        # --- 6. 计算混沌与脆弱性 (Chaos & Fragility, CF) ---
+        # 买盘流动性样本熵 (反向)
+        norm_bid_liquidity_sample_entropy_inverse = (1 - get_mtf_fused_score('BID_LIQUIDITY_SAMPLE_ENTROPY_13d', ascending=True)).clip(0, 1)
+        # 买盘流动性分形维度 (反向)
+        norm_bid_liquidity_fractal_dimension_inverse = (1 - get_mtf_fused_score('BID_LIQUIDITY_FRACTAL_DIMENSION_89d', ascending=True)).clip(0, 1)
+        # 价格成交量熵
+        norm_price_volume_entropy = get_mtf_fused_score('PRICE_VOLUME_ENTROPY', ascending=True)
+        # 波动率扩张比率
+        norm_volatility_expansion_ratio = get_mtf_fused_score('volatility_expansion_ratio', ascending=True)
+        cf_score = (
+            (norm_bid_liquidity_sample_entropy_inverse + 1e-9).pow(chaos_fragility_weights.get('bid_liquidity_sample_entropy_inverse', 0.3)) *
+            (norm_bid_liquidity_fractal_dimension_inverse + 1e-9).pow(chaos_fragility_weights.get('bid_liquidity_fractal_dimension_inverse', 0.3)) *
+            (norm_price_volume_entropy + 1e-9).pow(chaos_fragility_weights.get('price_volume_entropy', 0.2)) *
+            (norm_volatility_expansion_ratio + 1e-9).pow(chaos_fragility_weights.get('volatility_expansion_ratio', 0.2))
+        ).pow(1 / sum(chaos_fragility_weights.values())).fillna(0.0).clip(0, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} - 混沌与脆弱性 (CF) @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - norm_bid_liquidity_sample_entropy_inverse: {norm_bid_liquidity_sample_entropy_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_bid_liquidity_fractal_dimension_inverse: {norm_bid_liquidity_fractal_dimension_inverse.loc[probe_ts]:.4f}")
+            print(f"        - norm_price_volume_entropy: {norm_price_volume_entropy.loc[probe_ts]:.4f}")
+            print(f"        - norm_volatility_expansion_ratio: {norm_volatility_expansion_ratio.loc[probe_ts]:.4f}")
+            print(f"        - CF Score: {cf_score.loc[probe_ts]:.4f}")
+        # --- 7. 最终融合 (加权几何平均) ---
         liquidity_drain_base_score = (
-            (psi_score + 1e-9).pow(fusion_weights.get('panic_selling_intensity', 0.35)) *
-            (rc_score + 1e-9).pow(fusion_weights.get('resistance_collapse', 0.35)) *
-            (lee_score + 1e-9).pow(fusion_weights.get('liquidity_exhaustion_evidence', 0.3))
+            (psi_score + 1e-9).pow(fusion_weights.get('panic_selling_intensity', 0.3)) *
+            (rc_score + 1e-9).pow(fusion_weights.get('resistance_collapse', 0.3)) *
+            (lee_score + 1e-9).pow(fusion_weights.get('liquidity_exhaustion_evidence', 0.25)) *
+            (cf_score + 1e-9).pow(fusion_weights.get('chaos_fragility', 0.15))
         ).pow(1 / sum(fusion_weights.values())).fillna(0.0).clip(0, 1)
-        # --- 6. 门控条件: 仅在价格下跌时激活信号 ---
+        # --- 8. 门控条件: 仅在价格下跌时激活信号 ---
         final_score_gated = liquidity_drain_base_score * is_falling
-        # --- 7. 最终非线性变换 ---
+        # --- 9. 最终非线性变换 ---
         final_liquidity_drain_score = final_score_gated.pow(final_exponent).astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} - 最终结果 @ {probe_ts.strftime('%Y-%m-%d')}:")

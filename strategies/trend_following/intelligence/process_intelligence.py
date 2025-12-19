@@ -1527,14 +1527,14 @@ class ProcessIntelligence:
         return meta_score
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V7.0 · 情绪深度解析版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V8.0 · 情绪与主力意图精炼版)...") # 修改代码行
         df_index = df.index
         params = get_param_value(config.get('storm_eye_calm_params'), {})
         # --- 1. 获取配置参数 ---
         energy_compression_weights = get_param_value(params.get('energy_compression_weights'), {"tension": 0.2, "bbw_inverted": 0.15, "vol_instability_inverted": 0.15, "equilibrium_compression": 0.15, "bbw_slope_inverted": 0.1, "vol_instability_slope_inverted": 0.1, "dyn_stability": 0.05, "market_tension": 0.05, "price_sample_entropy_inverted": 0.025, "price_volume_entropy_inverted": 0.025, "price_fractal_dimension_calm": 0.025, "volume_structure_skew_inverted": 0.025, "volume_profile_entropy_inverted": 0.025})
         volume_exhaustion_weights = get_param_value(params.get('volume_exhaustion_weights'), {"volume_atrophy": 0.15, "turnover_rate_inverted": 0.1, "counterparty_exhaustion": 0.1, "order_book_liquidity_inverted": 0.1, "buy_quote_exhaustion": 0.1, "sell_quote_exhaustion": 0.05, "turnover_rate_slope_inverted": 0.05, "order_book_imbalance_inverted": 0.05, "micro_price_impact_asymmetry_inverted": 0.05, "bid_side_liquidity_inverted": 0.05, "ask_side_liquidity_inverted": 0.05, "vpin_score_inverted": 0.025, "bid_liquidity_sample_entropy_inverted": 0.025, "volume_structure_skew_inverted": 0.05, "volume_profile_entropy_inverted": 0.05, "turnover_rate_raw_inverted": 0.05})
-        main_force_covert_intent_weights = get_param_value(params.get('main_force_covert_intent_weights'), {"stealth_ops": 0.1, "split_order_accum": 0.1, "mf_conviction_positive": 0.1, "mf_net_flow_positive": 0.1, "mf_cost_advantage_positive": 0.08, "mf_buy_ofi_positive": 0.08, "mf_t0_buy_efficiency_positive": 0.08, "mf_net_flow_slope_positive": 0.08, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "mf_vwap_guidance_neutrality": 0.05, "vwap_control_neutrality": 0.05, "observed_large_order_size_avg_inverted": 0.025, "market_impact_cost_inverted": 0.025, "main_force_flow_directionality_neutrality": 0.075, "main_force_net_flow_volatility_inverted": 0.05}) # 修改代码行
-        subdued_market_sentiment_weights = get_param_value(params.get('subdued_market_sentiment_weights'), {"sentiment_pendulum_negative": 0.1, "market_sentiment_inverted": 0.1, "retail_panic_inverted": 0.075, "retail_fomo_inverted": 0.075, "loser_pain_positive": 0.075, "liquidity_tide_calm": 0.075, "hurst_calm": 0.075, "sentiment_neutrality": 0.15, "sentiment_pendulum_neutrality": 0.15, "sentiment_volatility_inverted": 0.1, "sentiment_pendulum_volatility_inverted": 0.075, "long_term_sentiment_subdued": 0.075}) # 修改代码行
+        main_force_covert_intent_weights = get_param_value(params.get('main_force_covert_intent_weights'), {"stealth_ops": 0.1, "split_order_accum": 0.1, "mf_conviction_positive": 0.1, "mf_net_flow_positive": 0.1, "mf_cost_advantage_positive": 0.08, "mf_buy_ofi_positive": 0.08, "mf_t0_buy_efficiency_positive": 0.08, "mf_net_flow_slope_positive": 0.08, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "mf_vwap_guidance_neutrality": 0.05, "vwap_control_neutrality": 0.05, "observed_large_order_size_avg_inverted": 0.025, "market_impact_cost_inverted": 0.025, "main_force_flow_directionality_neutrality": 0.05, "main_force_net_flow_volatility_inverted": 0.05, "main_force_flow_ambiguity": 0.05}) # 修改代码行
+        subdued_market_sentiment_weights = get_param_value(params.get('subdued_market_sentiment_weights'), {"sentiment_pendulum_negative": 0.075, "market_sentiment_inverted": 0.075, "retail_panic_inverted": 0.05, "retail_fomo_inverted": 0.05, "loser_pain_positive": 0.05, "liquidity_tide_calm": 0.075, "hurst_calm": 0.075, "sentiment_neutrality": 0.1, "sentiment_pendulum_neutrality": 0.1, "sentiment_volatility_inverted": 0.075, "sentiment_pendulum_volatility_inverted": 0.05, "long_term_sentiment_subdued": 0.05, "market_sentiment_not_extreme": 0.1, "sentiment_pendulum_not_extreme": 0.075, "market_sentiment_boring_score": 0.05}) # 修改代码行
         breakout_readiness_weights = get_param_value(params.get('breakout_readiness_weights'), {"struct_breakout_readiness": 0.3, "struct_platform_foundation": 0.25, "goodness_of_fit": 0.25, "platform_conviction": 0.2})
         mtf_cohesion_weights = get_param_value(params.get('mtf_cohesion_weights'), {"cohesion_score": 1.0})
         final_fusion_weights = get_param_value(params.get('final_fusion_weights'), {"energy_compression": 0.2, "volume_exhaustion": 0.2, "main_force_covert_intent": 0.2, "subdued_market_sentiment": 0.15, "breakout_readiness": 0.15, "mtf_cohesion": 0.1})
@@ -1545,9 +1545,11 @@ class ProcessIntelligence:
         mtf_cohesion_base_signals = get_param_value(params.get('mtf_cohesion_base_signals'), ['close_D', 'volume_D', 'main_force_net_flow_calibrated_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D', 'BBW_21_2.0_D'])
         
         # 新增配置参数
-        sentiment_volatility_window = get_param_value(params.get('sentiment_volatility_window'), 21) # 修改代码行
-        long_term_sentiment_window = get_param_value(params.get('long_term_sentiment_window'), 55) # 修改代码行
-        main_force_flow_volatility_window = get_param_value(params.get('main_force_flow_volatility_window'), 21) # 修改代码行
+        sentiment_volatility_window = get_param_value(params.get('sentiment_volatility_window'), 21)
+        long_term_sentiment_window = get_param_value(params.get('long_term_sentiment_window'), 55)
+        main_force_flow_volatility_window = get_param_value(params.get('main_force_flow_volatility_window'), 21)
+        sentiment_neutral_range = get_param_value(params.get('sentiment_neutral_range'), 1.0) # 修改代码行
+        sentiment_pendulum_neutral_range = get_param_value(params.get('sentiment_pendulum_neutral_range'), 0.2) # 修改代码行
 
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
@@ -1630,8 +1632,7 @@ class ProcessIntelligence:
         observed_large_order_size_avg_raw = self._get_safe_series(df, 'observed_large_order_size_avg_D', np.nan, method_name="_calculate_storm_eye_calm")
         market_impact_cost_raw = self._get_safe_series(df, 'market_impact_cost_D', np.nan, method_name="_calculate_storm_eye_calm")
         main_force_flow_directionality_raw = self._get_safe_series(df, 'main_force_flow_directionality_D', np.nan, method_name="_calculate_storm_eye_calm")
-        # 新增：主力资金净流波动率
-        mf_net_flow_std_raw = mf_net_flow_raw.rolling(window=main_force_flow_volatility_window, min_periods=1).std() # 修改代码行
+        mf_net_flow_std_raw = mf_net_flow_raw.rolling(window=main_force_flow_volatility_window, min_periods=1).std()
 
         # Subdued Market Sentiment
         sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', np.nan)
@@ -1641,11 +1642,9 @@ class ProcessIntelligence:
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', np.nan, method_name="_calculate_storm_eye_calm")
         liquidity_tide_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', np.nan)
         hurst_raw = self._get_safe_series(df, 'HURST_144d_D', np.nan, method_name="_calculate_storm_eye_calm")
-        # 新增：市场情绪波动率和情绪钟摆波动率
-        market_sentiment_std_raw = market_sentiment_raw.rolling(window=sentiment_volatility_window, min_periods=1).std() # 修改代码行
-        sentiment_pendulum_std_raw = sentiment_pendulum_score.rolling(window=sentiment_volatility_window, min_periods=1).std() # 修改代码行
-        # 新增：市场情绪长期平均
-        market_sentiment_long_term_mean = market_sentiment_raw.rolling(window=long_term_sentiment_window, min_periods=1).mean() # 修改代码行
+        market_sentiment_std_raw = market_sentiment_raw.rolling(window=sentiment_volatility_window, min_periods=1).std()
+        sentiment_pendulum_std_raw = sentiment_pendulum_score.rolling(window=sentiment_volatility_window, min_periods=1).std()
+        market_sentiment_long_term_mean = market_sentiment_raw.rolling(window=long_term_sentiment_window, min_periods=1).mean()
 
         # Breakout Readiness
         struct_breakout_readiness_score = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', np.nan)
@@ -1666,7 +1665,6 @@ class ProcessIntelligence:
         vol_instability_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm", ascending=True, bipolar=False)
         turnover_rate_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'turnover_rate_f_D', mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm", ascending=True, bipolar=False)
         mf_net_flow_slope_positive = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm", ascending=True, bipolar=False)
-        # 新增MTF Cohesion
         mtf_cohesion_score = self._get_mtf_cohesion_score(df, mtf_cohesion_base_signals, mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm")
 
         # --- 5. 归一化和计算各维度分数 ---
@@ -1734,8 +1732,10 @@ class ProcessIntelligence:
         observed_large_order_size_avg_inverted = self._normalize_series(observed_large_order_size_avg_raw, df_index, ascending=False)
         market_impact_cost_inverted = self._normalize_series(market_impact_cost_raw, df_index, ascending=False)
         main_force_flow_directionality_neutrality = 1 - self._normalize_series(main_force_flow_directionality_raw.abs(), df_index, ascending=True)
-        # 新增：主力资金净流波动率反向
-        main_force_net_flow_volatility_inverted = self._normalize_series(mf_net_flow_std_raw, df_index, ascending=False) # 修改代码行
+        main_force_net_flow_volatility_inverted = self._normalize_series(mf_net_flow_std_raw, df_index, ascending=False)
+        # 新增：主力资金流模糊性
+        mf_net_flow_near_zero = 1 - self._normalize_series(mf_net_flow_raw.abs(), df_index, ascending=True) # 修改代码行
+        main_force_flow_ambiguity = (main_force_flow_directionality_neutrality + mf_net_flow_near_zero) / 2 # 修改代码行
         main_force_covert_intent_scores_dict = {
             'stealth_ops': stealth_ops_normalized, 'split_order_accum': split_order_accum_normalized,
             'mf_conviction_positive': mf_conviction_positive, 'mf_net_flow_positive': mf_net_flow_positive,
@@ -1746,7 +1746,8 @@ class ProcessIntelligence:
             'mf_vwap_guidance_neutrality': mf_vwap_guidance_neutrality, 'vwap_control_neutrality': vwap_control_neutrality,
             'observed_large_order_size_avg_inverted': observed_large_order_size_avg_inverted, 'market_impact_cost_inverted': market_impact_cost_inverted,
             'main_force_flow_directionality_neutrality': main_force_flow_directionality_neutrality,
-            'main_force_net_flow_volatility_inverted': main_force_net_flow_volatility_inverted # 修改代码行
+            'main_force_net_flow_volatility_inverted': main_force_net_flow_volatility_inverted,
+            'main_force_flow_ambiguity': main_force_flow_ambiguity # 修改代码行
         }
         main_force_covert_intent_score = _robust_geometric_mean(main_force_covert_intent_scores_dict, main_force_covert_intent_weights, df_index)
 
@@ -1760,21 +1761,27 @@ class ProcessIntelligence:
         hurst_calm = (1 - (hurst_raw - 0.5).abs() / 0.5).clip(0, 1)
         sentiment_neutrality = 1 - self._normalize_series(market_sentiment_raw.abs(), df_index, ascending=True)
         sentiment_pendulum_neutrality = 1 - self._normalize_series(sentiment_pendulum_score.abs(), df_index, bipolar=True).abs()
-        # 新增：市场情绪波动率反向
-        sentiment_volatility_inverted = self._normalize_series(market_sentiment_std_raw, df_index, ascending=False) # 修改代码行
-        # 新增：情绪钟摆波动率反向
-        sentiment_pendulum_volatility_inverted = self._normalize_series(sentiment_pendulum_std_raw, df_index, ascending=False) # 修改代码行
-        # 新增：长期情绪低迷
-        long_term_sentiment_subdued = self._normalize_series(market_sentiment_long_term_mean - market_sentiment_raw, df_index, ascending=True) # 修改代码行
+        sentiment_volatility_inverted = self._normalize_series(market_sentiment_std_raw, df_index, ascending=False)
+        sentiment_pendulum_volatility_inverted = self._normalize_series(sentiment_pendulum_std_raw, df_index, ascending=False)
+        long_term_sentiment_subdued = self._normalize_series(market_sentiment_long_term_mean - market_sentiment_raw, df_index, ascending=True)
+        # 新增：市场情绪非极端性
+        market_sentiment_not_extreme = (1 - (market_sentiment_raw.abs() - sentiment_neutral_range).clip(lower=0) / (market_sentiment_raw.abs().max() - sentiment_neutral_range + 1e-9)).clip(0, 1) # 修改代码行
+        # 新增：情绪钟摆非极端性
+        sentiment_pendulum_not_extreme = (1 - (sentiment_pendulum_score.abs() - sentiment_pendulum_neutral_range).clip(lower=0) / (sentiment_pendulum_score.abs().max() - sentiment_pendulum_neutral_range + 1e-9)).clip(0, 1) # 修改代码行
+        # 新增：市场情绪无聊度
+        market_sentiment_boring_score = _robust_geometric_mean({'volatility_inverted': sentiment_volatility_inverted, 'not_extreme': market_sentiment_not_extreme}, {'volatility_inverted': 0.5, 'not_extreme': 0.5}, df_index) # 修改代码行
         subdued_market_sentiment_scores_dict = {
             'sentiment_pendulum_negative': sentiment_pendulum_negative, 'market_sentiment_inverted': market_sentiment_inverted,
             'retail_panic_inverted': retail_panic_inverted, 'retail_fomo_inverted': retail_fomo_inverted,
             'loser_pain_positive': loser_pain_positive,
             'liquidity_tide_calm': liquidity_tide_calm, 'hurst_calm': hurst_calm,
             'sentiment_neutrality': sentiment_neutrality, 'sentiment_pendulum_neutrality': sentiment_pendulum_neutrality,
-            'sentiment_volatility_inverted': sentiment_volatility_inverted, # 修改代码行
-            'sentiment_pendulum_volatility_inverted': sentiment_pendulum_volatility_inverted, # 修改代码行
-            'long_term_sentiment_subdued': long_term_sentiment_subdued # 修改代码行
+            'sentiment_volatility_inverted': sentiment_volatility_inverted,
+            'sentiment_pendulum_volatility_inverted': sentiment_pendulum_volatility_inverted,
+            'long_term_sentiment_subdued': long_term_sentiment_subdued,
+            'market_sentiment_not_extreme': market_sentiment_not_extreme, # 修改代码行
+            'sentiment_pendulum_not_extreme': sentiment_pendulum_not_extreme, # 修改代码行
+            'market_sentiment_boring_score': market_sentiment_boring_score # 修改代码行
         }
         subdued_market_sentiment_score = _robust_geometric_mean(subdued_market_sentiment_scores_dict, subdued_market_sentiment_weights, df_index)
 
@@ -1883,7 +1890,7 @@ class ProcessIntelligence:
             print(f"    - observed_large_order_size_avg_D: {observed_large_order_size_avg_raw.iloc[last_date_index]:.4f}")
             print(f"    - market_impact_cost_D: {market_impact_cost_raw.iloc[last_date_index]:.4f}")
             print(f"    - main_force_flow_directionality_D: {main_force_flow_directionality_raw.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_net_flow_calibrated_D_rolling_std: {mf_net_flow_std_raw.iloc[last_date_index]:.4f}") # 修改代码行
+            print(f"    - main_force_net_flow_calibrated_D_rolling_std: {mf_net_flow_std_raw.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
             print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
             print(f"    - retail_panic_surrender_index_D: {retail_panic_raw.iloc[last_date_index]:.4f}")
@@ -1891,9 +1898,9 @@ class ProcessIntelligence:
             print(f"    - loser_pain_index_D: {loser_pain_raw.iloc[last_date_index]:.4f}")
             print(f"    - liquidity_tide_score: {liquidity_tide_score.iloc[last_date_index]:.4f}")
             print(f"    - HURST_144d_D: {hurst_raw.iloc[last_date_index]:.4f}")
-            print(f"    - market_sentiment_score_D_rolling_std: {market_sentiment_std_raw.iloc[last_date_index]:.4f}") # 修改代码行
-            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM_rolling_std: {sentiment_pendulum_std_raw.iloc[last_date_index]:.4f}") # 修改代码行
-            print(f"    - market_sentiment_score_D_long_term_mean: {market_sentiment_long_term_mean.iloc[last_date_index]:.4f}") # 修改代码行
+            print(f"    - market_sentiment_score_D_rolling_std: {market_sentiment_std_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM_rolling_std: {sentiment_pendulum_std_raw.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_score_D_long_term_mean: {market_sentiment_long_term_mean.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_STRUCT_BREAKOUT_READINESS: {struct_breakout_readiness_score.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_STRUCT_PLATFORM_FOUNDATION: {struct_platform_foundation_score.iloc[last_date_index]:.4f}")
             print(f"    - goodness_of_fit_score_D: {goodness_of_fit_raw.iloc[last_date_index]:.4f}")
@@ -1946,7 +1953,8 @@ class ProcessIntelligence:
             print(f"    - observed_large_order_size_avg_inverted: {observed_large_order_size_avg_inverted.iloc[last_date_index]:.4f}")
             print(f"    - market_impact_cost_inverted: {market_impact_cost_inverted.iloc[last_date_index]:.4f}")
             print(f"    - main_force_flow_directionality_neutrality: {main_force_flow_directionality_neutrality.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_net_flow_volatility_inverted: {main_force_net_flow_volatility_inverted.iloc[last_date_index]:.4f}") # 修改代码行
+            print(f"    - main_force_net_flow_volatility_inverted: {main_force_net_flow_volatility_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_flow_ambiguity: {main_force_flow_ambiguity.iloc[last_date_index]:.4f}") # 修改代码行
             print(f"    - main_force_covert_intent_score: {main_force_covert_intent_score.iloc[last_date_index]:.4f}")
             print(f"    - sentiment_pendulum_negative: {sentiment_pendulum_negative.iloc[last_date_index]:.4f}")
             print(f"    - market_sentiment_inverted: {market_sentiment_inverted.iloc[last_date_index]:.4f}")
@@ -1957,9 +1965,12 @@ class ProcessIntelligence:
             print(f"    - hurst_calm: {hurst_calm.iloc[last_date_index]:.4f}")
             print(f"    - sentiment_neutrality: {sentiment_neutrality.iloc[last_date_index]:.4f}")
             print(f"    - sentiment_pendulum_neutrality: {sentiment_pendulum_neutrality.iloc[last_date_index]:.4f}")
-            print(f"    - sentiment_volatility_inverted: {sentiment_volatility_inverted.iloc[last_date_index]:.4f}") # 修改代码行
-            print(f"    - sentiment_pendulum_volatility_inverted: {sentiment_pendulum_volatility_inverted.iloc[last_date_index]:.4f}") # 修改代码行
-            print(f"    - long_term_sentiment_subdued: {long_term_sentiment_subdued.iloc[last_date_index]:.4f}") # 修改代码行
+            print(f"    - sentiment_volatility_inverted: {sentiment_volatility_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - sentiment_pendulum_volatility_inverted: {sentiment_pendulum_volatility_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - long_term_sentiment_subdued: {long_term_sentiment_subdued.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_not_extreme: {market_sentiment_not_extreme.iloc[last_date_index]:.4f}") # 修改代码行
+            print(f"    - sentiment_pendulum_not_extreme: {sentiment_pendulum_not_extreme.iloc[last_date_index]:.4f}") # 修改代码行
+            print(f"    - market_sentiment_boring_score: {market_sentiment_boring_score.iloc[last_date_index]:.4f}") # 修改代码行
             print(f"    - subdued_market_sentiment_score: {subdued_market_sentiment_score.iloc[last_date_index]:.4f}")
             print(f"    - breakout_readiness_score: {breakout_readiness_score.iloc[last_date_index]:.4f}")
             print(f"    - goodness_of_fit_score: {goodness_of_fit_score.iloc[last_date_index]:.4f}")
@@ -1979,7 +1990,7 @@ class ProcessIntelligence:
             print(f"    - final_storm_eye_calm_score: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
-
+    
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         """
         【V1.2 · 数据脉络贯通版】可复用的元分析核心引擎。

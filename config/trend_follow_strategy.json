@@ -848,32 +848,62 @@
         },
         "liquidity_drain_params": {
           "enabled": true,
-          "description": "【V2.0 · 恐慌瀑布协议】流动性枯竭风险诊断参数。",
+          "description": "【V3.0 · 混沌深渊协议】流动性枯竭风险诊断参数。在“恐慌瀑布协议”基础上深度进化，旨在更早期、更精准地识别由恐慌抛售、买盘抵抗瓦解、市场流动性枯竭以及市场结构混沌脆弱共同驱动的系统性风险。",
           "fusion_weights": {
-            "panic_selling_intensity": 0.35,
-            "resistance_collapse": 0.35,
-            "liquidity_exhaustion_evidence": 0.3
+            "panic_selling_intensity": 0.3,
+            "resistance_collapse": 0.3,
+            "liquidity_exhaustion_evidence": 0.25,
+            "chaos_fragility": 0.15
           },
           "panic_selling_intensity_weights": {
-            "panic_cascade": 0.3,
-            "active_selling_pressure": 0.3,
-            "retail_panic_surrender": 0.2,
-            "price_drop_magnitude": 0.2
+            "panic_cascade": 0.2,
+            "active_selling_pressure": 0.2,
+            "retail_panic_surrender": 0.15,
+            "price_drop_magnitude": 0.15,
+            "main_force_net_flow_negative": 0.15,
+            "sell_sweep_intensity": 0.1,
+            "loser_pain_index": 0.05
           },
           "resistance_collapse_weights": {
-            "downward_resistance_inverse": 0.4,
-            "active_buying_support_inverse": 0.3,
-            "vwap_control_negative": 0.3
+            "downward_resistance_inverse": 0.25,
+            "active_buying_support_inverse": 0.2,
+            "vwap_control_negative": 0.15,
+            "buy_quote_exhaustion_inverse": 0.15,
+            "support_validation_inverse": 0.15,
+            "chip_fatigue_index": 0.1
           },
           "liquidity_exhaustion_evidence_weights": {
-            "sell_quote_exhaustion": 0.3,
-            "order_book_imbalance_negative": 0.3,
-            "volume_structure_skew_negative": 0.2,
-            "micro_price_impact_asymmetry_negative": 0.2
+            "sell_quote_exhaustion": 0.2,
+            "order_book_imbalance_negative": 0.2,
+            "volume_structure_skew_negative": 0.15,
+            "micro_price_impact_asymmetry_negative": 0.15,
+            "ask_side_liquidity_inverse": 0.1,
+            "bid_side_liquidity_inverse": 0.1,
+            "market_impact_cost": 0.1
           },
-          "final_exponent": 1.5,
-          "min_price_drop_pct_threshold": 0.005,
-          "comment_min_price_drop_pct_threshold": "触发流动性枯竭风险的最小价格跌幅百分比。"
+          "chaos_fragility_weights": {
+            "bid_liquidity_sample_entropy_inverse": 0.3,
+            "bid_liquidity_fractal_dimension_inverse": 0.3,
+            "price_volume_entropy": 0.2,
+            "volatility_expansion_ratio": 0.2
+          },
+          "mtf_slope_accel_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "34": 0.05,
+            "55": 0.05
+          },
+          "final_exponent": 1.8,
+          "dynamic_threshold_params": {
+            "enabled": true,
+            "base_threshold": 0.005,
+            "atr_multiplier": 0.5,
+            "min_atr_period": 14,
+            "volatility_index_weight": 0.3,
+            "volatility_index_period": 21
+          },
+          "comment_min_price_drop_pct_threshold": "触发流动性枯竭风险的最小价格跌幅百分比，现在可动态调整。"
         },
         "lockup_rally_params": {
           "enabled": true,
@@ -1411,7 +1441,7 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V6.0 · 深度情境自适应版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、多时间框架波动率收缩动态、势能稳定性、市场张力、价格样本熵、价量熵、价格分形维数平静、成交量结构偏度、成交量轮廓熵）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、多时间框架换手率萎缩动态、微观订单簿不平衡、微观价格冲击对称性、买卖方流动性、VPIN、买方流动性样本熵、成交量结构偏度、成交量轮廓熵、原始换手率）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、多时间框架净流量加速、微观订单簿不平衡、微观价格冲击优势、主力VWAP引导中性度、VWAP买卖方控制中性度、大单平均规模反向、市场冲击成本反向、主力资金流向中性度）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦、流动性潮汐平静、Hurst平静、市场情绪中性度、情绪钟摆中性度）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。新增MTF协同性维度，评估多个关键指标在MTF层面的协同性。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。新增市场情境动态调节器，根据波动率和趋势强度动态调整各维度权重。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。",
+            "description": "【V8.0 · 情绪与主力意图精炼版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、多时间框架波动率收缩动态、势能稳定性、市场张力、价格样本熵、价量熵、价格分形维数平静、成交量结构偏度、成交量轮廓熵）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、多时间框架换手率萎缩动态、微观订单簿不平衡、微观价格冲击对称性、买卖方流动性、VPIN、买方流动性样本熵、成交量结构偏度、成交量轮廓熵、原始换手率）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、多时间框架净流量加速、微观订单簿不平衡、微观价格冲击优势、主力VWAP引导中性度、VWAP买卖方控制中性度、大单平均规模反向、市场冲击成本反向、主力资金流向中性度、主力资金净流波动率反向、主力资金流模糊性）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦、流动性潮汐平静、Hurst平静、市场情绪中性度、情绪钟摆中性度、市场情绪波动率反向、情绪钟摆波动率反向、长期情绪低迷、市场情绪非极端性、情绪钟摆非极端性、市场情绪无聊度）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。新增MTF协同性维度，评估多个关键指标在MTF层面的协同性。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。新增市场情境动态调节器，根据波动率和趋势强度动态调整各维度权重。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。",
             "storm_eye_calm_params": {
               "energy_compression_weights": {
                 "tension": 0.2,
@@ -1461,18 +1491,26 @@
                 "vwap_control_neutrality": 0.05,
                 "observed_large_order_size_avg_inverted": 0.025,
                 "market_impact_cost_inverted": 0.025,
-                "main_force_flow_directionality_neutrality": 0.05
+                "main_force_flow_directionality_neutrality": 0.05,
+                "main_force_net_flow_volatility_inverted": 0.05,
+                "main_force_flow_ambiguity": 0.05
               },
               "subdued_market_sentiment_weights": {
-                "sentiment_pendulum_negative": 0.15,
-                "market_sentiment_inverted": 0.15,
-                "retail_panic_inverted": 0.1,
-                "retail_fomo_inverted": 0.1,
-                "loser_pain_positive": 0.1,
+                "sentiment_pendulum_negative": 0.075,
+                "market_sentiment_inverted": 0.075,
+                "retail_panic_inverted": 0.05,
+                "retail_fomo_inverted": 0.05,
+                "loser_pain_positive": 0.05,
                 "liquidity_tide_calm": 0.075,
                 "hurst_calm": 0.075,
-                "sentiment_neutrality": 0.15,
-                "sentiment_pendulum_neutrality": 0.15
+                "sentiment_neutrality": 0.1,
+                "sentiment_pendulum_neutrality": 0.1,
+                "sentiment_volatility_inverted": 0.075,
+                "sentiment_pendulum_volatility_inverted": 0.05,
+                "long_term_sentiment_subdued": 0.05,
+                "market_sentiment_not_extreme": 0.1,
+                "sentiment_pendulum_not_extreme": 0.075,
+                "market_sentiment_boring_score": 0.05
               },
               "breakout_readiness_weights": {
                 "struct_breakout_readiness": 0.3,
@@ -1518,7 +1556,12 @@
                 "min_modulator": 0.8,
                 "max_modulator": 1.2
               },
-              "mtf_cohesion_base_signals": ["close_D", "volume_D", "main_force_net_flow_calibrated_D", "VOLATILITY_INSTABILITY_INDEX_21d_D", "turnover_rate_f_D", "BBW_21_2.0_D", "main_force_flow_directionality_D", "volume_structure_skew_D"]
+              "mtf_cohesion_base_signals": ["close_D", "volume_D", "main_force_net_flow_calibrated_D", "VOLATILITY_INSTABILITY_INDEX_21d_D", "turnover_rate_f_D", "BBW_21_2.0_D", "main_force_flow_directionality_D", "volume_structure_skew_D"],
+              "sentiment_volatility_window": 21,
+              "long_term_sentiment_window": 55,
+              "main_force_flow_volatility_window": 21,
+              "sentiment_neutral_range": 1.0,
+              "sentiment_pendulum_neutral_range": 0.2
             }
           },
           {
