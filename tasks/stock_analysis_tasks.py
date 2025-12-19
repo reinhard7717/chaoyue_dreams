@@ -19,6 +19,8 @@ import pandas_ta as ta
 from django.db import transaction, connection
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from stock_models.stock_analytics import StrategyDailyScore, TradingSignal, PositionTracker, DailyPositionSnapshot
+from services.position_snapshot_service import PositionSnapshotService
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.advanced_metrics import (

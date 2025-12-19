@@ -183,6 +183,7 @@ class GeometricPatternService:
         【V2.54 · 残影修正版】执行所有几何形态的计算和存储。
         - V2.54 核心修复: 修正了因方法重命名（_predict_flag_breakout_probability -> _find_and_evaluate_flags）
                          而遗漏更新的调用点，根除了由此引发的 AttributeError。
+        - V2.57 核心修复: 增加对平台数据删除操作的日志输出，以追踪数据回滚行为。
         """
         # 移除了所有探针print语句
         df_daily = data_dfs.get('daily_data')
@@ -194,7 +195,7 @@ class GeometricPatternService:
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in df_daily.columns:
-                df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce')
+                df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce') # 修改代码行：将df改为df_daily
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
         data_dfs['enriched_df'] = enriched_df
@@ -209,6 +210,7 @@ class GeometricPatternService:
                 stock=self.stock_instance,
                 start_date__gte=start_date_str
             ).delete()
+            print(f"[{self.stock_code}] [平台计算] 因 start_date_str='{start_date_str}'，删除了 {deleted_count} 条平台特征记录。") # 新增调试信息
         self._calculate_and_save_platforms(enriched_df, data_dfs)
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
         # V2.54 修正方法调用，使用新的方法名 _find_and_evaluate_flags
@@ -228,11 +230,13 @@ class GeometricPatternService:
                          确保参照系校准后的序列不再被错误地二次归一化。
         - V2.55 核心修复: 增加对所有可能产生 NaN/Infinity 的数值字段进行检查和转换，
                          确保在保存到 MySQL 数据库前，所有数值都是有效的浮点数或 None。
+        - V2.56 核心修复: 增加事务管理和更详细的保存日志，以诊断数据未存入数据库的问题。
         """
         import math
-        print(f"[{self.stock_code}] [平台计算] 开始执行 _calculate_and_save_platforms 方法。") # 新增调试信息
+        from django.db import transaction # 新增代码行：导入transaction
+        print(f"[{self.stock_code}] [平台计算] 开始执行 _calculate_and_save_platforms 方法。")
         if enriched_df is None or enriched_df.empty:
-            print(f"[{self.stock_code}] [平台计算] enriched_df 为空，跳过平台计算。") # 新增调试信息
+            print(f"[{self.stock_code}] [平台计算] enriched_df 为空，跳过平台计算。")
             return
         if len(enriched_df) < 120:
             print(f"[{self.stock_code}] [平台计算] enriched_df 数据不足 {len(enriched_df)} 天，跳过平台计算。")
@@ -293,7 +297,7 @@ class GeometricPatternService:
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
             if not possible_end_dates.empty:
                 raw_candidates.append((start_date, possible_end_dates[0]))
-        print(f"[{self.stock_code}] [平台计算] 发现 {len(raw_candidates)} 个原始平台候选。") # 新增调试信息
+        print(f"[{self.stock_code}] [平台计算] 发现 {len(raw_candidates)} 个原始平台候选。")
         platforms_to_save = []
         saved_start_dates = set()
         minute_map = data_dfs.get("stock_minute_data_map", {})
@@ -303,13 +307,13 @@ class GeometricPatternService:
             if start_date in saved_start_dates:
                 continue
             group = df_copy.loc[start_date:end_date]
-            if group.empty: # 新增调试信息
-                print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 为空，跳过。") # 新增调试信息
+            if group.empty:
+                print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 为空，跳过。")
                 continue
             platform_high = group['high_qfq'].max()
             platform_low = group['low_qfq'].min()
             if platform_low == 0:
-                print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 的最低价为0，跳过。") # 新增调试信息
+                print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 的最低价为0，跳过。")
                 continue
             price_range_pct = (platform_high - platform_low) / platform_low
             # V2.53 在计算rss时，关闭内部归一化
@@ -411,27 +415,31 @@ class GeometricPatternService:
             platforms_to_save.append(platform_data)
             saved_start_dates.add(start_date)
         found_count = len(platforms_to_save)
-        print(f"[{self.stock_code}] [平台计算] 最终确定 {found_count} 个平台待保存。") # 新增调试信息
+        print(f"[{self.stock_code}] [平台计算] 最终确定 {found_count} 个平台待保存。")
         if found_count > 0:
-            for data in platforms_to_save:
-                # 最终兜底：对所有浮点数值进行 NaN/Infinity 检查并转换为 None
-                sanitized_data = {}
-                for k, v in data.items():
-                    if isinstance(v, (float, np.floating)):
-                        if np.isnan(v) or np.isinf(v):
-                            sanitized_data[k] = None
+            with transaction.atomic(): # 新增代码行：引入事务管理
+                for data in platforms_to_save:
+                    # 最终兜底：对所有浮点数值进行 NaN/Infinity 检查并转换为 None
+                    sanitized_data = {}
+                    for k, v in data.items():
+                        if isinstance(v, (float, np.floating)):
+                            if np.isnan(v) or np.isinf(v):
+                                sanitized_data[k] = None
+                            else:
+                                sanitized_data[k] = v
                         else:
                             sanitized_data[k] = v
-                    else:
-                        sanitized_data[k] = v
-                print(f"[{self.stock_code}] [平台保存] 准备保存平台数据: {sanitized_data}") # 调试信息
-                try: # 新增try-except块
-                    self.platform_model.objects.update_or_create(
-                        stock=sanitized_data['stock'], start_date=sanitized_data['start_date'], defaults=sanitized_data
-                    )
-                    print(f"[{self.stock_code}] [平台保存] 成功保存平台数据: {sanitized_data['start_date']} - {sanitized_data['end_date']}") # 新增调试信息
-                except Exception as e:
-                    print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}") # 新增调试信息
+                    print(f"[{self.stock_code}] [平台保存] 准备保存平台数据: {sanitized_data}")
+                    try:
+                        obj, created = self.platform_model.objects.update_or_create( # 修改代码行：捕获created标志
+                            stock=sanitized_data['stock'], start_date=sanitized_data['start_date'], defaults=sanitized_data
+                        )
+                        if created: # 新增代码行：根据created标志输出不同信息
+                            print(f"[{self.stock_code}] [平台保存] 成功创建新平台数据: {obj.start_date} - {obj.end_date}")
+                        else: # 新增代码行：根据created标志输出不同信息
+                            print(f"[{self.stock_code}] [平台保存] 成功更新现有平台数据: {obj.start_date} - {obj.end_date}")
+                    except Exception as e:
+                        print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}")
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.DataFrame:
         """
