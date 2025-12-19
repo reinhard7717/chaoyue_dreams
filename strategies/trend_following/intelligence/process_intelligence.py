@@ -515,19 +515,19 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V5.6 · 帅帐中军版】过程情报分析总指挥
-        - 核心升级: 建立“帅帐中军”调度机制。通过定义一个“基石信号”清单，按依赖顺序优先计算
-                      如“权力转移”、“主力拉升意图”等被广泛依赖的核心信号，确保无论配置文件顺序如何，
-                      依赖关系都能被满足，彻底解决因计算顺序错误导致的崩溃问题。
+        【V5.7 · 基石信号增强版】过程情报分析总指挥
+        - 核心升级: 扩展“基石信号”清单，将 `PROCESS_META_COVERT_ACCUMULATION` 纳入优先计算，
+                      确保其在被其他信号依赖时已就绪。
         """
-        print("启动【V5.6 · 帅帐中军版】过程情报分析...")
+        print("启动【V5.7 · 基石信号增强版】过程情报分析...") # 修改代码行
         all_process_states = {}
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
-        # [新增] 定义需要优先计算的“基石信号”清单
+        # [修改] 定义需要优先计算的“基石信号”清单，新增 PROCESS_META_COVERT_ACCUMULATION
         priority_signals = [
             'PROCESS_META_POWER_TRANSFER',
-            'PROCESS_META_MAIN_FORCE_RALLY_INTENT'
+            'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
+            'PROCESS_META_COVERT_ACCUMULATION' # 修改代码行
         ]
         # [修改] 依赖前置处理逻辑，遍历基石信号清单
         processed_priority_signals = set()
@@ -558,7 +558,7 @@ class ProcessIntelligence:
             elif isinstance(score, dict):
                 all_process_states.update(score)
                 self.strategy.atomic_states.update(score)
-        print(f"【V5.6 · 帅帐中军版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
+        print(f"【V5.7 · 基石信号增强版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # 修改代码行
         return all_process_states
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:

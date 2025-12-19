@@ -821,26 +821,38 @@
         },
         "day_quality_protocol_params": {
           "enabled": true,
-          "description": "【V2.0 · 战役复盘与叙事裁决版】日内行为K线质量分计算参数。",
+          "description": "【V3.0 · 战役复盘与叙事裁决增强版】日内行为K线质量分计算参数。",
           "outcome_weights": {
-            "intraday_posture": 0.4,
-            "closing_strength": 0.3,
-            "pct_change": 0.3
+            "intraday_posture": 0.3,
+            "closing_strength": 0.25,
+            "pct_change": 0.25,
+            "auction_closing_position": 0.1,
+            "closing_conviction": 0.1
           },
           "process_weights": {
-            "microstructure_efficiency": 0.4,
-            "impulse_quality": 0.3,
-            "vwap_control": 0.3
+            "microstructure_efficiency": 0.3,
+            "impulse_quality": 0.25,
+            "vwap_control": 0.25,
+            "main_force_activity": 0.1,
+            "intraday_energy_density": 0.1
           },
           "narrative_weights": {
-            "closing_auction_ambush_inverse": 0.4,
-            "deception_lure_long_inverse": 0.3,
-            "deception_lure_short_positive": 0.3
+            "closing_auction_ambush_inverse": 0.25,
+            "deception_lure_long_inverse": 0.2,
+            "deception_lure_short_positive": 0.2,
+            "wash_trade_intensity_inverse": 0.2,
+            "main_force_slippage_inverse": 0.15
+          },
+          "behavioral_cohesion_weights": {
+            "trend_conviction": 0.35,
+            "trend_efficiency": 0.35,
+            "trend_asymmetry": 0.3
           },
           "fusion_weights": {
-            "outcome_assessment": 0.4,
-            "process_quality": 0.3,
-            "narrative_integrity": 0.3
+            "outcome_assessment": 0.3,
+            "process_quality": 0.25,
+            "narrative_integrity": 0.25,
+            "behavioral_cohesion": 0.2
           },
           "context_modulator_params": {
             "enabled": true,
@@ -850,7 +862,26 @@
             "sentiment_sensitivity": 0.2,
             "base_modulator_factor": 1.0,
             "min_modulator": 0.8,
-            "max_modulator": 1.2
+            "max_modulator": 1.2,
+            "dynamic_fusion_weights_enabled": true,
+            "dynamic_fusion_weights_base": {
+                "outcome_assessment": 0.3,
+                "process_quality": 0.25,
+                "narrative_integrity": 0.25,
+                "behavioral_cohesion": 0.2
+            },
+            "volatility_impact_weights": {
+                "outcome_assessment": -0.05,
+                "process_quality": 0.1,
+                "narrative_integrity": 0.05,
+                "behavioral_cohesion": 0.0
+            },
+            "sentiment_impact_weights": {
+                "outcome_assessment": 0.05,
+                "process_quality": 0.0,
+                "narrative_integrity": -0.05,
+                "behavioral_cohesion": 0.0
+            }
           },
           "final_exponent": 1.2,
           "tf_weights": {
@@ -861,6 +892,15 @@
             "closing_auction_ambush": {"5": 0.5, "13": 0.3, "21": 0.2},
             "deception_lure_long": {"5": 0.5, "13": 0.3, "21": 0.2},
             "deception_lure_short": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "wash_trade_intensity": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "main_force_slippage": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "auction_closing_position": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "closing_conviction": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "main_force_activity": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "intraday_energy_density": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "trend_conviction": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+            "trend_efficiency": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+            "trend_asymmetry": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
             "volatility_instability": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
             "market_sentiment": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
           }

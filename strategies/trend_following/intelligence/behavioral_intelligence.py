@@ -210,13 +210,14 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 战役复盘与叙事裁决版】行为K线质量分计算引擎
-        - 核心重构: 将日内K线质量视为一场“战役复盘”，从“战役结果”、“战役过程”和“战役叙事”三个维度进行深度评估。
-        - 战役结果: 融合日内姿态分、收盘强度和日涨跌幅。
-        - 战役过程: 融合微观结构效率、脉冲质量和VWAP控制强度。
-        - 战役叙事: 融合尾盘偷袭、诱多欺骗和诱空欺骗。
+        【V3.0 · 战役复盘与叙事裁决增强版】行为K线质量分计算引擎
+        - 核心重构: 将日内K线质量视为一场“战役复盘”，从“战役结果”、“战役过程”、“战役叙事”和“行为协同”四个维度进行深度评估。
+        - 战役结果: 融合日内姿态分、收盘强度、日涨跌幅、竞价收盘位置和收盘信念。
+        - 战役过程: 融合微观结构效率、脉冲质量、VWAP控制强度、主力活跃度和日内能量密度。
+        - 战役叙事: 融合尾盘偷袭、诱多欺骗、诱空欺骗、对倒强度和主力滑点。
+        - 行为协同: 融合趋势信念、趋势效率和趋势不对称性。
         - 情境调制: 引入波动率不稳定性、市场情绪等情境调制器进行动态调整。
-        - 融合逻辑: 采用加权几何平均融合三大维度，并应用非线性变换。
+        - 融合逻辑: 采用加权几何平均融合四大维度，并应用非线性变换。
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         - 【修正】移除启用判断，该信号将始终启用。
         """
@@ -230,26 +231,34 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
+
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('day_quality_protocol_params'), {})
-        outcome_weights = get_param_value(params.get('outcome_weights'), {"intraday_posture": 0.4, "closing_strength": 0.3, "pct_change": 0.3})
-        process_weights = get_param_value(params.get('process_weights'), {"microstructure_efficiency": 0.4, "impulse_quality": 0.3, "vwap_control": 0.3})
-        narrative_weights = get_param_value(params.get('narrative_weights'), {"closing_auction_ambush_inverse": 0.4, "deception_lure_long_inverse": 0.3, "deception_lure_short_positive": 0.3})
-        fusion_weights = get_param_value(params.get('fusion_weights'), {"outcome_assessment": 0.4, "process_quality": 0.3, "narrative_integrity": 0.3})
+
+        outcome_weights = get_param_value(params.get('outcome_weights'), {"intraday_posture": 0.3, "closing_strength": 0.25, "pct_change": 0.25, "auction_closing_position": 0.1, "closing_conviction": 0.1})
+        process_weights = get_param_value(params.get('process_weights'), {"microstructure_efficiency": 0.3, "impulse_quality": 0.25, "vwap_control": 0.25, "main_force_activity": 0.1, "intraday_energy_density": 0.1})
+        narrative_weights = get_param_value(params.get('narrative_weights'), {"closing_auction_ambush_inverse": 0.25, "deception_lure_long_inverse": 0.2, "deception_lure_short_positive": 0.2, "wash_trade_intensity_inverse": 0.2, "main_force_slippage_inverse": 0.15})
+        behavioral_cohesion_weights = get_param_value(params.get('behavioral_cohesion_weights'), {"trend_conviction": 0.35, "trend_efficiency": 0.35, "trend_asymmetry": 0.3})
+        fusion_weights = get_param_value(params.get('fusion_weights'), {"outcome_assessment": 0.3, "process_quality": 0.25, "narrative_integrity": 0.25, "behavioral_cohesion": 0.2})
         context_modulator_params = get_param_value(params.get('context_modulator_params'), {})
         final_exponent = get_param_value(params.get('final_exponent'), 1.2)
         tf_weights_config = get_param_value(params.get('tf_weights'), {})
         default_tf_weights = get_param_value(tf_weights_config.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+
         # --- 1. 获取所有原始数据 ---
         required_signals = [
             'intraday_posture_score_D', 'microstructure_efficiency_index_D', 'impulse_quality_ratio_D',
             'closing_strength_index_D', 'pct_change_D', 'vwap_control_strength_D',
             'closing_auction_ambush_D', 'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'market_sentiment_score_D'
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'market_sentiment_score_D',
+            'auction_closing_position_D', 'closing_conviction_score_D', 'main_force_activity_ratio_D',
+            'intraday_energy_density_D', 'wash_trade_intensity_D', 'main_force_slippage_index_D',
+            'trend_conviction_score_D', 'trend_efficiency_ratio_D', 'trend_asymmetry_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少核心信号，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+
         intraday_posture_raw = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name=method_name)
         closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name=method_name)
         pct_change_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
@@ -261,6 +270,16 @@ class BehavioralIntelligence:
         deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
+        auction_closing_position_raw = self._get_safe_series(df, 'auction_closing_position_D', 0.0, method_name=method_name)
+        closing_conviction_raw = self._get_safe_series(df, 'closing_conviction_score_D', 0.0, method_name=method_name)
+        main_force_activity_raw = self._get_safe_series(df, 'main_force_activity_ratio_D', 0.0, method_name=method_name)
+        intraday_energy_density_raw = self._get_safe_series(df, 'intraday_energy_density_D', 0.0, method_name=method_name)
+        wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
+        main_force_slippage_raw = self._get_safe_series(df, 'main_force_slippage_index_D', 0.0, method_name=method_name)
+        trend_conviction_raw = self._get_safe_series(df, 'trend_conviction_score_D', 0.0, method_name=method_name)
+        trend_efficiency_raw = self._get_safe_series(df, 'trend_efficiency_ratio_D', 0.0, method_name=method_name)
+        trend_asymmetry_raw = self._get_safe_series(df, 'trend_asymmetry_index_D', 0.0, method_name=method_name)
+
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - intraday_posture_raw: {intraday_posture_raw.loc[probe_ts]:.4f}")
@@ -274,6 +293,16 @@ class BehavioralIntelligence:
             print(f"        - deception_lure_short_raw: {deception_lure_short_raw.loc[probe_ts]:.4f}")
             print(f"        - volatility_instability_raw: {volatility_instability_raw.loc[probe_ts]:.4f}")
             print(f"        - market_sentiment_raw: {market_sentiment_raw.loc[probe_ts]:.4f}")
+            print(f"        - auction_closing_position_raw: {auction_closing_position_raw.loc[probe_ts]:.4f}")
+            print(f"        - closing_conviction_raw: {closing_conviction_raw.loc[probe_ts]:.4f}")
+            print(f"        - main_force_activity_raw: {main_force_activity_raw.loc[probe_ts]:.4f}")
+            print(f"        - intraday_energy_density_raw: {intraday_energy_density_raw.loc[probe_ts]:.4f}")
+            print(f"        - wash_trade_intensity_raw: {wash_trade_intensity_raw.loc[probe_ts]:.4f}")
+            print(f"        - main_force_slippage_raw: {main_force_slippage_raw.loc[probe_ts]:.4f}")
+            print(f"        - trend_conviction_raw: {trend_conviction_raw.loc[probe_ts]:.4f}")
+            print(f"        - trend_efficiency_raw: {trend_efficiency_raw.loc[probe_ts]:.4f}")
+            print(f"        - trend_asymmetry_raw: {trend_asymmetry_raw.loc[probe_ts]:.4f}")
+
         # --- 2. 战役结果评估 (Outcome Assessment) ---
         # 日内姿态分 (已是双极性，映射到 [0, 1])
         intraday_posture_score = (intraday_posture_raw.clip(-1, 1) + 1) / 2
@@ -281,41 +310,65 @@ class BehavioralIntelligence:
         closing_strength_score = get_adaptive_mtf_normalized_score(closing_strength_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('closing_strength'), default_tf_weights), ascending=True)
         # 日涨跌幅 (归一化到 [0, 1])
         pct_change_score = get_adaptive_mtf_normalized_score(pct_change_raw.clip(lower=0), df.index, tf_weights=get_param_value(tf_weights_config.get('pct_change'), default_tf_weights), ascending=True)
+        # 竞价收盘位置 (归一化到 [0, 1])
+        auction_closing_position_score = get_adaptive_mtf_normalized_score(auction_closing_position_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('auction_closing_position'), default_tf_weights), ascending=True)
+        # 收盘信念 (归一化到 [0, 1])
+        closing_conviction_score = get_adaptive_mtf_normalized_score(closing_conviction_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('closing_conviction'), default_tf_weights), ascending=True)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 战役结果子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - intraday_posture_score (norm): {intraday_posture_score.loc[probe_ts]:.4f}")
+            print(f"        - closing_strength_score (norm): {closing_strength_score.loc[probe_ts]:.4f}")
+            print(f"        - pct_change_score (norm): {pct_change_score.loc[probe_ts]:.4f}")
+            print(f"        - auction_closing_position_score (norm): {auction_closing_position_score.loc[probe_ts]:.4f}")
+            print(f"        - closing_conviction_score (norm): {closing_conviction_score.loc[probe_ts]:.4f}")
+
         outcome_assessment_score = _robust_geometric_mean(
             {
                 "intraday_posture": intraday_posture_score,
                 "closing_strength": closing_strength_score,
-                "pct_change": pct_change_score
+                "pct_change": pct_change_score,
+                "auction_closing_position": auction_closing_position_score,
+                "closing_conviction": closing_conviction_score
             },
             outcome_weights,
             df.index
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 战役结果评估 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - intraday_posture_score: {intraday_posture_score.loc[probe_ts]:.4f}")
-            print(f"        - closing_strength_score: {closing_strength_score.loc[probe_ts]:.4f}")
-            print(f"        - pct_change_score: {pct_change_score.loc[probe_ts]:.4f}")
-            print(f"        - outcome_assessment_score: {outcome_assessment_score.loc[probe_ts]:.4f}")
+            print(f"      [探针] {method_name} 战役结果评估分数 @ {probe_ts.strftime('%Y-%m-%d')}: {outcome_assessment_score.loc[probe_ts]:.4f}")
+
         # --- 3. 战役过程质量评估 (Process Quality) ---
         micro_efficiency_score = get_adaptive_mtf_normalized_score(micro_efficiency_raw, df.index, tf_weights=default_tf_weights, ascending=True)
         impulse_quality_score = get_adaptive_mtf_normalized_score(impulse_quality_raw, df.index, tf_weights=default_tf_weights, ascending=True)
         # VWAP控制强度 (已是双极性，映射到 [0, 1])
         vwap_control_score = (vwap_control_raw.clip(-1, 1) + 1) / 2
+        # 主力活跃度 (归一化到 [0, 1])
+        main_force_activity_score = get_adaptive_mtf_normalized_score(main_force_activity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('main_force_activity'), default_tf_weights), ascending=True)
+        # 日内能量密度 (归一化到 [0, 1])
+        intraday_energy_density_score = get_adaptive_mtf_normalized_score(intraday_energy_density_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('intraday_energy_density'), default_tf_weights), ascending=True)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 战役过程子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - micro_efficiency_score (norm): {micro_efficiency_score.loc[probe_ts]:.4f}")
+            print(f"        - impulse_quality_score (norm): {impulse_quality_score.loc[probe_ts]:.4f}")
+            print(f"        - vwap_control_score (norm): {vwap_control_score.loc[probe_ts]:.4f}")
+            print(f"        - main_force_activity_score (norm): {main_force_activity_score.loc[probe_ts]:.4f}")
+            print(f"        - intraday_energy_density_score (norm): {intraday_energy_density_score.loc[probe_ts]:.4f}")
+
         process_quality_score = _robust_geometric_mean(
             {
                 "microstructure_efficiency": micro_efficiency_score,
                 "impulse_quality": impulse_quality_score,
-                "vwap_control": vwap_control_score
+                "vwap_control": vwap_control_score,
+                "main_force_activity": main_force_activity_score,
+                "intraday_energy_density": intraday_energy_density_score
             },
             process_weights,
             df.index
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 战役过程质量评估 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - micro_efficiency_score: {micro_efficiency_score.loc[probe_ts]:.4f}")
-            print(f"        - impulse_quality_score: {impulse_quality_score.loc[probe_ts]:.4f}")
-            print(f"        - vwap_control_score: {vwap_control_score.loc[probe_ts]:.4f}")
-            print(f"        - process_quality_score: {process_quality_score.loc[probe_ts]:.4f}")
+            print(f"      [探针] {method_name} 战役过程质量评估分数 @ {probe_ts.strftime('%Y-%m-%d')}: {process_quality_score.loc[probe_ts]:.4f}")
+
         # --- 4. 战役叙事诚信度 (Narrative Integrity) ---
         # 尾盘偷袭 (反向，归一化到 [0, 1])
         closing_auction_ambush_inverse = (1 - get_adaptive_mtf_normalized_score(closing_auction_ambush_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('closing_auction_ambush'), default_tf_weights), ascending=True)).clip(0, 1)
@@ -323,35 +376,103 @@ class BehavioralIntelligence:
         deception_lure_long_inverse = (1 - get_adaptive_mtf_normalized_score(deception_lure_long_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('deception_lure_long'), default_tf_weights), ascending=True)).clip(0, 1)
         # 诱空欺骗强度 (正向，归一化到 [0, 1])
         deception_lure_short_positive = get_adaptive_mtf_normalized_score(deception_lure_short_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('deception_lure_short'), default_tf_weights), ascending=True)
+        # 对倒强度 (反向，归一化到 [0, 1])
+        wash_trade_intensity_inverse = (1 - get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('wash_trade_intensity'), default_tf_weights), ascending=True)).clip(0, 1)
+        # 主力滑点 (反向，归一化到 [0, 1])
+        main_force_slippage_inverse = (1 - get_adaptive_mtf_normalized_score(main_force_slippage_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('main_force_slippage'), default_tf_weights), ascending=True)).clip(0, 1)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 战役叙事子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - closing_auction_ambush_inverse (norm): {closing_auction_ambush_inverse.loc[probe_ts]:.4f}")
+            print(f"        - deception_lure_long_inverse (norm): {deception_lure_long_inverse.loc[probe_ts]:.4f}")
+            print(f"        - deception_lure_short_positive (norm): {deception_lure_short_positive.loc[probe_ts]:.4f}")
+            print(f"        - wash_trade_intensity_inverse (norm): {wash_trade_intensity_inverse.loc[probe_ts]:.4f}")
+            print(f"        - main_force_slippage_inverse (norm): {main_force_slippage_inverse.loc[probe_ts]:.4f}")
+
         narrative_integrity_score = _robust_geometric_mean(
             {
                 "closing_auction_ambush_inverse": closing_auction_ambush_inverse,
                 "deception_lure_long_inverse": deception_lure_long_inverse,
-                "deception_lure_short_positive": deception_lure_short_positive
+                "deception_lure_short_positive": deception_lure_short_positive,
+                "wash_trade_intensity_inverse": wash_trade_intensity_inverse,
+                "main_force_slippage_inverse": main_force_slippage_inverse
             },
             narrative_weights,
             df.index
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 战役叙事诚信度 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - closing_auction_ambush_inverse: {closing_auction_ambush_inverse.loc[probe_ts]:.4f}")
-            print(f"        - deception_lure_long_inverse: {deception_lure_long_inverse.loc[probe_ts]:.4f}")
-            print(f"        - deception_lure_short_positive: {deception_lure_short_positive.loc[probe_ts]:.4f}")
-            print(f"        - narrative_integrity_score: {narrative_integrity_score.loc[probe_ts]:.4f}")
-        # --- 5. 顶层融合 (加权几何平均) ---
+            print(f"      [探针] {method_name} 战役叙事诚信度分数 @ {probe_ts.strftime('%Y-%m-%d')}: {narrative_integrity_score.loc[probe_ts]:.4f}")
+
+        # --- 5. 行为协同 (Behavioral Cohesion) ---
+        # 趋势信念 (归一化到 [0, 1])
+        trend_conviction_score = get_adaptive_mtf_normalized_score(trend_conviction_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('trend_conviction'), default_tf_weights), ascending=True)
+        # 趋势效率 (归一化到 [0, 1])
+        trend_efficiency_score = get_adaptive_mtf_normalized_score(trend_efficiency_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('trend_efficiency'), default_tf_weights), ascending=True)
+        # 趋势不对称性 (归一化到 [0, 1])
+        trend_asymmetry_score = get_adaptive_mtf_normalized_score(trend_asymmetry_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('trend_asymmetry'), default_tf_weights), ascending=True)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 行为协同子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - trend_conviction_score (norm): {trend_conviction_score.loc[probe_ts]:.4f}")
+            print(f"        - trend_efficiency_score (norm): {trend_efficiency_score.loc[probe_ts]:.4f}")
+            print(f"        - trend_asymmetry_score (norm): {trend_asymmetry_score.loc[probe_ts]:.4f}")
+
+        behavioral_cohesion_score = _robust_geometric_mean(
+            {
+                "trend_conviction": trend_conviction_score,
+                "trend_efficiency": trend_efficiency_score,
+                "trend_asymmetry": trend_asymmetry_score
+            },
+            behavioral_cohesion_weights,
+            df.index
+        )
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 行为协同分数 @ {probe_ts.strftime('%Y-%m-%d')}: {behavioral_cohesion_score.loc[probe_ts]:.4f}")
+
+        # --- 6. 顶层融合 (加权几何平均) ---
+        # 动态调整顶层融合权重
+        dynamic_fusion_weights = fusion_weights.copy()
+        if context_modulator_params.get('dynamic_fusion_weights_enabled', False):
+            volatility_signal_raw = self._get_safe_series(df, context_modulator_params.get('volatility_signal'), 0.0, method_name=method_name)
+            sentiment_signal_raw = self._get_safe_series(df, context_modulator_params.get('sentiment_signal'), 0.0, method_name=method_name)
+            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('volatility_instability'), default_tf_weights), ascending=True)
+            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('market_sentiment'), default_tf_weights), ascending=True)
+
+            base_weights = context_modulator_params.get('dynamic_fusion_weights_base', fusion_weights)
+            volatility_impact = context_modulator_params.get('volatility_impact_weights', {})
+            sentiment_impact = context_modulator_params.get('sentiment_impact_weights', {})
+
+            for dim in dynamic_fusion_weights.keys():
+                dynamic_fusion_weights[dim] = base_weights.get(dim, 0.0) + \
+                                              norm_volatility * volatility_impact.get(dim, 0.0) + \
+                                              norm_sentiment * sentiment_impact.get(dim, 0.0)
+            # 确保权重和为1
+            total_dynamic_weight = sum(dynamic_fusion_weights.values())
+            if total_dynamic_weight > 0:
+                for dim in dynamic_fusion_weights.keys():
+                    dynamic_fusion_weights[dim] /= total_dynamic_weight
+            else: # Fallback to static weights if dynamic weights sum to zero
+                dynamic_fusion_weights = fusion_weights
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 顶层融合动态权重 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            for dim, weight in dynamic_fusion_weights.items():
+                print(f"        - {dim}: {weight:.4f}")
+
         day_quality_base_score = _robust_geometric_mean(
             {
                 "outcome_assessment": outcome_assessment_score,
                 "process_quality": process_quality_score,
-                "narrative_integrity": narrative_integrity_score
+                "narrative_integrity": narrative_integrity_score,
+                "behavioral_cohesion": behavioral_cohesion_score
             },
-            fusion_weights,
+            dynamic_fusion_weights, # 使用动态权重
             df.index
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 顶层融合基础分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - day_quality_base_score: {day_quality_base_score.loc[probe_ts]:.4f}")
-        # --- 6. 情境调制 (Contextual Modulation) ---
+            print(f"      [探针] {method_name} 顶层融合基础分数 @ {probe_ts.strftime('%Y-%m-%d')}: {day_quality_base_score.loc[probe_ts]:.4f}")
+
+        # --- 7. 情境调制 (Contextual Modulation) ---
         dynamic_modulator_factor = pd.Series(1.0, index=df.index)
         if context_modulator_params.get('enabled', False):
             volatility_signal_raw = self._get_safe_series(df, context_modulator_params.get('volatility_signal'), 0.0, method_name=method_name)
@@ -361,9 +482,11 @@ class BehavioralIntelligence:
             base_modulator_factor = context_modulator_params.get('base_modulator_factor', 1.0)
             min_modulator = context_modulator_params.get('min_modulator', 0.8)
             max_modulator = context_modulator_params.get('max_modulator', 1.2)
+
             # 波动率越低，情绪越中性，调制因子越高 (奖励稳定和理性)
             norm_volatility_inverse = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('volatility_instability'), default_tf_weights), ascending=True)).clip(0, 1)
             norm_sentiment_neutrality = (1 - get_adaptive_mtf_normalized_score(market_sentiment_raw.abs(), df.index, tf_weights=get_param_value(tf_weights_config.get('market_sentiment'), default_tf_weights), ascending=True)).clip(0, 1)
+
             dynamic_modulator_factor = base_modulator_factor + \
                                        norm_volatility_inverse * volatility_sensitivity + \
                                        norm_sentiment_neutrality * sentiment_sensitivity
@@ -373,13 +496,16 @@ class BehavioralIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 情境调制 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - dynamic_modulator_factor: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
-            print(f"        - final_score_modulated: {final_score_modulated.loc[probe_ts]:.4f}")
-        # --- 7. 最终非线性变换并映射到 [-1, 1] ---
+            print(f"        - final_score_modulated (情境调制后): {final_score_modulated.loc[probe_ts]:.4f}")
+
+        # --- 8. 最终非线性变换并映射到 [-1, 1] ---
         # 将 [0, 1] 的分数通过幂函数调整敏感度，然后映射到 [-1, 1]
         final_day_quality_score = (final_score_modulated.pow(final_exponent) * 2 - 1).clip(-1, 1)
+
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - final_day_quality_score: {final_day_quality_score.loc[probe_ts]:.4f}")
+
         return final_day_quality_score.astype(np.float32)
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
