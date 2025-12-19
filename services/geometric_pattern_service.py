@@ -1624,6 +1624,8 @@ class GeometricPatternService:
         【V2.59 · 平台潜力评分器】计算每日的平台潜力连续分数 (0-100)。
         - 核心思想: 将离散的ADX和BBW条件转化为连续的评分，并进行加权融合。
         - 探针: 输出原始指标值、中间评分和最终每日潜力分数。
+        - V2.59 核心修复: 确保中间计算结果 (adx_score, bbw_score, daily_potential_score)
+                         被正确转换为 Pandas Series，以便在探针中进行 .loc 访问。
         """
         adx_threshold = archetype.get('adx_threshold', 25)
         bbw_quantile = archetype.get('bbw_quantile', 0.25)
@@ -1635,10 +1637,10 @@ class GeometricPatternService:
         # ADX越低，趋势越弱，平台潜力越高。使用分段线性映射。
         # ADX <= adx_threshold: 100分到50分线性递减
         # ADX > adx_threshold: 50分到0分线性递减 (假设ADX最高到adx_threshold * 2)
-        adx_score = np.where(df['ADX_14'] <= adx_threshold,
+        adx_score_raw = np.where(df['ADX_14'] <= adx_threshold,
                              100 - (df['ADX_14'] / adx_threshold) * 50,
                              50 - ((df['ADX_14'] - adx_threshold) / adx_threshold) * 50)
-        adx_score = np.clip(adx_score, 0, 100)
+        adx_score = pd.Series(np.clip(adx_score_raw, 0, 100), index=df.index) # 修改代码行：转换为Pandas Series
         # 2. BBW评分 (低波动得分高)
         # BBW越低，波动越小，平台潜力越高。
         # 计算滚动分位数，确保BBW评分是相对的
@@ -1646,15 +1648,15 @@ class GeometricPatternService:
         # 波动率越低，得分越高。BBW低于分位数时得分高，高于时快速下降。
         # BBW <= bbw_rolling_quantile: 100分到50分线性递减
         # BBW > bbw_rolling_quantile: 50分到0分线性递减 (假设BBW最高到bbw_rolling_quantile * 2)
-        bbw_score = np.where(df['BBW_21_2.0'] <= bbw_rolling_quantile,
+        bbw_score_raw = np.where(df['BBW_21_2.0'] <= bbw_rolling_quantile,
                              100 - (df['BBW_21_2.0'] / bbw_rolling_quantile) * 50,
                              50 - ((df['BBW_21_2.0'] - bbw_rolling_quantile) / bbw_rolling_quantile) * 50)
-        bbw_score = np.clip(bbw_score, 0, 100)
+        bbw_score = pd.Series(np.clip(bbw_score_raw, 0, 100), index=df.index) # 修改代码行：转换为Pandas Series
         # 3. 融合评分 (可以加权，这里先简单平均)
         # 权重可以从archetype中获取，这里先用默认值
         adx_weight = archetype.get('adx_score_weight', 0.5)
         bbw_weight = archetype.get('bbw_score_weight', 0.5)
-        daily_potential_score = (adx_score * adx_weight + bbw_score * bbw_weight) / (adx_weight + bbw_weight)
+        daily_potential_score = pd.Series((adx_score * adx_weight + bbw_score * bbw_weight) / (adx_weight + bbw_weight), index=df.index) # 修改代码行：转换为Pandas Series
         # 探针：输出关键计算节点
         print(f"[{self.stock_code}] [平台潜力评分器] 每日潜力分数计算探针:")
         print(f"  - ADX阈值: {adx_threshold}, BBW分位数: {bbw_quantile}")
@@ -1662,7 +1664,8 @@ class GeometricPatternService:
         print(f"    日期       | ADX_14 | BBW_21_2.0 | BBW_Quantile | ADX_Score | BBW_Score | Final_Score")
         for idx in df.index[-5:]:
             print(f"    {idx.date()} | {df.loc[idx, 'ADX_14']:.2f} | {df.loc[idx, 'BBW_21_2.0']:.4f} | {bbw_rolling_quantile.loc[idx]:.4f} | {adx_score.loc[idx]:.2f} | {bbw_score.loc[idx]:.2f} | {daily_potential_score.loc[idx]:.2f}")
-        return pd.Series(daily_potential_score, index=df.index)
+        return daily_potential_score
+
 
 
 
