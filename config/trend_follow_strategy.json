@@ -1358,7 +1358,7 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V3.0 · 混沌边缘重构版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、波动率收缩）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、换手率萎缩）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、净流量加速）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。",
+            "description": "【V4.0 · 全息共振版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、多时间框架波动率收缩动态）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、多时间框架换手率萎缩动态、微观订单簿不平衡、微观价格冲击对称性）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、多时间框架净流量加速、微观订单簿不平衡、微观价格冲击优势）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。新增市场情境动态调节器，根据波动率和趋势强度动态调整各维度权重。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。",
             "storm_eye_calm_params": {
               "energy_compression_weights": {
                 "tension": 0.2,
@@ -1375,7 +1375,9 @@
                 "order_book_liquidity_inverted": 0.15,
                 "buy_quote_exhaustion": 0.15,
                 "sell_quote_exhaustion": 0.1,
-                "turnover_rate_slope_inverted": 0.1
+                "turnover_rate_slope_inverted": 0.1,
+                "order_book_imbalance_inverted": 0.05,
+                "micro_price_impact_asymmetry_inverted": 0.05
               },
               "main_force_covert_intent_weights": {
                 "stealth_ops": 0.15,
@@ -1385,7 +1387,9 @@
                 "mf_cost_advantage_positive": 0.1,
                 "mf_buy_ofi_positive": 0.1,
                 "mf_t0_buy_efficiency_positive": 0.1,
-                "mf_net_flow_slope_positive": 0.1
+                "mf_net_flow_slope_positive": 0.1,
+                "order_book_imbalance_positive": 0.05,
+                "micro_price_impact_asymmetry_positive": 0.05
               },
               "subdued_market_sentiment_weights": {
                 "sentiment_pendulum_negative": 0.25,
@@ -1417,6 +1421,22 @@
                 "activity_signal": "main_force_activity_ratio_D",
                 "veto_threshold": -0.2,
                 "amplifier_factor": 0.5
+              },
+              "mtf_slope_accel_weights": {
+                "description": "多时间框架斜率和加速度的融合权重。",
+                "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
+                "accel_periods": {"5": 0.6, "13": 0.4}
+              },
+              "regime_modulator_params": {
+                "enabled": true,
+                "description": "市场情境动态调节器参数。",
+                "volatility_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+                "trend_signal": "ADX_14_D",
+                "volatility_sensitivity": 0.5,
+                "trend_sensitivity": 0.5,
+                "base_modulator_factor": 1.0,
+                "min_modulator": 0.8,
+                "max_modulator": 1.2
               }
             }
           },
