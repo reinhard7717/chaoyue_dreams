@@ -1623,8 +1623,9 @@ class GeometricPatternService:
 
     def _calculate_daily_platform_potential_score(self, df: pd.DataFrame, archetype: dict) -> pd.Series:
         """
-        【V2.60 · 多维潜力评分器】计算每日的平台潜力连续分数 (0-100)，整合更多维度。
-        - 核心思想: 将离散的ADX、BBW、ATRr、成交量爆裂度等条件转化为连续的评分，并进行加权融合。
+        【V2.61 · 评分曲线优化版】计算每日的平台潜力连续分数 (0-100)，整合更多维度。
+        - 核心思想: 调整单个指标的评分函数，使其在“达到阈值”时能获得更高的分数（75分而非50分），
+                     从而提高整体平台潜力分数，更容易达到识别阈值。
         - 探针: 输出原始指标值、中间评分和最终每日潜力分数。
         """
         # 从原型配置中获取参数
@@ -1640,30 +1641,38 @@ class GeometricPatternService:
                 return pd.Series(0.0, index=df.index)
 
         # 1. ADX评分 (低趋势得分高)
+        # 修改代码行：调整评分函数，使ADX <= threshold时，分数从100到75线性递减
         adx_score_raw = np.where(df['ADX_14'] <= adx_threshold,
-                             100 - (df['ADX_14'] / adx_threshold) * 50,
-                             50 - ((df['ADX_14'] - adx_threshold) / adx_threshold) * 50)
+                             100 - (df['ADX_14'] / adx_threshold) * 25, # 阈值处得75分
+                             75 - ((df['ADX_14'] - adx_threshold) / (2 * adx_threshold)) * 75) # 3*阈值处得0分
         adx_score = pd.Series(np.clip(adx_score_raw, 0, 100), index=df.index)
 
         # 2. BBW评分 (低波动得分高)
         bbw_rolling_quantile = df['BBW_21_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
+        # 避免bbw_rolling_quantile为0导致除零错误，如果为0则设为一个小正数
+        bbw_rolling_quantile = bbw_rolling_quantile.replace(0, 1e-9)
+        # 修改代码行：调整评分函数，使BBW <= quantile时，分数从100到75线性递减
         bbw_score_raw = np.where(df['BBW_21_2.0'] <= bbw_rolling_quantile,
-                             100 - (df['BBW_21_2.0'] / bbw_rolling_quantile) * 50,
-                             50 - ((df['BBW_21_2.0'] - bbw_rolling_quantile) / bbw_rolling_quantile) * 50)
+                             100 - (df['BBW_21_2.0'] / bbw_rolling_quantile) * 25, # 阈值处得75分
+                             75 - ((df['BBW_21_2.0'] - bbw_rolling_quantile) / (2 * bbw_rolling_quantile)) * 75) # 3*阈值处得0分
         bbw_score = pd.Series(np.clip(bbw_score_raw, 0, 100), index=df.index)
 
         # 3. ATRr评分 (低波动得分高)
-        # ATRr越低，波动越小，分数越高。设定一个上限，超过上限分数快速下降。
-        atr_score_raw = np.where(df['ATRr_14'] <= atr_threshold_pct,
-                                 100 - (df['ATRr_14'] / atr_threshold_pct) * 50,
-                                 50 - ((df['ATRr_14'] - atr_threshold_pct) / atr_threshold_pct) * 50)
+        # 避免atr_threshold_pct为0导致除零错误，如果为0则设为一个小正数
+        atr_threshold_pct_safe = atr_threshold_pct if atr_threshold_pct > 0 else 1e-9
+        # 修改代码行：调整评分函数，使ATRr <= threshold时，分数从100到75线性递减
+        atr_score_raw = np.where(df['ATRr_14'] <= atr_threshold_pct_safe,
+                                 100 - (df['ATRr_14'] / atr_threshold_pct_safe) * 25, # 阈值处得75分
+                                 75 - ((df['ATRr_14'] - atr_threshold_pct_safe) / (2 * atr_threshold_pct_safe)) * 75) # 3*阈值处得0分
         atr_score = pd.Series(np.clip(atr_score_raw, 0, 100), index=df.index)
 
         # 4. 成交量爆裂度评分 (低爆裂度得分高)
-        # 爆裂度越低，成交量越稳定，分数越高。
-        vol_burst_score_raw = np.where(df['volume_burstiness_index'] <= vol_burst_threshold,
-                                       100 - (df['volume_burstiness_index'] / vol_burst_threshold) * 50,
-                                       50 - ((df['volume_burstiness_index'] - vol_burst_threshold) / vol_burst_threshold) * 50)
+        # 避免vol_burst_threshold为0导致除零错误，如果为0则设为一个小正数
+        vol_burst_threshold_safe = vol_burst_threshold if vol_burst_threshold > 0 else 1e-9
+        # 修改代码行：调整评分函数，使VB <= threshold时，分数从100到75线性递减
+        vol_burst_score_raw = np.where(df['volume_burstiness_index'] <= vol_burst_threshold_safe,
+                                       100 - (df['volume_burstiness_index'] / vol_burst_threshold_safe) * 25, # 阈值处得75分
+                                       75 - ((df['volume_burstiness_index'] - vol_burst_threshold_safe) / (2 * vol_burst_threshold_safe)) * 75) # 3*阈值处得0分
         vol_burst_score = pd.Series(np.clip(vol_burst_score_raw, 0, 100), index=df.index)
 
         # 融合评分权重 (从archetype中获取，提供默认值)
@@ -1693,6 +1702,7 @@ class GeometricPatternService:
         for idx in df.index[-5:]:
             print(f"    {idx.date()} | {df.loc[idx, 'ADX_14']:.2f} | {df.loc[idx, 'BBW_21_2.0']:.4f} | {df.loc[idx, 'ATRr_14']:.4f} | {df.loc[idx, 'volume_burstiness_index']:.4f} | {adx_score.loc[idx]:.2f} | {bbw_score.loc[idx]:.2f} | {atr_score.loc[idx]:.2f} | {vol_burst_score.loc[idx]:.2f} | {daily_potential_score.loc[idx]:.2f}")
         return daily_potential_score
+
 
 
 
