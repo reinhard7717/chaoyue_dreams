@@ -1572,7 +1572,7 @@ class ProcessIntelligence:
             'main_force_activity_ratio_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D',
             # 新增信号
             'SCORE_DYN_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
-            'SAMPLE_ENTROPY_13d_D', 'PRICE_VOLUME_ENTROPY_D', 'FRACTAL_DIMENSION_89d_D',
+            'SAMPLE_ENTROPY_13d_D', 'price_volume_entropy_D', 'FRACTAL_DIMENSION_89d_D',
             'bid_side_liquidity_D', 'ask_side_liquidity_D', 'vpin_score_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D',
             'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D', 'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
             'observed_large_order_size_avg_D', 'market_impact_cost_D', 'main_force_flow_directionality_D',
@@ -1599,7 +1599,7 @@ class ProcessIntelligence:
         dyn_stability_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', np.nan)
         market_tension_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', np.nan)
         price_sample_entropy_raw = self._get_safe_series(df, 'SAMPLE_ENTROPY_13d_D', np.nan, method_name="_calculate_storm_eye_calm")
-        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', np.nan, method_name="_calculate_storm_eye_calm")
+        price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', np.nan, method_name="_calculate_storm_eye_calm")
         price_fractal_dimension_raw = self._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', np.nan, method_name="_calculate_storm_eye_calm")
         volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', np.nan, method_name="_calculate_storm_eye_calm")
         volume_profile_entropy_raw = self._get_safe_series(df, 'volume_profile_entropy_D', np.nan, method_name="_calculate_storm_eye_calm")
@@ -1868,7 +1868,7 @@ class ProcessIntelligence:
             print(f"    - SCORE_DYN_AXIOM_STABILITY: {dyn_stability_score.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_FOUNDATION_AXIOM_MARKET_TENSION: {market_tension_score.iloc[last_date_index]:.4f}")
             print(f"    - SAMPLE_ENTROPY_13d_D: {price_sample_entropy_raw.iloc[last_date_index]:.4f}")
-            print(f"    - PRICE_VOLUME_ENTROPY_D: {price_volume_entropy_raw.iloc[last_date_index]:.4f}")
+            print(f"    - price_volume_entropy_D: {price_volume_entropy_raw.iloc[last_date_index]:.4f}")
             print(f"    - FRACTAL_DIMENSION_89d_D: {price_fractal_dimension_raw.iloc[last_date_index]:.4f}")
             print(f"    - volume_structure_skew_D: {volume_structure_skew_raw.iloc[last_date_index]:.4f}")
             print(f"    - volume_profile_entropy_D: {volume_profile_entropy_raw.iloc[last_date_index]:.4f}")
