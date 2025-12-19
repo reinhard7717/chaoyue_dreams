@@ -225,14 +225,12 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.53 · 智能归一化版】应用升级后的斜率计算函数，为RSSlope关闭冗余归一化。
-        - V2.53 核心升级: 在计算 RSSlope 时，调用斜率计算函数并传入 `normalize=False`，
-                         确保参照系校准后的序列不再被错误地二次归一化。
-        - V2.55 核心修复: 增加对所有可能产生 NaN/Infinity 的数值字段进行检查和转换，
-                         确保在保存到 MySQL 数据库前，所有数值都是有效的浮点数或 None。
-        - V2.56 核心修复: 增加事务管理和更详细的保存日志，以诊断数据未存入数据库的问题。
-        - V2.57 核心修复: 增加保存后立即验证数据是否可读的逻辑。
-        - V2.58 核心修复: 增加对 `breakout_quality_score` 计算过程的详细调试信息。
+        【V2.59 · 平台潜力评分器集成版】应用新的平台潜力评分器，并增加详细探针。
+        - V2.59 核心升级:
+          1. [潜力评分器集成] 引入 `_calculate_daily_platform_potential_score` 方法，
+                             将每日平台潜力评估从二元判断升级为连续分数。
+          2. [探针增强] 在平台识别的关键步骤（每日潜力、滚动平均、平台起止点）增加详细探针，
+                        输出原始数据、中间计算结果和决策依据，以便调试和优化。
         """
         import math
         from django.db import transaction
@@ -263,6 +261,7 @@ class GeometricPatternService:
         if not all(col in df_copy.columns for col in required_cols):
             print(f"[{self.stock_code}] [平台计算] 缺少必要的日线数据列，跳过平台计算。")
             return
+        # 确保ADX和BBW计算完成
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
         bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_21_2.0', 'BBL_21_2.0', 'BBM_21_2.0', 'BBW_21_2.0'
         bbands_results = ta.bbands(close=df_copy['close_qfq'], length=21, std=2.0, append=False)
@@ -274,32 +273,50 @@ class GeometricPatternService:
             print(f"[{self.stock_code}] [平台计算] 无法计算布林带宽度，跳过平台计算。")
             return
         df_copy = self._calculate_breakout_readiness(df_copy)
-        combined_is_potential = pd.Series(False, index=df_copy.index)
-        for archetype in self.platform_archetypes:
-            archetype_name = archetype.get('name', 'UNKNOWN')
-            adx_threshold = archetype.get('adx_threshold', 25)
-            bbw_quantile = archetype.get('bbw_quantile', 0.25)
-            is_low_trend = df_copy['ADX_14'] < adx_threshold
-            bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
-            is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
-            archetype_potential = is_low_trend | is_low_volatility
-            combined_is_potential = combined_is_potential | archetype_potential
-        df_copy['is_potential_platform'] = combined_is_potential.astype(int)
+        # V2.59 核心修改：使用新的连续平台潜力评分器
+        # 假设第一个原型是基准原型，用于获取ADX和BBW的阈值
         baseline_archetype = self.platform_archetypes[0]
-        potential_threshold = baseline_archetype.get('potential_threshold', 0.6)
+        df_copy['daily_platform_potential_score'] = self._calculate_daily_platform_potential_score(df_copy, baseline_archetype)
+        # V2.59 核心修改：platform_potential_score 现在是 daily_platform_potential_score 的滚动平均
+        potential_threshold = baseline_archetype.get('potential_threshold', 60.0) # 阈值现在是0-100分
         potential_window = baseline_archetype.get('potential_window', 20)
-        df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
+        df_copy['platform_potential_score'] = df_copy['daily_platform_potential_score'].rolling(window=potential_window, min_periods=potential_window//2).mean()
+        # 探针：输出滚动平均后的平台潜力分数
+        print(f"[{self.stock_code}] [平台计算] 滚动平均后的平台潜力分数 (最近5天):")
+        print(f"    日期       | Daily_Potential | Rolling_Potential")
+        for idx in df_copy.index[-5:]:
+            print(f"    {idx.date()} | {df_copy.loc[idx, 'daily_platform_potential_score']:.2f} | {df_copy.loc[idx, 'platform_potential_score']:.2f}")
         score_series = df_copy['platform_potential_score']
-        entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
-        exiting_platform = (score_series < potential_threshold) & (score_series.shift(1) >= potential_threshold)
+        # V2.59 探针：输出平台起止点识别的原始数据和决策依据
+        print(f"[{self.stock_code}] [平台计算] 平台起止点识别探针 (最近5天):")
+        print(f"    日期       | Rolling_Potential | Threshold | Entering | Exiting")
+        entering_platform = pd.Series(False, index=df_copy.index)
+        exiting_platform = pd.Series(False, index=df_copy.index)
+        # 遍历识别平台起止点，并输出探针信息
+        for i in range(1, len(df_copy)):
+            current_date = df_copy.index[i]
+            prev_date = df_copy.index[i-1]
+            current_score = score_series.loc[current_date]
+            prev_score = score_series.loc[prev_date]
+            is_entering = (current_score > potential_threshold) and (prev_score <= potential_threshold)
+            is_exiting = (current_score < potential_threshold) and (prev_score >= potential_threshold)
+            entering_platform.loc[current_date] = is_entering
+            exiting_platform.loc[current_date] = is_exiting
+            print(f"    {current_date.date()} | {current_score:.2f} | {potential_threshold:.2f} | {is_entering} | {is_exiting}")
         platform_start_dates = df_copy[entering_platform.fillna(False)].index
         platform_end_dates = df_copy[exiting_platform.fillna(False)].index
+        # V2.59 探针：输出识别到的原始平台起止日期
+        print(f"[{self.stock_code}] [平台计算] 识别到的原始平台开始日期: {[d.date() for d in platform_start_dates]}")
+        print(f"[{self.stock_code}] [平台计算] 识别到的原始平台结束日期: {[d.date() for d in platform_end_dates]}")
         raw_candidates = []
         for start_date in platform_start_dates:
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
             if not possible_end_dates.empty:
                 raw_candidates.append((start_date, possible_end_dates[0]))
         print(f"[{self.stock_code}] [平台计算] 发现 {len(raw_candidates)} 个原始平台候选。")
+        # V2.59 探针：输出每个原始平台候选的起止日期
+        for i, (start_date, end_date) in enumerate(raw_candidates):
+            print(f"[{self.stock_code}] [平台计算] 原始平台候选 {i+1}: {start_date.date()} - {end_date.date()}")
         platforms_to_save = []
         saved_start_dates = set()
         minute_map = data_dfs.get("stock_minute_data_map", {})
@@ -312,8 +329,11 @@ class GeometricPatternService:
             if group.empty:
                 print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 为空，跳过。")
                 continue
+            # V2.59 探针：输出平台高点、低点、持续天数
             platform_high = group['high_qfq'].max()
             platform_low = group['low_qfq'].min()
+            duration = len(group)
+            print(f"[{self.stock_code}] [平台计算] 候选平台 {start_date.date()} - {end_date.date()}: 高点={platform_high:.2f}, 低点={platform_low:.2f}, 持续={duration}天。")
             if platform_low == 0:
                 print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 的最低价为0，跳过。")
                 continue
@@ -370,19 +390,18 @@ class GeometricPatternService:
             internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
             if np.isnan(internal_accumulation_intensity) or np.isinf(internal_accumulation_intensity):
                 internal_accumulation_intensity = None
-
             # breakout_quality_score 计算及 NaN/Inf 处理
             breakout_quality_score = None
-            print(f"[{self.stock_code}] [平台计算] 尝试计算 {start_date.date()} - {end_date.date()} 的突破质量分。") # 新增调试信息
+            print(f"[{self.stock_code}] [平台计算] 尝试计算 {start_date.date()} - {end_date.date()} 的突破质量分。")
             next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
             if next_trade_date:
-                print(f"[{self.stock_code}] [平台计算] 下一个交易日: {next_trade_date}") # 新增调试信息
+                print(f"[{self.stock_code}] [平台计算] 下一个交易日: {next_trade_date}")
                 next_trade_date_pd = pd.to_datetime(next_trade_date)
                 if next_trade_date_pd in df_copy.index:
                     breakout_day_close = df_copy.loc[next_trade_date_pd, 'close_qfq']
-                    print(f"[{self.stock_code}] [平台计算] 突破日收盘价: {breakout_day_close}, 平台高点: {platform_high}") # 新增调试信息
+                    print(f"[{self.stock_code}] [平台计算] 突破日收盘价: {breakout_day_close}, 平台高点: {platform_high}")
                     if breakout_day_close > platform_high:
-                        print(f"[{self.stock_code}] [平台计算] 满足突破条件 (收盘价 > 平台高点)。") # 新增调试信息
+                        print(f"[{self.stock_code}] [平台计算] 满足突破条件 (收盘价 > 平台高点)。")
                         ofi_score_val = 0.0
                         momentum_score_val = 0.0
                         if next_trade_date in tick_map:
@@ -390,31 +409,28 @@ class GeometricPatternService:
                             breakout_vol = df_copy.loc[next_trade_date_pd, 'vol'] * 100
                             if breakout_vol > 0:
                                 ofi_score_val = np.clip(ofi / breakout_vol, -1, 1)
-                            print(f"[{self.stock_code}] [平台计算] OFI得分: {ofi_score_val} (来自Tick数据)") # 新增调试信息
+                            print(f"[{self.stock_code}] [平台计算] OFI得分: {ofi_score_val} (来自Tick数据)")
                         else:
-                            print(f"[{self.stock_code}] [平台计算] 突破日 {next_trade_date} 无Tick数据。") # 新增调试信息
-
+                            print(f"[{self.stock_code}] [平台计算] 突破日 {next_trade_date} 无Tick数据。")
                         if next_trade_date in realtime_map:
                             momentum_score_val = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
-                            print(f"[{self.stock_code}] [平台计算] 动能得分: {momentum_score_val} (来自Realtime数据)") # 新增调试信息
+                            print(f"[{self.stock_code}] [平台计算] 动能得分: {momentum_score_val} (来自Realtime数据)")
                         else:
-                            print(f"[{self.stock_code}] [平台计算] 突破日 {next_trade_date} 无Realtime数据。") # 新增调试信息
-
+                            print(f"[{self.stock_code}] [平台计算] 突破日 {next_trade_date} 无Realtime数据。")
                         if np.isnan(ofi_score_val) or np.isinf(ofi_score_val): ofi_score_val = 0.0
                         if np.isnan(momentum_score_val) or np.isinf(momentum_score_val): momentum_score_val = 0.0
                         temp_breakout_quality_score = (ofi_score_val * 0.6) + (momentum_score_val * 0.4)
                         if not np.isnan(temp_breakout_quality_score) and not np.isinf(temp_breakout_quality_score):
                             breakout_quality_score = temp_breakout_quality_score
-                            print(f"[{self.stock_code}] [平台计算] 突破质量分计算完成: {breakout_quality_score}") # 新增调试信息
+                            print(f"[{self.stock_code}] [平台计算] 突破质量分计算完成: {breakout_quality_score}")
                         else:
-                            print(f"[{self.stock_code}] [平台计算] 突破质量分计算结果为 NaN/Inf，设为 None。") # 新增调试信息
+                            print(f"[{self.stock_code}] [平台计算] 突破质量分计算结果为 NaN/Inf，设为 None。")
                     else:
-                        print(f"[{self.stock_code}] [平台计算] 未满足突破条件 (收盘价 {breakout_day_close} 未高于平台高点 {platform_high})。") # 新增调试信息
+                        print(f"[{self.stock_code}] [平台计算] 未满足突破条件 (收盘价 {breakout_day_close} 未高于平台高点 {platform_high})。")
                 else:
-                    print(f"[{self.stock_code}] [平台计算] 下一个交易日 {next_trade_date} 不在 df_copy.index 中。") # 新增调试信息
+                    print(f"[{self.stock_code}] [平台计算] 下一个交易日 {next_trade_date} 不在 df_copy.index 中。")
             else:
-                print(f"[{self.stock_code}] [平台计算] 未找到 {end_date.date()} 之后的下一个交易日。") # 新增调试信息
-
+                print(f"[{self.stock_code}] [平台计算] 未找到 {end_date.date()} 之后的下一个交易日。")
             # breakout_readiness 已经有处理，但再次确保
             breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
             if breakout_readiness is not None and (math.isnan(breakout_readiness) or math.isinf(breakout_readiness)):
@@ -425,7 +441,7 @@ class GeometricPatternService:
                 vpoc_val = None
             platform_data = {
                 'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
-                'duration': len(group), 'high': platform_high, 'low': platform_low,
+                'duration': duration, 'high': platform_high, 'low': platform_low,
                 'vpoc': vpoc_val,
                 'total_volume': group['vol'].sum() * 100,
                 'quality_score': (score_val + 100) / 200 if score_val is not None else None,
@@ -464,7 +480,6 @@ class GeometricPatternService:
                             print(f"[{self.stock_code}] [平台保存] 成功创建新平台数据: {obj.start_date} - {obj.end_date}")
                         else:
                             print(f"[{self.stock_code}] [平台保存] 成功更新现有平台数据: {obj.start_date} - {obj.end_date}")
-
                         # 新增代码块：保存后立即验证
                         try:
                             retrieved_obj = self.platform_model.objects.get(stock=obj.stock, start_date=obj.start_date)
@@ -473,7 +488,6 @@ class GeometricPatternService:
                             print(f"[{self.stock_code}] [平台保存] 验证失败：数据 {obj.start_date} - {obj.end_date} 刚刚保存，但在数据库中不可见！")
                         except Exception as verify_e:
                             print(f"[{self.stock_code}] [平台保存] 验证数据时发生异常: {verify_e}")
-
                     except Exception as e:
                         print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}")
 
@@ -1604,6 +1618,51 @@ class GeometricPatternService:
         # 条件2: 成交量要求
         is_volume_spiked = current_day['vol'] > vol_ma * 1.5
         return is_volatile_enough and is_volume_spiked
+
+    def _calculate_daily_platform_potential_score(self, df: pd.DataFrame, archetype: dict) -> pd.Series:
+        """
+        【V2.59 · 平台潜力评分器】计算每日的平台潜力连续分数 (0-100)。
+        - 核心思想: 将离散的ADX和BBW条件转化为连续的评分，并进行加权融合。
+        - 探针: 输出原始指标值、中间评分和最终每日潜力分数。
+        """
+        adx_threshold = archetype.get('adx_threshold', 25)
+        bbw_quantile = archetype.get('bbw_quantile', 0.25)
+        # 确保ADX和BBW列存在
+        if 'ADX_14' not in df.columns or 'BBW_21_2.0' not in df.columns:
+            print(f"[{self.stock_code}] [平台潜力评分器] 缺少 'ADX_14' 或 'BBW_21_2.0' 列，无法计算每日潜力分数。")
+            return pd.Series(0.0, index=df.index)
+        # 1. ADX评分 (低趋势得分高)
+        # ADX越低，趋势越弱，平台潜力越高。使用分段线性映射。
+        # ADX <= adx_threshold: 100分到50分线性递减
+        # ADX > adx_threshold: 50分到0分线性递减 (假设ADX最高到adx_threshold * 2)
+        adx_score = np.where(df['ADX_14'] <= adx_threshold,
+                             100 - (df['ADX_14'] / adx_threshold) * 50,
+                             50 - ((df['ADX_14'] - adx_threshold) / adx_threshold) * 50)
+        adx_score = np.clip(adx_score, 0, 100)
+        # 2. BBW评分 (低波动得分高)
+        # BBW越低，波动越小，平台潜力越高。
+        # 计算滚动分位数，确保BBW评分是相对的
+        bbw_rolling_quantile = df['BBW_21_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
+        # 波动率越低，得分越高。BBW低于分位数时得分高，高于时快速下降。
+        # BBW <= bbw_rolling_quantile: 100分到50分线性递减
+        # BBW > bbw_rolling_quantile: 50分到0分线性递减 (假设BBW最高到bbw_rolling_quantile * 2)
+        bbw_score = np.where(df['BBW_21_2.0'] <= bbw_rolling_quantile,
+                             100 - (df['BBW_21_2.0'] / bbw_rolling_quantile) * 50,
+                             50 - ((df['BBW_21_2.0'] - bbw_rolling_quantile) / bbw_rolling_quantile) * 50)
+        bbw_score = np.clip(bbw_score, 0, 100)
+        # 3. 融合评分 (可以加权，这里先简单平均)
+        # 权重可以从archetype中获取，这里先用默认值
+        adx_weight = archetype.get('adx_score_weight', 0.5)
+        bbw_weight = archetype.get('bbw_score_weight', 0.5)
+        daily_potential_score = (adx_score * adx_weight + bbw_score * bbw_weight) / (adx_weight + bbw_weight)
+        # 探针：输出关键计算节点
+        print(f"[{self.stock_code}] [平台潜力评分器] 每日潜力分数计算探针:")
+        print(f"  - ADX阈值: {adx_threshold}, BBW分位数: {bbw_quantile}")
+        print(f"  - 示例数据 (最近5天):")
+        print(f"    日期       | ADX_14 | BBW_21_2.0 | BBW_Quantile | ADX_Score | BBW_Score | Final_Score")
+        for idx in df.index[-5:]:
+            print(f"    {idx.date()} | {df.loc[idx, 'ADX_14']:.2f} | {df.loc[idx, 'BBW_21_2.0']:.4f} | {bbw_rolling_quantile.loc[idx]:.4f} | {adx_score.loc[idx]:.2f} | {bbw_score.loc[idx]:.2f} | {daily_potential_score.loc[idx]:.2f}")
+        return pd.Series(daily_potential_score, index=df.index)
 
 
 
