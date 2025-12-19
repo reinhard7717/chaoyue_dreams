@@ -966,35 +966,15 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     """
     is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if not isinstance(series, pd.Series) or series.empty:
-        if is_debug_enabled and probe_ts:
-            print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) - Series为空或无效，返回默认值 {default_value}")
         return pd.Series(default_value, index=target_index)
-    
-    # 修正：移除全局的“所有非NaN值接近0”的判断，让滚动排名自然处理
-    # if (series.dropna().abs() < 1e-9).all():
-    #     if is_debug_enabled and probe_ts:
-    #         print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) - 所有非NaN值接近0，返回0")
-    #     return pd.Series(0.0, index=target_index).astype(np.float32)
-    
     series_aligned = series.reindex(target_index)
     is_original_zero = (series_aligned.abs() < 1e-9) # 记录原始值是否接近0
-    
     # 填充NaN值，以便进行滚动计算。使用ffill/bfill处理历史NaN，最后用0填充剩余的NaN。
     # 确保填充不会改变原始的0值。
     padded_series = series_aligned.fillna(method='ffill').fillna(method='bfill')
     # 再次确保是数值类型，并用0填充可能存在的头部NaN
     padded_series = pd.to_numeric(padded_series, errors='coerce').fillna(0)
-    
     min_periods_for_rank = max(2, int(window * 0.2)) # 确保滚动窗口内有足够数据点才进行排名
-    
-    # 调试信息
-    if is_debug_enabled and probe_ts and probe_ts in padded_series.index:
-        probe_val = padded_series.loc[probe_ts]
-        probe_window_data = padded_series.loc[padded_series.index <= probe_ts].tail(window)
-        print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) @ {probe_ts.strftime('%Y-%m-%d')}:")
-        print(f"          - 原始值: {series.loc[probe_ts]:.4f}")
-        print(f"          - 填充后值: {probe_val:.4f}")
-        print(f"          - 窗口数据 ({len(probe_window_data)}/{window}): {probe_window_data.values}")
     # 执行滚动排名
     ranked_series = padded_series.rolling(window=window, min_periods=min_periods_for_rank).apply(
         lambda x: x.rank(method='average', ascending=ascending).iloc[-1] / len(x) if len(x) >= min_periods_for_rank else np.nan, raw=False
@@ -1002,8 +982,6 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     normalized_series = ranked_series.clip(0, 1)
     # 确保原始为0的值，归一化后也为0
     normalized_series = normalized_series.where(~is_original_zero, 0.0)
-    if is_debug_enabled and probe_ts and probe_ts in normalized_series.index:
-        print(f"          - 归一化后分数: {normalized_series.loc[probe_ts]:.4f}")
     return normalized_series.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
