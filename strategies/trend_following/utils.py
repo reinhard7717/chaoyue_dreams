@@ -1026,8 +1026,8 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     weighted_log_scores_df = log_scores_df.mul(weights_series.reindex(log_scores_df.columns), axis=1)
     sum_weighted_log_scores = weighted_log_scores_df.sum(axis=1)
     sum_valid_weights = is_valid.mul(weights_series.reindex(is_valid.columns), axis=1).sum(axis=1)
-    # 修改代码行：使用 .mask() 方法替换 .replace()，以避免潜在的pandas内部错误
-    sum_valid_weights_safe = sum_valid_weights.mask(sum_valid_weights == 0, np.nan)
+    # 修改代码行：使用 np.isclose 进行浮点数比较，避免 Series == 0 的歧义问题
+    sum_valid_weights_safe = sum_valid_weights.mask(np.isclose(sum_valid_weights, 0), np.nan)
     exponent = sum_weighted_log_scores / sum_valid_weights_safe
     result = np.exp(exponent).fillna(0.0)
     return result.astype(np.float32)

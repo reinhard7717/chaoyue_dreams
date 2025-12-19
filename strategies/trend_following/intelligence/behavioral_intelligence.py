@@ -2674,7 +2674,6 @@ class BehavioralIntelligence:
         # 直接从df和states获取所有信号，不再使用_get_safe_series
         pct_change = df['pct_change_D']
         price_accel = df['ACCEL_5_pct_change_D']
-        price_slope = df['SLOPE_5_close_D']
         rsi_slope = df['SLOPE_5_RSI_13_D']
         volatility_instability = df['VOLATILITY_INSTABILITY_INDEX_21d_D']
         bbw = df['BBW_21_2.0_D']
@@ -2686,7 +2685,6 @@ class BehavioralIntelligence:
         covert_accumulation = df['covert_accumulation_signal_D']
         main_force_conviction = df['main_force_conviction_index_D']
         long_term_close_slope = df['SLOPE_55_close_D']
-        market_sentiment = df['market_sentiment_score_D']
         retail_fomo_premium = df['retail_fomo_premium_index_D']
         panic_selling_cascade = df['panic_selling_cascade_D']
         chip_fatigue = df['chip_fatigue_index_D']
@@ -2697,16 +2695,6 @@ class BehavioralIntelligence:
         lower_shadow_absorption = states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION']
         bearish_divergence_quality = states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY']
         bullish_divergence = states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE']
-        # 调试探针 - 原始数据
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            self._probe_raw_material_diagnostics(df, probe_ts)
-            for sig in required_df_signals:
-                if sig in df.columns:
-                    print(f"        {sig}: {df[sig].loc[probe_ts]:.4f}")
-            for sig in required_state_signals:
-                if sig in states:
-                    print(f"        {sig}: {states[sig].loc[probe_ts]:.4f}")
         # --- 2. 计算四大维度分数 ---
         # 维度一：下降与减速 (Descent & Deceleration)
         # 价格减速：多时间框架价格斜率负向和加速度负向的融合
@@ -2725,13 +2713,6 @@ class BehavioralIntelligence:
             (reversal_momentum_accel + 1e-9).pow(descent_deceleration_weights.get('reversal_momentum_accel', 0.3)) *
             (rsi_slope_divergence + 1e-9).pow(descent_deceleration_weights.get('rsi_slope_divergence', 0.3))
         ).pow(1 / sum(descent_deceleration_weights.values())).fillna(0.0).clip(0, 1)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 下降与减速维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        price_deceleration_score: {price_deceleration_score.loc[probe_ts]:.4f}")
-            print(f"        reversal_momentum_accel: {reversal_momentum_accel.loc[probe_ts]:.4f}")
-            print(f"        rsi_slope_divergence: {rsi_slope_divergence.loc[probe_ts]:.4f}")
-            print(f"        descent_deceleration_score: {descent_deceleration_score.loc[probe_ts]:.4f}")
         # 维度二：净化与枯竭 (Purification & Exhaustion)
         # 波动率收缩 (低波动率不稳定性，低BBW)
         volatility_contraction = (1 - get_adaptive_mtf_normalized_score(volatility_instability, df.index, ascending=True, tf_weights=default_weights)) * \
@@ -2761,20 +2742,6 @@ class BehavioralIntelligence:
             (norm_loser_pain + 1e-9).pow(purification_exhaustion_weights.get('loser_pain', 0.1)) *
             (exhaustion_trend_cohesion + 1e-9).pow(purification_exhaustion_weights.get('exhaustion_trend_cohesion', 0.1))
         ).pow(1 / sum(purification_exhaustion_weights.values())).fillna(0.0).clip(0, 1)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 净化与枯竭维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        volume_atrophy: {volume_atrophy.loc[probe_ts]:.4f}")
-            print(f"        volatility_contraction: {volatility_contraction.loc[probe_ts]:.4f}")
-            print(f"        low_turnover: {low_turnover.loc[probe_ts]:.4f}")
-            print(f"        sell_exhaustion: {sell_exhaustion.loc[probe_ts]:.4f}")
-            print(f"        low_active_selling: {low_active_selling.loc[probe_ts]:.4f}")
-            print(f"        norm_loser_pain: {norm_loser_pain.loc[probe_ts]:.4f}")
-            print(f"        volume_exhaustion_trend: {volume_exhaustion_trend.loc[probe_ts]:.4f}")
-            print(f"        turnover_exhaustion_trend: {turnover_exhaustion_trend.loc[probe_ts]:.4f}")
-            print(f"        sell_pressure_exhaustion_trend: {sell_pressure_exhaustion_trend.loc[probe_ts]:.4f}")
-            print(f"        exhaustion_trend_cohesion: {exhaustion_trend_cohesion.loc[probe_ts]:.4f}")
-            print(f"        purification_exhaustion_score: {purification_exhaustion_score.loc[probe_ts]:.4f}")
         # 维度三：吸收与意图 (Absorption & Intent)
         capitulation_confirm_score = get_adaptive_mtf_normalized_score(capitulation_raw, df.index, ascending=True, tf_weights=default_weights)
         norm_covert_accumulation = get_adaptive_mtf_normalized_score(covert_accumulation, df.index, ascending=True, tf_weights=default_weights)
@@ -2796,20 +2763,6 @@ class BehavioralIntelligence:
             (norm_main_force_conviction_positive + 1e-9).pow(absorption_intent_weights.get('main_force_conviction_positive', 0.05)) *
             (absorption_intent_accel + 1e-9).pow(absorption_intent_weights.get('absorption_intent_accel', 0.05))
         ).pow(1 / sum(absorption_intent_weights.values())).fillna(0.0).clip(0, 1)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 吸收与意图维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        capitulation_confirm_score: {capitulation_confirm_score.loc[probe_ts]:.4f}")
-            print(f"        downward_resistance: {downward_resistance.loc[probe_ts]:.4f}")
-            print(f"        offensive_absorption_intent: {offensive_absorption_intent.loc[probe_ts]:.4f}")
-            print(f"        lower_shadow_absorption: {lower_shadow_absorption.loc[probe_ts]:.4f}")
-            print(f"        norm_covert_accumulation: {norm_covert_accumulation.loc[probe_ts]:.4f}")
-            print(f"        norm_main_force_conviction_positive: {norm_main_force_conviction_positive.loc[probe_ts]:.4f}")
-            print(f"        capitulation_accel_score: {capitulation_accel_score.loc[probe_ts]:.4f}")
-            print(f"        covert_accum_accel_score: {covert_accum_accel_score.loc[probe_ts]:.4f}")
-            print(f"        mf_conviction_accel_score: {mf_conviction_accel_score.loc[probe_ts]:.4f}")
-            print(f"        absorption_intent_accel: {absorption_intent_accel.loc[probe_ts]:.4f}")
-            print(f"        absorption_intent_score: {absorption_intent_score.loc[probe_ts]:.4f}")
         # 维度四：情境就绪 (Contextual Readiness)
         # 熊市背离风险低 (反向归一化)
         bearish_divergence_inverse = (1 - bearish_divergence_quality).clip(0, 1)
@@ -2842,15 +2795,6 @@ class BehavioralIntelligence:
             (behavioral_weak_hand_exhaustion + 1e-9).pow(contextual_readiness_weights.get('behavioral_weak_hand_exhaustion', 0.2)) *
             (mtf_trend_alignment + 1e-9).pow(contextual_readiness_weights.get('mtf_trend_alignment', 0.1))
         ).pow(1 / sum(contextual_readiness_weights.values())).fillna(0.0).clip(0, 1)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 情境就绪维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        bearish_divergence_inverse: {bearish_divergence_inverse.loc[probe_ts]:.4f}")
-            print(f"        bullish_divergence: {bullish_divergence.loc[probe_ts]:.4f}")
-            print(f"        behavioral_sentiment_context: {behavioral_sentiment_context.loc[probe_ts]:.4f}")
-            print(f"        behavioral_weak_hand_exhaustion: {behavioral_weak_hand_exhaustion.loc[probe_ts]:.4f}")
-            print(f"        mtf_trend_alignment: {mtf_trend_alignment.loc[probe_ts]:.4f}")
-            print(f"        contextual_readiness_score: {contextual_readiness_score.loc[probe_ts]:.4f}")
         # --- 3. 核心融合 (加权几何平均) ---
         selling_exhaustion_base_score = (
             (descent_deceleration_score + 1e-9).pow(fusion_weights.get('descent_deceleration', 0.25)) *
@@ -2858,9 +2802,6 @@ class BehavioralIntelligence:
             (absorption_intent_score + 1e-9).pow(fusion_weights.get('absorption_intent', 0.3)) *
             (contextual_readiness_score + 1e-9).pow(fusion_weights.get('contextual_readiness', 0.2))
         ).pow(1 / sum(fusion_weights.values())).fillna(0.0).clip(0, 1)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 核心融合分数 @ {probe_ts.strftime('%Y-%m-%d')}: {selling_exhaustion_base_score.loc[probe_ts]:.4f}")
         # --- 4. 动态情境调制 ---
         dynamic_modulator_factor = pd.Series(1.0, index=df.index)
         if dynamic_modulator_params.get('enabled', False):
@@ -2878,9 +2819,6 @@ class BehavioralIntelligence:
                                        norm_volatility_inverse * sensitivity_volatility + \
                                        norm_sentiment_negative * sensitivity_sentiment
             dynamic_modulator_factor = dynamic_modulator_factor.clip(min_modulator, max_modulator)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 动态调制因子 @ {probe_ts.strftime('%Y-%m-%d')}: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
         final_score_modulated = (selling_exhaustion_base_score * dynamic_modulator_factor).clip(0, 1)
         # --- 5. 门控条件 ---
         is_falling = (pct_change < 0).astype(float)
@@ -2892,14 +2830,8 @@ class BehavioralIntelligence:
             gate_penalty_factor = strong_uptrend_gate_params.get('gate_penalty_factor', 0.5)
             is_strong_uptrend = (long_term_slope_signal > slope_threshold).astype(float)
             final_score_gated = final_score_gated * (1 - is_strong_uptrend * gate_penalty_factor)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 门控后分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score_gated.loc[probe_ts]:.4f}")
         # --- 6. 最终非线性变换 ---
         final_selling_exhaustion_score = final_score_gated.pow(final_exponent).astype(np.float32)
-        # 调试探针
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_selling_exhaustion_score.loc[probe_ts]:.4f}")
         return final_selling_exhaustion_score
 
 
