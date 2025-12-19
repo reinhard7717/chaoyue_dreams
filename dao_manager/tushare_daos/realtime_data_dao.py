@@ -129,17 +129,13 @@ class StockRealtimeDAO(BaseDAO):
                     df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
                     initial_rows = len(df)
                     df.dropna(subset=['trade_time', 'PRICE', 'CHANGE', 'VOLUME', 'AMOUNT'], inplace=True) # 增加CHANGE到dropna判断
-                    if len(df) < initial_rows:
-                        print(f"      -> [探针] {code}: 清理了 {initial_rows - len(df)} 条包含NaN的记录。")
                     if df.empty:
-                        print(f"      -> [探针] {code}: 清理NaN后数据为空。")
                         return code, None
                     df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
                     df['TYPE'] = df['TYPE'].map(type_mapping).fillna('M')
                     # 重命名列时增加 price_change
                     df.rename(columns={'PRICE': 'price', 'CHANGE': 'price_change', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
                     df.set_index('trade_time', inplace=True)
-                    print(f"      -> [探针] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
                     # 返回的数据中包含 price_change
                     return code, df[['price', 'price_change', 'volume', 'amount', 'type']]
                 except Exception as e:

@@ -248,15 +248,11 @@ class PerformanceAnalysisService:
                 # 根据信号的性质（状态 vs 事件）应用不同的评估协议
                 if signal_type in ['trigger', 'composite', 'playbook']:
                     # 性质：事件。评估每一次发生。
-                    # print(f"  -> [探针] 信号 {signal_name} (类型: {signal_type}) 被视为瞬时事件。")
                     event_dates = signal_series[signal_series].index.tolist()
                 else:
                     # 性质：状态。只评估首次进入。
-                    # print(f"  -> [探针] 信号 {signal_name} (类型: {signal_type}) 被视为持续状态。")
                     is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
                     event_dates = is_first_day[is_first_day].index.tolist()
-                # if event_dates:
-                    # print(f"    -> [探针] 为 {signal_name} 生成了 {len(event_dates)} 个评估日期。")
                 for entry_date in event_dates:
                     outcome = None
                     # 根据角色调用评估函数 (此逻辑保持不变)

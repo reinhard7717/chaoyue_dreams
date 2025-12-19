@@ -819,6 +819,52 @@
           "intraday_bull_control_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
           "market_sentiment_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 }
         },
+        "day_quality_protocol_params": {
+          "enabled": true,
+          "description": "【V2.0 · 战役复盘与叙事裁决版】日内行为K线质量分计算参数。",
+          "outcome_weights": {
+            "intraday_posture": 0.4,
+            "closing_strength": 0.3,
+            "pct_change": 0.3
+          },
+          "process_weights": {
+            "microstructure_efficiency": 0.4,
+            "impulse_quality": 0.3,
+            "vwap_control": 0.3
+          },
+          "narrative_weights": {
+            "closing_auction_ambush_inverse": 0.4,
+            "deception_lure_long_inverse": 0.3,
+            "deception_lure_short_positive": 0.3
+          },
+          "fusion_weights": {
+            "outcome_assessment": 0.4,
+            "process_quality": 0.3,
+            "narrative_integrity": 0.3
+          },
+          "context_modulator_params": {
+            "enabled": true,
+            "volatility_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "sentiment_signal": "market_sentiment_score_D",
+            "volatility_sensitivity": 0.3,
+            "sentiment_sensitivity": 0.2,
+            "base_modulator_factor": 1.0,
+            "min_modulator": 0.8,
+            "max_modulator": 1.2
+          },
+          "final_exponent": 1.2,
+          "tf_weights": {
+            "default": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+            "pct_change": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "closing_strength": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+            "vwap_control": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+            "closing_auction_ambush": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "deception_lure_long": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "deception_lure_short": {"5": 0.5, "13": 0.3, "21": 0.2},
+            "volatility_instability": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+            "market_sentiment": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
+          }
+        },
         "chronos_protocol_params": {
           "enabled": true,
           "description": "【V6.3 · 生产就绪版】日内多头控制力诊断参数。",
