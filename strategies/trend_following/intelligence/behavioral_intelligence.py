@@ -312,8 +312,8 @@ class BehavioralIntelligence:
             'constructive_turnover_ratio_D', # 已存在
             'buy_sweep_intensity_D', # 已存在
             'upper_shadow_selling_pressure_D', # 已存在
-            'market_sentiment_score_D', # 已存在
-            'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' # 修正：作为依赖信号，但其本身不计算斜率和加速度
+            'market_sentiment_score_D' # 已存在
+            # 移除 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'，因为它是在此方法内部计算的
         ]
         # 动态添加所有可能用到的MTF斜率和加速度信号
         liquidity_drain_mtf_periods = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params', {}).get('mtf_slope_accel_weights'), {}).keys()
@@ -339,6 +339,7 @@ class BehavioralIntelligence:
             'buy_sweep_intensity',
             'upper_shadow_selling_pressure',
             'market_sentiment_score'
+            # 移除 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'
         ]
         for period in liquidity_drain_mtf_periods:
             for indicator in indicators_for_mtf_dynamics:
