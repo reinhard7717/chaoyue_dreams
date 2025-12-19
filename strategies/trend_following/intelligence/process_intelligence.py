@@ -227,10 +227,10 @@ class ProcessIntelligence:
         fused_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_weight = 0.0
         for period_str, weight in mtf_weights.items():
-            try: # 修改代码行
-                period = int(period_str) # 修改代码行
-            except ValueError: # 修改代码行
-                continue # 修改代码行
+            try:
+                period = int(period_str)
+            except ValueError:
+                continue
             slope_col = f'SLOPE_{period}_{base_signal_name}'
             slope_raw = self._get_safe_series(df, slope_col, np.nan, method_name=method_name)
             if slope_raw.isnull().all():
@@ -259,20 +259,20 @@ class ProcessIntelligence:
         conflict_penalty_factor = get_param_value(params.get('conflict_penalty_factor'), 0.15)
 
         # --- 2. 校验所有必需的信号 ---
-        # 过滤掉 mtf_slope_weights 中非数字的键
-        valid_mtf_periods = [p for p in mtf_slope_weights.keys() if p.isdigit()] # 修改代码行
+        # 过滤掉 mtf_slope_weights 中非数字的键，确保只使用周期数字
+        valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()] # 修改代码行
         required_signals = [
             # Price Slopes
-            *[f'SLOPE_{p}_close_D' for p in valid_mtf_periods], # 修改代码行
+            *[f'SLOPE_{p}_close_D' for p in valid_mtf_periods],
             # Momentum Slopes
-            *[f'SLOPE_{p}_MACDh_13_34_8_D' for p in valid_mtf_periods], # 修改代码行
-            *[f'SLOPE_{p}_RSI_13_D' for p in valid_mtf_periods], # 修改代码行
-            *[f'SLOPE_{p}_ROC_13_D' for p in valid_mtf_periods], # 修改代码行
+            *[f'SLOPE_{p}_MACDh_13_34_8_D' for p in valid_mtf_periods],
+            *[f'SLOPE_{p}_RSI_13_D' for p in valid_mtf_periods],
+            *[f'SLOPE_{p}_ROC_13_D' for p in valid_mtf_periods],
             # Volume
-            *[f'SLOPE_{p}_volume_D' for p in valid_mtf_periods], # 修改代码行
+            *[f'SLOPE_{p}_volume_D' for p in valid_mtf_periods],
             'volume_burstiness_index_D', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
             # Main Force/Chip
-            *[f'SLOPE_{p}_main_force_net_flow_calibrated_D' for p in valid_mtf_periods], # 修改代码行
+            *[f'SLOPE_{p}_main_force_net_flow_calibrated_D' for p in valid_mtf_periods],
             'deception_index_D', 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_CHIP_AXIOM_DIVERGENCE',
             # Market Regime
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
@@ -283,7 +283,6 @@ class ProcessIntelligence:
 
         # --- 3. 获取原始数据 ---
         # Price
-        # 使用 valid_mtf_periods 确保只获取有效的斜率信号
         price_slopes_raw = {p: self._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name="_calculate_price_momentum_divergence") for p in valid_mtf_periods} # 修改代码行
         # Momentum
         macdh_slopes_raw = {p: self._get_safe_series(df, f'SLOPE_{p}_MACDh_13_34_8_D', 0.0, method_name="_calculate_price_momentum_divergence") for p in valid_mtf_periods} # 修改代码行
@@ -297,7 +296,7 @@ class ProcessIntelligence:
         mf_net_flow_slopes_raw = {p: self._get_safe_series(df, f'SLOPE_{p}_main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_price_momentum_divergence") for p in valid_mtf_periods} # 修改代码行
         deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_price_momentum_divergence")
         distribution_intent_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        covert_accumulation_score = self._get_atomic_score(df, 'PROCESS_META_COVERT_ACCUMULATION', 0.0) # 修改代码行
+        covert_accumulation_score = self._get_atomic_score(df, 'PROCESS_META_COVERT_ACCUMULATION', 0.0)
         chip_divergence_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
         # Market Regime
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_price_momentum_divergence")
@@ -551,7 +550,6 @@ class ProcessIntelligence:
             print("  [最终结果]: ")
             print(f"    - final_price_momentum_divergence_score: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
-
         return final_score.astype(np.float32)
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
