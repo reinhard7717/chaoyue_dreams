@@ -231,6 +231,8 @@ class GeometricPatternService:
                              将每日平台潜力评估从二元判断升级为连续分数。
           2. [探针增强] 在平台识别的关键步骤（每日潜力、滚动平均、平台起止点）增加详细探针，
                         输出原始数据、中间计算结果和决策依据，以便调试和优化。
+          3. [退出条件诊断] 增加当平台结束日期为空时的诊断信息，输出滚动潜力分数序列的尾部，
+                             帮助分析为何没有平台退出。
         """
         import math
         from django.db import transaction
@@ -290,24 +292,25 @@ class GeometricPatternService:
         # V2.59 探针：输出平台起止点识别的原始数据和决策依据
         print(f"[{self.stock_code}] [平台计算] 平台起止点识别探针 (最近5天):")
         print(f"    日期       | Rolling_Potential | Threshold | Entering | Exiting")
-        entering_platform = pd.Series(False, index=df_copy.index)
-        exiting_platform = pd.Series(False, index=df_copy.index)
+        # 修改代码行：使用fillna(False)处理shift(1)可能产生的NaN
+        entering_platform = (score_series > potential_threshold) & (score_series.shift(1).fillna(False) <= potential_threshold)
+        exiting_platform = (score_series < potential_threshold) & (score_series.shift(1).fillna(False) >= potential_threshold)
         # 遍历识别平台起止点，并输出探针信息
         for i in range(1, len(df_copy)):
             current_date = df_copy.index[i]
-            prev_date = df_copy.index[i-1]
             current_score = score_series.loc[current_date]
-            prev_score = score_series.loc[prev_date]
-            is_entering = (current_score > potential_threshold) and (prev_score <= potential_threshold)
-            is_exiting = (current_score < potential_threshold) and (prev_score >= potential_threshold)
-            entering_platform.loc[current_date] = is_entering
-            exiting_platform.loc[current_date] = is_exiting
+            is_entering = entering_platform.loc[current_date]
+            is_exiting = exiting_platform.loc[current_date]
             print(f"    {current_date.date()} | {current_score:.2f} | {potential_threshold:.2f} | {is_entering} | {is_exiting}")
         platform_start_dates = df_copy[entering_platform.fillna(False)].index
         platform_end_dates = df_copy[exiting_platform.fillna(False)].index
         # V2.59 探针：输出识别到的原始平台起止日期
         print(f"[{self.stock_code}] [平台计算] 识别到的原始平台开始日期: {[d.date() for d in platform_start_dates]}")
         print(f"[{self.stock_code}] [平台计算] 识别到的原始平台结束日期: {[d.date() for d in platform_end_dates]}")
+        # 新增探针：如果平台结束日期为空，输出score_series的尾部数据
+        if platform_end_dates.empty:
+            print(f"[{self.stock_code}] [平台计算] 警告: 未识别到任何平台结束日期。以下是滚动潜力分数序列的尾部数据，请检查阈值设置或分数计算逻辑:")
+            print(score_series.tail(30).to_string()) # 输出最近30天的分数
         raw_candidates = []
         for start_date in platform_start_dates:
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
@@ -490,7 +493,6 @@ class GeometricPatternService:
                             print(f"[{self.stock_code}] [平台保存] 验证数据时发生异常: {verify_e}")
                     except Exception as e:
                         print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}")
-
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.DataFrame:
         """
