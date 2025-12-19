@@ -1623,50 +1623,77 @@ class GeometricPatternService:
 
     def _calculate_daily_platform_potential_score(self, df: pd.DataFrame, archetype: dict) -> pd.Series:
         """
-        【V2.59 · 平台潜力评分器】计算每日的平台潜力连续分数 (0-100)。
-        - 核心思想: 将离散的ADX和BBW条件转化为连续的评分，并进行加权融合。
+        【V2.60 · 多维潜力评分器】计算每日的平台潜力连续分数 (0-100)，整合更多维度。
+        - 核心思想: 将离散的ADX、BBW、ATRr、成交量爆裂度等条件转化为连续的评分，并进行加权融合。
         - 探针: 输出原始指标值、中间评分和最终每日潜力分数。
-        - V2.59 核心修复: 确保中间计算结果 (adx_score, bbw_score, daily_potential_score)
-                         被正确转换为 Pandas Series，以便在探针中进行 .loc 访问。
         """
+        # 从原型配置中获取参数
         adx_threshold = archetype.get('adx_threshold', 25)
         bbw_quantile = archetype.get('bbw_quantile', 0.25)
-        # 确保ADX和BBW列存在
-        if 'ADX_14' not in df.columns or 'BBW_21_2.0' not in df.columns:
-            print(f"[{self.stock_code}] [平台潜力评分器] 缺少 'ADX_14' 或 'BBW_21_2.0' 列，无法计算每日潜力分数。")
-            return pd.Series(0.0, index=df.index)
+        atr_threshold_pct = archetype.get('atr_threshold_pct', 0.015) # 例如，ATRr低于1.5%得分高
+        vol_burst_threshold = archetype.get('vol_burst_threshold', 0.8) # 例如，爆裂度低于0.8得分高
+        # 确保所有必要列存在
+        required_cols = ['ADX_14', 'BBW_21_2.0', 'ATRr_14', 'volume_burstiness_index']
+        for col in required_cols:
+            if col not in df.columns:
+                print(f"[{self.stock_code}] [多维潜力评分器] 缺少 '{col}' 列，无法计算每日潜力分数。")
+                return pd.Series(0.0, index=df.index)
+
         # 1. ADX评分 (低趋势得分高)
-        # ADX越低，趋势越弱，平台潜力越高。使用分段线性映射。
-        # ADX <= adx_threshold: 100分到50分线性递减
-        # ADX > adx_threshold: 50分到0分线性递减 (假设ADX最高到adx_threshold * 2)
         adx_score_raw = np.where(df['ADX_14'] <= adx_threshold,
                              100 - (df['ADX_14'] / adx_threshold) * 50,
                              50 - ((df['ADX_14'] - adx_threshold) / adx_threshold) * 50)
-        adx_score = pd.Series(np.clip(adx_score_raw, 0, 100), index=df.index) # 修改代码行：转换为Pandas Series
+        adx_score = pd.Series(np.clip(adx_score_raw, 0, 100), index=df.index)
+
         # 2. BBW评分 (低波动得分高)
-        # BBW越低，波动越小，平台潜力越高。
-        # 计算滚动分位数，确保BBW评分是相对的
         bbw_rolling_quantile = df['BBW_21_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
-        # 波动率越低，得分越高。BBW低于分位数时得分高，高于时快速下降。
-        # BBW <= bbw_rolling_quantile: 100分到50分线性递减
-        # BBW > bbw_rolling_quantile: 50分到0分线性递减 (假设BBW最高到bbw_rolling_quantile * 2)
         bbw_score_raw = np.where(df['BBW_21_2.0'] <= bbw_rolling_quantile,
                              100 - (df['BBW_21_2.0'] / bbw_rolling_quantile) * 50,
                              50 - ((df['BBW_21_2.0'] - bbw_rolling_quantile) / bbw_rolling_quantile) * 50)
-        bbw_score = pd.Series(np.clip(bbw_score_raw, 0, 100), index=df.index) # 修改代码行：转换为Pandas Series
-        # 3. 融合评分 (可以加权，这里先简单平均)
-        # 权重可以从archetype中获取，这里先用默认值
-        adx_weight = archetype.get('adx_score_weight', 0.5)
-        bbw_weight = archetype.get('bbw_score_weight', 0.5)
-        daily_potential_score = pd.Series((adx_score * adx_weight + bbw_score * bbw_weight) / (adx_weight + bbw_weight), index=df.index) # 修改代码行：转换为Pandas Series
+        bbw_score = pd.Series(np.clip(bbw_score_raw, 0, 100), index=df.index)
+
+        # 3. ATRr评分 (低波动得分高)
+        # ATRr越低，波动越小，分数越高。设定一个上限，超过上限分数快速下降。
+        atr_score_raw = np.where(df['ATRr_14'] <= atr_threshold_pct,
+                                 100 - (df['ATRr_14'] / atr_threshold_pct) * 50,
+                                 50 - ((df['ATRr_14'] - atr_threshold_pct) / atr_threshold_pct) * 50)
+        atr_score = pd.Series(np.clip(atr_score_raw, 0, 100), index=df.index)
+
+        # 4. 成交量爆裂度评分 (低爆裂度得分高)
+        # 爆裂度越低，成交量越稳定，分数越高。
+        vol_burst_score_raw = np.where(df['volume_burstiness_index'] <= vol_burst_threshold,
+                                       100 - (df['volume_burstiness_index'] / vol_burst_threshold) * 50,
+                                       50 - ((df['volume_burstiness_index'] - vol_burst_threshold) / vol_burst_threshold) * 50)
+        vol_burst_score = pd.Series(np.clip(vol_burst_score_raw, 0, 100), index=df.index)
+
+        # 融合评分权重 (从archetype中获取，提供默认值)
+        adx_weight = archetype.get('adx_score_weight', 0.3)
+        bbw_weight = archetype.get('bbw_score_weight', 0.3)
+        atr_weight = archetype.get('atr_score_weight', 0.2)
+        vol_burst_weight = archetype.get('vol_burst_score_weight', 0.2)
+
+        total_weight = adx_weight + bbw_weight + atr_weight + vol_burst_weight
+        if total_weight == 0: # 避免除零
+            daily_potential_score = pd.Series(0.0, index=df.index)
+        else:
+            daily_potential_score = pd.Series(
+                (adx_score * adx_weight +
+                 bbw_score * bbw_weight +
+                 atr_score * atr_weight +
+                 vol_burst_score * vol_burst_weight) / total_weight,
+                index=df.index
+            )
+
         # 探针：输出关键计算节点
-        print(f"[{self.stock_code}] [平台潜力评分器] 每日潜力分数计算探针:")
-        print(f"  - ADX阈值: {adx_threshold}, BBW分位数: {bbw_quantile}")
+        print(f"[{self.stock_code}] [多维潜力评分器] 每日潜力分数计算探针:")
+        print(f"  - ADX阈值: {adx_threshold}, BBW分位数: {bbw_quantile}, ATRr阈值: {atr_threshold_pct}, 爆裂度阈值: {vol_burst_threshold}")
+        print(f"  - 权重: ADX={adx_weight}, BBW={bbw_weight}, ATR={atr_weight}, VolBurst={vol_burst_weight}")
         print(f"  - 示例数据 (最近5天):")
-        print(f"    日期       | ADX_14 | BBW_21_2.0 | BBW_Quantile | ADX_Score | BBW_Score | Final_Score")
+        print(f"    日期       | ADX_14 | BBW_21_2.0 | ATRr_14 | Vol_Burst | ADX_Score | BBW_Score | ATR_Score | VB_Score | Final_Score")
         for idx in df.index[-5:]:
-            print(f"    {idx.date()} | {df.loc[idx, 'ADX_14']:.2f} | {df.loc[idx, 'BBW_21_2.0']:.4f} | {bbw_rolling_quantile.loc[idx]:.4f} | {adx_score.loc[idx]:.2f} | {bbw_score.loc[idx]:.2f} | {daily_potential_score.loc[idx]:.2f}")
+            print(f"    {idx.date()} | {df.loc[idx, 'ADX_14']:.2f} | {df.loc[idx, 'BBW_21_2.0']:.4f} | {df.loc[idx, 'ATRr_14']:.4f} | {df.loc[idx, 'volume_burstiness_index']:.4f} | {adx_score.loc[idx]:.2f} | {bbw_score.loc[idx]:.2f} | {atr_score.loc[idx]:.2f} | {vol_burst_score.loc[idx]:.2f} | {daily_potential_score.loc[idx]:.2f}")
         return daily_potential_score
+
 
 
 
