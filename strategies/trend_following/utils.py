@@ -948,12 +948,12 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
 
 def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     """
-    【V1.6 · 滚动排名鲁棒性增强版 & 调试增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
-    - 核心升级: 增加了对输入序列全为零情况的特殊处理，确保当原始数据无有效信息时，归一化结果为0。
-                确保当原始序列的当前值为0时，其归一化分数也为0，避免因窗口内历史数据导致0值被错误赋予非零分数。
+    【V1.7 · 滚动排名鲁棒性增强版 & 调试增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
+    - 核心升级: 确保当原始序列的当前值为0时，其归一化分数也为0，避免因窗口内历史数据导致0值被错误赋予非零分数。
     - 核心修复: 修正了对非零但绝对值很小的数值强制设为0的逻辑，确保只有原始值为0时，归一化分数才为0。
     - 【新增】增强滚动排名鲁棒性：确保滚动窗口内有足够数据点才进行排名，避免因数据点过小导致排名失真。
     - 【调试增强】增加了 `debug_info` 参数，用于在调试模式下输出详细的归一化过程。
+    - 【修正】移除全局“所有非NaN值接近0”的判断，该判断可能导致非零值被错误归零。
     参数:
         series (pd.Series): 原始数据序列。
         target_index (pd.Index): 目标索引，用于对齐返回的Series。
@@ -969,17 +969,24 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
         if is_debug_enabled and probe_ts:
             print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) - Series为空或无效，返回默认值 {default_value}")
         return pd.Series(default_value, index=target_index)
-    # 检查是否所有非NaN值都接近于0
-    if (series.dropna().abs() < 1e-9).all():
-        if is_debug_enabled and probe_ts:
-            print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) - 所有非NaN值接近0，返回0")
-        return pd.Series(0.0, index=target_index).astype(np.float32)
+    
+    # 修正：移除全局的“所有非NaN值接近0”的判断，让滚动排名自然处理
+    # if (series.dropna().abs() < 1e-9).all():
+    #     if is_debug_enabled and probe_ts:
+    #         print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) - 所有非NaN值接近0，返回0")
+    #     return pd.Series(0.0, index=target_index).astype(np.float32)
+    
     series_aligned = series.reindex(target_index)
-    is_original_zero = (series_aligned.abs() < 1e-9)
-    # 填充NaN值，以便进行滚动计算，但要确保不影响原始零值的处理
-    padded_series = series_aligned.fillna(method='ffill').fillna(method='bfill').fillna(0)
+    is_original_zero = (series_aligned.abs() < 1e-9) # 记录原始值是否接近0
+    
+    # 填充NaN值，以便进行滚动计算。使用ffill/bfill处理历史NaN，最后用0填充剩余的NaN。
+    # 确保填充不会改变原始的0值。
+    padded_series = series_aligned.fillna(method='ffill').fillna(method='bfill')
+    # 再次确保是数值类型，并用0填充可能存在的头部NaN
     padded_series = pd.to_numeric(padded_series, errors='coerce').fillna(0)
-    min_periods_for_rank = max(2, int(window * 0.2))
+    
+    min_periods_for_rank = max(2, int(window * 0.2)) # 确保滚动窗口内有足够数据点才进行排名
+    
     # 调试信息
     if is_debug_enabled and probe_ts and probe_ts in padded_series.index:
         probe_val = padded_series.loc[probe_ts]
@@ -988,6 +995,7 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
         print(f"          - 原始值: {series.loc[probe_ts]:.4f}")
         print(f"          - 填充后值: {probe_val:.4f}")
         print(f"          - 窗口数据 ({len(probe_window_data)}/{window}): {probe_window_data.values}")
+    # 执行滚动排名
     ranked_series = padded_series.rolling(window=window, min_periods=min_periods_for_rank).apply(
         lambda x: x.rank(method='average', ascending=ascending).iloc[-1] / len(x) if len(x) >= min_periods_for_rank else np.nan, raw=False
     )
