@@ -640,7 +640,7 @@ class IndicatorService:
             print(f"调试信息: 日线数据中发现重复索引，已删除重复项，保留最后一条。重复数量: {df_daily_master.index.duplicated().sum()}")
             df_daily_master = df_daily_master[~df_daily_master.index.duplicated(keep='last')]
         # 为核心 OHLCV 列添加 _D 后缀
-        # MODIFIED LINE: 添加 'pct_change' 和 'pre_close' 到 ohlcv_cols，确保它们也被标准化
+        # 添加 'pct_change' 和 'pre_close' 到 ohlcv_cols，确保它们也被标准化
         ohlcv_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pct_change', 'pre_close']
         rename_ohlcv_map = {col: f"{col}_D" for col in ohlcv_cols if col in df_daily_master.columns and not col.endswith('_D')}
         if rename_ohlcv_map:
@@ -792,7 +792,7 @@ class IndicatorService:
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
         # --- 5: 计算基础衍生指标 ---
-        # MODIFIED LINE: 移除重新计算 pct_change_D 的逻辑，现在直接使用原始数据中的 pct_change_D
+        # 移除重新计算 pct_change_D 的逻辑，现在直接使用原始数据中的 pct_change_D
         # if 'close_D' in df_daily_master.columns:
         #     df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
         raw_dfs['D'] = df_daily_master
@@ -812,7 +812,7 @@ class IndicatorService:
                     aggregation_rules = {
                         'open_D': 'first', 'high_D': 'max', 'low_D': 'min', 'close_D': 'last', 'volume_D': 'sum'
                     }
-                    # MODIFIED LINE: 添加 'pct_change_D' 和 'pre_close_D' 到聚合规则
+                    # 添加 'pct_change_D' 和 'pre_close_D' 到聚合规则
                     if 'pct_change_D' in df_daily.columns:
                         aggregation_rules['pct_change_D'] = 'last' # 周/月线的 pct_change 取周期最后一天的
                     if 'pre_close_D' in df_daily.columns:

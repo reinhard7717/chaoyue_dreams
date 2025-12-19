@@ -969,10 +969,10 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     is_original_zero = (series_aligned.abs() < 1e-9)
     padded_series = series_aligned.fillna(method='ffill').fillna(method='bfill').fillna(0)
     padded_series = pd.to_numeric(padded_series, errors='coerce').fillna(0)
-    # MODIFIED LINE: 确保 min_periods 至少为窗口的20%或2，取较大值，避免排名失真
+    # 确保 min_periods 至少为窗口的20%或2，取较大值，避免排名失真
     min_periods_for_rank = max(2, int(window * 0.2))
     ranked_series = padded_series.rolling(window=window, min_periods=min_periods_for_rank).apply(
-        # MODIFIED LINE: 增加对滚动窗口内数据点数量的检查，避免 len(x) 过小
+        # 增加对滚动窗口内数据点数量的检查，避免 len(x) 过小
         lambda x: x.rank(method='average', ascending=ascending).iloc[-1] / len(x) if len(x) >= min_periods_for_rank else np.nan, raw=False
     )
     normalized_series = ranked_series.clip(0, 1)
@@ -1026,7 +1026,8 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     weighted_log_scores_df = log_scores_df.mul(weights_series.reindex(log_scores_df.columns), axis=1)
     sum_weighted_log_scores = weighted_log_scores_df.sum(axis=1)
     sum_valid_weights = is_valid.mul(weights_series.reindex(is_valid.columns), axis=1).sum(axis=1)
-    sum_valid_weights_safe = sum_valid_weights.replace(0, np.nan)
+    # 修改代码行：使用 .mask() 方法替换 .replace()，以避免潜在的pandas内部错误
+    sum_valid_weights_safe = sum_valid_weights.mask(sum_valid_weights == 0, np.nan)
     exponent = sum_weighted_log_scores / sum_valid_weights_safe
     result = np.exp(exponent).fillna(0.0)
     return result.astype(np.float32)

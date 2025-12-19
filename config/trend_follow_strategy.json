@@ -769,7 +769,7 @@
         "description": "【V8.0 · 行为背离强度惯性与自适应引擎版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
         "selling_exhaustion_params": {
           "enabled": true,
-          "description": "【V2.0 · 凤凰涅槃协议】卖盘衰竭机会信号参数。",
+          "description": "【V3.0 · 凤凰涅槃协议 - 多时间维度动态增强版】卖盘衰竭机会信号参数。",
           "fusion_weights": {
             "descent_deceleration": 0.25,
             "purification_exhaustion": 0.25,
@@ -777,8 +777,8 @@
             "contextual_readiness": 0.2
           },
           "descent_deceleration_weights": {
-            "price_accel_inverted": 0.4,
-            "price_slope_inverted": 0.3,
+            "price_deceleration": 0.4,
+            "reversal_momentum_accel": 0.3,
             "rsi_slope_divergence": 0.3
           },
           "purification_exhaustion_weights": {
@@ -787,7 +787,8 @@
             "low_turnover": 0.15,
             "sell_exhaustion": 0.15,
             "low_active_selling": 0.1,
-            "loser_pain": 0.1
+            "loser_pain": 0.1,
+            "exhaustion_trend_cohesion": 0.1
           },
           "absorption_intent_weights": {
             "capitulation_absorption": 0.3,
@@ -795,13 +796,15 @@
             "offensive_absorption_intent": 0.2,
             "lower_shadow_absorption": 0.15,
             "covert_accumulation": 0.1,
-            "main_force_conviction_positive": 0.05
+            "main_force_conviction_positive": 0.05,
+            "absorption_intent_accel": 0.05
           },
           "contextual_readiness_weights": {
             "bearish_divergence_inverse": 0.3,
-            "bullish_divergence": 0.25,
-            "sentiment_pendulum_negative": 0.25,
-            "holder_sentiment_negative": 0.2
+            "bullish_divergence": 0.2,
+            "behavioral_sentiment_context": 0.3,
+            "behavioral_weak_hand_exhaustion": 0.2,
+            "mtf_trend_alignment": 0.1
           },
           "dynamic_modulator_params": {
             "enabled": true,
@@ -820,6 +823,23 @@
             "gate_penalty_factor": 0.5
           },
           "final_exponent": 1.5,
+          "mtf_periods": [5, 13, 21, 34, 55],
+          "comment_mtf_periods": "用于多时间框架动态分析的周期列表。",
+          "mtf_slope_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "34": 0.05,
+            "55": 0.05
+          },
+          "comment_mtf_slope_weights": "多时间框架斜率融合权重。",
+          "mtf_accel_weights": {
+            "5": 0.5,
+            "13": 0.3,
+            "21": 0.15,
+            "34": 0.05
+          },
+          "comment_mtf_accel_weights": "多时间框架加速度融合权重。",
           "comment": "融合卖盘衰竭的四大维度，并进行动态情境调制。"
         },
         "lockup_rally_params": {
