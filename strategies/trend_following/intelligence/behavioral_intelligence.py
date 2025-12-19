@@ -268,9 +268,7 @@ class BehavioralIntelligence:
             'volume_burstiness_index_D',
             'closing_strength_index_D',
             'SLOPE_55_close_D',
-            'market_sentiment_score_D',
-            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
-            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'
+            'market_sentiment_score_D' # MODIFIED LINE: 移除 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM 和 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT
         ]
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
@@ -283,7 +281,6 @@ class BehavioralIntelligence:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
         if not self._validate_required_signals(df, required_signals, method_name):
-            # MODIFIED LINE: 增加打印缺失信号的调试信息
             missing_signals = [s for s in required_signals if s not in df.columns]
             print(f"    -> [行为情报引擎] {method_name}: 核心公理诊断失败，缺少必要原始信号 {missing_signals}，行为分析中止。")
             return {}
@@ -441,6 +438,7 @@ class BehavioralIntelligence:
         lockup_rally_score = self._calculate_lockup_rally_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
         df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
+        # MODIFIED LINE: 调用新的卖盘衰竭诊断方法
         selling_exhaustion_score = self._diagnose_selling_exhaustion_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
@@ -2575,6 +2573,7 @@ class BehavioralIntelligence:
                     解构为四大核心维度：下降与减速、净化与枯竭、吸收与意图、情境就绪。
                     通过加权几何平均融合四大维度，并引入动态情境调制器调整融合权重。
         - 目标: 识别由多重行为证据确认的、具备高可靠性的卖盘衰竭反转机会。
+        - 【行为层纯化】该信号仅针对行为类原始数据进行分析，不引用其他情报层的信号。
         """
         method_name = "_diagnose_selling_exhaustion_opportunity"
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
@@ -2593,8 +2592,9 @@ class BehavioralIntelligence:
         absorption_intent_weights = get_param_value(selling_exhaustion_params.get('absorption_intent_weights'), {
             "capitulation_absorption": 0.3, "downward_resistance": 0.2, "offensive_absorption_intent": 0.2, "lower_shadow_absorption": 0.15, "covert_accumulation": 0.1, "main_force_conviction_positive": 0.05
         })
+        # MODIFIED LINE: 更新 contextual_readiness_weights 以使用行为层代理信号
         contextual_readiness_weights = get_param_value(selling_exhaustion_params.get('contextual_readiness_weights'), {
-            "bearish_divergence_inverse": 0.3, "bullish_divergence": 0.25, "sentiment_pendulum_negative": 0.25, "holder_sentiment_negative": 0.2
+            "bearish_divergence_inverse": 0.3, "bullish_divergence": 0.2, "behavioral_sentiment_context": 0.3, "behavioral_weak_hand_exhaustion": 0.2
         })
         dynamic_modulator_params = get_param_value(selling_exhaustion_params.get('dynamic_modulator_params'), {})
         strong_uptrend_gate_params = get_param_value(selling_exhaustion_params.get('strong_uptrend_gate_params'), {})
@@ -2605,14 +2605,14 @@ class BehavioralIntelligence:
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'BBW_21_2.0_D', 'turnover_rate_f_D',
             'sell_quote_exhaustion_rate_D', 'active_selling_pressure_D', 'loser_pain_index_D',
             'capitulation_absorption_index_D', 'covert_accumulation_signal_D', 'main_force_conviction_index_D',
-            'SLOPE_55_close_D', 'market_sentiment_score_D'
+            'SLOPE_55_close_D', 'market_sentiment_score_D',
+            'retail_fomo_premium_index_D', 'panic_selling_cascade_D', 'chip_fatigue_index_D' # MODIFIED LINE: 新增行为层代理信号的原始数据
         ]
         required_state_signals = [
             'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
             'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
-            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE',
-            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'
-        ]
+            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE'
+        ] # MODIFIED LINE: 移除 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM 和 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT
         missing_df_signals = [s for s in required_df_signals if s not in df.columns]
         missing_state_signals = [s for s in required_state_signals if s not in states]
         if missing_df_signals or missing_state_signals:
@@ -2635,6 +2635,10 @@ class BehavioralIntelligence:
         main_force_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         long_term_close_slope = self._get_safe_series(df, 'SLOPE_55_close_D', 0.0, method_name=method_name)
         market_sentiment = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
+        # MODIFIED LINE: 获取行为层代理信号的原始数据
+        retail_fomo_premium = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
+        panic_selling_cascade = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name=method_name)
+        chip_fatigue = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
         # 从states获取信号
         volume_atrophy = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']
         downward_resistance = states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
@@ -2642,8 +2646,7 @@ class BehavioralIntelligence:
         lower_shadow_absorption = states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION']
         bearish_divergence_quality = states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY']
         bullish_divergence = states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE']
-        sentiment_pendulum = states['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM']
-        holder_sentiment = states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']
+        # MODIFIED LINE: 移除 sentiment_pendulum 和 holder_sentiment 的获取
         # 调试探针
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
@@ -2663,14 +2666,15 @@ class BehavioralIntelligence:
             print(f"        main_force_conviction_index_D: {main_force_conviction.loc[probe_ts]:.4f}")
             print(f"        SLOPE_55_close_D: {long_term_close_slope.loc[probe_ts]:.4f}")
             print(f"        market_sentiment_score_D: {market_sentiment.loc[probe_ts]:.4f}")
+            print(f"        retail_fomo_premium_index_D: {retail_fomo_premium.loc[probe_ts]:.4f}") # MODIFIED LINE: 探针输出
+            print(f"        panic_selling_cascade_D: {panic_selling_cascade.loc[probe_ts]:.4f}") # MODIFIED LINE: 探针输出
+            print(f"        chip_fatigue_index_D: {chip_fatigue.loc[probe_ts]:.4f}") # MODIFIED LINE: 探针输出
             print(f"        SCORE_BEHAVIOR_VOLUME_ATROPHY: {volume_atrophy.loc[probe_ts]:.4f}")
             print(f"        SCORE_BEHAVIOR_DOWNWARD_RESISTANCE: {downward_resistance.loc[probe_ts]:.4f}")
             print(f"        SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT: {offensive_absorption_intent.loc[probe_ts]:.4f}")
             print(f"        SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION: {lower_shadow_absorption.loc[probe_ts]:.4f}")
             print(f"        SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY: {bearish_divergence_quality.loc[probe_ts]:.4f}")
             print(f"        SCORE_BEHAVIOR_BULLISH_DIVERGENCE: {bullish_divergence.loc[probe_ts]:.4f}")
-            print(f"        SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum.loc[probe_ts]:.4f}")
-            print(f"        SCORE_CHIP_AXIOM_HOLDER_SENTIMENT: {holder_sentiment.loc[probe_ts]:.4f}")
         # --- 2. 计算四大维度分数 ---
         # 维度一：下降与减速 (Descent & Deceleration)
         # 价格加速度的负向强度 (减速越快，分数越高)
@@ -2746,23 +2750,38 @@ class BehavioralIntelligence:
         # 维度四：情境就绪 (Contextual Readiness)
         # 熊市背离风险低 (反向归一化)
         bearish_divergence_inverse = (1 - bearish_divergence_quality).clip(0, 1)
-        # 情绪钟摆负向极端 (悲观情绪，但未崩溃)
-        sentiment_pendulum_negative = get_adaptive_mtf_normalized_score(sentiment_pendulum.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        # 持仓信念韧性负向极端 (弱手出清)
-        holder_sentiment_negative = get_adaptive_mtf_normalized_score(holder_sentiment.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        # 牛市背离 (高值代表看涨背离)
+        # MODIFIED LINE: 行为情绪代理
+        norm_retail_fomo_inverse = (1 - get_adaptive_mtf_normalized_score(retail_fomo_premium, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
+        norm_panic_cascade = get_adaptive_mtf_normalized_score(panic_selling_cascade, df.index, ascending=True, tf_weights=default_weights)
+        norm_price_deceleration = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        behavioral_sentiment_context = (
+            (norm_retail_fomo_inverse + 1e-9).pow(0.3) *
+            (norm_panic_cascade + 1e-9).pow(0.4) *
+            (norm_price_deceleration + 1e-9).pow(0.3)
+        ).pow(1/1.0).fillna(0.0).clip(0,1)
+        # MODIFIED LINE: 行为弱手出清代理
+        norm_loser_pain_proxy = get_adaptive_mtf_normalized_score(loser_pain, df.index, ascending=True, tf_weights=default_weights)
+        norm_chip_fatigue_proxy = get_adaptive_mtf_normalized_score(chip_fatigue, df.index, ascending=True, tf_weights=default_weights)
+        norm_low_turnover_proxy = (1 - get_adaptive_mtf_normalized_score(turnover_rate, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
+        behavioral_weak_hand_exhaustion = (
+            (norm_loser_pain_proxy + 1e-9).pow(0.4) *
+            (norm_chip_fatigue_proxy + 1e-9).pow(0.3) *
+            (norm_low_turnover_proxy + 1e-9).pow(0.3)
+        ).pow(1/1.0).fillna(0.0).clip(0,1)
         contextual_readiness_score = (
             (bearish_divergence_inverse + 1e-9).pow(contextual_readiness_weights.get('bearish_divergence_inverse', 0.3)) *
-            (bullish_divergence + 1e-9).pow(contextual_readiness_weights.get('bullish_divergence', 0.25)) *
-            (sentiment_pendulum_negative + 1e-9).pow(contextual_readiness_weights.get('sentiment_pendulum_negative', 0.25)) *
-            (holder_sentiment_negative + 1e-9).pow(contextual_readiness_weights.get('holder_sentiment_negative', 0.2))
+            (bullish_divergence + 1e-9).pow(contextual_readiness_weights.get('bullish_divergence', 0.2)) *
+            (behavioral_sentiment_context + 1e-9).pow(contextual_readiness_weights.get('behavioral_sentiment_context', 0.3)) * # MODIFIED LINE: 使用行为情绪代理
+            (behavioral_weak_hand_exhaustion + 1e-9).pow(contextual_readiness_weights.get('behavioral_weak_hand_exhaustion', 0.2)) # MODIFIED LINE: 使用行为弱手出清代理
         ).pow(1 / sum(contextual_readiness_weights.values())).fillna(0.0).clip(0, 1)
         # 调试探针
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 情境就绪维度 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        bearish_divergence_inverse: {bearish_divergence_inverse.loc[probe_ts]:.4f}")
             print(f"        bullish_divergence: {bullish_divergence.loc[probe_ts]:.4f}")
-            print(f"        sentiment_pendulum_negative: {sentiment_pendulum_negative.loc[probe_ts]:.4f}")
-            print(f"        holder_sentiment_negative: {holder_sentiment_negative.loc[probe_ts]:.4f}")
+            print(f"        behavioral_sentiment_context: {behavioral_sentiment_context.loc[probe_ts]:.4f}") # MODIFIED LINE: 探针输出
+            print(f"        behavioral_weak_hand_exhaustion: {behavioral_weak_hand_exhaustion.loc[probe_ts]:.4f}") # MODIFIED LINE: 探针输出
             print(f"        contextual_readiness_score: {contextual_readiness_score.loc[probe_ts]:.4f}")
         # --- 3. 核心融合 (加权几何平均) ---
         selling_exhaustion_base_score = (
@@ -2786,7 +2805,7 @@ class BehavioralIntelligence:
             max_modulator = dynamic_modulator_params.get('max_modulator', 1.5)
             # 波动率越低，情绪越悲观，调制因子越高
             norm_volatility_inverse = (1 - get_adaptive_mtf_normalized_score(modulator_signal_1, df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
-            norm_sentiment_negative = get_adaptive_mtf_normalized_score(modulator_signal_2.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+            norm_sentiment_negative = get_adaptive_mtf_normalized_score(market_sentiment.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights) # MODIFIED LINE: 使用 market_sentiment_score_D
             dynamic_modulator_factor = base_modulator_factor + \
                                        norm_volatility_inverse * sensitivity_volatility + \
                                        norm_sentiment_negative * sensitivity_sentiment
