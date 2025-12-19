@@ -319,7 +319,7 @@ class BehavioralIntelligence:
             'active_buying_support', 'buy_quote_exhaustion_rate', 'support_validation_strength',
             'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
             'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
-            'PRICE_VOLUME_ENTROPY', 'volatility_expansion_ratio'
+            'price_volume_entropy', 'volatility_expansion_ratio'
         ]
         for period in liquidity_drain_mtf_periods:
             for indicator in indicators_for_mtf_dynamics:
@@ -2945,7 +2945,7 @@ class BehavioralIntelligence:
             'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
             'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
             'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
-            'PRICE_VOLUME_ENTROPY', 'volatility_expansion_ratio'
+            'price_volume_entropy', 'volatility_expansion_ratio'
         ]
         for period_str in mtf_slope_accel_weights.keys():
             period = int(period_str)
@@ -3107,7 +3107,7 @@ class BehavioralIntelligence:
         # 买盘流动性分形维度 (反向)
         norm_bid_liquidity_fractal_dimension_inverse = (1 - get_mtf_fused_score('BID_LIQUIDITY_FRACTAL_DIMENSION_89d', ascending=True)).clip(0, 1)
         # 价格成交量熵
-        norm_price_volume_entropy = get_mtf_fused_score('PRICE_VOLUME_ENTROPY', ascending=True)
+        norm_price_volume_entropy = get_mtf_fused_score('price_volume_entropy', ascending=True)
         # 波动率扩张比率
         norm_volatility_expansion_ratio = get_mtf_fused_score('volatility_expansion_ratio', ascending=True)
         cf_score = (
