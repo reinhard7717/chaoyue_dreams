@@ -2866,14 +2866,12 @@ class BehavioralIntelligence:
         final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.5)
         min_price_drop_pct_threshold = get_param_value(liquidity_drain_params.get('min_price_drop_pct_threshold'), 0.005)
         # --- 1. 获取所有原始数据和已计算的原子信号 ---
-        # MODIFIED LINE: 移除 downward_resistance_D，因为它不是原始数据
         required_df_signals = [
             'pct_change_D', 'panic_selling_cascade_D', 'active_selling_pressure_D',
             'retail_panic_surrender_index_D', 'active_buying_support_D',
             'vwap_control_strength_D', 'sell_quote_exhaustion_rate_D',
             'order_book_imbalance_D', 'volume_structure_skew_D', 'micro_price_impact_asymmetry_D'
         ]
-        # MODIFIED LINE: 确保 SCORE_BEHAVIOR_DOWNWARD_RESISTANCE 在 states 中
         required_state_signals = [
             'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'
         ]
@@ -2889,7 +2887,6 @@ class BehavioralIntelligence:
         panic_cascade_raw = df['panic_selling_cascade_D']
         active_selling_raw = df['active_selling_pressure_D']
         retail_panic_raw = df['retail_panic_surrender_index_D']
-        # MODIFIED LINE: 从 states 中获取 SCORE_BEHAVIOR_DOWNWARD_RESISTANCE
         downward_resistance_score = states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']
         active_buying_raw = df['active_buying_support_D']
         vwap_control_raw = df['vwap_control_strength_D']
@@ -2899,11 +2896,19 @@ class BehavioralIntelligence:
         micro_price_impact_asymmetry_raw = df['micro_price_impact_asymmetry_D']
         # 仅在价格下跌时激活信号
         is_falling = (pct_change < -min_price_drop_pct_threshold).astype(float)
+        # MODIFIED LINE: 创建 debug_info 元组
+        debug_info = (is_debug_enabled, probe_ts, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} - is_falling 检查 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - pct_change_D: {pct_change.loc[probe_ts]:.4f}")
+            print(f"        - min_price_drop_pct_threshold: {min_price_drop_pct_threshold:.4f}")
+            print(f"        - Condition (pct_change < -min_price_drop_pct_threshold): {pct_change.loc[probe_ts] < -min_price_drop_pct_threshold}")
+            print(f"        - is_falling: {is_falling.loc[probe_ts]:.4f}")
         # --- 2. 计算恐慌抛售烈度 (Panic Selling Intensity, PSI) ---
-        norm_panic_cascade = get_adaptive_mtf_normalized_score(panic_cascade_raw, df.index, ascending=True, tf_weights=tf_weights)
-        norm_active_selling = get_adaptive_mtf_normalized_score(active_selling_raw, df.index, ascending=True, tf_weights=tf_weights)
-        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df.index, ascending=True, tf_weights=tf_weights)
-        norm_price_drop_magnitude = get_adaptive_mtf_normalized_score(pct_change.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        norm_panic_cascade = get_adaptive_mtf_normalized_score(panic_cascade_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'panic_cascade_raw')) # MODIFIED LINE: 传递 debug_info
+        norm_active_selling = get_adaptive_mtf_normalized_score(active_selling_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'active_selling_raw')) # MODIFIED LINE: 传递 debug_info
+        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'retail_panic_raw')) # MODIFIED LINE: 传递 debug_info
+        norm_price_drop_magnitude = get_adaptive_mtf_normalized_score(pct_change.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'pct_change.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
         psi_score = (
             (norm_panic_cascade + 1e-9).pow(panic_selling_intensity_weights.get('panic_cascade', 0.3)) *
             (norm_active_selling + 1e-9).pow(panic_selling_intensity_weights.get('active_selling_pressure', 0.3)) *
@@ -2919,8 +2924,8 @@ class BehavioralIntelligence:
             print(f"        - PSI Score: {psi_score.loc[probe_ts]:.4f}")
         # --- 3. 计算抵抗瓦解度 (Resistance Collapse, RC) ---
         norm_downward_resistance_inverse = (1 - downward_resistance_score).clip(0, 1)
-        norm_active_buying_inverse = (1 - get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=tf_weights)).clip(0, 1)
-        norm_vwap_control_negative = get_adaptive_mtf_normalized_score(vwap_control_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        norm_active_buying_inverse = (1 - get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'active_buying_raw'))).clip(0, 1) # MODIFIED LINE: 传递 debug_info
+        norm_vwap_control_negative = get_adaptive_mtf_normalized_score(vwap_control_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'vwap_control_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
         rc_score = (
             (norm_downward_resistance_inverse + 1e-9).pow(resistance_collapse_weights.get('downward_resistance_inverse', 0.4)) *
             (norm_active_buying_inverse + 1e-9).pow(resistance_collapse_weights.get('active_buying_support_inverse', 0.3)) *
@@ -2933,10 +2938,10 @@ class BehavioralIntelligence:
             print(f"        - vwap_control_raw.clip(upper=0).abs(): {vwap_control_raw.loc[probe_ts]:.4f} -> norm_vwap_control_negative: {norm_vwap_control_negative.loc[probe_ts]:.4f}")
             print(f"        - RC Score: {rc_score.loc[probe_ts]:.4f}")
         # --- 4. 计算流动性枯竭证据 (Liquidity Exhaustion Evidence, LEE) ---
-        norm_sell_quote_exhaustion = get_adaptive_mtf_normalized_score(sell_quote_exhaustion_raw, df.index, ascending=True, tf_weights=tf_weights)
-        norm_order_book_imbalance_negative = get_adaptive_mtf_normalized_score(order_book_imbalance_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        norm_volume_structure_skew_negative = get_adaptive_mtf_normalized_score(volume_structure_skew_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        norm_micro_price_impact_asymmetry_negative = get_adaptive_mtf_normalized_score(micro_price_impact_asymmetry_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        norm_sell_quote_exhaustion = get_adaptive_mtf_normalized_score(sell_quote_exhaustion_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'sell_quote_exhaustion_raw')) # MODIFIED LINE: 传递 debug_info
+        norm_order_book_imbalance_negative = get_adaptive_mtf_normalized_score(order_book_imbalance_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'order_book_imbalance_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
+        norm_volume_structure_skew_negative = get_adaptive_mtf_normalized_score(volume_structure_skew_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'volume_structure_skew_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
+        norm_micro_price_impact_asymmetry_negative = get_adaptive_mtf_normalized_score(micro_price_impact_asymmetry_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(is_debug_enabled, probe_ts, 'micro_price_impact_asymmetry_raw.clip(upper=0).abs()')) # MODIFIED LINE: 传递 debug_info
         lee_score = (
             (norm_sell_quote_exhaustion + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('sell_quote_exhaustion', 0.3)) *
             (norm_order_book_imbalance_negative + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('order_book_imbalance_negative', 0.3)) *

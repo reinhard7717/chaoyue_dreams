@@ -872,10 +872,11 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     s_bear = bipolar_score.clip(upper=0).abs()
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
-def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_weights: dict, ascending: bool = True) -> pd.Series:
+def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_weights: dict, ascending: bool = True, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     """
-    【V1.1 · 归一化函数调用修复版】自适应多时间框架归一化分数计算器
+    【V1.2 · 归一化函数调用修复版 & 调试增强版】自适应多时间框架归一化分数计算器
     - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
+    - 调试增强: 增加了 `debug_info` 参数，用于在调试模式下输出 `normalize_score` 内部的详细信息。
     """
     if not isinstance(series, pd.Series) or series.empty:
         return pd.Series(0.0, index=index)
@@ -895,7 +896,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
     normalized_results = {}
     for window, weight in valid_windows_weights:
         # 修正 normalize_score 调用
-        normalized_score_window = normalize_score(series, index, window, ascending)
+        normalized_score_window = normalize_score(series, index, window, ascending, debug_info=debug_info) # 传递 debug_info
         # 确保所有 Series 都与目标索引对齐并填充 NaN，然后乘以权重
         normalized_results[window] = normalized_score_window.reindex(index).fillna(0.0) * weight
     # 将所有加权分数转换为 DataFrame 并进行向量化求和
@@ -945,38 +946,56 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         final_scores = pd.Series(0.0, index=index)
     return final_scores.astype(np.float32)
 
-def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
+def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     """
-    【V1.5 · 滚动排名鲁棒性增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
+    【V1.6 · 滚动排名鲁棒性增强版 & 调试增强版】对序列进行滚动窗口内的排名归一化，并进行零值隔离。
     - 核心升级: 增加了对输入序列全为零情况的特殊处理，确保当原始数据无有效信息时，归一化结果为0。
                 确保当原始序列的当前值为0时，其归一化分数也为0，避免因窗口内历史数据导致0值被错误赋予非零分数。
     - 核心修复: 修正了对非零但绝对值很小的数值强制设为0的逻辑，确保只有原始值为0时，归一化分数才为0。
-    - 【新增】增强滚动排名鲁棒性：确保滚动窗口内有足够数据点才进行排名，避免因数据点过少导致排名失真。
+    - 【新增】增强滚动排名鲁棒性：确保滚动窗口内有足够数据点才进行排名，避免因数据点过小导致排名失真。
+    - 【调试增强】增加了 `debug_info` 参数，用于在调试模式下输出详细的归一化过程。
     参数:
         series (pd.Series): 原始数据序列。
         target_index (pd.Index): 目标索引，用于对齐返回的Series。
         window (int): 滚动窗口大小。
         ascending (bool): 如果为True，则值越大排名越高；如果为False，则值越小排名越高。
         default_value (float): 当Series为空或计算结果为NaN时填充的默认值。
+        debug_info (Optional[Tuple[bool, pd.Timestamp, str]]): 调试信息元组 (is_debug_enabled, probe_ts, signal_name)。
     返回:
         pd.Series: 归一化后的分数序列，范围在 [0, 1]。
     """
+    is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if not isinstance(series, pd.Series) or series.empty:
+        if is_debug_enabled and probe_ts:
+            print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) - Series为空或无效，返回默认值 {default_value}")
         return pd.Series(default_value, index=target_index)
+    # 检查是否所有非NaN值都接近于0
     if (series.dropna().abs() < 1e-9).all():
+        if is_debug_enabled and probe_ts:
+            print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) - 所有非NaN值接近0，返回0")
         return pd.Series(0.0, index=target_index).astype(np.float32)
     series_aligned = series.reindex(target_index)
     is_original_zero = (series_aligned.abs() < 1e-9)
+    # 填充NaN值，以便进行滚动计算，但要确保不影响原始零值的处理
     padded_series = series_aligned.fillna(method='ffill').fillna(method='bfill').fillna(0)
     padded_series = pd.to_numeric(padded_series, errors='coerce').fillna(0)
-    # 确保 min_periods 至少为窗口的20%或2，取较大值，避免排名失真
     min_periods_for_rank = max(2, int(window * 0.2))
+    # 调试信息
+    if is_debug_enabled and probe_ts and probe_ts in padded_series.index:
+        probe_val = padded_series.loc[probe_ts]
+        probe_window_data = padded_series.loc[padded_series.index <= probe_ts].tail(window)
+        print(f"        [DEBUG_NORM] {signal_name} (Window {window}, Asc {ascending}) @ {probe_ts.strftime('%Y-%m-%d')}:")
+        print(f"          - 原始值: {series.loc[probe_ts]:.4f}")
+        print(f"          - 填充后值: {probe_val:.4f}")
+        print(f"          - 窗口数据 ({len(probe_window_data)}/{window}): {probe_window_data.values}")
     ranked_series = padded_series.rolling(window=window, min_periods=min_periods_for_rank).apply(
-        # 增加对滚动窗口内数据点数量的检查，避免 len(x) 过小
         lambda x: x.rank(method='average', ascending=ascending).iloc[-1] / len(x) if len(x) >= min_periods_for_rank else np.nan, raw=False
     )
     normalized_series = ranked_series.clip(0, 1)
+    # 确保原始为0的值，归一化后也为0
     normalized_series = normalized_series.where(~is_original_zero, 0.0)
+    if is_debug_enabled and probe_ts and probe_ts in normalized_series.index:
+        print(f"          - 归一化后分数: {normalized_series.loc[probe_ts]:.4f}")
     return normalized_series.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
