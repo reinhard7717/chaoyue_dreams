@@ -96,6 +96,40 @@ class ProcessIntelligence:
         fused_score = sum(all_scores) / total_weight
         return fused_score.clip(0, 1) if not bipolar else fused_score.clip(-1, 1)
 
+    def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
+        """
+        【V1.0 · 新增】计算多时间框架信号的协同性分数。
+        此方法将对多个基础信号计算其MTF斜率和加速度融合分数，然后评估这些融合分数之间的离散度，
+        离散度越低（即越协同），分数越高。
+        参数:
+            df (pd.DataFrame): 包含所有原始数据的DataFrame。
+            base_signal_names (List[str]): 基础信号名称列表，例如 ['close_D', 'volume_D']。
+            mtf_weights_config (Dict): 包含 'slope_periods' 和 'accel_periods' 权重的配置字典。
+            df_index (pd.Index): DataFrame的索引。
+            method_name (str): 调用此方法的名称，用于日志输出。
+        返回:
+            pd.Series: 融合后的MTF协同性分数。
+        """
+        all_fused_mtf_scores = {}
+        for base_signal_name in base_signal_names:
+            # 调用已有的 _get_mtf_slope_accel_score 来获取每个信号的融合MTF分数
+            # Cohesion score should be unipolar, so bipolar=False
+            fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, ascending=True, bipolar=False)
+            all_fused_mtf_scores[base_signal_name] = fused_score
+        if not all_fused_mtf_scores:
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 将所有融合分数转换为DataFrame
+        fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
+        # 计算滚动标准差，标准差越小，协同性越高（越平静）
+        # 使用较小的min_periods以确保在数据开头也能计算
+        min_periods_std = max(1, int(self.meta_window * 0.5)) # 例如，使用meta_window的一半作为最小周期
+        rolling_std = fused_scores_df.rolling(window=self.meta_window, min_periods=min_periods_std).std(axis=1)
+        # 将标准差转换为协同性分数：标准差越小，分数越高
+        # 确保 rolling_std 不为0，避免除以零。填充NaN为均值，避免极端值
+        rolling_std_safe = rolling_std.replace(0, np.nan).fillna(rolling_std.mean())
+        cohesion_score = self._normalize_series(rolling_std_safe, df_index, ascending=False) # 标准差越小，分数越高
+        return cohesion_score.clip(0, 1)
+
     def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False, ascending: bool = True) -> pd.Series: # 新增 ascending 参数
         """
         【V1.0 · 统一归一化引擎】
@@ -1490,22 +1524,28 @@ class ProcessIntelligence:
         return meta_score
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V4.0 · 全息共振版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V5.0 · 全息共振深化版)...")
         df_index = df.index
         params = get_param_value(config.get('storm_eye_calm_params'), {})
-        energy_compression_weights = get_param_value(params.get('energy_compression_weights'), {"tension": 0.2, "bbw_inverted": 0.15, "vol_instability_inverted": 0.15, "equilibrium_compression": 0.2, "bbw_slope_inverted": 0.15, "vol_instability_slope_inverted": 0.15})
-        volume_exhaustion_weights = get_param_value(params.get('volume_exhaustion_weights'), {"volume_atrophy": 0.2, "turnover_rate_inverted": 0.15, "counterparty_exhaustion": 0.15, "order_book_liquidity_inverted": 0.15, "buy_quote_exhaustion": 0.15, "sell_quote_exhaustion": 0.1, "turnover_rate_slope_inverted": 0.1})
-        main_force_covert_intent_weights = get_param_value(params.get('main_force_covert_intent_weights'), {"stealth_ops": 0.15, "split_order_accum": 0.15, "mf_conviction_positive": 0.15, "mf_net_flow_positive": 0.15, "mf_cost_advantage_positive": 0.1, "mf_buy_ofi_positive": 0.1, "mf_t0_buy_efficiency_positive": 0.1, "mf_net_flow_slope_positive": 0.1})
-        subdued_market_sentiment_weights = get_param_value(params.get('subdued_market_sentiment_weights'), {"sentiment_pendulum_negative": 0.25, "market_sentiment_inverted": 0.25, "retail_panic_inverted": 0.15, "retail_fomo_inverted": 0.15, "loser_pain_positive": 0.2})
+        # --- 1. 获取配置参数 ---
+        energy_compression_weights = get_param_value(params.get('energy_compression_weights'), {"tension": 0.2, "bbw_inverted": 0.15, "vol_instability_inverted": 0.15, "equilibrium_compression": 0.2, "bbw_slope_inverted": 0.15, "vol_instability_slope_inverted": 0.15, "dyn_stability": 0.05, "market_tension": 0.05, "price_sample_entropy_inverted": 0.05, "price_volume_entropy_inverted": 0.05, "price_fractal_dimension_inverted": 0.05})
+        volume_exhaustion_weights = get_param_value(params.get('volume_exhaustion_weights'), {"volume_atrophy": 0.2, "turnover_rate_inverted": 0.15, "counterparty_exhaustion": 0.15, "order_book_liquidity_inverted": 0.15, "buy_quote_exhaustion": 0.15, "sell_quote_exhaustion": 0.1, "turnover_rate_slope_inverted": 0.1, "order_book_imbalance_inverted": 0.05, "micro_price_impact_asymmetry_inverted": 0.05, "bid_side_liquidity_inverted": 0.05, "ask_side_liquidity_inverted": 0.05, "vpin_score_inverted": 0.05, "bid_liquidity_sample_entropy_inverted": 0.05})
+        main_force_covert_intent_weights = get_param_value(params.get('main_force_covert_intent_weights'), {"stealth_ops": 0.15, "split_order_accum": 0.15, "mf_conviction_positive": 0.15, "mf_net_flow_positive": 0.15, "mf_cost_advantage_positive": 0.1, "mf_buy_ofi_positive": 0.1, "mf_t0_buy_efficiency_positive": 0.1, "mf_net_flow_slope_positive": 0.1, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "mf_vwap_up_guidance_positive": 0.05, "mf_vwap_down_guidance_negative": 0.05, "vwap_buy_control_positive": 0.05, "vwap_sell_control_negative": 0.05, "observed_large_order_size_avg_inverted": 0.05, "market_impact_cost_inverted": 0.05})
+        subdued_market_sentiment_weights = get_param_value(params.get('subdued_market_sentiment_weights'), {"sentiment_pendulum_negative": 0.25, "market_sentiment_inverted": 0.25, "retail_panic_inverted": 0.15, "retail_fomo_inverted": 0.15, "loser_pain_positive": 0.2, "liquidity_tide_calm": 0.1, "hurst_calm": 0.1})
         breakout_readiness_weights = get_param_value(params.get('breakout_readiness_weights'), {"struct_breakout_readiness": 0.3, "struct_platform_foundation": 0.25, "goodness_of_fit": 0.25, "platform_conviction": 0.2})
-        final_fusion_weights = get_param_value(params.get('final_fusion_weights'), {"energy_compression": 0.2, "volume_exhaustion": 0.2, "main_force_covert_intent": 0.25, "subdued_market_sentiment": 0.15, "breakout_readiness": 0.2})
+        mtf_cohesion_weights = get_param_value(params.get('mtf_cohesion_weights'), {"cohesion_score": 1.0}) # 新增MTF Cohesion权重
+        final_fusion_weights = get_param_value(params.get('final_fusion_weights'), {"energy_compression": 0.2, "volume_exhaustion": 0.2, "main_force_covert_intent": 0.25, "subdued_market_sentiment": 0.15, "breakout_readiness": 0.2, "mtf_cohesion": 0.1})
         price_calmness_modulator_params = get_param_value(params.get('price_calmness_modulator_params'), {"slope_period": 5, "pct_change_threshold": 0.005, "modulator_factor": 0.5})
         main_force_control_adjudicator_params = get_param_value(params.get('main_force_control_adjudicator'), {"control_signal": "control_solidity_index_D", "activity_signal": "main_force_activity_ratio_D", "veto_threshold": -0.2, "amplifier_factor": 0.5})
-        mtf_slope_accel_weights = get_param_value(params.get('mtf_slope_accel_weights'), {}) # 新增MTF斜率加速度权重
-        regime_modulator_params = get_param_value(params.get('regime_modulator_params'), {}) # 新增市场情境调节器参数
+        mtf_slope_accel_weights = get_param_value(params.get('mtf_slope_accel_weights'), {})
+        regime_modulator_params = get_param_value(params.get('regime_modulator_params'), {})
+        mtf_cohesion_base_signals = get_param_value(params.get('mtf_cohesion_base_signals'), ['close_D', 'volume_D', 'main_force_net_flow_calibrated_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D', 'BBW_21_2.0_D']) # 新增MTF Cohesion基准信号
+
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
+        # --- 2. 校验所有必需的信号 ---
         required_signals = [
             'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'control_solidity_index_D',
             'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D',
@@ -1513,100 +1553,147 @@ class ProcessIntelligence:
             'SCORE_MICRO_STRATEGY_STEALTH_OPS', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
             'main_force_net_flow_calibrated_D', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
             'market_sentiment_score_D', 'SLOPE_5_close_D', 'pct_change_D',
-            'equilibrium_compression_index_D', 'SLOPE_5_BBW_21_2.0_D', 'SLOPE_5_VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D', 'SLOPE_5_turnover_rate_f_D',
-            'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D', 'SLOPE_5_main_force_net_flow_calibrated_D',
+            'equilibrium_compression_index_D',
+            'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
+            'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
             'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'loser_pain_index_D',
             'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION', 'goodness_of_fit_score_D', 'platform_conviction_score_D',
-            'main_force_activity_ratio_D',
-            # 新增MTF斜率/加速度和微观结构指标
-            'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D'
+            'main_force_activity_ratio_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D',
+            # 新增信号
+            'SCORE_DYN_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
+            'SAMPLE_ENTROPY_13d_D', 'PRICE_VOLUME_ENTROPY_D', 'FRACTAL_DIMENSION_89d_D',
+            'bid_side_liquidity_D', 'ask_side_liquidity_D', 'vpin_score_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D',
+            'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D', 'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
+            'observed_large_order_size_avg_D', 'market_impact_cost_D',
+            'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 'HURST_144d_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D']:
+        for base_sig in mtf_cohesion_base_signals: # 使用mtf_cohesion_base_signals作为基准信号列表
             for period_str in get_param_value(mtf_slope_accel_weights.get('slope_periods'), {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in get_param_value(mtf_slope_accel_weights.get('accel_periods'), {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+
         if not self._validate_required_signals(df, required_signals, "_calculate_storm_eye_calm"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', np.nan) # 默认值改为np.nan
-        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        vol_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        # 使用_get_mtf_slope_accel_score计算MTF斜率/加速度分数
+
+        # --- 3. 获取原始数据 (包括新增的) ---
+        # Energy Compression
+        tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', np.nan)
+        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', np.nan, method_name="_calculate_storm_eye_calm")
+        vol_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name="_calculate_storm_eye_calm")
+        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', np.nan, method_name="_calculate_storm_eye_calm")
+        dyn_stability_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', np.nan) # 新增
+        market_tension_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', np.nan) # 新增
+        price_sample_entropy_raw = self._get_safe_series(df, 'SAMPLE_ENTROPY_13d_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        price_volume_entropy_raw = self._get_safe_series(df, 'PRICE_VOLUME_ENTROPY_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        price_fractal_dimension_raw = self._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+
+        # Volume Exhaustion
+        atrophy_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', np.nan)
+        turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', np.nan, method_name="_calculate_storm_eye_calm")
+        counterparty_exhaustion_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', np.nan, method_name="_calculate_storm_eye_calm")
+        order_book_liquidity_raw = self._get_safe_series(df, 'order_book_liquidity_supply_D', np.nan, method_name="_calculate_storm_eye_calm")
+        buy_quote_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', np.nan, method_name="_calculate_storm_eye_calm")
+        sell_quote_exhaustion_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', np.nan, method_name="_calculate_storm_eye_calm")
+        order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', np.nan, method_name="_calculate_storm_eye_calm")
+        micro_price_impact_asymmetry_raw = self._get_safe_series(df, 'micro_price_impact_asymmetry_D', np.nan, method_name="_calculate_storm_eye_calm")
+        bid_side_liquidity_raw = self._get_safe_series(df, 'bid_side_liquidity_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        ask_side_liquidity_raw = self._get_safe_series(df, 'ask_side_liquidity_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        vpin_score_raw = self._get_safe_series(df, 'vpin_score_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        bid_liquidity_sample_entropy_raw = self._get_safe_series(df, 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+
+        # Main Force Covert Intent
+        stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', np.nan)
+        split_order_accum_score = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', np.nan)
+        mf_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', np.nan, method_name="_calculate_storm_eye_calm")
+        mf_net_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', np.nan, method_name="_calculate_storm_eye_calm")
+        mf_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', np.nan, method_name="_calculate_storm_eye_calm")
+        mf_buy_ofi_raw = self._get_safe_series(df, 'main_force_buy_ofi_D', np.nan, method_name="_calculate_storm_eye_calm")
+        mf_t0_buy_efficiency_raw = self._get_safe_series(df, 'main_force_t0_buy_efficiency_D', np.nan, method_name="_calculate_storm_eye_calm")
+        mf_vwap_up_guidance_raw = self._get_safe_series(df, 'main_force_vwap_up_guidance_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        mf_vwap_down_guidance_raw = self._get_safe_series(df, 'main_force_vwap_down_guidance_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        vwap_buy_control_raw = self._get_safe_series(df, 'vwap_buy_control_strength_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        vwap_sell_control_raw = self._get_safe_series(df, 'vwap_sell_control_strength_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        observed_large_order_size_avg_raw = self._get_safe_series(df, 'observed_large_order_size_avg_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+        market_impact_cost_raw = self._get_safe_series(df, 'market_impact_cost_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+
+        # Subdued Market Sentiment
+        sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', np.nan)
+        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', np.nan, method_name="_calculate_storm_eye_calm")
+        retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', np.nan, method_name="_calculate_storm_eye_calm")
+        retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', np.nan, method_name="_calculate_storm_eye_calm")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', np.nan, method_name="_calculate_storm_eye_calm")
+        liquidity_tide_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', np.nan) # 新增
+        hurst_raw = self._get_safe_series(df, 'HURST_144d_D', np.nan, method_name="_calculate_storm_eye_calm") # 新增
+
+        # Breakout Readiness
+        struct_breakout_readiness_score = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', np.nan)
+        struct_platform_foundation_score = self._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', np.nan)
+        goodness_of_fit_raw = self._get_safe_series(df, 'goodness_of_fit_score_D', np.nan, method_name="_calculate_storm_eye_calm")
+        platform_conviction_raw = self._get_safe_series(df, 'platform_conviction_score_D', np.nan, method_name="_calculate_storm_eye_calm")
+
+        # Modulators
+        price_slope_raw = self._get_safe_series(df, f'SLOPE_{price_calmness_modulator_params.get("slope_period", 5)}_close_D', np.nan, method_name="_calculate_storm_eye_calm")
+        pct_change_raw = self._get_safe_series(df, 'pct_change_D', np.nan, method_name="_calculate_storm_eye_calm")
+        control_solidity_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), np.nan, method_name="_calculate_storm_eye_calm")
+        mf_activity_ratio_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), np.nan, method_name="_calculate_storm_eye_calm")
+        volatility_regime_raw = self._get_safe_series(df, regime_modulator_params.get('volatility_signal', 'VOLATILITY_INSTABILITY_INDEX_21d_D'), np.nan, method_name="_calculate_storm_eye_calm")
+        trend_regime_raw = self._get_safe_series(df, regime_modulator_params.get('trend_signal', 'ADX_14_D'), np.nan, method_name="_calculate_storm_eye_calm")
+
+        # --- 4. 计算MTF斜率/加速度分数 ---
         bbw_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'BBW_21_2.0_D', mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm", ascending=True, bipolar=False)
         vol_instability_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm", ascending=True, bipolar=False)
-        atrophy_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', np.nan) # 默认值改为np.nan
-        turnover_rate_raw = self._get_safe_series(df, 'turnover_rate_f_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        counterparty_exhaustion_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        order_book_liquidity_raw = self._get_safe_series(df, 'order_book_liquidity_supply_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        buy_quote_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        sell_quote_exhaustion_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        # 使用_get_mtf_slope_accel_score计算MTF斜率/加速度分数
         turnover_rate_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'turnover_rate_f_D', mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm", ascending=True, bipolar=False)
-        # 新增微观结构指标
-        order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        micro_price_impact_asymmetry_raw = self._get_safe_series(df, 'micro_price_impact_asymmetry_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', np.nan) # 默认值改为np.nan
-        split_order_accum_score = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', np.nan) # 默认值改为np.nan
-        mf_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        mf_net_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        mf_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        mf_buy_ofi_raw = self._get_safe_series(df, 'main_force_buy_ofi_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        mf_t0_buy_efficiency_raw = self._get_safe_series(df, 'main_force_t0_buy_efficiency_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        # 使用_get_mtf_slope_accel_score计算MTF斜率/加速度分数
         mf_net_flow_slope_positive = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm", ascending=True, bipolar=False)
-        sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', np.nan) # 默认值改为np.nan
-        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        struct_breakout_readiness_score = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', np.nan) # 默认值改为np.nan
-        struct_platform_foundation_score = self._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', np.nan) # 默认值改为np.nan
-        goodness_of_fit_raw = self._get_safe_series(df, 'goodness_of_fit_score_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        platform_conviction_raw = self._get_safe_series(df, 'platform_conviction_score_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        price_slope_raw = self._get_safe_series(df, f'SLOPE_{price_calmness_modulator_params.get("slope_period", 5)}_close_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        pct_change_raw = self._get_safe_series(df, 'pct_change_D', np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        control_solidity_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        mf_activity_ratio_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        # 新增市场情境调节器信号
-        volatility_regime_raw = self._get_safe_series(df, regime_modulator_params.get('volatility_signal', 'VOLATILITY_INSTABILITY_INDEX_21d_D'), np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
-        trend_regime_raw = self._get_safe_series(df, regime_modulator_params.get('trend_signal', 'ADX_14_D'), np.nan, method_name="_calculate_storm_eye_calm") # 默认值改为np.nan
+        # 新增MTF Cohesion
+        mtf_cohesion_score = self._get_mtf_cohesion_score(df, mtf_cohesion_base_signals, mtf_slope_accel_weights, df_index, "_calculate_storm_eye_calm")
+
+        # --- 5. 归一化和计算各维度分数 ---
+        # Energy Compression
         bbw_inverted_score = self._normalize_series(bbw_raw, df_index, ascending=False)
         vol_instability_inverted_score = self._normalize_series(vol_instability_raw, df_index, ascending=False)
         equilibrium_compression_score = self._normalize_series(equilibrium_compression_raw, df_index, ascending=True)
+        dyn_stability_norm = self._normalize_series(dyn_stability_score, df_index, bipolar=False) # 新增
+        market_tension_norm = self._normalize_series(market_tension_score, df_index, bipolar=False) # 新增
+        price_sample_entropy_inverted = self._normalize_series(price_sample_entropy_raw, df_index, ascending=False) # 新增
+        price_volume_entropy_inverted = self._normalize_series(price_volume_entropy_raw, df_index, ascending=False) # 新增
+        price_fractal_dimension_inverted = self._normalize_series(price_fractal_dimension_raw, df_index, ascending=False) # 新增
         energy_compression_scores_dict = {
-            'tension': tension_score,
-            'bbw_inverted': bbw_inverted_score,
-            'vol_instability_inverted': vol_instability_inverted_score,
-            'equilibrium_compression': equilibrium_compression_score,
-            'bbw_slope_inverted': bbw_slope_inverted_score,
-            'vol_instability_slope_inverted': vol_instability_slope_inverted_score
+            'tension': tension_score, 'bbw_inverted': bbw_inverted_score, 'vol_instability_inverted': vol_instability_inverted_score,
+            'equilibrium_compression': equilibrium_compression_score, 'bbw_slope_inverted': bbw_slope_inverted_score,
+            'vol_instability_slope_inverted': vol_instability_slope_inverted_score,
+            'dyn_stability': dyn_stability_norm, 'market_tension': market_tension_norm, # 新增
+            'price_sample_entropy_inverted': price_sample_entropy_inverted, 'price_volume_entropy_inverted': price_volume_entropy_inverted, # 新增
+            'price_fractal_dimension_inverted': price_fractal_dimension_inverted # 新增
         }
         energy_compression_score = _robust_geometric_mean(energy_compression_scores_dict, energy_compression_weights, df_index)
+
+        # Volume Exhaustion
         turnover_rate_inverted_score = self._normalize_series(turnover_rate_raw, df_index, ascending=False)
         counterparty_exhaustion_score = self._normalize_series(counterparty_exhaustion_raw, df_index, ascending=True)
         order_book_liquidity_inverted_score = self._normalize_series(order_book_liquidity_raw, df_index, ascending=False)
         buy_quote_exhaustion_score = self._normalize_series(buy_quote_exhaustion_raw, df_index, ascending=True)
         sell_quote_exhaustion_score = self._normalize_series(sell_quote_exhaustion_raw, df_index, ascending=True)
-        # 新增微观结构指标归一化
-        order_book_imbalance_inverted = self._normalize_series(order_book_imbalance_raw.abs(), df_index, ascending=False) # 绝对值越小，越平衡，越平静
-        micro_price_impact_asymmetry_inverted = self._normalize_series(micro_price_impact_asymmetry_raw.abs(), df_index, ascending=False) # 绝对值越小，冲击越对称，越平静
+        order_book_imbalance_inverted = self._normalize_series(order_book_imbalance_raw.abs(), df_index, ascending=False)
+        micro_price_impact_asymmetry_inverted = self._normalize_series(micro_price_impact_asymmetry_raw.abs(), df_index, ascending=False)
+        bid_side_liquidity_inverted = self._normalize_series(bid_side_liquidity_raw, df_index, ascending=False) # 新增
+        ask_side_liquidity_inverted = self._normalize_series(ask_side_liquidity_raw, df_index, ascending=False) # 新增
+        vpin_score_inverted = self._normalize_series(vpin_score_raw, df_index, ascending=False) # 新增
+        bid_liquidity_sample_entropy_inverted = self._normalize_series(bid_liquidity_sample_entropy_raw, df_index, ascending=False) # 新增
         volume_exhaustion_scores_dict = {
-            'volume_atrophy': atrophy_score,
-            'turnover_rate_inverted': turnover_rate_inverted_score,
-            'counterparty_exhaustion': counterparty_exhaustion_score,
-            'order_book_liquidity_inverted': order_book_liquidity_inverted_score,
-            'buy_quote_exhaustion': buy_quote_exhaustion_score,
-            'sell_quote_exhaustion': sell_quote_exhaustion_score,
+            'volume_atrophy': atrophy_score, 'turnover_rate_inverted': turnover_rate_inverted_score,
+            'counterparty_exhaustion': counterparty_exhaustion_score, 'order_book_liquidity_inverted': order_book_liquidity_inverted_score,
+            'buy_quote_exhaustion': buy_quote_exhaustion_score, 'sell_quote_exhaustion': sell_quote_exhaustion_score,
             'turnover_rate_slope_inverted': turnover_rate_slope_inverted_score,
-            'order_book_imbalance_inverted': order_book_imbalance_inverted, # 新增微观结构指标
-            'micro_price_impact_asymmetry_inverted': micro_price_impact_asymmetry_inverted # 新增微观结构指标
+            'order_book_imbalance_inverted': order_book_imbalance_inverted,
+            'micro_price_impact_asymmetry_inverted': micro_price_impact_asymmetry_inverted,
+            'bid_side_liquidity_inverted': bid_side_liquidity_inverted, 'ask_side_liquidity_inverted': ask_side_liquidity_inverted, # 新增
+            'vpin_score_inverted': vpin_score_inverted, 'bid_liquidity_sample_entropy_inverted': bid_liquidity_sample_entropy_inverted # 新增
         }
-        # 更新volume_exhaustion_weights以包含新指标
-        volume_exhaustion_weights.update({"order_book_imbalance_inverted": 0.05, "micro_price_impact_asymmetry_inverted": 0.05})
         volume_exhaustion_score = _robust_geometric_mean(volume_exhaustion_scores_dict, volume_exhaustion_weights, df_index)
+
+        # Main Force Covert Intent
         stealth_ops_normalized = self._normalize_series(stealth_ops_score, df_index, ascending=True)
         split_order_accum_normalized = self._normalize_series(split_order_accum_score, df_index, ascending=True)
         mf_conviction_positive = self._normalize_series(mf_conviction_raw, df_index, bipolar=True).clip(lower=0)
@@ -1614,37 +1701,44 @@ class ProcessIntelligence:
         mf_cost_advantage_positive = self._normalize_series(mf_cost_advantage_raw, df_index, bipolar=True).clip(lower=0)
         mf_buy_ofi_positive = self._normalize_series(mf_buy_ofi_raw, df_index, ascending=True)
         mf_t0_buy_efficiency_positive = self._normalize_series(mf_t0_buy_efficiency_raw, df_index, ascending=True)
-        # 新增微观结构指标归一化
-        order_book_imbalance_positive = self._normalize_series(order_book_imbalance_raw.clip(lower=0), df_index, ascending=True) # 关注买方不平衡
-        micro_price_impact_asymmetry_positive = self._normalize_series(micro_price_impact_asymmetry_raw.clip(lower=0), df_index, ascending=True) # 关注买方冲击优势
+        order_book_imbalance_positive = self._normalize_series(order_book_imbalance_raw.clip(lower=0), df_index, ascending=True)
+        micro_price_impact_asymmetry_positive = self._normalize_series(micro_price_impact_asymmetry_raw.clip(lower=0), df_index, ascending=True)
+        mf_vwap_up_guidance_positive = self._normalize_series(mf_vwap_up_guidance_raw, df_index, ascending=True) # 新增
+        mf_vwap_down_guidance_negative = self._normalize_series(mf_vwap_down_guidance_raw, df_index, ascending=False) # 新增
+        vwap_buy_control_positive = self._normalize_series(vwap_buy_control_raw, df_index, ascending=True) # 新增
+        vwap_sell_control_negative = self._normalize_series(vwap_sell_control_raw, df_index, ascending=False) # 新增
+        observed_large_order_size_avg_inverted = self._normalize_series(observed_large_order_size_avg_raw, df_index, ascending=False) # 新增
+        market_impact_cost_inverted = self._normalize_series(market_impact_cost_raw, df_index, ascending=False) # 新增
         main_force_covert_intent_scores_dict = {
-            'stealth_ops': stealth_ops_normalized,
-            'split_order_accum': split_order_accum_normalized,
-            'mf_conviction_positive': mf_conviction_positive,
-            'mf_net_flow_positive': mf_net_flow_positive,
-            'mf_cost_advantage_positive': mf_cost_advantage_positive,
-            'mf_buy_ofi_positive': mf_buy_ofi_positive,
-            'mf_t0_buy_efficiency_positive': mf_t0_buy_efficiency_positive,
-            'mf_net_flow_slope_positive': mf_net_flow_slope_positive,
-            'order_book_imbalance_positive': order_book_imbalance_positive, # 新增微观结构指标
-            'micro_price_impact_asymmetry_positive': micro_price_impact_asymmetry_positive # 新增微观结构指标
+            'stealth_ops': stealth_ops_normalized, 'split_order_accum': split_order_accum_normalized,
+            'mf_conviction_positive': mf_conviction_positive, 'mf_net_flow_positive': mf_net_flow_positive,
+            'mf_cost_advantage_positive': mf_cost_advantage_positive, 'mf_buy_ofi_positive': mf_buy_ofi_positive,
+            'mf_t0_buy_efficiency_positive': mf_t0_buy_efficiency_positive, 'mf_net_flow_slope_positive': mf_net_flow_slope_positive,
+            'order_book_imbalance_positive': order_book_imbalance_positive,
+            'micro_price_impact_asymmetry_positive': micro_price_impact_asymmetry_positive,
+            'mf_vwap_up_guidance_positive': mf_vwap_up_guidance_positive, 'mf_vwap_down_guidance_negative': mf_vwap_down_guidance_negative, # 新增
+            'vwap_buy_control_positive': vwap_buy_control_positive, 'vwap_sell_control_negative': vwap_sell_control_negative, # 新增
+            'observed_large_order_size_avg_inverted': observed_large_order_size_avg_inverted, 'market_impact_cost_inverted': market_impact_cost_inverted # 新增
         }
-        # 更新main_force_covert_intent_weights以包含新指标
-        main_force_covert_intent_weights.update({"order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05})
         main_force_covert_intent_score = _robust_geometric_mean(main_force_covert_intent_scores_dict, main_force_covert_intent_weights, df_index)
+
+        # Subdued Market Sentiment
         sentiment_pendulum_negative = self._normalize_series(sentiment_pendulum_score, df_index, bipolar=True).clip(upper=0).abs()
         market_sentiment_inverted = self._normalize_series(market_sentiment_raw, df_index, ascending=False)
         retail_panic_inverted = self._normalize_series(retail_panic_raw, df_index, ascending=False)
         retail_fomo_inverted = self._normalize_series(retail_fomo_raw, df_index, ascending=False)
         loser_pain_positive = self._normalize_series(loser_pain_raw, df_index, ascending=True)
+        liquidity_tide_calm = self._normalize_series(liquidity_tide_score.abs(), df_index, ascending=False) # 新增，流动性潮汐绝对值越小越平静
+        hurst_calm = self._normalize_series((hurst_raw - 0.5).abs(), df_index, ascending=False) # 新增，Hurst指数越接近0.5越平静
         subdued_market_sentiment_scores_dict = {
-            'sentiment_pendulum_negative': sentiment_pendulum_negative,
-            'market_sentiment_inverted': market_sentiment_inverted,
-            'retail_panic_inverted': retail_panic_inverted,
-            'retail_fomo_inverted': retail_fomo_inverted,
-            'loser_pain_positive': loser_pain_positive
+            'sentiment_pendulum_negative': sentiment_pendulum_negative, 'market_sentiment_inverted': market_sentiment_inverted,
+            'retail_panic_inverted': retail_panic_inverted, 'retail_fomo_inverted': retail_fomo_inverted,
+            'loser_pain_positive': loser_pain_positive,
+            'liquidity_tide_calm': liquidity_tide_calm, 'hurst_calm': hurst_calm # 新增
         }
         subdued_market_sentiment_score = _robust_geometric_mean(subdued_market_sentiment_scores_dict, subdued_market_sentiment_weights, df_index)
+
+        # Breakout Readiness
         goodness_of_fit_score = self._normalize_series(goodness_of_fit_raw, df_index, ascending=True)
         platform_conviction_score = self._normalize_series(platform_conviction_raw, df_index, ascending=True)
         breakout_readiness_scores_dict = {
@@ -1654,7 +1748,8 @@ class ProcessIntelligence:
             'platform_conviction': platform_conviction_score
         }
         breakout_readiness_score = _robust_geometric_mean(breakout_readiness_scores_dict, breakout_readiness_weights, df_index)
-        # 市场情境动态调节器
+
+        # --- 6. 市场情境动态调节器 ---
         market_regime_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
         if get_param_value(regime_modulator_params.get('enabled'), False):
             volatility_sensitivity = get_param_value(regime_modulator_params.get('volatility_sensitivity'), 0.5)
@@ -1664,35 +1759,43 @@ class ProcessIntelligence:
             max_modulator = get_param_value(regime_modulator_params.get('max_modulator'), 1.2)
             volatility_norm = self._normalize_series(volatility_regime_raw, df_index, ascending=False) # 波动率越低，越平静，调节器越高
             trend_norm = self._normalize_series(trend_regime_raw, df_index, ascending=False) # 趋势越弱，越平静，调节器越高
-            # 融合波动率和趋势对调节器的影响
             market_regime_modulator = (
                 base_modulator_factor +
                 (volatility_norm * volatility_sensitivity + trend_norm * trend_sensitivity) / (volatility_sensitivity + trend_sensitivity + 1e-9)
             ).clip(min_modulator, max_modulator)
+
+        # --- 7. 最终融合 ---
         # 动态调整final_fusion_weights
         adjusted_final_fusion_weights = {k: v * market_regime_modulator for k, v in final_fusion_weights.items()}
-        # 使用调整后的权重计算base_calm_score
         base_calm_scores_dict = {
             'energy_compression': energy_compression_score,
             'volume_exhaustion': volume_exhaustion_score,
             'main_force_covert_intent': main_force_covert_intent_score,
             'subdued_market_sentiment': subdued_market_sentiment_score,
-            'breakout_readiness': breakout_readiness_score
+            'breakout_readiness': breakout_readiness_score,
+            'mtf_cohesion': mtf_cohesion_score # 新增
         }
-        base_calm_score = _robust_geometric_mean(base_calm_scores_dict, adjusted_final_fusion_weights, df_index) # 使用调整后的权重
+        base_calm_score = _robust_geometric_mean(base_calm_scores_dict, adjusted_final_fusion_weights, df_index)
+
+        # 价格平静度调节器
         price_slope_norm_bipolar = self._normalize_series(price_slope_raw, df_index, bipolar=True)
         pct_change_abs_norm_inverted = self._normalize_series(pct_change_raw.abs(), df_index, ascending=False)
         price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_slope_norm_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1)
         price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('modulator_factor', 0.5))
+
+        # 主力控盘裁决器
         control_solidity_score = self._normalize_series(control_solidity_raw, df_index, bipolar=True)
         mf_activity_ratio_score = self._normalize_series(mf_activity_ratio_raw, df_index, ascending=True)
         veto_threshold = main_force_control_adjudicator_params.get('veto_threshold', -0.2)
         amplifier_factor = main_force_control_adjudicator_params.get('amplifier_factor', 0.5)
+        
         final_score = base_calm_score * price_calmness_amplifier
         combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1)
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
         final_score = (final_score * main_force_amplifier).clip(0, 1).fillna(0.0)
+
+        # --- 8. 探针输出 ---
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             last_date_index = -1
@@ -1704,25 +1807,28 @@ class ProcessIntelligence:
             print(f"    - BBW_21_2.0_D: {bbw_raw.iloc[last_date_index]:.4f}")
             print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {vol_instability_raw.iloc[last_date_index]:.4f}")
             print(f"    - equilibrium_compression_index_D: {equilibrium_compression_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_DYN_AXIOM_STABILITY: {dyn_stability_score.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - SCORE_FOUNDATION_AXIOM_MARKET_TENSION: {market_tension_score.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - SAMPLE_ENTROPY_13d_D: {price_sample_entropy_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - PRICE_VOLUME_ENTROPY_D: {price_volume_entropy_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - FRACTAL_DIMENSION_89d_D: {price_fractal_dimension_raw.iloc[last_date_index]:.4f}") # 新增
             # 输出MTF斜率/加速度的原始数据
-            for period_str in get_param_value(mtf_slope_accel_weights.get('slope_periods'), {}).keys():
-                print(f"    - SLOPE_{period_str}_BBW_21_2.0_D: {self._get_safe_series(df, f'SLOPE_{period_str}_BBW_21_2.0_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
-                print(f"    - SLOPE_{period_str}_VOLATILITY_INSTABILITY_INDEX_21d_D: {self._get_safe_series(df, f'SLOPE_{period_str}_VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
-                print(f"    - SLOPE_{period_str}_turnover_rate_f_D: {self._get_safe_series(df, f'SLOPE_{period_str}_turnover_rate_f_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
-                print(f"    - SLOPE_{period_str}_main_force_net_flow_calibrated_D: {self._get_safe_series(df, f'SLOPE_{period_str}_main_force_net_flow_calibrated_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
-            for period_str in get_param_value(mtf_slope_accel_weights.get('accel_periods'), {}).keys():
-                print(f"    - ACCEL_{period_str}_BBW_21_2.0_D: {self._get_safe_series(df, f'ACCEL_{period_str}_BBW_21_2.0_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
-                print(f"    - ACCEL_{period_str}_VOLATILITY_INSTABILITY_INDEX_21d_D: {self._get_safe_series(df, f'ACCEL_{period_str}_VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
-                print(f"    - ACCEL_{period_str}_turnover_rate_f_D: {self._get_safe_series(df, f'ACCEL_{period_str}_turnover_rate_f_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
-                print(f"    - ACCEL_{period_str}_main_force_net_flow_calibrated_D: {self._get_safe_series(df, f'ACCEL_{period_str}_main_force_net_flow_calibrated_D', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
+            for base_sig in mtf_cohesion_base_signals:
+                for period_str in get_param_value(mtf_slope_accel_weights.get('slope_periods'), {}).keys():
+                    print(f"    - SLOPE_{period_str}_{base_sig}: {self._get_safe_series(df, f'SLOPE_{period_str}_{base_sig}', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
+                for period_str in get_param_value(mtf_slope_accel_weights.get('accel_periods'), {}).keys():
+                    print(f"    - ACCEL_{period_str}_{base_sig}: {self._get_safe_series(df, f'ACCEL_{period_str}_{base_sig}', np.nan, method_name='_calculate_storm_eye_calm').iloc[last_date_index]:.4f}")
             print(f"    - turnover_rate_f_D: {turnover_rate_raw.iloc[last_date_index]:.4f}")
             print(f"    - counterparty_exhaustion_index_D: {counterparty_exhaustion_raw.iloc[last_date_index]:.4f}")
             print(f"    - order_book_liquidity_supply_D: {order_book_liquidity_raw.iloc[last_date_index]:.4f}")
             print(f"    - buy_quote_exhaustion_rate_D: {buy_quote_exhaustion_raw.iloc[last_date_index]:.4f}")
             print(f"    - sell_quote_exhaustion_rate_D: {sell_quote_exhaustion_raw.iloc[last_date_index]:.4f}")
-            # 输出新增的微观结构指标原始值
             print(f"    - order_book_imbalance_D: {order_book_imbalance_raw.iloc[last_date_index]:.4f}")
             print(f"    - micro_price_impact_asymmetry_D: {micro_price_impact_asymmetry_raw.iloc[last_date_index]:.4f}")
+            print(f"    - bid_side_liquidity_D: {bid_side_liquidity_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - ask_side_liquidity_D: {ask_side_liquidity_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - vpin_score_D: {vpin_score_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D: {bid_liquidity_sample_entropy_raw.iloc[last_date_index]:.4f}") # 新增
             print(f"    - SCORE_MICRO_STRATEGY_STEALTH_OPS: {stealth_ops_score.iloc[last_date_index]:.4f}")
             print(f"    - PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY: {split_order_accum_score.iloc[last_date_index]:.4f}")
             print(f"    - main_force_conviction_index_D: {mf_conviction_raw.iloc[last_date_index]:.4f}")
@@ -1730,11 +1836,19 @@ class ProcessIntelligence:
             print(f"    - main_force_cost_advantage_D: {mf_cost_advantage_raw.iloc[last_date_index]:.4f}")
             print(f"    - main_force_buy_ofi_D: {mf_buy_ofi_raw.iloc[last_date_index]:.4f}")
             print(f"    - main_force_t0_buy_efficiency_D: {mf_t0_buy_efficiency_raw.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_vwap_up_guidance_D: {mf_vwap_up_guidance_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - main_force_vwap_down_guidance_D: {mf_vwap_down_guidance_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - vwap_buy_control_strength_D: {vwap_buy_control_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - vwap_sell_control_strength_D: {vwap_sell_control_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - observed_large_order_size_avg_D: {observed_large_order_size_avg_raw.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - market_impact_cost_D: {market_impact_cost_raw.iloc[last_date_index]:.4f}") # 新增
             print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
             print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
             print(f"    - retail_panic_surrender_index_D: {retail_panic_raw.iloc[last_date_index]:.4f}")
             print(f"    - retail_fomo_premium_index_D: {retail_fomo_raw.iloc[last_date_index]:.4f}")
             print(f"    - loser_pain_index_D: {loser_pain_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE: {liquidity_tide_score.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - HURST_144d_D: {hurst_raw.iloc[last_date_index]:.4f}") # 新增
             print(f"    - SCORE_STRUCT_BREAKOUT_READINESS: {struct_breakout_readiness_score.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_STRUCT_PLATFORM_FOUNDATION: {struct_platform_foundation_score.iloc[last_date_index]:.4f}")
             print(f"    - goodness_of_fit_score_D: {goodness_of_fit_raw.iloc[last_date_index]:.4f}")
@@ -1742,25 +1856,32 @@ class ProcessIntelligence:
             print(f"    - SLOPE_5_close_D: {price_slope_raw.iloc[last_date_index]:.4f}")
             print(f"    - pct_change_D: {pct_change_raw.iloc[last_date_index]:.4f}")
             print(f"    - main_force_activity_ratio_D: {mf_activity_ratio_raw.iloc[last_date_index]:.4f}")
-            # 输出市场情境调节器原始信号
             print(f"    - {regime_modulator_params.get('volatility_signal', 'VOLATILITY_INSTABILITY_INDEX_21d_D')}: {volatility_regime_raw.iloc[last_date_index]:.4f}")
             print(f"    - {regime_modulator_params.get('trend_signal', 'ADX_14_D')}: {trend_regime_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算 (归一化/中间分)]: ")
             print(f"    - bbw_inverted_score: {bbw_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - vol_instability_inverted_score: {vol_instability_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - equilibrium_compression_score: {equilibrium_compression_score.iloc[last_date_index]:.4f}")
-            print(f"    - bbw_slope_inverted_score (MTF): {bbw_slope_inverted_score.iloc[last_date_index]:.4f}") # 注明MTF
-            print(f"    - vol_instability_slope_inverted_score (MTF): {vol_instability_slope_inverted_score.iloc[last_date_index]:.4f}") # 注明MTF
+            print(f"    - dyn_stability_norm: {dyn_stability_norm.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - market_tension_norm: {market_tension_norm.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - price_sample_entropy_inverted: {price_sample_entropy_inverted.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - price_volume_entropy_inverted: {price_volume_entropy_inverted.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - price_fractal_dimension_inverted: {price_fractal_dimension_inverted.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - bbw_slope_inverted_score (MTF): {bbw_slope_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - vol_instability_slope_inverted_score (MTF): {vol_instability_slope_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - energy_compression_score: {energy_compression_score.iloc[last_date_index]:.4f}")
             print(f"    - turnover_rate_inverted_score: {turnover_rate_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - counterparty_exhaustion_score: {counterparty_exhaustion_score.iloc[last_date_index]:.4f}")
             print(f"    - order_book_liquidity_inverted_score: {order_book_liquidity_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - buy_quote_exhaustion_score: {buy_quote_exhaustion_score.iloc[last_date_index]:.4f}")
             print(f"    - sell_quote_exhaustion_score: {sell_quote_exhaustion_score.iloc[last_date_index]:.4f}")
-            print(f"    - turnover_rate_slope_inverted_score (MTF): {turnover_rate_slope_inverted_score.iloc[last_date_index]:.4f}") # 注明MTF
-            # 输出新增的微观结构指标归一化分数
+            print(f"    - turnover_rate_slope_inverted_score (MTF): {turnover_rate_slope_inverted_score.iloc[last_date_index]:.4f}")
             print(f"    - order_book_imbalance_inverted: {order_book_imbalance_inverted.iloc[last_date_index]:.4f}")
             print(f"    - micro_price_impact_asymmetry_inverted: {micro_price_impact_asymmetry_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - bid_side_liquidity_inverted: {bid_side_liquidity_inverted.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - ask_side_liquidity_inverted: {ask_side_liquidity_inverted.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - vpin_score_inverted: {vpin_score_inverted.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - bid_liquidity_sample_entropy_inverted: {bid_liquidity_sample_entropy_inverted.iloc[last_date_index]:.4f}") # 新增
             print(f"    - volume_exhaustion_score: {volume_exhaustion_score.iloc[last_date_index]:.4f}")
             print(f"    - stealth_ops_normalized: {stealth_ops_normalized.iloc[last_date_index]:.4f}")
             print(f"    - split_order_accum_normalized: {split_order_accum_normalized.iloc[last_date_index]:.4f}")
@@ -1769,21 +1890,28 @@ class ProcessIntelligence:
             print(f"    - mf_cost_advantage_positive: {mf_cost_advantage_positive.iloc[last_date_index]:.4f}")
             print(f"    - mf_buy_ofi_positive: {mf_buy_ofi_positive.iloc[last_date_index]:.4f}")
             print(f"    - mf_t0_buy_efficiency_positive: {mf_t0_buy_efficiency_positive.iloc[last_date_index]:.4f}")
-            print(f"    - mf_net_flow_slope_positive (MTF): {mf_net_flow_slope_positive.iloc[last_date_index]:.4f}") # 注明MTF
-            # 输出新增的微观结构指标归一化分数
+            print(f"    - mf_net_flow_slope_positive (MTF): {mf_net_flow_slope_positive.iloc[last_date_index]:.4f}")
             print(f"    - order_book_imbalance_positive: {order_book_imbalance_positive.iloc[last_date_index]:.4f}")
             print(f"    - micro_price_impact_asymmetry_positive: {micro_price_impact_asymmetry_positive.iloc[last_date_index]:.4f}")
+            print(f"    - mf_vwap_up_guidance_positive: {mf_vwap_up_guidance_positive.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - mf_vwap_down_guidance_negative: {mf_vwap_down_guidance_negative.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - vwap_buy_control_positive: {vwap_buy_control_positive.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - vwap_sell_control_negative: {vwap_sell_control_negative.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - observed_large_order_size_avg_inverted: {observed_large_order_size_avg_inverted.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - market_impact_cost_inverted: {market_impact_cost_inverted.iloc[last_date_index]:.4f}") # 新增
             print(f"    - main_force_covert_intent_score: {main_force_covert_intent_score.iloc[last_date_index]:.4f}")
             print(f"    - sentiment_pendulum_negative: {sentiment_pendulum_negative.iloc[last_date_index]:.4f}")
             print(f"    - market_sentiment_inverted: {market_sentiment_inverted.iloc[last_date_index]:.4f}")
             print(f"    - retail_panic_inverted: {retail_panic_inverted.iloc[last_date_index]:.4f}")
             print(f"    - retail_fomo_inverted: {retail_fomo_inverted.iloc[last_date_index]:.4f}")
             print(f"    - loser_pain_positive: {loser_pain_positive.iloc[last_date_index]:.4f}")
+            print(f"    - liquidity_tide_calm: {liquidity_tide_calm.iloc[last_date_index]:.4f}") # 新增
+            print(f"    - hurst_calm: {hurst_calm.iloc[last_date_index]:.4f}") # 新增
             print(f"    - subdued_market_sentiment_score: {subdued_market_sentiment_score.iloc[last_date_index]:.4f}")
             print(f"    - breakout_readiness_score: {breakout_readiness_score.iloc[last_date_index]:.4f}")
             print(f"    - goodness_of_fit_score: {goodness_of_fit_score.iloc[last_date_index]:.4f}")
             print(f"    - platform_conviction_score: {platform_conviction_score.iloc[last_date_index]:.4f}")
-            # 输出市场情境调节器相关分数
+            print(f"    - mtf_cohesion_score: {mtf_cohesion_score.iloc[last_date_index]:.4f}") # 新增
             print(f"    - volatility_regime_norm: {self._normalize_series(volatility_regime_raw, df_index, ascending=False).iloc[last_date_index]:.4f}")
             print(f"    - trend_regime_norm: {self._normalize_series(trend_regime_raw, df_index, ascending=False).iloc[last_date_index]:.4f}")
             print(f"    - market_regime_modulator: {market_regime_modulator.iloc[last_date_index]:.4f}")
