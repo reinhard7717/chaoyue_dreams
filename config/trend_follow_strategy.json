@@ -1580,35 +1580,35 @@
                 "RSI_13_D": 0.3,
                 "ROC_13_D": 0.2
               },
+              "description_mtf_slope_weights": "多时间框架斜率融合权重。",
               "mtf_slope_weights": {
-                "description": "多时间框架斜率融合权重。",
                 "5": 0.4,
                 "13": 0.3,
                 "21": 0.2,
                 "34": 0.1
               },
+              "description_volume_confirmation_weights": "量能确认融合权重。",
               "volume_confirmation_weights": {
-                "description": "量能确认融合权重。",
                 "volume_slope": 0.5,
                 "volume_burst": 0.2,
                 "volume_atrophy": 0.3
               },
+              "description_main_force_confirmation_weights": "主力意图确认融合权重。",
               "main_force_confirmation_weights": {
-                "description": "主力意图确认融合权重。",
                 "mf_net_flow_slope": 0.4,
                 "deception_index": 0.2,
                 "distribution_intent": 0.2,
                 "covert_accumulation": 0.1,
                 "chip_divergence": 0.1
               },
+              "description_context_modulator_weights": "情境调节融合权重。",
               "context_modulator_weights": {
-                "description": "情境调节融合权重。",
                 "volatility_inverse": 0.4,
                 "trend_strength_inverse": 0.3,
                 "sentiment_neutrality": 0.3
               },
+              "description_divergence_quality_weights": "背离品质量化融合权重。",
               "divergence_quality_weights": {
-                "description": "背离品质量化融合权重。",
                 "duration": 0.5,
                 "depth": 0.5
               },
