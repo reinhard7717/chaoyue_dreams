@@ -304,7 +304,7 @@ class BehavioralIntelligence:
             'market_impact_cost_D', 'order_book_clearing_rate_D',
             'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
             'price_volume_entropy_D', 'volatility_expansion_ratio_D',
-            # 新增 CONTEXT_NEW_HIGH_STRENGTH 信号所需的原始数据
+            # 新增 CONTEXT_NEW_HIGH_STRENGTH 信号所需的原始数据 (注意：SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL 是信号，不在此处列出)
             'breakout_quality_score_D', # 已存在
             'upward_impulse_purity_D', # 已存在
             'trend_acceleration_score_D', # 已存在
@@ -312,8 +312,8 @@ class BehavioralIntelligence:
             'constructive_turnover_ratio_D', # 已存在
             'buy_sweep_intensity_D', # 已存在
             'upper_shadow_selling_pressure_D', # 已存在
-            'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', # 修改行：修正信号名称
-            'market_sentiment_score_D' # 已存在
+            'market_sentiment_score_D', # 已存在
+            'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' # 修正：作为依赖信号，但其本身不计算斜率和加速度
         ]
         # 动态添加所有可能用到的MTF斜率和加速度信号
         liquidity_drain_mtf_periods = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params', {}).get('mtf_slope_accel_weights'), {}).keys()
@@ -330,7 +330,7 @@ class BehavioralIntelligence:
             'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
             'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
             'price_volume_entropy', 'volatility_expansion_ratio',
-            # 新增 CONTEXT_NEW_HIGH_STRENGTH 信号所需的原始数据
+            # 新增 CONTEXT_NEW_HIGH_STRENGTH 信号所需的原始数据 (注意：SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL 是信号，不在此处列出)
             'breakout_quality_score',
             'upward_impulse_purity',
             'trend_acceleration_score',
@@ -338,7 +338,6 @@ class BehavioralIntelligence:
             'constructive_turnover_ratio',
             'buy_sweep_intensity',
             'upper_shadow_selling_pressure',
-            'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', # 修改行：修正信号名称
             'market_sentiment_score'
         ]
         for period in liquidity_drain_mtf_periods:
@@ -348,14 +347,14 @@ class BehavioralIntelligence:
         # END MODIFIED LINE
         for period in mtf_periods:
             for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-                             'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'market_sentiment_score']: # 修改行：修正信号名称
+                             'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
         for indicator in ['close', 'volume']:
             required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume',
-                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'market_sentiment_score']: # 修改行：修正信号名称
+                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
         if not self._validate_required_signals(df, required_signals, method_name):
@@ -381,7 +380,7 @@ class BehavioralIntelligence:
         robust_slopes = {}
         all_slope_cols_to_extract = []
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'market_sentiment_score']: # 修改行：修正信号名称
+                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
             for period in mtf_periods:
                 col_name = f'SLOPE_{period}_{indicator}_D'
                 if col_name in df.columns:
@@ -391,7 +390,7 @@ class BehavioralIntelligence:
         else:
             slopes_df_extracted = pd.DataFrame(index=df.index)
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'market_sentiment_score']: # 修改行：修正信号名称
+                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']: # 修改行：移除 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL
             weighted_slope = pd.Series(0.0, index=df.index, dtype=np.float32)
             total_weight = 0.0
             indicator_slopes_cols = []
