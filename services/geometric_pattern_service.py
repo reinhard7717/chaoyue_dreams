@@ -114,6 +114,7 @@ class GeometricPatternService:
         self.platform_archetypes = geometric_params.get("platform_recognition", {}).get("archetypes", [])
         # V2.65 加载旗形识别原型
         self.flag_archetypes = geometric_params.get("flag_recognition", {}).get("archetypes", [])
+
     @classmethod
     async def create(cls, stock_code: str):
         """
@@ -125,6 +126,7 @@ class GeometricPatternService:
         stock_instance = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
         # 使用获取到的实例来调用同步的构造函数
         return cls(stock_code=stock_code, stock_instance=stock_instance)
+
     def _load_predictor_model(self):
         # 辅助方法：加载预训练的旗形突破概率预测模型
         model_path = Path(settings.BASE_DIR) / 'ml_models' / 'flag_predictor.pkl'
@@ -136,6 +138,7 @@ class GeometricPatternService:
                 return None
         print(f"[{self.stock_code}] 未找到旗形预测模型，将跳过概率预测。")
         return None
+
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
         【V2.34 · 核心诊断探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
@@ -174,6 +177,7 @@ class GeometricPatternService:
                 )
         enriched_df = enriched_df.set_index('trade_date').sort_index()
         return enriched_df
+
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
         【V2.54 · 残影修正版】执行所有几何形态的计算和存储。
@@ -216,6 +220,7 @@ class GeometricPatternService:
                 event_type__startswith='FLAG_FORMED'
             ).delete()
         self._save_trendline_events_incrementally(flag_events)
+
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
         【V2.53 · 智能归一化版】应用升级后的斜率计算函数，为RSSlope关闭冗余归一化。
@@ -225,7 +230,10 @@ class GeometricPatternService:
                          确保在保存到 MySQL 数据库前，所有数值都是有效的浮点数或 None。
         """
         import math
-        # 移除了所有探针print语句
+        print(f"[{self.stock_code}] [平台计算] 开始执行 _calculate_and_save_platforms 方法。") # 新增调试信息
+        if enriched_df is None or enriched_df.empty:
+            print(f"[{self.stock_code}] [平台计算] enriched_df 为空，跳过平台计算。") # 新增调试信息
+            return
         if len(enriched_df) < 120:
             print(f"[{self.stock_code}] [平台计算] enriched_df 数据不足 {len(enriched_df)} 天，跳过平台计算。")
             return
@@ -285,6 +293,7 @@ class GeometricPatternService:
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
             if not possible_end_dates.empty:
                 raw_candidates.append((start_date, possible_end_dates[0]))
+        print(f"[{self.stock_code}] [平台计算] 发现 {len(raw_candidates)} 个原始平台候选。") # 新增调试信息
         platforms_to_save = []
         saved_start_dates = set()
         minute_map = data_dfs.get("stock_minute_data_map", {})
@@ -294,9 +303,14 @@ class GeometricPatternService:
             if start_date in saved_start_dates:
                 continue
             group = df_copy.loc[start_date:end_date]
+            if group.empty: # 新增调试信息
+                print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 为空，跳过。") # 新增调试信息
+                continue
             platform_high = group['high_qfq'].max()
             platform_low = group['low_qfq'].min()
-            if platform_low == 0: continue
+            if platform_low == 0:
+                print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 的最低价为0，跳过。") # 新增调试信息
+                continue
             price_range_pct = (platform_high - platform_low) / platform_low
             # V2.53 在计算rss时，关闭内部归一化
             rebased_rs = pd.Series()
@@ -397,6 +411,7 @@ class GeometricPatternService:
             platforms_to_save.append(platform_data)
             saved_start_dates.add(start_date)
         found_count = len(platforms_to_save)
+        print(f"[{self.stock_code}] [平台计算] 最终确定 {found_count} 个平台待保存。") # 新增调试信息
         if found_count > 0:
             for data in platforms_to_save:
                 # 最终兜底：对所有浮点数值进行 NaN/Infinity 检查并转换为 None
@@ -410,9 +425,14 @@ class GeometricPatternService:
                     else:
                         sanitized_data[k] = v
                 print(f"[{self.stock_code}] [平台保存] 准备保存平台数据: {sanitized_data}") # 调试信息
-                self.platform_model.objects.update_or_create(
-                    stock=sanitized_data['stock'], start_date=sanitized_data['start_date'], defaults=sanitized_data
-                )
+                try: # 新增try-except块
+                    self.platform_model.objects.update_or_create(
+                        stock=sanitized_data['stock'], start_date=sanitized_data['start_date'], defaults=sanitized_data
+                    )
+                    print(f"[{self.stock_code}] [平台保存] 成功保存平台数据: {sanitized_data['start_date']} - {sanitized_data['end_date']}") # 新增调试信息
+                except Exception as e:
+                    print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}") # 新增调试信息
+
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V2.49 · 计算加固版】计算“突破准备度”评分。
@@ -459,6 +479,7 @@ class GeometricPatternService:
             score_rs * 0.15
         )
         return df_copy
+
     def _calculate_daily_ofi_from_ticks(self, df_tick: pd.DataFrame) -> (float, float):
         """
         【V2.44 · Tick数据格式再适配版】
@@ -479,6 +500,7 @@ class GeometricPatternService:
         except KeyError as e:
             # 移除了探针print语句
             return 0.0, 0.0
+
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict, start_date_str: str = None):
         """
         【V2.57 · 高斯信念归一化版】为趋势线矩阵计算引入基于高斯分布的动态自适应统计量。
@@ -535,6 +557,7 @@ class GeometricPatternService:
         matrix_df['trade_date'] = pd.to_datetime(matrix_df['trade_date'])
         dynamic_events = self._analyze_matrix_dynamics(matrix_df, start_analysis_date=start_process_date)
         self._save_trendline_events_incrementally(dynamic_events)
+
     def _initialize_incremental_context(self, start_date_override: str = None) -> pd.Timestamp:
         """
         【V2.17 新增】初始化增量计算上下文，处理数据清理和起始日期确定。
@@ -560,6 +583,7 @@ class GeometricPatternService:
             return pd.to_datetime(last_record.trade_date) + pd.Timedelta(days=1)
         # 3. 如果没有任何记录，返回None，表示需要从头开始
         return None
+
     def _analyze_matrix_dynamics(self, matrix_df: pd.DataFrame, start_analysis_date: pd.Timestamp = None) -> list:
         """
         【V2.18 · 维度校准版】分析趋势线矩阵的时间序列，识别动态事件。
@@ -702,6 +726,7 @@ class GeometricPatternService:
                             'event_type': 'COMPRESSION_SQUEEZE', 'details': self._sanitize_json_dict(details)
                         })
         return final_events
+
     def _assess_platform_character(self, platform_df: pd.DataFrame) -> (str, float):
         """
         【V2.19 新增】平台性质评估专家系统。
@@ -748,6 +773,7 @@ class GeometricPatternService:
         elif -30 <= final_score < 0 and sanitized_scores.get('structure_burst', 0) < 5: # 结构混乱，偏向洗盘
             character = 'SHAKEOUT'
         return character, round(final_score, 2)
+
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
         【V2.52 · 探针增强版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵，并为其注入“信念评分”。
@@ -789,6 +815,7 @@ class GeometricPatternService:
                         'trend_conviction_score': conviction_score,
                     })
         return matrix_records
+
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
         """
         【V2.52 · 趋势信念版】通过启发式剪枝策略，从根本上解决组合爆炸导致的性能问题。
@@ -860,6 +887,7 @@ class GeometricPatternService:
                     'end_date': p2_idx,   # V2.52 新增结束日期
                 }
         return best_line_info
+
     def _calculate_micro_conviction_score(self, touch_date: pd.Timestamp, line_type: str, tick_map: dict) -> float:
         """
         【V2.1 战役复盘】分析触及点当日的Tick数据，量化多空博弈的“信念强度”。
@@ -884,6 +912,7 @@ class GeometricPatternService:
             # 阻力线需要主动卖盘确认，OFI为负加分
             conviction_score = 0.5 - (ofi_ratio / 2) # 将 [-1, 1] 的 ofi_ratio 映射到 [1, 0]
         return np.clip(conviction_score, 0, 1)
+
     def _calculate_breakout_momentum_from_realtime(self, df_realtime: pd.DataFrame) -> float:
         """
         【V2.0 新增】从Realtime快照数据计算突破日的动能得分。
@@ -906,6 +935,7 @@ class GeometricPatternService:
         # 归一化处理，假设 0.01%/秒 是一个很强的速度
         momentum_score = np.clip((mean_velocity / 0.0001) * positive_velocity_ratio, -1, 1)
         return momentum_score
+
     def _find_best_line(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str):
         """
         从候选点中找出评分最高的趋势线。
@@ -967,6 +997,7 @@ class GeometricPatternService:
                     'validity_score': score,
                 }
         return best_line
+
     def _translate_conviction_to_probability(self, flag: dict) -> (float, dict):
         """
         【V2.74 · 启示录版】将信念评分直接转换为突破概率，实现认知统一。
@@ -983,6 +1014,7 @@ class GeometricPatternService:
             'duration': flag.get('duration'),
         }
         return final_probability, features
+
     def _find_and_evaluate_flags(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
         【V5.0 · 生产净化版】移除所有内部诊断探针，实现日志的最终净化。
@@ -1047,6 +1079,7 @@ class GeometricPatternService:
                     continue
                 i -= 1
         return events
+
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
         【V5.0 · 生产净化版】移除所有内部诊断探针，实现日志的最终净化。
@@ -1117,6 +1150,7 @@ class GeometricPatternService:
             return best_pole
         else:
             return None
+
     def _identify_flag(self, df: pd.DataFrame, pole: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
         【V5.0 · 生产净化版】移除所有内部诊断探针，实现日志的最终净化。
@@ -1170,6 +1204,7 @@ class GeometricPatternService:
             return best_flag
         else:
             return None
+
     def _calculate_expert_breakout_probability(self, flag: dict) -> (float, dict):
         """
         【V2.73 · 归一版】废除独立的专家规则系统，实现信念与概率的直接映射。
@@ -1189,6 +1224,7 @@ class GeometricPatternService:
             'duration': flag.get('duration'),
         }
         return final_probability, features
+
     def _calculate_zigzag(self, df: pd.DataFrame, threshold: float = 0.05) -> pd.Series:
         """
         【V2.9 · Numba JIT 包装器】调用 Numba 加速的 Zigzag 实现，并将其结果包装为 Pandas Series。
@@ -1202,6 +1238,7 @@ class GeometricPatternService:
         zigzag_array = _calculate_zigzag_numba(highs, lows, threshold)
         # 将结果包装回带有正确索引的Pandas Series
         return pd.Series(zigzag_array, index=df.index, dtype=int)
+
     def _sanitize_json_dict(self, data: dict) -> dict:
         """
         【V2.7 · JSON净化器】递归地清理一个字典，将其中不符合JSON规范的浮点数值
@@ -1223,6 +1260,7 @@ class GeometricPatternService:
             else:
                 clean_data[key] = value
         return clean_data
+
     def _save_trendline_matrix_incrementally(self, records: list):
         """
         【V2.56 · NaN值净化器版】批量保存新的趋势线矩阵记录。
@@ -1249,11 +1287,13 @@ class GeometricPatternService:
                     instance.save()
                 except Exception as single_e:
                     pass
+
     def _save_trendline_events_incrementally(self, events: list):
         """【V2.16】持久化存储新增的趋势线动态事件。"""
         if not events: return
         instances = [self.event_model(**evt) for evt in events]
         self.event_model.objects.bulk_create(instances, ignore_conflicts=True)
+
     def _calculate_volume_profile_skewness(self, group: pd.DataFrame) -> float:
         """计算加权成交量分布的价格偏度。"""
         if group['vol'].sum() == 0: return 0.0
@@ -1264,6 +1304,7 @@ class GeometricPatternService:
         if weighted_std == 0: return 0.0
         weighted_skew = np.average(((prices - weighted_mean) / weighted_std)**3, weights=weights)
         return weighted_skew
+
     def _calculate_linear_regression_slope(self, series: pd.Series, normalize: bool = True) -> float:
         """
         【V2.53 · 智能归一化版】对一个序列进行线性回归并返回斜率。
@@ -1281,6 +1322,7 @@ class GeometricPatternService:
         else:
             # 直接返回原始斜率
             return slope
+
     def _calculate_volatility_contraction_ratio(self, group: pd.DataFrame) -> float:
         """计算平台前后半段的波动率收缩比。"""
         if 'ATRr_14' not in group.columns or len(group) < 4: return 1.0
@@ -1289,6 +1331,7 @@ class GeometricPatternService:
         second_half_atr = group['ATRr_14'].iloc[n:].mean()
         if first_half_atr == 0: return 1.0 if second_half_atr == 0 else 999.0
         return second_half_atr / first_half_atr
+
     def _calculate_price_kurtosis(self, group: pd.DataFrame) -> float:
         """计算平台内日内行为的价格峰度。"""
         if len(group) < 4: return 3.0 # 返回正态分布的峰度
@@ -1301,6 +1344,7 @@ class GeometricPatternService:
         clean_series = ratio_series.replace([np.inf, -np.inf], np.nan).dropna()
         if len(clean_series) < 4: return 3.0
         return clean_series.kurt()
+
     def _calculate_goodness_of_fit(self, metrics: dict, archetype: dict) -> float:
         """
         【V2.50 新增】计算候选平台与指定原型的“拟合优度”分数。
@@ -1333,6 +1377,7 @@ class GeometricPatternService:
                     penalty = (deviation / target_range) * 100
                     scores.append(max(0, 100 - penalty))
         return np.mean(scores) if scores else 100.0
+
     def _calculate_platform_conviction_score(self, platform_group: pd.DataFrame) -> float:
         """
         【V2.54 · 真理契约版】引入故障快速失败协议，处理上游数据空洞。
@@ -1382,6 +1427,7 @@ class GeometricPatternService:
             score_rss * 0.10
         )
         return conviction_score
+
     def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame) -> float:
         """
         【V2.63 · 意志统一版】最终净化，移除所有调试探针，模型达到最终生产状态。
@@ -1438,6 +1484,7 @@ class GeometricPatternService:
             (g_behav ** 0.20)
         ) - 1
         return final_score
+
     def _calculate_intraday_trend_purity(self, df_minute: pd.DataFrame) -> float:
         """
         【V3.0 · 量子透镜版 新增】计算日内趋势纯度。
@@ -1461,6 +1508,7 @@ class GeometricPatternService:
         # 综合评分：时间纯度权重更高
         final_purity_score = time_purity * 0.7 + magnitude_purity * 0.3
         return final_purity_score
+
     def _calculate_flag_microstructure_score(self, flag_ticks: pd.DataFrame) -> float:
         """
         【V3.0 · 量子透镜版 新增】计算旗面微观结构分。
@@ -1485,6 +1533,7 @@ class GeometricPatternService:
         # 因此，失衡比接近0时得分最高。
         score = (1 - abs(imbalance_ratio)) * 100
         return score
+
     def _is_potential_pole_peak(self, df: pd.DataFrame, index_loc: int, vol_ma_col_name: str) -> bool:
         """
         【V3.4 · 认知焦点版 新增】判断某一天是否是潜在的旗杆顶点（“杆顶”）。

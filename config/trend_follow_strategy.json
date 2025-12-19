@@ -1521,7 +1521,60 @@
             "relationship_type": "custom",
             "diagnosis_mode": "direct_confirmation",
             "scoring_mode": "bipolar",
-            "description": "【V2.1 · 阴阳易位版】诊断价格趋势与动量趋势的背离。采用专属的“方向对抗”模型，其瞬时关系分即为最终分。正分代表价升势衰的顶背离风险，负分代表价跌势强的底背离机会。"
+            "description": "【V3.0 · 多维共振与情境自适应版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
+            "price_momentum_divergence_params": {
+              "description": "【V3.0 · 多维共振与情境自适应版】价势背离信号的专属参数。",
+              "price_components_weights": {
+                "description": "价格趋势方向融合权重。",
+                "close_D": 1.0
+              },
+              "momentum_components_weights": {
+                "description": "动量趋势方向融合权重。",
+                "MACDh_13_34_8_D": 0.5,
+                "RSI_13_D": 0.3,
+                "ROC_13_D": 0.2
+              },
+              "mtf_slope_weights": {
+                "description": "多时间框架斜率融合权重。",
+                "5": 0.4,
+                "13": 0.3,
+                "21": 0.2,
+                "34": 0.1
+              },
+              "volume_confirmation_weights": {
+                "description": "量能确认融合权重。",
+                "volume_slope": 0.5,
+                "volume_burst": 0.2,
+                "volume_atrophy": 0.3
+              },
+              "main_force_confirmation_weights": {
+                "description": "主力意图确认融合权重。",
+                "mf_net_flow_slope": 0.4,
+                "deception_index": 0.2,
+                "distribution_intent": 0.2,
+                "covert_accumulation": 0.1,
+                "chip_divergence": 0.1
+              },
+              "context_modulator_weights": {
+                "description": "情境调节融合权重。",
+                "volatility_inverse": 0.4,
+                "trend_strength_inverse": 0.3,
+                "sentiment_neutrality": 0.3
+              },
+              "divergence_quality_weights": {
+                "description": "背离品质量化融合权重。",
+                "duration": 0.5,
+                "depth": 0.5
+              },
+              "final_fusion_exponent": 1.5,
+              "comment_final_fusion_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。",
+              "synergy_threshold": 0.6,
+              "comment_synergy_threshold": "协同/冲突判断的阈值。",
+              "synergy_bonus_factor": 0.1,
+              "comment_synergy_bonus_factor": "维度协同时的奖励因子。",
+              "conflict_penalty_factor": 0.15,
+              "comment_conflict_penalty_factor": "维度冲突时的惩罚因子。"
+            }
           },
           {
             "name": "PROCESS_META_STORM_EYE_CALM",

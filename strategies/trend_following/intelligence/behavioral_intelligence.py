@@ -62,7 +62,6 @@ class BehavioralIntelligence:
         for k, v in micro_intent_signals.items():
             if k not in df.columns:
                 df[k] = v
-
         # --- 新增探针：检查 breakout_quality_score_D 的原始值 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -78,7 +77,6 @@ class BehavioralIntelligence:
                 else:
                     print(f"      [探针] run_behavioral_analysis_command: breakout_quality_score_D (原始输入) @ {probe_ts.strftime('%Y-%m-%d')}: 信号不存在于df中。") # 修改行
         # --- 探针结束 ---
-
         # 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
@@ -724,13 +722,11 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
-
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('chronos_protocol_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
         top_level_fusion_weights = get_param_value(params.get('top_level_fusion_weights'), {"strategic_position": 0.5, "quality_modulator": 0.5}) # 修改行：新增顶层融合权重
-
         # --- 2. 获取三维度原始数据 ---
         position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, method_name=method_name)
         purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
@@ -738,7 +734,6 @@ class BehavioralIntelligence:
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         posture_raw = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name=method_name)
         ambush_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, method_name=method_name)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - position_raw: {position_raw.loc[probe_ts]:.4f}")
@@ -747,26 +742,22 @@ class BehavioralIntelligence:
             print(f"        - conviction_raw: {conviction_raw.loc[probe_ts]:.4f}")
             print(f"        - posture_raw: {posture_raw.loc[probe_ts]:.4f}")
             print(f"        - ambush_raw: {ambush_raw.loc[probe_ts]:.4f}")
-
         # --- 3. 计算各维度得分 ---
         # 维度一：战略位置分 (作为基础分)
         strategic_position_score = position_raw.clip(-1, 1)
         # 修正：将 strategic_position_score 映射到 [0, 1] 范围，以便与 quality_modulator 进行加权平均
         strategic_position_score_mapped = (strategic_position_score + 1) / 2 # 修改行：将 [-1, 1] 映射到 [0, 1]
-
         # 维度二：过程品质分 (作为调节器)
         purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
         resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights)
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights)
         process_quality_score = ((purity_score + resistance_score) / 2 * (conviction_score.clip(0,1) + 1) / 2).clip(0, 1)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 过程品质计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - purity_score: {purity_score.loc[probe_ts]:.4f}")
             print(f"        - resistance_score: {resistance_score.loc[probe_ts]:.4f}")
             print(f"        - conviction_score (bipolar): {conviction_score.loc[probe_ts]:.4f}")
             print(f"        - process_quality_score: {process_quality_score.loc[probe_ts]:.4f}")
-
         # 维度三：叙事诚信度分 (作为调节器)
         narrative_integrity_score = pd.Series(1.0, index=df.index) # 默认值
         if 'intraday_posture_score_D' in df.columns and 'closing_auction_ambush_D' in df.columns:
@@ -774,14 +765,12 @@ class BehavioralIntelligence:
             ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights)
             narrative_deception_score = (ambush_score * (1 - posture_score.clip(0,1))).clip(0, 1)
             narrative_integrity_score = (1 - narrative_deception_score)
-        
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 叙事诚信度计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - posture_score: {posture_score.loc[probe_ts]:.4f}")
             print(f"        - ambush_score: {ambush_score.loc[probe_ts]:.4f}")
             print(f"        - narrative_deception_score: {narrative_deception_score.loc[probe_ts]:.4f}")
             print(f"        - narrative_integrity_score: {narrative_integrity_score.loc[probe_ts]:.4f}")
-
         # --- 4. “时序裁决”三维合成 ---
         quality_modulator = (
             process_quality_score * fusion_weights.get('process_quality', 0.5) +
@@ -796,14 +785,12 @@ class BehavioralIntelligence:
             quality_modulator * top_level_fusion_weights.get('quality_modulator', 0.5)
         ) / total_top_level_weight # 修改行：改为加权平均
         final_control_score = final_control_score.clip(0, 1) # 确保最终分数在 [0, 1] 范围内 # 修改行
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 最终合成 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - strategic_position_score: {strategic_position_score.loc[probe_ts]:.4f}")
             print(f"        - strategic_position_score_mapped: {strategic_position_score_mapped.loc[probe_ts]:.4f}") # 新增探针
             print(f"        - quality_modulator: {quality_modulator.loc[probe_ts]:.4f}")
             print(f"        - final_control_score: {final_control_score.loc[probe_ts]:.4f}")
-
         return final_control_score.astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
@@ -1941,7 +1928,6 @@ class BehavioralIntelligence:
         robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
         upward_efficiency = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
         intraday_bull_control = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.5, method_name=method_name)
-
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - close_price: {close_price.loc[probe_ts]:.4f}")
@@ -1960,7 +1946,6 @@ class BehavioralIntelligence:
             print(f"        - robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
             print(f"        - upward_efficiency: {upward_efficiency.loc[probe_ts]:.4f}")
             print(f"        - intraday_bull_control: {intraday_bull_control.loc[probe_ts]:.4f}")
-
         # 1. 价格偏离度 (Price Deviation)
         rsi_overbought_threshold = overextension_params.get('rsi_overbought_threshold', 70)
         bias_overbought_threshold = overextension_params.get('bias_overbought_threshold', 0.05)
@@ -1978,13 +1963,11 @@ class BehavioralIntelligence:
         # BBP超买归一化 (0-1) - 使用动态阈值
         norm_bbp_overbought = (bbp_val - dynamic_bbp_threshold).clip(lower=0) / (1 - dynamic_bbp_threshold)
         norm_bbp_overbought = norm_bbp_overbought.fillna(0).clip(0, 1)
-
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 价格偏离度 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - norm_rsi_overbought: {norm_rsi_overbought.loc[probe_ts]:.4f}")
             print(f"        - norm_bias_overbought: {norm_bias_overbought.loc[probe_ts]:.4f}")
             print(f"        - norm_bbp_overbought: {norm_bbp_overbought.loc[probe_ts]:.4f}")
-
         # 2. 动量过热 (Momentum Overheating)
         # RSI和MACD加速向上，进一步增强亢奋
         momentum_accel_factor = pd.Series(0.0, index=df.index)
@@ -1997,26 +1980,22 @@ class BehavioralIntelligence:
         behavioral_inertia_bonus = behavioral_inertia_bonus.mask(is_price_accelerating & is_volume_accelerating, overextension_params.get('momentum_accel_bonus', 0.1))
         behavioral_inertia_bonus = behavioral_inertia_bonus.mask((is_price_accelerating | is_volume_accelerating) & (behavioral_inertia_bonus == 0), overextension_params.get('momentum_accel_bonus', 0.1) / 2)
         momentum_overheat_score = (norm_rsi_overbought + norm_bias_overbought + momentum_accel_factor + behavioral_inertia_bonus).clip(0, 1)
-
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 动量过热 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - momentum_accel_factor: {momentum_accel_factor.loc[probe_ts]:.4f}")
             print(f"        - behavioral_inertia_bonus: {behavioral_inertia_bonus.loc[probe_ts]:.4f}")
             print(f"        - momentum_overheat_score: {momentum_overheat_score.loc[probe_ts]:.4f}")
-
         # 3. 成交量极端 (Volume Extremity)
         volume_climax_multiplier = overextension_params.get('volume_climax_multiplier', 1.8)
         # [细化] 只有在价格上涨时，放量才被视为亢奋证据
         is_price_rising_for_volume = (close_price > close_price.shift(1))
         is_volume_climax = (current_volume > volume_avg * volume_climax_multiplier) & is_price_rising_for_volume
         volume_extremity_score = is_volume_climax.astype(float) * (current_volume / volume_avg).clip(1, 2)
-
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 成交量极端 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - is_price_rising_for_volume: {is_price_rising_for_volume.loc[probe_ts]}")
             print(f"        - is_volume_climax: {is_volume_climax.loc[probe_ts]}")
             print(f"        - volume_extremity_score: {volume_extremity_score.loc[probe_ts]:.4f}")
-
         # 4. 日内行为极端 (Intraday Behavioral Extremity)
         upward_efficiency_decay_penalty = overextension_params.get('upward_efficiency_decay_penalty', 0.1)
         intraday_control_decay_penalty = overextension_params.get('intraday_control_decay_penalty', 0.1)
@@ -2025,13 +2004,11 @@ class BehavioralIntelligence:
         # 日内多头控制力减弱 (控制力越弱，亢奋风险越高)
         norm_intraday_control_decay = (1 - intraday_bull_control).clip(0, 1) * intraday_control_decay_penalty
         intraday_extremity_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
-
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 日内行为极端 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - norm_upward_efficiency_decay: {norm_upward_efficiency_decay.loc[probe_ts]:.4f}")
             print(f"        - norm_intraday_control_decay: {norm_intraday_control_decay.loc[probe_ts]:.4f}")
             print(f"        - intraday_extremity_score: {intraday_extremity_score.loc[probe_ts]:.4f}")
-
         # 非线性融合所有亢奋证据
         # 采用几何平均，确保所有因子都贡献，且因子为0时整体为0
         # 权重分配：价格偏离 (0.3), 动量过热 (0.3), 成交量极端 (0.2), 日内行为极端 (0.2)
@@ -2041,11 +2018,9 @@ class BehavioralIntelligence:
             (volume_extremity_score + 1e-9).pow(0.2) *
             (intraday_extremity_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1)
-
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 最终亢奋分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - overextension_score: {overextension_score.loc[probe_ts]:.4f}")
-
         return overextension_score.astype(np.float32)
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:

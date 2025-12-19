@@ -185,7 +185,6 @@ class FeatureEngineeringService:
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
-
         # 修改代码行：_higuchi_fractal_dimension 函数修复
         def _higuchi_fractal_dimension(x, k_max):
             """
@@ -196,7 +195,6 @@ class FeatureEngineeringService:
             x_len = len(x)
             if x_len < 2: # 数据点太少无法计算
                 return np.nan
-
             for k in range(1, k_max + 1):
                 Lk_sum = 0.0
                 count = 0
@@ -218,15 +216,12 @@ class FeatureEngineeringService:
                     L.append(np.log(Lk_sum / count / k)) # 平均后再取对数
                 else:
                     L.append(np.nan) # 如果无法计算，则为NaN
-
             # 过滤掉L中的NaN值
             valid_L = [val for val in L if not np.isnan(val)]
             k_range_log = np.log(np.arange(1, k_max + 1))
             valid_k_range_log = k_range_log[[i for i, val in enumerate(L) if not np.isnan(val)]]
-
             if len(valid_L) < 2: # 至少需要两个点才能拟合直线
                 return np.nan
-
             try:
                 slope, _ = np.polyfit(valid_k_range_log, np.array(valid_L), 1)
                 # 分形维数通常是斜率的绝对值，并限制在合理范围
@@ -236,7 +231,6 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.debug(f"np.polyfit for Higuchi FD failed: {e}")
                 return np.nan
-
         def _sample_entropy(x, m, r):
             n = len(x)
             templates = np.array([x[i:i+m] for i in range(n - m + 1)])

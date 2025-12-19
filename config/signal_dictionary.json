@@ -1074,12 +1074,12 @@
             "description": "【V2.1 · 军令直达版】诊断热门板块的冷却迹象。正分代表热度下降且资金流出。"
         },
         "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE": {
-            "cn_name": "【过程】价势顶背离",
+            "cn_name": "【过程】价势背离",
             "category": "过程层-战略",
             "type": "process",
             "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V2.1 · 阴阳易位版】诊断价格趋势与动量趋势的背离。正分代表价格涨而动能跌（顶背离）。"
+            "scoring_mode": "bipolar",
+            "description": "【V3.0 · 多维共振与情境自适应版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。"
         },
         "PROCESS_META_WINNER_CONVICTION_DECAY": {
             "cn_name": "【过程】赢家信念衰减",

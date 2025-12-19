@@ -540,7 +540,6 @@ class StructuralIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
-        
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
         raw_stability_fusion_weights = get_param_value(p_conf_struct.get('stability_fusion_weights'), {
@@ -647,10 +646,8 @@ class StructuralIntelligence:
         volatility_instability_score = self.get_dynamic_normalized_score(volatility_instability_raw, df_index, tf_weights, **volatility_instability_norm_config)
         fd_norm_config = get_norm_config('FRACTAL_DIMENSION_89d_D', default_ascending=False, default_clip_range=[1.0, 2.0])
         fractal_dimension_score = self.get_dynamic_normalized_score(fractal_dimension_raw, df_index, tf_weights, **fd_norm_config)
-        
         sample_entropy_norm_config = get_norm_config('SAMPLE_ENTROPY_13d_D', default_ascending=False)
         sample_entropy_score = self.get_dynamic_normalized_score(sample_entropy_raw, df_index, tf_weights, **sample_entropy_norm_config)
-        
         hurst_norm_config = get_norm_config('HURST_144d_D', default_ascending=True, default_clip_range=[0.0, 1.0])
         hurst_score = self.get_dynamic_normalized_score(hurst_raw, df_index, tf_weights, **hurst_norm_config)
         volatility_orderliness_score = (
@@ -667,13 +664,10 @@ class StructuralIntelligence:
         ma_potential_orderliness_score_raw = self._get_safe_series(df, signal_mapping.get('MA_POTENTIAL_ORDERLINESS_SCORE_D', 'MA_POTENTIAL_ORDERLINESS_SCORE_D'), 0.0, method_name="_diagnose_axiom_stability")
         trend_efficiency_ratio_norm_config = get_norm_config('trend_efficiency_ratio_D', default_ascending=True)
         trend_efficiency_ratio_score = self.get_dynamic_normalized_score(trend_efficiency_ratio_raw, df_index, tf_weights, **trend_efficiency_ratio_norm_config)
-        
         afi_norm_config = get_norm_config('asymmetric_friction_index_D', default_ascending=False)
         asymmetric_friction_index_score = self.get_dynamic_normalized_score(asymmetric_friction_index_raw, df_index, tf_weights, **afi_norm_config)
-        
         impulse_quality_ratio_norm_config = get_norm_config('impulse_quality_ratio_D', default_ascending=True)
         impulse_quality_ratio_score = self.get_dynamic_normalized_score(impulse_quality_ratio_raw, df_index, tf_weights, **impulse_quality_ratio_norm_config)
-        
         ma_potential_orderliness_score_norm_config = get_norm_config('MA_POTENTIAL_ORDERLINESS_SCORE_D', default_ascending=True)
         ma_potential_orderliness_score = self.get_dynamic_normalized_score(ma_potential_orderliness_score_raw, df_index, tf_weights, **ma_potential_orderliness_score_norm_config)
         structural_movement_efficiency_score = (
