@@ -104,6 +104,7 @@ class ThematicMetricsCalculators:
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
         return results
+
     @staticmethod
     def calculate_forward_looking_metrics(context: dict) -> dict:
         """
@@ -183,6 +184,7 @@ class ThematicMetricsCalculators:
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
         return results
+
     @staticmethod
     def calculate_battlefield_metrics(context: dict) -> dict:
         """
@@ -261,16 +263,23 @@ class ThematicMetricsCalculators:
                     print(f"    - 计算: ({purity_final:.4f} - {purity_pre:.4f}) * log1p({vol_ratio:.2f})")
                     print(f"    -> 结果: {results.get('final_charge_intensity', np.nan):.4f}")
         # 3. 保留：成交结构偏度
-        open_rhythm_df = continuous_group[continuous_group.index.time < time(10, 0)]
-        mid_rhythm_df = continuous_group[(continuous_group.index.time >= time(10, 0)) & (continuous_group.index.time < time(14, 30))]
-        tail_rhythm_df = continuous_group[continuous_group.index.time >= time(14, 30)]
+        open_rhythm_df = continuous_group.between_time('09:30', '10:00')
+        mid_rhythm_df = continuous_group.between_time('10:00', '14:30')
+        tail_rhythm_df = continuous_group.between_time('14:30', '15:00')
         if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
             avg_vol_open = open_rhythm_df['vol'].mean()
             avg_vol_mid = mid_rhythm_df['vol'].mean()
             avg_vol_tail = tail_rhythm_df['vol'].mean()
+            # MODIFIED BLOCK START
+            # 修正 volume_structure_skew 的计算逻辑，使其能够反映负向偏度
+            # 如果盘中成交量相对于两端平均成交量较低，则为负偏度，表示卖压或缺乏买盘
             avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
-            if avg_vol_ends > 0:
-                results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
+            if avg_vol_ends > 1e-9: # 避免除以零
+                # 使用 (mid - ends) / ends 的形式，使其可以为负值
+                results['volume_structure_skew'] = (avg_vol_mid - avg_vol_ends) / avg_vol_ends
+            else:
+                results['volume_structure_skew'] = 0.0 # 避免除以零
+            # MODIFIED BLOCK END
         # 4. 保留：突破/防守信念分
         prev_day_high = prev_day_metrics.get('high')
         day_high_qfq = context['day_high_qfq']
@@ -320,6 +329,7 @@ class ThematicMetricsCalculators:
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
         return results
+
     @staticmethod
     def _calculate_value_area(vp: pd.Series, total_volume: float, vpoc_interval: pd.Interval) -> tuple:
         """计算日内价值区域 (VAH/VAL)"""
