@@ -3835,10 +3835,11 @@ class BehavioralIntelligence:
 
     def _calculate_battlefield_momentum(self, df: pd.DataFrame, day_quality_score: pd.Series, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V3.0 · 方向性自适应与情境共振版】战场动量信号参数。
+        【V3.1 · 多时间框架共振增强版】战场动量信号参数。
         - 核心升级: 1) 自适应指数移动平均(AEMA)：根据日内行为K线质量分自身的波动率动态调整平滑因子，提高信号响应性。
                       2) 动量加速度：引入动量变化率，识别动量增强或减弱的早期迹象。
                       3) 行为情境调制：使用如'上涨效率'等行为类信号作为乘数因子，在有利情境下放大动量，在不利情境下抑制动量。
+                      4) 【新增】多时间框架方向一致性：显式量化不同时间框架斜率的方向一致性，增强对趋势共振的捕捉。
         - 目标: 提供一个更具前瞻性和情境感知的短期行为趋势信号。
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         """
@@ -3859,52 +3860,71 @@ class BehavioralIntelligence:
             'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE_INVERSE': 0.3,
             'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL': 0.3
         })
+        # MODIFIED LINE: Add new parameter for directional consistency weight
+        mtf_directional_consistency_weight = get_param_value(params.get('mtf_directional_consistency_weight'), 0.2)
         final_fusion_power_p = get_param_value(params.get('final_fusion_power_p'), 0.5) # Between geometric and arithmetic mean
         final_exponent = get_param_value(params.get('final_exponent'), 1.5)
         # 确保 day_quality_score 是数值类型
         day_quality_score = pd.to_numeric(day_quality_score, errors='coerce').fillna(0)
         # 2. 动态计算 day_quality_score 的斜率和加速度
-        # _calculate_series_dynamics 内部会处理长度不足的问题
         bq_slopes, bq_accels = self._calculate_series_dynamics(day_quality_score, mtf_periods, df.index, is_debug_enabled, probe_ts, 'BIPOLAR_BEHAVIORAL_DAY_QUALITY')
         # 3. 多时间维度动量 (MTF Momentum)
-        mtf_momentum_scores = []
+        mtf_momentum_scores_raw = {} # Store raw normalized slopes for consistency calculation
+        mtf_momentum_scores_weighted = []
         total_slope_weight = sum(mtf_slope_weights.values())
         for p_str, weight in mtf_slope_weights.items():
             p = int(p_str)
             if p in bq_slopes and weight > 0:
-                # 使用 normalize_to_bipolar 归一化斜率
                 norm_slope = normalize_to_bipolar(bq_slopes[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0, debug_info=debug_info)
-                mtf_momentum_scores.append(norm_slope * weight)
+                mtf_momentum_scores_raw[p] = norm_slope # Store for consistency
+                mtf_momentum_scores_weighted.append(norm_slope * weight)
                 if is_debug_enabled and probe_ts:
                     print(f"       - {method_name} {p}d 斜率分数: {norm_slope.loc[probe_ts]:.4f}, 权重: {weight:.2f}")
-        if not mtf_momentum_scores or total_slope_weight == 0:
+        if not mtf_momentum_scores_weighted or total_slope_weight == 0:
             mtf_momentum_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         else:
-            mtf_momentum_score = sum(mtf_momentum_scores) / total_slope_weight
+            mtf_momentum_score = sum(mtf_momentum_scores_weighted) / total_slope_weight
         if is_debug_enabled and probe_ts:
             print(f"       - {method_name} MTF动量分数: {mtf_momentum_score.loc[probe_ts]:.4f}")
         # 4. 多时间维度加速度 (MTF Acceleration)
-        mtf_acceleration_scores = []
+        mtf_acceleration_scores_weighted = []
         total_accel_weight = sum(mtf_accel_weights.values())
         for p_str, weight in mtf_accel_weights.items():
             p = int(p_str)
             if p in bq_accels and weight > 0:
-                # 使用 normalize_to_bipolar 归一化加速度
                 norm_accel = normalize_to_bipolar(bq_accels[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0, debug_info=debug_info)
-                mtf_acceleration_scores.append(norm_accel * weight)
+                mtf_acceleration_scores_weighted.append(norm_accel * weight)
                 if is_debug_enabled and probe_ts:
                     print(f"       - {method_name} {p}d 加速度分数: {norm_accel.loc[probe_ts]:.4f}, 权重: {weight:.2f}")
-        if not mtf_acceleration_scores or total_accel_weight == 0:
+        if not mtf_acceleration_scores_weighted or total_accel_weight == 0:
             mtf_acceleration_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         else:
-            mtf_acceleration_score = sum(mtf_acceleration_scores) / total_accel_weight
+            mtf_acceleration_score = sum(mtf_acceleration_scores_weighted) / total_accel_weight
         if is_debug_enabled and probe_ts:
             print(f"       - {method_name} MTF加速度分数: {mtf_acceleration_score.loc[probe_ts]:.4f}")
-        # 5. 融合MTF动量和加速度为双极性分数
-        # 使用广义平均融合，power_p=0.0 接近几何平均，强调两者协同
+        # MODIFIED BLOCK START: 5. 多时间框架方向一致性 (MTF Directional Consistency)
+        mtf_directional_consistency = pd.Series(0.0, index=df.index, dtype=np.float32)
+        if mtf_momentum_scores_raw and mtf_directional_consistency_weight > 0:
+            # Create a DataFrame of signs for all normalized slopes
+            slope_signs_df = pd.DataFrame({p: np.sign(s) for p, s in mtf_momentum_scores_raw.items()})
+            # Calculate the mean of signs for each timestamp
+            # This will result in a score between -1 (all negative) and 1 (all positive)
+            mtf_directional_consistency = slope_signs_df.mean(axis=1).fillna(0)
+            if is_debug_enabled and probe_ts:
+                print(f"       - {method_name} MTF方向一致性分数: {mtf_directional_consistency.loc[probe_ts]:.4f}")
+        # MODIFIED BLOCK END
+        # 6. 融合MTF动量和加速度为双极性分数
+        fusion_components_momentum_accel = {
+            "momentum": mtf_momentum_score,
+            "acceleration": mtf_acceleration_score,
+        }
+        fusion_weights_momentum_accel = {
+            "momentum": 0.7,
+            "acceleration": 0.3,
+        }
         directional_momentum_raw = self._robust_generalized_mean(
-            {"momentum": mtf_momentum_score, "acceleration": mtf_acceleration_score},
-            {"momentum": 0.7, "acceleration": 0.3}, # 动量权重更高
+            fusion_components_momentum_accel,
+            fusion_weights_momentum_accel,
             df.index,
             power_p=momentum_accel_fusion_power_p,
             is_debug_enabled=is_debug_enabled,
@@ -3917,7 +3937,7 @@ class BehavioralIntelligence:
         base_directional_momentum = (directional_momentum_raw + 1) / 2
         if is_debug_enabled and probe_ts:
             print(f"       - {method_name} 基础方向性动量 (base_directional_momentum): {base_directional_momentum.loc[probe_ts]:.4f}")
-        # 6. 行为情境健康度调制
+        # 7. 行为情境健康度调制
         behavioral_context_health = pd.Series(1.0, index=df.index, dtype=np.float32)
         if contextual_modulator_enabled:
             context_scores = {}
@@ -3925,12 +3945,9 @@ class BehavioralIntelligence:
             for sig_name, weight in context_signals_weights.items():
                 if weight > 0:
                     original_sig_name = sig_name.replace('_INVERSE', '')
-                    # MODIFIED LINE: 确保 _get_atomic_score 能够正确获取信号
                     context_signal = self._get_atomic_score(df, original_sig_name, default=0.5)
-                    # 处理 _INVERSE 信号
                     if '_INVERSE' in sig_name:
                         context_signal = (1 - context_signal).clip(0, 1)
-                    # 确保信号在 [0, 1] 范围内 (原子信号通常已归一化，但此处再次确保)
                     norm_context_signal = (context_signal + 1) / 2 if context_signal.min() < 0 else context_signal
                     context_scores[sig_name] = norm_context_signal
                     valid_context_weights[sig_name] = weight
@@ -3946,15 +3963,35 @@ class BehavioralIntelligence:
                     probe_ts=probe_ts,
                     fusion_level_name=f"{method_name}_行为情境健康度融合"
                 )
-                # 将健康度映射到 [0.5, 1.5] 范围，作为调制因子
-                behavioral_context_health = 0.5 + behavioral_context_health * 0.5 # 映射到 [0.5, 1.0] -> [0.5, 1.5]
+                behavioral_context_health = 0.5 + behavioral_context_health * 0.5 # 映射到 [0.5, 1.5]
             if is_debug_enabled and probe_ts:
                 print(f"       - {method_name} 行为情境健康度 (behavioral_context_health): {behavioral_context_health.loc[probe_ts]:.4f}")
-        # 7. 最终融合 (基础方向性动量 * 行为情境健康度)
-        # 使用广义平均，强调协同作用
+        # 8. 最终融合 (基础方向性动量 * 行为情境健康度 * MTF方向一致性)
+        final_fusion_components = {
+            "base_momentum": base_directional_momentum,
+            "context_health": behavioral_context_health,
+        }
+        final_fusion_weights = {
+            "base_momentum": 0.7,
+            "context_health": 0.3,
+        }
+        # MODIFIED BLOCK START: Add directional consistency to the final fusion
+        if mtf_directional_consistency_weight > 0:
+            # Normalize directional consistency from [-1, 1] to [0, 1] for fusion with other [0, 1] scores
+            normalized_mtf_directional_consistency = (mtf_directional_consistency + 1) / 2
+            final_fusion_components["directional_consistency"] = normalized_mtf_directional_consistency
+            # Adjust existing weights to make space for the new component, ensuring sum is 1.0
+            current_total_weight_for_scaling = sum(final_fusion_weights.values())
+            if current_total_weight_for_scaling > 1e-9: # Avoid division by zero
+                scale_factor = (1.0 - mtf_directional_consistency_weight) / current_total_weight_for_scaling
+                final_fusion_weights = {k: v * scale_factor for k, v in final_fusion_weights.items()}
+            else: # If original weights sum to zero, distribute new weight evenly or assign solely to new component
+                final_fusion_weights = {} # Clear existing if they were all zero
+            final_fusion_weights["directional_consistency"] = mtf_directional_consistency_weight
+        # MODIFIED BLOCK END
         final_fused_momentum = self._robust_generalized_mean(
-            {"base_momentum": base_directional_momentum, "context_health": behavioral_context_health},
-            {"base_momentum": 0.7, "context_health": 0.3}, # 基础动量权重更高
+            final_fusion_components,
+            final_fusion_weights,
             df.index,
             power_p=final_fusion_power_p,
             is_debug_enabled=is_debug_enabled,
@@ -3963,7 +4000,7 @@ class BehavioralIntelligence:
         )
         if is_debug_enabled and probe_ts:
             print(f"       - {method_name} 最终融合动量 (final_fused_momentum): {final_fused_momentum.loc[probe_ts]:.4f}")
-        # 8. 最终非线性变换
+        # 9. 最终非线性变换
         final_battlefield_momentum = final_fused_momentum.pow(final_exponent).clip(0, 1)
         if is_debug_enabled and probe_ts:
             print(f"    -> [行为情报调试] {method_name} 最终战场动量 (final_battlefield_momentum): {final_battlefield_momentum.loc[probe_ts]:.4f}")

@@ -2203,10 +2203,17 @@
           },
           "contextual_modulator_weights": {
             "description": "情境动态调制器融合权重。",
-            "price_overextension": 0.3,
+            "price_overextension_composite": 0.3,
             "retail_fomo": 0.2,
             "market_tension": 0.2,
             "sentiment_pendulum_negative": 0.3
+          },
+          "price_overextension_composite_weights": {
+            "description": "价格超买亢奋复合分融合权重。",
+            "bias_13": 0.3,
+            "bias_21": 0.2,
+            "rsi_13": 0.3,
+            "bbp_21": 0.2
           },
           "final_fusion_exponent": 1.5,
           "comment_final_fusion_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。",

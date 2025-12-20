@@ -1023,6 +1023,7 @@ class ProcessIntelligence:
         【V3.0 · 深度情境与多维共振版】“赢家信念衰减”专属计算引擎
         - 核心重构: 引入多时间框架共振、主力派发确认和情境动态调制，旨在提供一个更全面、更精准的顶部风险预警。
         - 核心逻辑: 最终衰减分 = (MTF信念衰减分 * MTF利润压力分 * 派发确认分)^(1/3) * (1 + 情境调制器)^非线性指数。
+        - 核心修复: 替换缺失的原子信号 'SCORE_BEHAVIOR_PRICE_OVEREXTENSION_RAW' 为由 BIAS、RSI、BBP 组成的复合分。
         """
         signal_name = config.get('name')
         belief_signal_name = 'winner_stability_index_D'
@@ -1031,14 +1032,17 @@ class ProcessIntelligence:
         required_df_columns = [
             belief_signal_name, pressure_signal_name,
             'upper_shadow_selling_pressure_D', 'retail_fomo_premium_index_D',
-            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D'
+            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            # 修改的代码行：新增用于构建价格超买亢奋复合分的原始数据列
+            'BIAS_13_D', 'BIAS_21_D', 'RSI_13_D', 'BBP_21_2.0_D'
         ]
         
         # 获取winner_conviction_decay_params配置
         decay_params = get_param_value(self.params.get('winner_conviction_decay_params'), {})
         mtf_slope_accel_weights = get_param_value(decay_params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3}, "accel_periods": {"5": 0.6}})
         distribution_confirmation_weights = get_param_value(decay_params.get('distribution_confirmation_weights'), {"distribution_intent": 0.4, "chip_distribution_whisper": 0.3, "upper_shadow_selling_pressure": 0.3})
-        contextual_modulator_weights = get_param_value(decay_params.get('contextual_modulator_weights'), {"price_overextension": 0.3, "retail_fomo": 0.2, "market_tension": 0.2, "sentiment_pendulum_negative": 0.3})
+        contextual_modulator_weights = get_param_value(decay_params.get('contextual_modulator_weights'), {"price_overextension_composite": 0.3, "retail_fomo": 0.2, "market_tension": 0.2, "sentiment_pendulum_negative": 0.3}) # 修改的代码行：更新键名
+        price_overextension_composite_weights = get_param_value(decay_params.get('price_overextension_composite_weights'), {"bias_13": 0.3, "bias_21": 0.2, "rsi_13": 0.3, "bbp_21": 0.2}) # 修改的代码行：新增复合分权重
         final_fusion_exponent = get_param_value(decay_params.get('final_fusion_exponent'), 1.5)
         probe_enabled = get_param_value(decay_params.get('probe_enabled'), False)
 
@@ -1053,11 +1057,10 @@ class ProcessIntelligence:
         # 原子信号依赖
         required_atomic_signals = [
             'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER',
-            'SCORE_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
-            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'
-        ]
+            'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'
+        ] # 修改的代码行：移除 SCORE_BEHAVIOR_PRICE_OVEREXTENSION_RAW
         
-        # 修改的代码行：合并所有依赖信号并进行统一校验
+        # 合并所有依赖信号并进行统一校验
         all_required_signals = required_df_columns + required_atomic_signals
         if not self._validate_required_signals(df, all_required_signals, "_calculate_winner_conviction_decay"):
             return pd.Series(dtype=np.float32)
@@ -1072,10 +1075,15 @@ class ProcessIntelligence:
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_calculate_winner_conviction_decay")
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_winner_conviction_decay")
 
+        # 修改的代码行：获取用于构建价格超买亢奋复合分的原始数据
+        bias_13_raw = self._get_safe_series(df, 'BIAS_13_D', 0.0, method_name="_calculate_winner_conviction_decay")
+        bias_21_raw = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_calculate_winner_conviction_decay")
+        rsi_13_raw = self._get_safe_series(df, 'RSI_13_D', 0.0, method_name="_calculate_winner_conviction_decay")
+        bbp_21_raw = self._get_safe_series(df, 'BBP_21_2.0_D', 0.0, method_name="_calculate_winner_conviction_decay")
+
         # 获取原子信号
         distribution_intent_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
         chip_distribution_whisper_score = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0)
-        price_overextension_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
         market_tension_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
         sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
 
@@ -1100,19 +1108,32 @@ class ProcessIntelligence:
         distribution_confirmation_score = _robust_geometric_mean(distribution_confirmation_components, distribution_confirmation_weights, df_index)
 
         # --- 4. 情境调制器 (Contextual Modulator) ---
+        # 修改的代码行：计算价格超买亢奋复合分
+        bias_13_norm = self._normalize_series(bias_13_raw.clip(lower=0), df_index, bipolar=False)
+        bias_21_norm = self._normalize_series(bias_21_raw.clip(lower=0), df_index, bipolar=False)
+        rsi_13_norm = self._normalize_series((rsi_13_raw - 70).clip(lower=0), df_index, bipolar=False) # 仅关注RSI>70的部分
+        bbp_21_norm = self._normalize_series((bbp_21_raw - 0.8).clip(lower=0), df_index, bipolar=False) # 仅关注BBP>0.8的部分
+
+        price_overextension_composite_components = {
+            "bias_13": bias_13_norm,
+            "bias_21": bias_21_norm,
+            "rsi_13": rsi_13_norm,
+            "bbp_21": bbp_21_norm
+        }
+        price_overextension_composite_score = _robust_geometric_mean(price_overextension_composite_components, price_overextension_composite_weights, df_index)
+
         # 归一化情境组件
-        price_overextension_norm = self._normalize_series(price_overextension_score, df_index, bipolar=False)
         retail_fomo_norm = self._normalize_series(retail_fomo_raw, df_index, bipolar=False)
         market_tension_norm = self._normalize_series(market_tension_score, df_index, bipolar=False)
-        # 情绪钟摆负向部分（代表贪婪/狂热）
-        sentiment_pendulum_negative_norm = self._normalize_series(sentiment_pendulum_score, df_index, bipolar=True).clip(lower=0)
+        # 情绪钟摆正向部分（代表贪婪/狂热）
+        sentiment_pendulum_positive_norm = self._normalize_series(sentiment_pendulum_score, df_index, bipolar=True).clip(lower=0)
 
         # 融合情境调制器
         contextual_modulator_components = {
-            "price_overextension": price_overextension_norm,
+            "price_overextension_composite": price_overextension_composite_score, # 修改的代码行：使用复合分
             "retail_fomo": retail_fomo_norm,
             "market_tension": market_tension_norm,
-            "sentiment_pendulum_negative": sentiment_pendulum_negative_norm
+            "sentiment_pendulum_negative": sentiment_pendulum_positive_norm # 修改的代码行：使用正向情绪钟摆
         }
         contextual_modulator = _robust_geometric_mean(contextual_modulator_components, contextual_modulator_weights, df_index)
         
@@ -1138,15 +1159,19 @@ class ProcessIntelligence:
             print(f"    - {pressure_signal_name}: {pressure_signal_raw.iloc[last_date_index]:.4f}")
             print(f"    - upper_shadow_selling_pressure_D: {upper_shadow_pressure_raw.iloc[last_date_index]:.4f}")
             print(f"    - retail_fomo_premium_index_D: {retail_fomo_raw.iloc[last_date_index]:.4f}")
+            print(f"    - BIAS_13_D: {bias_13_raw.iloc[last_date_index]:.4f}") # 修改的代码行
+            print(f"    - BIAS_21_D: {bias_21_raw.iloc[last_date_index]:.4f}") # 修改的代码行
+            print(f"    - RSI_13_D: {rsi_13_raw.iloc[last_date_index]:.4f}") # 修改的代码行
+            print(f"    - BBP_21_2.0_D: {bbp_21_raw.iloc[last_date_index]:.4f}") # 修改的代码行
             print(f"    - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent_score.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_CHIP_RISK_DISTRIBUTION_WHISPER: {chip_distribution_whisper_score.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {price_overextension_score.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_FOUNDATION_AXIOM_MARKET_TENSION: {market_tension_score.iloc[last_date_index]:.4f}")
             print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
             print("  [中间计算节点]:")
             print(f"    - MTF信念衰减分: {mtf_decay_score.iloc[last_date_index]:.4f}")
             print(f"    - MTF利润压力分: {mtf_pressure_score.iloc[last_date_index]:.4f}")
             print(f"    - 派发确认分: {distribution_confirmation_score.iloc[last_date_index]:.4f}")
+            print(f"    - 价格超买亢奋复合分: {price_overextension_composite_score.iloc[last_date_index]:.4f}") # 修改的代码行
             print(f"    - 情境调制器: {contextual_modulator.iloc[last_date_index]:.4f}")
             print(f"    - 核心衰减分 (几何平均): {core_decay_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
