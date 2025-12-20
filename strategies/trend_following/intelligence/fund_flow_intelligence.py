@@ -412,7 +412,7 @@ class FundFlowIntelligence:
         【V5.2 · 效率优化版】资金流公理一：诊断“战场控制权”
         - 核心优化: 集中所有原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         """
-        print(f"    -> [资金流层] 正在诊断 资金流公理五：诊断“资本属性”")
+        print(f"    -> [资金流层] 正在诊断 资金流公理一：诊断“战场控制权”")
         df_index = df.index
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
