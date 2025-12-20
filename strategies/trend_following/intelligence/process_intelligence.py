@@ -2584,7 +2584,6 @@ class ProcessIntelligence:
             'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL',
             'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION'
         ] # 修改的代码行：移除 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY
-        
         all_required_signals = required_df_columns + required_atomic_signals
         if not self._validate_required_signals(df, all_required_signals, "_calculate_process_covert_accumulation"):
             print(f"    -> [过程情报警告] _calculate_process_covert_accumulation 缺少核心信号，返回默认值。")
