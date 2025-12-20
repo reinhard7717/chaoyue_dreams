@@ -1692,39 +1692,6 @@ class BehavioralIntelligence:
         final_new_high_strength = new_high_strength.pow(final_exponent)
         return {'CONTEXT_NEW_HIGH_STRENGTH': final_new_high_strength.astype(np.float32)}
 
-    def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
-        states = {}
-        # 战前情报校验
-        required_signals = ['VPA_EFFICIENCY_D', 'vwap_control_strength_D']
-        # 确保 _validate_required_signals 使用传入的 df
-        if not self._validate_required_signals(df, required_signals, "_resolve_pressure_absorption_dynamics"):
-            return {
-                'SCORE_RISK_UNRESOLVED_PRESSURE': pd.Series(0.0, index=df.index, dtype=np.float32), # 明确指定 dtype
-                'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': pd.Series(0.0, index=df.index, dtype=np.float32) # 明确指定 dtype
-            }
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-        # get_adaptive_mtf_normalized_score 内部已处理 df.index
-        absorption_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True, tf_weights=default_weights)
-        absorption_control = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True, tf_weights=default_weights)
-        absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
-        absorption_quality_score = (absorption_efficiency * absorption_control * absorption_intent_factor).pow(1/3)
-        daily_net_force = absorption_quality_score - provisional_pressure
-        battlefield_momentum_score = daily_net_force.ewm(span=3, adjust=False).mean().fillna(0)
-        base_risk = provisional_pressure * (1.0 - absorption_quality_score)
-        risk_amplifier = 1.0 - battlefield_momentum_score.clip(upper=0)
-        final_risk_score = (base_risk * risk_amplifier).clip(0, 1)
-        base_opportunity = provisional_pressure * absorption_quality_score
-        opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0)
-        # 从 self.strategy.atomic_states 获取，因为这是全局状态
-        trend_health = self.strategy.atomic_states.get('SCORE_TREND_HEALTH', pd.Series(0.5, index=df.index))
-        context_modulator = 1.0 + trend_health * 0.5
-        final_opportunity_score = (base_opportunity * opportunity_amplifier * context_modulator).clip(0, 1)
-        states['SCORE_RISK_UNRESOLVED_PRESSURE'] = final_risk_score.astype(np.float32)
-        states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
-        return states
-
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · Production Ready版】微观结构意图诊断引擎
