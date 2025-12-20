@@ -136,6 +136,14 @@ class BehavioralIntelligence:
     def _calculate_series_dynamics(self, series: pd.Series, periods: List[int], df_index: pd.Index, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp], base_name: str) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series]]:
         slopes = {}
         accels = {}
+        # MODIFIED LINE: 检查 series 长度，确保有足够数据进行 diff 操作
+        if len(series) < max(periods) + 1: # 至少需要 max(periods) + 1 根K线才能计算最长周期的斜率
+            if is_debug_enabled: print(f"        - [警告] {base_name} 数据不足，无法计算斜率和加速度。")
+            for p in periods:
+                slopes[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
+                if p <= 34:
+                    accels[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
+            return slopes, accels
         for p in periods:
             # 计算斜率
             slope_series = series.diff(p).fillna(0)
@@ -3677,15 +3685,15 @@ class BehavioralIntelligence:
         final_exponent = get_param_value(params.get('final_exponent'), 1.5)
         # 确保 day_quality_score 是数值类型
         day_quality_score = pd.to_numeric(day_quality_score, errors='coerce').fillna(0)
-        # 2. 检查所需原始数据是否存在 (仅检查情境调制器信号)
-        required_context_signals = []
-        if contextual_modulator_enabled:
-            for sig_name in context_signals_weights.keys():
-                original_sig_name = sig_name.replace('_INVERSE', '')
-                required_context_signals.append(original_sig_name)
-        if not self._validate_required_signals(df, required_context_signals, method_name):
-            if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少情境调制器核心信号，情境调制将失效。")
-            contextual_modulator_enabled = False # 禁用情境调制
+        # MODIFIED LINE: 移除对 required_context_signals 的 _validate_required_signals 调用
+        # required_context_signals = []
+        # if contextual_modulator_enabled:
+        #     for sig_name in context_signals_weights.keys():
+        #         original_sig_name = sig_name.replace('_INVERSE', '')
+        #         required_context_signals.append(original_sig_name)
+        # if not self._validate_required_signals(df, required_context_signals, method_name):
+        #     if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少情境调制器核心信号，情境调制将失效。")
+        #     contextual_modulator_enabled = False # 禁用情境调制
         # 3. 动态计算 day_quality_score 的斜率和加速度
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 动态计算 day_quality_score 动力学 @ {probe_ts.strftime('%Y-%m-%d')}:")
@@ -3750,6 +3758,7 @@ class BehavioralIntelligence:
                 print(f"      [探针] {method_name} 行为情境健康度组成 @ {probe_ts.strftime('%Y-%m-%d')}:")
             for sig_name, weight in context_signals_weights.items():
                 original_sig_name = sig_name.replace('_INVERSE', '')
+                # MODIFIED LINE: 确保 _get_atomic_score 能够正确获取信号
                 context_signal = self._get_atomic_score(df, original_sig_name, default=0.5)
                 # 处理 _INVERSE 信号
                 if '_INVERSE' in sig_name:
