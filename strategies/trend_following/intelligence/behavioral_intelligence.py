@@ -6,7 +6,7 @@ from typing import Dict, Tuple, Optional, List, Any
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_energy_score,
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score, get_robust_bipolar_normalized_score,
-    normalize_score, normalize_to_bipolar, _robust_geometric_mean
+    normalize_score, normalize_to_bipolar
 )
 
 class BehavioralIntelligence:
@@ -208,6 +208,61 @@ class BehavioralIntelligence:
         final_df = pd.concat([df, dynamics_df], axis=1)
         return final_df
 
+    def _robust_generalized_mean(
+        self,
+        scores_dict: Dict[str, pd.Series],
+        weights_dict: Dict[str, float],
+        df_index: pd.Index,
+        power_p: float = 0.0, # Default to geometric mean behavior
+        is_debug_enabled: bool = False,
+        probe_ts: Optional[pd.Timestamp] = None,
+        fusion_level_name: str = "未知融合层" # For probe output context
+    ) -> pd.Series:
+        """
+        【V5.0 · 广义平均融合器】
+        计算给定分数序列的加权广义平均 (Weighted Generalized Mean / Power Mean)。
+        - 当 power_p 接近 0 时，行为类似于加权几何平均。
+        - 当 power_p 为 1 时，行为类似于加权算术平均。
+        - 确保输入分数在 [0, 1] 范围内，并处理零值以避免数学错误。
+        """
+        if not scores_dict:
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 过滤掉权重为0的项，并确保所有分数Series的索引与df_index对齐
+        valid_scores = {}
+        valid_weights = {}
+        for name, score_series in scores_dict.items():
+            weight = weights_dict.get(name, 0.0)
+            if weight > 0:
+                # 确保分数Series与df_index对齐，并填充NaN为0
+                valid_scores[name] = score_series.reindex(df_index).fillna(0.0).clip(0, 1)
+                valid_weights[name] = weight
+        if not valid_scores:
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 将分数转换为NumPy数组，并确保所有值都略大于0，以避免对数或负幂运算错误
+        stacked_scores = np.stack([s.values for s in valid_scores.values()], axis=0)
+        safe_scores = np.maximum(stacked_scores, 1e-9) # 避免 log(0) 或 0^negative_power
+        # 归一化权重
+        weights_array = np.array(list(valid_weights.values()))
+        total_weight = weights_array.sum()
+        if total_weight == 0:
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        normalized_weights = weights_array / total_weight
+        result_values = np.zeros(len(df_index), dtype=np.float32)
+        if abs(power_p) < 1e-9: # power_p is effectively 0, use geometric mean
+            weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
+            result_values = np.exp(weighted_log_sum)
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"        - {fusion_level_name} 融合方式: 几何平均 (power_p={power_p:.4f})")
+                print(f"        - {fusion_level_name} 几何平均 log_sum @ {probe_ts.strftime('%Y-%m-%d')}: {weighted_log_sum[df_index.get_loc(probe_ts)]:.4f}")
+        else: # Use generalized mean (Power Mean)
+            weighted_power_sum = np.sum(safe_scores**power_p * normalized_weights[:, np.newaxis], axis=0)
+            # 避免 0^(1/p) 导致 NaN，如果 weighted_power_sum 接近 0，则结果也应为 0
+            result_values = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p))
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"        - {fusion_level_name} 融合方式: 广义平均 (power_p={power_p:.4f})")
+                print(f"        - {fusion_level_name} 广义平均 power_sum @ {probe_ts.strftime('%Y-%m-%d')}: {weighted_power_sum[df_index.get_loc(probe_ts)]:.4f}")
+        return pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
+
     def _calculate_price_momentum_resonance(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
         """
         计算价格动能共振分数。
@@ -231,10 +286,14 @@ class BehavioralIntelligence:
             accel_score = (accel_score_bipolar + 1) / 2
             # 几何平均融合斜率和加速度，确保两者都为正向贡献
             # 这里的权重可以进一步配置，但先用等权
-            period_momentum_score = _robust_geometric_mean(
+            period_momentum_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
                 {"slope": slope_score, "acceleration": accel_score},
                 {"slope": 0.5, "acceleration": 0.5}, # Equal weights for now
-                df.index
+                df.index,
+                power_p=0.0, # Use geometric mean for sub-fusion
+                is_debug_enabled=is_debug_enabled,
+                probe_ts=probe_ts,
+                fusion_level_name=f"{p}d 动能子融合"
             )
             period_scores.append(period_momentum_score)
             if is_debug_enabled and probe_ts and probe_ts in df.index:
@@ -275,20 +334,24 @@ class BehavioralIntelligence:
             print(f"        - order_book_imbalance_score (norm): {order_book_imbalance_score.loc[probe_ts]:.4f}")
             print(f"        - flow_credibility_score (norm): {flow_credibility_score.loc[probe_ts]:.4f}")
         # 几何平均融合
-        structural_health_score = _robust_geometric_mean(
+        structural_health_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
             {
                 "liquidity_authenticity": liquidity_authenticity_score,
                 "order_book_imbalance": order_book_imbalance_score,
                 "flow_credibility": flow_credibility_score
             },
             {"liquidity_authenticity": 0.33, "order_book_imbalance": 0.33, "flow_credibility": 0.34}, # Equal weights for now
-            df.index
+            df.index,
+            power_p=0.0, # Use geometric mean for sub-fusion
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="结构健康子融合"
         )
         return structural_health_score.clip(0, 1)
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V4.0 · 多维共振与行为意图解析版】行为K线质量分计算引擎
+        【V5.0 · 深度融合与非线性感知版】行为K线质量分计算引擎
         - 核心重构: 将日内K线质量视为一场“战役复盘”，从“战役结果”、“战役过程”、“战役叙事”、“行为协同”和“趋势动能与结构共振”五个维度进行深度评估。
         - 战役结果: 融合日内姿态分、收盘强度、日涨跌幅、竞价收盘位置、收盘信念、收盘接受度和集合竞价影响。
         - 战役过程: 融合微观结构效率、脉冲质量、VWAP控制强度、主力活跃度、日内能量密度、资金流可信度和控制坚实度。
@@ -296,7 +359,7 @@ class BehavioralIntelligence:
         - 行为协同: 融合趋势信念、趋势效率和趋势不对称性、主力信念和隐蔽行为。
         - 趋势动能与结构共振: 融合多时间维度价格动能共振、流动性真实性和订单簿不平衡。
         - 情境调制: 引入波动率不稳定性、市场情绪等情境调制器进行动态调整。
-        - 融合逻辑: 采用加权几何平均融合五大维度，并应用非线性变换。
+        - 融合逻辑: 采用加权广义平均（Power Mean）融合五大维度，并应用非线性变换。
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         - 【修正】移除启用判断，该信号将始终启用。
         - 【修正】为能量型指标 `intraday_energy_density` 使用专用归一化方法，确保全零窗口时分数为 0.0。
@@ -321,6 +384,7 @@ class BehavioralIntelligence:
         fusion_weights = get_param_value(params.get('fusion_weights'), {"outcome_assessment": 0.2, "process_quality": 0.2, "narrative_integrity": 0.2, "behavioral_cohesion": 0.2, "trend_momentum_resonance": 0.2})
         context_modulator_params = get_param_value(params.get('context_modulator_params'), {})
         final_exponent = get_param_value(params.get('final_exponent'), 1.2)
+        fusion_power_p = get_param_value(params.get('fusion_power_p'), 0.1) # MODIFIED LINE: Get fusion_power_p
         tf_weights_config = get_param_value(params.get('tf_weights'), {})
         default_tf_weights = get_param_value(tf_weights_config.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 1. 获取所有原始数据 ---
@@ -445,7 +509,7 @@ class BehavioralIntelligence:
             print(f"        - closing_conviction_score (norm): {closing_conviction_score.loc[probe_ts]:.4f}")
             print(f"        - closing_acceptance_score (norm): {closing_acceptance_score.loc[probe_ts]:.4f}")
             print(f"        - auction_impact_score (norm): {auction_impact_score.loc[probe_ts]:.4f}")
-        outcome_assessment_score = _robust_geometric_mean(
+        outcome_assessment_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
             {
                 "intraday_posture": intraday_posture_score,
                 "closing_strength": closing_strength_score,
@@ -456,7 +520,11 @@ class BehavioralIntelligence:
                 "auction_impact": auction_impact_score
             },
             outcome_weights,
-            df.index
+            df.index,
+            power_p=0.0, # Use geometric mean for sub-fusion
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="战役结果评估"
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 战役结果评估分数 @ {probe_ts.strftime('%Y-%m-%d')}: {outcome_assessment_score.loc[probe_ts]:.4f}")
@@ -482,7 +550,7 @@ class BehavioralIntelligence:
             print(f"        - intraday_energy_density_score (norm): {intraday_energy_density_score.loc[probe_ts]:.4f}")
             print(f"        - flow_credibility_score (norm): {flow_credibility_score.loc[probe_ts]:.4f}")
             print(f"        - control_solidity_score (norm): {control_solidity_score.loc[probe_ts]:.4f}")
-        process_quality_score = _robust_geometric_mean(
+        process_quality_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
             {
                 "microstructure_efficiency": micro_efficiency_score,
                 "impulse_quality": impulse_quality_score,
@@ -493,7 +561,11 @@ class BehavioralIntelligence:
                 "control_solidity": control_solidity_score
             },
             process_weights,
-            df.index
+            df.index,
+            power_p=0.0, # Use geometric mean for sub-fusion
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="战役过程质量评估"
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 战役过程质量评估分数 @ {probe_ts.strftime('%Y-%m-%d')}: {process_quality_score.loc[probe_ts]:.4f}")
@@ -524,7 +596,7 @@ class BehavioralIntelligence:
             print(f"        - deception_index_inverse (norm): {deception_index_inverse.loc[probe_ts]:.4f}")
             print(f"        - structural_tension_inverse (norm): {structural_tension_inverse.loc[probe_ts]:.4f}")
             print(f"        - panic_selling_cascade_inverse (norm): {panic_selling_cascade_inverse.loc[probe_ts]:.4f}")
-        narrative_integrity_score = _robust_geometric_mean(
+        narrative_integrity_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
             {
                 "closing_auction_ambush_inverse": closing_auction_ambush_inverse,
                 "deception_lure_long_inverse": deception_lure_long_inverse,
@@ -536,7 +608,11 @@ class BehavioralIntelligence:
                 "panic_selling_cascade_inverse": panic_selling_cascade_inverse
             },
             narrative_weights,
-            df.index
+            df.index,
+            power_p=0.0, # Use geometric mean for sub-fusion
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="战役叙事诚信度"
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 战役叙事诚信度分数 @ {probe_ts.strftime('%Y-%m-%d')}: {narrative_integrity_score.loc[probe_ts]:.4f}")
@@ -561,7 +637,7 @@ class BehavioralIntelligence:
             print(f"        - main_force_conviction_score (norm): {main_force_conviction_score.loc[probe_ts]:.4f}")
             print(f"        - covert_accumulation_score (norm): {covert_accumulation_score.loc[probe_ts]:.4f}")
             print(f"        - covert_distribution_inverse (norm): {covert_distribution_inverse.loc[probe_ts]:.4f}")
-        behavioral_cohesion_score = _robust_geometric_mean(
+        behavioral_cohesion_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
             {
                 "trend_conviction": trend_conviction_score,
                 "trend_efficiency": trend_efficiency_score,
@@ -571,7 +647,11 @@ class BehavioralIntelligence:
                 "covert_distribution_inverse": covert_distribution_inverse
             },
             behavioral_cohesion_weights,
-            df.index
+            df.index,
+            power_p=0.0, # Use geometric mean for sub-fusion
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="行为协同"
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 行为协同分数 @ {probe_ts.strftime('%Y-%m-%d')}: {behavioral_cohesion_score.loc[probe_ts]:.4f}")
@@ -582,17 +662,21 @@ class BehavioralIntelligence:
             print(f"      [探针] {method_name} 趋势动能与结构共振子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - price_momentum_resonance_score (norm): {price_momentum_resonance_score.loc[probe_ts]:.4f}")
             print(f"        - structural_health_score (norm): {structural_health_score.loc[probe_ts]:.4f}")
-        trend_momentum_resonance_score = _robust_geometric_mean(
+        trend_momentum_resonance_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
             {
                 "price_momentum_resonance": price_momentum_resonance_score,
                 "structural_health": structural_health_score
             },
             trend_momentum_resonance_weights,
-            df.index
+            df.index,
+            power_p=0.0, # Use geometric mean for sub-fusion
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="趋势动能与结构共振"
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 趋势动能与结构共振分数 @ {probe_ts.strftime('%Y-%m-%d')}: {trend_momentum_resonance_score.loc[probe_ts]:.4f}")
-        # --- 7. 顶层融合 (加权几何平均) ---
+        # --- 7. 顶层融合 (加权广义平均) ---
         # 动态调整顶层融合权重
         dynamic_fusion_weights = fusion_weights.copy()
         if context_modulator_params.get('dynamic_fusion_weights_enabled', False):
@@ -618,7 +702,8 @@ class BehavioralIntelligence:
             print(f"      [探针] {method_name} 顶层融合动态权重 @ {probe_ts.strftime('%Y-%m-%d')}:")
             for dim, weight in dynamic_fusion_weights.items():
                 print(f"        - {dim}: {weight:.4f}")
-        day_quality_base_score = _robust_geometric_mean(
+            print(f"      [探针] {method_name} 顶层融合 power_p: {fusion_power_p:.4f}") # MODIFIED LINE: Probe fusion_power_p
+        day_quality_base_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
             {
                 "outcome_assessment": outcome_assessment_score,
                 "process_quality": process_quality_score,
@@ -627,7 +712,11 @@ class BehavioralIntelligence:
                 "trend_momentum_resonance": trend_momentum_resonance_score
             },
             dynamic_fusion_weights, # 使用动态权重
-            df.index
+            df.index,
+            power_p=fusion_power_p, # MODIFIED LINE: Pass fusion_power_p
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="顶层融合基础分数"
         )
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 顶层融合基础分数 @ {probe_ts.strftime('%Y-%m-%d')}: {day_quality_base_score.loc[probe_ts]:.4f}")

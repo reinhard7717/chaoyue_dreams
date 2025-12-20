@@ -866,10 +866,20 @@ class ProcessIntelligence:
         bottom_divergence_duration_norm = (bottom_divergence_duration / 5).clip(0,1)
         # Depth: Magnitude of the base divergence score
         divergence_depth_norm = base_divergence_score.abs()
-        # 修改代码行：确保 apply 返回的是标量，而不是 Series
+        # 修改代码行：确保传入 _robust_geometric_mean 的值是 Series
         divergence_quality_score = pd.Series([
-            (_robust_geometric_mean({"duration": top_divergence_duration_norm.loc[idx], "depth": divergence_depth_norm.loc[idx]}, divergence_quality_weights, df_index) if x > 0 else
-             (_robust_geometric_mean({"duration": bottom_divergence_duration_norm.loc[idx], "depth": divergence_depth_norm.loc[idx]}, divergence_quality_weights, df_index) if x < 0 else 0))
+            (_robust_geometric_mean(
+                {"duration": pd.Series(top_divergence_duration_norm.loc[idx], index=[idx]), # 修改代码行
+                 "depth": pd.Series(divergence_depth_norm.loc[idx], index=[idx])}, # 修改代码行
+                divergence_quality_weights,
+                pd.Index([idx]) # 修改代码行
+            ).iloc[0] if x > 0 else # 修改代码行
+             (_robust_geometric_mean(
+                 {"duration": pd.Series(bottom_divergence_duration_norm.loc[idx], index=[idx]), # 修改代码行
+                  "depth": pd.Series(divergence_depth_norm.loc[idx], index=[idx])}, # 修改代码行
+                 divergence_quality_weights,
+                 pd.Index([idx]) # 修改代码行
+             ).iloc[0] if x < 0 else 0)) # 修改代码行
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
         # 4.7. Context Modulator
@@ -947,7 +957,6 @@ class ProcessIntelligence:
             print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.iloc[last_date_index]:.4f}")
             print(f"    - ADX_14_D: {adx_raw.iloc[last_date_index]:.4f}")
             print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
-            
             print("  [关键计算 (归一化/中间分)]: ")
             print(f"    - fused_price_direction: {fused_price_direction.iloc[last_date_index]:.4f}")
             print(f"    - fused_macdh_direction: {fused_macdh_direction.iloc[last_date_index]:.4f}")
@@ -980,7 +989,6 @@ class ProcessIntelligence:
             print(f"    - raw_fused_score: {raw_fused_score.iloc[last_date_index]:.4f}")
             print(f"    - synergy_conflict_factor: {synergy_conflict_factor.iloc[last_date_index]:.4f}")
             print(f"    - raw_fused_score_modulated: {raw_fused_score_modulated.iloc[last_date_index]:.4f}")
-            
             print("  [最终结果]: ")
             print(f"    - final_price_momentum_divergence_score: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")

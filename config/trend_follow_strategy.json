@@ -821,7 +821,7 @@
         },
         "day_quality_protocol_params": {
           "enabled": true,
-          "description": "【V4.0 · 多维共振与行为意图解析版】日内行为K线质量分计算参数。",
+          "description": "【V5.0 · 深度融合与非线性感知版】日内行为K线质量分计算参数。",
           "outcome_weights": {
             "intraday_posture": 0.25,
             "closing_strength": 0.2,
@@ -902,6 +902,7 @@
             }
           },
           "final_exponent": 1.2,
+          "fusion_power_p": 0.1,
           "tf_weights": {
             "default": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
             "pct_change": {"5": 0.5, "13": 0.3, "21": 0.2},
