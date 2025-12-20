@@ -710,7 +710,6 @@ class ProcessIntelligence:
         print("    -> [过程层] 正在计算 PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE (V3.0 · 多维共振与情境自适应版)...")
         df_index = df.index
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
-
         # --- 1. 获取配置参数 ---
         price_components_weights = get_param_value(params.get('price_components_weights'), {"close_D": 1.0})
         momentum_components_weights = get_param_value(params.get('momentum_components_weights'), {"MACDh_13_34_8_D": 0.5, "RSI_13_D": 0.3, "ROC_13_D": 0.2})
@@ -723,7 +722,6 @@ class ProcessIntelligence:
         synergy_threshold = get_param_value(params.get('synergy_threshold'), 0.6)
         synergy_bonus_factor = get_param_value(params.get('synergy_bonus_factor'), 0.1)
         conflict_penalty_factor = get_param_value(params.get('conflict_penalty_factor'), 0.15)
-
         # --- 2. 校验所有必需的信号 ---
         # 过滤掉 mtf_slope_weights 中非数字的键，确保只使用周期数字
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
@@ -746,7 +744,6 @@ class ProcessIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_price_momentum_divergence"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # --- 3. 获取原始数据 ---
         # Price
         price_slopes_raw = {p: self._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name="_calculate_price_momentum_divergence") for p in valid_mtf_periods}
@@ -768,34 +765,27 @@ class ProcessIntelligence:
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_price_momentum_divergence")
         adx_raw = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_calculate_price_momentum_divergence")
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_calculate_price_momentum_divergence")
-
         # --- 4. 计算各维度分数 ---
-
         # 4.1. Fused Price Direction (MTF Slope Fusion)
         fused_price_direction = self._get_mtf_slope_score(df, 'close_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
-
         # 4.2. Fused Momentum Direction (Multi-Indicator & MTF Fusion)
         fused_macdh_direction = self._get_mtf_slope_score(df, 'MACDh_13_34_8_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         fused_rsi_direction = self._get_mtf_slope_score(df, 'RSI_13_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         fused_roc_direction = self._get_mtf_slope_score(df, 'ROC_13_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
-        
         fused_momentum_direction_components = {
             "MACDh_13_34_8_D": fused_macdh_direction,
             "RSI_13_D": fused_rsi_direction,
             "ROC_13_D": fused_roc_direction
         }
         fused_momentum_direction = _robust_geometric_mean(fused_momentum_direction_components, momentum_components_weights, df_index)
-
         # 4.3. Base Divergence Score
         # Top Divergence (Risk): Price up, Momentum down -> Positive score
         # Bottom Divergence (Opportunity): Price down, Momentum up -> Negative score
         base_divergence_score = (fused_price_direction - fused_momentum_direction).clip(-1, 1)
-
         # 4.4. Volume Confirmation Score
         fused_volume_slope = self._get_mtf_slope_score(df, 'volume_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         volume_burst_norm = self._normalize_series(volume_burstiness_raw, df_index, ascending=True)
         volume_atrophy_norm = self._normalize_series(volume_atrophy_score, df_index, ascending=True) # Volume atrophy is good for bottom divergence
-        
         # Top Divergence Confirmation (positive contribution to volume_confirmation_score)
         # We want negative volume slope (volume decreasing) and high volume burst (sudden high volume, often associated with exhaustion)
         top_vol_conf_components = {
@@ -807,7 +797,6 @@ class ProcessIntelligence:
             "volume_burst": volume_confirmation_weights.get("volume_burst", 0.0)
         }
         top_vol_conf = _robust_geometric_mean(top_vol_conf_components, top_vol_conf_weights, df_index)
-        
         # Bottom Divergence Confirmation (negative contribution to volume_confirmation_score)
         # We want positive volume slope (volume increasing from low) and high volume atrophy (selling exhaustion)
         bottom_vol_conf_components = {
@@ -819,21 +808,18 @@ class ProcessIntelligence:
             "volume_atrophy": volume_confirmation_weights.get("volume_atrophy", 0.0)
         }
         bottom_vol_conf = _robust_geometric_mean(bottom_vol_conf_components, bottom_vol_conf_weights, df_index)
-        
         # Combine based on base_divergence direction
         # 修改代码行：确保 apply 返回的是标量，而不是 Series
         volume_confirmation_score = pd.Series([
             top_vol_conf.loc[idx] if x > 0 else (-bottom_vol_conf.loc[idx] if x < 0 else 0)
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
-
         # 4.5. Main Force/Chip Confirmation Score
         fused_mf_net_flow_slope = self._get_mtf_slope_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         deception_index_norm = self._normalize_series(deception_index_raw, df_index, bipolar=True)
         distribution_intent_norm = self._normalize_series(distribution_intent_score, df_index, ascending=True)
         covert_accumulation_norm = self._normalize_series(covert_accumulation_score, df_index, ascending=True)
         chip_divergence_norm = self._normalize_series(chip_divergence_score, df_index, bipolar=True)
-
         # Top Divergence Confirmation (positive contribution)
         # We want negative MF net flow slope, positive deception (拉高出货), high distribution intent, positive chip divergence (价涨筹码跌)
         top_mf_conf_components = {
@@ -849,7 +835,6 @@ class ProcessIntelligence:
             "chip_divergence_positive": main_force_confirmation_weights.get("chip_divergence", 0.0)
         }
         top_mf_conf = _robust_geometric_mean(top_mf_conf_components, top_mf_conf_weights, df_index)
-
         # Bottom Divergence Confirmation (negative contribution)
         # We want positive MF net flow slope, negative deception (压价吸筹), high covert accumulation, negative chip divergence (价跌筹码涨)
         bottom_mf_conf_components = {
@@ -865,47 +850,38 @@ class ProcessIntelligence:
             "chip_divergence_negative": main_force_confirmation_weights.get("chip_divergence", 0.0)
         }
         bottom_mf_conf = _robust_geometric_mean(bottom_mf_conf_components, bottom_mf_conf_weights, df_index)
-
         # 修改代码行：确保 apply 返回的是标量，而不是 Series
         main_force_confirmation_score = pd.Series([
             top_mf_conf.loc[idx] if x > 0 else (-bottom_mf_conf.loc[idx] if x < 0 else 0)
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
-
         # 4.6. Divergence Quality Score
         # Duration: How many consecutive days has the divergence been present?
         is_top_divergence_bool = (base_divergence_score > 0.1) # Threshold for positive divergence
         is_bottom_divergence_bool = (base_divergence_score < -0.1) # Threshold for negative divergence
-        
         top_divergence_duration = is_top_divergence_bool.astype(int).rolling(window=5, min_periods=1).sum()
         bottom_divergence_duration = is_bottom_divergence_bool.astype(int).rolling(window=5, min_periods=1).sum()
-        
         # Normalize duration (e.g., max duration of 5 days -> score 0 to 1)
         top_divergence_duration_norm = (top_divergence_duration / 5).clip(0,1)
         bottom_divergence_duration_norm = (bottom_divergence_duration / 5).clip(0,1)
-
         # Depth: Magnitude of the base divergence score
         divergence_depth_norm = base_divergence_score.abs()
-        
         # 修改代码行：确保 apply 返回的是标量，而不是 Series
         divergence_quality_score = pd.Series([
             (_robust_geometric_mean({"duration": top_divergence_duration_norm.loc[idx], "depth": divergence_depth_norm.loc[idx]}, divergence_quality_weights, df_index) if x > 0 else
              (_robust_geometric_mean({"duration": bottom_divergence_duration_norm.loc[idx], "depth": divergence_depth_norm.loc[idx]}, divergence_quality_weights, df_index) if x < 0 else 0))
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
-        
         # 4.7. Context Modulator
         volatility_instability_norm_inverted = self._normalize_series(volatility_instability_raw, df_index, ascending=False) # Low volatility is good for divergence
         adx_norm_inverted = self._normalize_series(adx_raw, df_index, ascending=False) # Low trend strength is good for divergence
         market_sentiment_norm_bipolar = self._normalize_series(market_sentiment_raw, df_index, bipolar=True)
-        
         context_modulator_components = {
             "volatility_inverse": volatility_instability_norm_inverted,
             "trend_strength_inverse": adx_norm_inverted,
             "sentiment_neutrality": 1 - market_sentiment_norm_bipolar.abs() # Neutral sentiment is good for divergence
         }
         context_modulator = _robust_geometric_mean(context_modulator_components, context_modulator_weights, df_index)
-
         # --- 5. 最终融合 ---
         # Use a weighted geometric mean for robust fusion
         final_components = {
@@ -915,7 +891,6 @@ class ProcessIntelligence:
             "divergence_quality": divergence_quality_score,
             "context_modulator": context_modulator
         }
-        
         # Define fusion weights for the final geometric mean (these should be in config)
         final_fusion_weights_dict = {
             "base_divergence": 0.3,
@@ -924,43 +899,31 @@ class ProcessIntelligence:
             "divergence_quality": 0.15,
             "context_modulator": 0.1
         }
-        
         # Calculate the raw fused score (unipolar)
         raw_fused_score = _robust_geometric_mean(final_components, final_fusion_weights_dict, df_index)
-        
         # Apply synergy/conflict logic
         synergy_conflict_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        
         # Check for alignment:
         # For top divergence (base_divergence > 0): volume_confirmation > 0 AND main_force_confirmation > 0
         # For bottom divergence (base_divergence < 0): volume_confirmation < 0 AND main_force_confirmation < 0
-        
         # Simplified synergy check: if the signs of base_divergence, volume_confirmation_score, main_force_confirmation_score are mostly aligned
         # Use a small epsilon to avoid issues with scores exactly at 0
         sign_base = np.sign(base_divergence_score.replace(0, 1e-9))
         sign_vol = np.sign(volume_confirmation_score.replace(0, 1e-9))
         sign_mf = np.sign(main_force_confirmation_score.replace(0, 1e-9))
-
         aligned_count = (sign_base == sign_vol).astype(int) + \
                         (sign_base == sign_mf).astype(int)
-        
         is_synergistic = (aligned_count >= 2) & (base_divergence_score.abs() > synergy_threshold)
         is_conflicting = (aligned_count < 1) & (base_divergence_score.abs() > synergy_threshold) # If less than 1 component aligns
-        
         synergy_conflict_factor.loc[is_synergistic] = 1 + synergy_bonus_factor
         synergy_conflict_factor.loc[is_conflicting] = 1 - conflict_penalty_factor
-        
         # Apply the synergy/conflict factor
         raw_fused_score_modulated = raw_fused_score * synergy_conflict_factor
-        
         # Re-apply the original direction of base_divergence_score
         final_score = raw_fused_score_modulated * base_divergence_score.apply(np.sign)
-        
         # Apply non-linear exponent
         final_score = np.sign(final_score) * (final_score.abs().pow(final_fusion_exponent))
-        
         final_score = final_score.clip(-1, 1).fillna(0.0)
-
         # --- 6. 探针输出 ---
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
