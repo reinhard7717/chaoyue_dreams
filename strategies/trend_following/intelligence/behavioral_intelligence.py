@@ -752,16 +752,12 @@ class BehavioralIntelligence:
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
         for indicator in ['close', 'volume']:
-            required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
+            required_signals.append(f'SLOPE_{pattern_lookback_window}_close_D') # 修正：这里应该是 close_D
+            required_signals.append(f'SLOPE_{pattern_lookback_window}_volume_D') # 修正：这里应该是 volume_D
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume',
                          'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
-        # 移除对 BIPOLAR_BEHAVIORAL_DAY_QUALITY 的斜率和加速度的检查，因为它们将动态计算
-        # for p in get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params', {}).get('mtf_periods'), [5, 13, 21, 34, 55]):
-        #     required_signals.append(f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
-        #     if p <= 34:
-        #         required_signals.append(f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
         # 新增对情境调制器信号的检查
         battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
         if get_param_value(battlefield_momentum_params.get('contextual_modulator_enabled'), True):
@@ -854,12 +850,18 @@ class BehavioralIntelligence:
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
+        # 立即更新 self.strategy.atomic_states
+        self.strategy.atomic_states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         downward_resistance_score = self._diagnose_downward_resistance(df, default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         df['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
+        # 立即更新 self.strategy.atomic_states
+        self.strategy.atomic_states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
+        # 立即更新 self.strategy.atomic_states
+        self.strategy.atomic_states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL @ {probe_ts.strftime('%Y-%m-%d')}: {intraday_bull_control_score.loc[probe_ts]:.4f}")
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, is_debug_enabled, probe_ts)
@@ -894,7 +896,7 @@ class BehavioralIntelligence:
         )
         df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE']
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
-        print(f"    -> [行为情报校验] 计算“成交量爆发(SCORE_BEHAVIOR_VOLUME_BURST)” 分数：{states['SCORE_BEHAVIOR_VOLUME_BURST'].mean():.4f}")
+        print(f"    -> [行为情校验] 计算“成交量爆发(SCORE_BEHAVIOR_VOLUME_BURST)” 分数：{states['SCORE_BEHAVIOR_VOLUME_BURST'].mean():.4f}")
         df['SCORE_BEHAVIOR_VOLUME_BURST'] = states['SCORE_BEHAVIOR_VOLUME_BURST']
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
         df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']
@@ -934,12 +936,12 @@ class BehavioralIntelligence:
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
-        # MODIFIED LINE: 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
+        # 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
         day_quality_score = self._calculate_behavioral_day_quality(df)
         states['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
-        # MODIFIED LINE: 将 BIPOLAR_BEHAVIORAL_DAY_QUALITY 添加到 df，以便后续斜率/加速度计算可以访问
-        # df['BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'] = day_quality_score # 这一行不再需要，因为斜率和加速度将动态计算
-        # MODIFIED LINE: 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
+        # 立即更新 self.strategy.atomic_states
+        self.strategy.atomic_states['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
+        # 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
         battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
         battlefield_momentum = self._calculate_battlefield_momentum(df, day_quality_score, battlefield_momentum_params, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM'] = battlefield_momentum.astype(np.float32)
