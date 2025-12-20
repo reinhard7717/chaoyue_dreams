@@ -1041,7 +1041,8 @@ class ProcessIntelligence:
         contextual_modulator_weights = get_param_value(decay_params.get('contextual_modulator_weights'), {"price_overextension_composite": 0.3, "retail_fomo": 0.2, "market_tension": 0.2, "sentiment_pendulum_negative": 0.3})
         price_overextension_composite_weights = get_param_value(decay_params.get('price_overextension_composite_weights'), {"bias_13": 0.3, "bias_21": 0.2, "rsi_13": 0.3, "bbp_21": 0.2})
         final_fusion_exponent = get_param_value(decay_params.get('final_fusion_exponent'), 1.5)
-        probe_enabled = get_param_value(decay_params.get('probe_enabled'), False)
+        # 修改的代码行：从全局debug_params获取probe_enabled
+        probe_enabled = self.debug_params.get('should_probe', False)
 
         for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
             required_df_columns.append(f'SLOPE_{period_str}_{belief_signal_name}')
@@ -1125,7 +1126,6 @@ class ProcessIntelligence:
         final_score = (core_decay_score * (1 + contextual_modulator)).pow(final_fusion_exponent)
         final_score = final_score.clip(0, 1).fillna(0.0)
 
-        # 修改的代码行：遍历probe_dates列表，对每个匹配的日期输出探针信息
         if probe_enabled and not df.empty and self.probe_dates:
             for probe_date_str in self.probe_dates:
                 probe_date_ts = pd.Timestamp(probe_date_str)
