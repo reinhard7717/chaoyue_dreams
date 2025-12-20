@@ -138,11 +138,8 @@ class BehavioralIntelligence:
         【V1.0 · 新增】通用辅助方法：融合多时间框架（MTF）指标的原始值、斜率和加速度。
         - 核心功能: 根据配置的MTF周期权重和每个指标内部组件（原始值、斜率、加速度）的权重，
                       计算一个综合的、动态的指标分数。
-        - 探针增强: 增加了详细的调试输出。
         """
-        is_debug_enabled, probe_ts, method_name = debug_info if debug_info else (False, None, "Unknown")
-        if is_debug_enabled and probe_ts:
-            print(f"         [探针] {method_name} - _get_mtf_fused_indicator_score for '{base_name}' @ {probe_ts.strftime('%Y-%m-%d')}")
+        method_name = debug_info[2] if debug_info else "Unknown" # 仅用于_get_safe_series
         # 获取当前指标的组件权重，如果未配置则使用默认权重
         component_weights = mtf_indicator_component_weights.get(base_name, mtf_indicator_component_weights.get('default', {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3}))
         raw_w = component_weights.get('raw_weight', 0.4)
@@ -169,27 +166,23 @@ class BehavioralIntelligence:
             accel_val = self._get_safe_series(df, accel_col, 0.0, method_name=method_name)
             # 根据指标特性进行处理和归一化
             if is_negative_indicator: # 如果是负向指标（如卖压），值越大风险越高
-                norm_raw = get_adaptive_mtf_normalized_score(raw_val.abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_raw_abs'))
-                norm_slope = get_adaptive_mtf_normalized_score(slope_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_slope_neg_abs'))
-                norm_accel = get_adaptive_mtf_normalized_score(accel_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_accel_neg_abs'))
+                norm_raw = get_adaptive_mtf_normalized_score(raw_val.abs(), df.index, tf_weights={str(period): 1.0}, ascending=True)
+                norm_slope = get_adaptive_mtf_normalized_score(slope_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True)
+                norm_accel = get_adaptive_mtf_normalized_score(accel_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True)
             else: # 正向指标，值越大风险越高（如恐慌指数）
-                norm_raw = get_adaptive_mtf_normalized_score(raw_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_raw'))
-                norm_slope = get_adaptive_mtf_normalized_score(slope_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_slope'))
-                norm_accel = get_adaptive_mtf_normalized_score(accel_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=(is_debug_enabled, probe_ts, f'{base_name}_accel'))
+                norm_raw = get_adaptive_mtf_normalized_score(raw_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending)
+                norm_slope = get_adaptive_mtf_normalized_score(slope_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending)
+                norm_accel = get_adaptive_mtf_normalized_score(accel_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending)
             # 融合原始值、斜率和加速度
             fused_period_score = (
                 (norm_raw + 1e-9).pow(raw_w) *
                 (norm_slope + 1e-9).pow(slope_w) *
                 (norm_accel + 1e-9).pow(accel_w)
             ).pow(1 / total_component_weight).fillna(0.0).clip(0,1)
-            if is_debug_enabled and probe_ts:
-                print(f"           - {base_name} {period}d 融合分数: {fused_period_score.loc[probe_ts]:.4f}")
             scores.append(fused_period_score * weight)
         if not scores:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         fused_score = sum(scores) / total_mtf_weight
-        if is_debug_enabled and probe_ts:
-            print(f"         [探针] {method_name} - _get_mtf_fused_indicator_score for '{base_name}' 最终分数: {fused_score.loc[probe_ts]:.4f}")
         return fused_score.astype(np.float32)
 
     def _calculate_series_dynamics(self, series: pd.Series, periods: List[int], df_index: pd.Index, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp], base_name: str) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series]]:
@@ -295,10 +288,10 @@ class BehavioralIntelligence:
         scores_dict: Dict[str, pd.Series],
         weights_dict: Dict[str, float],
         df_index: pd.Index,
-        power_p: Any = 0.0, # 修改行: power_p 可以是标量或Series
+        power_p: Any = 0.0,
         is_debug_enabled: bool = False,
         probe_ts: Optional[pd.Timestamp] = None,
-        fusion_level_name: str = "未知融合层" # For probe output context
+        fusion_level_name: str = "未知融合层"
     ) -> pd.Series:
         """
         【V5.1 · 广义平均融合器 - 动态幂参数版】
@@ -306,79 +299,46 @@ class BehavioralIntelligence:
         - 当 power_p 接近 0 时，行为类似于加权几何平均。
         - 当 power_p 为 1 时，行为类似于加权算术平均。
         - 确保输入分数在 [0, 1] 范围内，并处理零值以避免数学错误。
-        - **新增: power_p 参数现在可以是标量或 pd.Series，以支持动态调整融合幂。**
-        - 【探针增强】在调试模式下，输出每个组件的分数和权重，以及最终融合结果。
+        - 新增: power_p 参数现在可以是标量或 pd.Series，以支持动态调整融合幂。
         """
         if not scores_dict:
-            if is_debug_enabled and probe_ts:
-                print(f"       [探针] {fusion_level_name}: scores_dict为空，返回0。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-
-        # 过滤掉权重为0的项，并确保所有分数Series的索引与df_index对齐
         valid_scores = {}
         valid_weights = {}
         for name, score_series in scores_dict.items():
             weight = weights_dict.get(name, 0.0)
             if weight > 0:
-                # 确保分数Series与df_index对齐，并填充NaN为0
                 valid_scores[name] = score_series.reindex(df_index).fillna(0.0).clip(0, 1)
                 valid_weights[name] = weight
-                if is_debug_enabled and probe_ts:
-                    if probe_ts and probe_ts in valid_scores[name].index: # 修改行: 检查probe_ts是否存在
-                        print(f"         - {fusion_level_name} 组件 '{name}': 分数={valid_scores[name].loc[probe_ts]:.4f}, 权重={weight:.2f}")
-
         if not valid_scores:
-            if is_debug_enabled and probe_ts:
-                print(f"       [探针] {fusion_level_name}: valid_scores为空，返回0。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-
-        # 将分数转换为NumPy数组，并确保所有值都略大于0，以避免对数或负幂运算错误
         stacked_scores = np.stack([s.values for s in valid_scores.values()], axis=0)
-        safe_scores = np.maximum(stacked_scores, 1e-9) # 避免 log(0) 或 0^negative_power
-
-        # 归一化权重
+        safe_scores = np.maximum(stacked_scores, 1e-9)
         weights_array = np.array(list(valid_weights.values()))
         total_weight = weights_array.sum()
         if total_weight == 0:
-            if is_debug_enabled and probe_ts:
-                print(f"       [探针] {fusion_level_name}: 总权重为0，返回0。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         normalized_weights = weights_array / total_weight
-
         result_values = np.zeros(len(df_index), dtype=np.float32)
-
-        # 修改行: 处理 power_p 可能是 Series 的情况
         if isinstance(power_p, pd.Series):
-            # 确保 power_p 与 df_index 对齐
             power_p_aligned = power_p.reindex(df_index).fillna(0.0)
-            # 对于 power_p 接近 0 的情况，使用几何平均
             geometric_mean_mask = power_p_aligned.abs() < 1e-9
-            # 对于几何平均部分
             if geometric_mean_mask.any():
                 weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
                 result_values[geometric_mean_mask.values] = np.exp(weighted_log_sum[geometric_mean_mask.values])
-
-            # 对于广义平均部分
             power_mean_mask = ~geometric_mean_mask
             if power_mean_mask.any():
-                # 确保 power_p_aligned 在 power_mean_mask 区域内不为0
-                power_p_for_power_mean = power_p_aligned.loc[power_mean_mask].replace(0, 1e-9) # 避免 1/0
+                power_p_for_power_mean = power_p_aligned.loc[power_mean_mask].replace(0, 1e-9)
                 weighted_power_sum = np.sum(safe_scores[:, power_mean_mask.values]**power_p_for_power_mean.values * normalized_weights[:, np.newaxis], axis=0)
                 result_values[power_mean_mask.values] = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p_for_power_mean.values))
         else: # power_p is a scalar
-            if abs(power_p) < 1e-9: # power_p is effectively 0, use geometric mean
+            if abs(power_p) < 1e-9:
                 weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
                 result_values = np.exp(weighted_log_sum)
-            else: # Use generalized mean (Power Mean)
+            else:
                 weighted_power_sum = np.sum(safe_scores**power_p * normalized_weights[:, np.newaxis], axis=0)
-                # 避免 0^(1/p) 导致 NaN，如果 weighted_power_sum 接近 0，则结果也应为 0
                 result_values = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p))
-
         final_fused_score = pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
-
-        if is_debug_enabled and probe_ts:
-            if probe_ts and probe_ts in final_fused_score.index: # 修改行: 检查probe_ts是否存在
-                print(f"       [探针] {fusion_level_name}: 最终融合分数={final_fused_score.loc[probe_ts]:.4f}")
         return final_fused_score
 
     def _calculate_price_momentum_resonance(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
@@ -1047,37 +1007,28 @@ class BehavioralIntelligence:
         """
         【V3.0 · 压力博弈深度洞察与动态自适应版】诊断未解决压力风险与压力吸收机会。
         - 核心升级: 明确了“原始卖压”的来源，并增强了“吸收品质”的评估维度。
-                    **引入多时间框架动态（斜率与加速度）增强，使吸收品质组件对趋势变化更敏感。**
-                    **引入动态 `fusion_power_p`，使融合的非线性程度自适应市场情境。**
-                    **引入 `min_raw_selling_pressure_threshold` 作为门控条件，过滤无意义的吸收机会。**
+                    引入多时间框架动态（斜率与加速度）增强，使吸收品质组件对趋势变化更敏感。
+                    引入动态 `fusion_power_p`，使融合的非线性程度自适应市场情境。
+                    引入 `min_raw_selling_pressure_threshold` 作为门控条件，过滤无意义的吸收机会。
         - 核心修复: 移除了对融合层信号 SCORE_TREND_HEALTH 的依赖，替换为纯行为层信号 SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM。
                     修正 SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM 归一化错误。
-        - 探针增强: 增加了详细的调试输出，以便检查和调试。
         """
         method_name = "_resolve_pressure_absorption_dynamics"
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        if is_debug_enabled and probe_ts:
-            print(f"    -> [行为情报调试] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-            if probe_ts and probe_ts in raw_selling_pressure.index:
-                print(f"       - 原始卖压 (raw_selling_pressure): {raw_selling_pressure.loc[probe_ts]:.4f}")
         # 战前情报校验
         required_df_signals = ['VPA_EFFICIENCY_D', 'vwap_control_strength_D']
         required_state_signals = ['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 'SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM']
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         p_unresolved = get_param_value(p_conf.get('unresolved_pressure_params'), {})
-
-        # 修改行: 将 absorption_quality_weights 的获取提前
         absorption_quality_weights = get_param_value(p_unresolved.get('absorption_quality_weights'), {
             "vpa_efficiency": 0.3, "vwap_control_strength": 0.2, "offensive_absorption_intent": 0.3, "absorption_strength": 0.2
         })
         opportunity_context_modulator_weights = get_param_value(p_unresolved.get('opportunity_context_modulator_weights'), {"battlefield_momentum": 1.0})
         final_exponent = get_param_value(p_unresolved.get('final_exponent'), 1.5)
-        # 修改行: 获取MTF权重和组件权重
         mtf_slope_accel_weights = get_param_value(p_unresolved.get('mtf_slope_accel_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         mtf_indicator_component_weights = get_param_value(p_unresolved.get('mtf_indicator_component_weights'), {})
         dynamic_fusion_power_p_params = get_param_value(p_unresolved.get('dynamic_fusion_power_p_params'), {})
         min_raw_selling_pressure_threshold = get_param_value(p_unresolved.get('min_raw_selling_pressure_threshold'), 0.0)
-
         # 动态添加MTF斜率和加速度信号到required_df_signals
         for period_str in mtf_slope_accel_weights.keys():
             period = int(period_str)
@@ -1094,7 +1045,6 @@ class BehavioralIntelligence:
                 'SCORE_RISK_UNRESOLVED_PRESSURE': pd.Series(0.0, index=df.index, dtype=np.float32),
                 'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': pd.Series(0.0, index=df.index, dtype=np.float32)
             }
-
         # --- 动态计算 fusion_power_p ---
         current_fusion_power_p = get_param_value(p_unresolved.get('fusion_power_p'), 0.0)
         if get_param_value(dynamic_fusion_power_p_params.get('enabled'), False):
@@ -1102,27 +1052,18 @@ class BehavioralIntelligence:
             sentiment_signal = self._get_safe_series(df, dynamic_fusion_power_p_params.get('sentiment_signal'), 0.0, method_name=method_name)
             p_mtf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
             default_tf_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
-            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
-            # 波动率越高，情绪越悲观，power_p越小（更严格的几何平均）
-            # 波动率越低，情绪越乐观，power_p越大（更接近算术平均）
+            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal, df.index, tf_weights=default_tf_weights, ascending=True)
+            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal, df.index, tf_weights=default_tf_weights, ascending=True)
             volatility_impact = (1 - norm_volatility) * dynamic_fusion_power_p_params.get('volatility_sensitivity', 0.5)
             sentiment_impact = (1 - norm_sentiment) * dynamic_fusion_power_p_params.get('sentiment_sensitivity', 0.5)
             current_fusion_power_p = current_fusion_power_p + volatility_impact + sentiment_impact
             current_fusion_power_p = pd.Series(current_fusion_power_p, index=df.index).clip(dynamic_fusion_power_p_params.get('min_power_p', -0.5), dynamic_fusion_power_p_params.get('max_power_p', 0.5))
-            if is_debug_enabled and probe_ts:
-                print(f"       - 动态融合幂参数 (current_fusion_power_p): {current_fusion_power_p.loc[probe_ts]:.4f}")
         # --- 1. 计算吸收品质分数 (Absorption Quality Score) ---
-        # VPA效率 (修改行: 调用 _get_mtf_fused_indicator_score)
         absorption_efficiency = self._get_mtf_fused_indicator_score(df, 'VPA_EFFICIENCY', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # VWAP控制强度 (双极性映射到[0,1]) (修改行: 调用 _get_mtf_fused_indicator_score)
         vwap_control_raw_fused = self._get_mtf_fused_indicator_score(df, 'vwap_control_strength', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        absorption_control = (get_robust_bipolar_normalized_score(vwap_control_raw_fused, df.index, window=21, sensitivity=2.0, default_value=0.0, debug_info=debug_info) + 1) / 2.0
-        # 进攻性承接意图 (已是[0,1])
+        absorption_control = (get_robust_bipolar_normalized_score(vwap_control_raw_fused, df.index, window=21, sensitivity=2.0, default_value=0.0) + 1) / 2.0
         offensive_absorption_intent = states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT']
-        # 承接强度 (已是[0,1])
         absorption_strength = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH']
-        # 融合吸收品质的各个维度
         absorption_quality_score = self._robust_generalized_mean(
             {
                 "vpa_efficiency": absorption_efficiency,
@@ -1137,38 +1078,19 @@ class BehavioralIntelligence:
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_absorption_quality_score"
         )
-        if is_debug_enabled and probe_ts:
-            print(f"       - 吸收品质分数 (absorption_quality_score): {absorption_quality_score.loc[probe_ts]:.4f}")
         # --- 2. 计算每日净力量 (Daily Net Force) ---
-        # 净力量 = 吸收品质 - 原始卖压
         daily_net_force = absorption_quality_score - raw_selling_pressure
-        if is_debug_enabled and probe_ts:
-            print(f"       - 每日净力量 (daily_net_force): {daily_net_force.loc[probe_ts]:.4f}")
         # --- 3. 计算战场动量 (Battlefield Momentum) ---
-        # 对净力量进行EMA平滑，捕捉短期趋势
         battlefield_momentum_score = daily_net_force.ewm(span=3, adjust=False).mean().fillna(0)
-        if is_debug_enabled and probe_ts:
-            print(f"       - 战场动量分数 (battlefield_momentum_score): {battlefield_momentum_score.loc[probe_ts]:.4f}")
         # --- 4. 计算未解决压力风险 (SCORE_RISK_UNRESOLVED_PRESSURE) ---
-        # 基础风险 = 原始卖压 * (1 - 吸收品质)
         base_risk = raw_selling_pressure * (1.0 - absorption_quality_score)
-        # 风险放大器：当战场动量为负（净力量负向）时放大风险
-        risk_amplifier = 1.0 - battlefield_momentum_score.clip(upper=0) # 如果momentum为负，则amplifier > 1
+        risk_amplifier = 1.0 - battlefield_momentum_score.clip(upper=0)
         final_risk_score = (base_risk * risk_amplifier).clip(0, 1)
-        if is_debug_enabled and probe_ts:
-            print(f"       - 基础风险 (base_risk): {base_risk.loc[probe_ts]:.4f}")
-            print(f"       - 风险放大器 (risk_amplifier): {risk_amplifier.loc[probe_ts]:.4f}")
-            print(f"       - 最终风险分数 (final_risk_score): {final_risk_score.loc[probe_ts]:.4f}")
         # --- 5. 计算压力吸收机会 (SCORE_OPPORTUNITY_PRESSURE_ABSORPTION) ---
-        # 基础机会 = 原始卖压 * 吸收品质
         base_opportunity = raw_selling_pressure * absorption_quality_score
-        # 机会放大器：当战场动量为正（净力量正向）时放大机会
-        opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0) # 如果momentum为正，则amplifier > 1
-        # 行为情境调制器：使用 SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM
+        opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0)
         behavioral_context_modulator_raw = states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM']
-        # SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM 已经是一个 [0, 1] 的分数，无需再次映射
         behavioral_context_modulator_norm = behavioral_context_modulator_raw
-        # 融合情境调制器
         context_modulator_score = self._robust_generalized_mean(
             {"battlefield_momentum": behavioral_context_modulator_norm},
             opportunity_context_modulator_weights,
@@ -1178,25 +1100,15 @@ class BehavioralIntelligence:
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_opportunity_context_modulator"
         )
-        # 将 [0, 1] 的情境分数映射到 [1.0, 1.5] 的调制因子
         context_modulator_factor = 1.0 + context_modulator_score * 0.5
         final_opportunity_score = (base_opportunity * opportunity_amplifier * context_modulator_factor).clip(0, 1)
-        if is_debug_enabled and probe_ts:
-            print(f"       - 基础机会 (base_opportunity): {base_opportunity.loc[probe_ts]:.4f}")
-            print(f"       - 机会放大器 (opportunity_amplifier): {opportunity_amplifier.loc[probe_ts]:.4f}")
-            print(f"       - 行为情境调制器 (context_modulator_factor): {context_modulator_factor.loc[probe_ts]:.4f}")
-            print(f"       - 最终机会分数 (final_opportunity_score): {final_opportunity_score.loc[probe_ts]:.4f}")
         # --- 6. 最终非线性变换 ---
         final_risk_score = final_risk_score.pow(final_exponent)
         final_opportunity_score = final_opportunity_score.pow(final_exponent)
-        # --- 7. 原始卖压门控 (修改行: 新增门控逻辑) ---
+        # --- 7. 原始卖压门控 ---
         if min_raw_selling_pressure_threshold > 0:
-            # 只有当原始卖压高于阈值时，机会信号才有效
             opportunity_gate = (raw_selling_pressure > min_raw_selling_pressure_threshold).astype(float)
             final_opportunity_score = final_opportunity_score * opportunity_gate
-            if is_debug_enabled and probe_ts:
-                print(f"       - 原始卖压门控 (opportunity_gate): {opportunity_gate.loc[probe_ts]:.4f}")
-                print(f"       - 门控后机会分数 (final_opportunity_score): {final_opportunity_score.loc[probe_ts]:.4f}")
         return {
             'SCORE_RISK_UNRESOLVED_PRESSURE': final_risk_score.astype(np.float32),
             'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': final_opportunity_score.astype(np.float32)
@@ -1206,13 +1118,10 @@ class BehavioralIntelligence:
         """
         【V2.0 · 行为纯化与多时间框架动态增强版】计算纯粹基于行为类原始数据的“原始卖压”信号。
         - 核心升级: 融合多种行为层卖压指标，通过加权广义平均生成一个综合的卖压分数。
-                    **引入多时间框架动态（斜率与加速度）增强，使每个卖压组件对趋势变化更敏感。**
-        - 探针增强: 增加了详细的调试输出，以便检查和调试。
+                    引入多时间框架动态（斜率与加速度）增强，使每个卖压组件对趋势变化更敏感。
         """
         method_name = "_calculate_raw_selling_pressure"
-        debug_info = (is_debug_enabled, probe_ts, method_name)
-        if is_debug_enabled and probe_ts:
-            print(f"    -> [行为情报调试] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
+        debug_info = (is_debug_enabled, probe_ts, method_name) # 传递给子函数
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         p_unresolved = get_param_value(p_conf.get('unresolved_pressure_params'), {})
         raw_selling_pressure_weights = get_param_value(p_unresolved.get('raw_selling_pressure_weights'), {
@@ -1221,8 +1130,8 @@ class BehavioralIntelligence:
             "micro_price_impact_asymmetry_negative": 0.15, "sell_sweep_intensity": 0.1, "rally_distribution_pressure": 0.1
         })
         fusion_power_p = get_param_value(p_unresolved.get('fusion_power_p'), 0.0)
-        mtf_slope_accel_weights = get_param_value(p_unresolved.get('mtf_slope_accel_weights'), default_weights) # 修改行: 获取MTF权重
-        mtf_indicator_component_weights = get_param_value(p_unresolved.get('mtf_indicator_component_weights'), {}) # 修改行: 获取MTF组件权重
+        mtf_slope_accel_weights = get_param_value(p_unresolved.get('mtf_slope_accel_weights'), default_weights)
+        mtf_indicator_component_weights = get_param_value(p_unresolved.get('mtf_indicator_component_weights'), {})
         # --- 1. 获取所有原始数据 ---
         required_signals = [
             'active_selling_pressure_D', 'upper_shadow_selling_pressure_D', 'panic_selling_cascade_D',
@@ -1241,25 +1150,17 @@ class BehavioralIntelligence:
             print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 2. 归一化各个卖压组件 (使用MTF融合) ---
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_active_selling_pressure = self._get_mtf_fused_indicator_score(df, 'active_selling_pressure', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_upper_shadow_selling_pressure = self._get_mtf_fused_indicator_score(df, 'upper_shadow_selling_pressure', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_panic_selling_cascade = self._get_mtf_fused_indicator_score(df, 'panic_selling_cascade', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_sell_quote_exhaustion_rate = self._get_mtf_fused_indicator_score(df, 'sell_quote_exhaustion_rate', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
         # 负向成交量结构偏度：值越负（越偏向卖方），卖压越大，所以取绝对值后ascending=True
-        # 修改行: 调用 _get_mtf_fused_indicator_score，并处理负向指标
         norm_volume_structure_skew_negative = self._get_mtf_fused_indicator_score(df, 'volume_structure_skew', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
         # 负向微观价格冲击不对称性：值越负（越偏向卖方），卖压越大，所以取绝对值后ascending=True
-        # 修改行: 调用 _get_mtf_fused_indicator_score，并处理负向指标
         norm_micro_price_impact_asymmetry_negative = self._get_mtf_fused_indicator_score(df, 'micro_price_impact_asymmetry', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_sell_sweep_intensity = self._get_mtf_fused_indicator_score(df, 'sell_sweep_intensity', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_rally_distribution_pressure = self._get_mtf_fused_indicator_score(df, 'rally_distribution_pressure', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # --- 3. 融合所有卖压组件 ---
+        # --- 3. 融合所有卖压组件 (使用广义平均) ---
         raw_selling_pressure_score = self._robust_generalized_mean(
             {
                 "active_selling_pressure": norm_active_selling_pressure,
@@ -1278,8 +1179,6 @@ class BehavioralIntelligence:
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_raw_selling_pressure_score"
         )
-        if is_debug_enabled and probe_ts:
-            print(f"    -> [行为情报调试] {method_name} 原始卖压分数 (raw_selling_pressure_score) @ {probe_ts.strftime('%Y-%m-%d')}: {raw_selling_pressure_score.loc[probe_ts]:.4f}")
         return raw_selling_pressure_score.astype(np.float32)
 
     def _calculate_dynamic_threshold(self, df: pd.DataFrame, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3745,7 +3644,6 @@ class BehavioralIntelligence:
         - 核心升级: 引入可配置的MTF指标内部组件权重（原始值、斜率、加速度），实现更精细的风险因子调控。
         - 核心重构: 在“恐慌瀑布协议”基础上深度进化，旨在更早期、更精准地识别由恐慌抛售、买盘抵抗瓦解、
                     市场流动性枯竭以及市场结构混沌脆弱共同驱动的系统性风险。
-        - 探针增强: 输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         """
         method_name = "_diagnose_liquidity_drain_risk"
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
@@ -3776,12 +3674,9 @@ class BehavioralIntelligence:
         mtf_slope_accel_weights = get_param_value(liquidity_drain_params.get('mtf_slope_accel_weights'), {
             "5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05
         })
-        # 获取MTF指标内部组件权重配置
         mtf_indicator_component_weights = get_param_value(liquidity_drain_params.get('mtf_indicator_component_weights'), {})
-        default_component_weights = get_param_value(mtf_indicator_component_weights.get('default'), {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3})
         final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.8)
         dynamic_threshold_params = get_param_value(liquidity_drain_params.get('dynamic_threshold_params'), {})
-        # 修改行: 获取动态fusion_power_p参数
         dynamic_fusion_power_p_params = get_param_value(liquidity_drain_params.get('dynamic_fusion_power_p_params'), {})
         # --- 1. 计算动态价格跌幅阈值 ---
         min_price_drop_pct_threshold = self._calculate_dynamic_threshold(df, dynamic_threshold_params, is_debug_enabled, probe_ts)
@@ -3827,38 +3722,25 @@ class BehavioralIntelligence:
         # 仅在价格下跌时激活信号
         is_falling = (pct_change < -min_price_drop_pct_threshold).astype(float)
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        # 修改行: 初始化 current_fusion_power_p
         current_fusion_power_p = get_param_value(liquidity_drain_params.get('fusion_power_p'), 0.0)
-        # 修改行: 动态计算 fusion_power_p
         if get_param_value(dynamic_fusion_power_p_params.get('enabled'), False):
             volatility_signal = self._get_safe_series(df, dynamic_fusion_power_p_params.get('volatility_signal'), 0.0, method_name=method_name)
             sentiment_signal = self._get_safe_series(df, dynamic_fusion_power_p_params.get('sentiment_signal'), 0.0, method_name=method_name)
             p_mtf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
             default_tf_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
-            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
-            # 波动率越高，情绪越悲观，power_p越小（更严格的几何平均）
-            # 波动率越低，情绪越乐观，power_p越大（更接近算术平均）
+            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal, df.index, tf_weights=default_tf_weights, ascending=True)
+            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal, df.index, tf_weights=default_tf_weights, ascending=True)
             volatility_impact = (1 - norm_volatility) * dynamic_fusion_power_p_params.get('volatility_sensitivity', 0.5)
             sentiment_impact = (1 - norm_sentiment) * dynamic_fusion_power_p_params.get('sentiment_sensitivity', 0.5)
             current_fusion_power_p = current_fusion_power_p + volatility_impact + sentiment_impact
             current_fusion_power_p = pd.Series(current_fusion_power_p, index=df.index).clip(dynamic_fusion_power_p_params.get('min_power_p', -0.5), dynamic_fusion_power_p_params.get('max_power_p', 0.5))
-            if is_debug_enabled and probe_ts:
-                print(f"       - 动态融合幂参数 (current_fusion_power_p): {current_fusion_power_p.loc[probe_ts]:.4f}")
         # --- 3. 计算恐慌抛售烈度 (Panic Selling Intensity, PSI) ---
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_price_drop_magnitude = self._get_mtf_fused_indicator_score(df, 'pct_change', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_panic_cascade = self._get_mtf_fused_indicator_score(df, 'panic_selling_cascade', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_active_selling = self._get_mtf_fused_indicator_score(df, 'active_selling_pressure', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_retail_panic = self._get_mtf_fused_indicator_score(df, 'retail_panic_surrender_index', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_main_force_net_flow_negative = self._get_mtf_fused_indicator_score(df, 'main_force_net_flow_calibrated', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_sell_sweep_intensity = self._get_mtf_fused_indicator_score(df, 'sell_sweep_intensity', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_loser_pain_index = self._get_mtf_fused_indicator_score(df, 'loser_pain_index', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
         psi_score = (
             (norm_panic_cascade + 1e-9).pow(panic_selling_intensity_weights.get('panic_cascade', 0.2)) *
@@ -3871,15 +3753,10 @@ class BehavioralIntelligence:
         ).pow(1 / sum(panic_selling_intensity_weights.values())).fillna(0.0).clip(0, 1)
         # --- 4. 计算抵抗瓦解度 (Resistance Collapse, RC) ---
         norm_downward_resistance_inverse = (1 - states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).clip(0, 1)
-        # 主动买盘支撑 (反向) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_active_buying_inverse = (1 - self._get_mtf_fused_indicator_score(df, 'active_buying_support', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)).clip(0, 1)
-        # VWAP控制强度 (负向绝对值) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_vwap_control_negative = self._get_mtf_fused_indicator_score(df, 'vwap_control_strength', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
-        # 买盘报价枯竭率 (反向) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_buy_quote_exhaustion_inverse = (1 - self._get_mtf_fused_indicator_score(df, 'buy_quote_exhaustion_rate', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)).clip(0, 1)
-        # 支撑有效性强度 (反向) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_support_validation_inverse = (1 - self._get_mtf_fused_indicator_score(df, 'support_validation_strength', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)).clip(0, 1)
-        # 筹码疲劳指数 (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_chip_fatigue_index = self._get_mtf_fused_indicator_score(df, 'chip_fatigue_index', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
         rc_score = (
             (norm_downward_resistance_inverse + 1e-9).pow(resistance_collapse_weights.get('downward_resistance_inverse', 0.25)) *
@@ -3890,19 +3767,12 @@ class BehavioralIntelligence:
             (norm_chip_fatigue_index + 1e-9).pow(resistance_collapse_weights.get('chip_fatigue_index', 0.1))
         ).pow(1 / sum(resistance_collapse_weights.values())).fillna(0.0).clip(0, 1)
         # --- 5. 计算流动性枯竭证据 (Liquidity Exhaustion Evidence, LEE) ---
-        # 卖盘报价枯竭率 (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_sell_quote_exhaustion = self._get_mtf_fused_indicator_score(df, 'sell_quote_exhaustion_rate', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 订单簿不平衡 (负向绝对值) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_order_book_imbalance_negative = self._get_mtf_fused_indicator_score(df, 'order_book_imbalance', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
-        # 成交量结构偏度 (负向绝对值) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_volume_structure_skew_negative = self._get_mtf_fused_indicator_score(df, 'volume_structure_skew', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
-        # 微观价格冲击不对称性 (负向绝对值) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_micro_price_impact_asymmetry_negative = self._get_mtf_fused_indicator_score(df, 'micro_price_impact_asymmetry', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
-        # 卖盘深度 (反向) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_ask_side_liquidity_inverse = (1 - self._get_mtf_fused_indicator_score(df, 'ask_side_liquidity', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)).clip(0, 1)
-        # 买盘深度 (反向) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_bid_side_liquidity_inverse = (1 - self._get_mtf_fused_indicator_score(df, 'bid_side_liquidity', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)).clip(0, 1)
-        # 市场冲击成本 (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_market_impact_cost = self._get_mtf_fused_indicator_score(df, 'market_impact_cost', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
         lee_score = (
             (norm_sell_quote_exhaustion + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('sell_quote_exhaustion', 0.2)) *
@@ -3914,13 +3784,9 @@ class BehavioralIntelligence:
             (norm_market_impact_cost + 1e-9).pow(liquidity_exhaustion_evidence_weights.get('market_impact_cost', 0.1))
         ).pow(1 / sum(liquidity_exhaustion_evidence_weights.values())).fillna(0.0).clip(0, 1)
         # --- 6. 计算混沌与脆弱性 (Chaos & Fragility, CF) ---
-        # 买盘流动性样本熵 (反向) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_bid_liquidity_sample_entropy_inverse = (1 - self._get_mtf_fused_indicator_score(df, 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)).clip(0, 1)
-        # 买盘流动性分形维度 (反向) (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_bid_liquidity_fractal_dimension_inverse = (1 - self._get_mtf_fused_indicator_score(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)).clip(0, 1)
-        # 价格成交量熵 (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_price_volume_entropy = self._get_mtf_fused_indicator_score(df, 'price_volume_entropy', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        # 波动率扩张比率 (修改行: 调用 _get_mtf_fused_indicator_score)
         norm_volatility_expansion_ratio = self._get_mtf_fused_indicator_score(df, 'volatility_expansion_ratio', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
         cf_score = (
             (norm_bid_liquidity_sample_entropy_inverse + 1e-9).pow(chaos_fragility_weights.get('bid_liquidity_sample_entropy_inverse', 0.3)) *
@@ -3938,7 +3804,7 @@ class BehavioralIntelligence:
             },
             fusion_weights,
             df.index,
-            power_p=current_fusion_power_p, # 修改行: 使用动态 power_p
+            power_p=current_fusion_power_p,
             is_debug_enabled=is_debug_enabled,
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_liquidity_drain_base_score"

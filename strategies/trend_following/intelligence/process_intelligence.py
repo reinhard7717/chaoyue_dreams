@@ -1019,12 +1019,8 @@ class ProcessIntelligence:
         return final_score.astype(np.float32)
 
     def _calculate_winner_conviction_decay(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V3.0 · 深度情境与多维共振版】“赢家信念衰减”专属计算引擎
-        - 核心重构: 引入多时间框架共振、主力派发确认和情境动态调制，旨在提供一个更全面、更精准的顶部风险预警。
-        - 核心逻辑: 最终衰减分 = (MTF信念衰减分 * MTF利润压力分 * 派发确认分)^(1/3) * (1 + 情境调制器)^非线性指数。
-        - 核心修复: 替换缺失的原子信号 'SCORE_BEHAVIOR_PRICE_OVEREXTENSION_RAW' 为由 BIAS、RSI、BBP 组成的复合分。
-        """
+        # 修改的代码行：在方法入口处添加打印，确认方法是否被调用
+        print(f"    -> [过程层] 正在计算 {config.get('name')} (V3.0 · 深度情境与多维共振版)...")
         signal_name = config.get('name')
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
@@ -1041,7 +1037,6 @@ class ProcessIntelligence:
         contextual_modulator_weights = get_param_value(decay_params.get('contextual_modulator_weights'), {"price_overextension_composite": 0.3, "retail_fomo": 0.2, "market_tension": 0.2, "sentiment_pendulum_negative": 0.3})
         price_overextension_composite_weights = get_param_value(decay_params.get('price_overextension_composite_weights'), {"bias_13": 0.3, "bias_21": 0.2, "rsi_13": 0.3, "bbp_21": 0.2})
         final_fusion_exponent = get_param_value(decay_params.get('final_fusion_exponent'), 1.5)
-        # 修改的代码行：从全局debug_params获取probe_enabled
         probe_enabled = self.debug_params.get('should_probe', False)
 
         for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
@@ -1058,7 +1053,11 @@ class ProcessIntelligence:
         
         all_required_signals = required_df_columns + required_atomic_signals
         if not self._validate_required_signals(df, all_required_signals, "_calculate_winner_conviction_decay"):
+            # 修改的代码行：确保在校验失败时明确输出警告
+            print(f"    -> [过程情报警告] _calculate_winner_conviction_decay 缺少核心信号，返回默认值。")
             return pd.Series(dtype=np.float32)
+        # 修改的代码行：在校验通过后添加打印，确认方法继续执行
+        print(f"    -> [DEBUG] _calculate_winner_conviction_decay: 信号校验通过。")
 
         df_index = df.index
         
