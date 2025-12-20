@@ -346,26 +346,35 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     top_context_score = np.maximum(conventional_top_score, structural_resistance_score).astype(np.float32)
     return bottom_context_score, top_context_score
 
-def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0) -> pd.Series:
+def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     """
-    【V1.3 · 健壮类型处理版】双极归一化的高阶进化版 (力学罗盘)
+    【V1.4 · 健壮类型处理版 & 调试增强版】双极归一化的高阶进化版 (力学罗盘)
     - 核心修复: 在函数入口处增加对 `series` 参数的健壮性检查和类型转换。
                   确保 `series` 始终是数值型的 `pandas.Series`，避免因类型不一致导致的 `ValueError`。
+    - 调试增强: 增加了 `debug_info` 参数，用于在调试模式下输出详细信息。
     """
+    is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
+    if is_debug_enabled and probe_ts:
+        print(f"         [探针] {signal_name} - get_robust_bipolar_normalized_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
+        if probe_ts in series.index:
+            print(f"           - 原始值: {series.loc[probe_ts]:.4f}")
     # 确保 'series' 是 pandas Series 且为数值类型
     if isinstance(series, pd.DataFrame):
         if len(series.columns) == 1:
             series = series.iloc[:, 0] # 将单列DataFrame转换为Series
         else:
-            print(f"警告: get_robust_bipolar_normalized_score 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
+            if is_debug_enabled and probe_ts:
+                print(f"           - 警告: 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
             return pd.Series(default_value, index=target_index, dtype=np.float32)
     # 强制转换为数值类型，并将无法转换的值设为NaN，然后填充0
     series = pd.to_numeric(series, errors='coerce').fillna(0)
     if series.empty: # 检查是否为空 Series
+        if is_debug_enabled and probe_ts:
+            print(f"           - 警告: 原始Series为空，返回默认值。")
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     # 确保 series 与 target_index 对齐，并填充 NaN
     series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
-    series_isolated = series_aligned.where(series_aligned.abs() >= 1e-6)
+    series_isolated = series_aligned.where(series_aligned.abs() >= 1e-6) # 隔离接近0的值，不参与均值和标准差计算
     min_periods = max(1, int(window * 0.2))
     rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
@@ -390,7 +399,10 @@ def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Inde
             # 直接使用原始 series_aligned 的符号
             original_series_subset = series_aligned[nan_deviation_mask.index]
             bipolar_score.loc[original_series_subset.index] = np.sign(original_series_subset)
-    return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
+    final_score = bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
+    if is_debug_enabled and probe_ts:
+        print(f"         [探针] {signal_name} - get_robust_bipolar_normalized_score 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+    return final_score
 
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
     """
@@ -912,12 +924,20 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, index: pd.Index, tf_wei
         final_scores = pd.Series(0.0, index=index) # 理论上不会发生
     return final_scores.astype(np.float32)
 
-def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index, tf_weights: dict, sensitivity: float = 1.0) -> pd.Series:
+def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     """
-    【V1.1 · 归一化函数调用修复版】自适应多时间框架双极归一化分数计算器
+    【V1.2 · 归一化函数调用修复版 & 调试增强版】自适应多时间框架双极归一化分数计算器
     - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
+    - 调试增强: 增加了 `debug_info` 参数，用于在调试模式下输出详细信息。
     """
+    is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
+    if is_debug_enabled and probe_ts:
+        print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_bipolar_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
+        if probe_ts in series.index:
+            print(f"         - 原始值: {series.loc[probe_ts]:.4f}")
     if not isinstance(series, pd.Series) or series.empty:
+        if is_debug_enabled and probe_ts:
+            print(f"         - 警告: 原始Series为空，返回0。")
         return pd.Series(0.0, index=index)
     valid_windows_weights = []
     for window_str, weight in tf_weights.items():
@@ -929,13 +949,17 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         if window > 0 and weight > 0:
             valid_windows_weights.append((window, weight))
     if not valid_windows_weights:
+        if is_debug_enabled and probe_ts:
+            print(f"         - 警告: 没有有效的窗口权重，返回0。")
         return pd.Series(0.0, index=index)
     normalized_results = {}
     for window, weight in valid_windows_weights:
-        # 修正 normalize_to_bipolar 调用
-        normalized_score_window = normalize_to_bipolar(series, index, window, sensitivity)
+        # 修正 normalize_to_bipolar 调用，传递 debug_info
+        normalized_score_window = normalize_to_bipolar(series, index, window, sensitivity, debug_info=debug_info)
         normalized_results[window] = normalized_score_window.reindex(index).fillna(0.0) * weight
     if not normalized_results:
+        if is_debug_enabled and probe_ts:
+            print(f"         - 警告: 归一化结果为空，返回0。")
         return pd.Series(0.0, index=index)
     weighted_scores_df = pd.DataFrame(normalized_results)
     final_scores = weighted_scores_df.sum(axis=1)
@@ -944,7 +968,10 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, index: pd.Index
         final_scores /= total_weight
     else:
         final_scores = pd.Series(0.0, index=index)
-    return final_scores.astype(np.float32)
+    final_score = final_scores.astype(np.float32)
+    if is_debug_enabled and probe_ts:
+        print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_bipolar_score 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+    return final_score
 
 def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     """
@@ -984,40 +1011,53 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     normalized_series = normalized_series.where(~is_original_zero, 0.0)
     return normalized_series.reindex(target_index).fillna(default_value).astype(np.float32)
 
-def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
+def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     """
-    【V1.1 · 统一参数版】将序列归一化到 [-1, 1] 的双极范围，使用滚动Z-score和Tanh函数。
+    【V1.2 · 统一参数版 & 调试增强版】将序列归一化到 [-1, 1] 的双极范围，使用滚动Z-score和Tanh函数。
     - 核心升级: 统一了参数签名，增加了 `target_index` 和 `default_value`，确保与 `get_robust_bipolar_normalized_score` 等函数接口一致。
+    - 调试增强: 增加了 `debug_info` 参数，用于在调试模式下输出详细信息。
     参数:
         series (pd.Series): 原始数据序列。
         target_index (pd.Index): 目标索引，用于对齐返回的Series。
         window (int): 滚动窗口大小。
         sensitivity (float): Tanh函数的敏感度参数，用于调整分数对Z-score变化的响应程度。
         default_value (float): 当Series为空或计算结果为NaN时填充的默认值。
+        debug_info (Optional[Tuple[bool, pd.Timestamp, str]]): 调试信息元组 (is_debug_enabled, probe_ts, signal_name)。
     返回:
         pd.Series: 归一化后的双极分数序列，范围在 [-1, 1]。
     """
+    is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
+    if is_debug_enabled and probe_ts:
+        print(f"         [探针] {signal_name} - normalize_to_bipolar 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
+        if probe_ts in series.index:
+            print(f"           - 原始值: {series.loc[probe_ts]:.4f}")
     # 使用 target_index 处理空 Series
     if not isinstance(series, pd.Series) or series.empty:
+        if is_debug_enabled and probe_ts:
+            print(f"           - 警告: 原始Series为空，返回默认值。")
         return pd.Series(default_value, index=target_index)
     # 对齐填充，确保窗口计算有足够数据
-    padded_series = series.fillna(method='ffill').fillna(method='bfill')
+    padded_series = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill')
     # 零值隔离：如果原始值接近0，则归一化分数也为0
-    is_zero = (series == 0)
-    series_for_calc = series.replace(0, np.nan) # 暂时将0替换为NaN，不参与均值和标准差计算
+    is_zero = (padded_series.abs() < 1e-9) # 使用 padded_series 来判断是否为0
+    series_for_calc = padded_series.where(~is_zero, np.nan) # 暂时将0替换为NaN，不参与均值和标准差计算
     # 滚动均值和标准差
     rolling_mean = series_for_calc.rolling(window=window, min_periods=1).mean()
     rolling_std = series_for_calc.rolling(window=window, min_periods=1).std()
     # 避免除以零，将标准差为0的替换为1（或一个很小的数），防止Z-score发散
-    rolling_std = rolling_std.replace(0, np.nan).fillna(1.0) # 如果std为0，则Z-score为0
+    # 如果 rolling_std 为 0，则 Z-score 应该为 0，所以这里用 1.0 替换 NaN，确保分母不为 0
+    rolling_std = rolling_std.replace(0, np.nan).fillna(1.0) 
     # 计算Z-score
-    z_score = (series - rolling_mean) / rolling_std
+    z_score = (padded_series - rolling_mean) / rolling_std
     # Tanh转换将Z-score压缩到 [-1, 1] 范围
     tanh_score = np.tanh(z_score * sensitivity)
     # 将原始为0的位置的tanh_score设为0
     tanh_score[is_zero] = 0.0
     # 确保返回的Series索引正确并填充缺失值
-    return tanh_score.reindex(target_index).fillna(default_value)
+    final_score = tanh_score.reindex(target_index).fillna(default_value).astype(np.float32)
+    if is_debug_enabled and probe_ts:
+        print(f"         [探针] {signal_name} - normalize_to_bipolar 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+    return final_score
 
 def _normalize_single_window_energy_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.5) -> pd.Series:
     """
