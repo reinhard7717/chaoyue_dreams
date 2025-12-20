@@ -3742,6 +3742,8 @@ class BehavioralIntelligence:
         default_component_weights = get_param_value(mtf_indicator_component_weights.get('default'), {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3})
         final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.8)
         dynamic_threshold_params = get_param_value(liquidity_drain_params.get('dynamic_threshold_params'), {})
+        # 修改行: 获取动态fusion_power_p参数
+        dynamic_fusion_power_p_params = get_param_value(liquidity_drain_params.get('dynamic_fusion_power_p_params'), {})
         # --- 1. 计算动态价格跌幅阈值 ---
         min_price_drop_pct_threshold = self._calculate_dynamic_threshold(df, dynamic_threshold_params, is_debug_enabled, probe_ts)
         # --- 2. 获取所有原始数据和已计算的原子信号 ---
@@ -3786,6 +3788,24 @@ class BehavioralIntelligence:
         # 仅在价格下跌时激活信号
         is_falling = (pct_change < -min_price_drop_pct_threshold).astype(float)
         debug_info = (is_debug_enabled, probe_ts, method_name)
+        # 修改行: 初始化 current_fusion_power_p
+        current_fusion_power_p = get_param_value(liquidity_drain_params.get('fusion_power_p'), 0.0)
+        # 修改行: 动态计算 fusion_power_p
+        if get_param_value(dynamic_fusion_power_p_params.get('enabled'), False):
+            volatility_signal = self._get_safe_series(df, dynamic_fusion_power_p_params.get('volatility_signal'), 0.0, method_name=method_name)
+            sentiment_signal = self._get_safe_series(df, dynamic_fusion_power_p_params.get('sentiment_signal'), 0.0, method_name=method_name)
+            p_mtf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+            default_tf_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
+            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
+            # 波动率越高，情绪越悲观，power_p越小（更严格的几何平均）
+            # 波动率越低，情绪越乐观，power_p越大（更接近算术平均）
+            volatility_impact = (1 - norm_volatility) * dynamic_fusion_power_p_params.get('volatility_sensitivity', 0.5)
+            sentiment_impact = (1 - norm_sentiment) * dynamic_fusion_power_p_params.get('sentiment_sensitivity', 0.5)
+            current_fusion_power_p = current_fusion_power_p + volatility_impact + sentiment_impact
+            current_fusion_power_p = pd.Series(current_fusion_power_p, index=df.index).clip(dynamic_fusion_power_p_params.get('min_power_p', -0.5), dynamic_fusion_power_p_params.get('max_power_p', 0.5))
+            if is_debug_enabled and probe_ts:
+                print(f"       - 动态融合幂参数 (current_fusion_power_p): {current_fusion_power_p.loc[probe_ts]:.4f}")
         # --- 3. 计算恐慌抛售烈度 (Panic Selling Intensity, PSI) ---
         # 修改行: 调用 _get_mtf_fused_indicator_score
         norm_price_drop_magnitude = self._get_mtf_fused_indicator_score(df, 'pct_change', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=True, ascending=True, debug_info=debug_info)
@@ -3870,7 +3890,7 @@ class BehavioralIntelligence:
             (norm_volatility_expansion_ratio + 1e-9).pow(chaos_fragility_weights.get('volatility_expansion_ratio', 0.2))
         ).pow(1 / sum(chaos_fragility_weights.values())).fillna(0.0).clip(0, 1)
         # --- 7. 最终融合 (加权几何平均) ---
-        liquidity_drain_base_score = self._robust_generalized_mean( # 修改行: 使用动态 power_p
+        liquidity_drain_base_score = self._robust_generalized_mean(
             {
                 "panic_selling_intensity": psi_score,
                 "resistance_collapse": rc_score,
@@ -3879,7 +3899,7 @@ class BehavioralIntelligence:
             },
             fusion_weights,
             df.index,
-            power_p=current_fusion_power_p,
+            power_p=current_fusion_power_p, # 修改行: 使用动态 power_p
             is_debug_enabled=is_debug_enabled,
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_liquidity_drain_base_score"
