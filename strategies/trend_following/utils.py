@@ -1072,8 +1072,10 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     # 如果某个日期所有组件都为0，则结果为0。
     aligned_scores = {name: score.reindex(df_index).fillna(0.0) for name, score in scores_dict.items()}
     score_df = pd.DataFrame(aligned_scores, index=df_index)
-
-    # 修改代码行：动态构建权重 DataFrame，以处理权重为 Series 的情况
+    # 确保 score_df 中的所有列都是数值类型，处理任何潜在的非数值数据
+    # 确保 score_df 是纯数值类型，将无法转换的设为 NaN，然后填充 0
+    score_df = score_df.apply(pd.to_numeric, errors='coerce').fillna(0.0)
+    # 动态构建权重 DataFrame，以处理权重为 Series 的情况
     dynamic_weights_df = pd.DataFrame(index=df_index)
     for col_name in score_df.columns:
         weight_val = weights_dict.get(col_name, 0.0)
@@ -1083,21 +1085,16 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
         else:
             # 如果权重是标量，则创建一个与 df_index 对齐的 Series
             dynamic_weights_df[col_name] = pd.Series(weight_val, index=df_index)
-
     is_valid = (score_df > 1e-9)
-
-    # 修改代码行：使用动态权重 DataFrame 进行加权
-    weighted_validity_df = is_valid.mul(dynamic_weights_df)
-
     # 计算 sum_valid_weights，现在它将是数值类型
+    weighted_validity_df = is_valid.mul(dynamic_weights_df)
     sum_valid_weights = weighted_validity_df.sum(axis=1)
-
     log_scores_df = np.log(score_df.where(is_valid, np.nan))
-    # 修改代码行：使用动态权重 DataFrame 进行加权
+    # 使用动态权重 DataFrame 进行加权
     weighted_log_scores_df = log_scores_df.mul(dynamic_weights_df)
     sum_weighted_log_scores = weighted_log_scores_df.sum(axis=1)
     # 确保 sum_valid_weights 是数值类型，并处理接近0的值
-    # 修改代码行：np.isclose 应该能正常工作，因为 sum_valid_weights 现在是数值 Series
+    # np.isclose 应该能正常工作，因为 sum_valid_weights 现在是数值 Series
     sum_valid_weights_safe = sum_valid_weights.mask(np.isclose(sum_valid_weights, 0), np.nan)
     exponent = sum_weighted_log_scores / sum_valid_weights_safe
     result = np.exp(exponent).fillna(0.0)

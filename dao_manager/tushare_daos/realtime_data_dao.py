@@ -124,7 +124,7 @@ class StockRealtimeDAO(BaseDAO):
                         return code, None
                     df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['TIME'], errors='coerce')
                     df['PRICE'] = pd.to_numeric(df['PRICE'], errors='coerce')
-                    df['CHANGE'] = pd.to_numeric(df['CHANGE'], errors='coerce') # 新增代码行：处理价格变动字段
+                    df['CHANGE'] = pd.to_numeric(df['CHANGE'], errors='coerce') # 处理价格变动字段
                     df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
                     df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
                     initial_rows = len(df)

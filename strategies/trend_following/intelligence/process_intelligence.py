@@ -120,7 +120,7 @@ class ProcessIntelligence:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         # 将所有融合分数转换为DataFrame
         fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
-        # 修改代码行：直接计算每个时间点上（axis=1）不同信号之间的标准差
+        # 直接计算每个时间点上（axis=1）不同信号之间的标准差
         # 然后对这个标准差进行滚动平均，以平滑协同性度量
         min_periods_std = max(1, int(self.meta_window * 0.5))
         # 计算每个时间点上，不同信号之间的标准差

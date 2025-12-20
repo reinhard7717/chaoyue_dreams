@@ -195,7 +195,7 @@ class GeometricPatternService:
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in df_daily.columns:
-                df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce') # 修改代码行：将df改为df_daily
+                df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce') # 将df改为df_daily
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
         data_dfs['enriched_df'] = enriched_df
@@ -292,7 +292,7 @@ class GeometricPatternService:
         # V2.59 探针：输出平台起止点识别的原始数据和决策依据
         print(f"[{self.stock_code}] [平台计算] 平台起止点识别探针 (最近5天):")
         print(f"    日期       | Rolling_Potential | Threshold | Entering | Exiting")
-        # 修改代码行：使用fillna(False)处理shift(1)可能产生的NaN
+        # 使用fillna(False)处理shift(1)可能产生的NaN
         entering_platform = (score_series > potential_threshold) & (score_series.shift(1).fillna(False) <= potential_threshold)
         exiting_platform = (score_series < potential_threshold) & (score_series.shift(1).fillna(False) >= potential_threshold)
         # 遍历识别平台起止点，并输出探针信息
@@ -1640,7 +1640,7 @@ class GeometricPatternService:
                 print(f"[{self.stock_code}] [多维潜力评分器] 缺少 '{col}' 列，无法计算每日潜力分数。")
                 return pd.Series(0.0, index=df.index)
         # 1. ADX评分 (低趋势得分高)
-        # 修改代码行：调整评分函数，使ADX <= threshold时，分数从100到75线性递减
+        # 调整评分函数，使ADX <= threshold时，分数从100到75线性递减
         adx_score_raw = np.where(df['ADX_14'] <= adx_threshold,
                              100 - (df['ADX_14'] / adx_threshold) * 25, # 阈值处得75分
                              75 - ((df['ADX_14'] - adx_threshold) / (2 * adx_threshold)) * 75) # 3*阈值处得0分
@@ -1649,7 +1649,7 @@ class GeometricPatternService:
         bbw_rolling_quantile = df['BBW_21_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
         # 避免bbw_rolling_quantile为0导致除零错误，如果为0则设为一个小正数
         bbw_rolling_quantile = bbw_rolling_quantile.replace(0, 1e-9)
-        # 修改代码行：调整评分函数，使BBW <= quantile时，分数从100到75线性递减
+        # 调整评分函数，使BBW <= quantile时，分数从100到75线性递减
         bbw_score_raw = np.where(df['BBW_21_2.0'] <= bbw_rolling_quantile,
                              100 - (df['BBW_21_2.0'] / bbw_rolling_quantile) * 25, # 阈值处得75分
                              75 - ((df['BBW_21_2.0'] - bbw_rolling_quantile) / (2 * bbw_rolling_quantile)) * 75) # 3*阈值处得0分
@@ -1657,7 +1657,7 @@ class GeometricPatternService:
         # 3. ATRr评分 (低波动得分高)
         # 避免atr_threshold_pct为0导致除零错误，如果为0则设为一个小正数
         atr_threshold_pct_safe = atr_threshold_pct if atr_threshold_pct > 0 else 1e-9
-        # 修改代码行：调整评分函数，使ATRr <= threshold时，分数从100到75线性递减
+        # 调整评分函数，使ATRr <= threshold时，分数从100到75线性递减
         atr_score_raw = np.where(df['ATRr_14'] <= atr_threshold_pct_safe,
                                  100 - (df['ATRr_14'] / atr_threshold_pct_safe) * 25, # 阈值处得75分
                                  75 - ((df['ATRr_14'] - atr_threshold_pct_safe) / (2 * atr_threshold_pct_safe)) * 75) # 3*阈值处得0分
@@ -1665,7 +1665,7 @@ class GeometricPatternService:
         # 4. 成交量爆裂度评分 (低爆裂度得分高)
         # 避免vol_burst_threshold为0导致除零错误，如果为0则设为一个小正数
         vol_burst_threshold_safe = vol_burst_threshold if vol_burst_threshold > 0 else 1e-9
-        # 修改代码行：调整评分函数，使VB <= threshold时，分数从100到75线性递减
+        # 调整评分函数，使VB <= threshold时，分数从100到75线性递减
         vol_burst_score_raw = np.where(df['volume_burstiness_index'] <= vol_burst_threshold_safe,
                                        100 - (df['volume_burstiness_index'] / vol_burst_threshold_safe) * 25, # 阈值处得75分
                                        75 - ((df['volume_burstiness_index'] - vol_burst_threshold_safe) / (2 * vol_burst_threshold_safe)) * 75) # 3*阈值处得0分

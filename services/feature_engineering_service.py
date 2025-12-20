@@ -185,7 +185,7 @@ class FeatureEngineeringService:
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
-        # 修改代码行：_higuchi_fractal_dimension 函数修复
+        # _higuchi_fractal_dimension 函数修复
         def _higuchi_fractal_dimension(x, k_max):
             """
             计算Higuchi分形维数。
