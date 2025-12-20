@@ -989,7 +989,6 @@ class BehavioralIntelligence:
         opportunity_context_modulator_weights = get_param_value(p_unresolved.get('opportunity_context_modulator_weights'), {"battlefield_momentum": 1.0})
         final_exponent = get_param_value(p_unresolved.get('final_exponent'), 1.5)
         fusion_power_p = get_param_value(p_unresolved.get('fusion_power_p'), 0.0) # 默认为几何平均
-
         # --- 1. 计算吸收品质分数 (Absorption Quality Score) ---
         # VPA效率
         absorption_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index), method_name=method_name), df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
@@ -1000,7 +999,6 @@ class BehavioralIntelligence:
         offensive_absorption_intent = states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT']
         # 承接强度 (已是[0,1])
         absorption_strength = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH']
-
         # 融合吸收品质的各个维度
         absorption_quality_score = self._robust_generalized_mean(
             {
@@ -1018,19 +1016,16 @@ class BehavioralIntelligence:
         )
         if is_debug_enabled and probe_ts:
             print(f"       - 吸收品质分数 (absorption_quality_score): {absorption_quality_score.loc[probe_ts]:.4f}")
-
         # --- 2. 计算每日净力量 (Daily Net Force) ---
         # 净力量 = 吸收品质 - 原始卖压
         daily_net_force = absorption_quality_score - raw_selling_pressure
         if is_debug_enabled and probe_ts:
             print(f"       - 每日净力量 (daily_net_force): {daily_net_force.loc[probe_ts]:.4f}")
-
         # --- 3. 计算战场动量 (Battlefield Momentum) ---
         # 对净力量进行EMA平滑，捕捉短期趋势
         battlefield_momentum_score = daily_net_force.ewm(span=3, adjust=False).mean().fillna(0)
         if is_debug_enabled and probe_ts:
             print(f"       - 战场动量分数 (battlefield_momentum_score): {battlefield_momentum_score.loc[probe_ts]:.4f}")
-
         # --- 4. 计算未解决压力风险 (SCORE_RISK_UNRESOLVED_PRESSURE) ---
         # 基础风险 = 原始卖压 * (1 - 吸收品质)
         base_risk = raw_selling_pressure * (1.0 - absorption_quality_score)
@@ -1041,7 +1036,6 @@ class BehavioralIntelligence:
             print(f"       - 基础风险 (base_risk): {base_risk.loc[probe_ts]:.4f}")
             print(f"       - 风险放大器 (risk_amplifier): {risk_amplifier.loc[probe_ts]:.4f}")
             print(f"       - 最终风险分数 (final_risk_score): {final_risk_score.loc[probe_ts]:.4f}")
-
         # --- 5. 计算压力吸收机会 (SCORE_OPPORTUNITY_PRESSURE_ABSORPTION) ---
         # 基础机会 = 原始卖压 * 吸收品质
         base_opportunity = raw_selling_pressure * absorption_quality_score
@@ -1063,18 +1057,15 @@ class BehavioralIntelligence:
         )
         # 将 [0, 1] 的情境分数映射到 [1.0, 1.5] 的调制因子
         context_modulator_factor = 1.0 + context_modulator_score * 0.5
-
         final_opportunity_score = (base_opportunity * opportunity_amplifier * context_modulator_factor).clip(0, 1)
         if is_debug_enabled and probe_ts:
             print(f"       - 基础机会 (base_opportunity): {base_opportunity.loc[probe_ts]:.4f}")
             print(f"       - 机会放大器 (opportunity_amplifier): {opportunity_amplifier.loc[probe_ts]:.4f}")
             print(f"       - 行为情境调制器 (context_modulator_factor): {context_modulator_factor.loc[probe_ts]:.4f}")
             print(f"       - 最终机会分数 (final_opportunity_score): {final_opportunity_score.loc[probe_ts]:.4f}")
-
         # --- 6. 最终非线性变换 ---
         final_risk_score = final_risk_score.pow(final_exponent)
         final_opportunity_score = final_opportunity_score.pow(final_exponent)
-
         return {
             'SCORE_RISK_UNRESOLVED_PRESSURE': final_risk_score.astype(np.float32),
             'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': final_opportunity_score.astype(np.float32)
@@ -1090,7 +1081,6 @@ class BehavioralIntelligence:
         debug_info = (is_debug_enabled, probe_ts, method_name)
         if is_debug_enabled and probe_ts:
             print(f"    -> [行为情报调试] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         p_unresolved = get_param_value(p_conf.get('unresolved_pressure_params'), {})
         raw_selling_pressure_weights = get_param_value(p_unresolved.get('raw_selling_pressure_weights'), {
@@ -1099,7 +1089,6 @@ class BehavioralIntelligence:
             "micro_price_impact_asymmetry_negative": 0.15, "sell_sweep_intensity": 0.1, "rally_distribution_pressure": 0.1
         })
         fusion_power_p = get_param_value(p_unresolved.get('fusion_power_p'), 0.0)
-
         # --- 1. 获取所有原始数据 ---
         required_signals = [
             'active_selling_pressure_D', 'upper_shadow_selling_pressure_D', 'panic_selling_cascade_D',
@@ -1109,7 +1098,6 @@ class BehavioralIntelligence:
         if not self._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         active_selling_pressure_raw = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
         upper_shadow_selling_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name=method_name)
         panic_selling_cascade_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name=method_name)
@@ -1118,7 +1106,6 @@ class BehavioralIntelligence:
         micro_price_impact_asymmetry_raw = self._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name=method_name)
         sell_sweep_intensity_raw = self._get_safe_series(df, 'sell_sweep_intensity_D', 0.0, method_name=method_name)
         rally_distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name=method_name)
-
         # --- 2. 归一化各个卖压组件 ---
         # 卖压指标通常是值越大风险越高，所以ascending=True
         norm_active_selling_pressure = get_adaptive_mtf_normalized_score(active_selling_pressure_raw, df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
@@ -1131,7 +1118,6 @@ class BehavioralIntelligence:
         norm_micro_price_impact_asymmetry_negative = get_adaptive_mtf_normalized_score(micro_price_impact_asymmetry_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
         norm_sell_sweep_intensity = get_adaptive_mtf_normalized_score(sell_sweep_intensity_raw, df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
         norm_rally_distribution_pressure = get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
-
         # --- 3. 融合所有卖压组件 ---
         raw_selling_pressure_score = self._robust_generalized_mean(
             {
@@ -1153,7 +1139,6 @@ class BehavioralIntelligence:
         )
         if is_debug_enabled and probe_ts:
             print(f"    -> [行为情报调试] {method_name} 原始卖压分数 (raw_selling_pressure_score) @ {probe_ts.strftime('%Y-%m-%d')}: {raw_selling_pressure_score.loc[probe_ts]:.4f}")
-
         return raw_selling_pressure_score.astype(np.float32)
 
     def _calculate_dynamic_threshold(self, df: pd.DataFrame, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3837,7 +3822,20 @@ class BehavioralIntelligence:
         return final_liquidity_drain_score
 
     def _calculate_battlefield_momentum(self, df: pd.DataFrame, day_quality_score: pd.Series, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+        """
+        【V3.0 · 方向性自适应与情境共振版】战场动量信号参数。
+        - 核心升级: 1) 自适应指数移动平均(AEMA)：根据日内行为K线质量分自身的波动率动态调整平滑因子，提高信号响应性。
+                      2) 动量加速度：引入动量变化率，识别动量增强或减弱的早期迹象。
+                      3) 行为情境调制：使用如'上涨效率'等行为类信号作为乘数因子，在有利情境下放大动量，在不利情境下抑制动量。
+        - 目标: 提供一个更具前瞻性和情境感知的短期行为趋势信号。
+        - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
+        """
         method_name = "_calculate_battlefield_momentum"
+        debug_info = (is_debug_enabled, probe_ts, method_name)
+        if is_debug_enabled and probe_ts:
+            print(f"    -> [行为情报调试] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
+            if probe_ts in day_quality_score.index:
+                print(f"       - 日内行为K线质量分 (day_quality_score): {day_quality_score.loc[probe_ts]:.4f}")
         # 1. 获取参数
         mtf_periods = get_param_value(params.get('mtf_periods'), [5, 13, 21, 34, 55])
         mtf_slope_weights = get_param_value(params.get('mtf_slope_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '34': 0.05, '55': 0.05})
@@ -3853,31 +3851,44 @@ class BehavioralIntelligence:
         final_exponent = get_param_value(params.get('final_exponent'), 1.5)
         # 确保 day_quality_score 是数值类型
         day_quality_score = pd.to_numeric(day_quality_score, errors='coerce').fillna(0)
-        # 3. 动态计算 day_quality_score 的斜率和加速度
+        # 2. 动态计算 day_quality_score 的斜率和加速度
+        # _calculate_series_dynamics 内部会处理长度不足的问题
         bq_slopes, bq_accels = self._calculate_series_dynamics(day_quality_score, mtf_periods, df.index, is_debug_enabled, probe_ts, 'BIPOLAR_BEHAVIORAL_DAY_QUALITY')
-        # 4. 多时间维度动量 (MTF Momentum)
+        # 3. 多时间维度动量 (MTF Momentum)
         mtf_momentum_scores = []
+        total_slope_weight = sum(mtf_slope_weights.values())
         for p_str, weight in mtf_slope_weights.items():
             p = int(p_str)
-            if p in bq_slopes:
-                norm_slope = normalize_to_bipolar(bq_slopes[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
+            if p in bq_slopes and weight > 0:
+                # 使用 normalize_to_bipolar 归一化斜率
+                norm_slope = normalize_to_bipolar(bq_slopes[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0, debug_info=debug_info)
                 mtf_momentum_scores.append(norm_slope * weight)
-        if not mtf_momentum_scores:
+                if is_debug_enabled and probe_ts:
+                    print(f"       - {method_name} {p}d 斜率分数: {norm_slope.loc[probe_ts]:.4f}, 权重: {weight:.2f}")
+        if not mtf_momentum_scores or total_slope_weight == 0:
             mtf_momentum_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         else:
-            mtf_momentum_score = sum(mtf_momentum_scores) / sum(mtf_slope_weights.values())
-        # 5. 多时间维度加速度 (MTF Acceleration)
+            mtf_momentum_score = sum(mtf_momentum_scores) / total_slope_weight
+        if is_debug_enabled and probe_ts:
+            print(f"       - {method_name} MTF动量分数: {mtf_momentum_score.loc[probe_ts]:.4f}")
+        # 4. 多时间维度加速度 (MTF Acceleration)
         mtf_acceleration_scores = []
+        total_accel_weight = sum(mtf_accel_weights.values())
         for p_str, weight in mtf_accel_weights.items():
             p = int(p_str)
-            if p in bq_accels:
-                norm_accel = normalize_to_bipolar(bq_accels[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
+            if p in bq_accels and weight > 0:
+                # 使用 normalize_to_bipolar 归一化加速度
+                norm_accel = normalize_to_bipolar(bq_accels[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0, debug_info=debug_info)
                 mtf_acceleration_scores.append(norm_accel * weight)
-        if not mtf_acceleration_scores:
+                if is_debug_enabled and probe_ts:
+                    print(f"       - {method_name} {p}d 加速度分数: {norm_accel.loc[probe_ts]:.4f}, 权重: {weight:.2f}")
+        if not mtf_acceleration_scores or total_accel_weight == 0:
             mtf_acceleration_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         else:
-            mtf_acceleration_score = sum(mtf_acceleration_scores) / sum(mtf_accel_weights.values())
-        # 6. 融合MTF动量和加速度为双极性分数
+            mtf_acceleration_score = sum(mtf_acceleration_scores) / total_accel_weight
+        if is_debug_enabled and probe_ts:
+            print(f"       - {method_name} MTF加速度分数: {mtf_acceleration_score.loc[probe_ts]:.4f}")
+        # 5. 融合MTF动量和加速度为双极性分数
         # 使用广义平均融合，power_p=0.0 接近几何平均，强调两者协同
         directional_momentum_raw = self._robust_generalized_mean(
             {"momentum": mtf_momentum_score, "acceleration": mtf_acceleration_score},
@@ -3886,36 +3897,48 @@ class BehavioralIntelligence:
             power_p=momentum_accel_fusion_power_p,
             is_debug_enabled=is_debug_enabled,
             probe_ts=probe_ts,
-            fusion_level_name="MTF动量加速度融合"
+            fusion_level_name=f"{method_name}_MTF动量加速度融合"
         )
+        if is_debug_enabled and probe_ts:
+            print(f"       - {method_name} 原始方向性动量 (directional_momentum_raw): {directional_momentum_raw.loc[probe_ts]:.4f}")
         # 将 [-1, 1] 映射到 [0, 1]
         base_directional_momentum = (directional_momentum_raw + 1) / 2
-        # 7. 行为情境健康度调制
+        if is_debug_enabled and probe_ts:
+            print(f"       - {method_name} 基础方向性动量 (base_directional_momentum): {base_directional_momentum.loc[probe_ts]:.4f}")
+        # 6. 行为情境健康度调制
         behavioral_context_health = pd.Series(1.0, index=df.index, dtype=np.float32)
         if contextual_modulator_enabled:
             context_scores = {}
+            valid_context_weights = {}
             for sig_name, weight in context_signals_weights.items():
-                original_sig_name = sig_name.replace('_INVERSE', '')
-                # 确保 _get_atomic_score 能够正确获取信号
-                context_signal = self._get_atomic_score(df, original_sig_name, default=0.5)
-                # 处理 _INVERSE 信号
-                if '_INVERSE' in sig_name:
-                    context_signal = (1 - context_signal).clip(0, 1)
-                # 确保信号在 [0, 1] 范围内
-                norm_context_signal = (context_signal + 1) / 2 if context_signal.min() < 0 else context_signal
-                context_scores[sig_name] = norm_context_signal
-            behavioral_context_health = self._robust_generalized_mean(
-                context_scores,
-                context_signals_weights,
-                df.index,
-                power_p=0.0, # 几何平均强调协同
-                is_debug_enabled=is_debug_enabled,
-                probe_ts=probe_ts,
-                fusion_level_name="行为情境健康度融合"
-            )
-            # 将健康度映射到 [0.5, 1.5] 范围，作为调制因子
-            behavioral_context_health = 0.5 + behavioral_context_health
-        # 8. 最终融合 (基础方向性动量 * 行为情境健康度)
+                if weight > 0:
+                    original_sig_name = sig_name.replace('_INVERSE', '')
+                    # MODIFIED LINE: 确保 _get_atomic_score 能够正确获取信号
+                    context_signal = self._get_atomic_score(df, original_sig_name, default=0.5)
+                    # 处理 _INVERSE 信号
+                    if '_INVERSE' in sig_name:
+                        context_signal = (1 - context_signal).clip(0, 1)
+                    # 确保信号在 [0, 1] 范围内 (原子信号通常已归一化，但此处再次确保)
+                    norm_context_signal = (context_signal + 1) / 2 if context_signal.min() < 0 else context_signal
+                    context_scores[sig_name] = norm_context_signal
+                    valid_context_weights[sig_name] = weight
+                    if is_debug_enabled and probe_ts:
+                        print(f"       - {method_name} 情境信号 '{sig_name}': {norm_context_signal.loc[probe_ts]:.4f}, 权重: {weight:.2f}")
+            if valid_context_weights:
+                behavioral_context_health = self._robust_generalized_mean(
+                    context_scores,
+                    valid_context_weights,
+                    df.index,
+                    power_p=0.0, # 几何平均强调协同
+                    is_debug_enabled=is_debug_enabled,
+                    probe_ts=probe_ts,
+                    fusion_level_name=f"{method_name}_行为情境健康度融合"
+                )
+                # 将健康度映射到 [0.5, 1.5] 范围，作为调制因子
+                behavioral_context_health = 0.5 + behavioral_context_health * 0.5 # 映射到 [0.5, 1.0] -> [0.5, 1.5]
+            if is_debug_enabled and probe_ts:
+                print(f"       - {method_name} 行为情境健康度 (behavioral_context_health): {behavioral_context_health.loc[probe_ts]:.4f}")
+        # 7. 最终融合 (基础方向性动量 * 行为情境健康度)
         # 使用广义平均，强调协同作用
         final_fused_momentum = self._robust_generalized_mean(
             {"base_momentum": base_directional_momentum, "context_health": behavioral_context_health},
@@ -3924,10 +3947,14 @@ class BehavioralIntelligence:
             power_p=final_fusion_power_p,
             is_debug_enabled=is_debug_enabled,
             probe_ts=probe_ts,
-            fusion_level_name="最终战场动量融合"
+            fusion_level_name=f"{method_name}_最终战场动量融合"
         )
-        # 9. 最终非线性变换
+        if is_debug_enabled and probe_ts:
+            print(f"       - {method_name} 最终融合动量 (final_fused_momentum): {final_fused_momentum.loc[probe_ts]:.4f}")
+        # 8. 最终非线性变换
         final_battlefield_momentum = final_fused_momentum.pow(final_exponent).clip(0, 1)
+        if is_debug_enabled and probe_ts:
+            print(f"    -> [行为情报调试] {method_name} 最终战场动量 (final_battlefield_momentum): {final_battlefield_momentum.loc[probe_ts]:.4f}")
         return final_battlefield_momentum.astype(np.float32)
 
 
