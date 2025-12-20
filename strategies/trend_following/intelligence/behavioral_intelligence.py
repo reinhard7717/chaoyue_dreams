@@ -760,19 +760,20 @@ class BehavioralIntelligence:
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
             required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
         for indicator in ['close', 'volume']:
-            required_signals.append(f'SLOPE_{pattern_lookback_window}_close_D') # 修正：这里应该是 close_D
-            required_signals.append(f'SLOPE_{pattern_lookback_window}_volume_D') # 修正：这里应该是 volume_D
+            required_signals.append(f'SLOPE_{pattern_lookback_window}_close_D')
+            required_signals.append(f'SLOPE_{pattern_lookback_window}_volume_D')
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume',
                          'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
-        # 新增对情境调制器信号的检查
-        battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
-        if get_param_value(battlefield_momentum_params.get('contextual_modulator_enabled'), True):
-            context_signals_weights = get_param_value(battlefield_momentum_params.get('context_signals_weights'), {})
-            for sig_name in context_signals_weights.keys():
-                original_sig_name = sig_name.replace('_INVERSE', '')
-                required_signals.append(original_sig_name)
+        # MODIFIED BLOCK START: 移除对情境调制器信号的检查
+        # battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
+        # if get_param_value(battlefield_momentum_params.get('contextual_modulator_enabled'), True):
+        #     context_signals_weights = get_param_value(battlefield_momentum_params.get('context_signals_weights'), {})
+        #     for sig_name in context_signals_weights.keys():
+        #         original_sig_name = sig_name.replace('_INVERSE', '')
+        #         required_signals.append(original_sig_name)
+        # MODIFIED BLOCK END
         if not self._validate_required_signals(df, required_signals, method_name):
             missing_signals = [s for s in required_signals if s not in df.columns]
             print(f"    -> [行为情报引擎] {method_name}: 核心公理诊断失败，缺少必要原始信号 {missing_signals}，行为分析中止。")
@@ -858,17 +859,17 @@ class BehavioralIntelligence:
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
-        # 立即更新 self.strategy.atomic_states
+        # MODIFIED LINE: 立即更新 self.strategy.atomic_states
         self.strategy.atomic_states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         downward_resistance_score = self._diagnose_downward_resistance(df, default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         df['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
-        # 立即更新 self.strategy.atomic_states
+        # MODIFIED LINE: 立即更新 self.strategy.atomic_states
         self.strategy.atomic_states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        # 立即更新 self.strategy.atomic_states
+        # MODIFIED LINE: 立即更新 self.strategy.atomic_states
         self.strategy.atomic_states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL @ {probe_ts.strftime('%Y-%m-%d')}: {intraday_bull_control_score.loc[probe_ts]:.4f}")
@@ -944,12 +945,12 @@ class BehavioralIntelligence:
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
-        # 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
+        # MODIFIED LINE: 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
         day_quality_score = self._calculate_behavioral_day_quality(df)
         states['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
-        # 立即更新 self.strategy.atomic_states
+        # MODIFIED LINE: 立即更新 self.strategy.atomic_states
         self.strategy.atomic_states['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
-        # 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
+        # MODIFIED LINE: 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
         battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
         battlefield_momentum = self._calculate_battlefield_momentum(df, day_quality_score, battlefield_momentum_params, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM'] = battlefield_momentum.astype(np.float32)
