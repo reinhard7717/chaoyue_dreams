@@ -251,14 +251,14 @@ class BehavioralIntelligence:
         if abs(power_p) < 1e-9: # power_p is effectively 0, use geometric mean
             weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
             result_values = np.exp(weighted_log_sum)
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
+            if is_debug_enabled and probe_ts and probe_ts in df_index: # 修改的代码行
                 print(f"        - {fusion_level_name} 融合方式: 几何平均 (power_p={power_p:.4f})")
                 print(f"        - {fusion_level_name} 几何平均 log_sum @ {probe_ts.strftime('%Y-%m-%d')}: {weighted_log_sum[df_index.get_loc(probe_ts)]:.4f}")
         else: # Use generalized mean (Power Mean)
             weighted_power_sum = np.sum(safe_scores**power_p * normalized_weights[:, np.newaxis], axis=0)
             # 避免 0^(1/p) 导致 NaN，如果 weighted_power_sum 接近 0，则结果也应为 0
             result_values = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p))
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
+            if is_debug_enabled and probe_ts and probe_ts in df_index: # 修改的代码行
                 print(f"        - {fusion_level_name} 融合方式: 广义平均 (power_p={power_p:.4f})")
                 print(f"        - {fusion_level_name} 广义平均 power_sum @ {probe_ts.strftime('%Y-%m-%d')}: {weighted_power_sum[df_index.get_loc(probe_ts)]:.4f}")
         return pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
