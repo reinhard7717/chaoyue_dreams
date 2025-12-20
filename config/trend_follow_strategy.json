@@ -939,24 +939,37 @@
         },
         "battlefield_momentum_params": {
           "enabled": true,
-          "description": "【V2.0 · 动态自适应与情境感知版】战场动量信号参数。",
-          "aema_fast_period": 5,
-          "comment_aema_fast_period": "AEMA快速周期，用于高波动时更灵敏的响应。",
-          "aema_slow_period": 21,
-          "comment_aema_slow_period": "AEMA慢速周期，用于低波动时更平滑的响应。",
-          "aema_volatility_window": 13,
-          "comment_aema_volatility_window": "用于计算AEMA波动率的窗口。",
-          "acceleration_period": 3,
-          "comment_acceleration_period": "用于计算动量加速度的周期。",
-          "acceleration_impact_factor": 0.2,
-          "comment_acceleration_impact_factor": "动量加速度对最终动量分数的贡献因子。",
+          "description": "【V3.0 · 方向性自适应与情境共振版】战场动量信号参数。",
+          "mtf_periods": [5, 13, 21, 34, 55],
+          "comment_mtf_periods": "用于多时间框架斜率和加速度计算的周期列表。",
+          "mtf_slope_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "34": 0.05,
+            "55": 0.05
+          },
+          "comment_mtf_slope_weights": "多时间框架斜率融合权重。",
+          "mtf_accel_weights": {
+            "5": 0.5,
+            "13": 0.3,
+            "21": 0.15,
+            "34": 0.05
+          },
+          "comment_mtf_accel_weights": "多时间框架加速度融合权重。",
+          "momentum_accel_fusion_power_p": 0.0,
+          "comment_momentum_accel_fusion_power_p": "动量和加速度融合的广义平均幂参数 (0.0 接近几何平均)。",
           "contextual_modulator_enabled": true,
           "comment_contextual_modulator_enabled": "是否启用行为情境调制器。",
-          "context_signal": "SCORE_BEHAVIOR_UPWARD_EFFICIENCY",
-          "comment_context_signal": "用于情境调制的行为类信号名称。",
-          "context_amplification_factor": 0.5,
-          "comment_context_amplification_factor": "情境调制器对动量分数的放大因子。",
-          "final_exponent": 1.2,
+          "context_signals_weights": {
+            "SCORE_BEHAVIOR_UPWARD_EFFICIENCY": 0.4,
+            "SCORE_BEHAVIOR_DOWNWARD_RESISTANCE_INVERSE": 0.3,
+            "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL": 0.3
+          },
+          "comment_context_signals_weights": "行为情境健康度组成信号及其融合权重。",
+          "final_fusion_power_p": 0.5,
+          "comment_final_fusion_power_p": "最终融合（基础方向性动量与情境健康度）的广义平均幂参数。",
+          "final_exponent": 1.5,
           "comment_final_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。"
         },
         "chronos_protocol_params": {

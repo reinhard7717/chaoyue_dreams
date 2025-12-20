@@ -133,6 +133,23 @@ class BehavioralIntelligence:
         atomic_signals.update(self._diagnose_upper_shadow_intent(df))
         return atomic_signals
 
+    def _calculate_series_dynamics(self, series: pd.Series, periods: List[int], df_index: pd.Index, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp], base_name: str) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series]]:
+        slopes = {}
+        accels = {}
+        for p in periods:
+            # 计算斜率
+            slope_series = series.diff(p).fillna(0)
+            slopes[p] = slope_series
+            # 计算加速度 (斜率的1日差分)
+            if p <= 34: # 通常加速度在较短周期内更有效
+                accel_series = slope_series.diff(1).fillna(0)
+                accels[p] = accel_series
+            if is_debug_enabled and probe_ts and probe_ts in df_index:
+                print(f"        - {base_name}_SLOPE_{p}: {slope_series.loc[probe_ts]:.4f}")
+                if p <= 34:
+                    print(f"        - {base_name}_ACCEL_{p}: {accel_series.loc[probe_ts]:.4f}")
+        return slopes, accels
+
     def _calculate_mtf_dynamic_score(self, df: pd.DataFrame, base_indicator_name: str, periods: List[int], tf_weights: Dict, dynamic_type: str, is_positive_trend: bool, method_name: str) -> pd.Series:
         # dynamic_type: 'slope' or 'accel'
         # is_positive_trend: True for positive slope/accel, False for negative
@@ -740,11 +757,11 @@ class BehavioralIntelligence:
                          'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
-        # 新增对 BIPOLAR_BEHAVIORAL_DAY_QUALITY 的斜率和加速度的检查
-        for p in get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params', {}).get('mtf_periods'), [5, 13, 21, 34, 55]):
-            required_signals.append(f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
-            if p <= 34:
-                required_signals.append(f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
+        # 移除对 BIPOLAR_BEHAVIORAL_DAY_QUALITY 的斜率和加速度的检查，因为它们将动态计算
+        # for p in get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params', {}).get('mtf_periods'), [5, 13, 21, 34, 55]):
+        #     required_signals.append(f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
+        #     if p <= 34:
+        #         required_signals.append(f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
         # 新增对情境调制器信号的检查
         battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
         if get_param_value(battlefield_momentum_params.get('contextual_modulator_enabled'), True):
@@ -917,12 +934,12 @@ class BehavioralIntelligence:
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
-        # 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
+        # MODIFIED LINE: 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
         day_quality_score = self._calculate_behavioral_day_quality(df)
         states['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
-        # 将 BIPOLAR_BEHAVIORAL_DAY_QUALITY 添加到 df，以便后续斜率/加速度计算可以访问
-        df['BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'] = day_quality_score # 新增行
-        # 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
+        # MODIFIED LINE: 将 BIPOLAR_BEHAVIORAL_DAY_QUALITY 添加到 df，以便后续斜率/加速度计算可以访问
+        # df['BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'] = day_quality_score # 这一行不再需要，因为斜率和加速度将动态计算
+        # MODIFIED LINE: 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
         battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
         battlefield_momentum = self._calculate_battlefield_momentum(df, day_quality_score, battlefield_momentum_params, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM'] = battlefield_momentum.astype(np.float32)
@@ -3658,59 +3675,54 @@ class BehavioralIntelligence:
         final_exponent = get_param_value(params.get('final_exponent'), 1.5)
         # 确保 day_quality_score 是数值类型
         day_quality_score = pd.to_numeric(day_quality_score, errors='coerce').fillna(0)
-        # 2. 检查所需原始数据是否存在
-        required_signals = []
-        for p in mtf_periods:
-            required_signals.append(f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
-            if p <= 34: # 加速度通常在较短周期内更有效
-                required_signals.append(f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
+        # 2. 检查所需原始数据是否存在 (仅检查情境调制器信号)
+        required_context_signals = []
         if contextual_modulator_enabled:
             for sig_name in context_signals_weights.keys():
-                # 处理 _INVERSE 后缀，获取原始信号名
                 original_sig_name = sig_name.replace('_INVERSE', '')
-                required_signals.append(original_sig_name)
-        if not self._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少核心信号，返回0分。")
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 3. 多时间维度动量 (MTF Momentum)
+                required_context_signals.append(original_sig_name)
+        if not self._validate_required_signals(df, required_context_signals, method_name):
+            if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少情境调制器核心信号，情境调制将失效。")
+            contextual_modulator_enabled = False # 禁用情境调制
+        # 3. 动态计算 day_quality_score 的斜率和加速度
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 动态计算 day_quality_score 动力学 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        bq_slopes, bq_accels = self._calculate_series_dynamics(day_quality_score, mtf_periods, df.index, is_debug_enabled, probe_ts, 'BIPOLAR_BEHAVIORAL_DAY_QUALITY')
+        # 4. 多时间维度动量 (MTF Momentum)
         mtf_momentum_scores = []
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} MTF动量子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
         for p_str, weight in mtf_slope_weights.items():
             p = int(p_str)
-            slope_col = f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'
-            if slope_col in df.columns:
-                # 归一化斜率到 [-1, 1]
-                norm_slope = normalize_to_bipolar(df[slope_col], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
+            if p in bq_slopes:
+                norm_slope = normalize_to_bipolar(bq_slopes[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
                 mtf_momentum_scores.append(norm_slope * weight)
                 if is_debug_enabled and probe_ts and probe_ts in df.index:
-                    print(f"        - {p}d_slope_raw: {df[slope_col].loc[probe_ts]:.4f}, norm_slope: {norm_slope.loc[probe_ts]:.4f}")
+                    print(f"        - {p}d_slope_raw: {bq_slopes[p].loc[probe_ts]:.4f}, norm_slope: {norm_slope.loc[probe_ts]:.4f}")
             else:
-                if is_debug_enabled: print(f"        - 警告: 缺少列 {slope_col}")
+                if is_debug_enabled: print(f"        - 警告: 缺少 {p}d 斜率数据")
         if not mtf_momentum_scores:
             mtf_momentum_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         else:
             mtf_momentum_score = sum(mtf_momentum_scores) / sum(mtf_slope_weights.values())
-        # 4. 多时间维度加速度 (MTF Acceleration)
+        # 5. 多时间维度加速度 (MTF Acceleration)
         mtf_acceleration_scores = []
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} MTF加速度子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
         for p_str, weight in mtf_accel_weights.items():
             p = int(p_str)
-            accel_col = f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'
-            if accel_col in df.columns:
-                # 归一化加速度到 [-1, 1]
-                norm_accel = normalize_to_bipolar(df[accel_col], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
+            if p in bq_accels:
+                norm_accel = normalize_to_bipolar(bq_accels[p], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
                 mtf_acceleration_scores.append(norm_accel * weight)
                 if is_debug_enabled and probe_ts and probe_ts in df.index:
-                    print(f"        - {p}d_accel_raw: {df[accel_col].loc[probe_ts]:.4f}, norm_accel: {norm_accel.loc[probe_ts]:.4f}")
+                    print(f"        - {p}d_accel_raw: {bq_accels[p].loc[probe_ts]:.4f}, norm_accel: {norm_accel.loc[probe_ts]:.4f}")
             else:
-                if is_debug_enabled: print(f"        - 警告: 缺少列 {accel_col}")
+                if is_debug_enabled: print(f"        - 警告: 缺少 {p}d 加速度数据")
         if not mtf_acceleration_scores:
             mtf_acceleration_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         else:
             mtf_acceleration_score = sum(mtf_acceleration_scores) / sum(mtf_accel_weights.values())
-        # 5. 融合MTF动量和加速度为双极性分数
+        # 6. 融合MTF动量和加速度为双极性分数
         # 使用广义平均融合，power_p=0.0 接近几何平均，强调两者协同
         directional_momentum_raw = self._robust_generalized_mean(
             {"momentum": mtf_momentum_score, "acceleration": mtf_acceleration_score},
@@ -3728,7 +3740,7 @@ class BehavioralIntelligence:
             print(f"      [探针] {method_name} MTF加速度分数 @ {probe_ts.strftime('%Y-%m-%d')}: {mtf_acceleration_score.loc[probe_ts]:.4f}")
             print(f"      [探针] {method_name} 融合后双极性动量 @ {probe_ts.strftime('%Y-%m-%d')}: {directional_momentum_raw.loc[probe_ts]:.4f}")
             print(f"      [探针] {method_name} 基础方向性动量 (0-1) @ {probe_ts.strftime('%Y-%m-%d')}: {base_directional_momentum.loc[probe_ts]:.4f}")
-        # 6. 行为情境健康度调制
+        # 7. 行为情境健康度调制
         behavioral_context_health = pd.Series(1.0, index=df.index, dtype=np.float32)
         if contextual_modulator_enabled:
             context_scores = {}
@@ -3758,7 +3770,7 @@ class BehavioralIntelligence:
             behavioral_context_health = 0.5 + behavioral_context_health
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [探针] {method_name} 行为情境健康度调制因子 @ {probe_ts.strftime('%Y-%m-%d')}: {behavioral_context_health.loc[probe_ts]:.4f}")
-        # 7. 最终融合 (基础方向性动量 * 行为情境健康度)
+        # 8. 最终融合 (基础方向性动量 * 行为情境健康度)
         # 使用广义平均，强调协同作用
         final_fused_momentum = self._robust_generalized_mean(
             {"base_momentum": base_directional_momentum, "context_health": behavioral_context_health},
@@ -3769,7 +3781,7 @@ class BehavioralIntelligence:
             probe_ts=probe_ts,
             fusion_level_name="最终战场动量融合"
         )
-        # 8. 最终非线性变换
+        # 9. 最终非线性变换
         final_battlefield_momentum = final_fused_momentum.pow(final_exponent).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [探针] {method_name} 最终融合动量 (pre-exponent) @ {probe_ts.strftime('%Y-%m-%d')}: {final_fused_momentum.loc[probe_ts]:.4f}")
