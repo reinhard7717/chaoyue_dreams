@@ -246,7 +246,7 @@ class ProcessIntelligence:
         - 核心升级: 扩展“基石信号”清单，将 `PROCESS_META_COVERT_ACCUMULATION` 纳入优先计算，
                       确保其在被其他信号依赖时已就绪。
         """
-        print("启动【V5.7 · 基石信号增强版】过程情报分析...") # 修改代码行
+        print("启动【V5.7 · 基石信号增强版】过程情报分析...")
         all_process_states = {}
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
@@ -254,7 +254,7 @@ class ProcessIntelligence:
         priority_signals = [
             'PROCESS_META_POWER_TRANSFER',
             'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
-            'PROCESS_META_COVERT_ACCUMULATION' # 修改代码行
+            'PROCESS_META_COVERT_ACCUMULATION'
         ]
         # [修改] 依赖前置处理逻辑，遍历基石信号清单
         processed_priority_signals = set()
@@ -285,7 +285,7 @@ class ProcessIntelligence:
             elif isinstance(score, dict):
                 all_process_states.update(score)
                 self.strategy.atomic_states.update(score)
-        print(f"【V5.7 · 基石信号增强版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # 修改代码行
+        print(f"【V5.7 · 基石信号增强版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
         return all_process_states
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -547,8 +547,8 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_HOT_SECTOR_COOLING':
             relationship_score = self._calculate_hot_sector_cooling(df, config)
             meta_score = relationship_score
-        elif signal_name == 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE': # 修改代码行
-            meta_score = self._calculate_price_momentum_divergence(df, config) # 修改代码行
+        elif signal_name == 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE':
+            meta_score = self._calculate_price_momentum_divergence(df, config)
         elif signal_name == 'PROCESS_META_STORM_EYE_CALM':
             meta_score = self._calculate_storm_eye_calm(df, config)
         elif signal_name == 'PROCESS_META_WASH_OUT_REBOUND':
@@ -707,27 +707,25 @@ class ProcessIntelligence:
         return {signal_name: decay_score.astype(np.float32)}
 
     def _calculate_price_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE (V4.0 · 深度情境与动态权重版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE (V4.0 · 深度情境与动态权重版)...")
         df_index = df.index
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
-
         # --- 1. 获取配置参数 ---
-        price_components_weights = get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2}) # 修改代码行
-        momentum_components_weights = get_param_value(params.get('momentum_components_weights'), {"MACDh_13_34_8_D": 0.5, "RSI_13_D": 0.3, "ROC_13_D": 0.2, "momentum_quality": 0.2}) # 修改代码行
+        price_components_weights = get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2})
+        momentum_components_weights = get_param_value(params.get('momentum_components_weights'), {"MACDh_13_34_8_D": 0.5, "RSI_13_D": 0.3, "ROC_13_D": 0.2, "momentum_quality": 0.2})
         mtf_slope_weights = get_param_value(params.get('mtf_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
         mtf_accel_weights = get_param_value(params.get('mtf_accel_weights'), {"5": 0.6, "13": 0.4}) # 新增代码行
-        volume_confirmation_weights = get_param_value(params.get('volume_confirmation_weights'), {"volume_slope": 0.5, "volume_burst": 0.2, "volume_atrophy": 0.3, "constructive_turnover": 0.1, "volume_structure_skew_inverted": 0.1}) # 修改代码行
+        volume_confirmation_weights = get_param_value(params.get('volume_confirmation_weights'), {"volume_slope": 0.5, "volume_burst": 0.2, "volume_atrophy": 0.3, "constructive_turnover": 0.1, "volume_structure_skew_inverted": 0.1})
         dynamic_volume_confirmation_modulators = get_param_value(params.get('dynamic_volume_confirmation_modulators'), {"enabled": False}) # 新增代码行
-        main_force_confirmation_weights = get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1}) # 修改代码行
+        main_force_confirmation_weights = get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1})
         dynamic_main_force_confirmation_modulators = get_param_value(params.get('dynamic_main_force_confirmation_modulators'), {"enabled": False}) # 新增代码行
-        context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15}) # 修改代码行
-        divergence_quality_weights = get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15}) # 修改代码行
+        context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15})
+        divergence_quality_weights = get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15})
         final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 1.5)
         synergy_threshold = get_param_value(params.get('synergy_threshold'), 0.6)
         synergy_bonus_factor = get_param_value(params.get('synergy_bonus_factor'), 0.1)
         conflict_penalty_factor = get_param_value(params.get('conflict_penalty_factor'), 0.15)
         dynamic_fusion_weights_params = get_param_value(params.get('dynamic_fusion_weights_params'), {"enabled": False}) # 新增代码行
-
         # --- 2. 校验所有必需的信号 ---
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
         required_signals = [
@@ -742,33 +740,31 @@ class ProcessIntelligence:
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
             'PROCESS_META_COVERT_ACCUMULATION',
             # 新增的信号依赖
-            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', # 新增代码行
-            'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', # 新增代码行
-            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', # 新增代码行
-            'SCORE_DYN_AXIOM_MOMENTUM', # 新增代码行
-            'constructive_turnover_ratio_D', # 新增代码行
-            'volume_structure_skew_D', # 新增代码行
-            'main_force_conviction_index_D', # 新增代码行
-            'chip_health_score_D', # 新增代码行
-            'SCORE_DYN_AXIOM_STABILITY', # 新增代码行
-            'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', # 新增代码行
-            'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', # 新增代码行
-            'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', # 新增代码行
-            'SCORE_FOUNDATION_AXIOM_MARKET_TENSION' # 新增代码行
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
+            'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM',
+            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
+            'SCORE_DYN_AXIOM_MOMENTUM',
+            'constructive_turnover_ratio_D',
+            'volume_structure_skew_D',
+            'main_force_conviction_index_D',
+            'chip_health_score_D',
+            'SCORE_DYN_AXIOM_STABILITY',
+            'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL',
+            'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE',
+            'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION',
+            'SCORE_FOUNDATION_AXIOM_MARKET_TENSION'
         ]
         # 动态添加加速度信号到required_signals
-        for p_str in mtf_accel_weights.keys(): # 新增代码行
-            p = int(p_str) # 新增代码行
-            required_signals.append(f'ACCEL_{p}_close_D') # 新增代码行
-            required_signals.append(f'ACCEL_{p}_MACDh_13_34_8_D') # 新增代码行
-            required_signals.append(f'ACCEL_{p}_RSI_13_D') # 新增代码行
-            required_signals.append(f'ACCEL_{p}_ROC_13_D') # 新增代码行
-            required_signals.append(f'ACCEL_{p}_volume_D') # 新增代码行
-            required_signals.append(f'ACCEL_{p}_main_force_net_flow_calibrated_D') # 新增代码行
-
+        for p_str in mtf_accel_weights.keys():
+            p = int(p_str)
+            required_signals.append(f'ACCEL_{p}_close_D')
+            required_signals.append(f'ACCEL_{p}_MACDh_13_34_8_D')
+            required_signals.append(f'ACCEL_{p}_RSI_13_D')
+            required_signals.append(f'ACCEL_{p}_ROC_13_D')
+            required_signals.append(f'ACCEL_{p}_volume_D')
+            required_signals.append(f'ACCEL_{p}_main_force_net_flow_calibrated_D')
         if not self._validate_required_signals(df, required_signals, "_calculate_price_momentum_divergence"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # --- 3. 获取原始数据 ---
         price_slopes_raw = {p: self._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name="_calculate_price_momentum_divergence") for p in valid_mtf_periods}
         macdh_slopes_raw = {p: self._get_safe_series(df, f'SLOPE_{p}_MACDh_13_34_8_D', 0.0, method_name="_calculate_price_momentum_divergence") for p in valid_mtf_periods}
@@ -786,39 +782,34 @@ class ProcessIntelligence:
         adx_raw = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_calculate_price_momentum_divergence")
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_calculate_price_momentum_divergence")
         # 新增原始数据/原子信号
-        upward_efficiency_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0) # 新增代码行
-        price_upward_momentum_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0) # 新增代码行
-        price_downward_momentum_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0) # 新增代码行
-        momentum_quality_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0) # 新增代码行
-        constructive_turnover_raw = self._get_safe_series(df, 'constructive_turnover_ratio_D', 0.0, method_name="_calculate_price_momentum_divergence") # 新增代码行
-        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_calculate_price_momentum_divergence") # 新增代码行
-        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_price_momentum_divergence") # 新增代码行
-        chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_calculate_price_momentum_divergence") # 新增代码行
-        stability_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0) # 新增代码行
-        chip_historical_potential_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0) # 新增代码行
-        liquidity_tide_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0) # 新增代码行
-        market_constitution_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0) # 新增代码行
-        market_tension_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0) # 新增代码行
-
+        upward_efficiency_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)
+        price_upward_momentum_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0)
+        price_downward_momentum_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0)
+        momentum_quality_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0)
+        constructive_turnover_raw = self._get_safe_series(df, 'constructive_turnover_ratio_D', 0.0, method_name="_calculate_price_momentum_divergence")
+        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_calculate_price_momentum_divergence")
+        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_price_momentum_divergence")
+        chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name="_calculate_price_momentum_divergence")
+        stability_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
+        chip_historical_potential_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
+        liquidity_tide_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
+        market_constitution_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
+        market_tension_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
         # --- 4. 计算各维度分数 ---
         # 4.1. Fused Price Direction (MTF Slope Fusion)
         fused_price_direction_base = self._get_mtf_slope_score(df, 'close_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         # 新增：价格动量品质
-        price_momentum_quality_score = pd.Series(0.0, index=df_index, dtype=np.float32) # 新增代码行
-        # 价格上涨动能和上涨效率的几何平均，作为看涨品质
-        bullish_price_momentum_quality = (price_upward_momentum_score * upward_efficiency_score).pow(0.5) # 新增代码行
-        # 价格下跌动能作为看跌品质
-        bearish_price_momentum_quality = price_downward_momentum_score # 新增代码行
-        # 根据基础价格方向，选择对应的品质分数
-        price_momentum_quality_score = bullish_price_momentum_quality.where(fused_price_direction_base > 0, -bearish_price_momentum_quality) # 新增代码行
+        price_momentum_quality_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        bullish_price_momentum_quality = (price_upward_momentum_score * upward_efficiency_score).pow(0.5)
+        bearish_price_momentum_quality = price_downward_momentum_score
+        price_momentum_quality_score = bullish_price_momentum_quality.where(fused_price_direction_base > 0, -bearish_price_momentum_quality)
         
-        fused_price_direction_components = { # 修改代码行
-            "close_D": fused_price_direction_base, # 修改代码行
-            "upward_efficiency": upward_efficiency_score, # 修改代码行
-            "price_momentum_quality": price_momentum_quality_score # 修改代码行
-        } # 修改代码行
-        fused_price_direction = _robust_geometric_mean(fused_price_direction_components, price_components_weights, df_index) # 修改代码行
-
+        fused_price_direction_components = {
+            "close_D": fused_price_direction_base,
+            "upward_efficiency": upward_efficiency_score,
+            "price_momentum_quality": price_momentum_quality_score
+        }
+        fused_price_direction = _robust_geometric_mean(fused_price_direction_components, price_components_weights, df_index)
         # 4.2. Fused Momentum Direction (Multi-Indicator & MTF Fusion)
         fused_macdh_direction = self._get_mtf_slope_score(df, 'MACDh_13_34_8_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         fused_rsi_direction = self._get_mtf_slope_score(df, 'RSI_13_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
@@ -828,104 +819,92 @@ class ProcessIntelligence:
             "MACDh_13_34_8_D": fused_macdh_direction,
             "RSI_13_D": fused_rsi_direction,
             "ROC_13_D": fused_roc_direction,
-            "momentum_quality": momentum_quality_score # 新增代码行
+            "momentum_quality": momentum_quality_score
         }
-        # 调整 momentum_components_weights 以包含 momentum_quality 的权重
-        momentum_components_weights_extended = momentum_components_weights.copy() # 新增代码行
-        momentum_components_weights_extended["momentum_quality"] = get_param_value(params.get('momentum_components_weights', {}).get("momentum_quality"), 0.2) # 新增代码行
-        fused_momentum_direction = _robust_geometric_mean(fused_momentum_direction_components, momentum_components_weights_extended, df_index) # 修改代码行
-
+        momentum_components_weights_extended = momentum_components_weights.copy()
+        momentum_components_weights_extended["momentum_quality"] = get_param_value(params.get('momentum_components_weights', {}).get("momentum_quality"), 0.2)
+        fused_momentum_direction = _robust_geometric_mean(fused_momentum_direction_components, momentum_components_weights_extended, df_index)
         # 4.3. Base Divergence Score
         base_divergence_score = (fused_price_direction - fused_momentum_direction).clip(-1, 1)
-
         # 4.4. Volume Confirmation Score
         fused_volume_slope = self._get_mtf_slope_score(df, 'volume_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         volume_burst_norm = self._normalize_series(volume_burstiness_raw, df_index, ascending=True)
         volume_atrophy_norm = self._normalize_series(volume_atrophy_score, df_index, ascending=True)
-        constructive_turnover_norm = self._normalize_series(constructive_turnover_raw, df_index, ascending=True) # 新增代码行
-        volume_structure_skew_inverted_norm = self._normalize_series(volume_structure_skew_raw.abs(), df_index, ascending=False) # 新增代码行
+        constructive_turnover_norm = self._normalize_series(constructive_turnover_raw, df_index, ascending=True)
+        volume_structure_skew_inverted_norm = self._normalize_series(volume_structure_skew_raw.abs(), df_index, ascending=False)
         
-        # 动态调节量能确认权重 # 新增代码行
-        current_volume_confirmation_weights = volume_confirmation_weights.copy() # 新增代码行
-        if get_param_value(dynamic_volume_confirmation_modulators.get('enabled'), False): # 新增代码行
-            modulator_signal_raw = self._get_atomic_score(df, dynamic_volume_confirmation_modulators['modulator_signal'], 0.0) # 新增代码行
-            modulator_signal = self._normalize_series(modulator_signal_raw, df_index, bipolar=True) # 新增代码行
-            sensitivity = dynamic_volume_confirmation_modulators['sensitivity'] # 新增代码行
-            min_factor = dynamic_volume_confirmation_modulators['min_factor'] # 新增代码行
-            max_factor = dynamic_volume_confirmation_modulators['max_factor'] # 新增代码行
-            # 潮汐信号越正（涨潮），因子越大；越负（退潮），因子越小
-            modulator_factor = (1 + modulator_signal * sensitivity).clip(min_factor, max_factor) # 新增代码行
-            for k in current_volume_confirmation_weights: # 新增代码行
-                current_volume_confirmation_weights[k] = current_volume_confirmation_weights[k] * modulator_factor # 新增代码行
-
+        # 动态调节量能确认权重
+        current_volume_confirmation_weights = volume_confirmation_weights.copy()
+        if get_param_value(dynamic_volume_confirmation_modulators.get('enabled'), False):
+            modulator_signal_raw = self._get_atomic_score(df, dynamic_volume_confirmation_modulators['modulator_signal'], 0.0)
+            modulator_signal = self._normalize_series(modulator_signal_raw, df_index, bipolar=True)
+            sensitivity = dynamic_volume_confirmation_modulators['sensitivity']
+            min_factor = dynamic_volume_confirmation_modulators['min_factor']
+            max_factor = dynamic_volume_confirmation_modulators['max_factor']
+            modulator_factor = (1 + modulator_signal * sensitivity).clip(min_factor, max_factor)
+            for k in current_volume_confirmation_weights:
+                current_volume_confirmation_weights[k] = current_volume_confirmation_weights[k] * modulator_factor
         top_vol_conf_components = {
             "volume_slope_negative": fused_volume_slope.clip(upper=0).abs(),
             "volume_burst": volume_burst_norm,
-            "constructive_turnover": constructive_turnover_norm, # 新增代码行
-            "volume_structure_skew_inverted": volume_structure_skew_inverted_norm # 新增代码行
+            "constructive_turnover": constructive_turnover_norm,
+            "volume_structure_skew_inverted": volume_structure_skew_inverted_norm
         }
-        top_vol_conf = _robust_geometric_mean(top_vol_conf_components, current_volume_confirmation_weights, df_index) # 修改代码行
+        top_vol_conf = _robust_geometric_mean(top_vol_conf_components, current_volume_confirmation_weights, df_index)
         
         bottom_vol_conf_components = {
             "volume_slope_positive": fused_volume_slope.clip(lower=0),
             "volume_atrophy": volume_atrophy_norm,
-            "constructive_turnover": constructive_turnover_norm, # 新增代码行
-            "volume_structure_skew_inverted": volume_structure_skew_inverted_norm # 新增代码行
+            "constructive_turnover": constructive_turnover_norm,
+            "volume_structure_skew_inverted": volume_structure_skew_inverted_norm
         }
-        bottom_vol_conf = _robust_geometric_mean(bottom_vol_conf_components, current_volume_confirmation_weights, df_index) # 修改代码行
+        bottom_vol_conf = _robust_geometric_mean(bottom_vol_conf_components, current_volume_confirmation_weights, df_index)
         
         volume_confirmation_score = pd.Series([
             top_vol_conf.loc[idx] if x > 0 else (-bottom_vol_conf.loc[idx] if x < 0 else 0)
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
-
         # 4.5. Main Force/Chip Confirmation Score
         fused_mf_net_flow_slope = self._get_mtf_slope_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_weights, df_index, "_calculate_price_momentum_divergence", bipolar=True)
         deception_index_norm = self._normalize_series(deception_index_raw, df_index, bipolar=True)
         distribution_intent_norm = self._normalize_series(distribution_intent_score, df_index, ascending=True)
         covert_accumulation_norm = self._normalize_series(covert_accumulation_score, df_index, ascending=True)
         chip_divergence_norm = self._normalize_series(chip_divergence_score, df_index, bipolar=True)
-        main_force_conviction_norm = self._normalize_series(main_force_conviction_raw, df_index, bipolar=True) # 新增代码行
-        chip_health_norm = self._normalize_series(chip_health_raw, df_index, bipolar=False) # 新增代码行
-
-        # 动态调节主力/筹码确认权重 # 新增代码行
-        current_main_force_confirmation_weights = main_force_confirmation_weights.copy() # 新增代码行
-        if get_param_value(dynamic_main_force_confirmation_modulators.get('enabled'), False): # 新增代码行
-            modulator_signal_raw = self._get_atomic_score(df, dynamic_main_force_confirmation_modulators['modulator_signal'], 0.0) # 新增代码行
-            modulator_signal = self._normalize_series(modulator_signal_raw, df_index, bipolar=True) # 新增代码行
-            sensitivity = dynamic_main_force_confirmation_modulators['sensitivity'] # 新增代码行
-            min_factor = dynamic_main_force_confirmation_modulators['min_factor'] # 新增代码行
-            max_factor = dynamic_main_force_confirmation_modulators['max_factor'] # 新增代码行
-            # 市场张力信号越正（张力高），因子越大；越负（张力低），因子越小
-            modulator_factor = (1 + modulator_signal * sensitivity).clip(min_factor, max_factor) # 新增代码行
-            for k in current_main_force_confirmation_weights: # 新增代码行
-                current_main_force_confirmation_weights[k] = current_main_force_confirmation_weights[k] * modulator_factor # 新增代码行
-
+        main_force_conviction_norm = self._normalize_series(main_force_conviction_raw, df_index, bipolar=True)
+        chip_health_norm = self._normalize_series(chip_health_raw, df_index, bipolar=False)
+        # 动态调节主力/筹码确认权重
+        current_main_force_confirmation_weights = main_force_confirmation_weights.copy()
+        if get_param_value(dynamic_main_force_confirmation_modulators.get('enabled'), False):
+            modulator_signal_raw = self._get_atomic_score(df, dynamic_main_force_confirmation_modulators['modulator_signal'], 0.0)
+            modulator_signal = self._normalize_series(modulator_signal_raw, df_index, bipolar=True)
+            sensitivity = dynamic_main_force_confirmation_modulators['sensitivity']
+            min_factor = dynamic_main_force_confirmation_modulators['min_factor']
+            max_factor = dynamic_main_force_confirmation_modulators['max_factor']
+            modulator_factor = (1 + modulator_signal * sensitivity).clip(min_factor, max_factor)
+            for k in current_main_force_confirmation_weights:
+                current_main_force_confirmation_weights[k] = current_main_force_confirmation_weights[k] * modulator_factor
         top_mf_conf_components = {
             "mf_net_flow_slope_negative": fused_mf_net_flow_slope.clip(upper=0).abs(),
             "deception_index_positive": deception_index_norm.clip(lower=0),
             "distribution_intent": distribution_intent_norm,
             "chip_divergence_positive": chip_divergence_norm.clip(lower=0),
-            "main_force_conviction": main_force_conviction_norm.clip(lower=0), # 新增代码行
-            "chip_health": chip_health_norm # 新增代码行
+            "main_force_conviction": main_force_conviction_norm.clip(lower=0),
+            "chip_health": chip_health_norm
         }
-        top_mf_conf = _robust_geometric_mean(top_mf_conf_components, current_main_force_confirmation_weights, df_index) # 修改代码行
-
+        top_mf_conf = _robust_geometric_mean(top_mf_conf_components, current_main_force_confirmation_weights, df_index)
         bottom_mf_conf_components = {
             "mf_net_flow_slope_positive": fused_mf_net_flow_slope.clip(lower=0),
             "deception_index_negative": deception_index_norm.clip(upper=0).abs(),
             "covert_accumulation": covert_accumulation_norm,
             "chip_divergence_negative": chip_divergence_norm.clip(upper=0).abs(),
-            "main_force_conviction": main_force_conviction_norm.clip(upper=0).abs(), # 新增代码行
-            "chip_health": chip_health_norm # 新增代码行
+            "main_force_conviction": main_force_conviction_norm.clip(upper=0).abs(),
+            "chip_health": chip_health_norm
         }
-        bottom_mf_conf = _robust_geometric_mean(bottom_mf_conf_components, current_main_force_confirmation_weights, df_index) # 修改代码行
-
+        bottom_mf_conf = _robust_geometric_mean(bottom_mf_conf_components, current_main_force_confirmation_weights, df_index)
         main_force_confirmation_score = pd.Series([
             top_mf_conf.loc[idx] if x > 0 else (-bottom_mf_conf.loc[idx] if x < 0 else 0)
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
-
         # 4.6. Divergence Quality Score
         is_top_divergence_bool = (base_divergence_score > 0.1)
         is_bottom_divergence_bool = (base_divergence_score < -0.1)
@@ -935,26 +914,24 @@ class ProcessIntelligence:
         
         top_divergence_duration_norm = (top_divergence_duration / 5).clip(0,1)
         bottom_divergence_duration_norm = (bottom_divergence_duration / 5).clip(0,1)
-
         divergence_depth_norm = base_divergence_score.abs()
         
-        stability_norm = self._normalize_series(stability_score, df_index, bipolar=False) # 新增代码行
-        chip_potential_norm = self._normalize_series(chip_historical_potential_score, df_index, bipolar=False) # 新增代码行
-
+        stability_norm = self._normalize_series(stability_score, df_index, bipolar=False)
+        chip_potential_norm = self._normalize_series(chip_historical_potential_score, df_index, bipolar=False)
         divergence_quality_score = pd.Series([
             (_robust_geometric_mean(
                 {"duration": pd.Series(top_divergence_duration_norm.loc[idx], index=[idx]),
                  "depth": pd.Series(divergence_depth_norm.loc[idx], index=[idx]),
-                 "stability": pd.Series(stability_norm.loc[idx], index=[idx]), # 新增代码行
-                 "chip_potential": pd.Series(chip_potential_norm.loc[idx], index=[idx])}, # 新增代码行
+                 "stability": pd.Series(stability_norm.loc[idx], index=[idx]),
+                 "chip_potential": pd.Series(chip_potential_norm.loc[idx], index=[idx])},
                 divergence_quality_weights,
                 pd.Index([idx])
             ).iloc[0] if x > 0 else
              (_robust_geometric_mean(
                  {"duration": pd.Series(bottom_divergence_duration_norm.loc[idx], index=[idx]),
                   "depth": pd.Series(divergence_depth_norm.loc[idx], index=[idx]),
-                  "stability": pd.Series(stability_norm.loc[idx], index=[idx]), # 新增代码行
-                  "chip_potential": pd.Series(chip_potential_norm.loc[idx], index=[idx])}, # 新增代码行
+                  "stability": pd.Series(stability_norm.loc[idx], index=[idx]),
+                  "chip_potential": pd.Series(chip_potential_norm.loc[idx], index=[idx])},
                  divergence_quality_weights,
                  pd.Index([idx])
              ).iloc[0] if x < 0 else 0))
@@ -965,18 +942,17 @@ class ProcessIntelligence:
         volatility_instability_norm_inverted = self._normalize_series(volatility_instability_raw, df_index, ascending=False)
         adx_norm_inverted = self._normalize_series(adx_raw, df_index, ascending=False)
         market_sentiment_norm_bipolar = self._normalize_series(market_sentiment_raw, df_index, bipolar=True)
-        liquidity_tide_calm_norm = self._normalize_series(liquidity_tide_score.abs(), df_index, ascending=False) # 新增代码行
-        market_constitution_neutrality_norm = 1 - self._normalize_series(market_constitution_score.abs(), df_index, ascending=True) # 新增代码行
+        liquidity_tide_calm_norm = self._normalize_series(liquidity_tide_score.abs(), df_index, ascending=False)
+        market_constitution_neutrality_norm = 1 - self._normalize_series(market_constitution_score.abs(), df_index, ascending=True)
         
         context_modulator_components = {
             "volatility_inverse": volatility_instability_norm_inverted,
             "trend_strength_inverse": adx_norm_inverted,
             "sentiment_neutrality": 1 - market_sentiment_norm_bipolar.abs(),
-            "liquidity_tide_calm": liquidity_tide_calm_norm, # 新增代码行
-            "market_constitution_neutrality": market_constitution_neutrality_norm # 新增代码行
+            "liquidity_tide_calm": liquidity_tide_calm_norm,
+            "market_constitution_neutrality": market_constitution_neutrality_norm
         }
         context_modulator = _robust_geometric_mean(context_modulator_components, context_modulator_weights, df_index)
-
         # --- 5. 最终融合 ---
         # Use a weighted geometric mean for robust fusion
         final_components = {
@@ -988,7 +964,7 @@ class ProcessIntelligence:
         }
         
         # Define fusion weights for the final geometric mean (these should be in config)
-        final_fusion_weights_dict = get_param_value(params.get('dynamic_fusion_weights_params', {}).get('base_weights'), { # 修改代码行
+        final_fusion_weights_dict = get_param_value(params.get('dynamic_fusion_weights_params', {}).get('base_weights'), {
             "base_divergence": 0.3,
             "volume_confirmation": 0.2,
             "main_force_confirmation": 0.25,
@@ -996,37 +972,39 @@ class ProcessIntelligence:
             "context_modulator": 0.1
         })
         
-        # 动态调整最终融合权重 # 新增代码行
-        if get_param_value(dynamic_fusion_weights_params.get('enabled'), False): # 新增代码行
-            modulator_signal_1_raw = self._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_1'], 0.0) # 新增代码行
-            modulator_signal_2_raw = self._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_2'], 0.0) # 新增代码行
+        # 动态调整最终融合权重
+        if get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
+            modulator_signal_1_raw = self._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_1'], 0.0)
+            modulator_signal_2_raw = self._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_2'], 0.0)
             
-            modulator_signal_1 = self._normalize_series(modulator_signal_1_raw, df_index, bipolar=True) # 市场张力 # 新增代码行
-            modulator_signal_2 = self._normalize_series(modulator_signal_2_raw, df_index, bipolar=True) # 流动性潮汐 # 新增代码行
-
-            sensitivity_tension = dynamic_fusion_weights_params['sensitivity_tension'] # 新增代码行
-            sensitivity_liquidity = dynamic_fusion_weights_params['sensitivity_liquidity'] # 新增代码行
-
-            tension_impact_weights = dynamic_fusion_weights_params['tension_impact_weights'] # 新增代码行
-            liquidity_impact_weights = dynamic_fusion_weights_params['liquidity_impact_weights'] # 新增代码行
-
-            for k in final_fusion_weights_dict: # 新增代码行
+            modulator_signal_1 = self._normalize_series(modulator_signal_1_raw, df_index, bipolar=True) # 市场张力
+            modulator_signal_2 = self._normalize_series(modulator_signal_2_raw, df_index, bipolar=True) # 流动性潮汐
+            sensitivity_tension = dynamic_fusion_weights_params['sensitivity_tension']
+            sensitivity_liquidity = dynamic_fusion_weights_params['sensitivity_liquidity']
+            tension_impact_weights = dynamic_fusion_weights_params['tension_impact_weights']
+            liquidity_impact_weights = dynamic_fusion_weights_params['liquidity_impact_weights']
+            # 创建一个临时的 Series 来存储动态调整后的权重，确保所有操作都是 Series 级别的
+            adjusted_weights_series = pd.DataFrame(final_fusion_weights_dict, index=df_index)
+            
+            for k in final_fusion_weights_dict:
                 # 市场张力越高，base_divergence和divergence_quality权重增加，context_modulator权重减少
-                final_fusion_weights_dict[k] = final_fusion_weights_dict[k] + (modulator_signal_1 * tension_impact_weights.get(k, 0.0) * sensitivity_tension) # 新增代码行
+                adjusted_weights_series[k] = adjusted_weights_series[k] + (modulator_signal_1 * tension_impact_weights.get(k, 0.0) * sensitivity_tension)
                 # 流动性潮汐越高，volume_confirmation和main_force_confirmation权重增加
-                final_fusion_weights_dict[k] = final_fusion_weights_dict[k] + (modulator_signal_2 * liquidity_impact_weights.get(k, 0.0) * sensitivity_liquidity) # 新增代码行
+                adjusted_weights_series[k] = adjusted_weights_series[k] + (modulator_signal_2 * liquidity_impact_weights.get(k, 0.0) * sensitivity_liquidity)
             
             # 确保权重和为1，并进行归一化
-            total_dynamic_weight = sum(final_fusion_weights_dict[k] for k in final_fusion_weights_dict) # 新增代码行
-            if total_dynamic_weight > 0: # 新增代码行
-                for k in final_fusion_weights_dict: # 新增代码行
-                    final_fusion_weights_dict[k] = final_fusion_weights_dict[k] / total_dynamic_weight # 新增代码行
-            else: # 新增代码行
-                # 如果动态调整后总权重为0，则恢复基础权重 # 新增代码行
-                final_fusion_weights_dict = get_param_value(params.get('dynamic_fusion_weights_params', {}).get('base_weights'), { # 新增代码行
-                    "base_divergence": 0.3, "volume_confirmation": 0.2, "main_force_confirmation": 0.25, "divergence_quality": 0.15, "context_modulator": 0.1 # 新增代码行
-                }) # 新增代码行
-
+            total_dynamic_weight = adjusted_weights_series.sum(axis=1)
+            
+            # 只有当总权重 Series 的所有值都大于 0 时才进行归一化，否则使用默认权重
+            # 使用 .all() 来判断 Series 的真值，避免 ValueError
+            if (total_dynamic_weight > 0).all():
+                final_fusion_weights_dict = (adjusted_weights_series.div(total_dynamic_weight, axis=0)).to_dict('series')
+            else:
+                # 如果动态调整后总权重为0或负数，则恢复基础权重
+                final_fusion_weights_dict = get_param_value(params.get('dynamic_fusion_weights_params', {}).get('base_weights'), {
+                    "base_divergence": 0.3, "volume_confirmation": 0.2, "main_force_confirmation": 0.25, "divergence_quality": 0.15, "context_modulator": 0.1
+                })
+        
         # Calculate the raw fused score (unipolar)
         raw_fused_score = _robust_geometric_mean(final_components, final_fusion_weights_dict, df_index)
         
@@ -1037,13 +1015,12 @@ class ProcessIntelligence:
         sign_base = np.sign(base_divergence_score.replace(0, 1e-9))
         sign_vol = np.sign(volume_confirmation_score.replace(0, 1e-9))
         sign_mf = np.sign(main_force_confirmation_score.replace(0, 1e-9))
-        sign_price_momentum_quality = np.sign(price_momentum_quality_score.replace(0, 1e-9)) # 新增代码行
-
+        sign_price_momentum_quality = np.sign(price_momentum_quality_score.replace(0, 1e-9))
         aligned_count = (sign_base == sign_vol).astype(int) + \
                         (sign_base == sign_mf).astype(int) + \
-                        (sign_base == sign_price_momentum_quality).astype(int) # 修改代码行
+                        (sign_base == sign_price_momentum_quality).astype(int)
         
-        is_synergistic = (aligned_count >= 3) & (base_divergence_score.abs() > synergy_threshold) # 修改代码行
+        is_synergistic = (aligned_count >= 3) & (base_divergence_score.abs() > synergy_threshold)
         is_conflicting = (aligned_count < 1) & (base_divergence_score.abs() > synergy_threshold)
         
         synergy_conflict_factor.loc[is_synergistic] = 1 + synergy_bonus_factor
@@ -1059,7 +1036,89 @@ class ProcessIntelligence:
         final_score = np.sign(final_score) * (final_score.abs().pow(final_fusion_exponent))
         
         final_score = final_score.clip(-1, 1).fillna(0.0)
-
+        # --- 6. 探针输出 ---
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            last_date_index = -1
+            print(f"\n--- [PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
+            print("  [输入原料 (原始值)]: ")
+            for p_str in valid_mtf_periods:
+                p = int(p_str)
+                print(f"    - SLOPE_{p}_close_D: {price_slopes_raw[p_str].iloc[last_date_index]:.4f}")
+                print(f"    - SLOPE_{p}_MACDh_13_34_8_D: {macdh_slopes_raw[p_str].iloc[last_date_index]:.4f}")
+                print(f"    - SLOPE_{p}_RSI_13_D: {rsi_slopes_raw[p_str].iloc[last_date_index]:.4f}")
+                print(f"    - SLOPE_{p}_ROC_13_D: {roc_slopes_raw[p_str].iloc[last_date_index]:.4f}")
+                print(f"    - SLOPE_{p}_volume_D: {volume_slopes_raw[p_str].iloc[last_date_index]:.4f}")
+                print(f"    - SLOPE_{p}_main_force_net_flow_calibrated_D: {mf_net_flow_slopes_raw[p_str].iloc[last_date_index]:.4f}")
+            print(f"    - volume_burstiness_index_D: {volume_burstiness_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_BEHAVIOR_VOLUME_ATROPHY: {volume_atrophy_score.iloc[last_date_index]:.4f}")
+            print(f"    - deception_index_D: {deception_index_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent_score.iloc[last_date_index]:.4f}")
+            print(f"    - PROCESS_META_COVERT_ACCUMULATION: {covert_accumulation_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_CHIP_AXIOM_DIVERGENCE: {chip_divergence_score.iloc[last_date_index]:.4f}")
+            print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.iloc[last_date_index]:.4f}")
+            print(f"    - ADX_14_D: {adx_raw.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM: {price_upward_momentum_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM: {price_downward_momentum_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_DYN_AXIOM_MOMENTUM: {momentum_quality_score.iloc[last_date_index]:.4f}")
+            print(f"    - constructive_turnover_ratio_D: {constructive_turnover_raw.iloc[last_date_index]:.4f}")
+            print(f"    - volume_structure_skew_D: {volume_structure_skew_raw.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_conviction_index_D: {main_force_conviction_raw.iloc[last_date_index]:.4f}")
+            print(f"    - chip_health_score_D: {chip_health_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_DYN_AXIOM_STABILITY: {stability_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL: {chip_historical_potential_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE: {liquidity_tide_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION: {market_constitution_score.iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_MARKET_TENSION: {market_tension_score.iloc[last_date_index]:.4f}")
+            
+            print("  [关键计算 (归一化/中间分)]: ")
+            print(f"    - fused_price_direction_base: {fused_price_direction_base.iloc[last_date_index]:.4f}")
+            print(f"    - price_momentum_quality_score: {price_momentum_quality_score.iloc[last_date_index]:.4f}")
+            print(f"    - fused_price_direction: {fused_price_direction.iloc[last_date_index]:.4f}")
+            print(f"    - fused_macdh_direction: {fused_macdh_direction.iloc[last_date_index]:.4f}")
+            print(f"    - fused_rsi_direction: {fused_rsi_direction.iloc[last_date_index]:.4f}")
+            print(f"    - fused_roc_direction: {fused_roc_direction.iloc[last_date_index]:.4f}")
+            print(f"    - fused_momentum_direction: {fused_momentum_direction.iloc[last_date_index]:.4f}")
+            print(f"    - base_divergence_score: {base_divergence_score.iloc[last_date_index]:.4f}")
+            print(f"    - fused_volume_slope: {fused_volume_slope.iloc[last_date_index]:.4f}")
+            print(f"    - volume_burst_norm: {volume_burst_norm.iloc[last_date_index]:.4f}")
+            print(f"    - volume_atrophy_norm: {volume_atrophy_norm.iloc[last_date_index]:.4f}")
+            print(f"    - constructive_turnover_norm: {constructive_turnover_norm.iloc[last_date_index]:.4f}")
+            print(f"    - volume_structure_skew_inverted_norm: {volume_structure_skew_inverted_norm.iloc[last_date_index]:.4f}")
+            print(f"    - top_vol_conf: {top_vol_conf.iloc[last_date_index]:.4f}")
+            print(f"    - bottom_vol_conf: {bottom_vol_conf.iloc[last_date_index]:.4f}")
+            print(f"    - volume_confirmation_score: {volume_confirmation_score.iloc[last_date_index]:.4f}")
+            print(f"    - fused_mf_net_flow_slope: {fused_mf_net_flow_slope.iloc[last_date_index]:.4f}")
+            print(f"    - deception_index_norm: {deception_index_norm.iloc[last_date_index]:.4f}")
+            print(f"    - distribution_intent_norm: {distribution_intent_norm.iloc[last_date_index]:.4f}")
+            print(f"    - covert_accumulation_norm: {covert_accumulation_norm.iloc[last_date_index]:.4f}")
+            print(f"    - chip_divergence_norm: {chip_divergence_norm.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_conviction_norm: {main_force_conviction_norm.iloc[last_date_index]:.4f}")
+            print(f"    - chip_health_norm: {chip_health_norm.iloc[last_date_index]:.4f}")
+            print(f"    - top_mf_conf: {top_mf_conf.iloc[last_date_index]:.4f}")
+            print(f"    - bottom_mf_conf: {bottom_mf_conf.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_confirmation_score: {main_force_confirmation_score.iloc[last_date_index]:.4f}")
+            print(f"    - top_divergence_duration_norm: {top_divergence_duration_norm.iloc[last_date_index]:.4f}")
+            print(f"    - bottom_divergence_duration_norm: {bottom_divergence_duration_norm.iloc[last_date_index]:.4f}")
+            print(f"    - divergence_depth_norm: {divergence_depth_norm.iloc[last_date_index]:.4f}")
+            print(f"    - stability_norm: {stability_norm.iloc[last_date_index]:.4f}")
+            print(f"    - chip_potential_norm: {chip_potential_norm.iloc[last_date_index]:.4f}")
+            print(f"    - divergence_quality_score: {divergence_quality_score.iloc[last_date_index]:.4f}")
+            print(f"    - volatility_instability_norm_inverted: {volatility_instability_norm_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - adx_norm_inverted: {adx_norm_inverted.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_norm_bipolar: {market_sentiment_norm_bipolar.iloc[last_date_index]:.4f}")
+            print(f"    - liquidity_tide_calm_norm: {liquidity_tide_calm_norm.iloc[last_date_index]:.4f}")
+            print(f"    - market_constitution_neutrality_norm: {market_constitution_neutrality_norm.iloc[last_date_index]:.4f}")
+            print(f"    - context_modulator: {context_modulator.iloc[last_date_index]:.4f}")
+            print(f"    - raw_fused_score: {raw_fused_score.iloc[last_date_index]:.4f}")
+            print(f"    - synergy_conflict_factor: {synergy_conflict_factor.iloc[last_date_index]:.4f}")
+            print(f"    - raw_fused_score_modulated: {raw_fused_score_modulated.iloc[last_date_index]:.4f}")
+            
+            print("  [最终结果]: ")
+            print(f"    - final_price_momentum_divergence_score: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
     def _calculate_winner_belief_erosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1857,7 +1916,7 @@ class ProcessIntelligence:
         return meta_score
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V10.0 · 情绪与主力意图精细化感知版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V10.0 · 情绪与主力意图精细化感知版)...")
         df_index = df.index
         params = get_param_value(config.get('storm_eye_calm_params'), {})
         # --- 1. 获取配置参数 ---
@@ -1878,7 +1937,7 @@ class ProcessIntelligence:
         main_force_flow_volatility_window = get_param_value(params.get('main_force_flow_volatility_window'), 21)
         sentiment_neutral_range = get_param_value(params.get('sentiment_neutral_range'), 1.0)
         sentiment_pendulum_neutral_range = get_param_value(params.get('sentiment_pendulum_neutral_range'), 0.2)
-        ambiguity_components_weights = get_param_value(params.get('ambiguity_components_weights'), {"directionality_neutrality": 0.15, "net_flow_near_zero": 0.15, "deception_score": 0.15, "wash_trade_score": 0.15, "mf_conviction_neutrality": 0.1, "deception_lure_neutrality": 0.1, "covert_action_score": 0.1, "main_force_slippage_inverted": 0.05, "main_force_flow_gini_inverted": 0.05, "micro_impact_elasticity_positive": 0.05, "order_flow_imbalance_neutrality": 0.05, "liquidity_authenticity_positive": 0.05}) # 修改代码行
+        ambiguity_components_weights = get_param_value(params.get('ambiguity_components_weights'), {"directionality_neutrality": 0.15, "net_flow_near_zero": 0.15, "deception_score": 0.15, "wash_trade_score": 0.15, "mf_conviction_neutrality": 0.1, "deception_lure_neutrality": 0.1, "covert_action_score": 0.1, "main_force_slippage_inverted": 0.05, "main_force_flow_gini_inverted": 0.05, "micro_impact_elasticity_positive": 0.05, "order_flow_imbalance_neutrality": 0.05, "liquidity_authenticity_positive": 0.05})
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -1909,8 +1968,8 @@ class ProcessIntelligence:
             'covert_accumulation_signal_D', 'covert_distribution_signal_D',
             'main_force_slippage_index_D', 'main_force_flow_gini_D',
             'price_reversion_velocity_D', 'structural_entropy_change_D',
-            'micro_impact_elasticity_D', 'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D', # 修改代码行
-            'mean_reversion_frequency_D', 'trend_alignment_index_D' # 修改代码行
+            'micro_impact_elasticity_D', 'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D',
+            'mean_reversion_frequency_D', 'trend_alignment_index_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in mtf_cohesion_base_signals:
@@ -1972,9 +2031,9 @@ class ProcessIntelligence:
         main_force_slippage_raw = self._get_safe_series(df, 'main_force_slippage_index_D', np.nan, method_name="_calculate_storm_eye_calm")
         main_force_flow_gini_raw = self._get_safe_series(df, 'main_force_flow_gini_D', np.nan, method_name="_calculate_storm_eye_calm")
         # 新增主力意图相关原始数据
-        micro_impact_elasticity_raw = self._get_safe_series(df, 'micro_impact_elasticity_D', np.nan, method_name="_calculate_storm_eye_calm") # 修改代码行
-        order_flow_imbalance_score_raw = self._get_safe_series(df, 'order_flow_imbalance_score_D', np.nan, method_name="_calculate_storm_eye_calm") # 修改代码行
-        liquidity_authenticity_score_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', np.nan, method_name="_calculate_storm_eye_calm") # 修改代码行
+        micro_impact_elasticity_raw = self._get_safe_series(df, 'micro_impact_elasticity_D', np.nan, method_name="_calculate_storm_eye_calm")
+        order_flow_imbalance_score_raw = self._get_safe_series(df, 'order_flow_imbalance_score_D', np.nan, method_name="_calculate_storm_eye_calm")
+        liquidity_authenticity_score_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', np.nan, method_name="_calculate_storm_eye_calm")
         # Subdued Market Sentiment
         sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', np.nan)
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', np.nan, method_name="_calculate_storm_eye_calm")
@@ -1989,8 +2048,8 @@ class ProcessIntelligence:
         price_reversion_velocity_raw = self._get_safe_series(df, 'price_reversion_velocity_D', np.nan, method_name="_calculate_storm_eye_calm")
         structural_entropy_change_raw = self._get_safe_series(df, 'structural_entropy_change_D', np.nan, method_name="_calculate_storm_eye_calm")
         # 新增情绪相关原始数据
-        mean_reversion_frequency_raw = self._get_safe_series(df, 'mean_reversion_frequency_D', np.nan, method_name="_calculate_storm_eye_calm") # 修改代码行
-        trend_alignment_index_raw = self._get_safe_series(df, 'trend_alignment_index_D', np.nan, method_name="_calculate_storm_eye_calm") # 修改代码行
+        mean_reversion_frequency_raw = self._get_safe_series(df, 'mean_reversion_frequency_D', np.nan, method_name="_calculate_storm_eye_calm")
+        trend_alignment_index_raw = self._get_safe_series(df, 'trend_alignment_index_D', np.nan, method_name="_calculate_storm_eye_calm")
         # Breakout Readiness
         struct_breakout_readiness_score = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', np.nan)
         struct_platform_foundation_score = self._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', np.nan)
@@ -2083,9 +2142,9 @@ class ProcessIntelligence:
         main_force_slippage_inverted = self._normalize_series(main_force_slippage_raw, df_index, ascending=False)
         main_force_flow_gini_inverted = self._normalize_series(main_force_flow_gini_raw, df_index, ascending=False)
         # 新增模糊性组件
-        micro_impact_elasticity_positive = self._normalize_series(micro_impact_elasticity_raw, df_index, ascending=True) # 修改代码行
-        order_flow_imbalance_neutrality = 1 - self._normalize_series(order_flow_imbalance_score_raw.abs(), df_index, ascending=True) # 修改代码行
-        liquidity_authenticity_positive = self._normalize_series(liquidity_authenticity_score_raw, df_index, ascending=True) # 修改代码行
+        micro_impact_elasticity_positive = self._normalize_series(micro_impact_elasticity_raw, df_index, ascending=True)
+        order_flow_imbalance_neutrality = 1 - self._normalize_series(order_flow_imbalance_score_raw.abs(), df_index, ascending=True)
+        liquidity_authenticity_positive = self._normalize_series(liquidity_authenticity_score_raw, df_index, ascending=True)
         ambiguity_components = {
             'directionality_neutrality': main_force_flow_directionality_neutrality,
             'net_flow_near_zero': mf_net_flow_near_zero,
@@ -2096,9 +2155,9 @@ class ProcessIntelligence:
             'covert_action_score': covert_action_score,
             'main_force_slippage_inverted': main_force_slippage_inverted,
             'main_force_flow_gini_inverted': main_force_flow_gini_inverted,
-            'micro_impact_elasticity_positive': micro_impact_elasticity_positive, # 修改代码行
-            'order_flow_imbalance_neutrality': order_flow_imbalance_neutrality, # 修改代码行
-            'liquidity_authenticity_positive': liquidity_authenticity_positive # 修改代码行
+            'micro_impact_elasticity_positive': micro_impact_elasticity_positive,
+            'order_flow_imbalance_neutrality': order_flow_imbalance_neutrality,
+            'liquidity_authenticity_positive': liquidity_authenticity_positive
         }
         main_force_flow_ambiguity = _robust_geometric_mean(ambiguity_components, ambiguity_components_weights, df_index)
         main_force_covert_intent_scores_dict = {
@@ -2133,8 +2192,8 @@ class ProcessIntelligence:
         price_reversion_velocity_inverted = self._normalize_series(price_reversion_velocity_raw, df_index, ascending=False)
         structural_entropy_change_inverted = self._normalize_series(structural_entropy_change_raw.abs(), df_index, ascending=False)
         # 新增情绪组件
-        mean_reversion_frequency_inverted = self._normalize_series(mean_reversion_frequency_raw, df_index, ascending=False) # 修改代码行
-        trend_alignment_positive = self._normalize_series(trend_alignment_index_raw, df_index, ascending=True) # 修改代码行
+        mean_reversion_frequency_inverted = self._normalize_series(mean_reversion_frequency_raw, df_index, ascending=False)
+        trend_alignment_positive = self._normalize_series(trend_alignment_index_raw, df_index, ascending=True)
         subdued_market_sentiment_scores_dict = {
             'sentiment_pendulum_negative': sentiment_pendulum_negative, 'market_sentiment_inverted': market_sentiment_inverted,
             'retail_panic_inverted': retail_panic_inverted, 'retail_fomo_inverted': retail_fomo_inverted,
@@ -2149,8 +2208,8 @@ class ProcessIntelligence:
             'market_sentiment_boring_score': market_sentiment_boring_score,
             'price_reversion_velocity_inverted': price_reversion_velocity_inverted,
             'structural_entropy_change_inverted': structural_entropy_change_inverted,
-            'mean_reversion_frequency_inverted': mean_reversion_frequency_inverted, # 修改代码行
-            'trend_alignment_positive': trend_alignment_positive # 修改代码行
+            'mean_reversion_frequency_inverted': mean_reversion_frequency_inverted,
+            'trend_alignment_positive': trend_alignment_positive
         }
         subdued_market_sentiment_score = _robust_geometric_mean(subdued_market_sentiment_scores_dict, subdued_market_sentiment_weights, df_index)
         # Breakout Readiness
@@ -2340,7 +2399,7 @@ class ProcessIntelligence:
         return final_score
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V2.4 · 深度情境感知版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V2.4 · 深度情境感知版)...")
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('wash_out_rebound_params'), {})
@@ -2349,7 +2408,7 @@ class ProcessIntelligence:
         deception_context_weights = get_param_value(params.get('deception_context_weights'), {"wash_trade": 0.2, "active_selling": 0.15, "fused_deception": 0.2, "behavior_deception_index": 0.2, "stealth_ops": 0.15, "wash_trade_slope": 0.05, "active_selling_slope": 0.05})
         panic_depth_weights = get_param_value(params.get('panic_depth_weights'), {"panic_cascade": 0.2, "retail_surrender": 0.2, "loser_pain": 0.2, "holder_sentiment_inverted": 0.15, "sentiment_pendulum_negative": 0.15, "retail_surrender_slope": 0.05, "loser_pain_slope": 0.05})
         rebound_quality_weights = get_param_value(params.get('rebound_quality_weights'), {"offensive_absorption_intent": 0.2, "closing_strength": 0.15, "upward_purity": 0.15, "absorption_strength": 0.2, "offensive_absorption": 0.15, "mf_buy_execution_alpha": 0.05, "buy_sweep_intensity": 0.1})
-        context_amplification_weights = get_param_value(params.get('context_amplification_weights'), {"trend_form": 0.4, "stability": 0.3, "tension": 0.15, "mtf_cohesion": 0.15}) # 修改代码行
+        context_amplification_weights = get_param_value(params.get('context_amplification_weights'), {"trend_form": 0.4, "stability": 0.3, "tension": 0.15, "mtf_cohesion": 0.15})
         max_context_bonus_factor = get_param_value(params.get('max_context_bonus_factor'), 0.5)
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
@@ -2483,7 +2542,7 @@ class ProcessIntelligence:
         return final_wash_out_rebound_score.clip(0, 1).astype(np.float32)
 
     def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.4 · 深度情境感知版)...") # 修改代码行
+        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.4 · 深度情境感知版)...")
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('covert_accumulation_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})

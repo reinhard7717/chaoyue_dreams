@@ -801,8 +801,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volatility_expansion_ratio',
         'shock_conviction_score',
         'auction_showdown_score',
-        'trend_acceleration_score', # 修改代码行
-        'final_charge_intensity', # 修改代码行
+        'trend_acceleration_score',
+        'final_charge_intensity',
         'volume_structure_skew',
         'active_volume_price_efficiency',
         'breakthrough_cost_index',

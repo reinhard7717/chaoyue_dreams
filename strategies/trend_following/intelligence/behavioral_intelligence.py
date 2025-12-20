@@ -251,16 +251,10 @@ class BehavioralIntelligence:
         if abs(power_p) < 1e-9: # power_p is effectively 0, use geometric mean
             weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
             result_values = np.exp(weighted_log_sum)
-            if is_debug_enabled and probe_ts and probe_ts in df_index: # 修改的代码行
-                print(f"        - {fusion_level_name} 融合方式: 几何平均 (power_p={power_p:.4f})")
-                print(f"        - {fusion_level_name} 几何平均 log_sum @ {probe_ts.strftime('%Y-%m-%d')}: {weighted_log_sum[df_index.get_loc(probe_ts)]:.4f}")
         else: # Use generalized mean (Power Mean)
             weighted_power_sum = np.sum(safe_scores**power_p * normalized_weights[:, np.newaxis], axis=0)
             # 避免 0^(1/p) 导致 NaN，如果 weighted_power_sum 接近 0，则结果也应为 0
             result_values = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p))
-            if is_debug_enabled and probe_ts and probe_ts in df_index: # 修改的代码行
-                print(f"        - {fusion_level_name} 融合方式: 广义平均 (power_p={power_p:.4f})")
-                print(f"        - {fusion_level_name} 广义平均 power_sum @ {probe_ts.strftime('%Y-%m-%d')}: {weighted_power_sum[df_index.get_loc(probe_ts)]:.4f}")
         return pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
 
     def _calculate_price_momentum_resonance(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
@@ -286,7 +280,7 @@ class BehavioralIntelligence:
             accel_score = (accel_score_bipolar + 1) / 2
             # 几何平均融合斜率和加速度，确保两者都为正向贡献
             # 这里的权重可以进一步配置，但先用等权
-            period_momentum_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
+            period_momentum_score = self._robust_generalized_mean( # Call _robust_generalized_mean
                 {"slope": slope_score, "acceleration": accel_score},
                 {"slope": 0.5, "acceleration": 0.5}, # Equal weights for now
                 df.index,
@@ -375,7 +369,7 @@ class BehavioralIntelligence:
         fusion_weights = get_param_value(params.get('fusion_weights'), {"outcome_assessment": 0.2, "process_quality": 0.2, "narrative_integrity": 0.2, "behavioral_cohesion": 0.2, "trend_momentum_resonance": 0.2})
         context_modulator_params = get_param_value(params.get('context_modulator_params'), {})
         final_exponent = get_param_value(params.get('final_exponent'), 1.2)
-        fusion_power_p = get_param_value(params.get('fusion_power_p'), 0.1) # MODIFIED LINE: Get fusion_power_p
+        fusion_power_p = get_param_value(params.get('fusion_power_p'), 0.1) # Get fusion_power_p
         tf_weights_config = get_param_value(params.get('tf_weights'), {})
         default_tf_weights = get_param_value(tf_weights_config.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 1. 获取所有原始数据 ---
@@ -447,7 +441,7 @@ class BehavioralIntelligence:
         closing_acceptance_score = get_adaptive_mtf_normalized_score(closing_acceptance_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('closing_acceptance'), default_tf_weights), ascending=True)
         # 集合竞价影响 (归一化到 [0, 1])
         auction_impact_score = get_adaptive_mtf_normalized_score(auction_impact_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('auction_impact'), default_tf_weights), ascending=True)
-        outcome_assessment_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
+        outcome_assessment_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "intraday_posture": intraday_posture_score,
                 "closing_strength": closing_strength_score,
@@ -471,13 +465,13 @@ class BehavioralIntelligence:
         vwap_control_score = (vwap_control_raw.clip(-1, 1) + 1) / 2
         # 主力活跃度 (归一化到 [0, 1])
         main_force_activity_score = get_adaptive_mtf_normalized_score(main_force_activity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('main_force_activity'), default_tf_weights), ascending=True)
-        # 日内能量密度 (归一化到 [0, 1]) - MODIFIED LINE: 使用能量指标专用归一化方法
+        # 日内能量密度 (归一化到 [0, 1]) - 使用能量指标专用归一化方法
         intraday_energy_density_score = get_adaptive_mtf_normalized_energy_score(intraday_energy_density_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('intraday_energy_density'), default_tf_weights), ascending=True)
         # 资金流可信度 (归一化到 [0, 1])
         flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights), ascending=True)
         # 控制坚实度 (归一化到 [0, 1])
         control_solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('control_solidity'), default_tf_weights), ascending=True)
-        process_quality_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
+        process_quality_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "microstructure_efficiency": micro_efficiency_score,
                 "impulse_quality": impulse_quality_score,
@@ -511,7 +505,7 @@ class BehavioralIntelligence:
         structural_tension_inverse = (1 - get_adaptive_mtf_normalized_score(structural_tension_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('structural_tension'), default_tf_weights), ascending=True)).clip(0, 1)
         # 恐慌抛售 (反向，归一化到 [0, 1])
         panic_selling_cascade_inverse = (1 - get_adaptive_mtf_normalized_score(panic_selling_cascade_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('panic_selling_cascade'), default_tf_weights), ascending=True)).clip(0, 1)
-        narrative_integrity_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
+        narrative_integrity_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "closing_auction_ambush_inverse": closing_auction_ambush_inverse,
                 "deception_lure_long_inverse": deception_lure_long_inverse,
@@ -542,7 +536,7 @@ class BehavioralIntelligence:
         covert_accumulation_score = get_adaptive_mtf_normalized_score(covert_accumulation_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('covert_accumulation'), default_tf_weights), ascending=True)
         # 隐蔽出货 (反向，归一化到 [0, 1])
         covert_distribution_inverse = (1 - get_adaptive_mtf_normalized_score(covert_distribution_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('covert_distribution'), default_tf_weights), ascending=True)).clip(0, 1)
-        behavioral_cohesion_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
+        behavioral_cohesion_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "trend_conviction": trend_conviction_score,
                 "trend_efficiency": trend_efficiency_score,
@@ -561,7 +555,7 @@ class BehavioralIntelligence:
         # --- 6. 趋势动能与结构共振 (Trend Momentum & Structural Resonance) ---
         price_momentum_resonance_score = self._calculate_price_momentum_resonance(df, tf_weights_config, default_tf_weights, method_name, is_debug_enabled, probe_ts)
         structural_health_score = self._calculate_structural_health(df, tf_weights_config, default_tf_weights, method_name, is_debug_enabled, probe_ts)
-        trend_momentum_resonance_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
+        trend_momentum_resonance_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "price_momentum_resonance": price_momentum_resonance_score,
                 "structural_health": structural_health_score
@@ -573,8 +567,6 @@ class BehavioralIntelligence:
             probe_ts=probe_ts,
             fusion_level_name="趋势动能与结构共振"
         )
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 趋势动能与结构共振分数 @ {probe_ts.strftime('%Y-%m-%d')}: {trend_momentum_resonance_score.loc[probe_ts]:.4f}")
         # --- 7. 顶层融合 (加权广义平均) ---
         # 动态调整顶层融合权重
         dynamic_fusion_weights = fusion_weights.copy()
@@ -597,7 +589,7 @@ class BehavioralIntelligence:
                     dynamic_fusion_weights[dim] /= total_dynamic_weight
             else: # Fallback to static weights if dynamic weights sum to zero
                 dynamic_fusion_weights = fusion_weights
-        day_quality_base_score = self._robust_generalized_mean( # MODIFIED LINE: Call _robust_generalized_mean
+        day_quality_base_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "outcome_assessment": outcome_assessment_score,
                 "process_quality": process_quality_score,
@@ -607,7 +599,7 @@ class BehavioralIntelligence:
             },
             dynamic_fusion_weights, # 使用动态权重
             df.index,
-            power_p=fusion_power_p, # MODIFIED LINE: Pass fusion_power_p
+            power_p=fusion_power_p, # Pass fusion_power_p
             is_debug_enabled=is_debug_enabled,
             probe_ts=probe_ts,
             fusion_level_name="顶层融合基础分数"
@@ -748,6 +740,18 @@ class BehavioralIntelligence:
                          'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
             required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
         required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
+        # 新增对 BIPOLAR_BEHAVIORAL_DAY_QUALITY 的斜率和加速度的检查
+        for p in get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params', {}).get('mtf_periods'), [5, 13, 21, 34, 55]):
+            required_signals.append(f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
+            if p <= 34:
+                required_signals.append(f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
+        # 新增对情境调制器信号的检查
+        battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
+        if get_param_value(battlefield_momentum_params.get('contextual_modulator_enabled'), True):
+            context_signals_weights = get_param_value(battlefield_momentum_params.get('context_signals_weights'), {})
+            for sig_name in context_signals_weights.keys():
+                original_sig_name = sig_name.replace('_INVERSE', '')
+                required_signals.append(original_sig_name)
         if not self._validate_required_signals(df, required_signals, method_name):
             missing_signals = [s for s in required_signals if s not in df.columns]
             print(f"    -> [行为情报引擎] {method_name}: 核心公理诊断失败，缺少必要原始信号 {missing_signals}，行为分析中止。")
@@ -913,13 +917,15 @@ class BehavioralIntelligence:
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
-        # MODIFIED LINE: 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
+        # 调用 _calculate_behavioral_day_quality 并将其结果添加到 states
         day_quality_score = self._calculate_behavioral_day_quality(df)
         states['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
-        # MODIFIED LINE: 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
-        battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {}) # 新增行
-        battlefield_momentum = self._calculate_battlefield_momentum(df, day_quality_score, battlefield_momentum_params, is_debug_enabled, probe_ts) # 修改行
-        states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM'] = battlefield_momentum.astype(np.float32) # 修改行
+        # 将 BIPOLAR_BEHAVIORAL_DAY_QUALITY 添加到 df，以便后续斜率/加速度计算可以访问
+        df['BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'] = day_quality_score # 新增行
+        # 根据日内K线质量分计算战场动量，使用新的 _calculate_battlefield_momentum 方法
+        battlefield_momentum_params = get_param_value(p_behavioral_div_conf.get('battlefield_momentum_params'), {})
+        battlefield_momentum = self._calculate_battlefield_momentum(df, day_quality_score, battlefield_momentum_params, is_debug_enabled, probe_ts)
+        states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM'] = battlefield_momentum.astype(np.float32)
         return states
 
     def _calculate_dynamic_threshold(self, df: pd.DataFrame, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1357,9 +1363,6 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
-        if not get_param_value(params.get('enabled'), False):
-            if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 信号未启用，返回0分。")
-            return {'CONTEXT_NEW_HIGH_STRENGTH': pd.Series(0.0, index=df.index, dtype=np.float32)}
         # --- 1. 获取参数 ---
         fusion_weights = get_param_value(params.get('fusion_weights'), {"price_momentum_quality": 0.3, "volume_liquidity_confirmation": 0.25, "resistance_overextension": 0.25, "intraday_control_sentiment": 0.2})
         price_momentum_quality_weights = get_param_value(params.get('price_momentum_quality_weights'), {"pct_change": 0.25, "ma_slope": 0.25, "breakout_quality": 0.2, "upward_impulse_purity": 0.15, "trend_acceleration": 0.15})
@@ -1431,11 +1434,6 @@ class BehavioralIntelligence:
             (constructive_turnover_score + 1e-9).pow(volume_liquidity_confirmation_weights.get('constructive_turnover', 0.3)) *
             (buy_sweep_intensity_score + 1e-9).pow(volume_liquidity_confirmation_weights.get('buy_sweep_intensity', 0.3))
         ).pow(1 / sum(volume_liquidity_confirmation_weights.values())).fillna(0.0).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"        - 原始 volume_burstiness_index_D: {volume_burstiness_raw.loc[probe_ts]:.4f} -> 归一化: {volume_burstiness_score.loc[probe_ts]:.4f}")
-            print(f"        - 原始 constructive_turnover_ratio_D: {constructive_turnover_raw.loc[probe_ts]:.4f} -> 归一化: {constructive_turnover_score.loc[probe_ts]:.4f}")
-            print(f"        - 原始 buy_sweep_intensity_D: {buy_sweep_intensity_raw.loc[probe_ts]:.4f} -> 归一化: {buy_sweep_intensity_score.loc[probe_ts]:.4f}")
-            print(f"        - 维度二 (量能与流动性确认) 分数: {volume_liquidity_confirmation_score.loc[probe_ts]:.4f}")
         # 维度三：阻力与过热抑制 (Resistance & Overextension Suppression)
         # BIAS健康度：1 - 归一化后的BIAS绝对值 (BIAS越小越健康，分数越高)
         bias_health_score = (1 - get_adaptive_mtf_normalized_score(bias_raw.abs(), df.index, ascending=True, tf_weights=bias_health_tf_weights)).clip(0, 1) # 修改行
@@ -1448,11 +1446,6 @@ class BehavioralIntelligence:
             (upper_shadow_selling_pressure_inverse_score + 1e-9).pow(resistance_overextension_weights.get('upper_shadow_selling_pressure_inverse', 0.3)) *
             (volatility_instability_inverse_score + 1e-9).pow(resistance_overextension_weights.get('volatility_instability_inverse', 0.3))
         ).pow(1 / sum(resistance_overextension_weights.values())).fillna(0.0).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"        - 原始 BIAS_55_D: {bias_raw.loc[probe_ts]:.4f} -> 归一化 (健康度): {bias_health_score.loc[probe_ts]:.4f}")
-            print(f"        - 原始 upper_shadow_selling_pressure_D: {upper_shadow_selling_pressure_raw.loc[probe_ts]:.4f} -> 归一化 (反向): {upper_shadow_selling_pressure_inverse_score.loc[probe_ts]:.4f}")
-            print(f"        - 原始 VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f} -> 归一化 (反向): {volatility_instability_inverse_score.loc[probe_ts]:.4f}")
-            print(f"        - 维度三 (阻力与过热抑制) 分数: {resistance_overextension_score.loc[probe_ts]:.4f}")
         # 维度四：日内控制与情绪共振 (Intraday Control & Sentiment Resonance)
         intraday_bull_control_score = get_adaptive_mtf_normalized_score(intraday_bull_control_raw, df.index, ascending=True, tf_weights=intraday_bull_control_tf_weights) # 修改行
         market_sentiment_score = get_adaptive_mtf_normalized_score(market_sentiment_raw, df.index, ascending=True, tf_weights=market_sentiment_tf_weights) # 修改行
@@ -1460,10 +1453,6 @@ class BehavioralIntelligence:
             (intraday_bull_control_score + 1e-9).pow(intraday_control_sentiment_weights.get('intraday_bull_control', 0.5)) *
             (market_sentiment_score + 1e-9).pow(intraday_control_sentiment_weights.get('market_sentiment', 0.5))
         ).pow(1 / sum(intraday_control_sentiment_weights.values())).fillna(0.0).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"        - 原始 SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_raw.loc[probe_ts]:.4f} -> 归一化: {intraday_bull_control_score.loc[probe_ts]:.4f}")
-            print(f"        - 原始 market_sentiment_score_D: {market_sentiment_raw.loc[probe_ts]:.4f} -> 归一化: {market_sentiment_score.loc[probe_ts]:.4f}")
-            print(f"        - 维度四 (日内控制与情绪共振) 分数: {intraday_control_sentiment_score.loc[probe_ts]:.4f}")
         # --- 4. 最终融合 (加权几何平均) ---
         new_high_strength = (
             (price_momentum_quality_score + 1e-9).pow(fusion_weights.get('price_momentum_quality', 0.3)) *
@@ -1473,9 +1462,6 @@ class BehavioralIntelligence:
         ).pow(1 / sum(fusion_weights.values())).fillna(0.0).clip(0, 1)
         # 应用非线性指数变换
         final_new_high_strength = new_high_strength.pow(final_exponent)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"        - 最终融合前分数: {new_high_strength.loc[probe_ts]:.4f}")
-            print(f"        - 最终 CONTEXT_NEW_HIGH_STRENGTH (指数变换后): {final_new_high_strength.loc[probe_ts]:.4f}")
         return {'CONTEXT_NEW_HIGH_STRENGTH': final_new_high_strength.astype(np.float32)}
 
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
@@ -2359,7 +2345,7 @@ class BehavioralIntelligence:
             'pct_change_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            # print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [清理探针]
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
             return pd.Series(0.0, index=df.index)
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
         high_price = self._get_safe_series(df, 'high_D', df['close_D'], method_name=method_name)
@@ -3469,7 +3455,7 @@ class BehavioralIntelligence:
         mtf_slope_accel_weights = get_param_value(liquidity_drain_params.get('mtf_slope_accel_weights'), {
             "5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05
         })
-        # MODIFIED LINE: 获取MTF指标内部组件权重配置
+        # 获取MTF指标内部组件权重配置
         mtf_indicator_component_weights = get_param_value(liquidity_drain_params.get('mtf_indicator_component_weights'), {})
         default_component_weights = get_param_value(mtf_indicator_component_weights.get('default'), {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3})
         final_exponent = get_param_value(liquidity_drain_params.get('final_exponent'), 1.8)
@@ -3520,7 +3506,7 @@ class BehavioralIntelligence:
         debug_info = (is_debug_enabled, probe_ts, method_name)
         # --- 辅助函数：获取多时间维度融合分数 ---
         def get_mtf_fused_score(base_name: str, is_negative_indicator: bool = False, ascending: bool = True) -> pd.Series:
-            # MODIFIED LINE: 获取当前指标的组件权重，如果未配置则使用默认权重
+            # 获取当前指标的组件权重，如果未配置则使用默认权重
             component_weights = get_param_value(mtf_indicator_component_weights.get(base_name), default_component_weights)
             raw_w = component_weights.get('raw_weight', 0.4)
             slope_w = component_weights.get('slope_weight', 0.3)
@@ -3551,10 +3537,10 @@ class BehavioralIntelligence:
                 # 融合原始值、斜率和加速度
                 # 几何平均融合，避免某个为0导致整体为0，使用1e-9平滑
                 fused_period_score = (
-                    (norm_raw + 1e-9).pow(raw_w) * # MODIFIED LINE: 使用动态 raw_w
-                    (norm_slope + 1e-9).pow(slope_w) * # MODIFIED LINE: 使用动态 slope_w
-                    (norm_accel + 1e-9).pow(accel_w) # MODIFIED LINE: 使用动态 accel_w
-                ).pow(1 / total_component_weight).fillna(0.0).clip(0,1) # MODIFIED LINE: 除以总组件权重
+                    (norm_raw + 1e-9).pow(raw_w) * # 使用动态 raw_w
+                    (norm_slope + 1e-9).pow(slope_w) * # 使用动态 slope_w
+                    (norm_accel + 1e-9).pow(accel_w) # 使用动态 accel_w
+                ).pow(1 / total_component_weight).fillna(0.0).clip(0,1) # 除以总组件权重
                 scores.append(fused_period_score * weight)
             if not scores:
                 return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -3658,66 +3644,135 @@ class BehavioralIntelligence:
     def _calculate_battlefield_momentum(self, df: pd.DataFrame, day_quality_score: pd.Series, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         method_name = "_calculate_battlefield_momentum"
         # 1. 获取参数
-        aema_fast_period = get_param_value(params.get('aema_fast_period'), 5)
-        aema_slow_period = get_param_value(params.get('aema_slow_period'), 21)
-        aema_volatility_window = get_param_value(params.get('aema_volatility_window'), 13)
-        acceleration_period = get_param_value(params.get('acceleration_period'), 3)
-        acceleration_impact_factor = get_param_value(params.get('acceleration_impact_factor'), 0.2)
+        mtf_periods = get_param_value(params.get('mtf_periods'), [5, 13, 21, 34, 55])
+        mtf_slope_weights = get_param_value(params.get('mtf_slope_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '34': 0.05, '55': 0.05})
+        mtf_accel_weights = get_param_value(params.get('mtf_accel_weights'), {'5': 0.5, '13': 0.3, '21': 0.15, '34': 0.05})
+        momentum_accel_fusion_power_p = get_param_value(params.get('momentum_accel_fusion_power_p'), 0.0) # 0.0 for geometric mean
         contextual_modulator_enabled = get_param_value(params.get('contextual_modulator_enabled'), True)
-        context_signal_name = get_param_value(params.get('context_signal'), 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY')
-        context_amplification_factor = get_param_value(params.get('context_amplification_factor'), 0.5)
-        final_exponent = get_param_value(params.get('final_exponent'), 1.0)
+        context_signals_weights = get_param_value(params.get('context_signals_weights'), {
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY': 0.4,
+            'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE_INVERSE': 0.3,
+            'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL': 0.3
+        })
+        final_fusion_power_p = get_param_value(params.get('final_fusion_power_p'), 0.5) # Between geometric and arithmetic mean
+        final_exponent = get_param_value(params.get('final_exponent'), 1.5)
+        # 确保 day_quality_score 是数值类型
         day_quality_score = pd.to_numeric(day_quality_score, errors='coerce').fillna(0)
-        # 2. 计算自适应指数移动平均 (AEMA)
-        volatility = day_quality_score.diff().abs().rolling(window=aema_volatility_window, min_periods=1).mean().fillna(0)
-        norm_volatility = normalize_score(volatility, df.index, window=aema_volatility_window * 2, ascending=False, debug_info=(is_debug_enabled, probe_ts, f'{method_name}_norm_volatility'))
-        alpha_fast = 2 / (aema_fast_period + 1)
-        alpha_slow = 2 / (aema_slow_period + 1)
-        dynamic_alpha = alpha_fast * (1 - norm_volatility) + alpha_slow * norm_volatility
-        aema_momentum = pd.Series(np.nan, index=df.index, dtype=np.float32)
-        if not day_quality_score.empty:
-            aema_momentum.iloc[0] = day_quality_score.iloc[0]
-            for i in range(1, len(day_quality_score)):
-                if pd.notna(day_quality_score.iloc[i]) and pd.notna(aema_momentum.iloc[i-1]):
-                    aema_momentum.iloc[i] = dynamic_alpha.iloc[i] * day_quality_score.iloc[i] + (1 - dynamic_alpha.iloc[i]) * aema_momentum.iloc[i-1]
-                elif pd.notna(day_quality_score.iloc[i]):
-                    aema_momentum.iloc[i] = day_quality_score.iloc[i]
-        aema_momentum = aema_momentum.fillna(0.0)
-        # 3. 计算动量加速度
-        momentum_acceleration = aema_momentum.diff(acceleration_period).fillna(0)
-        norm_momentum_acceleration = normalize_to_bipolar(momentum_acceleration, df.index, window=acceleration_period * 2, sensitivity=1.0)
-        # 4. 情境调制
-        context_modulator = pd.Series(1.0, index=df.index, dtype=np.float32)
+        # 2. 检查所需原始数据是否存在
+        required_signals = []
+        for p in mtf_periods:
+            required_signals.append(f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
+            if p <= 34: # 加速度通常在较短周期内更有效
+                required_signals.append(f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D')
         if contextual_modulator_enabled:
-            context_signal = self._get_atomic_score(df, context_signal_name, default=0.5)
-            norm_context_signal = (context_signal + 1) / 2 if context_signal.min() < 0 else context_signal
-            context_modulator = 1 + norm_context_signal * context_amplification_factor
-            context_modulator = context_modulator.clip(0.5, 1.5)
-        # 5. 融合 AEMA 动量、加速度和情境调制
-        base_momentum_strength = aema_momentum.abs()
-        acceleration_effect = norm_momentum_acceleration * acceleration_impact_factor
-        adjusted_momentum_strength = (base_momentum_strength + acceleration_effect).clip(0, 1)
-        fused_momentum = (adjusted_momentum_strength * context_modulator).clip(0, 1)
-        # 6. 最终非线性变换
-        final_battlefield_momentum = fused_momentum.pow(final_exponent).clip(0, 1)
-        # 7. 调试信息
+            for sig_name in context_signals_weights.keys():
+                # 处理 _INVERSE 后缀，获取原始信号名
+                original_sig_name = sig_name.replace('_INVERSE', '')
+                required_signals.append(original_sig_name)
+        if not self._validate_required_signals(df, required_signals, method_name):
+            if is_debug_enabled: print(f"    -> [行为情报调试] {method_name}: 缺少核心信号，返回0分。")
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 3. 多时间维度动量 (MTF Momentum)
+        mtf_momentum_scores = []
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [探针] {method_name} 原始数据 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - day_quality_score: {day_quality_score.loc[probe_ts]:.4f}")
-            print(f"        - volatility (day_quality_score): {volatility.loc[probe_ts]:.4f}")
-            print(f"        - norm_volatility (day_quality_score): {norm_volatility.loc[probe_ts]:.4f}")
-            print(f"        - dynamic_alpha: {dynamic_alpha.loc[probe_ts]:.4f}")
-            print(f"        - aema_momentum: {aema_momentum.loc[probe_ts]:.4f}")
-            print(f"        - momentum_acceleration: {momentum_acceleration.loc[probe_ts]:.4f}")
-            print(f"        - norm_momentum_acceleration: {norm_momentum_acceleration.loc[probe_ts]:.4f}")
-            if contextual_modulator_enabled:
-                context_signal = self._get_atomic_score(df, context_signal_name, default=0.5)
-                print(f"        - context_signal ({context_signal_name}): {context_signal.loc[probe_ts]:.4f}")
-                print(f"        - context_modulator: {context_modulator.loc[probe_ts]:.4f}")
-            print(f"        - base_momentum_strength: {base_momentum_strength.loc[probe_ts]:.4f}")
-            print(f"        - acceleration_effect: {acceleration_effect.loc[probe_ts]:.4f}")
-            print(f"        - adjusted_momentum_strength: {adjusted_momentum_strength.loc[probe_ts]:.4f}")
-            print(f"        - fused_momentum (pre-exponent): {fused_momentum.loc[probe_ts]:.4f}")
+            print(f"      [探针] {method_name} MTF动量子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        for p_str, weight in mtf_slope_weights.items():
+            p = int(p_str)
+            slope_col = f'SLOPE_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'
+            if slope_col in df.columns:
+                # 归一化斜率到 [-1, 1]
+                norm_slope = normalize_to_bipolar(df[slope_col], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
+                mtf_momentum_scores.append(norm_slope * weight)
+                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                    print(f"        - {p}d_slope_raw: {df[slope_col].loc[probe_ts]:.4f}, norm_slope: {norm_slope.loc[probe_ts]:.4f}")
+            else:
+                if is_debug_enabled: print(f"        - 警告: 缺少列 {slope_col}")
+        if not mtf_momentum_scores:
+            mtf_momentum_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        else:
+            mtf_momentum_score = sum(mtf_momentum_scores) / sum(mtf_slope_weights.values())
+        # 4. 多时间维度加速度 (MTF Acceleration)
+        mtf_acceleration_scores = []
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} MTF加速度子分数 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        for p_str, weight in mtf_accel_weights.items():
+            p = int(p_str)
+            accel_col = f'ACCEL_{p}_BIPOLAR_BEHAVIORAL_DAY_QUALITY_D'
+            if accel_col in df.columns:
+                # 归一化加速度到 [-1, 1]
+                norm_accel = normalize_to_bipolar(df[accel_col], df.index, window=p * 2, sensitivity=1.0, default_value=0.0)
+                mtf_acceleration_scores.append(norm_accel * weight)
+                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                    print(f"        - {p}d_accel_raw: {df[accel_col].loc[probe_ts]:.4f}, norm_accel: {norm_accel.loc[probe_ts]:.4f}")
+            else:
+                if is_debug_enabled: print(f"        - 警告: 缺少列 {accel_col}")
+        if not mtf_acceleration_scores:
+            mtf_acceleration_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        else:
+            mtf_acceleration_score = sum(mtf_acceleration_scores) / sum(mtf_accel_weights.values())
+        # 5. 融合MTF动量和加速度为双极性分数
+        # 使用广义平均融合，power_p=0.0 接近几何平均，强调两者协同
+        directional_momentum_raw = self._robust_generalized_mean(
+            {"momentum": mtf_momentum_score, "acceleration": mtf_acceleration_score},
+            {"momentum": 0.7, "acceleration": 0.3}, # 动量权重更高
+            df.index,
+            power_p=momentum_accel_fusion_power_p,
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="MTF动量加速度融合"
+        )
+        # 将 [-1, 1] 映射到 [0, 1]
+        base_directional_momentum = (directional_momentum_raw + 1) / 2
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} MTF动量分数 @ {probe_ts.strftime('%Y-%m-%d')}: {mtf_momentum_score.loc[probe_ts]:.4f}")
+            print(f"      [探针] {method_name} MTF加速度分数 @ {probe_ts.strftime('%Y-%m-%d')}: {mtf_acceleration_score.loc[probe_ts]:.4f}")
+            print(f"      [探针] {method_name} 融合后双极性动量 @ {probe_ts.strftime('%Y-%m-%d')}: {directional_momentum_raw.loc[probe_ts]:.4f}")
+            print(f"      [探针] {method_name} 基础方向性动量 (0-1) @ {probe_ts.strftime('%Y-%m-%d')}: {base_directional_momentum.loc[probe_ts]:.4f}")
+        # 6. 行为情境健康度调制
+        behavioral_context_health = pd.Series(1.0, index=df.index, dtype=np.float32)
+        if contextual_modulator_enabled:
+            context_scores = {}
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"      [探针] {method_name} 行为情境健康度组成 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            for sig_name, weight in context_signals_weights.items():
+                original_sig_name = sig_name.replace('_INVERSE', '')
+                context_signal = self._get_atomic_score(df, original_sig_name, default=0.5)
+                # 处理 _INVERSE 信号
+                if '_INVERSE' in sig_name:
+                    context_signal = (1 - context_signal).clip(0, 1)
+                # 确保信号在 [0, 1] 范围内
+                norm_context_signal = (context_signal + 1) / 2 if context_signal.min() < 0 else context_signal
+                context_scores[sig_name] = norm_context_signal
+                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                    print(f"        - {sig_name}: {norm_context_signal.loc[probe_ts]:.4f}")
+            behavioral_context_health = self._robust_generalized_mean(
+                context_scores,
+                context_signals_weights,
+                df.index,
+                power_p=0.0, # 几何平均强调协同
+                is_debug_enabled=is_debug_enabled,
+                probe_ts=probe_ts,
+                fusion_level_name="行为情境健康度融合"
+            )
+            # 将健康度映射到 [0.5, 1.5] 范围，作为调制因子
+            behavioral_context_health = 0.5 + behavioral_context_health
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"      [探针] {method_name} 行为情境健康度调制因子 @ {probe_ts.strftime('%Y-%m-%d')}: {behavioral_context_health.loc[probe_ts]:.4f}")
+        # 7. 最终融合 (基础方向性动量 * 行为情境健康度)
+        # 使用广义平均，强调协同作用
+        final_fused_momentum = self._robust_generalized_mean(
+            {"base_momentum": base_directional_momentum, "context_health": behavioral_context_health},
+            {"base_momentum": 0.7, "context_health": 0.3}, # 基础动量权重更高
+            df.index,
+            power_p=final_fusion_power_p,
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name="最终战场动量融合"
+        )
+        # 8. 最终非线性变换
+        final_battlefield_momentum = final_fused_momentum.pow(final_exponent).clip(0, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针] {method_name} 最终融合动量 (pre-exponent) @ {probe_ts.strftime('%Y-%m-%d')}: {final_fused_momentum.loc[probe_ts]:.4f}")
             print(f"      [探针] {method_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_battlefield_momentum.loc[probe_ts]:.4f}")
         return final_battlefield_momentum.astype(np.float32)
 

@@ -457,7 +457,7 @@ class FeatureEngineeringService:
         cond_breakout_ready = df['breakout_readiness_score_D'] > 60
         # 【新增代码行】结合结构与形态指标，增强突破信号
         cond_platform_breakout_potential = (df['platform_conviction_score_D'] > 70) & (df['quality_score_D'] > 0.7) # 高质量平台
-        cond_trendline_breakout_confirm = (df['trend_conviction_score_D'] > 80) & (df['trendline_validity_score_D'] > 0.8) # 强趋势线突破 # 修改代码行
+        cond_trendline_breakout_confirm = (df['trend_conviction_score_D'] > 80) & (df['trendline_validity_score_D'] > 0.8) # 强趋势线突破
         df['IS_BREAKOUT_D'] = (cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm & cond_breakout_ready) | \
                               (cond_platform_breakout_potential & cond_trendline_breakout_confirm) # 非线性融合
         cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_sell_distribution_intensity_D'] > 0.5) & (df['rally_buy_support_weakness_D'] > 0.5)
