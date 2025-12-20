@@ -702,13 +702,19 @@ class BehavioralIntelligence:
             'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D',
             'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D',
             'SLOPE_5_winner_stability_index_D',
+            'winner_stability_index_D',
+            'chip_fatigue_index_D',
+            'main_force_net_flow_calibrated_D',
             'retail_fomo_premium_index_D',
             'BBP_21_2.0_D', 'BIAS_5_D',
             'ATR_14_D', 'BBW_21_2.0_D', 'ADX_14_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'intraday_posture_score_D',
+            'microstructure_efficiency_index_D',
+            'impulse_quality_ratio_D',
             'volume_structure_skew_D',
             'volume_burstiness_index_D',
+            'closing_strength_index_D',
             'SLOPE_55_close_D',
             'market_sentiment_score_D',
             'SLOPE_55_ADX_14_D',
@@ -732,14 +738,12 @@ class BehavioralIntelligence:
         liquidity_drain_mtf_periods = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params', {}).get('mtf_slope_accel_weights'), {}).keys()
         liquidity_drain_mtf_periods = [int(p) for p in liquidity_drain_mtf_periods]
         indicators_for_mtf_dynamics = [
-            'close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'turnover_rate_f', 'sell_quote_exhaustion_rate',
-            'active_selling_pressure', 'capitulation_absorption_index', 'covert_accumulation_signal',
-            'main_force_conviction_index', 'retail_fomo_premium_index', 'panic_selling_cascade',
-            'chip_fatigue_index', 'loser_pain_index',
-            'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-            'main_force_net_flow_calibrated', 'sell_sweep_intensity', 'panic_sell_volume_contribution',
+            'pct_change', 'panic_selling_cascade', 'active_selling_pressure', 'retail_panic_surrender_index',
+            'main_force_net_flow_calibrated', 'sell_sweep_intensity', 'loser_pain_index',
             'active_buying_support', 'vwap_control_strength', 'buy_quote_exhaustion_rate',
-            'support_validation_strength', 'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
+            'support_validation_strength', 'chip_fatigue_index', 'sell_quote_exhaustion_rate',
+            'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
+            'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
             'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
             'price_volume_entropy', 'volatility_expansion_ratio',
             'breakout_quality_score',
@@ -942,6 +946,7 @@ class BehavioralIntelligence:
         # 计算原始卖压信号
         raw_selling_pressure = self._calculate_raw_selling_pressure(df, default_weights, is_debug_enabled, probe_ts)
         # 调用 _resolve_pressure_absorption_dynamics 计算未解决压力风险和压力吸收机会
+        # 确保传入的参数与 _resolve_pressure_absorption_dynamics 的最新定义匹配
         pressure_absorption_signals = self._resolve_pressure_absorption_dynamics(df, raw_selling_pressure, states, is_debug_enabled, probe_ts)
         states.update(pressure_absorption_signals)
         df['SCORE_RISK_UNRESOLVED_PRESSURE'] = states['SCORE_RISK_UNRESOLVED_PRESSURE']
