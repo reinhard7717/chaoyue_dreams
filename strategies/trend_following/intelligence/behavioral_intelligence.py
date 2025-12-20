@@ -960,6 +960,7 @@ class BehavioralIntelligence:
         - 核心重构: 明确了“原始卖压”的来源，并增强了“吸收品质”的评估维度。
         - 核心修复: 移除了对融合层信号 SCORE_TREND_HEALTH 的依赖，替换为纯行为层信号 SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM。
         - 探针增强: 增加了详细的调试输出，以便检查和调试。
+        - 【修正】修复 SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM 归一化错误。
         """
         method_name = "_resolve_pressure_absorption_dynamics"
         debug_info = (is_debug_enabled, probe_ts, method_name)
@@ -989,6 +990,7 @@ class BehavioralIntelligence:
         opportunity_context_modulator_weights = get_param_value(p_unresolved.get('opportunity_context_modulator_weights'), {"battlefield_momentum": 1.0})
         final_exponent = get_param_value(p_unresolved.get('final_exponent'), 1.5)
         fusion_power_p = get_param_value(p_unresolved.get('fusion_power_p'), 0.0) # 默认为几何平均
+
         # --- 1. 计算吸收品质分数 (Absorption Quality Score) ---
         # VPA效率
         absorption_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index), method_name=method_name), df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
@@ -999,6 +1001,7 @@ class BehavioralIntelligence:
         offensive_absorption_intent = states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT']
         # 承接强度 (已是[0,1])
         absorption_strength = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH']
+
         # 融合吸收品质的各个维度
         absorption_quality_score = self._robust_generalized_mean(
             {
@@ -1016,16 +1019,19 @@ class BehavioralIntelligence:
         )
         if is_debug_enabled and probe_ts:
             print(f"       - 吸收品质分数 (absorption_quality_score): {absorption_quality_score.loc[probe_ts]:.4f}")
+
         # --- 2. 计算每日净力量 (Daily Net Force) ---
         # 净力量 = 吸收品质 - 原始卖压
         daily_net_force = absorption_quality_score - raw_selling_pressure
         if is_debug_enabled and probe_ts:
             print(f"       - 每日净力量 (daily_net_force): {daily_net_force.loc[probe_ts]:.4f}")
+
         # --- 3. 计算战场动量 (Battlefield Momentum) ---
         # 对净力量进行EMA平滑，捕捉短期趋势
         battlefield_momentum_score = daily_net_force.ewm(span=3, adjust=False).mean().fillna(0)
         if is_debug_enabled and probe_ts:
             print(f"       - 战场动量分数 (battlefield_momentum_score): {battlefield_momentum_score.loc[probe_ts]:.4f}")
+
         # --- 4. 计算未解决压力风险 (SCORE_RISK_UNRESOLVED_PRESSURE) ---
         # 基础风险 = 原始卖压 * (1 - 吸收品质)
         base_risk = raw_selling_pressure * (1.0 - absorption_quality_score)
@@ -1036,6 +1042,7 @@ class BehavioralIntelligence:
             print(f"       - 基础风险 (base_risk): {base_risk.loc[probe_ts]:.4f}")
             print(f"       - 风险放大器 (risk_amplifier): {risk_amplifier.loc[probe_ts]:.4f}")
             print(f"       - 最终风险分数 (final_risk_score): {final_risk_score.loc[probe_ts]:.4f}")
+
         # --- 5. 计算压力吸收机会 (SCORE_OPPORTUNITY_PRESSURE_ABSORPTION) ---
         # 基础机会 = 原始卖压 * 吸收品质
         base_opportunity = raw_selling_pressure * absorption_quality_score
@@ -1043,8 +1050,10 @@ class BehavioralIntelligence:
         opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0) # 如果momentum为正，则amplifier > 1
         # 行为情境调制器：使用 SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM
         behavioral_context_modulator_raw = states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM']
-        # 将 [-1, 1] 映射到 [0, 1]
-        behavioral_context_modulator_norm = (behavioral_context_modulator_raw + 1) / 2.0
+        # MODIFIED LINE START
+        # SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM 已经是一个 [0, 1] 的分数，无需再次映射
+        behavioral_context_modulator_norm = behavioral_context_modulator_raw
+        # MODIFIED LINE END
         # 融合情境调制器
         context_modulator_score = self._robust_generalized_mean(
             {"battlefield_momentum": behavioral_context_modulator_norm},
@@ -1057,15 +1066,18 @@ class BehavioralIntelligence:
         )
         # 将 [0, 1] 的情境分数映射到 [1.0, 1.5] 的调制因子
         context_modulator_factor = 1.0 + context_modulator_score * 0.5
+
         final_opportunity_score = (base_opportunity * opportunity_amplifier * context_modulator_factor).clip(0, 1)
         if is_debug_enabled and probe_ts:
             print(f"       - 基础机会 (base_opportunity): {base_opportunity.loc[probe_ts]:.4f}")
             print(f"       - 机会放大器 (opportunity_amplifier): {opportunity_amplifier.loc[probe_ts]:.4f}")
             print(f"       - 行为情境调制器 (context_modulator_factor): {context_modulator_factor.loc[probe_ts]:.4f}")
             print(f"       - 最终机会分数 (final_opportunity_score): {final_opportunity_score.loc[probe_ts]:.4f}")
+
         # --- 6. 最终非线性变换 ---
         final_risk_score = final_risk_score.pow(final_exponent)
         final_opportunity_score = final_opportunity_score.pow(final_exponent)
+
         return {
             'SCORE_RISK_UNRESOLVED_PRESSURE': final_risk_score.astype(np.float32),
             'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': final_opportunity_score.astype(np.float32)
