@@ -819,6 +819,31 @@
           "intraday_bull_control_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
           "market_sentiment_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 }
         },
+        "unresolved_pressure_params": {
+          "enabled": true,
+          "description": "【V2.0 · 压力博弈深度洞察版】未解决压力风险与压力吸收机会信号参数。",
+          "raw_selling_pressure_weights": {
+            "active_selling_pressure": 0.2,
+            "upper_shadow_selling_pressure": 0.15,
+            "panic_selling_cascade": 0.2,
+            "sell_quote_exhaustion_rate": 0.15,
+            "volume_structure_skew_negative": 0.15,
+            "micro_price_impact_asymmetry_negative": 0.15,
+            "sell_sweep_intensity": 0.1,
+            "rally_distribution_pressure": 0.1
+          },
+          "absorption_quality_weights": {
+            "vpa_efficiency": 0.3,
+            "vwap_control_strength": 0.2,
+            "offensive_absorption_intent": 0.3,
+            "absorption_strength": 0.2
+          },
+          "opportunity_context_modulator_weights": {
+            "battlefield_momentum": 1.0
+          },
+          "final_exponent": 1.5,
+          "fusion_power_p": 0.0
+        },
         "day_quality_protocol_params": {
           "enabled": true,
           "description": "【V5.0 · 深度融合与非线性感知版】日内行为K线质量分计算参数。",
@@ -1934,7 +1959,7 @@
             "diagnosis_type": "signal_decay",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V2.0 · 信念侵蚀版】诊断赢家信念的衰减。采用专属的“压力放大”模型，审判“信念衰减”与“派发压力”的共振，旨在提前预警压力下的信念瓦解风险。"
+            "description": "【V3.0 · 深度情境与多维共振版】诊断赢家信念的衰减。引入多时间框架共振、主力派发确认和情境动态调制，旨在提供一个更全面、更精准的顶部风险预警。"
           },
           {
             "name": "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL",
@@ -2160,6 +2185,31 @@
           },
           "price_weakness_slope_window": 5,
           "low_volatility_bbw_window": 21
+        },
+        "winner_conviction_decay_params": {
+          "description": "【V3.0 · 深度情境与多维共振版】赢家信念衰减信号的专属参数。",
+          "mtf_slope_accel_weights": {
+            "description": "多时间框架斜率和加速度的融合权重。",
+            "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
+            "accel_periods": {"5": 0.6, "13": 0.4}
+          },
+          "distribution_confirmation_weights": {
+            "description": "主力派发确认融合权重。",
+            "distribution_intent": 0.4,
+            "chip_distribution_whisper": 0.3,
+            "upper_shadow_selling_pressure": 0.3
+          },
+          "contextual_modulator_weights": {
+            "description": "情境动态调制器融合权重。",
+            "price_overextension": 0.3,
+            "retail_fomo": 0.2,
+            "market_tension": 0.2,
+            "sentiment_pendulum_negative": 0.3
+          },
+          "final_fusion_exponent": 1.5,
+          "comment_final_fusion_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。",
+          "probe_enabled": true,
+          "comment_probe_enabled": "是否启用探针输出详细调试信息。"
         },
         "main_force_urgency_params": {
           "description": "【V1.0 · 深度博弈版】主力紧迫度计算的权重配置。",
