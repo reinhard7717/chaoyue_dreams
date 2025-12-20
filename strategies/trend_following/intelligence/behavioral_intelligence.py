@@ -1028,15 +1028,26 @@ class BehavioralIntelligence:
         debug_info = (is_debug_enabled, probe_ts, method_name)
         if is_debug_enabled and probe_ts:
             print(f"    -> [行为情报调试] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-            if probe_ts and probe_ts in raw_selling_pressure.index: # 修改行: 检查probe_ts是否存在
+            if probe_ts and probe_ts in raw_selling_pressure.index:
                 print(f"       - 原始卖压 (raw_selling_pressure): {raw_selling_pressure.loc[probe_ts]:.4f}")
         # 战前情报校验
         required_df_signals = ['VPA_EFFICIENCY_D', 'vwap_control_strength_D']
         required_state_signals = ['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 'SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM']
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         p_unresolved = get_param_value(p_conf.get('unresolved_pressure_params'), {})
-        mtf_slope_accel_weights = get_param_value(p_unresolved.get('mtf_slope_accel_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1}) # 修改行: 获取MTF权重
-        mtf_indicator_component_weights = get_param_value(p_unresolved.get('mtf_indicator_component_weights'), {}) # 修改行: 获取MTF组件权重
+
+        # 修改行: 将 absorption_quality_weights 的获取提前
+        absorption_quality_weights = get_param_value(p_unresolved.get('absorption_quality_weights'), {
+            "vpa_efficiency": 0.3, "vwap_control_strength": 0.2, "offensive_absorption_intent": 0.3, "absorption_strength": 0.2
+        })
+        opportunity_context_modulator_weights = get_param_value(p_unresolved.get('opportunity_context_modulator_weights'), {"battlefield_momentum": 1.0})
+        final_exponent = get_param_value(p_unresolved.get('final_exponent'), 1.5)
+        # 修改行: 获取MTF权重和组件权重
+        mtf_slope_accel_weights = get_param_value(p_unresolved.get('mtf_slope_accel_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        mtf_indicator_component_weights = get_param_value(p_unresolved.get('mtf_indicator_component_weights'), {})
+        dynamic_fusion_power_p_params = get_param_value(p_unresolved.get('dynamic_fusion_power_p_params'), {})
+        min_raw_selling_pressure_threshold = get_param_value(p_unresolved.get('min_raw_selling_pressure_threshold'), 0.0)
+
         # 动态添加MTF斜率和加速度信号到required_df_signals
         for period_str in mtf_slope_accel_weights.keys():
             period = int(period_str)
@@ -1053,16 +1064,16 @@ class BehavioralIntelligence:
                 'SCORE_RISK_UNRESOLVED_PRESSURE': pd.Series(0.0, index=df.index, dtype=np.float32),
                 'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': pd.Series(0.0, index=df.index, dtype=np.float32)
             }
-        # 修改行: 获取动态fusion_power_p参数
-        dynamic_fusion_power_p_params = get_param_value(p_unresolved.get('dynamic_fusion_power_p_params'), {})
-        min_raw_selling_pressure_threshold = get_param_value(p_unresolved.get('min_raw_selling_pressure_threshold'), 0.0) # 修改行: 获取门控阈值
+
         # --- 动态计算 fusion_power_p ---
         current_fusion_power_p = get_param_value(p_unresolved.get('fusion_power_p'), 0.0)
         if get_param_value(dynamic_fusion_power_p_params.get('enabled'), False):
             volatility_signal = self._get_safe_series(df, dynamic_fusion_power_p_params.get('volatility_signal'), 0.0, method_name=method_name)
             sentiment_signal = self._get_safe_series(df, dynamic_fusion_power_p_params.get('sentiment_signal'), 0.0, method_name=method_name)
-            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal, df.index, tf_weights=get_param_value(p_conf.get('mtf_normalization_params', {}).get('default'), {}), ascending=True, debug_info=debug_info)
-            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal, df.index, tf_weights=get_param_value(p_conf.get('mtf_normalization_params', {}).get('default'), {}), ascending=True, debug_info=debug_info)
+            p_mtf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+            default_tf_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+            norm_volatility = get_adaptive_mtf_normalized_score(volatility_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
+            norm_sentiment = get_adaptive_mtf_normalized_score(sentiment_signal, df.index, tf_weights=default_tf_weights, ascending=True, debug_info=debug_info)
             # 波动率越高，情绪越悲观，power_p越小（更严格的几何平均）
             # 波动率越低，情绪越乐观，power_p越大（更接近算术平均）
             volatility_impact = (1 - norm_volatility) * dynamic_fusion_power_p_params.get('volatility_sensitivity', 0.5)
@@ -1091,7 +1102,7 @@ class BehavioralIntelligence:
             },
             absorption_quality_weights,
             df.index,
-            power_p=current_fusion_power_p, # 修改行: 使用动态 power_p
+            power_p=current_fusion_power_p,
             is_debug_enabled=is_debug_enabled,
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_absorption_quality_score"
@@ -1125,16 +1136,14 @@ class BehavioralIntelligence:
         opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0) # 如果momentum为正，则amplifier > 1
         # 行为情境调制器：使用 SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM
         behavioral_context_modulator_raw = states['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM']
-        # MODIFIED LINE START
         # SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM 已经是一个 [0, 1] 的分数，无需再次映射
         behavioral_context_modulator_norm = behavioral_context_modulator_raw
-        # MODIFIED LINE END
         # 融合情境调制器
         context_modulator_score = self._robust_generalized_mean(
             {"battlefield_momentum": behavioral_context_modulator_norm},
             opportunity_context_modulator_weights,
             df.index,
-            power_p=current_fusion_power_p, # 修改行: 使用动态 power_p
+            power_p=current_fusion_power_p,
             is_debug_enabled=is_debug_enabled,
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_opportunity_context_modulator"
