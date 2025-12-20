@@ -1019,6 +1019,53 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     # 确保返回的Series索引正确并填充缺失值
     return tanh_score.reindex(target_index).fillna(default_value)
 
+def _normalize_single_window_energy_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value: float = 0.5) -> pd.Series:
+    """
+    【内部辅助函数】对单个窗口进行归一化，并严格处理全零窗口。
+    - 当滚动窗口内的所有有效数据点都为零时，强制其归一化分数为 0.0。
+    - 否则，执行标准的 Min-Max 归一化。
+    """
+    # 确保 series 与 target_index 对齐，并填充 NaN
+    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0)
+    # 计算滚动窗口内的最小值和最大值
+    rolling_min = series_aligned.rolling(window=window, min_periods=1).min()
+    rolling_max = series_aligned.rolling(window=window, min_periods=1).max()
+    normalized = pd.Series(default_value, index=target_index, dtype=np.float32)
+    # 识别全零窗口：当滚动窗口内的最小值和最大值都为0时
+    all_zeros_in_window_mask = (rolling_min == 0) & (rolling_max == 0)
+    # 对于全零窗口，分数强制为0
+    normalized.loc[all_zeros_in_window_mask] = 0.0
+    # 对于非全零窗口，执行标准归一化
+    # 避免除以零，并确保分母有效
+    non_zero_range_mask = (rolling_max - rolling_min > 1e-9) & (~all_zeros_in_window_mask)
+    if ascending:
+        normalized.loc[non_zero_range_mask] = (series_aligned.loc[non_zero_range_mask] - rolling_min.loc[non_zero_range_mask]) / (rolling_max.loc[non_zero_range_mask] - rolling_min.loc[non_zero_range_mask])
+    else:
+        normalized.loc[non_zero_range_mask] = (rolling_max.loc[non_zero_range_mask] - series_aligned.loc[non_zero_range_mask]) / (rolling_max.loc[non_zero_range_mask] - rolling_min.loc[non_zero_range_mask])
+    return normalized.clip(0, 1).astype(np.float32)
+
+def get_adaptive_mtf_normalized_energy_score(series: pd.Series, target_index: pd.Index, tf_weights: Dict[str, float], ascending: bool = True, default_value: float = 0.5) -> pd.Series:
+    """
+    【V1.0 · 能量指标专用】自适应多时间维度归一化分数计算器
+    - 核心功能: 专为能量型指标设计，内部调用 `_normalize_single_window_energy_score`，
+                  确保当多时间维度窗口内所有值都为零时，归一化分数严格为 0.0。
+    """
+    if series.empty:
+        return pd.Series(default_value, index=target_index, dtype=np.float32)
+    weighted_scores = pd.Series(0.0, index=target_index, dtype=np.float32)
+    total_weight = 0.0
+    for period_str, weight in tf_weights.items():
+        period = int(period_str)
+        if weight > 0:
+            # 调用能量指标专用的单窗口归一化函数
+            score = _normalize_single_window_energy_score(series, target_index, period, ascending=ascending, default_value=default_value)
+            weighted_scores += score * weight
+            total_weight += weight
+    if total_weight > 0:
+        return (weighted_scores / total_weight).clip(0, 1).astype(np.float32)
+    else:
+        return pd.Series(default_value, index=target_index, dtype=np.float32)
+
 def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, Any], df_index: pd.Index) -> pd.Series:
     # 计算健壮的加权几何平均分数
     # 值为0（或接近0）的分数将被视为缺失，并从计算中排除，同时调整总权重。
