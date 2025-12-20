@@ -823,7 +823,7 @@
         },
         "unresolved_pressure_params": {
           "enabled": true,
-          "description": "【V2.0 · 压力博弈深度洞察版】未解决压力风险与压力吸收机会信号参数。",
+          "description": "【V3.0 · 压力博弈深度洞察与动态自适应版】未解决压力风险与压力吸收机会信号参数。",
           "raw_selling_pressure_weights": {
             "active_selling_pressure": 0.2,
             "upper_shadow_selling_pressure": 0.15,
@@ -844,7 +844,42 @@
             "battlefield_momentum": 1.0
           },
           "final_exponent": 1.5,
-          "fusion_power_p": 0.0
+          "fusion_power_p": 0.0,
+          "mtf_slope_accel_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "34": 0.05,
+            "55": 0.05
+          },
+          "comment_mtf_slope_accel_weights": "多时间框架斜率和加速度的融合权重，用于MTF动态增强。",
+          "mtf_indicator_component_weights": {
+            "default": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+            "active_selling_pressure": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+            "upper_shadow_selling_pressure": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+            "panic_selling_cascade": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+            "sell_quote_exhaustion_rate": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+            "volume_structure_skew": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+            "micro_price_impact_asymmetry": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+            "sell_sweep_intensity": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+            "rally_distribution_pressure": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+            "VPA_EFFICIENCY": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+            "vwap_control_strength": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3}
+          },
+          "comment_mtf_indicator_component_weights": "每个指标内部组件（原始值、斜率、加速度）的融合权重。",
+          "dynamic_fusion_power_p_params": {
+            "enabled": true,
+            "description": "动态调整融合幂参数power_p，使其自适应市场情境。",
+            "volatility_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "sentiment_signal": "market_sentiment_score_D",
+            "volatility_sensitivity": 0.5,
+            "sentiment_sensitivity": 0.5,
+            "min_power_p": -0.5,
+            "max_power_p": 0.5
+          },
+          "comment_dynamic_fusion_power_p_params": "动态调整融合幂参数power_p的配置。",
+          "min_raw_selling_pressure_threshold": 0.05,
+          "comment_min_raw_selling_pressure_threshold": "原始卖压的最小阈值，低于此阈值时机会信号为0。"
         },
         "day_quality_protocol_params": {
           "enabled": true,
