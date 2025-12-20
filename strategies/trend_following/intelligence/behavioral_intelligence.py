@@ -295,23 +295,25 @@ class BehavioralIntelligence:
         scores_dict: Dict[str, pd.Series],
         weights_dict: Dict[str, float],
         df_index: pd.Index,
-        power_p: float = 0.0, # Default to geometric mean behavior
+        power_p: Any = 0.0, # 修改行: power_p 可以是标量或Series
         is_debug_enabled: bool = False,
         probe_ts: Optional[pd.Timestamp] = None,
         fusion_level_name: str = "未知融合层" # For probe output context
     ) -> pd.Series:
         """
-        【V5.0 · 广义平均融合器】
+        【V5.1 · 广义平均融合器 - 动态幂参数版】
         计算给定分数序列的加权广义平均 (Weighted Generalized Mean / Power Mean)。
         - 当 power_p 接近 0 时，行为类似于加权几何平均。
         - 当 power_p 为 1 时，行为类似于加权算术平均。
         - 确保输入分数在 [0, 1] 范围内，并处理零值以避免数学错误。
+        - **新增: power_p 参数现在可以是标量或 pd.Series，以支持动态调整融合幂。**
         - 【探针增强】在调试模式下，输出每个组件的分数和权重，以及最终融合结果。
         """
         if not scores_dict:
             if is_debug_enabled and probe_ts:
                 print(f"       [探针] {fusion_level_name}: scores_dict为空，返回0。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
+
         # 过滤掉权重为0的项，并确保所有分数Series的索引与df_index对齐
         valid_scores = {}
         valid_weights = {}
@@ -322,14 +324,18 @@ class BehavioralIntelligence:
                 valid_scores[name] = score_series.reindex(df_index).fillna(0.0).clip(0, 1)
                 valid_weights[name] = weight
                 if is_debug_enabled and probe_ts:
-                    print(f"         - {fusion_level_name} 组件 '{name}': 分数={valid_scores[name].loc[probe_ts]:.4f}, 权重={weight:.2f}")
+                    if probe_ts and probe_ts in valid_scores[name].index: # 修改行: 检查probe_ts是否存在
+                        print(f"         - {fusion_level_name} 组件 '{name}': 分数={valid_scores[name].loc[probe_ts]:.4f}, 权重={weight:.2f}")
+
         if not valid_scores:
             if is_debug_enabled and probe_ts:
                 print(f"       [探针] {fusion_level_name}: valid_scores为空，返回0。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
+
         # 将分数转换为NumPy数组，并确保所有值都略大于0，以避免对数或负幂运算错误
         stacked_scores = np.stack([s.values for s in valid_scores.values()], axis=0)
         safe_scores = np.maximum(stacked_scores, 1e-9) # 避免 log(0) 或 0^negative_power
+
         # 归一化权重
         weights_array = np.array(list(valid_weights.values()))
         total_weight = weights_array.sum()
@@ -338,17 +344,41 @@ class BehavioralIntelligence:
                 print(f"       [探针] {fusion_level_name}: 总权重为0，返回0。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         normalized_weights = weights_array / total_weight
+
         result_values = np.zeros(len(df_index), dtype=np.float32)
-        if abs(power_p) < 1e-9: # power_p is effectively 0, use geometric mean
-            weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
-            result_values = np.exp(weighted_log_sum)
-        else: # Use generalized mean (Power Mean)
-            weighted_power_sum = np.sum(safe_scores**power_p * normalized_weights[:, np.newaxis], axis=0)
-            # 避免 0^(1/p) 导致 NaN，如果 weighted_power_sum 接近 0，则结果也应为 0
-            result_values = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p))
+
+        # 修改行: 处理 power_p 可能是 Series 的情况
+        if isinstance(power_p, pd.Series):
+            # 确保 power_p 与 df_index 对齐
+            power_p_aligned = power_p.reindex(df_index).fillna(0.0)
+            # 对于 power_p 接近 0 的情况，使用几何平均
+            geometric_mean_mask = power_p_aligned.abs() < 1e-9
+            # 对于几何平均部分
+            if geometric_mean_mask.any():
+                weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
+                result_values[geometric_mean_mask.values] = np.exp(weighted_log_sum[geometric_mean_mask.values])
+
+            # 对于广义平均部分
+            power_mean_mask = ~geometric_mean_mask
+            if power_mean_mask.any():
+                # 确保 power_p_aligned 在 power_mean_mask 区域内不为0
+                power_p_for_power_mean = power_p_aligned.loc[power_mean_mask].replace(0, 1e-9) # 避免 1/0
+                weighted_power_sum = np.sum(safe_scores[:, power_mean_mask.values]**power_p_for_power_mean.values * normalized_weights[:, np.newaxis], axis=0)
+                result_values[power_mean_mask.values] = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p_for_power_mean.values))
+        else: # power_p is a scalar
+            if abs(power_p) < 1e-9: # power_p is effectively 0, use geometric mean
+                weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
+                result_values = np.exp(weighted_log_sum)
+            else: # Use generalized mean (Power Mean)
+                weighted_power_sum = np.sum(safe_scores**power_p * normalized_weights[:, np.newaxis], axis=0)
+                # 避免 0^(1/p) 导致 NaN，如果 weighted_power_sum 接近 0，则结果也应为 0
+                result_values = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p))
+
         final_fused_score = pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
+
         if is_debug_enabled and probe_ts:
-            print(f"       [探针] {fusion_level_name}: 最终融合分数={final_fused_score.loc[probe_ts]:.4f}")
+            if probe_ts and probe_ts in final_fused_score.index: # 修改行: 检查probe_ts是否存在
+                print(f"       [探针] {fusion_level_name}: 最终融合分数={final_fused_score.loc[probe_ts]:.4f}")
         return final_fused_score
 
     def _calculate_price_momentum_resonance(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
