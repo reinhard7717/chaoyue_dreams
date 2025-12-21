@@ -2954,13 +2954,13 @@ class ChipIntelligence:
             },
             dispersion_weakness_weights, df_index
         )
-        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_total_winner_rate") if should_probe_overall else None)
-        norm_winner_profit_margin_avg = get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_winner_profit_margin_avg") if should_probe_overall else None)
-        norm_rally_distribution_pressure = get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_rally_distribution_pressure") if should_probe_overall else None)
-        norm_profit_taking_flow_ratio = get_adaptive_mtf_normalized_score(profit_taking_flow_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_profit_taking_flow_ratio") if should_probe_overall else None)
-        norm_upper_shadow_selling_pressure = get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_upper_shadow_selling_pressure") if should_probe_overall else None)
-        norm_covert_distribution_signal = get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_covert_distribution_signal") if should_probe_overall else None)
-        norm_rally_distribution_pressure_slope = get_adaptive_mtf_normalized_score(slope_rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_rally_distribution_pressure_slope") if should_probe_overall else None)
+        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_winner_profit_margin_avg = get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_rally_distribution_pressure = get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_profit_taking_flow_ratio = get_adaptive_mtf_normalized_score(profit_taking_flow_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_upper_shadow_selling_pressure = get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_covert_distribution_signal = get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_rally_distribution_pressure_slope = get_adaptive_mtf_normalized_score(slope_rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights)
         distribution_pressure_score = _robust_geometric_mean(
             {
                 'total_winner_rate': norm_total_winner_rate,
@@ -2973,11 +2973,11 @@ class ChipIntelligence:
             },
             distribution_pressure_weights, df_index
         )
-        norm_deception_index_positive = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_deception_index_positive") if should_probe_overall else None).clip(lower=0)
-        norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_wash_trade_intensity") if should_probe_overall else None)
-        norm_main_force_conviction_negative = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_main_force_conviction_negative") if should_probe_overall else None).clip(upper=0).abs()
-        norm_main_force_net_flow_negative = get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_main_force_net_flow_negative") if should_probe_overall else None)
-        norm_main_force_cost_advantage_negative = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_main_force_cost_advantage_negative") if should_probe_overall else None).clip(upper=0).abs()
+        norm_deception_index_positive = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights).clip(lower=0)
+        norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_main_force_conviction_negative = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights).clip(upper=0).abs()
+        norm_main_force_net_flow_negative = get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_main_force_cost_advantage_negative = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights=tf_weights).clip(upper=0).abs()
         main_force_deception_score = _robust_geometric_mean(
             {
                 'deception_index_positive': norm_deception_index_positive,
@@ -2988,11 +2988,11 @@ class ChipIntelligence:
             },
             main_force_deception_weights, df_index
         )
-        norm_retail_fomo_premium_index = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_retail_fomo_premium_index") if should_probe_overall else None)
-        norm_volatility_instability_index = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_volatility_instability_index") if should_probe_overall else None)
-        norm_market_sentiment_extreme = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_market_sentiment_extreme") if should_probe_overall else None).abs()
-        norm_flow_credibility_inverse = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_flow_credibility_inverse") if should_probe_overall else None)
-        norm_structural_tension_index = get_adaptive_mtf_normalized_score(structural_tension_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_structural_tension_index") if should_probe_overall else None)
+        norm_retail_fomo_premium_index = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_volatility_instability_index = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_market_sentiment_extreme = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights=tf_weights).abs()
+        norm_flow_credibility_inverse = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_structural_tension_index = get_adaptive_mtf_normalized_score(structural_tension_raw, df_index, ascending=True, tf_weights=tf_weights)
         market_vulnerability_score = _robust_geometric_mean(
             {
                 'retail_fomo_premium_index': norm_retail_fomo_premium_index,
@@ -3011,8 +3011,8 @@ class ChipIntelligence:
             sensitivity_sentiment = get_param_value(dynamic_fusion_modulator_params.get('sensitivity_sentiment'))
             volatility_impact_weights = get_param_value(dynamic_fusion_modulator_params.get('volatility_impact_weights'), {})
             sentiment_impact_weights = get_param_value(dynamic_fusion_modulator_params.get('sentiment_impact_weights'), {})
-            norm_mod_signal_1 = get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, mod_signal_1_name, 0.0, method_name="_diagnose_chip_hollowing_out_risk"), df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, f"norm_{mod_signal_1_name}") if should_probe_overall else None)
-            norm_mod_signal_2 = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, mod_signal_2_name, 0.0, method_name="_diagnose_chip_hollowing_out_risk"), df_index, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, f"norm_{mod_signal_2_name}") if should_probe_overall else None)
+            norm_mod_signal_1 = get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, mod_signal_1_name, 0.0, method_name="_diagnose_chip_hollowing_out_risk"), df_index, ascending=True, tf_weights=tf_weights)
+            norm_mod_signal_2 = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, mod_signal_2_name, 0.0, method_name="_diagnose_chip_hollowing_out_risk"), df_index, tf_weights=tf_weights)
             # Initialize dynamic weights as Series
             current_dispersion_weight = pd.Series(final_fusion_weights_base.get('dispersion_weakness', 0.0), index=df_index)
             current_distribution_weight = pd.Series(final_fusion_weights_base.get('distribution_pressure', 0.0), index=df_index)
