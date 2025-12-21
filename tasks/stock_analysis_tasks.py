@@ -799,11 +799,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
         enable_probe = debug_params.get('enable_mfca_probe', False)
         target_date_str = debug_params.get('target_date')
-        # 新增【M.0 - 任务入口探针】
-        if enable_probe and target_date_str:
-            print(f"\n{'='*20} [探针 M.0 - 任务入口] {'='*20}")
-            print(f"  - 股票代码: {stock_code}, 目标日期: {target_date_str}")
-            print(f"  - 调试参数: {debug_params}")
         fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params)
         chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
@@ -949,7 +944,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if enable_probe and target_date_str:
                 target_date_obj = pd.to_datetime(target_date_str).date()
                 if target_date_obj in [d.date() for d in chunk_dates]:
-                    print(f"\n{'='*20} [探针 M.2 - 原始数据审计 @ {target_date_str}] {'='*20}")
                     for name, data_map in [
                         ("Tick", data_dfs.get("stock_tick_data_map")),
                         ("Level5", data_dfs.get("stock_level5_data_map")),
@@ -979,16 +973,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                             'missing_source': src
                         })
                 continue
-            # 新增【M.3 - 服务调用探针】
-            if enable_probe:
-                is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
-                if is_target_date_in_chunk:
-                    print(f"\n{'='*20} [探针 M.3 - 服务调用 @ {target_date_str}] {'='*20}")
-                    chip_mem_cost = cross_chunk_memory_bus.get('chip_memory', {}).get('main_force_cumulative_cost')
-                    ff_mem_cmf = cross_chunk_memory_bus.get('fund_flow_memory', {}).get('main_force_cmf')
-                    print(f"  - 即将调用 FundFlow Service...")
-                    print(f"  - 传入的资金流记忆 (main_force_cmf): {ff_mem_cmf}")
-                    print(f"  - 传入的筹码记忆 (main_force_cumulative_cost): {chip_mem_cost}")
             daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
             daily_basic_df = data_dfs["daily_basic"].set_index(pd.to_datetime(data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
             overlap_cols = daily_df.columns.intersection(daily_basic_df.columns)
