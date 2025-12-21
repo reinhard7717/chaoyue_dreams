@@ -655,6 +655,83 @@
             },
             "final_fusion_exponent": 0.25
         },
+        "chip_hollowing_out_risk_params": {
+            "description": "【V3.0 · 深度结构与诡道情境版】筹码空心化风险指数的专属参数。",
+            "probe_enabled": true,
+            "dispersion_weakness_weights": {
+                "description": "核心筹码分散与弱化维度融合权重。",
+                "winner_concentration_inverse": 0.25,
+                "loser_concentration_high_price": 0.2,
+                "cost_gini_coefficient_inverse": 0.15,
+                "dominant_peak_solidity_inverse": 0.15,
+                "peak_separation_ratio": 0.1,
+                "winner_concentration_slope_inverse": 0.05,
+                "chip_health_score_inverse_slope": 0.1
+            },
+            "distribution_pressure_weights": {
+                "description": "派发压力与获利了结维度融合权重。",
+                "total_winner_rate": 0.2,
+                "winner_profit_margin_avg": 0.2,
+                "rally_distribution_pressure": 0.15,
+                "profit_taking_flow_ratio": 0.15,
+                "upper_shadow_selling_pressure": 0.1,
+                "covert_distribution_signal": 0.1,
+                "rally_distribution_pressure_slope": 0.1
+            },
+            "main_force_deception_weights": {
+                "description": "主力意图与诡道维度融合权重。",
+                "deception_index_positive": 0.3,
+                "wash_trade_intensity": 0.2,
+                "main_force_conviction_negative": 0.2,
+                "main_force_net_flow_negative": 0.15,
+                "main_force_cost_advantage_negative": 0.15
+            },
+            "market_vulnerability_weights": {
+                "description": "市场情境与脆弱性维度融合权重。",
+                "retail_fomo_premium_index": 0.3,
+                "volatility_instability_index": 0.25,
+                "market_sentiment_extreme": 0.2,
+                "flow_credibility_inverse": 0.15,
+                "structural_tension_index": 0.1
+            },
+            "final_fusion_weights": {
+                "description": "四大维度最终融合权重。",
+                "dispersion_weakness": 0.3,
+                "distribution_pressure": 0.3,
+                "main_force_deception": 0.2,
+                "market_vulnerability": 0.2
+            },
+            "dynamic_fusion_modulator_params": {
+                "enabled": true,
+                "description": "动态融合权重调制器参数。",
+                "modulator_signal_1": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+                "comment_modulator_signal_1": "调制器信号1（波动不稳定性）。",
+                "modulator_signal_2": "market_sentiment_score_D",
+                "comment_modulator_signal_2": "调制器信号2（市场情绪）。",
+                "sensitivity_volatility": 0.3,
+                "comment_sensitivity_volatility": "波动不稳定性对权重调整的敏感度。",
+                "sensitivity_sentiment": 0.2,
+                "comment_sensitivity_sentiment": "市场情绪对权重调整的敏感度。",
+                "volatility_impact_weights": {
+                    "dispersion_weakness": 0.1,
+                    "distribution_pressure": 0.1,
+                    "main_force_deception": 0.15,
+                    "market_vulnerability": 0.05
+                },
+                "comment_volatility_impact_weights": "波动不稳定性对各维度权重的调整量。",
+                "sentiment_impact_weights": {
+                    "dispersion_weakness": 0.05,
+                    "distribution_pressure": 0.1,
+                    "main_force_deception": 0.1,
+                    "market_vulnerability": 0.15
+                },
+                "comment_sentiment_impact_weights": "市场情绪对各维度权重的调整量。"
+            },
+            "deception_amplification_factor": 1.5,
+            "comment_deception_amplification_factor": "诡道维度对最终分数的放大因子。",
+            "non_linear_exponent": 2.0,
+            "comment_non_linear_exponent": "最终分数的非线性指数，用于放大极端值。"
+        },
         "historical_potential_params": {
             "description": "【V5.0 · 势能博弈临界版】筹码势能信号的专属参数。",
             "mf_aq_weights": {

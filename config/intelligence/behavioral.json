@@ -2,6 +2,33 @@
     "behavioral_divergence_params": {
         "enabled": true,
         "description": "【V8.0 · 行为背离强度惯性与自适应引擎版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "mtf_normalization_params": {
+            "default": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+            "long_term_stability": {"21": 0.5, "55": 0.3, "89": 0.2},
+            "comment": "多时间框架归一化默认权重配置。"
+        },
+        "signal_dynamics_params": {
+            "momentum_span": 5,
+            "potential_window": 120,
+            "comment": "信号动态计算参数。"
+        },
+        "scorched_earth_params": {
+            "fusion_weights": {"breach_force": 0.4, "defense_vacuum": 0.3, "command_vacuum": 0.3},
+            "comment": "价格下跌动能诊断参数。"
+        },
+        "offensive_absorption_params": {
+            "fusion_weights": {"crisis_context": 0.3, "counter_offensive_force": 0.4, "commanders_will": 0.3},
+            "comment": "进攻性承接意图诊断参数。"
+        },
+        "dynamic_threshold_params": {
+            "enabled": true,
+            "base_threshold": 0.005,
+            "atr_multiplier": 0.5,
+            "min_atr_period": 14,
+            "volatility_index_weight": 0.3,
+            "volatility_index_period": 21,
+            "comment": "动态价格跌幅阈值计算参数。"
+        },
         "new_high_strength_params": {
             "enabled": true,
             "description": "【V2.0 · 行为共振增强版】新高强度信号参数。",
@@ -272,6 +299,85 @@
                 "quality_modulator": 0.5
             }
         },
+        "puppeteers_gambit_params": {
+            "evidence_amplifier_k": 0.5,
+            "comment": "博弈欺骗指数诊断参数。"
+        },
+        "price_overextension_params": {
+            "enabled": true,
+            "rsi_overbought_threshold": 70,
+            "bias_overbought_threshold": 0.05,
+            "bbp_overbought_threshold": 0.95,
+            "volume_climax_multiplier": 1.8,
+            "upward_efficiency_decay_penalty": 0.1,
+            "intraday_control_decay_penalty": 0.1,
+            "dynamic_bias_bbp_atr_multiplier": 0.005,
+            "momentum_accel_bonus": 0.1,
+            "comment": "价格超买亢奋原始分计算参数。"
+        },
+        "pathfinder_protocol_params": {
+            "resistance_weights": {"chip_fatigue": 0.6, "loser_pain": 0.4},
+            "comment": "高品质上涨效率诊断参数。"
+        },
+        "elastic_defense_params": {
+            "intent_weights": {"conviction": 0.6, "cleansing": 0.4},
+            "comment": "高品质下跌抵抗诊断参数。"
+        },
+        "fog_of_war_protocol_params": {
+            "core_intent_weights": {"ofi": 0.6, "quote_exhaustion": 0.4},
+            "environmental_adaptability_weights": {"volatility_sensitivity": 0.5, "liquidity_sensitivity": 0.5},
+            "behavioral_coherence_weights": {"impulse_purity": 0.7, "deception_penalty": 0.3},
+            "comment": "微观结构意图诊断参数。"
+        },
+        "neutral_zone_thresholds": {
+            "main_force_execution_alpha_D": 0.0,
+            "comment": "中性区阈值参数。"
+        },
+        "directors_cut_params": {
+            "intent_weights": {"conviction": 0.7, "covert_ops": 0.3},
+            "comment": "下影线承接品质诊断参数。"
+        },
+        "atmospheric_pressure_params": {
+            "synergy_bonus_factor": 0.2,
+            "comment": "派发意图诊断参数。"
+        },
+        "judgment_day_protocol_params": {
+            "environment_weights": {"fatigue": 0.4, "decay": 0.3, "betrayal": 0.3},
+            "comment": "派发意图诊断中的环境权重参数。"
+        },
+        "ambush_counterattack_params": {
+            "fusion_weights": {"context": 0.3, "action": 0.4, "quality": 0.3},
+            "context_weights": {"panic": 0.3, "prior_weakness_slope": 0.4, "loser_pain": 0.2, "price_stagnation": 0.1},
+            "prior_weakness_slope_window": 5,
+            "price_stagnation_params": {"slope_window": 5, "max_abs_slope_threshold": 0.005, "max_bbw_score_threshold": 0.3},
+            "action_weights": {"absorption": 0.6, "deception_positive": 0.4},
+            "quality_weights": {"closing_strength": 0.6, "upward_purity": 0.4},
+            "comment": "伏击式反攻信号诊断参数。"
+        },
+        "breakout_failure_risk_params": {
+            "core_risk_weights": {"ambush": 1.0},
+            "context_amplifier_weights": {"overextension": 0.3, "positive_deception": 0.2, "retail_fomo": 0.2, "behavioral_sentiment_extreme": 0.3},
+            "max_amplification_factor": 0.5,
+            "lure_weakness_multiplier": 0.5,
+            "ambush_fusion_weights": {"distribution_intent": 0.7, "covert_ambush_intent": 0.2, "behavioral_momentum_divergence": 0.1},
+            "covert_ambush_intent_weights": {"weak_buying_support": 0.6, "declining_impulse_purity": 0.4},
+            "deceptive_calm_weights": {"overextension_inverse": 0.3, "positive_deception_inverse": 0.3, "retail_fomo_inverse": 0.4},
+            "deceptive_calm_multiplier": 0.2,
+            "deceptive_calm_threshold": 0.5,
+            "base_dynamic_risk_weight_exponent": 1.5,
+            "volatility_exponent_multiplier": 0.5,
+            "trend_vitality_exponent_multiplier": 0.5,
+            "core_risk_synergy_exponent": 2.0,
+            "core_risk_high_end_stretch_power": 2.0,
+            "risk_ema_span": 5,
+            "risk_trend_slope_window": 5,
+            "risk_momentum_diff_window": 1,
+            "risk_trend_mod_multiplier": 0.2,
+            "risk_momentum_mod_multiplier": 0.1,
+            "behavioral_momentum_divergence_weights": {"price_slope_weight": 0.5, "rsi_slope_weight": 0.5},
+            "behavioral_sentiment_extreme_weights": {"retail_fomo": 0.4, "rsi_extreme": 0.3, "bias_extreme": 0.3},
+            "comment": "突破失败级联风险诊断参数。"
+        },
         "selling_exhaustion_params": {
             "enabled": true,
             "description": "【V3.0 · 凤凰涅槃协议 - 多时间维度动态增强版】卖盘衰竭机会信号参数。",
@@ -349,6 +455,42 @@
             },
             "comment_mtf_accel_weights": "多时间框架加速度融合权重。",
             "comment": "融合卖盘衰竭的四大维度，并进行动态情境调制。"
+        },
+        "deceptive_divergence_protocol_params": {
+            "bullish_magnitude_params": {"price_downtrend_slope_window": 5, "conviction_uptrend_slope_window": 5},
+            "bearish_magnitude_params": {"price_slope_window": 5, "conviction_downtrend_slope_window": 5},
+            "fusion_weights": {"magnitude": 0.4, "location": 0.3, "bullish_absorption_confirmation": 0.2, "bearish_distribution_confirmation": 0.2, "micro_intent_confirmation": 0.1, "deceptive_narrative_confirmation": 0.1},
+            "comment": "高品质价量/价资背离诊断参数。"
+        },
+        "beachhead_protocol_params": {
+            "strategic_weights": {"chip_fatigue": 0.6, "loser_pain": 0.4},
+            "comment": "高品质看涨量能爆发信号参数。"
+        },
+        "crucible_protocol_params": {
+            "stability_window": 5,
+            "quality_weights": {"purity_score": 0.6, "stability_score": 0.4},
+            "comment": "高品质成交量萎缩信号参数。"
+        },
+        "citadel_protocol_params": {
+            "action_weights": {"dip_absorption": 0.6, "active_buying": 0.4},
+            "comment": "高品质承接强度信号参数。"
+        },
+        "stagnation_evidence_params": {
+            "enabled": true,
+            "upper_shadow_ratio_threshold": 0.4,
+            "body_ratio_threshold": 0.3,
+            "volume_stagnation_multiplier": 1.2,
+            "momentum_divergence_penalty": 0.15,
+            "upward_efficiency_decay_bonus": 0.1,
+            "intraday_control_decay_bonus": 0.1,
+            "dynamic_kline_atr_multiplier": 0.005,
+            "momentum_deceleration_bonus": 0.1,
+            "volume_drying_up_multiplier": 0.8,
+            "comment": "滞涨证据原始分计算参数。"
+        },
+        "grandmasters_protocol_params": {
+            "quality_weights": {"efficiency": 0.4, "control": 0.4, "decisiveness": 0.2},
+            "comment": "震荡洗盘确认信号参数。"
         },
         "liquidity_drain_params": {
             "enabled": true,
