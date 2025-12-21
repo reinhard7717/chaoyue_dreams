@@ -26,6 +26,9 @@ class ChipIntelligence:
         self.should_probe = self.debug_params.get('should_probe', False)
         # 将 probe_dates 转换为 datetime.date 对象的集合，以便高效查找
         self.probe_dates_set = {pd.to_datetime(d).date() for d in self.debug_params.get('probe_dates', [])}
+        # 新增调试信息，确认加载的探针日期
+        if self.should_probe:
+            print(f"    -> [ChipIntelligence] 探针模式已启用。配置的探针日期: {sorted([d.strftime('%Y-%m-%d') for d in self.probe_dates_set])}")
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -2620,10 +2623,15 @@ class ChipIntelligence:
         """
         df_index = df.index
         # --- Probe setup ---
-        probe_dates_in_df = [d for d in self.probe_dates_set if d in df.index]
+        # Convert df.index (DatetimeIndex of Timestamps) to a set of datetime.date for efficient lookup
+        df_dates_set = set(df_index.date)
+        probe_dates_in_df = sorted([d for d in self.probe_dates_set if d in df_dates_set])
         should_probe_overall = self.should_probe and bool(probe_dates_in_df)
         if should_probe_overall:
             print(f"启动【V2.0 · 诡道诱导版】散户筹码脆弱性指数诊断...")
+            print(f"    -> [探针] 配置的探针日期: {sorted([d.strftime('%Y-%m-%d') for d in self.probe_dates_set])}")
+            print(f"    -> [探针] DataFrame中包含的日期: {sorted([d.strftime('%Y-%m-%d') for d in df_dates_set])}")
+            print(f"    -> [探针] 实际将进行探针输出的日期: {sorted([d.strftime('%Y-%m-%d') for d in probe_dates_in_df])}")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         rv_params = get_param_value(p_conf.get('chip_retail_vulnerability_params'), {})
@@ -2739,47 +2747,49 @@ class ChipIntelligence:
         # --- Probing for specific dates ---
         if should_probe_overall:
             for p_date in probe_dates_in_df:
+                # Ensure p_date is a Timestamp for .loc indexing
+                p_timestamp = pd.Timestamp(p_date)
                 print(f"    -> [探针] SCORE_CHIP_RETAIL_VULNERABILITY 详细诊断 @ {p_date.strftime('%Y-%m-%d')}:")
                 print(f"       --- 原始数据 ---")
-                print(f"       - winner_concentration_90pct_D: {winner_concentration_raw.loc[p_date]:.4f}")
-                print(f"       - loser_concentration_90pct_D: {loser_concentration_raw.loc[p_date]:.4f}")
-                print(f"       - cost_gini_coefficient_D: {cost_gini_coefficient_raw.loc[p_date]:.4f}")
-                print(f"       - retail_flow_dominance_index_D: {retail_flow_dominance_raw.loc[p_date]:.4f}")
-                print(f"       - retail_fomo_premium_index_D: {retail_fomo_premium_index_raw.loc[p_date]:.4f}")
-                print(f"       - panic_buy_absorption_contribution_D: {panic_buy_absorption_contribution_raw.loc[p_date]:.4f}")
-                print(f"       - retail_net_flow_calibrated_D: {retail_net_flow_calibrated_raw.loc[p_date]:.4f}")
-                print(f"       - total_winner_rate_D: {total_winner_rate_raw.loc[p_date]:.4f}")
-                print(f"       - total_loser_rate_D: {total_loser_rate_raw.loc[p_date]:.4f}")
-                print(f"       - deception_index_D: {deception_index_raw.loc[p_date]:.4f}")
-                print(f"       - wash_trade_intensity_D: {wash_trade_intensity_raw.loc[p_date]:.4f}")
-                print(f"       - main_force_conviction_index_D: {main_force_conviction_raw.loc[p_date]:.4f}")
-                print(f"       - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[p_date]:.4f}")
-                print(f"       - market_sentiment_score_D: {market_sentiment_raw.loc[p_date]:.4f}")
+                print(f"       - winner_concentration_90pct_D: {winner_concentration_raw.loc[p_timestamp]:.4f}")
+                print(f"       - loser_concentration_90pct_D: {loser_concentration_raw.loc[p_timestamp]:.4f}")
+                print(f"       - cost_gini_coefficient_D: {cost_gini_coefficient_raw.loc[p_timestamp]:.4f}")
+                print(f"       - retail_flow_dominance_index_D: {retail_flow_dominance_raw.loc[p_timestamp]:.4f}")
+                print(f"       - retail_fomo_premium_index_D: {retail_fomo_premium_index_raw.loc[p_timestamp]:.4f}")
+                print(f"       - panic_buy_absorption_contribution_D: {panic_buy_absorption_contribution_raw.loc[p_timestamp]:.4f}")
+                print(f"       - retail_net_flow_calibrated_D: {retail_net_flow_calibrated_raw.loc[p_timestamp]:.4f}")
+                print(f"       - total_winner_rate_D: {total_winner_rate_raw.loc[p_timestamp]:.4f}")
+                print(f"       - total_loser_rate_D: {total_loser_rate_raw.loc[p_timestamp]:.4f}")
+                print(f"       - deception_index_D: {deception_index_raw.loc[p_timestamp]:.4f}")
+                print(f"       - wash_trade_intensity_D: {wash_trade_intensity_raw.loc[p_timestamp]:.4f}")
+                print(f"       - main_force_conviction_index_D: {main_force_conviction_raw.loc[p_timestamp]:.4f}")
+                print(f"       - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[p_timestamp]:.4f}")
+                print(f"       - market_sentiment_score_D: {market_sentiment_raw.loc[p_timestamp]:.4f}")
                 print(f"       --- 归一化信号 ---")
-                print(f"       - norm_winner_concentration_inverse: {norm_winner_concentration_inverse.loc[p_date]:.4f}")
-                print(f"       - norm_loser_concentration_inverse: {norm_loser_concentration_inverse.loc[p_date]:.4f}")
-                print(f"       - norm_cost_gini_coefficient_inverse: {norm_cost_gini_coefficient_inverse.loc[p_date]:.4f}")
-                print(f"       - norm_retail_flow_dominance: {norm_retail_flow_dominance.loc[p_date]:.4f}")
-                print(f"       - norm_retail_fomo_premium: {norm_retail_fomo_premium.loc[p_date]:.4f}")
-                print(f"       - norm_panic_buy_absorption_inverse: {norm_panic_buy_absorption_inverse.loc[p_date]:.4f}")
-                print(f"       - norm_retail_net_flow_abs: {norm_retail_net_flow_abs.loc[p_date]:.4f}")
-                print(f"       - norm_total_winner_rate: {norm_total_winner_rate.loc[p_date]:.4f}")
-                print(f"       - norm_total_loser_rate: {norm_total_loser_rate.loc[p_date]:.4f}")
-                print(f"       - norm_deception_index_positive: {norm_deception_index_positive.loc[p_date]:.4f}")
-                print(f"       - norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[p_date]:.4f}")
-                print(f"       - norm_main_force_conviction_negative_abs: {norm_main_force_conviction_negative_abs.loc[p_date]:.4f}")
-                print(f"       - norm_volatility_instability (modulator): {norm_volatility_instability.loc[p_date]:.4f}")
-                print(f"       - norm_market_sentiment_extreme (modulator): {norm_market_sentiment_extreme.loc[p_date]:.4f}")
+                print(f"       - norm_winner_concentration_inverse: {norm_winner_concentration_inverse.loc[p_timestamp]:.4f}")
+                print(f"       - norm_loser_concentration_inverse: {norm_loser_concentration_inverse.loc[p_timestamp]:.4f}")
+                print(f"       - norm_cost_gini_coefficient_inverse: {norm_cost_gini_coefficient_inverse.loc[p_timestamp]:.4f}")
+                print(f"       - norm_retail_flow_dominance: {norm_retail_flow_dominance.loc[p_timestamp]:.4f}")
+                print(f"       - norm_retail_fomo_premium: {norm_retail_fomo_premium.loc[p_timestamp]:.4f}")
+                print(f"       - norm_panic_buy_absorption_inverse: {norm_panic_buy_absorption_inverse.loc[p_timestamp]:.4f}")
+                print(f"       - norm_retail_net_flow_abs: {norm_retail_net_flow_abs.loc[p_timestamp]:.4f}")
+                print(f"       - norm_total_winner_rate: {norm_total_winner_rate.loc[p_timestamp]:.4f}")
+                print(f"       - norm_total_loser_rate: {norm_total_loser_rate.loc[p_timestamp]:.4f}")
+                print(f"       - norm_deception_index_positive: {norm_deception_index_positive.loc[p_timestamp]:.4f}")
+                print(f"       - norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[p_timestamp]:.4f}")
+                print(f"       - norm_main_force_conviction_negative_abs: {norm_main_force_conviction_negative_abs.loc[p_timestamp]:.4f}")
+                print(f"       - norm_volatility_instability (modulator): {norm_volatility_instability.loc[p_timestamp]:.4f}")
+                print(f"       - norm_market_sentiment_extreme (modulator): {norm_market_sentiment_extreme.loc[p_timestamp]:.4f}")
                 print(f"       --- 维度分数 ---")
-                print(f"       - 散户筹码结构脆弱性 (structure_fragility_score): {structure_fragility_score.loc[p_date]:.4f}")
-                print(f"       - 散户行为极端化 (behavior_extremism_score): {behavior_extremism_score.loc[p_date]:.4f}")
-                print(f"       - 主力诱导情境 (inducement_context_score): {inducement_context_score.loc[p_date]:.4f}")
+                print(f"       - 散户筹码结构脆弱性 (structure_fragility_score): {structure_fragility_score.loc[p_timestamp]:.4f}")
+                print(f"       - 散户行为极端化 (behavior_extremism_score): {behavior_extremism_score.loc[p_timestamp]:.4f}")
+                print(f"       - 主力诱导情境 (inducement_context_score): {inducement_context_score.loc[p_timestamp]:.4f}")
                 print(f"       --- 融合与调制 ---")
-                print(f"       - 初始融合脆弱性分数 (initial_vulnerability_score): {initial_vulnerability_score.loc[p_date]:.4f}")
+                print(f"       - 初始融合脆弱性分数 (initial_vulnerability_score): {initial_vulnerability_score.loc[p_timestamp]:.4f}")
                 if contextual_modulator_enabled:
-                    print(f"       - 情境调制器 (modulator): {modulator.loc[p_date]:.4f}")
+                    print(f"       - 情境调制器 (modulator): {modulator.loc[p_timestamp]:.4f}")
                 print(f"       --- 最终分数 ---")
-                print(f"       - 最终散户筹码脆弱性指数 (final_score): {final_score.loc[p_date]:.4f}")
+                print(f"       - 最终散户筹码脆弱性指数 (final_score): {final_score.loc[p_timestamp]:.4f}")
             print(f"【V2.0 · 诡道诱导版】散户筹码脆弱性指数诊断完成。")
         return final_score
 
