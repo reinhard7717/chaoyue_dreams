@@ -6,7 +6,7 @@ from typing import Dict, Tuple, Optional, List, Any
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_energy_score,
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score, get_robust_bipolar_normalized_score,
-    normalize_score, normalize_to_bipolar
+    normalize_score,  load_external_json_config, normalize_to_bipolar
 )
 
 class BehavioralIntelligence:

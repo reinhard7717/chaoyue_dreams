@@ -19,20 +19,14 @@ class ChipIntelligence:
         self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         self.bipolar_sensitivity = get_param_value(process_params.get('bipolar_sensitivity'), 1.0)
-        # 修改开始
         # 从外部文件加载 chip_ultimate_params
         # loaded_chip_config 应该直接是 chip.json 的内容
         loaded_chip_config = load_external_json_config("config/intelligence/chip.json", {})
         # 直接从加载的配置中获取 chip_ultimate_params 块，而不是通过 get_params_block
         self.chip_ultimate_params = loaded_chip_config.get('chip_ultimate_params', {}) # 修改行
-        print(f"self.chip_ultimate_params: {self.chip_ultimate_params}")
-        # 修改结束
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.should_probe = self.debug_params.get('should_probe', False)
         self.probe_dates_set = {pd.to_datetime(d).date() for d in self.debug_params.get('probe_dates', [])}
-        if self.should_probe:
-            print(f"    -> [ChipIntelligence] 探针模式已启用。配置的探针日期: {sorted([d.strftime('%Y-%m-%d') for d in self.probe_dates_set])}")
-            print(f"    -> [ChipIntelligence] 筹码终极参数已从 config/intelligence/chip.json 加载。")
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -2715,7 +2709,7 @@ class ChipIntelligence:
 
     def _diagnose_chip_main_force_cost_intent(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 诡道情境自适应版】主力成本区攻防意图
+        【V2.1 · 净流量方向修正版】主力成本区攻防意图
         诊断主力资金在其核心持仓成本区域（或关键筹码峰区域）进行主动买入或卖出的强度。
         正分代表主力在其成本区下方或附近积极承接，显示出强烈的防守或吸筹意图；
         负分代表主力在其成本区上方或附近主动派发，显示出减仓或打压意图。
@@ -2733,13 +2727,12 @@ class ChipIntelligence:
         probe_dates_in_df = sorted([d for d in self.probe_dates_set if d in df_dates_set])
         should_probe_overall = self.should_probe and bool(probe_dates_in_df)
         if should_probe_overall:
-            print(f"启动【V2.0 · 诡道情境自适应版】主力成本区攻防意图诊断...")
-            print(f"    -> [探针] 实际将进行探针输出的日期: {sorted([d.strftime('%Y-%m-%d') for d in probe_dates_in_df])}")
+            print(f"启动【V2.1 · 净流量方向修正版】主力成本区攻防意图诊断...")
+            for p_date in probe_dates_in_df:
+                print(f"    -> [探针] 实际将进行探针输出的日期: {p_date.strftime('%Y-%m-%d')}")
         p_conf = self.chip_ultimate_params
-        print(f"    -> [参数] 主力成本区攻防意图诊断参数: {p_conf.get('main_force_cost_intent_params')}")
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         mfci_params = get_param_value(p_conf.get('main_force_cost_intent_params'), {})
-        # --- 参数加载 ---
         cost_zone_tolerance_base = get_param_value(mfci_params.get('cost_zone_tolerance_base'), 0.02)
         dynamic_tolerance_mod_enabled = get_param_value(mfci_params.get('dynamic_tolerance_mod_enabled'), True)
         dynamic_tolerance_mod_signal = get_param_value(mfci_params.get('dynamic_tolerance_mod_signal'), 'BBW_21_2.0_D')
@@ -2760,7 +2753,6 @@ class ChipIntelligence:
         dynamic_fusion_weights_base = get_param_value(mfci_params.get('dynamic_fusion_weights_base'), {'below_vpoc': 0.4, 'above_vpoc': 0.4, 'in_vpoc': 0.2})
         dynamic_weight_mod_signal = get_param_value(mfci_params.get('dynamic_weight_mod_signal'), 'market_sentiment_score_D')
         dynamic_weight_sensitivity = get_param_value(mfci_params.get('dynamic_weight_sensitivity'), 0.3)
-        # --- 信号依赖校验 ---
         required_signals = [
             'close_D', 'vpoc_D', 'dominant_peak_cost_D', 'main_force_conviction_index_D',
             'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
@@ -2771,7 +2763,6 @@ class ChipIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_main_force_cost_intent"):
             return pd.Series(0.0, index=df.index)
-        # --- 原始数据获取 ---
         close_raw = self._get_safe_series(df, df, 'close_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         vpoc_raw = self._get_safe_series(df, df, 'vpoc_D', close_raw.mean(), method_name="_diagnose_chip_main_force_cost_intent")
         dominant_peak_cost_raw = self._get_safe_series(df, df, 'dominant_peak_cost_D', vpoc_raw, method_name="_diagnose_chip_main_force_cost_intent")
@@ -2788,7 +2779,6 @@ class ChipIntelligence:
         bbw_raw = self._get_safe_series(df, df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        # --- 探针: 原始输入 ---
         if should_probe_overall:
             for p_date in probe_dates_in_df:
                 matching_timestamps = df_index[df_index.date == p_date]
@@ -2812,10 +2802,7 @@ class ChipIntelligence:
                     print(f"       - BBW_21_2.0_D: {bbw_raw.loc[p_actual_timestamp]:.4f}")
                     print(f"       - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[p_actual_timestamp]:.4f}")
                     print(f"       - market_sentiment_score_D: {market_sentiment_raw.loc[p_actual_timestamp]:.4f}")
-        # --- 1. 动态成本区定义 ---
-        # 优先使用 dominant_peak_cost_D，否则回退到 vpoc_D
         cost_center = dominant_peak_cost_raw.fillna(vpoc_raw)
-        # 动态调整 cost_zone_tolerance
         dynamic_cost_zone_tolerance = pd.Series(cost_zone_tolerance_base, index=df_index)
         if dynamic_tolerance_mod_enabled:
             norm_dynamic_tolerance_mod = get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, dynamic_tolerance_mod_signal, 0.0, method_name="_diagnose_chip_main_force_cost_intent"), df_index, ascending=True, tf_weights=tf_weights)
@@ -2833,14 +2820,15 @@ class ChipIntelligence:
                     print(f"       - dynamic_cost_zone_tolerance: {dynamic_cost_zone_tolerance.loc[p_actual_timestamp]:.4f}")
                     print(f"       - upper_bound: {upper_bound.loc[p_actual_timestamp]:.4f}")
                     print(f"       - lower_bound: {lower_bound.loc[p_actual_timestamp]:.4f}")
-        # --- 2. 增强净流量质量 ---
         net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
-        norm_net_conviction_flow = get_adaptive_mtf_normalized_bipolar_score(net_conviction_flow, df_index, tf_weights=tf_weights)
+        # 修正 net_conviction_flow 的归一化逻辑，确保方向性正确
+        norm_positive_flow = get_adaptive_mtf_normalized_score(net_conviction_flow.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
+        norm_negative_flow = get_adaptive_mtf_normalized_score(net_conviction_flow.clip(upper=0).abs(), df_index, ascending=True, tf_weights=tf_weights)
+        norm_net_conviction_flow_directional = norm_positive_flow - norm_negative_flow
         norm_main_force_activity = get_adaptive_mtf_normalized_score(main_force_activity_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights=tf_weights)
-        # 资金流质量调制：活跃度越高，方向性越强，净流量质量越高
         flow_quality_modulator = (norm_main_force_activity * 0.5 + norm_main_force_flow_directionality.abs() * 0.5).clip(0, 1)
-        net_conviction_flow_quality = norm_net_conviction_flow * (1 + flow_quality_modulator * 0.5) # 调制强度可调
+        net_conviction_flow_quality = norm_net_conviction_flow_directional * (1 + flow_quality_modulator * 0.5)
         net_conviction_flow_quality = net_conviction_flow_quality.clip(-1, 1)
         norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         if should_probe_overall:
@@ -2850,17 +2838,18 @@ class ChipIntelligence:
                     p_actual_timestamp = matching_timestamps[0]
                     print(f"       --- 增强净流量质量 ---")
                     print(f"       - net_conviction_flow: {net_conviction_flow.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_net_conviction_flow: {norm_net_conviction_flow.loc[p_actual_timestamp]:.4f}")
+                    print(f"       - norm_positive_flow: {norm_positive_flow.loc[p_actual_timestamp]:.4f}")
+                    print(f"       - norm_negative_flow: {norm_negative_flow.loc[p_actual_timestamp]:.4f}")
+                    print(f"       - norm_net_conviction_flow_directional: {norm_net_conviction_flow_directional.loc[p_actual_timestamp]:.4f}")
                     print(f"       - norm_main_force_activity: {norm_main_force_activity.loc[p_actual_timestamp]:.4f}")
                     print(f"       - norm_main_force_flow_directionality: {norm_main_force_flow_directionality.loc[p_actual_timestamp]:.4f}")
                     print(f"       - flow_quality_modulator: {flow_quality_modulator.loc[p_actual_timestamp]:.4f}")
                     print(f"       - net_conviction_flow_quality: {net_conviction_flow_quality.loc[p_actual_timestamp]:.4f}")
                     print(f"       - norm_main_force_conviction: {norm_main_force_conviction.loc[p_actual_timestamp]:.4f}")
-        # --- 3. 非线性价格偏离放大 ---
         price_deviation_factor_buy = (cost_center - close_raw) / cost_center.replace(0, np.nan)
-        price_deviation_factor_buy = np.tanh(price_deviation_factor_buy.clip(0, 0.1) * price_deviation_tanh_factor) # 0-1
+        price_deviation_factor_buy = np.tanh(price_deviation_factor_buy.clip(0, 0.1) * price_deviation_tanh_factor)
         price_deviation_factor_sell = (close_raw - cost_center) / cost_center.replace(0, np.nan)
-        price_deviation_factor_sell = np.tanh(price_deviation_factor_sell.clip(0, 0.1) * price_deviation_tanh_factor) # 0-1
+        price_deviation_factor_sell = np.tanh(price_deviation_factor_sell.clip(0, 0.1) * price_deviation_tanh_factor)
         if should_probe_overall:
             for p_date in probe_dates_in_df:
                 matching_timestamps = df_index[df_index.date == p_date]
@@ -2869,7 +2858,6 @@ class ChipIntelligence:
                     print(f"       --- 非线性价格偏离放大 ---")
                     print(f"       - price_deviation_factor_buy: {price_deviation_factor_buy.loc[p_actual_timestamp]:.4f}")
                     print(f"       - price_deviation_factor_sell: {price_deviation_factor_sell.loc[p_actual_timestamp]:.4f}")
-        # --- 4. 情境化成本区内逻辑 ---
         norm_slope_5_chip_health = get_adaptive_mtf_normalized_bipolar_score(slope_5_chip_health_raw, df_index, tf_weights=tf_weights)
         norm_slope_5_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(slope_5_main_force_conviction_raw, df_index, tf_weights=tf_weights)
         in_zone_intent_modulator = (norm_slope_5_chip_health * 0.5 + norm_slope_5_main_force_conviction * 0.5).clip(-1, 1)
@@ -2882,22 +2870,16 @@ class ChipIntelligence:
                     print(f"       - norm_slope_5_chip_health: {norm_slope_5_chip_health.loc[p_actual_timestamp]:.4f}")
                     print(f"       - norm_slope_5_main_force_conviction: {norm_slope_5_main_force_conviction.loc[p_actual_timestamp]:.4f}")
                     print(f"       - in_zone_intent_modulator: {in_zone_intent_modulator.loc[p_actual_timestamp]:.4f}")
-        # --- 5. 诡道调制 ---
         deception_modulator = pd.Series(1.0, index=df_index)
         if deception_mod_enabled:
             norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights)
             norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
-            # 诱空（负向欺骗）在吸筹时增强，诱多（正向欺骗）在派发时增强
-            # 诱空反吸：当主力净买入为正，且有诱空欺骗时，增强吸筹意图
             bear_trap_boost_mask = (net_conviction_flow_quality > 0) & (norm_deception_index_bipolar < 0)
             deception_modulator.loc[bear_trap_boost_mask] = 1 + norm_deception_index_bipolar.loc[bear_trap_boost_mask].abs() * deception_boost_factor
-            # 诱多派发：当主力净卖出为负，且有诱多欺骗时，增强派发意图
             bull_trap_boost_mask = (net_conviction_flow_quality < 0) & (norm_deception_index_bipolar > 0)
             deception_modulator.loc[bull_trap_boost_mask] = 1 + norm_deception_index_bipolar.loc[bull_trap_boost_mask] * deception_boost_factor
-            # 诱多吸筹：当主力净买入为正，但有诱多欺骗时，削弱吸筹意图
             bull_trap_penalty_mask = (net_conviction_flow_quality > 0) & (norm_deception_index_bipolar > 0)
             deception_modulator.loc[bull_trap_penalty_mask] = 1 - norm_deception_index_bipolar.loc[bull_trap_penalty_mask] * deception_penalty_factor
-            # 对倒行为始终削弱意图的纯粹性
             deception_modulator = deception_modulator * (1 - norm_wash_trade_intensity * wash_trade_penalty_factor)
             deception_modulator = deception_modulator.clip(0.1, 2.0)
         if should_probe_overall:
@@ -2909,11 +2891,10 @@ class ChipIntelligence:
                     print(f"       - norm_deception_index_bipolar: {norm_deception_index_bipolar.loc[p_actual_timestamp]:.4f}")
                     print(f"       - norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[p_actual_timestamp]:.4f}")
                     print(f"       - deception_modulator: {deception_modulator.loc[p_actual_timestamp]:.4f}")
-        # --- 6. 宏观情境调制 ---
         global_context_modulator = pd.Series(1.0, index=df_index)
         if global_context_mod_enabled:
             norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_score_raw, df_index, ascending=True, tf_weights=tf_weights)
-            norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights) # 波动性越低越好
+            norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
             global_context_modulator = (
                 (1 + norm_chip_health * global_context_sensitivity_health) *
                 (1 + norm_volatility_instability * global_context_sensitivity_volatility)
@@ -2927,13 +2908,11 @@ class ChipIntelligence:
                     print(f"       - norm_chip_health: {norm_chip_health.loc[p_actual_timestamp]:.4f}")
                     print(f"       - norm_volatility_instability: {norm_volatility_instability.loc[p_actual_timestamp]:.4f}")
                     print(f"       - global_context_modulator: {global_context_modulator.loc[p_actual_timestamp]:.4f}")
-        # --- 7. 动态权重融合 ---
         dynamic_weight_below_vpoc = pd.Series(dynamic_fusion_weights_base.get('below_vpoc', 0.4), index=df_index)
         dynamic_weight_above_vpoc = pd.Series(dynamic_fusion_weights_base.get('above_vpoc', 0.4), index=df_index)
         dynamic_weight_in_vpoc = pd.Series(dynamic_fusion_weights_base.get('in_vpoc', 0.2), index=df_index)
         if dynamic_fusion_weights_enabled:
             norm_dynamic_weight_mod = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, dynamic_weight_mod_signal, 0.0, method_name="_diagnose_chip_main_force_cost_intent"), df_index, tf_weights=tf_weights)
-            # 市场情绪越积极，越关注上方派发意图；越消极，越关注下方吸筹意图
             mod_factor = norm_dynamic_weight_mod * dynamic_weight_sensitivity
             dynamic_weight_below_vpoc = (dynamic_weight_below_vpoc - mod_factor).clip(0.1, 0.7)
             dynamic_weight_above_vpoc = (dynamic_weight_above_vpoc + mod_factor).clip(0.1, 0.7)
@@ -2951,27 +2930,23 @@ class ChipIntelligence:
                     print(f"       - dynamic_weight_below_vpoc: {dynamic_weight_below_vpoc.loc[p_actual_timestamp]:.4f}")
                     print(f"       - dynamic_weight_above_vpoc: {dynamic_weight_above_vpoc.loc[p_actual_timestamp]:.4f}")
                     print(f"       - dynamic_weight_in_vpoc: {dynamic_weight_in_vpoc.loc[p_actual_timestamp]:.4f}")
-        # --- 初始化意图分数 ---
         main_force_cost_intent_raw = pd.Series(0.0, index=df_index)
-        # 情况1: 价格在成本区下方 (吸筹/防守意图)
         mask_below_vpoc = (close_raw < lower_bound)
         intent_below_vpoc = (
-            net_conviction_flow_quality.loc[mask_below_vpoc].clip(lower=0) * # 只考虑正向净买入
+            net_conviction_flow_quality.loc[mask_below_vpoc].clip(lower=0) *
             norm_main_force_conviction.loc[mask_below_vpoc] *
             (1 + price_deviation_factor_buy.loc[mask_below_vpoc]) *
             dynamic_weight_below_vpoc.loc[mask_below_vpoc]
         )
         main_force_cost_intent_raw.loc[mask_below_vpoc] = intent_below_vpoc
-        # 情况2: 价格在成本区上方 (派发/减仓意图)
         mask_above_vpoc = (close_raw > upper_bound)
         intent_above_vpoc = -(
-            net_conviction_flow_quality.loc[mask_above_vpoc].clip(upper=0).abs() * # 只考虑负向净卖出
+            net_conviction_flow_quality.loc[mask_above_vpoc].clip(upper=0).abs() *
             norm_main_force_conviction.loc[mask_above_vpoc] *
             (1 + price_deviation_factor_sell.loc[mask_above_vpoc]) *
             dynamic_weight_above_vpoc.loc[mask_above_vpoc]
         )
         main_force_cost_intent_raw.loc[mask_above_vpoc] = intent_above_vpoc
-        # 情况3: 价格在成本区内 (控盘/震仓意图)
         mask_in_vpoc = (close_raw >= lower_bound) & (close_raw <= upper_bound)
         intent_in_vpoc = (
             net_conviction_flow_quality.loc[mask_in_vpoc] *
@@ -2980,10 +2955,7 @@ class ChipIntelligence:
             dynamic_weight_in_vpoc.loc[mask_in_vpoc]
         )
         main_force_cost_intent_raw.loc[mask_in_vpoc] = intent_in_vpoc
-        # --- 最终融合 ---
-        # 应用诡道调制和宏观情境调制
         final_score = main_force_cost_intent_raw * deception_modulator * global_context_modulator
-        # 最终分数映射到 [-1, 1]
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
         if should_probe_overall:
             for p_date in probe_dates_in_df:
@@ -2993,7 +2965,7 @@ class ChipIntelligence:
                     print(f"       --- 最终融合 ---")
                     print(f"       - main_force_cost_intent_raw: {main_force_cost_intent_raw.loc[p_actual_timestamp]:.4f}")
                     print(f"       - final_score: {final_score.loc[p_actual_timestamp]:.4f}")
-            print(f"【V2.0 · 诡道情境自适应版】主力成本区攻防意图诊断完成。")
+            print(f"【V2.1 · 净流量方向修正版】主力成本区攻防意图诊断完成。")
         return final_score
 
     def _diagnose_chip_hollowing_out_risk(self, df: pd.DataFrame) -> pd.Series:

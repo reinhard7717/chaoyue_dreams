@@ -1,0 +1,700 @@
+{
+    "behavioral_divergence_params": {
+        "enabled": true,
+        "description": "【V8.0 · 行为背离强度惯性与自适应引擎版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "new_high_strength_params": {
+            "enabled": true,
+            "description": "【V2.0 · 行为共振增强版】新高强度信号参数。",
+            "fusion_weights": {
+                "price_momentum_quality": 0.3,
+                "volume_liquidity_confirmation": 0.25,
+                "resistance_overextension": 0.25,
+                "intraday_control_sentiment": 0.2
+            },
+            "price_momentum_quality_weights": {
+                "pct_change": 0.25,
+                "ma_slope": 0.25,
+                "breakout_quality": 0.2,
+                "upward_impulse_purity": 0.15,
+                "trend_acceleration": 0.15
+            },
+            "volume_liquidity_confirmation_weights": {
+                "volume_burstiness": 0.4,
+                "constructive_turnover": 0.3,
+                "buy_sweep_intensity": 0.3
+            },
+            "resistance_overextension_weights": {
+                "bias_health": 0.4,
+                "upper_shadow_selling_pressure_inverse": 0.3,
+                "volatility_instability_inverse": 0.3
+            },
+            "intraday_control_sentiment_weights": {
+                "intraday_bull_control": 0.5,
+                "market_sentiment": 0.5
+            },
+            "final_exponent": 1.2,
+            "pct_change_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "ma_slope_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "bias_health_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "breakout_quality_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "upward_impulse_purity_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "trend_acceleration_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "volume_burstiness_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "constructive_turnover_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "buy_sweep_intensity_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "upper_shadow_selling_pressure_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "volatility_instability_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "intraday_bull_control_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "market_sentiment_tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 }
+        },
+        "unresolved_pressure_params": {
+            "enabled": true,
+            "description": "【V3.0 · 压力博弈深度洞察与动态自适应版】未解决压力风险与压力吸收机会信号参数。",
+            "raw_selling_pressure_weights": {
+                "active_selling_pressure": 0.2,
+                "upper_shadow_selling_pressure": 0.15,
+                "panic_selling_cascade": 0.2,
+                "sell_quote_exhaustion_rate": 0.15,
+                "volume_structure_skew_negative": 0.15,
+                "micro_price_impact_asymmetry_negative": 0.15,
+                "sell_sweep_intensity": 0.1,
+                "rally_distribution_pressure": 0.1
+            },
+            "absorption_quality_weights": {
+                "vpa_efficiency": 0.3,
+                "vwap_control_strength": 0.2,
+                "offensive_absorption_intent": 0.3,
+                "absorption_strength": 0.2
+            },
+            "opportunity_context_modulator_weights": {
+                "battlefield_momentum": 1.0
+            },
+            "final_exponent": 1.5,
+            "fusion_power_p": 0.0,
+            "mtf_slope_accel_weights": {
+                "5": 0.4,
+                "13": 0.3,
+                "21": 0.2,
+                "34": 0.05,
+                "55": 0.05
+            },
+            "comment_mtf_slope_accel_weights": "多时间框架斜率和加速度的融合权重，用于MTF动态增强。",
+            "mtf_indicator_component_weights": {
+                "default": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "active_selling_pressure": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "upper_shadow_selling_pressure": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "panic_selling_cascade": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "sell_quote_exhaustion_rate": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "volume_structure_skew": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+                "micro_price_impact_asymmetry": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+                "sell_sweep_intensity": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "rally_distribution_pressure": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "VPA_EFFICIENCY": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+                "vwap_control_strength": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3}
+            },
+            "comment_mtf_indicator_component_weights": "每个指标内部组件（原始值、斜率、加速度）的融合权重。",
+            "dynamic_fusion_power_p_params": {
+                "enabled": true,
+                "description": "动态调整融合幂参数power_p，使其自适应市场情境。",
+                "volatility_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+                "sentiment_signal": "market_sentiment_score_D",
+                "volatility_sensitivity": 0.5,
+                "sentiment_sensitivity": 0.5,
+                "min_power_p": -0.5,
+                "max_power_p": 0.5
+            },
+            "comment_dynamic_fusion_power_p_params": "动态调整融合幂参数power_p的配置。",
+            "min_raw_selling_pressure_threshold": 0.05,
+            "comment_min_raw_selling_pressure_threshold": "原始卖压的最小阈值，低于此阈值时机会信号为0。"
+        },
+        "day_quality_protocol_params": {
+            "enabled": true,
+            "description": "【V5.0 · 深度融合与非线性感知版】日内行为K线质量分计算参数。",
+            "outcome_weights": {
+                "intraday_posture": 0.25,
+                "closing_strength": 0.2,
+                "pct_change": 0.2,
+                "auction_closing_position": 0.1,
+                "closing_conviction": 0.1,
+                "closing_acceptance": 0.05,
+                "auction_impact": 0.1
+            },
+            "process_weights": {
+                "microstructure_efficiency": 0.25,
+                "impulse_quality": 0.2,
+                "vwap_control": 0.2,
+                "main_force_activity": 0.1,
+                "intraday_energy_density": 0.1,
+                "flow_credibility": 0.05,
+                "control_solidity": 0.1
+            },
+            "narrative_weights": {
+                "closing_auction_ambush_inverse": 0.2,
+                "deception_lure_long_inverse": 0.15,
+                "deception_lure_short_positive": 0.15,
+                "wash_trade_intensity_inverse": 0.15,
+                "main_force_slippage_inverse": 0.1,
+                "deception_index_inverse": 0.1,
+                "structural_tension_inverse": 0.05,
+                "panic_selling_cascade_inverse": 0.1
+            },
+            "behavioral_cohesion_weights": {
+                "trend_conviction": 0.25,
+                "trend_efficiency": 0.25,
+                "trend_asymmetry": 0.2,
+                "main_force_conviction": 0.15,
+                "covert_accumulation": 0.1,
+                "covert_distribution_inverse": 0.05
+            },
+            "trend_momentum_resonance_weights": {
+                "price_momentum_resonance": 0.6,
+                "structural_health": 0.4
+            },
+            "fusion_weights": {
+                "outcome_assessment": 0.2,
+                "process_quality": 0.2,
+                "narrative_integrity": 0.2,
+                "behavioral_cohesion": 0.2,
+                "trend_momentum_resonance": 0.2
+            },
+            "context_modulator_params": {
+            "enabled": true,
+            "volatility_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "sentiment_signal": "market_sentiment_score_D",
+            "volatility_sensitivity": 0.3,
+            "sentiment_sensitivity": 0.2,
+            "base_modulator_factor": 1.0,
+            "min_modulator": 0.8,
+            "max_modulator": 1.2,
+            "dynamic_fusion_weights_enabled": true,
+            "dynamic_fusion_weights_base": {
+                "outcome_assessment": 0.2,
+                "process_quality": 0.2,
+                "narrative_integrity": 0.2,
+                "behavioral_cohesion": 0.2,
+                "trend_momentum_resonance": 0.2
+            },
+            "volatility_impact_weights": {
+                "outcome_assessment": -0.03,
+                "process_quality": 0.05,
+                "narrative_integrity": 0.03,
+                "behavioral_cohesion": 0.0,
+                "trend_momentum_resonance": 0.05
+            },
+            "sentiment_impact_weights": {
+                "outcome_assessment": 0.03,
+                "process_quality": 0.0,
+                "narrative_integrity": -0.03,
+                "behavioral_cohesion": 0.0,
+                "trend_momentum_resonance": 0.0
+            }
+            },
+            "final_exponent": 1.2,
+            "fusion_power_p": 0.1,
+            "tf_weights": {
+                "default": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "pct_change": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "closing_strength": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "vwap_control": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "closing_auction_ambush": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "deception_lure_long": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "deception_lure_short": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "wash_trade_intensity": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "main_force_slippage": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "auction_closing_position": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "closing_conviction": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "main_force_activity": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "intraday_energy_density": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "trend_conviction": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "trend_efficiency": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "trend_asymmetry": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "volatility_instability": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "market_sentiment": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+                "closing_acceptance": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "auction_impact": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "flow_credibility": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "control_solidity": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "main_force_conviction": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "deception_index": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "structural_tension": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "panic_selling_cascade": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "covert_accumulation": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "covert_distribution": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "price_momentum_resonance": {"5": 0.3, "13": 0.25, "21": 0.2, "34": 0.15, "55": 0.1},
+                "liquidity_authenticity": {"5": 0.5, "13": 0.3, "21": 0.2},
+                "order_book_imbalance": {"5": 0.5, "13": 0.3, "21": 0.2}
+            }
+        },
+        "battlefield_momentum_params": {
+            "enabled": true,
+            "description": "【V3.0 · 方向性自适应与情境共振版】战场动量信号参数。",
+            "mtf_periods": [5, 13, 21, 34, 55],
+            "comment_mtf_periods": "用于多时间框架斜率和加速度计算的周期列表。",
+            "mtf_slope_weights": {
+                "5": 0.4,
+                "13": 0.3,
+                "21": 0.2,
+                "34": 0.05,
+                "55": 0.05
+            },
+            "comment_mtf_slope_weights": "多时间框架斜率融合权重。",
+            "mtf_accel_weights": {
+                "5": 0.5,
+                "13": 0.3,
+                "21": 0.15,
+                "34": 0.05
+            },
+            "comment_mtf_accel_weights": "多时间框架加速度融合权重。",
+            "momentum_accel_fusion_power_p": 0.0,
+            "comment_momentum_accel_fusion_power_p": "动量和加速度融合的广义平均幂参数 (0.0 接近几何平均)。",
+            "contextual_modulator_enabled": true,
+            "comment_contextual_modulator_enabled": "是否启用行为情境调制器。",
+            "context_signals_weights": {
+                "SCORE_BEHAVIOR_UPWARD_EFFICIENCY": 0.4,
+                "SCORE_BEHAVIOR_DOWNWARD_RESISTANCE_INVERSE": 0.3,
+                "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL": 0.3
+            },
+            "comment_context_signals_weights": "行为情境健康度组成信号及其融合权重。",
+            "final_fusion_power_p": 0.5,
+            "comment_final_fusion_power_p": "最终融合（基础方向性动量与情境健康度）的广义平均幂参数。",
+            "final_exponent": 1.5,
+            "comment_final_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。"
+        },
+        "chronos_protocol_params": {
+            "enabled": true,
+            "description": "【V6.3 · 生产就绪版】日内多头控制力诊断参数。",
+            "fusion_weights": {
+                "process_quality": 0.5,
+                "narrative_integrity": 0.5
+            },
+            "top_level_fusion_weights": {
+                "strategic_position": 0.5,
+                "quality_modulator": 0.5
+            }
+        },
+        "selling_exhaustion_params": {
+            "enabled": true,
+            "description": "【V3.0 · 凤凰涅槃协议 - 多时间维度动态增强版】卖盘衰竭机会信号参数。",
+            "fusion_weights": {
+                "descent_deceleration": 0.25,
+                "purification_exhaustion": 0.25,
+                "absorption_intent": 0.3,
+                "contextual_readiness": 0.2
+            },
+            "descent_deceleration_weights": {
+                "price_deceleration": 0.4,
+                "reversal_momentum_accel": 0.3,
+                "rsi_slope_divergence": 0.3
+            },
+            "comment_descent_deceleration_weights": "卖盘_DESCENT_DECELERATION信号的组成权重。",
+            "purification_exhaustion_weights": {
+                "volume_atrophy": 0.3,
+                "volatility_contraction": 0.2,
+                "low_turnover": 0.15,
+                "sell_exhaustion": 0.15,
+                "low_active_selling": 0.1,
+                "loser_pain": 0.1,
+                "exhaustion_trend_cohesion": 0.1
+            },
+            "comment_purification_exhaustion_weights": "卖盘_PURIFICATION_EXHAUSTION信号的组成权重。",
+            "absorption_intent_weights": {
+                "capitulation_absorption": 0.3,
+                "downward_resistance": 0.2,
+                "offensive_absorption_intent": 0.2,
+                "lower_shadow_absorption": 0.15,
+                "covert_accumulation": 0.1,
+                "main_force_conviction_positive": 0.05,
+                "absorption_intent_accel": 0.05
+            },
+            "contextual_readiness_weights": {
+                "bearish_divergence_inverse": 0.3,
+                "bullish_divergence": 0.2,
+                "behavioral_sentiment_context": 0.3,
+                "behavioral_weak_hand_exhaustion": 0.2,
+                "mtf_trend_alignment": 0.1
+            },
+            "comment_contextual_readiness_weights": "卖盘_CONTEXTUAL_READINESS信号的组成权重。",    
+            "dynamic_modulator_params": {
+                "enabled": true,
+                "modulator_signal_1": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+                "modulator_signal_2": "market_sentiment_score_D",
+                "sensitivity_volatility": 0.4,
+                "sensitivity_sentiment": 0.3,
+                "base_modulator_factor": 1.0,
+                "min_modulator": 0.5,
+                "max_modulator": 1.5
+            },
+            "strong_uptrend_gate_params": {
+                "enabled": true,
+                "long_term_slope_signal": "SLOPE_55_close_D",
+                "slope_threshold": 0.005,
+                "gate_penalty_factor": 0.5
+            },
+            "final_exponent": 1.5,
+            "mtf_periods": [5, 13, 21, 34, 55],
+            "comment_mtf_periods": "用于多时间框架动态分析的周期列表。",
+            "mtf_slope_weights": {
+                "5": 0.4,
+                "13": 0.3,
+                "21": 0.2,
+                "34": 0.05,
+                "55": 0.05
+            },
+            "comment_mtf_slope_weights": "多时间框架斜率融合权重。",
+            "mtf_accel_weights": {
+                "5": 0.5,
+                "13": 0.3,
+                "21": 0.15,
+                "34": 0.05
+            },
+            "comment_mtf_accel_weights": "多时间框架加速度融合权重。",
+            "comment": "融合卖盘衰竭的四大维度，并进行动态情境调制。"
+        },
+        "liquidity_drain_params": {
+            "enabled": true,
+            "description": "【V3.0 · 混沌深渊协议】流动性枯竭风险诊断参数。在“恐慌瀑布协议”基础上深度进化，旨在更早期、更精准地识别由恐慌抛售、买盘抵抗瓦解、市场流动性枯竭以及市场结构混沌脆弱共同驱动的系统性风险。",
+            "fusion_weights": {
+                "panic_selling_intensity": 0.3,
+                "resistance_collapse": 0.3,
+                "liquidity_exhaustion_evidence": 0.25,
+                "chaos_fragility": 0.15
+            },
+            "panic_selling_intensity_weights": {
+                "panic_cascade": 0.2,
+                "active_selling_pressure": 0.2,
+                "retail_panic_surrender": 0.15,
+                "price_drop_magnitude": 0.15,
+                "main_force_net_flow_negative": 0.15,
+                "sell_sweep_intensity": 0.1,
+                "loser_pain_index": 0.05
+            },
+            "resistance_collapse_weights": {
+                "downward_resistance_inverse": 0.25,
+                "active_buying_support_inverse": 0.2,
+                "vwap_control_negative": 0.15,
+                "buy_quote_exhaustion_inverse": 0.15,
+                "support_validation_inverse": 0.15,
+                "chip_fatigue_index": 0.1
+            },
+            "comment_resistance_collapse_weights": "买盘_RESISTANCE_COLLAPSE信号的组成权重。",
+            "liquidity_exhaustion_evidence_weights": {
+                "sell_quote_exhaustion": 0.2,
+                "order_book_imbalance_negative": 0.2,
+                "volume_structure_skew_negative": 0.15,
+                "micro_price_impact_asymmetry_negative": 0.15,
+                "ask_side_liquidity_inverse": 0.1,
+                "bid_side_liquidity_inverse": 0.1,
+                "market_impact_cost": 0.1
+            },
+            "comment_liquidity_exhaustion_evidence_weights": "买盘_LIQUIDITY_EXHAUSTION_EVIDENCE信号的组成权重。",
+            "chaos_fragility_weights": {
+                "bid_liquidity_sample_entropy_inverse": 0.3,
+                "bid_liquidity_fractal_dimension_inverse": 0.3,
+                "price_volume_entropy": 0.2,
+                "volatility_expansion_ratio": 0.2
+            },
+            "comment_chaos_fragility_weights": "买盘_CHAOS_FRAGILITY信号的组成权重。",
+            "mtf_slope_accel_weights": {
+                "5": 0.4,
+                "13": 0.3,
+                "21": 0.2,
+                "34": 0.05,
+                "55": 0.05
+            },
+            "comment_mtf_slope_accel_weights": "多时间框架斜率加速度融合权重。",
+            "mtf_indicator_component_weights": {
+                "default": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "pct_change": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+                "panic_selling_cascade": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "active_selling_pressure": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "retail_panic_surrender_index": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+                "main_force_net_flow_calibrated": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "sell_sweep_intensity": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "loser_pain_index": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+                "active_buying_support": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "vwap_control_strength": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+                "buy_quote_exhaustion_rate": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "support_validation_strength": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "chip_fatigue_index": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+                "sell_quote_exhaustion_rate": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "order_book_imbalance": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "volume_structure_skew": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "micro_price_impact_asymmetry": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "ask_side_liquidity": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+                "bid_side_liquidity": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+                "liquidity_slope": {"raw_weight": 0.3, "slope_weight": 0.4, "accel_weight": 0.3},
+                "market_impact_cost": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "order_book_clearing_rate": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "BID_LIQUIDITY_SAMPLE_ENTROPY_13d": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+                "BID_LIQUIDITY_FRACTAL_DIMENSION_89d": {"raw_weight": 0.5, "slope_weight": 0.3, "accel_weight": 0.2},
+                "price_volume_entropy": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3},
+                "volatility_expansion_ratio": {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3}
+            },
+            "final_exponent": 1.8,
+            "dynamic_threshold_params": {
+                "enabled": true,
+                "base_threshold": 0.005,
+                "atr_multiplier": 0.5,
+                "min_atr_period": 14,
+                "volatility_index_weight": 0.3,
+                "volatility_index_period": 21
+            },
+            "comment_min_price_drop_pct_threshold": "触发流动性枯竭风险的最小价格跌幅百分比，现在可动态调整。"
+        },
+        "lockup_rally_params": {
+          "enabled": true,
+          "description": "【V3.0 · 锁仓拉升深度洞察与MTF行为共振版】锁仓拉升机会信号参数。",
+          "fusion_weights": {
+            "rally_purity": 0.3,
+            "supply_exhaustion": 0.3,
+            "main_force_intent": 0.2,
+            "context_modulator": 0.2
+          },
+          "rally_purity_weights": {
+            "upward_momentum": 0.3,
+            "upward_efficiency": 0.3,
+            "intraday_posture": 0.2,
+            "impulse_quality": 0.2
+          },
+          "supply_exhaustion_weights": {
+            "volume_atrophy": 0.3,
+            "low_turnover": 0.2,
+            "low_volatility_instability": 0.2,
+            "volume_structure_skew": 0.15,
+            "volume_burstiness_inverse": 0.15
+          },
+          "main_force_intent_weights": {
+            "intraday_bull_control": 0.3,
+            "no_distribution_intent": 0.3,
+            "low_deception_lure_short": 0.2,
+            "vwap_control": 0.1,
+            "closing_strength": 0.1
+          },
+          "context_modulator_weights": {
+            "low_overextension": 0.4,
+            "low_volatility_instability": 0.3,
+            "low_stagnation_evidence": 0.3
+          },
+          "purity_penalty_weights": {
+            "wash_trade": 0.5,
+            "deception_lure_long": 0.5
+          },
+          "turnover_rate_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_turnover_rate_tf_weights": "换手率的多时间框架归一化权重。",
+          "volatility_instability_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_volatility_instability_tf_weights": "波动率不稳定性指数的多时间框架归一化权重。",
+          "deception_lure_short_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_deception_lure_short_tf_weights": "诱空欺骗强度的多时间框架归一化权重。",
+          "overextension_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_overextension_tf_weights": "价格超买亢奋原始分的多时间框架归一化权重。",
+          "stagnation_evidence_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_stagnation_evidence_tf_weights": "滞涨证据原始分的多时间框架归一化权重。",
+          "wash_trade_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_wash_trade_tf_weights": "对倒强度的多时间框架归一化权重。",
+          "deception_lure_long_tf_weights": {
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "comment_deception_lure_long_tf_weights": "诱多欺骗强度的多时间框架归一化权重。",
+          "mtf_slope_weights": {
+            "5": 0.5,
+            "13": 0.3,
+            "21": 0.2
+          },
+          "comment_mtf_slope_weights": "用于MTF共振判断的斜率权重。",
+          "mtf_accel_weights": {
+            "5": 0.6,
+            "13": 0.4
+          },
+          "comment_mtf_accel_weights": "用于MTF共振判断的加速度权重。",
+          "mtf_cohesion_bonus": 0.1,
+          "comment_mtf_cohesion_bonus": "MTF共振时的额外奖励因子。",
+          "final_exponent": 1.0
+        },
+        "multi_timeframe_slopes": {
+          "enabled": true,
+          "periods": [5, 13],
+          "weights": {"5": 0.7, "13": 0.3},
+          "description": "用于计算鲁棒斜率的短期多时间框架周期和权重。"
+        },
+        "multi_level_resonance_params": {
+          "enabled": true,
+          "long_term_period": 21,
+          "resonance_bonus": 0.2,
+          "description": "多级别背离共振参数。long_term_period为长期斜率周期，resonance_bonus为共振奖励。"
+        },
+        "persistence_params": {
+          "enabled": true,
+          "min_duration": 2,
+          "max_duration_window": 5,
+          "quality_decay_factor": 0.05,
+          "description": "背离持续性参数。min_duration为最小持续天数，max_duration_window用于归一化，quality_decay_factor用于持续期间的质量评估。"
+        },
+        "adaptive_thresholds": {
+          "enabled": true,
+          "min_slope_diff_atr_multiplier": 0.005,
+          "min_slope_diff_base": 0.005,
+          "rsi_oversold_trend_adjust_factor": 5,
+          "rsi_overbought_trend_adjust_factor": 5,
+          "description": "自适应阈值参数。min_slope_diff根据ATR动态调整，RSI阈值根据趋势活力调整。"
+        },
+        "synergy_weights": {
+          "enabled": true,
+          "two_indicators_synergy_bonus": 0.1,
+          "three_indicators_synergy_bonus": 0.2,
+          "description": "多指标协同背离奖励权重。"
+        },
+        "structural_context_weights": {
+          "enabled": true,
+          "bbw_slope_penalty_factor": 0.1,
+          "description": "结构上下文权重。BBW斜率惩罚因子，用于波动率发散时的惩罚。"
+        },
+        "price_action_confirmation_params": {
+          "enabled": true,
+          "lower_shadow_ratio_threshold": 0.4,
+          "upper_shadow_ratio_threshold": 0.4,
+          "body_ratio_threshold": 0.3,
+          "confirmation_bonus": 0.15,
+          "engulfing_pattern_bonus": 0.1,
+          "hammer_shooting_star_bonus": 0.1,
+          "description": "价格行为结构确认参数。用于识别长影线、吞没形态、锤头/射击之星等反转K线特征。"
+        },
+        "volume_price_structure_params": {
+          "enabled": true,
+          "volume_climax_threshold_multiplier": 2.0,
+          "volume_drying_up_threshold_multiplier": 0.5,
+          "narrow_range_body_ratio": 0.2,
+          "wide_range_body_ratio": 0.7,
+          "structure_bonus": 0.15,
+          "description": "多维度量价结构确认参数。识别地量、天量、窄幅震荡等。"
+        },
+        "purity_assessment_params": {
+          "enabled": true,
+          "slope_std_dev_threshold": 0.5,
+          "whipsaw_penalty_factor": 0.1,
+          "description": "背离纯度评估参数。评估价格斜率的稳定性，惩罚噪音。"
+        },
+        "market_regime_params": {
+          "enabled": true,
+          "adx_trend_threshold": 25,
+          "adx_ranging_threshold": 20,
+          "adx_div_weight_max_adjust": 0.3,
+          "adx_conf_weight_max_adjust": 0.3,
+          "atr_conf_weight_max_adjust": 0.2,
+          "description": "市场情境动态权重参数。根据ADX和ATR动态调整融合权重。"
+        },
+        "market_context_params": {
+          "enabled": true,
+          "price_momentum_window": 5,
+          "favorable_sentiment_slope_threshold": 0.001,
+          "unfavorable_sentiment_slope_threshold": -0.001,
+          "slope_stability_threshold": 0.7,
+          "adx_strength_threshold": 25,
+          "favorable_context_bonus": 0.1,
+          "unfavorable_context_penalty": 0.1,
+          "description": "市场情境感知参数。评估市场情绪和趋势健康度，影响信号强度。"
+        },
+        "signal_freshness_params": {
+          "enabled": true,
+          "freshness_bonus": 0.1,
+          "description": "信号新鲜度参数。对刚刚形成的背离（持续天数=1）给予额外奖励。"
+        },
+        "behavioral_consistency_params": {
+          "enabled": true,
+          "min_consistent_indicators_for_bonus": 2,
+          "conflict_penalty_threshold": 1,
+          "consistency_bonus": 0.1,
+          "conflict_penalty": 0.15,
+          "description": "行为一致性与冲突评估参数。奖励多指标一致性，惩罚指标冲突。"
+        },
+        "pattern_sequence_params": {
+          "enabled": true,
+          "lookback_window": 3,
+          "volume_drying_up_ratio": 0.8,
+          "volume_climax_ratio": 1.5,
+          "reversal_pct_change_threshold": 0.01,
+          "sequence_bonus": 0.2,
+          "description": "行为模式序列识别参数。识别价格和成交量在短期内的特定组合模式。"
+        },
+        "behavioral_strength_params": {
+          "enabled": true,
+          "acceleration_bonus": 0.05,
+          "description": "行为强度参数。对背离方向上的加速度给予额外奖励。"
+        },
+        "behavioral_inertia_params": {
+          "enabled": true,
+          "long_term_adx_threshold": 30,
+          "long_term_slope_stability_threshold": 0.8,
+          "high_inertia_penalty": 0.1,
+          "low_inertia_bonus": 0.05,
+          "description": "行为惯性评估参数。评估市场长期趋势的惯性，对背离信号进行调整。"
+        },
+        "adaptive_fusion_weights_params": {
+          "enabled": true,
+          "trend_strong_penalty_factor": 0.1,
+          "ranging_bonus_factor": 0.1,
+          "volatility_high_penalty_factor": 0.05,
+          "description": "自适应融合权重参数。根据市场情境动态调整融合公式的幂次。"
+        },
+        "bullish_divergence_weights": {
+          "price_rsi": 0.4,
+          "price_macd": 0.3,
+          "price_volume": 0.3
+        },
+        "bearish_divergence_weights": {
+          "price_rsi": 0.4,
+          "price_macd": 0.3,
+          "price_volume": 0.3
+        },
+        "bullish_confirmation_weights": {
+          "rsi_oversold": 0.3,
+          "volume_increase": 0.3,
+          "buying_support": 0.2,
+          "volatility_high": 0.2
+        },
+        "bearish_confirmation_weights": {
+          "rsi_overbought": 0.3,
+          "volume_decrease": 0.3,
+          "selling_pressure": 0.2,
+          "volatility_high": 0.2
+        },
+        "rsi_oversold_threshold": 30,
+        "rsi_overbought_threshold": 70,
+        "macd_bullish_threshold": 0,
+        "macd_bearish_threshold": 0,
+        "min_divergence_slope_diff": 0.01,
+        "comment": "定义了价格与RSI、MACD、成交量之间的背离权重，以及行为确认因子的权重和阈值。"
+      }
+}
