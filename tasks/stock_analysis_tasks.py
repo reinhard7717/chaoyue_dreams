@@ -736,7 +736,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         if daily_df_with_atr.empty:
             logger.error(f"[{stock_code}] [结构指标任务] 无法加载必要的日线数据，任务终止。")
             return 0
-        daily_df_with_atr['trade_time'] = pd.to_datetime(daily_df_with_atr['trade_time']).dt.date
+        daily_df_with_atr['trade_time'] = pd.to_datetime(daily_df_with_atr['trade_time'])
         daily_df_with_atr = daily_df_with_atr.set_index('trade_time')
         daily_df_with_atr.ta.atr(length=5, append=True, col_names=('ATR_5',))
         daily_df_with_atr.ta.atr(length=14, append=True, col_names=('ATR_14',))
