@@ -1125,11 +1125,23 @@ class ProcessIntelligence:
         final_score = (core_decay_score * (1 + contextual_modulator)).pow(final_fusion_exponent)
         final_score = final_score.clip(0, 1).fillna(0.0)
 
+        # 修改的代码行：增加更多调试信息，确认探针条件，并使用日期字符串进行匹配
         if probe_enabled and not df.empty and self.probe_dates:
+            print(f"    -> [DEBUG Probe] {signal_name}: Probe enabled: {probe_enabled}")
+            print(f"    -> [DEBUG Probe] {signal_name}: Probe dates from config: {self.probe_dates}")
+            print(f"    -> [DEBUG Probe] {signal_name}: DataFrame index type: {type(df.index)}")
+            if not df.empty:
+                print(f"    -> [DEBUG Probe] {signal_name}: DataFrame first date: {df.index[0].strftime('%Y-%m-%d')}")
+                print(f"    -> [DEBUG Probe] {signal_name}: DataFrame last date: {df.index[-1].strftime('%Y-%m-%d')}")
+            
+            # 修改的代码行：将df.index转换为日期字符串列表进行比较
+            df_index_dates_str = df.index.strftime('%Y-%m-%d').tolist()
+            
             for probe_date_str in self.probe_dates:
-                probe_date_ts = pd.Timestamp(probe_date_str)
-                if probe_date_ts in df.index:
-                    current_probe_date_loc = df.index.get_loc(probe_date_ts)
+                print(f"    -> [DEBUG Probe] {signal_name}: Checking for probe date {probe_date_str} in df.index (date string comparison)...")
+                if probe_date_str in df_index_dates_str:
+                    # 修改的代码行：通过pd.Timestamp获取原始索引位置
+                    current_probe_date_loc = df.index.get_loc(pd.Timestamp(probe_date_str))
                     print(f"\n--- [PROCESS_META_WINNER_CONVICTION_DECAY 探针: {df.index[current_probe_date_loc].strftime('%Y-%m-%d')}] ---")
                     print("  [原始输入]:")
                     print(f"    - {belief_signal_name}: {belief_signal_raw.iloc[current_probe_date_loc]:.4f}")
@@ -1154,6 +1166,8 @@ class ProcessIntelligence:
                     print("  [最终结果]:")
                     print(f"    - 最终信念衰减分: {final_score.iloc[current_probe_date_loc]:.4f}")
                     print("--- [探针结束] ---\n")
+                else:
+                    print(f"    -> [DEBUG Probe] {signal_name}: Probe date {probe_date_str} NOT found in current DataFrame index (date string comparison).")
 
         return final_score.astype(np.float32)
 

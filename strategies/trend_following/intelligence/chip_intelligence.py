@@ -149,7 +149,7 @@ class ChipIntelligence:
         harmony_inflection = self._diagnose_harmony_inflection(df, strategic_tactical_harmony)
         all_chip_states['SCORE_CHIP_HARMONY_INFLECTION'] = harmony_inflection
         print(f"    -> [筹码情报校验] 计算“和谐拐点(SCORE_CHIP_HARMONY_INFLECTION)” 分数：{harmony_inflection.mean():.4f}")
-        # --- [新增代码块] 调用新的筹码信号诊断方法 ---
+        # --- 调用新的筹码信号诊断方法 ---
         # 调用并记录散户筹码脆弱性指数信号
         retail_vulnerability = self._diagnose_chip_retail_vulnerability(df)
         all_chip_states['SCORE_CHIP_RETAIL_VULNERABILITY'] = retail_vulnerability
@@ -2609,57 +2609,152 @@ class ChipIntelligence:
 
     def _diagnose_chip_retail_vulnerability(self, df: pd.DataFrame) -> pd.Series:
         """
-        【筹码】散户筹码脆弱性指数
+        【V2.0 · 诡道诱导版】散户筹码脆弱性指数
         量化散户持仓的集中度、平均成本与当前价格的偏离程度，以及其在市场波动下的潜在抛压。
         高分代表散户筹码结构高度不稳定，易受主力诱导而产生恐慌或盲目追涨行为。
+        - 核心升级1: 引入“散户筹码结构脆弱性”维度，评估散户持仓的集中度、分散度及流量主导。
+        - 核心升级2: 引入“散户行为极端化”维度，评估散户情绪和行为的非理性程度。
+        - 核心升级3: 引入“主力诱导情境”维度，评估主力是否在制造有利于诱导散户的情境。
+        - 核心升级4: 引入情境调制器，根据市场波动性和情绪动态调整最终分数。
+        - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“散户筹码脆弱性指数”...")
         df_index = df.index
+        current_date = df_index[-1] if not df_index.empty else None
+        is_debug_enabled = self.should_probe and (current_date in self.probe_dates_set)
+        probe_info = (is_debug_enabled, current_date, "SCORE_CHIP_RETAIL_VULNERABILITY")
+        if is_debug_enabled:
+            print(f"启动【V2.0 · 诡道诱导版】散户筹码脆弱性指数诊断 @ {current_date.strftime('%Y-%m-%d')}...")
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        rv_params = get_param_value(p_conf.get('chip_retail_vulnerability_params'), {})
+        # --- 参数加载 ---
+        structure_fragility_weights = get_param_value(rv_params.get('structure_fragility_weights'), {})
+        behavior_extremism_weights = get_param_value(rv_params.get('behavior_extremism_weights'), {})
+        inducement_context_weights = get_param_value(rv_params.get('inducement_context_weights'), {})
+        final_fusion_weights = get_param_value(rv_params.get('final_fusion_weights'), {})
+        contextual_modulator_enabled = get_param_value(rv_params.get('contextual_modulator_enabled'), True)
+        context_modulator_weights = get_param_value(rv_params.get('context_modulator_weights'), {})
+        context_modulator_sensitivity = get_param_value(rv_params.get('context_modulator_sensitivity'), 0.5)
+        final_exponent = get_param_value(rv_params.get('final_exponent'), 2.0)
+        # --- 信号依赖校验 ---
         required_signals = [
             'total_winner_rate_D', 'total_loser_rate_D', 'winner_profit_margin_avg_D',
-            'loser_pain_index_D', 'retail_fomo_premium_index_D', 'panic_buy_absorption_contribution_D'
+            'loser_pain_index_D', 'retail_fomo_premium_index_D', 'panic_buy_absorption_contribution_D',
+            'winner_concentration_90pct_D', 'loser_concentration_90pct_D', 'cost_gini_coefficient_D',
+            'retail_flow_dominance_index_D', 'retail_net_flow_calibrated_D', 'deception_index_D',
+            'wash_trade_intensity_D', 'main_force_conviction_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'market_sentiment_score_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_retail_vulnerability"):
             return pd.Series(0.0, index=df.index)
-        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 获取原始信号
-        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        total_loser_rate_raw = self._get_safe_series(df, df, 'total_loser_rate_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        loser_pain_index_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        # --- 原始数据获取 ---
+        # 维度1: 散户筹码结构脆弱性
+        winner_concentration_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        loser_concentration_raw = self._get_safe_series(df, df, 'loser_concentration_90pct_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        cost_gini_coefficient_raw = self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        retail_flow_dominance_raw = self._get_safe_series(df, df, 'retail_flow_dominance_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        # 维度2: 散户行为极端化
         retail_fomo_premium_index_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
         panic_buy_absorption_contribution_raw = self._get_safe_series(df, df, 'panic_buy_absorption_contribution_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        # 归一化各项指标，高值代表高脆弱性
-        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_winner_profit_margin_avg = get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_loser_pain_index = get_adaptive_mtf_normalized_score(loser_pain_index_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_retail_fomo_premium_index = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 恐慌买入吸收贡献越低，脆弱性越高，所以ascending=False
-        norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=False, tf_weights=tf_weights)
-        # 定义权重 (可配置)
-        weights = {
-            'total_winner_rate': 0.15,
-            'total_loser_rate': 0.15,
-            'winner_profit_margin_avg': 0.2,
-            'loser_pain_index': 0.2,
-            'retail_fomo_premium_index': 0.15,
-            'panic_buy_absorption_contribution': 0.15
-        }
-        total_weight = sum(weights.values())
-        # 计算加权几何平均
-        retail_vulnerability_score = (
-            norm_total_winner_rate.pow(weights['total_winner_rate']) *
-            norm_total_loser_rate.pow(weights['total_loser_rate']) *
-            norm_winner_profit_margin_avg.pow(weights['winner_profit_margin_avg']) *
-            norm_loser_pain_index.pow(weights['loser_pain_index']) *
-            norm_retail_fomo_premium_index.pow(weights['retail_fomo_premium_index']) *
-            norm_panic_buy_absorption_contribution.pow(weights['panic_buy_absorption_contribution'])
-        ).pow(1 / total_weight)
-        # 进一步非线性放大极端值，使其更敏感
-        retail_vulnerability_score = np.tanh(retail_vulnerability_score * 2) # 放大因子可调
-        final_score = retail_vulnerability_score.clip(0, 1).fillna(0.0).astype(np.float32)
+        retail_net_flow_calibrated_raw = self._get_safe_series(df, df, 'retail_net_flow_calibrated_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        total_loser_rate_raw = self._get_safe_series(df, df, 'total_loser_rate_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        # 维度3: 主力诱导情境
+        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        # 情境调制器
+        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        if is_debug_enabled:
+            print(f"    -> [探针] 原始数据示例 @ {current_date.strftime('%Y-%m-%d')}:")
+            print(f"       - winner_concentration_90pct_D: {winner_concentration_raw.loc[current_date]:.4f}")
+            print(f"       - retail_fomo_premium_index_D: {retail_fomo_premium_index_raw.loc[current_date]:.4f}")
+            print(f"       - deception_index_D: {deception_index_raw.loc[current_date]:.4f}")
+            print(f"       - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[current_date]:.4f}")
+        # --- 维度1: 散户筹码结构脆弱性 (Retail Chip Structure Fragility) ---
+        # 赢家集中度越低，脆弱性越高
+        norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=probe_info)
+        # 输家集中度越低，脆弱性越高
+        norm_loser_concentration_inverse = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=probe_info)
+        # 成本基尼系数越低（筹码越分散），脆弱性越高
+        norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=probe_info)
+        # 散户流量主导越强，脆弱性越高
+        norm_retail_flow_dominance = get_adaptive_mtf_normalized_score(retail_flow_dominance_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=probe_info)
+        total_sf_weight = sum(structure_fragility_weights.values())
+        structure_fragility_score = (
+            norm_winner_concentration_inverse.pow(structure_fragility_weights.get('winner_concentration_inverse', 0.25)) *
+            norm_loser_concentration_inverse.pow(structure_fragility_weights.get('loser_concentration_inverse', 0.25)) *
+            norm_cost_gini_coefficient_inverse.pow(structure_fragility_weights.get('cost_gini_coefficient_inverse', 0.2)) *
+            norm_retail_flow_dominance.pow(structure_fragility_weights.get('retail_flow_dominance', 0.3))
+        ).pow(1 / total_sf_weight)
+        if is_debug_enabled:
+            print(f"    -> [探针] 散户筹码结构脆弱性分数 @ {current_date.strftime('%Y-%m-%d')}: {structure_fragility_score.loc[current_date]:.4f}")
+        # --- 维度2: 散户行为极端化 (Retail Behavior Extremism) ---
+        norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=probe_info)
+        norm_panic_buy_absorption_inverse = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=probe_info)
+        # 散户净流量的绝对值，代表极端化
+        norm_retail_net_flow_abs = get_adaptive_mtf_normalized_bipolar_score(retail_net_flow_calibrated_raw, df_index, tf_weights=tf_weights, debug_info=probe_info).abs()
+        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=probe_info)
+        norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=probe_info)
+        total_be_weight = sum(behavior_extremism_weights.values())
+        behavior_extremism_score = (
+            norm_retail_fomo_premium.pow(behavior_extremism_weights.get('retail_fomo_premium', 0.25)) *
+            norm_panic_buy_absorption_inverse.pow(behavior_extremism_weights.get('panic_buy_absorption_inverse', 0.25)) *
+            norm_retail_net_flow_abs.pow(behavior_extremism_weights.get('retail_net_flow_abs', 0.2)) *
+            norm_total_winner_rate.pow(behavior_extremism_weights.get('total_winner_rate', 0.15)) *
+            norm_total_loser_rate.pow(behavior_extremism_weights.get('total_loser_rate', 0.15))
+        ).pow(1 / total_be_weight)
+        if is_debug_enabled:
+            print(f"    -> [探针] 散户行为极端化分数 @ {current_date.strftime('%Y-%m-%d')}: {behavior_extremism_score.loc[current_date]:.4f}")
+        # --- 维度3: 主力诱导情境 (Main Force Inducement Context) ---
+        # 正向欺骗（诱多）增加脆弱性
+        norm_deception_index_positive = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights, debug_info=probe_info).clip(lower=0)
+        norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=probe_info)
+        # 主力信念负向（不坚定或偏空）的绝对值，增加脆弱性
+        norm_main_force_conviction_negative_abs = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights, debug_info=probe_info).clip(upper=0).abs()
+        total_ic_weight = sum(inducement_context_weights.values())
+        inducement_context_score = (
+            norm_deception_index_positive.pow(inducement_context_weights.get('deception_index_positive', 0.4)) *
+            norm_wash_trade_intensity.pow(inducement_context_weights.get('wash_trade_intensity', 0.3)) *
+            norm_main_force_conviction_negative_abs.pow(inducement_context_weights.get('main_force_conviction_negative_abs', 0.3))
+        ).pow(1 / total_ic_weight)
+        if is_debug_enabled:
+            print(f"    -> [探针] 主力诱导情境分数 @ {current_date.strftime('%Y-%m-%d')}: {inducement_context_score.loc[current_date]:.4f}")
+        # --- 初始融合 ---
+        total_ff_weight = sum(final_fusion_weights.values())
+        initial_vulnerability_score = (
+            structure_fragility_score.pow(final_fusion_weights.get('structure_fragility', 0.35)) *
+            behavior_extremism_score.pow(final_fusion_weights.get('behavior_extremism', 0.35)) *
+            inducement_context_score.pow(final_fusion_weights.get('inducement_context', 0.3))
+        ).pow(1 / total_ff_weight)
+        if is_debug_enabled:
+            print(f"    -> [探针] 初始融合脆弱性分数 @ {current_date.strftime('%Y-%m-%d')}: {initial_vulnerability_score.loc[current_date]:.4f}")
+        # --- 情境调制器 (Contextual Modulator) ---
+        final_score = initial_vulnerability_score
+        if contextual_modulator_enabled:
+            # 波动不稳定性越高，调制器越大
+            norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=probe_info)
+            # 市场情绪极端化（绝对值），情绪越极端，调制器越大
+            norm_market_sentiment_extreme = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights=tf_weights, debug_info=probe_info).abs()
+            total_cm_weight = sum(context_modulator_weights.values())
+            if total_cm_weight > 0:
+                context_modulator_effect = (
+                    norm_volatility_instability.pow(context_modulator_weights.get('volatility_instability', 0.5)) *
+                    norm_market_sentiment_extreme.pow(context_modulator_weights.get('market_sentiment_extreme', 0.5))
+                ).pow(1 / total_cm_weight)
+                # 调制器效果：基础值1 + (调制器分数 - 0.5) * 敏感度
+                modulator = 1 + (context_modulator_effect - 0.5) * context_modulator_sensitivity
+                modulator = modulator.clip(0.5, 1.5) # 限制调制范围
+                final_score = final_score * modulator
+                if is_debug_enabled:
+                    print(f"    -> [探针] 情境调制器效果 @ {current_date.strftime('%Y-%m-%d')}: {modulator.loc[current_date]:.4f}")
+        # --- 最终非线性放大 ---
+        final_score = np.tanh(final_score * final_exponent) # 放大因子可调
+        final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
+        if is_debug_enabled:
+            print(f"    -> [探针] 最终散户筹码脆弱性指数 @ {current_date.strftime('%Y-%m-%d')}: {final_score.loc[current_date]:.4f}")
+            print(f"【V2.0 · 诡道诱导版】散户筹码脆弱性指数诊断完成。")
         return final_score
 
     def _diagnose_chip_main_force_cost_intent(self, df: pd.DataFrame) -> pd.Series:

@@ -2309,74 +2309,6 @@
           "judgment_threshold": 0.7
         }
       },
-      "advanced_atomic_params": {
-        "enabled": true,
-        "description": "【V1.0】高级原子信号引擎参数，如收盘价在日内位置、连涨/连跌天数等。"
-      },
-      "board_pattern_params": {
-        "enabled": true,
-        "description": "【V1.0】天地板/地天板等极端日内形态的识别参数。",
-        "limit_up_threshold": 0.098,
-        "limit_down_threshold": -0.098,
-        "price_buffer": 0.005
-      },
-      "structure_breakdown_params": {
-        "enabled": true,
-        "description": "【V1.0】均线破位风险诊断引擎参数。",
-        "breakdown_ma_period": 21,
-        "norm_window": 55
-      },
-      "vpa_dynamics_params": {
-        "enabled": true,
-        "description": "【V1.0】量价分析(VPA)动态风险诊断引擎参数。",
-        "norm_window": 55
-      },
-      "continuation_reversal_params": {
-        "enabled": true,
-        "description": "延续性反转诊断引擎参数。",
-        "ma_periods": [5, 13, 21, 55],
-        "support_lookback_periods": [5, 13, 21, 55],
-        "support_period_weights": { "5": 0.8, "13": 1.0, "21": 1.2, "55": 1.4, "sbc": 2.0 },
-        "support_tolerance_pct": 0.015,
-        "confluence_bonus_factor": 0.3,
-        "sbc_threshold_pct": 0.05,
-        "despair_periods": { "short": [21, 5], "mid": [55, 21], "long": [233, 55] },
-        "despair_weights": { "short": 0.2, "mid": 0.3, "long": 0.5 }
-      },
-      "price_volume_atomic_params": {
-        "enabled": true,
-        "description": "【V1.0】量价原子信号引擎参数，如价格在近期区间位置、缩量下跌等。",
-        "norm_window": 55,
-        "range_lookback": 21,
-        "liquidity_drain_params": {
-          "description": "流动性枯竭风险诊断参数。",
-          "window": 20
-        },
-        "exhaustion_reversal_params": {
-          "description": "卖盘衰竭反转机会诊断参数。",
-          "window": 5
-        }
-      },
-      "deceptive_flow_params": {
-        "enabled": true,
-        "description": "【V1.0】伪装散户吸筹诊断引擎参数。",
-        "norm_window": 55
-      },
-      "euphoric_risk_params": {
-        "enabled": true,
-        "description": "【V2.0 · 关系元分析版】亢奋加速风险诊断引擎参数。",
-        "norm_window": 55
-      },
-      "pullback_tactics_params": {
-        "enabled": true,
-        "description": "【V1.0】回踩战术诊断模块参数。",
-        "healthy_pullback_score_threshold": 0.4,
-        "suppressive_pullback_score_threshold": 0.4
-      },
-      "classic_indicator_params": {
-        "enabled": true,
-        "description": "【V1.0】经典指标原子信号诊断引擎参数。"
-      },
       "pattern_params": {
           "enabled": true,
           "description": "【V7.0 · 三大公理版】形态智能引擎参数。基于“背离、反转、突破”三大公理融合。",
@@ -2504,17 +2436,6 @@
             }
           ]
         }
-      },
-      "consolidation_breakout_params": {
-        "enabled": true,
-        "description": "【V1.0】结构性盘整突破诊断引擎参数。",
-        "min_consolidation_duration": 5,
-        "volume_confirmation_ma_period": 21,
-        "min_closing_strength": 0.7
-      },
-      "fund_flow_params": {
-        "enabled": true,
-        "description": "【V1.0】资金流情报模块总开关。"
       },
       "hot_money_params": {
         "enabled": true,
@@ -3333,6 +3254,40 @@
           },
           "context_modulator_sensitivity": 0.5,
           "dgm_modulator_sensitivity": 0.8
+        },
+        "chip_retail_vulnerability_params": {
+          "description": "【V2.0 · 诡道诱导版】散户筹码脆弱性指数的专属参数。",
+          "structure_fragility_weights": {
+            "winner_concentration_inverse": 0.25,
+            "loser_concentration_inverse": 0.25,
+            "cost_gini_coefficient_inverse": 0.2,
+            "retail_flow_dominance": 0.3
+          },
+          "behavior_extremism_weights": {
+            "retail_fomo_premium": 0.25,
+            "panic_buy_absorption_inverse": 0.25,
+            "retail_net_flow_abs": 0.2,
+            "total_winner_rate": 0.15,
+            "total_loser_rate": 0.15
+          },
+          "inducement_context_weights": {
+            "deception_index_positive": 0.4,
+            "wash_trade_intensity": 0.3,
+            "main_force_conviction_negative_abs": 0.3
+          },
+          "final_fusion_weights": {
+            "structure_fragility": 0.35,
+            "behavior_extremism": 0.35,
+            "inducement_context": 0.3
+          },
+          "contextual_modulator_enabled": true,
+          "context_modulator_weights": {
+            "volatility_instability": 0.5,
+            "market_sentiment_extreme": 0.5
+          },
+          "context_modulator_sensitivity": 0.5,
+          "final_exponent": 2.0,
+          "comment_final_exponent": "最终分数的非线性指数，用于放大极端值。"
         }
       },
       "dynamic_mechanics_params": {
@@ -5512,25 +5467,6 @@
           "accel_weight": 0.4
         }
       },
-      "intraday_narrative_engine_params": {
-        "enabled": true,
-        "description": "【V1.0】日内叙事引擎，用于分钟级数据的深度战术叙事分析。",
-        "auction_intent_weights": {
-          "description": "竞价意图信号中，开盘和收盘意图的融合权重。",
-          "opening": 0.4,
-          "closing": 0.6
-        },
-        "recovery_quality_weights": {
-          "description": "修复质量信号中，三大维度的融合权重。",
-          "magnitude": 0.4,
-          "vwap_reclaim": 0.4,
-          "volume_confirm": 0.2
-        },
-        "recovery_gate_threshold_pct": {
-            "description": "触发修复质量计算的最低日内振幅阈值（占开盘价百分比）。",
-            "value": 0.04
-        }
-      },
       "intraday_gambit_engine_params": {
         "enabled": true,
         "description": "【V1.0 · 新增】日内诡道引擎，用于分钟级数据的深度主力博弈意图分析。",
@@ -5560,27 +5496,6 @@
           }
         }
       },
-      "tactic_engine_params": {
-        "enabled": true,
-        "description": "【V1.2 · 阿瑞斯之怒版】战术引擎的专属参数块，用于关系元分析。",
-        "ma_health_fusion_weights": {
-          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。",
-          "alignment": 0.15,
-          "slope": 0.15,
-          "accel": 0.2,
-          "relational": 0.5
-        },
-        "relational_meta_analysis_params": {
-          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
-        }
-      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V501.0 · 终极信号适配版】计分体系。全面转向消费各情报层产出的S+/S/A/B四级终极信号。",
@@ -5594,22 +5509,6 @@
           "euphoria_veto_threshold": { "value": 0.85 },
           "risk_overflow_threshold": { "value": 500 },
           "chimera_risk_normalization_base": { "value": 1000 }
-        }
-      },
-      "trigger_event_params": {
-        "enabled": true,
-        "说明": "【V9.0 · 终极信号适配版】触发事件引擎的参数配置。",
-        "dominant_reversal_candle": { "trigger_threshold": 0.4 },
-        "panic_selling_setup_threshold": { "value": 0.15 },
-        "mean_reversion_grid_buy_a_threshold": { "value": 0.8 },
-        "cyclical_bottom_fishing": {
-          "enabled": true,
-          "phase_threshold": -0.8,
-          "cyclical_regime_threshold": 0.3
-        },
-        "capitulation_reversal": {
-          "description": "恐慌投降反转剧本的触发参数。",
-          "trigger_threshold": 0.4
         }
       },
       "trend_quality_params": {
@@ -5627,39 +5526,6 @@
           "regime": 0.10,
           "cyclical": 0.05
         }
-      },
-      "reversal_reliability_params": {
-        "enabled": true,
-        "说明": "【V4.6 · FFT周期整合版】反转可靠性诊断引擎参数。",
-        "norm_window": 55,
-        "ignition_weights": { "early": 0.5, "vol": 0.2, "potential": 0.3 },
-        "main_reliability_weights": { "shareholder": 0.5, "ignition": 0.5 },
-        "reversal_reliability_bonus_factor": 0.5
-      },
-      "reversal_resonance_params": {
-        "enabled": true,
-        "说明": "【V1.0 · 参数校准版】多域反转共振分数合成模块参数。",
-        "bottom_resonance_weights": {
-          "mechanics": 0.3, "chip": 0.3, "foundation": 0.2, "behavior": 0.2, "structure": 0.3
-        },
-        "top_resonance_weights": {
-          "mechanics": 0.3, "chip": 0.3, "foundation": 0.2, "behavior": 0.2, "structure": 0.3
-        },
-        "tactical_resonance_weights": {
-          "mechanics": 0.2, "chip": 0.2, "foundation": 0.1, "behavior": 0.2, "structure": 0.2, "ff": 0.1
-        }
-      },
-      "peak_rejection_risk_params": {
-        "enabled": true,
-        "description": "【V6.0 · 过度拉伸版】高位遇阻风险诊断引擎参数。",
-        "high_position_threshold": 0.7,
-        "comment": "定义何为'过度拉伸'。当股价相对MA55的伸展度超过70%时，即认为处于高危区域。"
-      },
-      "mean_reversion_grid_params": {
-        "enabled": true,
-        "说明": "【V1.0】均值回归网格交易策略参数。",
-        "cyclical_regime_threshold": { "value": 0.4 },
-        "trending_regime_threshold": { "value": 0.45 }
       }
     }
   },
