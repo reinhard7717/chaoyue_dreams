@@ -2654,12 +2654,12 @@ class ChipIntelligence:
             norm_retail_flow_dominance.pow(structure_fragility_weights.get('retail_flow_dominance', 0.3))
         ).pow(1 / total_sf_weight)
         # --- 维度2: 散户行为极端化 (Retail Behavior Extremism) ---
-        norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, "norm_retail_fomo_premium"))
-        norm_panic_buy_absorption_inverse = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(False, None, "norm_panic_buy_absorption_inverse"))
+        norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_panic_buy_absorption_inverse = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=False, tf_weights=tf_weights)
         # 散户净流量的绝对值，代表极端化
         norm_retail_net_flow_abs = get_adaptive_mtf_normalized_bipolar_score(retail_net_flow_calibrated_raw, df_index, tf_weights=tf_weights, debug_info=(False, None, "norm_retail_net_flow_abs")).abs()
-        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, "norm_total_winner_rate"))
-        norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, "norm_total_loser_rate"))
+        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
         total_be_weight = sum(behavior_extremism_weights.values())
         behavior_extremism_score = (
             norm_retail_fomo_premium.pow(behavior_extremism_weights.get('retail_fomo_premium', 0.25)) *
@@ -2670,10 +2670,10 @@ class ChipIntelligence:
         ).pow(1 / total_be_weight)
         # --- 维度3: 主力诱导情境 (Main Force Inducement Context) ---
         # Positive deception (bull trap) increases fragility
-        norm_deception_index_positive = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights, debug_info=(False, None, "norm_deception_index_positive")).clip(lower=0)
-        norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, "norm_wash_trade_intensity"))
+        norm_deception_index_positive = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights).clip(lower=0)
+        norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         # Absolute value of negative main force conviction (unstable/bearish MF intent) increases fragility
-        norm_main_force_conviction_negative_abs = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights, debug_info=(False, None, "norm_main_force_conviction_negative_abs")).clip(upper=0).abs()
+        norm_main_force_conviction_negative_abs = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights).clip(upper=0).abs()
         total_ic_weight = sum(inducement_context_weights.values())
         inducement_context_score = (
             norm_deception_index_positive.pow(inducement_context_weights.get('deception_index_positive', 0.4)) *
@@ -2726,10 +2726,6 @@ class ChipIntelligence:
         df_dates_set = set(df_index.date)
         probe_dates_in_df = sorted([d for d in self.probe_dates_set if d in df_dates_set])
         should_probe_overall = self.should_probe and bool(probe_dates_in_df)
-        if should_probe_overall:
-            print(f"启动【V2.1 · 净流量方向修正版】主力成本区攻防意图诊断...")
-            for p_date in probe_dates_in_df:
-                print(f"    -> [探针] 实际将进行探针输出的日期: {p_date.strftime('%Y-%m-%d')}")
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         mfci_params = get_param_value(p_conf.get('main_force_cost_intent_params'), {})
@@ -2745,8 +2741,6 @@ class ChipIntelligence:
         deception_penalty_factor = get_param_value(mfci_params.get('deception_penalty_factor'), 0.7)
         wash_trade_penalty_factor = get_param_value(mfci_params.get('wash_trade_penalty_factor'), 0.3)
         global_context_mod_enabled = get_param_value(mfci_params.get('global_context_mod_enabled'), True)
-        global_context_mod_signal_1 = get_param_value(mfci_params.get('global_context_mod_signal_1'), 'chip_health_score_D')
-        global_context_mod_signal_2 = get_param_value(mfci_params.get('global_context_mod_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         global_context_sensitivity_health = get_param_value(mfci_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_volatility = get_param_value(mfci_params.get('global_context_sensitivity_volatility'), 0.3)
         dynamic_fusion_weights_enabled = get_param_value(mfci_params.get('dynamic_fusion_weights_enabled'), True)
@@ -2779,29 +2773,6 @@ class ChipIntelligence:
         bbw_raw = self._get_safe_series(df, df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
         market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"    -> [探针] 主力成本区攻防意图诊断 @ {p_date.strftime('%Y-%m-%d')}:")
-                    print(f"       --- 原始数据 ---")
-                    print(f"       - close_D: {close_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - vpoc_D: {vpoc_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - dominant_peak_cost_D: {dominant_peak_cost_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_conviction_index_D: {main_force_conviction_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - conviction_flow_buy_intensity_D: {conviction_flow_buy_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - conviction_flow_sell_intensity_D: {conviction_flow_sell_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_activity_ratio_D: {main_force_activity_ratio_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_flow_directionality_D: {main_force_flow_directionality_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - deception_index_D: {deception_index_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - wash_trade_intensity_D: {wash_trade_intensity_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - chip_health_score_D: {chip_health_score_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - SLOPE_5_chip_health_score_D: {slope_5_chip_health_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - SLOPE_5_main_force_conviction_index_D: {slope_5_main_force_conviction_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - BBW_21_2.0_D: {bbw_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - market_sentiment_score_D: {market_sentiment_raw.loc[p_actual_timestamp]:.4f}")
         cost_center = dominant_peak_cost_raw.fillna(vpoc_raw)
         dynamic_cost_zone_tolerance = pd.Series(cost_zone_tolerance_base, index=df_index)
         if dynamic_tolerance_mod_enabled:
@@ -2810,16 +2781,6 @@ class ChipIntelligence:
             dynamic_cost_zone_tolerance = dynamic_cost_zone_tolerance.clip(cost_zone_tolerance_base * 0.5, cost_zone_tolerance_base * 2.0)
         upper_bound = cost_center * (1 + dynamic_cost_zone_tolerance)
         lower_bound = cost_center * (1 - dynamic_cost_zone_tolerance)
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 动态成本区 ---")
-                    print(f"       - cost_center: {cost_center.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - dynamic_cost_zone_tolerance: {dynamic_cost_zone_tolerance.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - upper_bound: {upper_bound.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - lower_bound: {lower_bound.loc[p_actual_timestamp]:.4f}")
         net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
         # 修正 net_conviction_flow 的归一化逻辑，确保方向性正确
         norm_positive_flow = get_adaptive_mtf_normalized_score(net_conviction_flow.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
@@ -2831,45 +2792,13 @@ class ChipIntelligence:
         net_conviction_flow_quality = norm_net_conviction_flow_directional * (1 + flow_quality_modulator * 0.5)
         net_conviction_flow_quality = net_conviction_flow_quality.clip(-1, 1)
         norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 增强净流量质量 ---")
-                    print(f"       - net_conviction_flow: {net_conviction_flow.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_positive_flow: {norm_positive_flow.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_negative_flow: {norm_negative_flow.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_net_conviction_flow_directional: {norm_net_conviction_flow_directional.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_main_force_activity: {norm_main_force_activity.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_main_force_flow_directionality: {norm_main_force_flow_directionality.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - flow_quality_modulator: {flow_quality_modulator.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - net_conviction_flow_quality: {net_conviction_flow_quality.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_main_force_conviction: {norm_main_force_conviction.loc[p_actual_timestamp]:.4f}")
         price_deviation_factor_buy = (cost_center - close_raw) / cost_center.replace(0, np.nan)
         price_deviation_factor_buy = np.tanh(price_deviation_factor_buy.clip(0, 0.1) * price_deviation_tanh_factor)
         price_deviation_factor_sell = (close_raw - cost_center) / cost_center.replace(0, np.nan)
         price_deviation_factor_sell = np.tanh(price_deviation_factor_sell.clip(0, 0.1) * price_deviation_tanh_factor)
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 非线性价格偏离放大 ---")
-                    print(f"       - price_deviation_factor_buy: {price_deviation_factor_buy.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - price_deviation_factor_sell: {price_deviation_factor_sell.loc[p_actual_timestamp]:.4f}")
         norm_slope_5_chip_health = get_adaptive_mtf_normalized_bipolar_score(slope_5_chip_health_raw, df_index, tf_weights=tf_weights)
         norm_slope_5_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(slope_5_main_force_conviction_raw, df_index, tf_weights=tf_weights)
         in_zone_intent_modulator = (norm_slope_5_chip_health * 0.5 + norm_slope_5_main_force_conviction * 0.5).clip(-1, 1)
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 情境化成本区内逻辑 ---")
-                    print(f"       - norm_slope_5_chip_health: {norm_slope_5_chip_health.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_slope_5_main_force_conviction: {norm_slope_5_main_force_conviction.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - in_zone_intent_modulator: {in_zone_intent_modulator.loc[p_actual_timestamp]:.4f}")
         deception_modulator = pd.Series(1.0, index=df_index)
         if deception_mod_enabled:
             norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights)
@@ -2882,15 +2811,6 @@ class ChipIntelligence:
             deception_modulator.loc[bull_trap_penalty_mask] = 1 - norm_deception_index_bipolar.loc[bull_trap_penalty_mask] * deception_penalty_factor
             deception_modulator = deception_modulator * (1 - norm_wash_trade_intensity * wash_trade_penalty_factor)
             deception_modulator = deception_modulator.clip(0.1, 2.0)
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 诡道调制 ---")
-                    print(f"       - norm_deception_index_bipolar: {norm_deception_index_bipolar.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - deception_modulator: {deception_modulator.loc[p_actual_timestamp]:.4f}")
         global_context_modulator = pd.Series(1.0, index=df_index)
         if global_context_mod_enabled:
             norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_score_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -2899,15 +2819,6 @@ class ChipIntelligence:
                 (1 + norm_chip_health * global_context_sensitivity_health) *
                 (1 + norm_volatility_instability * global_context_sensitivity_volatility)
             ).clip(0.5, 1.5)
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 宏观情境调制 ---")
-                    print(f"       - norm_chip_health: {norm_chip_health.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - norm_volatility_instability: {norm_volatility_instability.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - global_context_modulator: {global_context_modulator.loc[p_actual_timestamp]:.4f}")
         dynamic_weight_below_vpoc = pd.Series(dynamic_fusion_weights_base.get('below_vpoc', 0.4), index=df_index)
         dynamic_weight_above_vpoc = pd.Series(dynamic_fusion_weights_base.get('above_vpoc', 0.4), index=df_index)
         dynamic_weight_in_vpoc = pd.Series(dynamic_fusion_weights_base.get('in_vpoc', 0.2), index=df_index)
@@ -2921,15 +2832,6 @@ class ChipIntelligence:
             dynamic_weight_below_vpoc /= sum_dynamic_weights
             dynamic_weight_above_vpoc /= sum_dynamic_weights
             dynamic_weight_in_vpoc /= sum_dynamic_weights
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 动态权重融合 ---")
-                    print(f"       - dynamic_weight_below_vpoc: {dynamic_weight_below_vpoc.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - dynamic_weight_above_vpoc: {dynamic_weight_above_vpoc.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - dynamic_weight_in_vpoc: {dynamic_weight_in_vpoc.loc[p_actual_timestamp]:.4f}")
         main_force_cost_intent_raw = pd.Series(0.0, index=df_index)
         mask_below_vpoc = (close_raw < lower_bound)
         intent_below_vpoc = (
@@ -2957,15 +2859,6 @@ class ChipIntelligence:
         main_force_cost_intent_raw.loc[mask_in_vpoc] = intent_in_vpoc
         final_score = main_force_cost_intent_raw * deception_modulator * global_context_modulator
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        if should_probe_overall:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 最终融合 ---")
-                    print(f"       - main_force_cost_intent_raw: {main_force_cost_intent_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - final_score: {final_score.loc[p_actual_timestamp]:.4f}")
-            print(f"【V2.1 · 净流量方向修正版】主力成本区攻防意图诊断完成。")
         return final_score
 
     def _diagnose_chip_hollowing_out_risk(self, df: pd.DataFrame) -> pd.Series:
@@ -2987,10 +2880,6 @@ class ChipIntelligence:
         should_probe_overall = self.should_probe and probe_enabled
         df_dates_set = set(df_index.date)
         probe_dates_in_df = sorted([d for d in self.probe_dates_set if d in df_dates_set])
-        if should_probe_overall and probe_dates_in_df:
-            print(f"启动【V3.0 · 深度结构与诡道情境版】筹码空心化风险诊断...")
-            for p_date in probe_dates_in_df:
-                    print(f"    -> [探针] 实际将进行探针输出的日期: {p_date.strftime('%Y-%m-%d')}")
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         dispersion_weakness_weights = get_param_value(hollow_params.get('dispersion_weakness_weights'), {})
         distribution_pressure_weights = get_param_value(hollow_params.get('distribution_pressure_weights'), {})
@@ -3046,37 +2935,6 @@ class ChipIntelligence:
         market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
         structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        # 修改行: 探针: 原始数据输出
-        if should_probe_overall and probe_dates_in_df:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 原始数据 @ {p_date.strftime('%Y-%m-%d')} ---")
-                    print(f"       - winner_concentration_90pct_D: {winner_concentration_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - loser_concentration_90pct_D: {loser_concentration_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - cost_gini_coefficient_D: {cost_gini_coefficient_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - dominant_peak_solidity_D: {dominant_peak_solidity_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - peak_separation_ratio_D: {peak_separation_ratio_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - SLOPE_5_winner_concentration_90pct_D: {slope_winner_concentration_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - SLOPE_5_chip_health_score_D: {slope_chip_health_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - total_winner_rate_D: {total_winner_rate_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - winner_profit_margin_avg_D: {winner_profit_margin_avg_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - rally_distribution_pressure_D: {rally_distribution_pressure_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - profit_taking_flow_ratio_D: {profit_taking_flow_ratio_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - upper_shadow_selling_pressure_D: {upper_shadow_selling_pressure_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - covert_distribution_signal_D: {covert_distribution_signal_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - SLOPE_5_rally_distribution_pressure_D: {slope_rally_distribution_pressure_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - deception_index_D: {deception_index_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - wash_trade_intensity_D: {wash_trade_intensity_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_conviction_index_D: {main_force_conviction_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_net_flow_calibrated_D: {main_force_net_flow_calibrated_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_cost_advantage_D: {main_force_cost_advantage_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - retail_fomo_premium_index_D: {retail_fomo_premium_index_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - market_sentiment_score_D: {market_sentiment_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - flow_credibility_index_D: {flow_credibility_raw.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - structural_tension_index_D: {structural_tension_raw.loc[p_actual_timestamp]:.4f}")
         norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_winner_concentration_inverse") if should_probe_overall else None)
         norm_loser_concentration_high_price = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_loser_concentration_high_price") if should_probe_overall else None) # 高位套牢盘集中度越高，风险越高
         norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_cost_gini_coefficient_inverse") if should_probe_overall else None) # Gini系数越低（越分散），风险越高
@@ -3145,18 +3003,6 @@ class ChipIntelligence:
             },
             market_vulnerability_weights, df_index
         )
-        # 修改行: 探针: 各维度子分数输出
-        if should_probe_overall and probe_dates_in_df:
-            # 修改行: 探针: 各维度子分数输出
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 各维度子分数 @ {p_date.strftime('%Y-%m-%d')} ---")
-                    print(f"       - dispersion_weakness_score: {dispersion_weakness_score.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - distribution_pressure_score: {distribution_pressure_score.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_deception_score: {main_force_deception_score.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - market_vulnerability_score: {market_vulnerability_score.loc[p_actual_timestamp]:.4f}")
         dynamic_fusion_weights = final_fusion_weights_base.copy()
         if get_param_value(dynamic_fusion_modulator_params.get('enabled'), False):
             mod_signal_1_name = get_param_value(dynamic_fusion_modulator_params.get('modulator_signal_1'))
@@ -3196,16 +3042,6 @@ class ChipIntelligence:
         else:
             # If dynamic weighting is disabled, use base weights directly
             dynamic_fusion_weights = {k: pd.Series(v, index=df_index) for k, v in final_fusion_weights_base.items()}
-        if should_probe_overall and probe_dates_in_df:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 动态融合权重 @ {p_date.strftime('%Y-%m-%d')} ---")
-                    print(f"       - dispersion_weakness_weight: {dynamic_fusion_weights['dispersion_weakness'].loc[p_actual_timestamp]:.4f}")
-                    print(f"       - distribution_pressure_weight: {dynamic_fusion_weights['distribution_pressure'].loc[p_actual_timestamp]:.4f}")
-                    print(f"       - main_force_deception_weight: {dynamic_fusion_weights['main_force_deception'].loc[p_actual_timestamp]:.4f}")
-                    print(f"       - market_vulnerability_weight: {dynamic_fusion_weights['market_vulnerability'].loc[p_actual_timestamp]:.4f}")
         # Weighted sum of dimension scores
         hollowing_out_risk_score = (
             dispersion_weakness_score * dynamic_fusion_weights['dispersion_weakness'] +
@@ -3219,16 +3055,6 @@ class ChipIntelligence:
         # Apply non-linear exponent
         final_score = np.tanh(hollowing_out_risk_score.clip(0, 1) ** non_linear_exponent)
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        if should_probe_overall and probe_dates_in_df:
-            for p_date in probe_dates_in_df:
-                matching_timestamps = df_index[df_index.date == p_date]
-                if not matching_timestamps.empty:
-                    p_actual_timestamp = matching_timestamps[0]
-                    print(f"       --- 最终分数 @ {p_date.strftime('%Y-%m-%d')} ---")
-                    print(f"       - hollowing_out_risk_score (pre-final): {hollowing_out_risk_score.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - deception_amplifier: {deception_amplifier.loc[p_actual_timestamp]:.4f}")
-                    print(f"       - final_score: {final_score.loc[p_actual_timestamp]:.4f}")
-            print(f"【V3.0 · 深度结构与诡道情境版】筹码空心化风险诊断完成。")
         # 修改行: 最终分数返回
         return final_score
 
