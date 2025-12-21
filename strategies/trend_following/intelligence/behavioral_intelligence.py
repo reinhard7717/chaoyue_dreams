@@ -382,8 +382,8 @@ class BehavioralIntelligence:
             accel_raw = self._get_safe_series(df, accel_col, 0.0, method_name=method_name)
             # 归一化斜率和加速度，映射到 [0, 1]
             # 使用 get_robust_bipolar_normalized_score 得到 [-1, 1] 的分数，再映射到 [0, 1]
-            slope_score_bipolar = get_robust_bipolar_normalized_score(slope_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0, debug_info=debug_info) # 修改行：传递debug_info
-            accel_score_bipolar = get_robust_bipolar_normalized_score(accel_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0, debug_info=debug_info) # 修改行：传递debug_info
+            slope_score_bipolar = get_robust_bipolar_normalized_score(slope_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0)
+            accel_score_bipolar = get_robust_bipolar_normalized_score(accel_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0)
             # 转换为单极性 [0, 1]，并确保为 float32
             slope_score = ((slope_score_bipolar + 1) / 2).astype(np.float32) # 修改行
             accel_score = ((accel_score_bipolar + 1) / 2).astype(np.float32) # 修改行
