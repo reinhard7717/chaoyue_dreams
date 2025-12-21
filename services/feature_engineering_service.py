@@ -211,7 +211,6 @@ class FeatureEngineeringService:
                             continue
                         Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
                         count += 1
-                
                 if count > 0 and Lk_sum > 0: # 确保有有效计算且和大于0
                     L.append(np.log(Lk_sum / count / k)) # 平均后再取对数
                 else:

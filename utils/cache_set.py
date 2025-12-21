@@ -649,7 +649,6 @@ class StockRealtimeCacheSet(CacheSet):
                         # trade_time 不存入 member，因为它已经作为 score 使用
                         if 'trade_time' in member_data:
                             del member_data['trade_time']
-                        
                         serialized_member = self.cache_manager._serialize(member_data)
                         pipe_instance.zadd(cache_key, {serialized_member: score})
                         timeout = self.cache_manager.get_timeout('rt')

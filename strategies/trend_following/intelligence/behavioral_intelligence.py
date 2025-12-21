@@ -152,12 +152,14 @@ class BehavioralIntelligence:
         total_mtf_weight = sum(mtf_slope_accel_weights.values())
         if total_mtf_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 优化：将原始值获取移到循环外部，因为它在所有周期中都是相同的
+        raw_val = self._get_safe_series(df, f'{base_name}_D', 0.0, method_name=method_name) # 修改行
         for period_str, weight in mtf_slope_accel_weights.items():
             period = int(period_str)
             if weight == 0:
                 continue
-            # 原始值
-            raw_val = self._get_safe_series(df, f'{base_name}_D', 0.0, method_name=method_name)
+            # 原始值 (已在循环外部获取)
+            # raw_val = self._get_safe_series(df, f'{base_name}_D', 0.0, method_name=method_name) # 原始行
             # 斜率
             slope_col = f'SLOPE_{period}_{base_name}_D'
             slope_val = self._get_safe_series(df, slope_col, 0.0, method_name=method_name)
@@ -166,13 +168,13 @@ class BehavioralIntelligence:
             accel_val = self._get_safe_series(df, accel_col, 0.0, method_name=method_name)
             # 根据指标特性进行处理和归一化
             if is_negative_indicator: # 如果是负向指标（如卖压），值越大风险越高
-                norm_raw = get_adaptive_mtf_normalized_score(raw_val.abs(), df.index, tf_weights={str(period): 1.0}, ascending=True)
-                norm_slope = get_adaptive_mtf_normalized_score(slope_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True)
-                norm_accel = get_adaptive_mtf_normalized_score(accel_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True)
+                norm_raw = get_adaptive_mtf_normalized_score(raw_val.abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=debug_info) # 修改行：传递debug_info
+                norm_slope = get_adaptive_mtf_normalized_score(slope_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=debug_info) # 修改行：传递debug_info
+                norm_accel = get_adaptive_mtf_normalized_score(accel_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=debug_info) # 修改行：传递debug_info
             else: # 正向指标，值越大风险越高（如恐慌指数）
-                norm_raw = get_adaptive_mtf_normalized_score(raw_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending)
-                norm_slope = get_adaptive_mtf_normalized_score(slope_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending)
-                norm_accel = get_adaptive_mtf_normalized_score(accel_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending)
+                norm_raw = get_adaptive_mtf_normalized_score(raw_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=debug_info) # 修改行：传递debug_info
+                norm_slope = get_adaptive_mtf_normalized_score(slope_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=debug_info) # 修改行：传递debug_info
+                norm_accel = get_adaptive_mtf_normalized_score(accel_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=debug_info) # 修改行：传递debug_info
             # 融合原始值、斜率和加速度
             fused_period_score = (
                 (norm_raw + 1e-9).pow(raw_w) *
@@ -188,20 +190,24 @@ class BehavioralIntelligence:
     def _calculate_series_dynamics(self, series: pd.Series, periods: List[int], df_index: pd.Index, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp], base_name: str) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series]]:
         slopes = {}
         accels = {}
+        # 优化：确保输入series为float32类型，以保持内存效率和类型一致性
+        series = series.astype(np.float32) # 修改行
         # 检查 series 长度，确保有足够数据进行 diff 操作
         if len(series) < max(periods) + 1: # 至少需要 max(periods) + 1 根K线才能计算最长周期的斜率
             for p in periods:
                 slopes[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
                 if p <= 34:
-                    accels[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
+                    accels[p] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return slopes, accels
         for p in periods:
             # 计算斜率
-            slope_series = series.diff(p).fillna(0)
+            # diff操作会产生NaN，fillna(0.0)将其替换为0，并确保结果为float32
+            slope_series = series.diff(p).fillna(0.0).astype(np.float32) # 修改行
             slopes[p] = slope_series
             # 计算加速度 (斜率的1日差分)
             if p <= 34: # 通常加速度在较短周期内更有效
-                accel_series = slope_series.diff(1).fillna(0)
+                # diff操作会产生NaN，fillna(0.0)将其替换为0，并确保结果为float32
+                accel_series = slope_series.diff(1).fillna(0.0).astype(np.float32) # 修改行
                 accels[p] = accel_series
         return slopes, accels
 
@@ -228,7 +234,7 @@ class BehavioralIntelligence:
         if not scores or total_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         fused_score = sum(scores) / total_weight
-        return fused_score.astype(np.float32)
+        return fused_score # 修改行：移除 .astype(np.float32)
 
     def _calculate_signal_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -266,18 +272,20 @@ class BehavioralIntelligence:
         for signal_name in atomic_signals_to_enhance:
             if signal_name in self.strategy.atomic_states:
                 signal_series = self.strategy.atomic_states[signal_name]
-                momentum = signal_series.diff(momentum_span).fillna(0)
+                # 确保 signal_series 是 float32 类型
+                signal_series = signal_series.astype(np.float32) # 新增行
+                momentum = signal_series.diff(momentum_span).fillna(0.0).astype(np.float32) # 修改行
                 # 【优化】使用多时间维度自适应归一化
                 norm_momentum = get_adaptive_mtf_normalized_score(momentum, df.index, ascending=True, tf_weights=default_weights)
-                dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum.astype(np.float32)
-                potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series)
+                dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum
+                potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series).astype(np.float32) # 修改行
                 # 【优化】使用多时间维度自适应归一化
                 norm_potential = get_adaptive_mtf_normalized_score(potential, df.index, ascending=True, tf_weights=default_weights)
-                dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential.astype(np.float32)
-                thrust = momentum.diff(1).fillna(0)
+                dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential
+                thrust = momentum.diff(1).fillna(0.0).astype(np.float32) # 修改行
                 # 【优化】使用多时间维度自适应归一化
                 norm_thrust = get_adaptive_mtf_normalized_score(thrust, df.index, ascending=True, tf_weights=default_weights)
-                dynamics_df[f'THRUST_{signal_name}'] = norm_thrust.astype(np.float32)
+                dynamics_df[f'THRUST_{signal_name}'] = norm_thrust
             else:
                 print(f"     - [警告] 信号 '{signal_name}' 在原子状态库中不存在，跳过动态因子计算。")
         final_df = pd.concat([df, dynamics_df], axis=1)
@@ -308,29 +316,47 @@ class BehavioralIntelligence:
         for name, score_series in scores_dict.items():
             weight = weights_dict.get(name, 0.0)
             if weight > 0:
-                valid_scores[name] = score_series.reindex(df_index).fillna(0.0).clip(0, 1)
+                # 确保分数是 float32 类型，并处理 NaN 和范围
+                valid_scores[name] = score_series.reindex(df_index).fillna(0.0).clip(0, 1).astype(np.float32) # 修改行
                 valid_weights[name] = weight
         if not valid_scores:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 向量化处理
         stacked_scores = np.stack([s.values for s in valid_scores.values()], axis=0)
-        safe_scores = np.maximum(stacked_scores, 1e-9)
-        weights_array = np.array(list(valid_weights.values()))
+        safe_scores = np.maximum(stacked_scores, 1e-9) # 避免log(0)或0^p
+        weights_array = np.array(list(valid_weights.values()), dtype=np.float32) # 修改行
         total_weight = weights_array.sum()
         if total_weight == 0:
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         normalized_weights = weights_array / total_weight
         result_values = np.zeros(len(df_index), dtype=np.float32)
         if isinstance(power_p, pd.Series):
-            power_p_aligned = power_p.reindex(df_index).fillna(0.0)
-            geometric_mean_mask = power_p_aligned.abs() < 1e-9
-            if geometric_mean_mask.any():
-                weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
-                result_values[geometric_mean_mask.values] = np.exp(weighted_log_sum[geometric_mean_mask.values])
+            power_p_aligned = power_p.reindex(df_index).fillna(0.0).astype(np.float32) # 修改行
+            # 统一处理 power_p 接近 0 的情况
+            # 使用一个小的 epsilon 来判断 power_p 是否接近 0
+            epsilon = 1e-9
+            # 对于 power_p 接近 0 的情况，使用几何平均
+            geometric_mean_mask = power_p_aligned.abs() < epsilon
+            # 对于 power_p 不接近 0 的情况，使用广义平均
             power_mean_mask = ~geometric_mean_mask
-            if power_mean_mask.any():
-                power_p_for_power_mean = power_p_aligned.loc[power_mean_mask].replace(0, 1e-9)
-                weighted_power_sum = np.sum(safe_scores[:, power_mean_mask.values]**power_p_for_power_mean.values * normalized_weights[:, np.newaxis], axis=0)
-                result_values[power_mean_mask.values] = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p_for_power_mean.values))
+            # 计算 log(safe_scores) * normalized_weights
+            weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
+            # 计算 safe_scores**power_p * normalized_weights
+            # 避免 power_p 为 0 导致 0**0 的问题，对于 power_p 接近 0 的情况，我们已经用 geometric_mean_mask 排除
+            # 对于 power_p 不接近 0 的情况，如果 power_p_aligned 某个值为 0，则将其替换为 epsilon
+            power_p_for_power_mean = power_p_aligned.copy()
+            power_p_for_power_mean[power_mean_mask & (power_p_for_power_mean.abs() < epsilon)] = epsilon * np.sign(power_p_for_power_mean[power_mean_mask & (power_p_for_power_mean.abs() < epsilon)])
+            
+            weighted_power_sum = np.sum(safe_scores**power_p_for_power_mean.values * normalized_weights[:, np.newaxis], axis=0) # 修改行
+            
+            # 填充结果
+            result_values[geometric_mean_mask.values] = np.exp(weighted_log_sum[geometric_mean_mask.values])
+            # 避免 0 的 power_p 导致 1/0 错误，并处理 weighted_power_sum 接近 0 的情况
+            result_values[power_mean_mask.values] = np.where(
+                weighted_power_sum[power_mean_mask.values] < epsilon,
+                0.0,
+                weighted_power_sum[power_mean_mask.values]**(1/power_p_for_power_mean.loc[power_mean_mask].values)
+            )
         else: # power_p is a scalar
             if abs(power_p) < 1e-9:
                 weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
@@ -347,7 +373,8 @@ class BehavioralIntelligence:
         融合多时间维度 (5, 13, 21, 34, 55) 的价格斜率和加速度。
         """
         momentum_periods = [5, 13, 21, 34, 55]
-        period_scores = []
+        period_scores_list = [] # 修改行：使用列表收集Series
+        debug_info = (is_debug_enabled, probe_ts, method_name) # 新增行
         for p in momentum_periods:
             slope_col = f'SLOPE_{p}_close_D'
             accel_col = f'ACCEL_{p}_close_D'
@@ -355,14 +382,14 @@ class BehavioralIntelligence:
             accel_raw = self._get_safe_series(df, accel_col, 0.0, method_name=method_name)
             # 归一化斜率和加速度，映射到 [0, 1]
             # 使用 get_robust_bipolar_normalized_score 得到 [-1, 1] 的分数，再映射到 [0, 1]
-            slope_score_bipolar = get_robust_bipolar_normalized_score(slope_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0)
-            accel_score_bipolar = get_robust_bipolar_normalized_score(accel_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0)
-            # 转换为单极性 [0, 1]
-            slope_score = (slope_score_bipolar + 1) / 2
-            accel_score = (accel_score_bipolar + 1) / 2
+            slope_score_bipolar = get_robust_bipolar_normalized_score(slope_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0, debug_info=debug_info) # 修改行：传递debug_info
+            accel_score_bipolar = get_robust_bipolar_normalized_score(accel_raw, df.index, window=p*2, sensitivity=2.0, default_value=0.0, debug_info=debug_info) # 修改行：传递debug_info
+            # 转换为单极性 [0, 1]，并确保为 float32
+            slope_score = ((slope_score_bipolar + 1) / 2).astype(np.float32) # 修改行
+            accel_score = ((accel_score_bipolar + 1) / 2).astype(np.float32) # 修改行
             # 几何平均融合斜率和加速度，确保两者都为正向贡献
             # 这里的权重可以进一步配置，但先用等权
-            period_momentum_score = self._robust_generalized_mean( # Call _robust_generalized_mean
+            period_momentum_score = self._robust_generalized_mean(
                 {"slope": slope_score, "acceleration": accel_score},
                 {"slope": 0.5, "acceleration": 0.5}, # Equal weights for now
                 df.index,
@@ -371,21 +398,24 @@ class BehavioralIntelligence:
                 probe_ts=probe_ts,
                 fusion_level_name=f"{p}d 动能子融合"
             )
-            period_scores.append(period_momentum_score)
+            period_scores_list.append(period_momentum_score) # 修改行：添加到列表
         # 加权平均融合所有时间周期的动能分数
         # 权重可以从 tf_weights_config.get('price_momentum_resonance') 获取
         momentum_fusion_weights = get_param_value(tf_weights_config.get('price_momentum_resonance'), default_tf_weights)
-        final_momentum_resonance_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        if not period_scores_list: # 修改行：检查列表是否为空
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 向量化累加
+        fused_score_components = [] # 新增行
         total_weight = 0.0
         for i, p in enumerate(momentum_periods):
             weight = momentum_fusion_weights.get(str(p), 0.0)
-            final_momentum_resonance_score += period_scores[i] * weight
-            total_weight += weight
-        if total_weight > 0:
-            final_momentum_resonance_score /= total_weight
-        else:
-            final_momentum_resonance_score = pd.Series(0.5, index=df.index, dtype=np.float32) # Default to neutral if no weights
-        return final_momentum_resonance_score.clip(0, 1)
+            if weight > 0: # 新增行：只处理有权重的周期
+                fused_score_components.append(period_scores_list[i] * weight) # 新增行
+                total_weight += weight
+        if not fused_score_components or total_weight == 0: # 修改行：检查是否有有效组件
+            return pd.Series(0.0, index=df.index, dtype=np.float32) # 修改行：返回0分
+        final_momentum_resonance_score = sum(fused_score_components) / total_weight # 新增行
+        return final_momentum_resonance_score.clip(0, 1).astype(np.float32)
 
     def _calculate_structural_health(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
         """
@@ -2501,7 +2531,7 @@ class BehavioralIntelligence:
         momentum_accel_factor = pd.Series(0.0, index=df.index)
         momentum_accel_factor = momentum_accel_factor.mask((accel_rsi > 0) & (accel_macd > 0), overextension_params.get('momentum_accel_bonus', 0.1))
         momentum_accel_factor = momentum_accel_factor.mask(((accel_rsi > 0) | (accel_macd > 0)) & (momentum_accel_factor == 0), overextension_params.get('momentum_accel_bonus', 0.1) / 2)
-        # [新增] 行为惯性：价格和成交量加速上涨，进一步增强亢奋
+        # 行为惯性：价格和成交量加速上涨，进一步增强亢奋
         behavioral_inertia_bonus = pd.Series(0.0, index=df.index)
         is_price_accelerating = (robust_pct_change_slope > 0) & (accel_close > 0)
         is_volume_accelerating = (robust_volume_slope > 0) & (accel_volume > 0)
@@ -2550,17 +2580,17 @@ class BehavioralIntelligence:
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
             "volume_stagnation_multiplier": 1.2, "momentum_divergence_penalty": 0.15,
             "upward_efficiency_decay_bonus": 0.1, "intraday_control_decay_bonus": 0.1,
-            "dynamic_kline_atr_multiplier": 0.005, # [新增] 动态K线形态阈值ATR乘数
-            "momentum_deceleration_bonus": 0.1, # [新增] 动量减速奖励
-            "volume_drying_up_multiplier": 0.8 # [新增] 缩量上涨乘数
+            "dynamic_kline_atr_multiplier": 0.005, # 动态K线形态阈值ATR乘数
+            "momentum_deceleration_bonus": 0.1, # 动量减速奖励
+            "volume_drying_up_multiplier": 0.8 # 缩量上涨乘数
         })
         if not stagnation_params.get('enabled', False):
             return pd.Series(0.0, index=df.index)
         # 获取所需纯行为数据和派生信号
         required_signals = [
-            'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D', # [新增] ATR用于动态阈值
+            'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D', # ATR用于动态阈值
             'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
-            'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D', # [新增] 加速度用于行为惯性
+            'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D', # 加速度用于行为惯性
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
             'pct_change_D'
         ]
@@ -2621,14 +2651,14 @@ class BehavioralIntelligence:
         momentum_divergence_score = momentum_divergence_score.mask(
             is_price_rising & (is_rsi_momentum_decay | is_macd_momentum_decay),
             momentum_divergence_penalty * (is_rsi_momentum_decay.astype(int) + is_macd_momentum_decay.astype(int)) + \
-            rsi_deceleration_bonus + macd_deceleration_bonus # [新增] 加速度奖励
+            rsi_deceleration_bonus + macd_deceleration_bonus # 加速度奖励
         )
         momentum_divergence_score = momentum_divergence_score.clip(0, 0.3)
         # 3. 成交量异常 (Volume Anomaly)
         # 放量滞涨 (价格上涨幅度小，但成交量大)
         is_volume_stagnation = (pct_change_val.abs() < 0.01) & (current_volume > volume_avg * volume_stagnation_multiplier) & (robust_close_slope > 0)
         volume_extremity_score = is_volume_stagnation.astype(float) * (current_volume / volume_avg).clip(1, 2) # 量比越大，分数越高
-        # [新增] 缩量上涨 (价格上涨，但成交量萎缩)
+        # 缩量上涨 (价格上涨，但成交量萎缩)
         is_volume_drying_up = (pct_change_val > 0) & (current_volume < volume_avg * volume_drying_up_multiplier) & (robust_close_slope > 0)
         volume_drying_up_score = is_volume_drying_up.astype(float) * (1 - (current_volume / volume_avg)).clip(0, 1) # 萎缩越多，分数越高
         volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1) # 两种情况叠加

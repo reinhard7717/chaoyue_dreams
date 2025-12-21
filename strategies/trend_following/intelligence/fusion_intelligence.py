@@ -634,9 +634,9 @@ class FusionIntelligence:
         for signal, weight in risk_signals.items():
             tactical_downward_pressure += self._get_atomic_score(df, signal, 0.0) * weight
         net_tactical_pressure = (tactical_upward_pressure - tactical_downward_pressure).clip(-1, 1)
-        # --- 2. [新增] 获取“战场态势” (君) ---
+        # --- 2. 获取“战场态势” (君) ---
         battlefield_context = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
-        # --- 3. [新增] 核心数学逻辑 - 态势裁决 ---
+        # --- 3. 核心数学逻辑 - 态势裁决 ---
         # 3.1 构建“战场态势调节器”
         modulation_factor = 0.5 # 态势影响系数
         battlefield_modulator = (1 + battlefield_context * modulation_factor).clip(0.5, 1.5)

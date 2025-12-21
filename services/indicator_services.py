@@ -834,7 +834,6 @@ class IndicatorService:
                         # 统一重命名列名后缀
                         rename_map_resampled = {col: col.replace('_D', f'_{target_tf}') for col in df_resampled.columns if col.endswith('_D')}
                         df_resampled.rename(columns=rename_map_resampled, inplace=True)
-                        
                         if target_tf == 'W':
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')

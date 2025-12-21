@@ -1087,7 +1087,7 @@
             "type": "process",
             "penalty_weight": -150,
             "scoring_mode": "unipolar",
-            "description": "【V2.0 · 信念侵蚀版】诊断赢家信念的衰减。正分代表赢家信念指数正在下降。"
+            "description": "【V4.0 · 全息动态审判版】诊断赢家信念的衰减。正分代表赢家信念指数正在下降。"
         },
         "PROCESS_META_PV_REL_BULLISH_TURN": {
             "cn_name": "【过程】价量关系看涨拐点",

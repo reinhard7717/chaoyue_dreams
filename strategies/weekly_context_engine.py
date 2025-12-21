@@ -438,7 +438,6 @@ class WeeklyContextEngine:
                             # 将 'ma20_turn_up_event_playbook' 转换为 'PLAYBOOK_MA20_TURN_UP_EVENT_W'
                             base_name = playbook_name.replace('_playbook', '').upper()
                             col_name = f"playbook_{base_name}_W"
-                        
                         # logger.debug(f"    - [单信号输出模式] 正在为规范化列 '{col_name}' 赋值...") # 替换为logger
                         context_df[col_name] = results
                 else:
