@@ -768,6 +768,8 @@ class BehavioralIntelligence:
         pattern_sequence_params = get_param_value(p_behavioral_div_conf.get('pattern_sequence_params'), {"enabled": True, "lookback_window": 3, "volume_drying_up_ratio": 0.8, "volume_climax_ratio": 1.5, "reversal_pct_change_threshold": 0.01, "sequence_bonus": 0.2})
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         accel_period = mtf_periods[0]
+        # --- START OF MODIFICATION ---
+        # 初始化 required_signals 列表，只包含直接输入，不包含本方法内部生成的 'robust_' 信号。
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
             'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
@@ -820,8 +822,34 @@ class BehavioralIntelligence:
             'constructive_turnover_ratio_D',
             'buy_sweep_intensity_D',
             'upper_shadow_selling_pressure_D',
-            'market_sentiment_score_D'
+            'market_sentiment_score',
+            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT' # 这是 _diagnose_microstructure_intent 的输出，但在本方法之前调用，所以应该存在。
         ]
+        # 添加用于计算鲁棒斜率的原始斜率信号
+        indicators_for_robust_slopes = [
+            'close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change',
+            'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
+            'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score',
+            'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity',
+            'upper_shadow_selling_pressure', 'market_sentiment_score'
+        ]
+        for indicator in indicators_for_robust_slopes:
+            for period in mtf_periods:
+                required_signals.append(f'SLOPE_{period}_{indicator}_D')
+        # 添加用于多级别共振的长期斜率信号
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'ADX_14']: # 修正：添加 ADX_14
+            required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
+        # 添加模式斜率信号
+        for indicator in ['close', 'volume']:
+            required_signals.append(f'SLOPE_{pattern_lookback_window}_{indicator}_D')
+        # 添加加速度信号 (如果需要用于回退逻辑或其他)
+        # 注意: accel_period 是 mtf_periods[0]，即 5。
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume',
+                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score',
+                         'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity',
+                         'upper_shadow_selling_pressure', 'market_sentiment_score']:
+            required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
+        # 流动性枯竭风险参数中的MTF斜率和加速度信号
         liquidity_drain_mtf_periods = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params', {}).get('mtf_slope_accel_weights'), {}).keys()
         liquidity_drain_mtf_periods = [int(p) for p in liquidity_drain_mtf_periods]
         indicators_for_mtf_dynamics = [
@@ -846,19 +874,7 @@ class BehavioralIntelligence:
             for indicator in indicators_for_mtf_dynamics:
                 required_signals.append(f'SLOPE_{period}_{indicator}_D')
                 required_signals.append(f'ACCEL_{period}_{indicator}_D')
-        for period in mtf_periods:
-            for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change', 'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
-                             'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
-                required_signals.append(f'SLOPE_{period}_{indicator}_D')
-        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
-            required_signals.append(f'SLOPE_{long_term_period}_{indicator}_D')
-        for indicator in ['close', 'volume']:
-            required_signals.append(f'SLOPE_{pattern_lookback_window}_close_D')
-            required_signals.append(f'SLOPE_{pattern_lookback_window}_volume_D')
-        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume',
-                         'breakout_quality_score', 'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index', 'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure', 'market_sentiment_score']:
-            required_signals.append(f'ACCEL_{accel_period}_{indicator}_D')
-        required_signals.append('SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT')
+        # --- END OF MODIFICATION ---
         if not self._validate_required_signals(df, required_signals, method_name):
             missing_signals = [s for s in required_signals if s not in df.columns]
             print(f"    -> [行为情报引擎] {method_name}: 核心公理诊断失败，缺少必要原始信号 {missing_signals}，行为分析中止。")
@@ -908,15 +924,16 @@ class BehavioralIntelligence:
                 robust_slopes[indicator] = weighted_slope / total_weight
             else:
                 first_period_col = f'SLOPE_{mtf_periods[0]}_{indicator}_D' if mtf_periods else None
-                robust_slopes[indicator] = df[first_period_col]
+                # 修正：如果 first_period_col 不存在，则使用默认值0，避免 KeyError
+                robust_slopes[indicator] = self._get_safe_series(df, first_period_col, 0.0, method_name=method_name) if first_period_col else pd.Series(0.0, index=df.index, dtype=np.float32)
             df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
         long_term_period = multi_level_resonance_params.get('long_term_period', 21)
-        long_term_close_slope = df[f'SLOPE_{long_term_period}_close_D']
-        long_term_rsi_slope = df[f'SLOPE_{long_term_period}_RSI_13_D']
-        long_term_macd_slope = df[f'SLOPE_{long_term_period}_MACDh_13_34_8_D']
-        long_term_volume_slope = df[f'SLOPE_{long_term_period}_volume_D']
-        long_term_adx_slope = df[f'SLOPE_{long_term_period}_ADX_14_D']
+        long_term_close_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
+        long_term_rsi_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_RSI_13_D', 0.0, method_name=method_name)
+        long_term_macd_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
+        long_term_volume_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_volume_D', 0.0, method_name=method_name)
+        long_term_adx_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_ADX_14_D', 0.0, method_name=method_name)
         df['long_term_close_slope'] = long_term_close_slope
         states['long_term_close_slope'] = long_term_close_slope
         df['long_term_RSI_13_slope'] = long_term_rsi_slope
@@ -928,8 +945,8 @@ class BehavioralIntelligence:
         df['long_term_adx_slope'] = long_term_adx_slope
         states['long_term_adx_slope'] = long_term_adx_slope
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
-        pattern_close_slope = df[f'SLOPE_{pattern_lookback_window}_close_D']
-        pattern_volume_slope = df[f'SLOPE_{pattern_lookback_window}_volume_D']
+        pattern_close_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_close_D', 0.0, method_name=method_name)
+        pattern_volume_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name)
         df['pattern_close_slope'] = pattern_close_slope
         states['pattern_close_slope'] = pattern_close_slope
         df['pattern_volume_slope'] = pattern_volume_slope
