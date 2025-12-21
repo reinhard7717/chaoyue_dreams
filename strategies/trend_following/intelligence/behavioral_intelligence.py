@@ -697,17 +697,44 @@ class BehavioralIntelligence:
             base_weights = context_modulator_params.get('dynamic_fusion_weights_base', fusion_weights)
             volatility_impact = context_modulator_params.get('volatility_impact_weights', {})
             sentiment_impact = context_modulator_params.get('sentiment_impact_weights', {})
+            
+            # Initialize dynamic_fusion_weights with Series values if impacts are Series
             for dim in dynamic_fusion_weights.keys():
-                dynamic_fusion_weights[dim] = base_weights.get(dim, 0.0) + \
-                                              norm_volatility * volatility_impact.get(dim, 0.0) + \
-                                              norm_sentiment * sentiment_impact.get(dim, 0.0)
+                current_weight = base_weights.get(dim, 0.0)
+                v_impact = volatility_impact.get(dim, 0.0)
+                s_impact = sentiment_impact.get(dim, 0.0)
+                
+                # Ensure that if any component is a Series, the result is a Series
+                # Pandas will automatically broadcast scalar current_weight to a Series if other operands are Series.
+                dynamic_fusion_weights[dim] = current_weight + \
+                                              norm_volatility * v_impact + \
+                                              norm_sentiment * s_impact
+
             # 确保权重和为1
-            total_dynamic_weight = sum(dynamic_fusion_weights.values())
-            if total_dynamic_weight > 0:
-                for dim in dynamic_fusion_weights.keys():
-                    dynamic_fusion_weights[dim] /= total_dynamic_weight
-            else: # Fallback to static weights if dynamic weights sum to zero
-                dynamic_fusion_weights = fusion_weights
+            # Summing the values of dynamic_fusion_weights (which are Series) will result in a Series
+            total_dynamic_weight = sum(dynamic_fusion_weights.values()) 
+            
+            # Create a mask for rows where total_dynamic_weight is zero or very close to zero
+            zero_sum_mask = (total_dynamic_weight.abs() < 1e-9)
+
+            # Create a temporary dictionary to store the normalized weights
+            normalized_dynamic_weights = {}
+            for dim in dynamic_fusion_weights.keys():
+                # Calculate normalized weights for non-zero sum rows
+                # For zero_sum_mask rows, total_dynamic_weight.where() will return 1.0, avoiding division by zero.
+                # The numerator (dynamic_fusion_weights[dim]) will be divided by 1.0, effectively keeping its value.
+                # This value will then be replaced by the static weight in the next step.
+                normalized_dim_weight = dynamic_fusion_weights[dim] / total_dynamic_weight.where(~zero_sum_mask, 1.0)
+                
+                # For rows where sum was zero, use the original static fusion_weights for that dimension
+                normalized_dynamic_weights[dim] = normalized_dim_weight.where(
+                    ~zero_sum_mask,
+                    fusion_weights.get(dim, 0.0) # Fallback to static weight for this dimension
+                )
+            
+            # Update the original dynamic_fusion_weights dictionary
+            dynamic_fusion_weights = normalized_dynamic_weights
+
         day_quality_base_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "outcome_assessment": outcome_assessment_score,
