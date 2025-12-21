@@ -1131,43 +1131,56 @@ class ProcessIntelligence:
             print(f"    -> [DEBUG Probe] {signal_name}: Probe dates from config: {self.probe_dates}")
             print(f"    -> [DEBUG Probe] {signal_name}: DataFrame index type: {type(df.index)}")
             if not df.empty:
-                print(f"    -> [DEBUG Probe] {signal_name}: DataFrame first date: {df.index[0].strftime('%Y-%m-%d')}")
-                print(f"    -> [DEBUG Probe] {signal_name}: DataFrame last date: {df.index[-1].strftime('%Y-%m-%d')}")
+                print(f"    -> [DEBUG Probe] {signal_name}: DataFrame first index entry: {df.index[0]}")
+                print(f"    -> [DEBUG Probe] {signal_name}: DataFrame last index entry: {df.index[-1]}")
+                print(f"    -> [DEBUG Probe] {signal_name}: DataFrame index timezone: {df.index.tz}")
             
-            # 修改的代码行：将df.index转换为日期字符串列表进行比较
-            df_index_dates_str = df.index.strftime('%Y-%m-%d').tolist()
+            # 修改的代码行：将df.index转换为纯日期对象（datetime.date）进行比较
+            df_dates_only = df.index.date # This returns a numpy array of datetime.date objects
             
             for probe_date_str in self.probe_dates:
-                print(f"    -> [DEBUG Probe] {signal_name}: Checking for probe date {probe_date_str} in df.index (date string comparison)...")
-                if probe_date_str in df_index_dates_str:
-                    # 修改的代码行：通过pd.Timestamp获取原始索引位置
-                    current_probe_date_loc = df.index.get_loc(pd.Timestamp(probe_date_str))
-                    print(f"\n--- [PROCESS_META_WINNER_CONVICTION_DECAY 探针: {df.index[current_probe_date_loc].strftime('%Y-%m-%d')}] ---")
-                    print("  [原始输入]:")
-                    print(f"    - {belief_signal_name}: {belief_signal_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - {pressure_signal_name}: {pressure_signal_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - upper_shadow_selling_pressure_D: {upper_shadow_pressure_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - retail_fomo_premium_index_D: {retail_fomo_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - BIAS_13_D: {bias_13_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - BIAS_21_D: {bias_21_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - RSI_13_D: {rsi_13_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - BBP_21_2.0_D: {bbp_21_raw.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent_score.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - SCORE_CHIP_RISK_DISTRIBUTION_WHISPER: {chip_distribution_whisper_score.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - SCORE_FOUNDATION_AXIOM_MARKET_TENSION: {market_tension_score.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[current_probe_date_loc]:.4f}")
-                    print("  [中间计算节点]:")
-                    print(f"    - MTF信念衰减分: {mtf_decay_score.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - MTF利润压力分: {mtf_pressure_score.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - 派发确认分: {distribution_confirmation_score.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - 价格超买亢奋复合分: {price_overextension_composite_score.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - 情境调制器: {contextual_modulator.iloc[current_probe_date_loc]:.4f}")
-                    print(f"    - 核心衰减分 (几何平均): {core_decay_score.iloc[current_probe_date_loc]:.4f}")
-                    print("  [最终结果]:")
-                    print(f"    - 最终信念衰减分: {final_score.iloc[current_probe_date_loc]:.4f}")
-                    print("--- [探针结束] ---\n")
+                print(f"    -> [DEBUG Probe] {signal_name}: Checking for probe date {probe_date_str}...")
+                
+                # 修改的代码行：将探针日期字符串转换为纯日期对象（datetime.date）
+                target_date = pd.to_datetime(probe_date_str).date()
+                
+                if target_date in df_dates_only:
+                    # 修改的代码行：通过过滤DataFrame来获取该日期的所有行
+                    matching_rows_df = df[df.index.date == target_date]
+                    
+                    if not matching_rows_df.empty:
+                        # 修改的代码行：获取该日期的最后一行在原始DataFrame中的索引位置
+                        # 这样可以确保即使原始索引有时间戳，也能正确找到对应的行
+                        current_probe_date_loc = df.index.get_loc(matching_rows_df.index[-1])
+                        
+                        print(f"\n--- [PROCESS_META_WINNER_CONVICTION_DECAY 探针: {matching_rows_df.index[-1].strftime('%Y-%m-%d')}] ---")
+                        print("  [原始输入]:")
+                        print(f"    - {belief_signal_name}: {belief_signal_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - {pressure_signal_name}: {pressure_signal_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - upper_shadow_selling_pressure_D: {upper_shadow_pressure_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - retail_fomo_premium_index_D: {retail_fomo_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - BIAS_13_D: {bias_13_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - BIAS_21_D: {bias_21_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - RSI_13_D: {rsi_13_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - BBP_21_2.0_D: {bbp_21_raw.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent_score.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - SCORE_CHIP_RISK_DISTRIBUTION_WHISPER: {chip_distribution_whisper_score.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - SCORE_FOUNDATION_AXIOM_MARKET_TENSION: {market_tension_score.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM: {sentiment_pendulum_score.iloc[current_probe_date_loc]:.4f}")
+                        print("  [中间计算节点]:")
+                        print(f"    - MTF信念衰减分: {mtf_decay_score.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - MTF利润压力分: {mtf_pressure_score.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - 派发确认分: {distribution_confirmation_score.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - 价格超买亢奋复合分: {price_overextension_composite_score.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - 情境调制器: {contextual_modulator.iloc[current_probe_date_loc]:.4f}")
+                        print(f"    - 核心衰减分 (几何平均): {core_decay_score.iloc[current_probe_date_loc]:.4f}")
+                        print("  [最终结果]:")
+                        print(f"    - 最终信念衰减分: {final_score.iloc[current_probe_date_loc]:.4f}")
+                        print("--- [探针结束] ---\n")
+                    else:
+                        print(f"    -> [DEBUG Probe] {signal_name}: Error: Probe date {probe_date_str} found in df_dates_only but no matching rows. This should not happen.")
                 else:
-                    print(f"    -> [DEBUG Probe] {signal_name}: Probe date {probe_date_str} NOT found in current DataFrame index (date string comparison).")
+                    print(f"    -> [DEBUG Probe] {signal_name}: Probe date {probe_date_str} NOT found in current DataFrame index (date comparison).")
 
         return final_score.astype(np.float32)
 
