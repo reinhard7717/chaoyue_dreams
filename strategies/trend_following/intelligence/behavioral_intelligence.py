@@ -3288,7 +3288,6 @@ class BehavioralIntelligence:
         - 核心升级: 将“锁仓拉升”解构为“上涨纯度”、“供应枯竭”、“主力控盘意图”和“情境共振”四大核心维度，
                       并引入多时间维度斜率与加速度、筹码结构、市场情绪等新原始数据，深化判断。
         - 目标: 识别在多头趋势中，主力资金高度控盘，市场抛压枯竭，且上涨动能纯粹、效率高，同时市场环境有利的锁仓拉升机会。
-        - 数学模型: 最终信号 = is_rising * (上涨纯度^W1 * 供应枯竭^W2 * 主力控盘意图^W3 * 情境共振^W4)^(1/Sum(W))
         - 【新增】在方法开始时加入对所有原料数据的存在性检查。
         - 【清理】移除所有调试探针代码，恢复生产状态。
         """
@@ -3327,7 +3326,8 @@ class BehavioralIntelligence:
             'floating_chip_cleansing_efficiency_D', 'main_force_conviction_index_D',
             'covert_accumulation_signal_D', 'ADX_14_D', 'retail_fomo_premium_index_D',
             'robust_close_slope', 'robust_pct_change_slope', 'robust_RSI_13_slope',
-            'robust_MACDh_13_34_8_D', 'robust_volume_slope',
+            'robust_MACDh_13_34_8_slope', # 修改行
+            'robust_volume_slope',
             'long_term_close_slope', 'long_term_adx_slope',
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SLOPE_5_main_force_conviction_index_D'
@@ -3370,7 +3370,7 @@ class BehavioralIntelligence:
         robust_close_slope = df['robust_close_slope']
         robust_pct_change_slope = df['robust_pct_change_slope']
         robust_rsi_slope = df['robust_RSI_13_slope']
-        robust_macd_slope = df['robust_MACDh_13_34_8_D']
+        robust_macd_slope = df['robust_MACDh_13_34_8_slope'] # 修改行
         robust_volume_slope = df['robust_volume_slope']
         long_term_close_slope = df['long_term_close_slope']
         long_term_adx_slope = df['long_term_adx_slope']
