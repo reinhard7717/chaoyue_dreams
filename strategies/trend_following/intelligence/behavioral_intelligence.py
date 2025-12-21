@@ -299,7 +299,7 @@ class BehavioralIntelligence:
     def _robust_generalized_mean(
         self,
         scores_dict: Dict[str, pd.Series],
-        weights_dict: Dict[str, float],
+        weights_dict: Dict[str, Any], # 修改类型提示以兼容 Series
         df_index: pd.Index,
         power_p: Any = 0.0,
         is_debug_enabled: bool = False,
@@ -313,62 +313,72 @@ class BehavioralIntelligence:
         - 当 power_p 为 1 时，行为类似于加权算术平均。
         - 确保输入分数在 [0, 1] 范围内，并处理零值以避免数学错误。
         - 新增: power_p 参数现在可以是标量或 pd.Series，以支持动态调整融合幂。
+        - 修复: 兼容 weights_dict 中的权重可以是标量或 pd.Series。
         """
         if not scores_dict:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        valid_scores = {}
-        valid_weights = {}
-        for name, score_series in scores_dict.items():
-            weight = weights_dict.get(name, 0.0)
-            if weight > 0:
-                # 确保分数是 float32 类型，并处理 NaN 和范围
-                valid_scores[name] = score_series.reindex(df_index).fillna(0.0).clip(0, 1).astype(np.float32) # 修改行
-                valid_weights[name] = weight
-        if not valid_scores:
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 向量化处理
-        stacked_scores = np.stack([s.values for s in valid_scores.values()], axis=0)
-        safe_scores = np.maximum(stacked_scores, 1e-9) # 避免log(0)或0^p
-        weights_array = np.array(list(valid_weights.values()), dtype=np.float32) # 修改行
-        total_weight = weights_array.sum()
-        if total_weight == 0:
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        normalized_weights = weights_array / total_weight
+        # 准备分数 DataFrame，确保所有分数都与 df_index 对齐，填充 NaN，并裁剪到 [0, 1]
+        scores_df = pd.DataFrame({
+            name: score_series.reindex(df_index).fillna(0.0).clip(0, 1).astype(np.float32)
+            for name, score_series in scores_dict.items()
+        })
+        # 准备权重 DataFrame，处理标量和 Series 权重，并确保与 df_index 对齐
+        dynamic_weights_df = pd.DataFrame(index=df_index)
+        for name in scores_df.columns:
+            weight_val = weights_dict.get(name, 0.0)
+            if isinstance(weight_val, pd.Series):
+                dynamic_weights_df[name] = weight_val.reindex(df_index).fillna(0.0).astype(np.float32)
+            else:
+                dynamic_weights_df[name] = pd.Series(weight_val, index=df_index, dtype=np.float32)
+        # 过滤掉权重为零或负数的项（向量化操作）
+        # 使用一个小的 epsilon 来判断权重是否有效，避免浮点数比较问题
+        valid_weight_mask = (dynamic_weights_df > 1e-9)
+        # 将无效权重的分数和权重本身设为0，使其不参与后续计算
+        filtered_scores_df = scores_df.where(valid_weight_mask, 0.0)
+        filtered_weights_df = dynamic_weights_df.where(valid_weight_mask, 0.0)
+        # 计算每个时间点的总权重
+        total_weight = filtered_weights_df.sum(axis=1)
+        # 处理总权重为零的情况：这些时间点的最终分数应为0
+        zero_total_weight_mask = (total_weight.abs() < 1e-9)
+        # 归一化权重：对于总权重为零的行，归一化权重设为0，避免除以零
+        normalized_weights_df = filtered_weights_df.div(total_weight.where(~zero_total_weight_mask, 1.0), axis=0)
+        normalized_weights_df = normalized_weights_df.where(~zero_total_weight_mask, 0.0) # 确保总权重为0的行，归一化权重也为0
+        # 确保分数略大于零，以避免对数和幂运算中的数学错误
+        safe_scores_df = filtered_scores_df.replace(0.0, 1e-9)
+        # 初始化结果 Series
         result_values = np.zeros(len(df_index), dtype=np.float32)
+        # 确保 power_p 是一个与 df_index 对齐的 Series
         if isinstance(power_p, pd.Series):
-            power_p_aligned = power_p.reindex(df_index).fillna(0.0).astype(np.float32) # 修改行
-            # 统一处理 power_p 接近 0 的情况
-            # 使用一个小的 epsilon 来判断 power_p 是否接近 0
-            epsilon = 1e-9
-            # 对于 power_p 接近 0 的情况，使用几何平均
-            geometric_mean_mask = power_p_aligned.abs() < epsilon
-            # 对于 power_p 不接近 0 的情况，使用广义平均
-            power_mean_mask = ~geometric_mean_mask
-            # 计算 log(safe_scores) * normalized_weights
-            weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
-            # 计算 safe_scores**power_p * normalized_weights
-            # 避免 power_p 为 0 导致 0**0 的问题，对于 power_p 接近 0 的情况，我们已经用 geometric_mean_mask 排除
-            # 对于 power_p 不接近 0 的情况，如果 power_p_aligned 某个值为 0，则将其替换为 epsilon
+            power_p_aligned = power_p.reindex(df_index).fillna(0.0).astype(np.float32)
+        else:
+            power_p_aligned = pd.Series(power_p, index=df_index, dtype=np.float32)
+        epsilon = 1e-9 # 用于判断 power_p 是否接近0
+        # 几何平均部分 (power_p 接近 0)
+        # 仅对总权重不为零且 power_p 接近 0 的行进行计算
+        geometric_mean_mask = (power_p_aligned.abs() < epsilon) & (~zero_total_weight_mask)
+        if geometric_mean_mask.any():
+            # 元素级乘法：log(safe_scores_df) * normalized_weights_df，然后按行求和
+            weighted_log_sum = (np.log(safe_scores_df) * normalized_weights_df).sum(axis=1)
+            result_values[geometric_mean_mask.values] = np.exp(weighted_log_sum[geometric_mean_mask].values)
+        # 广义平均部分 (power_p 不接近 0)
+        # 仅对总权重不为零且 power_p 不接近 0 的行进行计算
+        power_mean_mask = (~geometric_mean_mask) & (~zero_total_weight_mask)
+        if power_mean_mask.any():
+            # 避免 power_p 恰好为 0 导致 0**0 或 1/0 错误
             power_p_for_power_mean = power_p_aligned.copy()
             power_p_for_power_mean[power_mean_mask & (power_p_for_power_mean.abs() < epsilon)] = epsilon * np.sign(power_p_for_power_mean[power_mean_mask & (power_p_for_power_mean.abs() < epsilon)])
-            
-            weighted_power_sum = np.sum(safe_scores**power_p_for_power_mean.values * normalized_weights[:, np.newaxis], axis=0) # 修改行
-            
-            # 填充结果
-            result_values[geometric_mean_mask.values] = np.exp(weighted_log_sum[geometric_mean_mask.values])
-            # 避免 0 的 power_p 导致 1/0 错误，并处理 weighted_power_sum 接近 0 的情况
-            result_values[power_mean_mask.values] = np.where(
-                weighted_power_sum[power_mean_mask.values] < epsilon,
+            # 元素级乘法：safe_scores_df.pow(power_p_for_power_mean, axis=0) * normalized_weights_df，然后按行求和
+            # axis=0 确保 Series power_p_for_power_mean 与 DataFrame safe_scores_df 的行对齐
+            weighted_power_sum = (safe_scores_df.pow(power_p_for_power_mean, axis=0) * normalized_weights_df).sum(axis=1)
+            # 处理 weighted_power_sum 接近 0 的情况，避免 0 的负数幂或 0 的 1/0 幂
+            temp_result = np.where(
+                weighted_power_sum[power_mean_mask].values < epsilon,
                 0.0,
-                weighted_power_sum[power_mean_mask.values]**(1/power_p_for_power_mean.loc[power_mean_mask].values)
+                weighted_power_sum[power_mean_mask].values**(1/power_p_for_power_mean[power_mean_mask].values)
             )
-        else: # power_p is a scalar
-            if abs(power_p) < 1e-9:
-                weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
-                result_values = np.exp(weighted_log_sum)
-            else:
-                weighted_power_sum = np.sum(safe_scores**power_p * normalized_weights[:, np.newaxis], axis=0)
-                result_values = np.where(weighted_power_sum < 1e-9, 0.0, weighted_power_sum**(1/power_p))
+            result_values[power_mean_mask.values] = temp_result
+        # 对于总权重为零的行，最终结果应为 0.0
+        result_values[zero_total_weight_mask.values] = 0.0
         final_fused_score = pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
         return final_fused_score
 
@@ -697,26 +707,21 @@ class BehavioralIntelligence:
             base_weights = context_modulator_params.get('dynamic_fusion_weights_base', fusion_weights)
             volatility_impact = context_modulator_params.get('volatility_impact_weights', {})
             sentiment_impact = context_modulator_params.get('sentiment_impact_weights', {})
-            
             # Initialize dynamic_fusion_weights with Series values if impacts are Series
             for dim in dynamic_fusion_weights.keys():
                 current_weight = base_weights.get(dim, 0.0)
                 v_impact = volatility_impact.get(dim, 0.0)
                 s_impact = sentiment_impact.get(dim, 0.0)
-                
                 # Ensure that if any component is a Series, the result is a Series
                 # Pandas will automatically broadcast scalar current_weight to a Series if other operands are Series.
                 dynamic_fusion_weights[dim] = current_weight + \
                                               norm_volatility * v_impact + \
                                               norm_sentiment * s_impact
-
             # 确保权重和为1
             # Summing the values of dynamic_fusion_weights (which are Series) will result in a Series
             total_dynamic_weight = sum(dynamic_fusion_weights.values()) 
-            
             # Create a mask for rows where total_dynamic_weight is zero or very close to zero
             zero_sum_mask = (total_dynamic_weight.abs() < 1e-9)
-
             # Create a temporary dictionary to store the normalized weights
             normalized_dynamic_weights = {}
             for dim in dynamic_fusion_weights.keys():
@@ -725,16 +730,13 @@ class BehavioralIntelligence:
                 # The numerator (dynamic_fusion_weights[dim]) will be divided by 1.0, effectively keeping its value.
                 # This value will then be replaced by the static weight in the next step.
                 normalized_dim_weight = dynamic_fusion_weights[dim] / total_dynamic_weight.where(~zero_sum_mask, 1.0)
-                
                 # For rows where sum was zero, use the original static fusion_weights for that dimension
                 normalized_dynamic_weights[dim] = normalized_dim_weight.where(
                     ~zero_sum_mask,
                     fusion_weights.get(dim, 0.0) # Fallback to static weight for this dimension
                 )
-            
             # Update the original dynamic_fusion_weights dictionary
             dynamic_fusion_weights = normalized_dynamic_weights
-
         day_quality_base_score = self._robust_generalized_mean( # Call _robust_generalized_mean
             {
                 "outcome_assessment": outcome_assessment_score,
