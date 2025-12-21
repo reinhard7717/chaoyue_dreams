@@ -1106,6 +1106,25 @@ def get_adaptive_mtf_normalized_energy_score(series: pd.Series, target_index: pd
     else:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
 
+def load_external_json_config(file_path: str, default_return: Any = None) -> dict:
+    import json
+    import os
+    if default_return is None:
+        default_return = {}
+    if not os.path.exists(file_path):
+        print(f"    -> [配置加载警告] 文件 '{file_path}' 不存在，返回默认配置。")
+        return default_return
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return config
+    except json.JSONDecodeError as e:
+        print(f"    -> [配置加载错误] 解析文件 '{file_path}' 失败: {e}，返回默认配置。")
+        return default_return
+    except Exception as e:
+        print(f"    -> [配置加载错误] 读取文件 '{file_path}' 发生未知错误: {e}，返回默认配置。")
+        return default_return
+
 def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, Any], df_index: pd.Index) -> pd.Series:
     # 计算健壮的加权几何平均分数
     # 值为0（或接近0）的分数将被视为缺失，并从计算中排除，同时调整总权重。
@@ -1139,6 +1158,7 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     exponent = sum_weighted_log_scores / sum_valid_weights_safe
     result = np.exp(exponent).fillna(0.0)
     return result.astype(np.float32)
+
 
 
 

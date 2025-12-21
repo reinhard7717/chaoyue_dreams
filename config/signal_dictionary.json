@@ -435,7 +435,7 @@
             "category": "筹码层-意图",
             "type": "bipolar",
             "score": 100,
-            "description": "【V2.0 · 诡道情境自适应版】诊断主力资金在其核心持仓成本区域（或关键筹码峰区域）进行主动买入或卖出的强度。正分代表主力在其成本区下方或附近积极承接，显示出强烈的防守或吸筹意图；负分代表主力在其成本区上方或附近主动派发，显示出减仓或打压意图。核心升级：1) 动态成本区定义：引入 `dominant_peak_cost_D` 作为核心成本区，并根据 `BBW_21_2.0_D` 动态调整成本区间的容忍度。2) 增强净流量质量：结合 `main_force_activity_ratio_D` 和 `main_force_flow_directionality_D` 调制 `net_conviction_flow`，评估资金流质量。3) 非线性价格偏离放大：采用 `tanh` 函数对价格偏离因子进行非线性放大，更敏感地捕捉主力意图。4) 情境化成本区内逻辑：在成本区内，结合 `SLOPE_5_chip_health_score_D` 和 `SLOPE_5_main_force_conviction_index_D` 动态调整意图强度。5) 诡道调制：引入 `deception_index_D` 和 `wash_trade_intensity_D` 作为调制器，对主力意图进行增强或削弱。6) 宏观情境调制：引入 `chip_health_score_D` 和 `VOLATILITY_INSTABILITY_INDEX_21d_D` 作为全局情境调制器，对最终分数进行校准。7) 动态权重融合：根据市场波动性和情绪，动态调整不同意图场景（低于、高于、在成本区内）的融合权重。"
+            "description": "【V2.1 · 净流量方向修正版】诊断主力资金在其核心持仓成本区域（或关键筹码峰区域）进行主动买入或卖出的强度。正分代表主力在其成本区下方或附近积极承接，显示出强烈的防守或吸筹意图；负分代表主力在其成本区上方或附近主动派发，显示出减仓或打压意图。核心升级：1) 动态成本区定义：引入 `dominant_peak_cost_D` 作为核心成本区，并根据 `BBW_21_2.0_D` 动态调整成本区间的容忍度。2) 增强净流量质量：结合 `main_force_activity_ratio_D` 和 `main_force_flow_directionality_D` 调制 `net_conviction_flow`，评估资金流质量，并修正了净流量归一化方向性问题。3) 非线性价格偏离放大：采用 `tanh` 函数对价格偏离因子进行非线性放大，更敏感地捕捉主力意图。4) 情境化成本区内逻辑：在成本区内，结合 `SLOPE_5_chip_health_score_D` 和 `SLOPE_5_main_force_conviction_index_D` 动态调整意图强度。5) 诡道调制：引入 `deception_index_D` 和 `wash_trade_intensity_D` 作为调制器，对主力意图进行增强或削弱。6) 宏观情境调制：引入 `chip_health_score_D` 和 `VOLATILITY_INSTABILITY_INDEX_21d_D` 作为全局情境调制器，对最终分数进行校准。7) 动态权重融合：根据市场波动性和情绪，动态调整不同意图场景（低于、高于、在成本区内）的融合权重。"
         },
         "SCORE_CHIP_HOLLOWING_OUT_RISK": {
             "cn_name": "【筹码】筹码空心化风险",
