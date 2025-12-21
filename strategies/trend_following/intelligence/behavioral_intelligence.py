@@ -775,7 +775,7 @@ class BehavioralIntelligence:
             'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
             'retail_net_flow_calibrated_D', 'net_mf_amount_D', 'buy_elg_amount_D', 'buy_lg_amount_D',
             'dip_absorption_power_D', 'lower_shadow_absorption_strength_D',
-            'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
+            'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D', # 修正：添加 _D 后缀
             'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
             'SLOPE_5_main_force_conviction_index_D', 'breakout_quality_score_D',
             'SLOPE_5_breakout_quality_score_D', 'total_winner_rate_D', 'winner_stability_index_D',
@@ -805,7 +805,7 @@ class BehavioralIntelligence:
             'volume_burstiness_index_D',
             'closing_strength_index_D',
             'SLOPE_55_close_D',
-            'market_sentiment_score_D',
+            'market_sentiment_score_D', # 修正：添加 _D 后缀
             'SLOPE_55_ADX_14_D',
             'order_book_imbalance_D',
             'volume_structure_skew_D',
@@ -822,7 +822,7 @@ class BehavioralIntelligence:
             'constructive_turnover_ratio_D',
             'buy_sweep_intensity_D',
             'upper_shadow_selling_pressure_D',
-            'market_sentiment_score',
+            'market_sentiment_score_D', # 修正：添加 _D 后缀
             'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT' # 这是 _diagnose_microstructure_intent 的输出，但在本方法之前调用，所以应该存在。
         ]
         # 添加用于计算鲁棒斜率的原始斜率信号
@@ -946,7 +946,7 @@ class BehavioralIntelligence:
         states['long_term_adx_slope'] = long_term_adx_slope
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         pattern_close_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_close_D', 0.0, method_name=method_name)
-        pattern_volume_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name)
+        pattern_volume_slope = self._get_safe_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name) # 修正：使用 _get_safe_series
         df['pattern_close_slope'] = pattern_close_slope
         states['pattern_close_slope'] = pattern_close_slope
         df['pattern_volume_slope'] = pattern_volume_slope
