@@ -3310,7 +3310,7 @@ class BehavioralIntelligence:
             'floating_chip_cleansing_efficiency_D', 'main_force_conviction_index_D',
             'covert_accumulation_signal_D', 'ADX_14_D', 'retail_fomo_premium_index_D',
             'robust_close_slope', 'robust_pct_change_slope', 'robust_RSI_13_slope',
-            'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
+            'robust_MACDh_13_34_8_D', 'robust_volume_slope',
             'long_term_close_slope', 'long_term_adx_slope',
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SLOPE_5_main_force_conviction_index_D'
@@ -3321,7 +3321,8 @@ class BehavioralIntelligence:
             'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW',
             'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'
         ]
-        missing_df_signals = [s for s in required_df_signals if s not in df.columns]
+        # 修正：将 required_df_signals 改为 required_signals
+        missing_df_signals = [s for s in required_signals if s not in df.columns]
         missing_state_signals = [s for s in required_states if s not in states]
         if missing_df_signals or missing_state_signals:
             print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号。")
