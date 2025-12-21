@@ -2537,7 +2537,6 @@
             }
         }
       },
-
       "dynamic_mechanics_params": {
         "enabled": true,
         "description": "【V7.2 · MTF校准版】引入“多时间框架(MTF) Z-Score校准”机制。通过加权融合多个时间窗口(21,55,89,144)的Z-Score，并使用tanh函数平滑映射，为信号提供一个既灵敏又稳定的、具备全息统计意义的标度。",
