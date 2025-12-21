@@ -51,10 +51,6 @@ class MicrostructureDynamicsCalculators:
             total_ofi = np.nansum(ofi_series)
             if total_volume > 0:
                 results['order_flow_imbalance_score'] = total_ofi / total_volume
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] order_flow_imbalance_score ---")
-                    print(f"    - 原料: 累计OFI={total_ofi:,.0f}, 总成交量={total_volume:,.0f}")
-                    print(f"    -> 结果: {results['order_flow_imbalance_score']:.4f}")
         # 扫单强度 (Sweep Intensity)
         buy_sweep_vol, sell_sweep_vol = 0, 0
         min_sweep_len = 3
@@ -73,16 +69,8 @@ class MicrostructureDynamicsCalculators:
         total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
         if total_buy_vol > 0:
             results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] buy_sweep_intensity ---")
-                print(f"    - 原料: 买方扫单量={buy_sweep_vol:,.0f}, 总主动买量={total_buy_vol:,.0f}")
-                print(f"    -> 结果: {results['buy_sweep_intensity']:.4f}")
         if total_sell_vol > 0:
             results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] sell_sweep_intensity ---")
-                print(f"    - 原料: 卖方扫单量={sell_sweep_vol:,.0f}, 总主动卖量={total_sell_vol:,.0f}")
-                print(f"    -> 结果: {results['sell_sweep_intensity']:.4f}")
         return results
     @staticmethod
     def _calculate_vpin(context: dict) -> dict:
@@ -112,11 +100,6 @@ class MicrostructureDynamicsCalculators:
                 z_score = abs_imbalance / sigma_imbalance
                 vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
                 results['vpin_score'] = vpin_series.mean()
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] vpin_score ---")
-                    print(f"    - 原料: 分桶数量={len(bucket_imbalance)}, 每桶容量={vpin_bucket_size:,.0f}")
-                    print(f"    - 节点: 平均订单失衡绝对值={abs_imbalance.mean():,.0f}, 平均失衡标准差={imbalance_std.mean():,.0f}")
-                    print(f"    -> 结果: {results['vpin_score']:.4f}")
         return results
     @staticmethod
     def _calculate_hf_mechanics(context: dict) -> dict:
@@ -156,12 +139,6 @@ class MicrostructureDynamicsCalculators:
         if len(resampled_df) > 2:
             correlation = resampled_df['cum_thrust'].corr(resampled_df['cum_price_change'])
             results['active_volume_price_efficiency'] = correlation
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] active_volume_price_efficiency (博弈) ---")
-                print(f"    - 模式: 过程追溯 (高频)")
-                print(f"    - 原料: {len(resampled_df)}个分钟采样点上的“累计推力”与“累计价格位移”序列")
-                print(f"    - 计算: corr(cum_thrust, cum_price_change)")
-                print(f"    -> 结果: {results.get('active_volume_price_efficiency', np.nan):.4f}")
         return results
     @staticmethod
     def _calculate_liquidity_metrics(context: dict) -> dict:
@@ -280,17 +257,6 @@ class MicrostructureDynamicsCalculators:
             results['liquidity_authenticity_score'] = fulfillments / total_events
         else:
             results['liquidity_authenticity_score'] = 0.5 # 无事件发生，给予中性分
-        if enable_probe and is_target_date:
-            print(f"--- [探针 ASM.{trade_date_str}] liquidity_authenticity_score (流动性验真) ---")
-            print(f"    - 原料: {len(level5_df)}个Level-5快照")
-            print(f"    - 节点: 买方大单阈值={buy_commitment_threshold:,.0f}, 卖方大单阈值={sell_commitment_threshold:,.0f}")
-            print(f"    - 节点: 识别到买方承诺{len(buy_commitments)}次, 卖方承诺{len(sell_commitments)}次")
-            print(f"    - 节点: 承诺兑现(成交)次数={fulfillments}, 承诺违约(撤单)次数={defaults}")
-            if total_events > 0:
-                print(f"    - 计算: {fulfillments} / ({fulfillments} + {defaults})")
-            else:
-                print(f"    - 计算: 无大型挂单博弈事件，返回中性分")
-            print(f"    -> 结果: {results['liquidity_authenticity_score']:.4f}")
         return results
     @staticmethod
     def _calculate_vwap_reversion(context: dict) -> dict:

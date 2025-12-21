@@ -66,29 +66,13 @@ class DerivativeMetricsCalculator:
             thrust_change_pct = (pm_thrust - am_thrust) / abs(am_thrust) if am_thrust != 0 else -1.0
             if thrust_change_pct < 0:
                 top_divergence_score = price_change_pct / abs(thrust_change_pct) * -1
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] price_thrust_divergence (顶背离) ---")
-                print(f"    - 上半场: 高点={am_high:.2f}, 动能={am_thrust:.4f}")
-                print(f"    - 下半场: 高点={pm_high:.2f}, 动能={pm_thrust:.4f}")
-                print(f"    - 节点: 价格变化率={price_change_pct:.4f}, 动能变化率={thrust_change_pct:.4f}")
-                print(f"    -> 顶背离分: {top_divergence_score:.4f}")
         # 底背离计算 (价格新低, 动能增强)
         if pm_low < am_low and am_thrust < 0 and pm_thrust > am_thrust:
             price_change_pct = (am_low / pm_low - 1)
             thrust_change_pct = (pm_thrust - am_thrust) / abs(am_thrust) if am_thrust != 0 else 1.0
             if thrust_change_pct > 0:
                 bottom_divergence_score = price_change_pct / abs(thrust_change_pct)
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] price_thrust_divergence (底背离) ---")
-                print(f"    - 上半场: 低点={am_low:.2f}, 动能={am_thrust:.4f}")
-                print(f"    - 下半场: 低点={pm_low:.2f}, 动能={pm_thrust:.4f}")
-                print(f"    - 节点: 价格变化率={price_change_pct:.4f}, 动能变化率={thrust_change_pct:.4f}")
-                print(f"    -> 底背离分: {bottom_divergence_score:.4f}")
         results['price_thrust_divergence'] = top_divergence_score + bottom_divergence_score
-        if enable_probe and is_target_date and (top_divergence_score != 0 or bottom_divergence_score != 0):
-            print(f"--- [探针 ASM.{trade_date_str}] price_thrust_divergence (总分) ---")
-            print(f"    - 计算: {top_divergence_score:.4f} (顶) + {bottom_divergence_score:.4f} (底)")
-            print(f"    -> 结果: {results['price_thrust_divergence']:.4f}")
         return results
 
 

@@ -45,13 +45,6 @@ class ThematicMetricsCalculators:
                 entropy = -np.sum(vp_prob * np.log2(vp_prob))
                 max_entropy = np.log2(len(vp_prob))
                 results['volume_profile_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
-                if enable_probe and is_target_date:
-                    # 移除对废弃指标的引用，改为即时计算
-                    vpoc_vol_pct = vp_hf.loc[today_vpoc] / total_volume if total_volume > 0 else 0
-                    print(f"--- [探针 ASM.{trade_date_str}] market_profile (高频) ---")
-                    print(f"    - 原料: {len(tick_df)} 笔Tick数据")
-                    print(f"    - 节点: 高精度VPOC={today_vpoc:.2f}, VPOC成交量占比={vpoc_vol_pct:.2%}")
-                    print(f"    -> 结果 (剖面熵): {results.get('volume_profile_entropy', np.nan):.4f}")
         if continuous_group['vol'].sum() > 0:
             # 使用pd.cut进行分箱，处理非唯一边界问题
             try:
@@ -92,14 +85,6 @@ class ThematicMetricsCalculators:
                     volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] equilibrium_compression_index (潜龙在渊) ---")
-                        print(f"    - 前置: 内含日确认 (今日 {day_low_qfq:.2f}-{day_high_qfq:.2f} vs 昨日 {prev_low:.2f}-{prev_high:.2f})")
-                        print(f"    - 维度1 (空间压缩): 1 - ({today_range:.2f} / {prev_range:.2f}) = {space_compression:.4f}")
-                        print(f"    - 维度2 (位置均衡): 1 - (|{today_vpoc:.2f} - {prev_vpoc:.2f}| / {prev_range:.2f}) = {positional_balance:.4f}")
-                        print(f"    - 维度3 (力量胶着): tanh({total_volume_safe:,.0f} / {prev_volume:,.0f} - 1) = {volume_intensity:.4f}")
-                        print(f"    - 计算: {space_compression:.4f} * {positional_balance:.4f} * (1 + {volume_intensity:.4f})")
-                        print(f"    -> 结果: {score:.4f}")
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
@@ -172,15 +157,6 @@ class ThematicMetricsCalculators:
             conviction_weight = (path_efficiency_factor + thrust_purity_factor)
             # 3. 最终得分：基础冲击 * 信念权重
             results['shock_conviction_score'] = base_shock * conviction_weight
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] shock_conviction_score (冲击验真) ---")
-                print(f"    - 原料: C={day_close_qfq:.2f}, O={day_open_qfq:.2f}, H={day_high_qfq:.2f}, L={day_low_qfq:.2f}, PC={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
-                print(f"    - 节点1 (基础冲击): ({day_close_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f} = {base_shock:.4f}")
-                print(f"    - 节点2 (路径效率): ({day_close_qfq:.2f} - {day_open_qfq:.2f}) / {intraday_range:.2f} = {path_efficiency_factor:.4f}")
-                print(f"    - 节点3 (推力纯度): {thrust_purity_factor:.4f}")
-                print(f"    - 节点4 (信念权重): {path_efficiency_factor:.4f} + {thrust_purity_factor:.4f} = {conviction_weight:.4f}")
-                print(f"    - 计算: {base_shock:.4f} * {conviction_weight:.4f}")
-                print(f"    -> 结果: {results['shock_conviction_score']:.4f}")
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
         return results
@@ -218,12 +194,6 @@ class ThematicMetricsCalculators:
                 slope_pm, _, _, _, _ = linregress(x_pm, y_pm)
                 # 将斜率差用ATR进行标准化
                 results['trend_acceleration_score'] = (slope_pm - slope_am) / atr_14
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] trend_acceleration_score (决战验刃) ---")
-                    print(f"    - 原料: 上半场分钟数={len(am_session)}, 下半场分钟数={len(pm_session)}, ATR={atr_14:.4f}")
-                    print(f"    - 节点: 上半场斜率={slope_am:.6f}, 下半场斜率={slope_pm:.6f}")
-                    print(f"    - 计算: ({slope_pm:.6f} - {slope_am:.6f}) / {atr_14:.4f}")
-                    print(f"    -> 结果: {results.get('trend_acceleration_score', np.nan):.4f}")
         # 2. 升维：终场冲锋强度 (Final Charge Intensity)
         def _calculate_thrust_purity_for_period(period_df: pd.DataFrame, period_ticks: pd.DataFrame | None) -> float:
             """辅助函数：计算指定时间段的推力纯度，优先高频"""
@@ -256,12 +226,6 @@ class ThematicMetricsCalculators:
             if vol_pre > 0:
                 vol_ratio = vol_final / vol_pre
                 results['final_charge_intensity'] = (purity_final - purity_pre) * np.log1p(vol_ratio)
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] final_charge_intensity (决战验刃) ---")
-                    print(f"    - 原料: 战前时段成交量={vol_pre:,.0f}, 决战时段成交量={vol_final:,.0f}")
-                    print(f"    - 节点: 战前推力纯度={purity_pre:.4f}, 决战推力纯度={purity_final:.4f}, 成交量比率={vol_ratio:.2f}")
-                    print(f"    - 计算: ({purity_final:.4f} - {purity_pre:.4f}) * log1p({vol_ratio:.2f})")
-                    print(f"    -> 结果: {results.get('final_charge_intensity', np.nan):.4f}")
         # 3. 保留：成交结构偏度
         open_rhythm_df = continuous_group.between_time('09:30', '10:00')
         mid_rhythm_df = continuous_group.between_time('10:00', '14:30')

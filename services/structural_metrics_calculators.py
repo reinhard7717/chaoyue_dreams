@@ -58,13 +58,6 @@ class StructuralMetricsCalculators:
                     effective_price_change = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
                     net_thrust_volume = (tick_df['volume'] * np.sign(effective_price_change)).sum()
                     results['intraday_thrust_purity'] = net_thrust_volume / total_volume
-                    if enable_probe and is_target_date:
-                        recalculated_count = zero_change_mask.sum()
-                        print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频-动能回溯) ---")
-                        print(f"    - 节点 (动能回溯): {recalculated_count}/{len(tick_df)} 笔成交触发了价格变动回溯计算。")
-                        print(f"    - 原料: 有效净推力成交量={net_thrust_volume:,.0f}, 总成交量={total_volume:,.0f}")
-                        print(f"    - 计算: {net_thrust_volume:,.0f} / {total_volume:,.0f}")
-                        print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
                 elif 'type' in tick_df.columns:
                     active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
                     active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
@@ -77,10 +70,6 @@ class StructuralMetricsCalculators:
                 results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
         if tick_df is not None and not tick_df.empty:
             results['volume_burstiness_index'] = StructuralMetricsCalculators.calculate_gini(tick_df['volume'].values)
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] volume_burstiness_index (高频) ---")
-                print(f"    - 原料: {len(tick_df)} 笔逐笔成交量序列")
-                print(f"    -> 结果: {results['volume_burstiness_index']:.4f}")
         else:
             results['volume_burstiness_index'] = StructuralMetricsCalculators.calculate_gini(group['vol'].values)
         if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
@@ -100,16 +89,6 @@ class StructuralMetricsCalculators:
                     if opening_volume > 0:
                         conviction_factor = np.tanh(opening_ofi / opening_volume)
                         results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor * np.sign(gap_magnitude))
-                        if enable_probe and is_target_date:
-                            print(f"--- [探针 ASM.{trade_date_str}] auction_impact_score (高频) ---")
-                            print(f"    - 原料: 开盘价={day_open_qfq:.2f}, 昨收={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
-                            print(f"    - 节点1 (缺口): ({day_open_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f} = {gap_magnitude:.4f}")
-                            print(f"    - 原料2: 开盘5分钟OFI={opening_ofi:,.0f}, 成交量={opening_volume:,.0f}")
-                            print(f"    - 节点2 (信念): tanh({opening_ofi:,.0f} / {opening_volume:,.0f}) = {conviction_factor:.4f}")
-                            aligned_conviction = conviction_factor * np.sign(gap_magnitude)
-                            print(f"    - 节点3 (同调信念): {conviction_factor:.4f} * sign({gap_magnitude:.4f}) = {aligned_conviction:.4f}")
-                            print(f"    - 计算: {gap_magnitude:.4f} * (1 + {aligned_conviction:.4f})")
-                            print(f"    -> 结果: {results['auction_impact_score']:.4f}")
                     else:
                         results['auction_impact_score'] = gap_magnitude
                 else:
@@ -207,13 +186,6 @@ class StructuralMetricsCalculators:
             normalized_distance = distance_from_threshold / atr_14
             confirmation_factor = np.tanh(normalized_distance)
             results['high_level_consolidation_volume'] = volume_ratio * confirmation_factor
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] high_level_consolidation_volume (战果量化) ---")
-                print(f"    - 原料: 高位阈值={high_level_threshold:.2f}, 收盘价={day_close_qfq:.2f}, 高位成交量占比={volume_ratio:.4f}, ATR={atr_14:.4f}")
-                print(f"    - 节点1 (战果): ({day_close_qfq:.2f} - {high_level_threshold:.2f}) / {atr_14:.4f} = {normalized_distance:.4f}")
-                print(f"    - 节点2 (确证因子): tanh({normalized_distance:.4f}) = {confirmation_factor:.4f}")
-                print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.4f}")
-                print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
         if tick_df is not None and not tick_df.empty:
             opening_ticks = tick_df.between_time('09:30:00', '09:59:59')
             if not opening_ticks.empty:
@@ -311,12 +283,6 @@ class StructuralMetricsCalculators:
                 open_price_change = open_period_df['close'].iloc[-1] - open_period_df['open'].iloc[0]
                 price_change_norm = open_price_change / atr_14
                 results['opening_impulse_efficiency'] = price_change_norm / open_vol_ratio
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] opening_impulse_efficiency (控盘-劲力合一) ---")
-                    print(f"    - 原料: 开盘期价格变动={open_price_change:.2f}, 成交量占比={open_vol_ratio:.4f}, ATR={atr_14:.4f}")
-                    print(f"    - 节点 (标准化价格变动): {open_price_change:.2f} / {atr_14:.4f} = {price_change_norm:.4f}")
-                    print(f"    - 计算 (效率): {price_change_norm:.4f} / {open_vol_ratio:.4f}")
-                    print(f"    -> 结果: {results.get('opening_impulse_efficiency', np.nan):.4f}")
         # 修改代码块：升维为 midday_narrow_range_gravity
         if not mid_period_df.empty and not open_period_df.empty and not tail_period_df.empty:
             volatility_mid = mid_period_df['close'].pct_change().std()
@@ -324,11 +290,6 @@ class StructuralMetricsCalculators:
             volatility_active = active_period_df['close'].pct_change().std()
             if pd.notna(volatility_mid) and pd.notna(volatility_active) and volatility_active > 0:
                 results['midday_narrow_range_gravity'] = 1 - (volatility_mid / volatility_active)
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] midday_narrow_range_gravity (控盘-劲力合一) ---")
-                    print(f"    - 原料: 盘中波动率={volatility_mid:.6f}, 活跃时段波动率={volatility_active:.6f}")
-                    print(f"    - 计算 (引力): 1 - ({volatility_mid:.6f} / {volatility_active:.6f})")
-                    print(f"    -> 结果: {results.get('midday_narrow_range_gravity', np.nan):.4f}")
         # 修改代码块：升维为 tail_acceleration_efficiency
         if not tail_period_df.empty and total_volume_safe > 0:
             tail_vol_ratio = tail_period_df['vol'].sum() / total_volume_safe
@@ -336,12 +297,6 @@ class StructuralMetricsCalculators:
                 tail_price_change = tail_period_df['close'].iloc[-1] - tail_period_df['open'].iloc[0]
                 price_change_norm = tail_price_change / atr_14
                 results['tail_acceleration_efficiency'] = price_change_norm / tail_vol_ratio
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] tail_acceleration_efficiency (控盘-劲力合一) ---")
-                    print(f"    - 原料: 尾盘期价格变动={tail_price_change:.2f}, 成交量占比={tail_vol_ratio:.4f}, ATR={atr_14:.4f}")
-                    print(f"    - 节点 (标准化价格变动): {tail_price_change:.2f} / {atr_14:.4f} = {price_change_norm:.4f}")
-                    print(f"    - 计算 (效率): {price_change_norm:.4f} / {tail_vol_ratio:.4f}")
-                    print(f"    -> 结果: {results.get('tail_acceleration_efficiency', np.nan):.4f}")
         if not tail_period_df.empty and not mid_period_df.empty and mid_period_df['vol'].mean() > 0:
             accel_ratio = tail_period_df['vol'].mean() / mid_period_df['vol'].mean()
             tail_thrust_purity = np.nan
@@ -401,12 +356,6 @@ class StructuralMetricsCalculators:
             eff_down = down_net_change / down_path if down_path > 0 else 0
             if eff_up > 0 and eff_down > 0:
                 results['trend_asymmetry_index'] = np.log(eff_up / eff_down)
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] trend_asymmetry_index (博弈) ---")
-                    print(f"    - 原料: 上涨分钟数={len(up_minutes)}, 下跌分钟数={len(down_minutes)}")
-                    print(f"    - 节点: 上涨效率={eff_up:.4f}, 下跌效率={eff_down:.4f}")
-                    print(f"    - 计算: log({eff_up:.4f} / {eff_down:.4f})")
-                    print(f"    -> 结果: {results.get('trend_asymmetry_index', np.nan):.4f}")
         # 2. 保留：推力效能分 (Thrust Efficiency Score)
         if all(pd.notna(v) for v in [day_close_qfq, day_open_qfq, atr_14, intraday_thrust_purity]) and atr_14 > 0:
             price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14
@@ -423,12 +372,6 @@ class StructuralMetricsCalculators:
                 if total_up_vol > 0:
                     weighted_avg_slippage_up = np.average(up_thrust_ticks['price_diff'], weights=up_thrust_ticks['volume'])
                     results['breakthrough_cost_index'] = weighted_avg_slippage_up / atr_14
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] breakthrough_cost_index (博弈) ---")
-                        print(f"    - 原料: {len(up_thrust_ticks)}笔上涨Tick, 总成交量={total_up_vol:,.0f}, ATR={atr_14:.4f}")
-                        print(f"    - 节点 (成交量加权平均滑点): {weighted_avg_slippage_up:.6f}")
-                        print(f"    - 计算: {weighted_avg_slippage_up:.6f} / {atr_14:.4f}")
-                        print(f"    -> 结果: {results.get('breakthrough_cost_index', np.nan):.4f}")
             # 防御成本 (空方)
             down_thrust_ticks = tick_df[tick_df['price_diff'] < 0]
             if not down_thrust_ticks.empty:
@@ -436,12 +379,6 @@ class StructuralMetricsCalculators:
                 if total_down_vol > 0:
                     weighted_avg_slippage_down = np.average(abs(down_thrust_ticks['price_diff']), weights=down_thrust_ticks['volume'])
                     results['defense_cost_index'] = weighted_avg_slippage_down / atr_14
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] defense_cost_index (博弈) ---")
-                        print(f"    - 原料: {len(down_thrust_ticks)}笔下跌Tick, 总成交量={total_down_vol:,.0f}, ATR={atr_14:.4f}")
-                        print(f"    - 节点 (成交量加权平均滑点): {weighted_avg_slippage_down:.6f}")
-                        print(f"    - 计算: {weighted_avg_slippage_down:.6f} / {atr_14:.4f}")
-                        print(f"    -> 结果: {results.get('defense_cost_index', np.nan):.4f}")
         return results
     @staticmethod
     def calculate_gini(array: np.ndarray) -> float:
