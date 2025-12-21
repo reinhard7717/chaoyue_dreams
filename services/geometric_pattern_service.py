@@ -304,22 +304,11 @@ class GeometricPatternService:
             print(f"    {current_date.date()} | {current_score:.2f} | {potential_threshold:.2f} | {is_entering} | {is_exiting}")
         platform_start_dates = df_copy[entering_platform.fillna(False)].index
         platform_end_dates = df_copy[exiting_platform.fillna(False)].index
-        # V2.59 探针：输出识别到的原始平台起止日期
-        print(f"[{self.stock_code}] [平台计算] 识别到的原始平台开始日期: {[d.date() for d in platform_start_dates]}")
-        print(f"[{self.stock_code}] [平台计算] 识别到的原始平台结束日期: {[d.date() for d in platform_end_dates]}")
-        # 新增探针：如果平台结束日期为空，输出score_series的尾部数据
-        if platform_end_dates.empty:
-            print(f"[{self.stock_code}] [平台计算] 警告: 未识别到任何平台结束日期。以下是滚动潜力分数序列的尾部数据，请检查阈值设置或分数计算逻辑:")
-            print(score_series.tail(30).to_string()) # 输出最近30天的分数
         raw_candidates = []
         for start_date in platform_start_dates:
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
             if not possible_end_dates.empty:
                 raw_candidates.append((start_date, possible_end_dates[0]))
-        print(f"[{self.stock_code}] [平台计算] 发现 {len(raw_candidates)} 个原始平台候选。")
-        # V2.59 探针：输出每个原始平台候选的起止日期
-        for i, (start_date, end_date) in enumerate(raw_candidates):
-            print(f"[{self.stock_code}] [平台计算] 原始平台候选 {i+1}: {start_date.date()} - {end_date.date()}")
         platforms_to_save = []
         saved_start_dates = set()
         minute_map = data_dfs.get("stock_minute_data_map", {})
@@ -331,14 +320,6 @@ class GeometricPatternService:
             group = df_copy.loc[start_date:end_date]
             if group.empty:
                 print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 为空，跳过。")
-                continue
-            # V2.59 探针：输出平台高点、低点、持续天数
-            platform_high = group['high_qfq'].max()
-            platform_low = group['low_qfq'].min()
-            duration = len(group)
-            print(f"[{self.stock_code}] [平台计算] 候选平台 {start_date.date()} - {end_date.date()}: 高点={platform_high:.2f}, 低点={platform_low:.2f}, 持续={duration}天。")
-            if platform_low == 0:
-                print(f"[{self.stock_code}] [平台计算] 平台区间 {start_date.date()} 到 {end_date.date()} 的最低价为0，跳过。")
                 continue
             price_range_pct = (platform_high - platform_low) / platform_low
             # V2.53 在计算rss时，关闭内部归一化
