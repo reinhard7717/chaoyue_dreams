@@ -2612,7 +2612,7 @@ class BehavioralIntelligence:
             "volume_drying_up_multiplier": 0.8 # 缩量上涨乘数
         })
         if not stagnation_params.get('enabled', False):
-            return pd.Series(0.0, index=df.index)
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         # 获取所需纯行为数据和派生信号
         required_signals = [
             'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D', # ATR用于动态阈值
@@ -2643,8 +2643,8 @@ class BehavioralIntelligence:
         total_range = high_price - low_price
         total_range_safe = total_range.replace(0, 1e-9)
         body_range = (close_price - open_price).abs()
-        upper_shadow = high_price - high_price.mask(close_price > open_price, close_price)
-        lower_shadow = np.minimum(df[open_price], df[close_price]) - df[low_price] # 修正：确保下影线计算正确
+        upper_shadow = high_price - np.maximum(open_price, close_price) # 修正行
+        lower_shadow = np.minimum(open_price, close_price) - low_price # 修正行
         upper_shadow_ratio = (upper_shadow / total_range_safe).clip(0, 1)
         body_ratio = (body_range / total_range_safe).clip(0, 1)
         upper_shadow_ratio_threshold = stagnation_params.get('upper_shadow_ratio_threshold', 0.4)
