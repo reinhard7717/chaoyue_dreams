@@ -16,13 +16,13 @@ class ChipIntelligence:
         - 核心修复: 注入 debug_params，并预处理 probe_dates，解决 AttributeError。
         """
         self.strategy = strategy_instance
-        self.params = get_params_block(self.strategy, 'chip_intelligence_params', {})
         self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         self.bipolar_sensitivity = get_param_value(process_params.get('bipolar_sensitivity'), 1.0)
         # 修改开始
         # 从外部文件加载 chip_ultimate_params
-        self.chip_ultimate_params = utils.load_external_json_config("config/intelligence/chip.json", {})
+        self.params = load_external_json_config("config/intelligence/chip.json", {})
+        self.chip_ultimate_params = get_params_block(self.params, 'chip_ultimate_params', {})
         print(f"self.chip_ultimate_params: {self.chip_ultimate_params}")
         # 修改结束
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
