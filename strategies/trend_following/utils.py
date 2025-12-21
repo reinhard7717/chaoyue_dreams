@@ -1134,16 +1134,17 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     # 确保 score_df 中的所有列都是数值类型，处理任何潜在的非数值数据
     # 确保 score_df 是纯数值类型，将无法转换的设为 NaN，然后填充 0
     score_df = score_df.apply(pd.to_numeric, errors='coerce').fillna(0.0)
-    # 动态构建权重 DataFrame，以处理权重为 Series 的情况
-    dynamic_weights_df = pd.DataFrame(index=df_index)
+    # 优化：一次性构建 dynamic_weights_df，避免循环中逐列赋值
+    weights_data = {}
     for col_name in score_df.columns:
         weight_val = weights_dict.get(col_name, 0.0)
         if isinstance(weight_val, pd.Series):
             # 如果权重本身是 Series，则确保其与 df_index 对齐并填充 NaN
-            dynamic_weights_df[col_name] = weight_val.reindex(df_index).fillna(0.0)
+            weights_data[col_name] = weight_val.reindex(df_index).fillna(0.0)
         else:
-            # 如果权重是标量，则创建一个与 df_index 对齐的 Series
-            dynamic_weights_df[col_name] = pd.Series(weight_val, index=df_index)
+            # 如果权重是标量，则创建一个与 df_index 对齐的 Series，并指定 dtype
+            weights_data[col_name] = pd.Series(weight_val, index=df_index, dtype=np.float32)
+    dynamic_weights_df = pd.DataFrame(weights_data)
     is_valid = (score_df > 1e-9)
     # 计算 sum_valid_weights，现在它将是数值类型
     weighted_validity_df = is_valid.mul(dynamic_weights_df)

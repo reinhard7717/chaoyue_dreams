@@ -606,6 +606,7 @@ CELERY_BEAT_SCHEDULE = {
     '每天运行一次：策略': {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         'schedule': crontab(hour=21, minute=55, day_of_week='1-5'),
+        'options': {'queue': 'celery'}, # 指定队列为 celery
     },
     'rebuild_snapshots_for_all_active_trackers_task': {
         'task': 'tasks.stock_analysis_tasks.rebuild_snapshots_for_all_active_trackers_task',
