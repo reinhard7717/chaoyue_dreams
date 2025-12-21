@@ -21,8 +21,10 @@ class ChipIntelligence:
         self.bipolar_sensitivity = get_param_value(process_params.get('bipolar_sensitivity'), 1.0)
         # 修改开始
         # 从外部文件加载 chip_ultimate_params
-        self.params = load_external_json_config("config/intelligence/chip.json", {})
-        self.chip_ultimate_params = get_params_block(self.params, 'chip_ultimate_params', {})
+        # loaded_chip_config 应该直接是 chip.json 的内容
+        loaded_chip_config = load_external_json_config("config/intelligence/chip.json", {})
+        # 直接从加载的配置中获取 chip_ultimate_params 块，而不是通过 get_params_block
+        self.chip_ultimate_params = loaded_chip_config.get('chip_ultimate_params', {}) # 修改行
         print(f"self.chip_ultimate_params: {self.chip_ultimate_params}")
         # 修改结束
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -79,33 +81,6 @@ class ChipIntelligence:
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-        # 移除微观行为引擎相关的方法调用和信号存储
-        # --- 移除“诡道三策”和“背离”公理的调用 ---
-        # strategy_stealth_ops = self._diagnose_strategy_stealth_ops(df, default_weights)
-        # strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights)
-        # strategy_cost_control = self._diagnose_strategy_cost_control(df, default_weights)
-        # axiom_divergence = self._diagnose_axiom_divergence(df, 55) # 此处调用的是MicroBehaviorEngine的_diagnose_axiom_divergence
-        # --- 移除更新原子/战术信号状态 ---
-        # all_chip_states['SCORE_MICRO_STRATEGY_STEALTH_OPS'] = strategy_stealth_ops
-        # all_chip_states['SCORE_MICRO_STRATEGY_SHOCK_AND_AWE'] = strategy_shock_and_awe
-        # all_chip_states['SCORE_MICRO_STRATEGY_COST_CONTROL'] = strategy_cost_control
-        # all_chip_states['SCORE_MICRO_AXIOM_DIVERGENCE'] = axiom_divergence
-        # --- 移除调用战略意图合成器 ---
-        # strategic_intent = self._synthesize_strategic_intent(
-        #     stealth_ops=strategy_stealth_ops,
-        #     shock_awe=strategy_shock_and_awe,
-        #     cost_control=strategy_cost_control,
-        #     divergence=axiom_divergence
-        # )
-        # all_chip_states['SCORE_MICRO_STRATEGIC_INTENT'] = strategic_intent
-        # print(f"    -> [微观行为情报校验] 计算“战略意图(SCORE_MICRO_STRATEGIC_INTENT)” 分数：{strategic_intent.mean():.4f}")
-        # --- 移除新增：调用和谐拐点诊断器，生成终极机会信号 ---
-        # harmony_inflection = self._diagnose_harmony_inflection(strategic_intent) # 新增代码
-        # all_chip_states['SCORE_MICRO_HARMONY_INFLECTION'] = harmony_inflection # 新增代码
-        # --- 移除引入微观行为层面的看涨/看跌背离信号 ---
-        # bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
-        # all_chip_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
-        # all_chip_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         # 调用并记录持仓信念韧性信号
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
