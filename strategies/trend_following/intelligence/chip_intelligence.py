@@ -23,6 +23,7 @@ class ChipIntelligence:
         # 修改开始
         # 从外部文件加载 chip_ultimate_params
         self.chip_ultimate_params = utils.load_external_json_config("config/intelligence/chip.json", {})
+        print(f"self.chip_ultimate_params: {self.chip_ultimate_params}")
         # 修改结束
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.should_probe = self.debug_params.get('should_probe', False)

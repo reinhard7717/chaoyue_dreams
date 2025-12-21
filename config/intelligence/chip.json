@@ -720,85 +720,85 @@
             "dgm_modulator_sensitivity": 0.8
         },
         "chip_retail_vulnerability_params": {
-          "description": "【V2.0 · 诡道诱导版】散户筹码脆弱性指数的专属参数。",
-          "structure_fragility_weights": {
-            "winner_concentration_inverse": 0.25,
-            "loser_concentration_inverse": 0.25,
-            "cost_gini_coefficient_inverse": 0.2,
-            "retail_flow_dominance": 0.3
-          },
-          "behavior_extremism_weights": {
-            "retail_fomo_premium": 0.25,
-            "panic_buy_absorption_inverse": 0.25,
-            "retail_net_flow_abs": 0.2,
-            "total_winner_rate": 0.15,
-            "total_loser_rate": 0.15
-          },
-          "inducement_context_weights": {
-            "deception_index_positive": 0.4,
-            "wash_trade_intensity": 0.3,
-            "main_force_conviction_negative_abs": 0.3
-          },
-          "final_fusion_weights": {
-            "structure_fragility": 0.35,
-            "behavior_extremism": 0.35,
-            "inducement_context": 0.3
-          },
-          "contextual_modulator_enabled": true,
-          "context_modulator_weights": {
-            "volatility_instability": 0.5,
-            "market_sentiment_extreme": 0.5
-          },
-          "context_modulator_sensitivity": 0.5,
-          "final_exponent": 2.0,
-          "comment_final_exponent": "最终分数的非线性指数，用于放大极端值。"
+            "description": "【V2.0 · 诡道诱导版】散户筹码脆弱性指数的专属参数。",
+            "structure_fragility_weights": {
+                "winner_concentration_inverse": 0.25,
+                "loser_concentration_inverse": 0.25,
+                "cost_gini_coefficient_inverse": 0.2,
+                "retail_flow_dominance": 0.3
+            },
+            "behavior_extremism_weights": {
+                "retail_fomo_premium": 0.25,
+                "panic_buy_absorption_inverse": 0.25,
+                "retail_net_flow_abs": 0.2,
+                "total_winner_rate": 0.15,
+                "total_loser_rate": 0.15
+            },
+            "inducement_context_weights": {
+                "deception_index_positive": 0.4,
+                "wash_trade_intensity": 0.3,
+                "main_force_conviction_negative_abs": 0.3
+            },
+            "final_fusion_weights": {
+                "structure_fragility": 0.35,
+                "behavior_extremism": 0.35,
+                "inducement_context": 0.3
+            },
+            "contextual_modulator_enabled": true,
+            "context_modulator_weights": {
+                "volatility_instability": 0.5,
+                "market_sentiment_extreme": 0.5
+            },
+            "context_modulator_sensitivity": 0.5,
+            "final_exponent": 2.0,
+            "comment_final_exponent": "最终分数的非线性指数，用于放大极端值。"
         },
         "main_force_cost_intent_params": {
-          "description": "【V2.0 · 诡道情境自适应版】主力成本区攻防意图的专属参数。",
-          "cost_zone_tolerance_base": 0.02,
-          "comment_cost_zone_tolerance_base": "成本区容忍度的基础百分比。",
-          "dynamic_tolerance_mod_enabled": true,
-          "comment_dynamic_tolerance_mod_enabled": "是否启用动态成本区容忍度调制。",
-          "dynamic_tolerance_mod_signal": "BBW_21_2.0_D",
-          "comment_dynamic_tolerance_mod_signal": "动态成本区容忍度调制信号（如BBW_21_2.0_D）。",
-          "dynamic_tolerance_sensitivity": 0.5,
-          "comment_dynamic_tolerance_sensitivity": "动态成本区容忍度调制敏感度。",
-          "price_deviation_tanh_factor": 5.0,
-          "comment_price_deviation_tanh_factor": "价格偏离成本区时的非线性放大因子。",
-          "in_zone_intent_base_multiplier": 0.5,
-          "comment_in_zone_intent_base_multiplier": "价格在成本区内时，意图强度的基础乘数。",
-          "in_zone_health_slope_sensitivity": 0.3,
-          "comment_in_zone_health_slope_sensitivity": "价格在成本区内时，筹码健康度斜率对意图强度的敏感度。",
-          "deception_mod_enabled": true,
-          "comment_deception_mod_enabled": "是否启用诡道调制。",
-          "deception_boost_factor": 0.5,
-          "comment_deception_boost_factor": "诡道（诱空吸筹/诱多派发）增强因子。",
-          "deception_penalty_factor": 0.7,
-          "comment_deception_penalty_factor": "诡道（诱多吸筹）惩罚因子。",
-          "wash_trade_penalty_factor": 0.3,
-          "comment_wash_trade_penalty_factor": "对倒行为惩罚因子。",
-          "global_context_mod_enabled": true,
-          "comment_global_context_mod_enabled": "是否启用宏观情境调制。",
-          "global_context_mod_signal_1": "chip_health_score_D",
-          "comment_global_context_mod_signal_1": "宏观情境调制信号1（筹码健康度）。",
-          "global_context_mod_signal_2": "VOLATILITY_INSTABILITY_INDEX_21d_D",
-          "comment_global_context_mod_signal_2": "宏观情境调制信号2（波动不稳定性）。",
-          "global_context_sensitivity_health": 0.5,
-          "comment_global_context_sensitivity_health": "筹码健康度对宏观情境调制的敏感度。",
-          "global_context_sensitivity_volatility": 0.3,
-          "comment_global_context_sensitivity_volatility": "波动不稳定性对宏观情境调制的敏感度。",
-          "dynamic_fusion_weights_enabled": true,
-          "comment_dynamic_fusion_weights_enabled": "是否启用动态权重融合。",
-          "dynamic_fusion_weights_base": {
-            "below_vpoc": 0.4,
-            "above_vpoc": 0.4,
-            "in_vpoc": 0.2
-          },
-          "comment_dynamic_fusion_weights_base": "动态权重融合的基础权重。",
-          "dynamic_weight_mod_signal": "market_sentiment_score_D",
-          "comment_dynamic_weight_mod_signal": "动态权重调制信号（如市场情绪）。",
-          "dynamic_weight_sensitivity": 0.3,
-          "comment_dynamic_weight_sensitivity": "动态权重调制敏感度。"
+            "description": "【V2.0 · 诡道情境自适应版】主力成本区攻防意图的专属参数。",
+            "cost_zone_tolerance_base": 0.02,
+            "comment_cost_zone_tolerance_base": "成本区容忍度的基础百分比。",
+            "dynamic_tolerance_mod_enabled": true,
+            "comment_dynamic_tolerance_mod_enabled": "是否启用动态成本区容忍度调制。",
+            "dynamic_tolerance_mod_signal": "BBW_21_2.0_D",
+            "comment_dynamic_tolerance_mod_signal": "动态成本区容忍度调制信号（如BBW_21_2.0_D）。",
+            "dynamic_tolerance_sensitivity": 0.5,
+            "comment_dynamic_tolerance_sensitivity": "动态成本区容忍度调制敏感度。",
+            "price_deviation_tanh_factor": 5.0,
+            "comment_price_deviation_tanh_factor": "价格偏离成本区时的非线性放大因子。",
+            "in_zone_intent_base_multiplier": 0.5,
+            "comment_in_zone_intent_base_multiplier": "价格在成本区内时，意图强度的基础乘数。",
+            "in_zone_health_slope_sensitivity": 0.3,
+            "comment_in_zone_health_slope_sensitivity": "价格在成本区内时，筹码健康度斜率对意图强度的敏感度。",
+            "deception_mod_enabled": true,
+            "comment_deception_mod_enabled": "是否启用诡道调制。",
+            "deception_boost_factor": 0.5,
+            "comment_deception_boost_factor": "诡道（诱空吸筹/诱多派发）增强因子。",
+            "deception_penalty_factor": 0.7,
+            "comment_deception_penalty_factor": "诡道（诱多吸筹）惩罚因子。",
+            "wash_trade_penalty_factor": 0.3,
+            "comment_wash_trade_penalty_factor": "对倒行为惩罚因子。",
+            "global_context_mod_enabled": true,
+            "comment_global_context_mod_enabled": "是否启用宏观情境调制。",
+            "global_context_mod_signal_1": "chip_health_score_D",
+            "comment_global_context_mod_signal_1": "宏观情境调制信号1（筹码健康度）。",
+            "global_context_mod_signal_2": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "comment_global_context_mod_signal_2": "宏观情境调制信号2（波动不稳定性）。",
+            "global_context_sensitivity_health": 0.5,
+            "comment_global_context_sensitivity_health": "筹码健康度对宏观情境调制的敏感度。",
+            "global_context_sensitivity_volatility": 0.3,
+            "comment_global_context_sensitivity_volatility": "波动不稳定性对宏观情境调制的敏感度。",
+            "dynamic_fusion_weights_enabled": true,
+            "comment_dynamic_fusion_weights_enabled": "是否启用动态权重融合。",
+            "dynamic_fusion_weights_base": {
+                "below_vpoc": 0.4,
+                "above_vpoc": 0.4,
+                "in_vpoc": 0.2
+            },
+            "comment_dynamic_fusion_weights_base": "动态权重融合的基础权重。",
+            "dynamic_weight_mod_signal": "market_sentiment_score_D",
+            "comment_dynamic_weight_mod_signal": "动态权重调制信号（如市场情绪）。",
+            "dynamic_weight_sensitivity": 0.3,
+            "comment_dynamic_weight_sensitivity": "动态权重调制敏感度。"
         }
       }
 }
