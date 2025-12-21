@@ -2935,13 +2935,13 @@ class ChipIntelligence:
         market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
         structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_winner_concentration_inverse") if should_probe_overall else None)
-        norm_loser_concentration_high_price = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_loser_concentration_high_price") if should_probe_overall else None) # 高位套牢盘集中度越高，风险越高
-        norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_cost_gini_coefficient_inverse") if should_probe_overall else None) # Gini系数越低（越分散），风险越高
-        norm_dominant_peak_solidity_inverse = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_dominant_peak_solidity_inverse") if should_probe_overall else None) # 主峰坚实度越低，风险越高
-        norm_peak_separation_ratio = get_adaptive_mtf_normalized_score(peak_separation_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_peak_separation_ratio") if should_probe_overall else None) # 峰分离度越大，风险越高
-        norm_winner_concentration_slope_inverse = get_adaptive_mtf_normalized_score(slope_winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_winner_concentration_slope_inverse") if should_probe_overall else None) # 赢家集中度斜率下降，风险越高
-        norm_chip_health_score_inverse_slope = get_adaptive_mtf_normalized_score(slope_chip_health_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(should_probe_overall, p_actual_timestamp, "norm_chip_health_score_inverse_slope") if should_probe_overall else None) # 筹码健康度斜率下降，风险越高
+        norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_loser_concentration_high_price = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=True, tf_weights=tf_weights) # 高位套牢盘集中度越高，风险越高
+        norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights) # Gini系数越低（越分散），风险越高
+        norm_dominant_peak_solidity_inverse = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights) # 主峰坚实度越低，风险越高
+        norm_peak_separation_ratio = get_adaptive_mtf_normalized_score(peak_separation_ratio_raw, df_index, ascending=True, tf_weights=tf_weights) # 峰分离度越大，风险越高
+        norm_winner_concentration_slope_inverse = get_adaptive_mtf_normalized_score(slope_winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights) # 赢家集中度斜率下降，风险越高
+        norm_chip_health_score_inverse_slope = get_adaptive_mtf_normalized_score(slope_chip_health_raw, df_index, ascending=False, tf_weights=tf_weights) # 筹码健康度斜率下降，风险越高
         dispersion_weakness_score = _robust_geometric_mean(
             {
                 'winner_concentration_inverse': norm_winner_concentration_inverse,
