@@ -1670,14 +1670,6 @@ class GeometricPatternService:
                  vol_burst_score * vol_burst_weight) / total_weight,
                 index=df.index
             )
-        # 探针：输出关键计算节点
-        print(f"[{self.stock_code}] [多维潜力评分器] 每日潜力分数计算探针:")
-        print(f"  - ADX阈值: {adx_threshold}, BBW分位数: {bbw_quantile}, ATRr阈值: {atr_threshold_pct}, 爆裂度阈值: {vol_burst_threshold}")
-        print(f"  - 权重: ADX={adx_weight}, BBW={bbw_weight}, ATR={atr_weight}, VolBurst={vol_burst_weight}")
-        print(f"  - 示例数据 (最近5天):")
-        print(f"    日期       | ADX_14 | BBW_21_2.0 | ATRr_14 | Vol_Burst | ADX_Score | BBW_Score | ATR_Score | VB_Score | Final_Score")
-        for idx in df.index[-5:]:
-            print(f"    {idx.date()} | {df.loc[idx, 'ADX_14']:.2f} | {df.loc[idx, 'BBW_21_2.0']:.4f} | {df.loc[idx, 'ATRr_14']:.4f} | {df.loc[idx, 'volume_burstiness_index']:.4f} | {adx_score.loc[idx]:.2f} | {bbw_score.loc[idx]:.2f} | {atr_score.loc[idx]:.2f} | {vol_burst_score.loc[idx]:.2f} | {daily_potential_score.loc[idx]:.2f}")
         return daily_potential_score
 
 
