@@ -295,13 +295,6 @@ class GeometricPatternService:
         # 使用fillna(False)处理shift(1)可能产生的NaN
         entering_platform = (score_series > potential_threshold) & (score_series.shift(1).fillna(False) <= potential_threshold)
         exiting_platform = (score_series < potential_threshold) & (score_series.shift(1).fillna(False) >= potential_threshold)
-        # 遍历识别平台起止点，并输出探针信息
-        for i in range(1, len(df_copy)):
-            current_date = df_copy.index[i]
-            current_score = score_series.loc[current_date]
-            is_entering = entering_platform.loc[current_date]
-            is_exiting = exiting_platform.loc[current_date]
-            print(f"    {current_date.date()} | {current_score:.2f} | {potential_threshold:.2f} | {is_entering} | {is_exiting}")
         platform_start_dates = df_copy[entering_platform.fillna(False)].index
         platform_end_dates = df_copy[exiting_platform.fillna(False)].index
         raw_candidates = []
