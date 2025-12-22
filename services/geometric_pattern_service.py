@@ -279,21 +279,8 @@ class GeometricPatternService:
         potential_threshold = baseline_archetype.get('potential_threshold', 60.0)
         potential_window = baseline_archetype.get('potential_window', 20)
         df_copy['platform_potential_score'] = df_copy['daily_platform_potential_score'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        print(f"[{self.stock_code}] [平台计算] 滚动平均后的平台潜力分数 (最近5天):")
-        print(f"    日期       | Daily_Potential | Rolling_Potential")
-        for idx in df_copy.index[-5:]:
-            print(f"    {idx.date()} | {df_copy.loc[idx, 'daily_platform_potential_score']:.2f} | {df_copy.loc[idx, 'platform_potential_score']:.2f}")
-        score_series = df_copy['platform_potential_score']
-        print(f"[{self.stock_code}] [平台计算] 平台起止点识别探针 (最近5天):")
-        print(f"    日期       | Rolling_Potential | Threshold | Entering | Exiting")
         entering_platform = (score_series > potential_threshold) & (score_series.shift(1).fillna(False) <= potential_threshold)
         exiting_platform = (score_series < potential_threshold) & (score_series.shift(1).fillna(False) >= potential_threshold)
-        for i in range(1, len(df_copy)):
-            current_date = df_copy.index[i]
-            current_score = score_series.loc[current_date]
-            is_entering = entering_platform.loc[current_date]
-            is_exiting = exiting_platform.loc[current_date]
-            print(f"    {current_date.date()} | {current_score:.2f} | {potential_threshold:.2f} | {is_entering} | {is_exiting}")
         platform_start_dates = df_copy[entering_platform.fillna(False)].index
         platform_end_dates = df_copy[exiting_platform.fillna(False)].index
         raw_candidates = []
