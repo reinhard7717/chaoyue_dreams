@@ -1787,7 +1787,7 @@ def run_top_n_performance_analysis(
 # =================================================================
 # =================== 4. 数据维护任务 ==================
 # =================================================================
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.archive_historical_trade_data', queue='data_maintenance')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.archive_historical_trade_data', queue='celery')
 def archive_historical_trade_data(self, days_to_keep: int = 450):
     """
     归档含有 'trade_time' 字段的表的历史数据。

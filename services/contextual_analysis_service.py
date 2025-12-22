@@ -32,6 +32,7 @@ class ContextualAnalysisService:
         self.stock_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         self.momentum_lookback = 60
         self.fund_flow_lookback = 5
+
     async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 21, market_code: str = '000300.SH') -> Dict:
         """
         【V3.2 深度分析版】分析所有来源的板块轮动，并将结果存入数据库。
@@ -117,6 +118,7 @@ class ContextualAnalysisService:
             all_save_results[source] = save_result
             print(f"--- 来源 {source.upper()} 处理完成，已保存 {len(records_to_save)} 条状态。 ---")
         return all_save_results
+
     async def find_industry_leaders(self, concept_code: str, trade_date: datetime.date, top_n: int = 5) -> pd.DataFrame:
         """
         寻找指定板块在指定日期的龙头股。
@@ -178,6 +180,7 @@ class ContextualAnalysisService:
         print(f"--- [龙头挖掘] 完成，龙头梯队如下: ---")
         print(final_df[result_cols])
         return final_df[result_cols]
+
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH', source: str = 'ths') -> pd.DataFrame:
         """
         【V3.2 终极修复版】计算指定来源、指定交易日所有板块的强度分及排名。
@@ -202,6 +205,7 @@ class ContextualAnalysisService:
         df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
         # 确保返回的 DataFrame 中 'concept_code' 是一个列，而不是索引。
         return df.sort_values('strength_rank', ascending=False)
+
     async def prepare_fused_industry_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
         """
         【V1.1 向量化重构版】行业背景融合引擎
@@ -262,6 +266,7 @@ class ContextualAnalysisService:
             final_df[f'industry_{stage.lower()}_score_D'] = stage_score
         # print(f"    - [行业背景融合引擎 V1.1] 完成。已为 {stock_code} 生成 {len(final_df)} 天的数值化融合行业背景。")
         return final_df
+
     async def prepare_hot_money_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:
         """根据游资明细数据，生成一系列与日线数据对齐的原子信号。"""
         hm_df = await self.fund_flow_dao.get_hm_detail_data(start_date, end_date, stock_codes=[stock_code])
@@ -279,6 +284,7 @@ class ContextualAnalysisService:
         coordinated_dates = buyers_count_daily[buyers_count_daily >= coordination_threshold].index
         daily_summary['HM_COORDINATED_ATTACK_D'] = pd.Series(True, index=coordinated_dates)
         return pd.DataFrame(daily_summary)
+
     async def prepare_market_sentiment_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:
         """市场情绪信号引擎"""
         tasks = {
@@ -314,6 +320,7 @@ class ContextualAnalysisService:
                 hottest_industry_daily = hottest_industry_daily.set_index('trade_date')
                 signals_df['industry_hotness_rank_D'] = hottest_industry_daily['rank']
         return signals_df
+
     async def prepare_smart_money_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
         """
         聪明钱信号引擎
@@ -363,6 +370,7 @@ class ContextualAnalysisService:
         final_signals_df = signals_df[final_cols].fillna(False).astype(bool)
         # print(f"    - [聪明钱引擎] 信号生成完毕。")
         return final_signals_df
+
     async def analyze_kpl_theme_hotness(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
         """
         【V1.2 向量化优化版】KPL题材热度分析引擎
@@ -407,6 +415,7 @@ class ContextualAnalysisService:
         result_df = pd.DataFrame(normalized_score, columns=['THEME_HOTNESS_SCORE_D'])
         # print(f"    - [KPL热度引擎] 完成分析，已生成题材热度分。")
         return result_df
+
     async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
         """
         【V3.2 深度分析版】处理单个板块/概念的强度计算。
@@ -442,6 +451,7 @@ class ContextualAnalysisService:
         except Exception as e:
             logger.error(f"处理板块 {concept.name} 时发生错误: {e}", exc_info=True)
             return None
+
     def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
         """计算动量分"""
         if df.empty or trade_date not in df.index: return 0.0
@@ -453,6 +463,7 @@ class ContextualAnalysisService:
         ema_bullish = 1 if today['ema20'] > today['ema60'] else 0
         pct_change_5d = (today['close'] / df['close'].shift(5).loc[trade_date]) - 1 if len(df) > 5 else 0
         return (price_above_ema20 * 2 + price_above_ema60 * 1 + ema_bullish * 2 + (pct_change_5d * 10))
+
     def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
         """计算资金流分"""
         if df.empty or trade_date not in df.index: return 0.0
@@ -461,6 +472,7 @@ class ContextualAnalysisService:
         net_inflow_sum = recent_df['net_amount'].sum()
         inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
         return (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
+
     async def _calculate_volume_profile_score(self, industry_daily_df: pd.DataFrame) -> float:
         """计算行业成交活跃度得分。"""
         if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
@@ -476,6 +488,7 @@ class ContextualAnalysisService:
         if pd.notna(turnover_rank_60d) and turnover_rank_60d > 0.9: score += 0.6
         if is_recent_cross: score += 0.4
         return score
+
     async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
         """计算行业相对大盘的强度得分。"""
         if industry_daily_df.empty or market_daily_df.empty: return 0.0
@@ -485,6 +498,7 @@ class ContextualAnalysisService:
         df['rs_ma20'] = df['rs'].rolling(20).mean()
         latest = df.iloc[-1]
         return 1.0 if latest['rs'] > latest['rs_ma20'] else 0.0
+
     def _calculate_sentiment_hotness_score(self, sentiment_data: Optional[Dict]) -> float:
         """根据最强板块统计数据，计算板块的情绪热度分。"""
         if not sentiment_data: return 0.0
@@ -500,6 +514,7 @@ class ContextualAnalysisService:
         if up_nums >= 5: score += 0.2
         elif up_nums >= 2: score += 0.1
         return min(score, 1.0)
+
     async def _calculate_internal_breadth_score(self, concept: ConceptMaster, trade_date: datetime.date) -> float:
         """
         计算行业内部上涨广度得分。
@@ -527,6 +542,7 @@ class ContextualAnalysisService:
         score = breadth_ratio
         print(f"      - [广度分析] 板块 '{concept.name}' 上涨家数/总数: {up_count}/{total_count}, 广度得分: {score:.2f}")
         return score
+
     async def _calculate_leader_effect_score(self, concept: ConceptMaster, trade_date: datetime.date) -> float:
         """
         计算龙头效应得分。

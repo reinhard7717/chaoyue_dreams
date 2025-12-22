@@ -1,7 +1,12 @@
+# strategies\trend_following\intelligence\fund_flow_intelligence.py
+import os
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any, Union, Optional
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, get_adaptive_mtf_normalized_score
+from strategies.trend_following.utils import (
+    get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, 
+    get_adaptive_mtf_normalized_score, load_external_json_config
+)
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
@@ -10,9 +15,10 @@ class FundFlowIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
-        # 修正: 在初始化时加载 tf_weights_ff，确保其始终可用
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
-        self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        external_config = load_external_json_config("config/intelligence/chip.json", {})
+        # 直接从加载的配置中获取 fund_flow_ultimate_params 块，而不是通过 get_params_block
+        self.p_conf_ff = external_config.get('fund_flow_ultimate_params', {}) # 修改行
+        self.tf_weights_ff = get_param_value(self.p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -95,7 +101,8 @@ class FundFlowIntelligence:
         - 信号原理: 基于微积分思想，对顶层“战略态势”信号进行二阶求导。只有当态势的“速度”与“加速度”
                       同时为正时，才确认为一次高置信度的V型反转拐点。旨在捕捉趋势“破晓”的关键瞬间。
         """
-        p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf = self.p_conf_ff
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
@@ -168,7 +175,8 @@ class FundFlowIntelligence:
         """
         print("    -> [资金流层] 正在诊断“资金流内部分歧与意图张力 (V5.1 · 效率优化版)”公理...")
         df_index = df.index
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf_ff = self.p_conf_ff
         ad_params = get_param_value(p_conf_ff.get('axiom_divergence_params'), {})
         divergence_slope_periods = get_param_value(ad_params.get('divergence_slope_periods'), [5, 13, 21, 34, 55])
         raw_divergence_slope_weights = get_param_value(ad_params.get('divergence_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05})
@@ -414,7 +422,8 @@ class FundFlowIntelligence:
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理一：诊断“战场控制权”")
         df_index = df.index
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         ac_params = get_param_value(p_conf_ff.get('axiom_consensus_params'), {})
         deception_mod_enabled = get_param_value(ac_params.get('deception_mod_enabled'), True)
@@ -700,7 +709,8 @@ class FundFlowIntelligence:
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理二：诊断“信念韧性”")
         df_index = df.index
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         ac_params = get_param_value(p_conf_ff.get('axiom_conviction_params'), {})
         core_conviction_weights = get_param_value(ac_params.get('core_conviction_weights'), {'main_force_conviction_slope_5': 0.2, 'main_force_conviction_slope_13': 0.2, 'main_force_conviction_slope_21': 0.1, 'smart_money_net_buy_slope_5': 0.15, 'smart_money_net_buy_slope_13': 0.15, 'flow_credibility': 0.1, 'intraday_large_order_flow': 0.1})
@@ -776,7 +786,7 @@ class FundFlowIntelligence:
                 col_name = f'SLOPE_{p}_{signal_base}'
                 all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name="_diagnose_axiom_conviction")
         # 针对 _get_mtf_dynamic_score 内部调用的 ACCEL 信号，虽然这里没有直接使用，但为了完整性，可以预取
-        # 实际上，_get_mtf_dynamic_score 内部会根据 is_accel 参数构建列名，这里只需要确保原始数据存在即可
+        # 实际上, _get_mtf_dynamic_score 内部会根据 is_accel 参数构建列名，这里只需要确保原始数据存在即可
         # 但在这个方法中，_get_mtf_dynamic_score 并没有被调用来获取 ACCEL 信号，所以这里不需要预取 ACCEL
         # 修正：_get_mtf_dynamic_score 内部会根据 is_accel 参数构建列名，所以这里需要预取 ACCEL 信号
         signal_bases_to_prefetch_accel = [
@@ -988,7 +998,8 @@ class FundFlowIntelligence:
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理三：诊断“资金流纯度与动能”")
         df_index = df.index
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         fm_params = get_param_value(p_conf_ff.get('axiom_flow_momentum_params'), {})
         base_momentum_weights = get_param_value(fm_params.get('base_momentum_weights'), {'nmfnf_slope_5': 0.2, 'nmfnf_slope_13': 0.15, 'nmfnf_slope_21': 0.1, 'nmfnf_slope_55': 0.05, 'nmfnf_accel_5': 0.2, 'nmfnf_accel_13': 0.15, 'nmfnf_accel_21': 0.1, 'nmfnf_accel_55': 0.05})
@@ -1179,15 +1190,15 @@ class FundFlowIntelligence:
                 norm_wash_trade_slope_13 * wash_trade_slope_weights.get('slope_13', 0.3) +
                 norm_wash_trade_slope_21 * wash_trade_slope_weights.get('slope_21', 0.2)
             ).clip(0, 1)
-            norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, tf_weights_ff)
-            norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, tf_weights_ff)
-            norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, tf_weights_ff)
+            norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+            norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, tf_weights=tf_weights_ff)
+            norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, tf_weights=tf_weights_ff)
             norm_deception_multi_tf = (
                 norm_deception_slope_5 * deception_slope_weights.get('slope_5', 0.5) +
                 norm_deception_slope_13 * deception_slope_weights.get('slope_13', 0.3) +
                 norm_deception_slope_21 * deception_slope_weights.get('slope_21', 0.2)
             ).clip(-1, 1)
-            norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights_ff)
+            norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights_ff)
             norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_main_force_flow_gini = get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
             norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1225,12 +1236,12 @@ class FundFlowIntelligence:
             context_modulator = level_mod * slope_mod * impact_mod * volatility_mod * trend_mod * entropy_mod
             context_modulator = context_modulator.clip(0.5, 2.0)
         # --- 4. 结构洞察升级 (Upgraded Structural Momentum) ---
-        norm_lg_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_slope_5_raw, df_index, tf_weights_ff)
-        norm_lg_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_accel_5_raw, df_index, tf_weights_ff)
-        norm_xl_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_slope_5_raw, df_index, tf_weights_ff)
-        norm_xl_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_accel_5_raw, df_index, tf_weights_ff)
-        norm_retail_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(retail_flow_slope_5_raw, df_index, tf_weights_ff)
-        norm_retail_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(retail_flow_accel_5_raw, df_index, tf_weights_ff)
+        norm_lg_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_lg_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_accel_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_xl_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_xl_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_accel_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_retail_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(retail_flow_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_retail_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(retail_flow_accel_5_raw, df_index, tf_weights=tf_weights_ff)
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights=tf_weights_ff)
         norm_flow_quality = get_adaptive_mtf_normalized_score(flow_quality_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_dominance = get_adaptive_mtf_normalized_score(retail_dominance_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1316,7 +1327,8 @@ class FundFlowIntelligence:
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理五：诊断“资本属性”")
         df_index = df.index
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         acs_params = get_param_value(p_conf_ff.get('axiom_capital_signature_params'), {})
         patient_capital_weights = get_param_value(acs_params.get('patient_capital_weights'), {"mtf_flow_persistence": 0.25, "cost_efficiency": 0.2, "covertness_anti_recon": 0.2, "chip_structure_control": 0.2, "flow_structure_resilience": 0.15})
@@ -1623,7 +1635,8 @@ class FundFlowIntelligence:
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理六：诊断“资金流结构健康度”")
         # --- 参数加载 ---
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         afsh_params = get_param_value(p_conf_ff.get('axiom_flow_structure_health_params'), {})
         flow_efficiency_weights = get_param_value(afsh_params.get('flow_efficiency_weights'), {
@@ -1772,7 +1785,8 @@ class FundFlowIntelligence:
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理四：诊断“资金流看涨/看跌背离”")
         df_index = df.index
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        # 直接使用在 __init__ 中加载的配置
+        p_conf_ff = self.p_conf_ff
         self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         ffd_params = get_param_value(p_conf_ff.get('fund_flow_divergence_params'), {})
         purity_weights = get_param_value(ffd_params.get('purity_weights'), {"deception_inverse": 0.5, "wash_trade_inverse": 0.5})
