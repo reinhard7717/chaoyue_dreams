@@ -10,21 +10,36 @@
         },
         "dissonance_penalty_factor": 0.25,
         "posture_fusion_weights": {
-            "description": "【V2.0 · 向量合成】顶层战略态势“矛与盾”融合模型权重。",
+            "description": "【V3.0 · 协同增幅版】顶层战略态势“矛与盾”融合模型权重。",
             "attack_group": {
-            "description": "攻击力量 (矛)",
-            "conviction": 0.6,
-            "flow_momentum": 0.4
+                "description": "攻击力量 (矛)",
+                "conviction": 0.6,
+                "flow_momentum": 0.4,
+                "dissonance_penalty_sensitivity": 0.5,
+                "comment_dissonance_penalty_sensitivity": "攻击力量内部不谐和的惩罚敏感度。"
             },
-            "structure_group": {
-            "description": "结构基础 (盾)",
-            "consensus": 0.6,
-            "flow_health": 0.4
+            "defense_group": {
+                "description": "防御力量 (盾)",
+                "consensus": 0.6,
+                "flow_health": 0.4,
+                "dissonance_penalty_sensitivity": 0.5,
+                "comment_dissonance_penalty_sensitivity": "防御力量内部不谐和的惩罚敏感度。"
+            },
+            "harmony_group": {
+                "description": "内部和谐度",
+                "imbalance_penalty_sensitivity": 0.8,
+                "comment_imbalance_penalty_sensitivity": "矛与盾之间不平衡的惩罚敏感度。"
             },
             "context_group": {
-            "description": "环境调节器",
-            "capital_signature": 0.1,
-            "divergence": 0.1
+                "description": "情境调节器",
+                "capital_signature": 0.2,
+                "divergence": 0.2,
+                "flow_credibility": 0.3,
+                "comment_flow_credibility": "资金流可信度对情境的贡献权重。",
+                "volatility_instability_inverse": 0.3,
+                "comment_volatility_instability_inverse": "波动不稳定性反向指标对情境的贡献权重（低不稳定性为正贡献）。",
+                "amplification_sensitivity": 1.0,
+                "comment_amplification_sensitivity": "情境调节器的非线性放大敏感度。"
             }
         },
         "axiom_consensus_params": {
