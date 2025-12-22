@@ -596,12 +596,13 @@
             "comment_game_efficiency_utilization_weights": "博弈效率与资金利用率组件的融合权重。"
         },
         "axiom_flow_structure_health_params": {
-            "description": "【V1.2 · 结构风险与融合优化版】资金流公理六：诊断“资金流结构健康度”的专属参数。",
+            "description": "【V1.3 · 资金流向与风险校准版】资金流公理六：诊断“资金流结构健康度”的专属参数。",
             "probe_enabled": true,
             "comment_probe_enabled": "是否启用详细探针输出调试信息。",
             "flow_steadiness_params": {
                 "description": "流量平稳度参数。",
                 "net_flow_std_window": 21,
+                "net_flow_direction_window": 5,
                 "normalization_tf_weights": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
             },
             "flow_efficiency_params": {
