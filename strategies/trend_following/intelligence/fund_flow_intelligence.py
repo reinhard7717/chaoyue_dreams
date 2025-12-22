@@ -15,11 +15,12 @@ class FundFlowIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
-        external_config = load_external_json_config("config/intelligence/chip.json", {})
+        external_config = load_external_json_config("config/intelligence/fund_flow.json", {})
         # 直接从加载的配置中获取 fund_flow_ultimate_params 块，而不是通过 get_params_block
         self.p_conf_ff = external_config.get('fund_flow_ultimate_params', {}) # 修改行
         # 获取策略实例的 debug_params
-        self.debug_params = get_param_value(self.strategy, 'debug_params', {})
+        self.debug_params = get_params_block(self.strategy, 'debug_params', {})
+        self.probe_dates = get_param_value(self.debug_params.get('probe_dates'), [])
         self.tf_weights_ff = get_param_value(self.p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
@@ -467,20 +468,18 @@ class FundFlowIntelligence:
         df_index = df.index
         p_conf_ff = self.p_conf_ff
         ac_params = get_param_value(p_conf_ff.get('axiom_consensus_params'), {})
-        # 获取全局调试参数
-        should_probe = self.debug_params.get('should_probe', False)
-        probe_dates_str = self.debug_params.get('probe_dates', [])
-        probe_dates = [pd.to_datetime(d) for d in probe_dates_str]
+        # 获取探针启用状态和目标日期
+        probe_enabled_config = get_param_value(ac_params.get('probe_enabled'), False)
         is_debug_enabled = False
         probe_ts = None
-        if should_probe and not df.empty:
+        if probe_enabled_config and not df.empty:
             current_date = df_index.iloc[-1]
-            if current_date in probe_dates:
+            if current_date in self.probe_dates:
                 is_debug_enabled = True
                 probe_ts = current_date
         if is_debug_enabled:
             print(f"        [探针] 战场控制权诊断启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-        tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        tf_weights_ff = self.tf_weights_ff # 使用初始化时已加载的tf_weights_ff
         deception_mod_enabled = get_param_value(ac_params.get('deception_mod_enabled'), True)
         deception_penalty_sensitivity = get_param_value(ac_params.get('deception_penalty_sensitivity'), 0.6)
         wash_trade_penalty_sensitivity = get_param_value(ac_params.get('wash_trade_penalty_sensitivity'), 0.4)
