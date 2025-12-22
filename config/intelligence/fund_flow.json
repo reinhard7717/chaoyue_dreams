@@ -28,7 +28,9 @@
             }
         },
         "axiom_consensus_params": {
-            "description": "【V5.1 · 意图推断与情境预测版】战场控制权公理的专属参数。",
+            "description": "【V6.0 · 意图推断与情境预测版】战场控制权公理的专属参数。",
+            "probe_enabled": false,
+            "comment_probe_enabled": "是否启用详细探针输出调试信息。",
             "deception_mod_enabled": true,
             "comment_deception_mod_enabled": "是否启用诡道博弈情境调制。",
             "deception_penalty_sensitivity": 0.6,
@@ -43,6 +45,10 @@
             "comment_deception_context_modulator_signal": "诡道调制器的情境因子信号（如市场情绪）。",
             "deception_context_sensitivity": 0.3,
             "comment_deception_context_sensitivity": "情境因子对诡道调制效果的敏感度。",
+            "deception_lure_long_penalty_sensitivity": 0.2,
+            "comment_deception_lure_long_penalty_sensitivity": "诱多欺骗强度对控制权的惩罚敏感度。",
+            "deception_lure_short_bonus_sensitivity": 0.1,
+            "comment_deception_lure_short_bonus_sensitivity": "诱空欺骗强度对控制权的奖励敏感度（主力利用诱空吸筹）。",
             "dynamic_weight_mod_enabled": true,
             "comment_dynamic_weight_mod_enabled": "是否启用宏观与微观动态权重自适应。",
             "macro_flow_base_weight": 0.4,
@@ -55,18 +61,41 @@
             "comment_dynamic_weight_modulator_signal_2": "动态权重调制器信号2（资金流短期趋势）。",
             "dynamic_weight_modulator_signal_3": "market_sentiment_score_D",
             "comment_dynamic_weight_modulator_signal_3": "动态权重调制器信号3（市场情绪）。",
+            "dynamic_weight_modulator_signal_4": "trend_vitality_index_D",
+            "comment_dynamic_weight_modulator_signal_4": "动态权重调制器信号4（趋势活力）。",
+            "dynamic_weight_modulator_signal_5": "structural_tension_index_D",
+            "comment_dynamic_weight_modulator_signal_5": "动态权重调制器信号5（结构张力）。",
             "dynamic_weight_sensitivity_volatility": 0.3,
             "comment_dynamic_weight_sensitivity_volatility": "波动性对动态权重调整的敏感度。",
             "dynamic_weight_sensitivity_flow_slope": 0.2,
             "comment_dynamic_weight_sensitivity_flow_slope": "资金流短期趋势对动态权重调整的敏感度。",
             "dynamic_weight_sensitivity_sentiment": 0.1,
             "comment_dynamic_weight_sensitivity_sentiment": "市场情绪对动态权重调整的敏感度。",
+            "dynamic_weight_sensitivity_trend_vitality": 0.1,
+            "comment_dynamic_weight_sensitivity_trend_vitality": "趋势活力对动态权重调整的敏感度。",
+            "dynamic_weight_sensitivity_structural_tension": 0.1,
+            "comment_dynamic_weight_sensitivity_structural_tension": "结构张力对动态权重调整的敏感度。",
             "asymmetric_micro_control_enabled": true,
             "comment_asymmetric_micro_control_enabled": "是否启用微观盘口控制力非对称增强。",
             "exhaustion_boost_factor": 0.2,
             "comment_exhaustion_boost_factor": "买盘枯竭低/卖盘枯竭高时的增强因子。",
             "exhaustion_penalty_factor": 0.3,
             "comment_exhaustion_penalty_factor": "买盘枯竭高/卖盘枯竭低时的惩罚因子。",
+            "macro_flow_quality_weights": {
+                "description": "宏观资金流质量融合权重。",
+                "main_force_flow_directionality": 0.3,
+                "main_force_flow_gini_inverted": 0.2,
+                "nmfnf_net_flow": 0.5
+            },
+            "micro_control_quality_weights": {
+                "description": "微观控制质量融合权重。",
+                "market_impact_cost_inverted": 0.2,
+                "liquidity_slope": 0.2,
+                "liquidity_authenticity": 0.1,
+                "buy_sweep_intensity": 0.2,
+                "sell_sweep_intensity_inverted": 0.2,
+                "order_flow_imbalance": 0.1
+            },
             "micro_intent_fusion_weights": {
                 "description": "微观意图分数融合权重。",
                 "imbalance": 0.4,
@@ -110,9 +139,11 @@
                 "vwap_cross_down_intensity": 0.05,
                 "wash_trade_sell_volume": -0.05
             },
+            "micro_macro_interaction_exponent": 1.2,
+            "comment_micro_macro_interaction_exponent": "微观-宏观交互的非线性指数，用于放大协同效应。",
             "smoothing_ema_span": 5,
-                "comment_smoothing_ema_span": "战场控制权动态演化平滑EMA周期。",
-                "dynamic_evolution_base_weights": {
+            "comment_smoothing_ema_span": "战场控制权动态演化平滑EMA周期。",
+            "dynamic_evolution_base_weights": {
                 "base_score": 0.6,
                 "velocity": 0.2,
                 "acceleration": 0.2
