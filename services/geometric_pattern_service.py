@@ -292,15 +292,6 @@ class GeometricPatternService:
         if score_series is None or score_series.empty:
             print(f"[{self.stock_code}] [平台计算] platform_potential_score 列未成功创建或为空，无法识别平台起止点，跳过。")
             return
-        # 探针：输出滚动平均后的平台潜力分数
-        print(f"[{self.stock_code}] [平台计算] 滚动平均后的平台潜力分数 (最近5天):")
-        print(f"    日期       | Daily_Potential | Rolling_Potential")
-        for idx in df_copy.index[-5:]:
-            # 确保索引存在后再访问
-            if idx in df_copy.index:
-                print(f"    {idx.date()} | {df_copy.loc[idx, 'daily_platform_potential_score']:.2f} | {df_copy.loc[idx, 'platform_potential_score']:.2f}")
-            else:
-                print(f"    {idx.date()} | (数据缺失) | (数据缺失)")
         # 使用fillna(False)处理shift(1)可能产生的NaN
         entering_platform = (score_series > potential_threshold) & (score_series.shift(1).fillna(False) <= potential_threshold)
         exiting_platform = (score_series < potential_threshold) & (score_series.shift(1).fillna(False) >= potential_threshold)
