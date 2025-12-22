@@ -5,7 +5,7 @@ import numpy as np
 from typing import Dict, List, Tuple, Any, Union, Optional
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, 
-    get_adaptive_mtf_normalized_score, load_external_json_config
+    get_adaptive_mtf_normalized_score, load_external_json_config, _robust_geometric_mean
 )
 
 class FundFlowIntelligence:
@@ -1703,88 +1703,155 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 新增】资金流公理六：诊断“资金流结构健康度”
-        - 核心逻辑: 融合流量的平稳度、效率、成本凝聚力与结构风险，评估资金流模式的可持续性。
-        - A股特性: 旨在区分“一日游”式的脉冲行情与具备坚实基础的、可持续的趋势。
-        - 核心升级1: 流量效率增强：引入买卖流效率、订单簿清算率、VWAP控制强度等，更精细评估资金流效率。
-        - 核心升级2: 结构风险过滤器增强：引入买卖方流动性，评估订单簿流动性风险。
+        【V1.2 · 结构风险与融合优化版】资金流公理六：诊断“资金流结构健康度”
+        - 核心升级:
+            1. 严格遵循“仅针对【资金】类原始数据进行分析”的原则，移除对筹码层（main_force_vpoc_D）和价格层（close_D）的依赖。
+            2. 修正了流动性（bid_side_liquidity_D, ask_side_liquidity_D）和卖方效率（sell_flow_efficiency_index_D等）的归一化方向，使其更符合“健康度”的定义。
+            3. 引入了新的资金流结构风险指标：资金流基尼系数（main_force_flow_gini_D）和订单簿不稳定性（order_book_imbalance_D的波动率），替代了非资金流的结构杠杆。
+            4. 升级了各子分数的融合方式，采用健壮的加权几何平均（_robust_geometric_mean），以增强协同效应和非线性特征。
+            5. 增加了详细的探针输出，方便调试和理解计算过程。
         """
-        print(f"    -> [资金流层] 正在诊断 资金流公理六：诊断“资金流结构健康度”")
-        # --- 参数加载 ---
-        # 直接使用在 __init__ 中加载的配置
+        print(f"    -> [资金流层] 正在诊断 资金流公理六：诊断“资金流结构健康度 (V1.2 · 结构风险与融合优化版)”...")
+        df_index = df.index
         p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         afsh_params = get_param_value(p_conf_ff.get('axiom_flow_structure_health_params'), {})
-        flow_efficiency_weights = get_param_value(afsh_params.get('flow_efficiency_weights'), {
-            'buy_flow_efficiency_index': 0.2, 'sell_flow_efficiency_index': -0.2,
-            'buy_order_book_clearing_rate': 0.15, 'sell_order_book_clearing_rate': -0.15,
-            'vwap_buy_control_strength': 0.15, 'vwap_sell_control_strength': -0.15
+        probe_enabled = get_param_value(afsh_params.get('probe_enabled'), False)
+        if probe_enabled:
+            print(f"        [探针] 资金流结构健康度诊断启动。当前日期: {df_index[-1].strftime('%Y-%m-%d')}")
+        flow_steadiness_params = get_param_value(afsh_params.get('flow_steadiness_params'), {})
+        net_flow_std_window = get_param_value(flow_steadiness_params.get('net_flow_std_window'), 21)
+        flow_steadiness_norm_tf_weights = get_param_value(flow_steadiness_params.get('normalization_tf_weights'), tf_weights_ff)
+        flow_efficiency_params = get_param_value(afsh_params.get('flow_efficiency_params'), {})
+        net_flow_mean_window = get_param_value(flow_efficiency_params.get('net_flow_mean_window'), 21)
+        price_volatility_window = get_param_value(flow_efficiency_params.get('price_volatility_window'), 14)
+        base_efficiency_weights = get_param_value(flow_efficiency_params.get('base_efficiency_weights'), {'net_flow_mean_atr_ratio': 1.0})
+        efficiency_enhancement_weights = get_param_value(flow_efficiency_params.get('enhancement_weights'), {
+            'buy_flow_efficiency_index': 0.2, 'sell_flow_efficiency_index': 0.2,
+            'buy_order_book_clearing_rate': 0.15, 'sell_order_book_clearing_rate': 0.15,
+            'vwap_buy_control_strength': 0.15, 'vwap_sell_control_strength': 0.15
         })
-        structural_risk_weights = get_param_value(afsh_params.get('structural_risk_weights'), {
-            'bid_side_liquidity': 0.1, 'ask_side_liquidity': 0.1
-        })
+        flow_efficiency_norm_tf_weights = get_param_value(flow_efficiency_params.get('normalization_tf_weights'), tf_weights_ff)
+        structural_risk_params = get_param_value(afsh_params.get('structural_risk_params'), {})
+        liquidity_weights = get_param_value(structural_risk_params.get('liquidity_weights'), {'bid_side_liquidity': 0.5, 'ask_side_liquidity': 0.5})
+        flow_gini_weights = get_param_value(structural_risk_params.get('flow_gini_weights'), {'main_force_flow_gini': 1.0})
+        order_book_stability_params = get_param_value(structural_risk_params.get('order_book_stability_weights'), {'order_book_imbalance_std_window': 21, 'order_book_imbalance': 1.0})
+        order_book_imbalance_std_window = get_param_value(order_book_stability_params.get('order_book_imbalance_std_window'), 21)
+        flow_credibility_weights = get_param_value(structural_risk_params.get('flow_credibility_weights'), {'flow_credibility_index': 1.0})
+        structural_risk_norm_tf_weights = get_param_value(structural_risk_params.get('normalization_tf_weights'), tf_weights_ff)
+        final_fusion_weights = get_param_value(afsh_params.get('final_fusion_weights'), {'flow_steadiness': 0.3, 'enhanced_flow_efficiency': 0.4, 'structural_risk_filter': 0.3})
         required_signals = [
             'main_force_net_flow_calibrated_D', 'ATR_14_D',
-            'main_force_vpoc_D', 'close_D', 'structural_leverage_D',
             'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
             'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D',
             'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
-            'bid_side_liquidity_D', 'ask_side_liquidity_D'
+            'bid_side_liquidity_D', 'ask_side_liquidity_D',
+            'main_force_flow_gini_D', 'order_book_imbalance_D', 'flow_credibility_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_flow_structure_health"):
             return pd.Series(0.0, index=df.index)
-        df_index = df.index
-        # --- 原始数据获取 (用于探针和计算) ---
-        net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        flow_volatility = net_flow.rolling(window=21).std().fillna(0)
-        norm_flow_steadiness = 1 - get_adaptive_mtf_normalized_score(flow_volatility, df_index, ascending=True, tf_weights=tf_weights_ff)
-        # 2. 流量效率 (Flow Efficiency)
-        price_volatility = self._get_safe_series(df, df, 'ATR_14_D', 1.0, method_name="_diagnose_axiom_flow_structure_health").replace(0, 1e-9)
-        flow_efficiency_raw = net_flow.rolling(window=21).mean() / price_volatility.rolling(window=21).mean()
-        norm_flow_efficiency = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_raw, df_index, tf_weights=tf_weights_ff)
-        buy_flow_efficiency_index_raw = self._get_safe_series(df, df, 'buy_flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        sell_flow_efficiency_index_raw = self._get_safe_series(df, df, 'sell_flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        buy_order_book_clearing_rate_raw = self._get_safe_series(df, df, 'buy_order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        sell_order_book_clearing_rate_raw = self._get_safe_series(df, df, 'sell_order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        vwap_buy_control_strength_raw = self._get_safe_series(df, df, 'vwap_buy_control_strength_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        vwap_sell_control_strength_raw = self._get_safe_series(df, df, 'vwap_sell_control_strength_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        norm_buy_flow_efficiency_index = get_adaptive_mtf_normalized_score(buy_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_sell_flow_efficiency_index = get_adaptive_mtf_normalized_score(sell_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_buy_order_book_clearing_rate = get_adaptive_mtf_normalized_score(buy_order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_sell_order_book_clearing_rate = get_adaptive_mtf_normalized_score(sell_order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_vwap_buy_control_strength = get_adaptive_mtf_normalized_score(vwap_buy_control_strength_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_vwap_sell_control_strength = get_adaptive_mtf_normalized_score(vwap_sell_control_strength_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        enhanced_flow_efficiency = (
-            norm_flow_efficiency +
-            norm_buy_flow_efficiency_index * flow_efficiency_weights.get('buy_flow_efficiency_index', 0.2) -
-            norm_sell_flow_efficiency_index * flow_efficiency_weights.get('sell_flow_efficiency_index', -0.2) +
-            norm_buy_order_book_clearing_rate * flow_efficiency_weights.get('buy_order_book_clearing_rate', 0.15) -
-            norm_sell_order_book_clearing_rate * flow_efficiency_weights.get('sell_order_book_clearing_rate', -0.15) +
-            norm_vwap_buy_control_strength * flow_efficiency_weights.get('vwap_buy_control_strength', 0.15) -
-            norm_vwap_sell_control_strength * flow_efficiency_weights.get('vwap_sell_control_strength', -0.15)
-        ).clip(-1, 1)
-        # 3. 成本凝聚力 (Cost Cohesion)
-        vpoc = self._get_safe_series(df, df, 'main_force_vpoc_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        close = self._get_safe_series(df, df, 'close_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        cost_divergence = ((close - vpoc) / close).abs().fillna(0)
-        norm_cost_cohesion = 1 - get_adaptive_mtf_normalized_score(cost_divergence, df_index, ascending=True, tf_weights=tf_weights_ff)
-        # 4. 结构风险过滤器 (Structural Risk Filter)
-        structural_leverage = self._get_safe_series(df, df, 'structural_leverage_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        risk_filter_base = 1 - get_adaptive_mtf_normalized_score(structural_leverage, df_index, ascending=True, tf_weights=tf_weights_ff)
-        bid_side_liquidity_raw = self._get_safe_series(df, df, 'bid_side_liquidity_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        ask_side_liquidity_raw = self._get_safe_series(df, df, 'ask_side_liquidity_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
-        norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
-        norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
-        liquidity_risk_modulator = (
-            1 - norm_bid_side_liquidity * structural_risk_weights.get('bid_side_liquidity', 0.1) -
-            norm_ask_side_liquidity * structural_risk_weights.get('ask_side_liquidity', 0.1)
+        raw_data_cache = {}
+        for signal_name in required_signals:
+            raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        net_flow_raw = raw_data_cache['main_force_net_flow_calibrated_D']
+        atr_raw = raw_data_cache['ATR_14_D']
+        buy_flow_efficiency_raw = raw_data_cache['buy_flow_efficiency_index_D']
+        sell_flow_efficiency_raw = raw_data_cache['sell_flow_efficiency_index_D']
+        buy_order_book_clearing_rate_raw = raw_data_cache['buy_order_book_clearing_rate_D']
+        sell_order_book_clearing_rate_raw = raw_data_cache['sell_order_book_clearing_rate_D']
+        vwap_buy_control_strength_raw = raw_data_cache['vwap_buy_control_strength_D']
+        vwap_sell_control_strength_raw = raw_data_cache['vwap_sell_control_strength_D']
+        bid_side_liquidity_raw = raw_data_cache['bid_side_liquidity_D']
+        ask_side_liquidity_raw = raw_data_cache['ask_side_liquidity_D']
+        main_force_flow_gini_raw = raw_data_cache['main_force_flow_gini_D']
+        order_book_imbalance_raw = raw_data_cache['order_book_imbalance_D']
+        flow_credibility_raw = raw_data_cache['flow_credibility_index_D']
+        if probe_enabled:
+            print(f"        [探针] 原始数据获取完成。")
+            print(f"          - main_force_net_flow_calibrated_D: {net_flow_raw.iloc[-1]:.4f}")
+            print(f"          - ATR_14_D: {atr_raw.iloc[-1]:.4f}")
+            print(f"          - buy_flow_efficiency_index_D: {buy_flow_efficiency_raw.iloc[-1]:.4f}")
+            print(f"          - sell_flow_efficiency_index_D: {sell_flow_efficiency_raw.iloc[-1]:.4f}")
+            print(f"          - main_force_flow_gini_D: {main_force_flow_gini_raw.iloc[-1]:.4f}")
+            print(f"          - order_book_imbalance_D: {order_book_imbalance_raw.iloc[-1]:.4f}")
+        flow_volatility = net_flow_raw.rolling(window=net_flow_std_window, min_periods=1).std().fillna(0)
+        norm_flow_steadiness = get_adaptive_mtf_normalized_score(flow_volatility, df_index, flow_steadiness_norm_tf_weights, ascending=False)
+        if probe_enabled:
+            print(f"        [探针] 流量平稳度 (norm_flow_steadiness): {norm_flow_steadiness.iloc[-1]:.4f}")
+        net_flow_mean = net_flow_raw.rolling(window=net_flow_mean_window, min_periods=1).mean().fillna(0)
+        price_volatility_mean = atr_raw.rolling(window=price_volatility_window, min_periods=1).mean().replace(0, 1e-9).fillna(1e-9)
+        base_flow_efficiency_raw = (net_flow_mean / price_volatility_mean).replace([np.inf, -np.inf], 0).fillna(0)
+        norm_base_flow_efficiency = get_adaptive_mtf_normalized_bipolar_score(base_flow_efficiency_raw, df_index, flow_efficiency_norm_tf_weights)
+        norm_buy_flow_efficiency = get_adaptive_mtf_normalized_score(buy_flow_efficiency_raw, df_index, flow_efficiency_norm_tf_weights, ascending=True)
+        norm_sell_flow_efficiency = get_adaptive_mtf_normalized_score(sell_flow_efficiency_raw, df_index, flow_efficiency_norm_tf_weights, ascending=False)
+        norm_buy_order_book_clearing_rate = get_adaptive_mtf_normalized_score(buy_order_book_clearing_rate_raw, df_index, flow_efficiency_norm_tf_weights, ascending=True)
+        norm_sell_order_book_clearing_rate = get_adaptive_mtf_normalized_score(sell_order_book_clearing_rate_raw, df_index, flow_efficiency_norm_tf_weights, ascending=False)
+        norm_vwap_buy_control_strength = get_adaptive_mtf_normalized_score(vwap_buy_control_strength_raw, df_index, flow_efficiency_norm_tf_weights, ascending=True)
+        norm_vwap_sell_control_strength = get_adaptive_mtf_normalized_score(vwap_sell_control_strength_raw, df_index, flow_efficiency_norm_tf_weights, ascending=False)
+        efficiency_components = {
+            'base_efficiency': (norm_base_flow_efficiency + 1) / 2,
+            'buy_flow_efficiency': norm_buy_flow_efficiency,
+            'sell_flow_efficiency': norm_sell_flow_efficiency,
+            'buy_order_book_clearing_rate': norm_buy_order_book_clearing_rate,
+            'sell_order_book_clearing_rate': norm_sell_order_book_clearing_rate,
+            'vwap_buy_control_strength': norm_vwap_buy_control_strength,
+            'vwap_sell_control_strength': norm_vwap_sell_control_strength
+        }
+        efficiency_component_weights = {
+            'base_efficiency': base_efficiency_weights.get('net_flow_mean_atr_ratio', 1.0),
+            'buy_flow_efficiency': efficiency_enhancement_weights.get('buy_flow_efficiency_index', 0.2),
+            'sell_flow_efficiency': efficiency_enhancement_weights.get('sell_flow_efficiency_index', 0.2),
+            'buy_order_book_clearing_rate': efficiency_enhancement_weights.get('buy_order_book_clearing_rate', 0.15),
+            'sell_order_book_clearing_rate': efficiency_enhancement_weights.get('sell_order_book_clearing_rate', 0.15),
+            'vwap_buy_control_strength': efficiency_enhancement_weights.get('vwap_buy_control_strength', 0.15),
+            'vwap_sell_control_strength': efficiency_enhancement_weights.get('vwap_sell_control_strength', 0.15)
+        }
+        enhanced_flow_efficiency_unipolar = _robust_geometric_mean(efficiency_components, efficiency_component_weights, df_index)
+        enhanced_flow_efficiency = (enhanced_flow_efficiency_unipolar * 2 - 1).clip(-1, 1)
+        if probe_enabled:
+            print(f"        [探针] 流量效率 (enhanced_flow_efficiency): {enhanced_flow_efficiency.iloc[-1]:.4f}")
+        norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
+        norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
+        liquidity_support_score = (
+            norm_bid_side_liquidity * liquidity_weights.get('bid_side_liquidity', 0.5) +
+            norm_ask_side_liquidity * liquidity_weights.get('ask_side_liquidity', 0.5)
         ).clip(0, 1)
-        enhanced_risk_filter = risk_filter_base * liquidity_risk_modulator
-        enhanced_risk_filter = enhanced_risk_filter.clip(0, 1)
-        # 5. 融合
-        health_core = (norm_flow_steadiness * 0.4 + norm_cost_cohesion * 0.6)
-        flow_structure_health_score = (enhanced_flow_efficiency * 0.5 + health_core * np.sign(enhanced_flow_efficiency) * 0.5) * enhanced_risk_filter
-        return flow_structure_health_score.clip(-1, 1).astype(np.float32)
+        if probe_enabled:
+            print(f"        [探针] 流动性支持 (liquidity_support_score): {liquidity_support_score.iloc[-1]:.4f}")
+        norm_flow_gini_inverted = 1 - get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
+        flow_concentration_risk_score = norm_flow_gini_inverted * flow_gini_weights.get('main_force_flow_gini', 1.0)
+        if probe_enabled:
+            print(f"        [探针] 资金流集中度风险 (flow_concentration_risk_score): {flow_concentration_risk_score.iloc[-1]:.4f}")
+        order_book_imbalance_volatility = order_book_imbalance_raw.rolling(window=order_book_imbalance_std_window, min_periods=1).std().fillna(0)
+        norm_order_book_stability = 1 - get_adaptive_mtf_normalized_score(order_book_imbalance_volatility, df_index, structural_risk_norm_tf_weights, ascending=True)
+        order_book_stability_risk_score = norm_order_book_stability * order_book_stability_params.get('order_book_imbalance', 1.0)
+        if probe_enabled:
+            print(f"        [探针] 订单簿不稳定性风险 (order_book_stability_risk_score): {order_book_stability_risk_score.iloc[-1]:.4f}")
+        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
+        flow_credibility_score = norm_flow_credibility * flow_credibility_weights.get('flow_credibility_index', 1.0)
+        if probe_enabled:
+            print(f"        [探针] 资金流可信度 (flow_credibility_score): {flow_credibility_score.iloc[-1]:.4f}")
+        structural_risk_components = {
+            'liquidity_support': liquidity_support_score,
+            'flow_concentration_risk': flow_concentration_risk_score,
+            'order_book_stability_risk': order_book_stability_risk_score,
+            'flow_credibility': flow_credibility_score
+        }
+        structural_risk_component_weights = {k: 1.0 for k in structural_risk_components.keys()}
+        structural_risk_filter = _robust_geometric_mean(structural_risk_components, structural_risk_component_weights, df_index)
+        if probe_enabled:
+            print(f"        [探针] 结构风险过滤器 (structural_risk_filter): {structural_risk_filter.iloc[-1]:.4f}")
+        final_components = {
+            'flow_steadiness': norm_flow_steadiness,
+            'enhanced_flow_efficiency': (enhanced_flow_efficiency + 1) / 2,
+            'structural_risk_filter': structural_risk_filter
+        }
+        flow_structure_health_score_unipolar = _robust_geometric_mean(final_components, final_fusion_weights, df_index)
+        flow_structure_health_score = (flow_structure_health_score_unipolar * 2 - 1).clip(-1, 1)
+        if probe_enabled:
+            print(f"        [探针] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.iloc[-1]:.4f}")
+            print(f"        [探针] 资金流结构健康度诊断完成。")
+        return flow_structure_health_score.astype(np.float32)
 
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
         """

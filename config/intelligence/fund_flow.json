@@ -577,20 +577,53 @@
             "comment_game_efficiency_utilization_weights": "博弈效率与资金利用率组件的融合权重。"
         },
         "axiom_flow_structure_health_params": {
-            "description": "【V1.1 · 新增】资金流公理六：诊断“资金流结构健康度”的专属参数。",
-            "flow_efficiency_weights": {
-                "description": "流量效率融合权重。",
-                "buy_flow_efficiency_index": 0.2,
-                "sell_flow_efficiency_index": -0.2,
-                "buy_order_book_clearing_rate": 0.15,
-                "sell_order_book_clearing_rate": -0.15,
-                "vwap_buy_control_strength": 0.15,
-                "vwap_sell_control_strength": -0.15
+            "description": "【V1.2 · 结构风险与融合优化版】资金流公理六：诊断“资金流结构健康度”的专属参数。",
+            "probe_enabled": true,
+            "comment_probe_enabled": "是否启用详细探针输出调试信息。",
+            "flow_steadiness_params": {
+                "description": "流量平稳度参数。",
+                "net_flow_std_window": 21,
+                "normalization_tf_weights": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
             },
-            "structural_risk_weights": {
-                "description": "结构风险融合权重。",
-                "bid_side_liquidity": 0.1,
-                "ask_side_liquidity": 0.1
+            "flow_efficiency_params": {
+                "description": "流量效率融合参数。",
+                "net_flow_mean_window": 21,
+                "price_volatility_window": 14,
+                "base_efficiency_weights": {
+                    "net_flow_mean_atr_ratio": 1.0
+                },
+                "enhancement_weights": {
+                    "buy_flow_efficiency_index": 0.2,
+                    "sell_flow_efficiency_index": 0.2,
+                    "buy_order_book_clearing_rate": 0.15,
+                    "sell_order_book_clearing_rate": 0.15,
+                    "vwap_buy_control_strength": 0.15,
+                    "vwap_sell_control_strength": 0.15
+                },
+                "normalization_tf_weights": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
+            },
+            "structural_risk_params": {
+                "description": "结构风险融合参数。",
+                "liquidity_weights": {
+                    "bid_side_liquidity": 0.5,
+                    "ask_side_liquidity": 0.5
+                },
+                "flow_gini_weights": {
+                    "main_force_flow_gini": 1.0
+                },
+                "order_book_stability_weights": {
+                    "order_book_imbalance_std_window": 21,
+                    "order_book_imbalance": 1.0
+                },
+                "flow_credibility_weights": {
+                    "flow_credibility_index": 1.0
+                },
+                "normalization_tf_weights": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1}
+            },
+            "final_fusion_weights": {
+                "flow_steadiness": 0.3,
+                "enhanced_flow_efficiency": 0.4,
+                "structural_risk_filter": 0.3
             }
         },
         "fund_flow_divergence_params": {
