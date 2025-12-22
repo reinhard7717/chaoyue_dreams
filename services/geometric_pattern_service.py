@@ -263,6 +263,7 @@ class GeometricPatternService:
         if not all(col in df_copy.columns for col in required_cols):
             print(f"[{self.stock_code}] [平台计算] 缺少必要的日线数据列，跳过平台计算。")
             return
+        # 确保ADX和BBW计算完成
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
         bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_21_2.0', 'BBL_21_2.0', 'BBM_21_2.0', 'BBW_21_2.0'
         bbands_results = ta.bbands(close=df_copy['close_qfq'], length=21, std=2.0, append=False)
@@ -274,13 +275,42 @@ class GeometricPatternService:
             print(f"[{self.stock_code}] [平台计算] 无法计算布林带宽度，跳过平台计算。")
             return
         df_copy = self._calculate_breakout_readiness(df_copy)
+        # 确保df_copy在计算平台潜力分数前不为空
+        if df_copy.empty:
+            print(f"[{self.stock_code}] [平台计算] df_copy 在计算平台潜力分数前变为空，跳过平台计算。")
+            return
+        # V2.59 核心修改：使用新的连续平台潜力评分器
+        # 假设第一个原型是基准原型，用于获取ADX和BBW的阈值
         baseline_archetype = self.platform_archetypes[0]
         df_copy['daily_platform_potential_score'] = self._calculate_daily_platform_potential_score(df_copy, baseline_archetype)
-        potential_threshold = baseline_archetype.get('potential_threshold', 60.0)
+        # V2.59 核心修改：platform_potential_score 现在是 daily_platform_potential_score 的滚动平均
+        potential_threshold = baseline_archetype.get('potential_threshold', 60.0) # 阈值现在是0-100分
         potential_window = baseline_archetype.get('potential_window', 20)
         df_copy['platform_potential_score'] = df_copy['daily_platform_potential_score'].rolling(window=potential_window, min_periods=potential_window//2).mean()
+        # 安全获取score_series并检查其有效性
+        score_series = df_copy.get('platform_potential_score')
+        if score_series is None or score_series.empty:
+            print(f"[{self.stock_code}] [平台计算] platform_potential_score 列未成功创建或为空，无法识别平台起止点，跳过。")
+            return
+        # 探针：输出滚动平均后的平台潜力分数
+        print(f"[{self.stock_code}] [平台计算] 滚动平均后的平台潜力分数 (最近5天):")
+        print(f"    日期       | Daily_Potential | Rolling_Potential")
+        for idx in df_copy.index[-5:]:
+            # 确保索引存在后再访问
+            if idx in df_copy.index:
+                print(f"    {idx.date()} | {df_copy.loc[idx, 'daily_platform_potential_score']:.2f} | {df_copy.loc[idx, 'platform_potential_score']:.2f}")
+            else:
+                print(f"    {idx.date()} | (数据缺失) | (数据缺失)")
+        # 使用fillna(False)处理shift(1)可能产生的NaN
         entering_platform = (score_series > potential_threshold) & (score_series.shift(1).fillna(False) <= potential_threshold)
         exiting_platform = (score_series < potential_threshold) & (score_series.shift(1).fillna(False) >= potential_threshold)
+        # 遍历识别平台起止点，并输出探针信息
+        for i in range(1, len(df_copy)):
+            current_date = df_copy.index[i]
+            current_score = score_series.loc[current_date]
+            is_entering = entering_platform.loc[current_date]
+            is_exiting = exiting_platform.loc[current_date]
+            print(f"    {current_date.date()} | {current_score:.2f} | {potential_threshold:.2f} | {is_entering} | {is_exiting}")
         platform_start_dates = df_copy[entering_platform.fillna(False)].index
         platform_end_dates = df_copy[exiting_platform.fillna(False)].index
         raw_candidates = []
@@ -304,12 +334,13 @@ class GeometricPatternService:
             platform_low = group['low_qfq'].min()
             duration = len(group)
             price_range_pct = (platform_high - platform_low) / platform_low
+            # V2.53 在计算rss时，关闭内部归一化
             rebased_rs = pd.Series()
             if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0:
                 rebased_rs = group['rs'] / group['rs'].iloc[0]
             metrics = {
                 'vps': self._calculate_volume_profile_skewness(group),
-                'vts': self._calculate_linear_regression_slope(group['vol']),
+                'vts': self._calculate_linear_regression_slope(group['vol']), # 保持默认归一化
                 'vcr': self._calculate_volatility_contraction_ratio(group),
                 'pk': self._calculate_price_kurtosis(group),
                 'rss': self._calculate_linear_regression_slope(rebased_rs, normalize=False) if not rebased_rs.empty else 0.0
@@ -325,14 +356,18 @@ class GeometricPatternService:
                     if fit_score > best_fit_score:
                         best_fit_score = fit_score
                         best_archetype = archetype
+            # 确保 best_fit_score 是有效数值
             if np.isnan(best_fit_score) or np.isinf(best_fit_score):
                 best_fit_score = None
             character, score_val = self._assess_platform_character(group)
+            # 确保 score_val 是有效数值
             if np.isnan(score_val) or np.isinf(score_val):
                 score_val = None
             conviction_score = self._calculate_platform_conviction_score(group)
+            # 确保 conviction_score 是有效数值
             if np.isnan(conviction_score) or np.isinf(conviction_score):
                 conviction_score = None
+            # precise_vpoc 计算及 NaN/Inf 处理
             precise_vpoc = None
             platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
             if platform_minutes_dfs:
@@ -341,6 +376,7 @@ class GeometricPatternService:
                     temp_precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
                     if not np.isnan(temp_precise_vpoc) and not np.isinf(temp_precise_vpoc):
                         precise_vpoc = temp_precise_vpoc
+            # internal_accumulation_intensity 计算及 NaN/Inf 处理
             internal_ofi_sum, internal_total_amount = 0, 0
             for d in group.index:
                 if d.date() in tick_map:
@@ -350,6 +386,7 @@ class GeometricPatternService:
             internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
             if np.isnan(internal_accumulation_intensity) or np.isinf(internal_accumulation_intensity):
                 internal_accumulation_intensity = None
+            # breakout_quality_score 计算及 NaN/Inf 处理
             breakout_quality_score = None
             print(f"[{self.stock_code}] [平台计算] 尝试计算 {start_date.date()} - {end_date.date()} 的突破质量分。")
             next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
@@ -390,9 +427,11 @@ class GeometricPatternService:
                     print(f"[{self.stock_code}] [平台计算] 下一个交易日 {next_trade_date} 不在 df_copy.index 中。")
             else:
                 print(f"[{self.stock_code}] [平台计算] 未找到 {end_date.date()} 之后的下一个交易日。")
+            # breakout_readiness 已经有处理，但再次确保
             breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
             if breakout_readiness is not None and (math.isnan(breakout_readiness) or math.isinf(breakout_readiness)):
                 breakout_readiness = None
+            # vpoc 计算及 NaN/Inf 处理
             vpoc_val = np.average(group['close_qfq'], weights=group['vol']) if group['vol'].sum() > 0 else None
             if vpoc_val is not None and (np.isnan(vpoc_val) or np.isinf(vpoc_val)):
                 vpoc_val = None
@@ -437,6 +476,7 @@ class GeometricPatternService:
                             print(f"[{self.stock_code}] [平台保存] 成功创建新平台数据: {obj.start_date} - {obj.end_date}")
                         else:
                             print(f"[{self.stock_code}] [平台保存] 成功更新现有平台数据: {obj.start_date} - {obj.end_date}")
+                        # 新增代码块：保存后立即验证
                         try:
                             retrieved_obj = self.platform_model.objects.get(stock=obj.stock, start_date=obj.start_date)
                             print(f"[{self.stock_code}] [平台保存] 验证成功：数据 {retrieved_obj.start_date} - {retrieved_obj.end_date} 已在数据库中可见。")
