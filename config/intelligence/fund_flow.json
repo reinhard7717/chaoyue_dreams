@@ -10,7 +10,7 @@
         },
         "dissonance_penalty_factor": 0.25,
         "posture_fusion_weights": {
-            "description": "【V3.0 · 协同增幅版】顶层战略态势“矛与盾”融合模型权重。",
+            "description": "【V3.1 · 脆弱性感知版】顶层战略态势“矛与盾”融合模型权重。",
             "attack_group": {
                 "description": "攻击力量 (矛)",
                 "conviction": 0.6,
@@ -23,7 +23,11 @@
                 "consensus": 0.6,
                 "flow_health": 0.4,
                 "dissonance_penalty_sensitivity": 0.5,
-                "comment_dissonance_penalty_sensitivity": "防御力量内部不谐和的惩罚敏感度。"
+                "comment_dissonance_penalty_sensitivity": "防御力量内部不谐和的惩罚敏感度。",
+                "extreme_negative_defense_threshold": -0.7,
+                "comment_extreme_negative_defense_threshold": "触发极端负面防御的阈值。",
+                "vulnerability_amplification_sensitivity": 1.5,
+                "comment_vulnerability_amplification_sensitivity": "极端负面防御的脆弱性放大敏感度。"
             },
             "harmony_group": {
                 "description": "内部和谐度",

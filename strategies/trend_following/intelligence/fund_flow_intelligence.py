@@ -20,6 +20,7 @@ class FundFlowIntelligence:
         self.p_conf_ff = external_config.get('fund_flow_ultimate_params', {}) # 修改行
         # 获取策略实例的 debug_params
         self.debug_params = getattr(self.strategy, 'debug_params', {})
+        print(f"FundFlowIntelligence self.debug_params: {self.debug_params}")
         self.tf_weights_ff = get_param_value(self.p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
@@ -118,8 +119,8 @@ class FundFlowIntelligence:
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
-        # --- 2. 战略态势的向量合成 (V3.0 · 协同增幅版) ---
-        print("    -> [资金流层] 正在计算“资金流战略态势 (V3.0 · 协同增幅版)”...")
+        # --- 2. 战略态势的向量合成 (V3.1 · 脆弱性感知版) ---
+        print("    -> [资金流层] 正在计算“资金流战略态势 (V3.1 · 脆弱性感知版)”...")
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
         attack_group = fusion_weights.get('attack_group', {})
         defense_group = fusion_weights.get('defense_group', {})
@@ -161,9 +162,17 @@ class FundFlowIntelligence:
         amplification_sensitivity = get_param_value(context_group.get('amplification_sensitivity'), 1.0)
         context_modulator_final = 1 + np.tanh(context_base * amplification_sensitivity)
         print(f"        [探针] 情境调节器基础分: {context_base.iloc[-1]:.4f}, 最终情境调节器: {context_modulator_final.iloc[-1]:.4f}")
-        # 2.5 最终战略态势融合
+        # 2.5 脆弱性放大机制 (Vulnerability Amplification)
+        extreme_negative_defense_threshold = get_param_value(defense_group.get('extreme_negative_defense_threshold'), -0.7)
+        vulnerability_amplification_sensitivity = get_param_value(defense_group.get('vulnerability_amplification_sensitivity'), 1.5)
+        # 计算防御力量低于阈值的程度，clip(lower=0) 确保只有低于阈值时才产生正值
+        defense_vulnerability = (extreme_negative_defense_threshold - defense_score).clip(lower=0)
+        # 使用 tanh 函数将脆弱性程度映射为 [0, 1) 的惩罚因子
+        vulnerability_penalty = np.tanh(defense_vulnerability * vulnerability_amplification_sensitivity)
+        print(f"        [探针] 防御脆弱性原始值: {defense_vulnerability.iloc[-1]:.4f}, 脆弱性惩罚因子: {vulnerability_penalty.iloc[-1]:.4f}")
+        # 2.6 最终战略态势融合
         posture_core = attack_score * (1 + defense_score) / 2
-        strategic_posture_score = (posture_core * internal_harmony_modulator * context_modulator_final).clip(-1, 1)
+        strategic_posture_score = (posture_core * internal_harmony_modulator * context_modulator_final * (1 - vulnerability_penalty)).clip(-1, 1)
         print(f"        [探针] 矛盾核心分: {posture_core.iloc[-1]:.4f}, 最终战略态势分: {strategic_posture_score.iloc[-1]:.4f}")
         # --- 3. 和谐拐点计算 ---
         posture_velocity = strategic_posture_score.diff().fillna(0)
