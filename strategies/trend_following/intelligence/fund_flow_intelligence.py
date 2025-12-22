@@ -19,7 +19,7 @@ class FundFlowIntelligence:
         # 直接从加载的配置中获取 fund_flow_ultimate_params 块，而不是通过 get_params_block
         self.p_conf_ff = external_config.get('fund_flow_ultimate_params', {}) # 修改行
         # 获取策略实例的 debug_params
-        self.debug_params = getattr(self.strategy, 'debug_params', {})
+        self.debug_params = get_param_value(self.strategy, 'debug_params', {})
         self.tf_weights_ff = get_param_value(self.p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
