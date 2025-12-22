@@ -14,7 +14,7 @@ class BaseStockRealtimeData(models.Model): # 创建实时数据抽象基类
     current_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='当前价格', null=True)
     high_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='最高价', null=True)
     low_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='最低价', null=True)
-    volume = models.IntegerField(verbose_name='成交量', null=True) # 单位是“股”
+    volume = models.BigIntegerField(verbose_name='成交量', null=True) # 单位是“股”
     turnover_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name='成交额', null=True) # 单位是“元”
     class Meta: # 新增代码行
         abstract = True # 设置为抽象模型
