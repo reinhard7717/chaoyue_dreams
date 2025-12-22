@@ -20,7 +20,6 @@ class FundFlowIntelligence:
         self.p_conf_ff = external_config.get('fund_flow_ultimate_params', {}) # 修改行
         # 获取策略实例的 debug_params
         self.debug_params = getattr(self.strategy, 'debug_params', {})
-        print(f"FundFlowIntelligence self.debug_params: {self.debug_params}")
         self.tf_weights_ff = get_param_value(self.p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
@@ -106,6 +105,7 @@ class FundFlowIntelligence:
         """
         # 直接使用在 __init__ 中加载的配置
         p_conf = self.p_conf_ff
+        print(f"FundFlowIntelligence self.debug_params: {self.debug_params}")
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}

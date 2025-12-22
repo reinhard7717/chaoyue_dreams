@@ -530,7 +530,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     '每天运行一次(收盘): “真实逐笔(Tick)”数据获取任务': {
         'task': 'tasks.tushare.stock_realtime_tasks.dispatch_stocks_real_tick_task',
-        'schedule': crontab(minute=35, hour=15, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=5, hour=15, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'celery'}
     },
     '每天运行一次: 今日涨跌停价格数据': {
