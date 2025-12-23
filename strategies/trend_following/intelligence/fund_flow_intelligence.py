@@ -51,11 +51,14 @@ class FundFlowIntelligence:
             series = pd.Series(default_value, index=df_index)
         return series
 
-    def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False, method_name: str = "未知方法", pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
+    def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False, method_name: str = "未知方法", pre_fetched_data: Optional[Dict[str, pd.Series]] = None, tf_weights: Optional[Dict] = None) -> pd.Series:
         """
         【V1.3 · 效率优化版】计算多时间框架的动态得分。
         - 核心优化: 增加了 `pre_fetched_data` 参数，允许预先传入数据，避免重复调用 `_get_safe_series`。
+        - 新增: `tf_weights` 参数，允许传入不同的时间框架权重。
         """
+        if tf_weights is None:
+            tf_weights = self.tf_weights_ff # 使用默认权重
         mtf_scores = []
         numeric_weights = {k: v for k, v in weights_dict.items() if isinstance(v, (int, float))}
         total_weight = sum(numeric_weights.values())
@@ -73,9 +76,9 @@ class FundFlowIntelligence:
                 raw_data = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
             # 修改结束
             if is_bipolar:
-                norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, self.tf_weights_ff)
+                norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, tf_weights)
             else:
-                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=self.tf_weights_ff)
+                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=tf_weights)
             mtf_scores.append(norm_score * weight)
         if not mtf_scores:
             return pd.Series(0.0, index=df.index)
@@ -120,6 +123,8 @@ class FundFlowIntelligence:
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
+        # 新增：意图纯度公理
+        axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window)
         # --- 2. 战略态势的向量合成 (V3.1 · 脆弱性感知版) ---
         print("    -> [资金流层] 正在计算“资金流战略态势 (V3.1 · 脆弱性感知版)”...")
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
@@ -191,6 +196,7 @@ class FundFlowIntelligence:
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
         self.strategy.atomic_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
+        self.strategy.atomic_states['SCORE_FF_AXIOM_INTENT_PURITY'] = axiom_intent_purity # 新增意图纯度公理
         self.strategy.atomic_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score
         bullish_divergence, bearish_divergence = self._diagnose_fund_flow_divergence_signals(df, norm_window, axiom_divergence)
         # --- 5. 状态赋值 ---
@@ -200,6 +206,7 @@ class FundFlowIntelligence:
         all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
+        all_states['SCORE_FF_AXIOM_INTENT_PURITY'] = axiom_intent_purity.astype(np.float32) # 新增意图纯度公理
         all_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score.astype(np.float32)
         all_states['SCORE_FF_HARMONY_INFLECTION'] = harmony_inflection_score.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
@@ -827,7 +834,6 @@ class FundFlowIntelligence:
             print(f"        [探针] 最终战场控制分数: {final_score.loc[current_probe_date]:.4f}")
             print(f"        [探针] 战场控制权诊断完成。")
         return final_score.astype(np.float32)
-
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
@@ -1948,6 +1954,7 @@ class FundFlowIntelligence:
         """
         【V4.1 升级 · 效率优化版】计算双极性多时间框架的共振/背离因子。
         - 核心优化: 增加了 `pre_fetched_data` 参数，允许预先传入数据，避免重复调用 `_get_safe_series`。
+        - 新增: `tf_weights` 参数，允许传入不同的时间框架权重。
         """
         method_name_str = "_calculate_mtf_cohesion_divergence"
         short_slope_scores = []
@@ -2004,7 +2011,7 @@ class FundFlowIntelligence:
         direction_alignment = np.sign(avg_short_slope) * np.sign(avg_long_slope)
         # 2. 强度一致性：短期和长期强度越接近，一致性越高。
         strength_cohesion_slope = (1 - (avg_short_slope.abs() - avg_long_slope.abs()).abs()).clip(0, 1)
-        strength_cohesion_accel = (1 - (avg_short_accel.abs() - avg_long_accel.abs()).abs()).clip(0, 1)
+        strength_cohesion_accel = (1 - (avg_short_accel.abs() - avg_long_accel.abs()).abs()).abs().clip(0, 1) # 修正为abs()
         # 综合强度一致性
         strength_cohesion = (strength_cohesion_slope + strength_cohesion_accel) / 2
         # 3. 最终双极性共振分数：方向 * 强度
@@ -2314,6 +2321,256 @@ class FundFlowIntelligence:
         bearish_divergence_score = bearish_divergence_score.where(bearish_divergence_score > bearish_divergence_threshold, 0.0)
         return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
 
+    def _diagnose_axiom_intent_purity(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V2.0 · 动态意图演化版】资金流公理：意图纯度。
+        旨在量化主导资金流意图的清晰度、执行效率和抗操纵性，并捕捉其动态演化。
+        它通过多时间维度动态捕捉、更丰富的资金流原始数据融合、非线性与自适应的判定逻辑，
+        融合了流量方向清晰度、执行质量与效率、欺骗与操纵过滤以及情境强化四大维度。
+        高分代表主导资金流意图清晰、执行高效且不易被操纵；
+        负分代表意图模糊、执行低效或存在显著操纵。
+        """
+        df_index = df.index
+        p_conf_ff = self.p_conf_ff
+        aip_params = get_param_value(p_conf_ff.get('axiom_intent_purity_params'), {})
+        probe_enabled = get_param_value(aip_params.get('probe_enabled'), False)
+        current_probe_date = None
+        if probe_enabled and self.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d) for d in self.probe_dates]
+            for date in reversed(df_index):
+                if date in probe_dates_dt:
+                    current_probe_date = date
+                    break
+        if probe_enabled:
+            if current_probe_date:
+                print(f"        [探针] 资金流意图纯度诊断启动。探针日期: {current_probe_date.strftime('%Y-%m-%d')}")
+            else:
+                print(f"        [探针] 资金流意图纯度诊断启动。probe_enabled为True，但当前DataFrame不包含任何指定探针日期。")
+        print(f"    -> [资金流层] 正在诊断 资金流公理：意图纯度 (V2.0 · 动态意图演化版)...")
+        tf_weights_ff = self.tf_weights_ff
+        flow_clarity_weights = get_param_value(aip_params.get('flow_clarity_weights'), {})
+        execution_quality_weights = get_param_value(aip_params.get('execution_quality_weights'), {})
+        deception_filter_weights = get_param_value(aip_params.get('deception_filter_weights'), {})
+        context_reinforcement_weights = get_param_value(aip_params.get('context_reinforcement_weights'), {})
+        mtf_periods_short = get_param_value(aip_params.get('mtf_periods_short'), [5, 13])
+        mtf_periods_long = get_param_value(aip_params.get('mtf_periods_long'), [21, 34, 55])
+        mtf_dynamic_weights = get_param_value(aip_params.get('mtf_dynamic_weights'), {"short": 0.6, "long": 0.4})
+        main_dimension_adaptive_weights = get_param_value(aip_params.get('main_dimension_adaptive_weights'), {})
+        final_fusion_exponent = get_param_value(aip_params.get('final_fusion_exponent'), 1.2)
+        smoothing_ema_span = get_param_value(aip_params.get('smoothing_ema_span'), 5)
+        dynamic_evolution_base_weights = get_param_value(aip_params.get('dynamic_evolution_base_weights'), {'base_score': 0.6, 'velocity': 0.2, 'acceleration': 0.2})
+        dynamic_evolution_context_modulator_signal_1_name = get_param_value(aip_params.get('dynamic_evolution_context_modulator_signal_1'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
+        dynamic_evolution_context_sensitivity_1 = get_param_value(aip_params.get('dynamic_evolution_context_sensitivity_1'), 0.2)
+        dynamic_evolution_context_modulator_signal_2_name = get_param_value(aip_params.get('dynamic_evolution_context_modulator_signal_2'), 'flow_credibility_index_D')
+        dynamic_evolution_context_sensitivity_2 = get_param_value(aip_params.get('dynamic_evolution_context_sensitivity_2'), 0.1)
+        # --- 信号依赖校验 ---
+        required_signals = [
+            'main_force_flow_directionality_D', 'main_force_flow_gini_D', 'NMFNF_D', 'main_force_ofi_D',
+            'net_lg_amount_calibrated_D', 'net_xl_amount_calibrated_D', 'SMART_MONEY_HM_NET_BUY_D',
+            'main_force_t0_efficiency_D', 'main_force_slippage_index_D', 'main_force_execution_alpha_D',
+            'vwap_control_strength_D', 'order_book_clearing_rate_D', 'microstructure_efficiency_index_D',
+            'micro_price_impact_asymmetry_D', 'market_impact_cost_D', 'buy_sweep_intensity_D', 'sell_sweep_intensity_D',
+            'deception_index_D', 'wash_trade_intensity_D', 'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
+            'covert_accumulation_signal_D', 'covert_distribution_signal_D', 'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D',
+            'flow_credibility_index_D', 'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'trend_vitality_index_D', 'strategic_phase_score_D',
+            dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name
+        ]
+        # 动态添加MTF斜率和加速度信号
+        signal_bases_for_mtf = [
+            'main_force_flow_directionality_D', 'main_force_flow_gini_D', 'NMFNF_D', 'main_force_ofi_D',
+            'net_lg_amount_calibrated_D', 'SMART_MONEY_HM_NET_BUY_D',
+            'main_force_t0_efficiency_D', 'main_force_slippage_index_D', 'main_force_execution_alpha_D',
+            'vwap_control_strength_D', 'order_book_clearing_rate_D', 'microstructure_efficiency_index_D',
+            'micro_price_impact_asymmetry_D', 'market_impact_cost_D', 'buy_sweep_intensity_D', 'sell_sweep_intensity_D',
+            'deception_index_D', 'wash_trade_intensity_D', 'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
+            'covert_accumulation_signal_D', 'covert_distribution_signal_D'
+        ]
+        all_mtf_periods = list(set(mtf_periods_short + mtf_periods_long))
+        for signal_base in signal_bases_for_mtf:
+            for p in all_mtf_periods:
+                required_signals.append(f'SLOPE_{p}_{signal_base}')
+                required_signals.append(f'ACCEL_{p}_{signal_base}')
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_intent_purity"):
+            return pd.Series(0.0, index=df.index)
+        # 预取所有斜率和加速度数据到单个字典
+        all_pre_fetched_slopes_accels = {}
+        for signal_base in signal_bases_for_mtf:
+            for p in all_mtf_periods:
+                all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name="_diagnose_axiom_intent_purity")
+                all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name="_diagnose_axiom_intent_purity")
+        # --- 原始数据获取 (用于探针和计算) ---
+        raw_data_cache = {}
+        for signal_name in required_signals:
+            if signal_name not in all_pre_fetched_slopes_accels:
+                raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name="_diagnose_axiom_intent_purity")
+        if probe_enabled and current_probe_date:
+            print(f"        [探针] 原始数据获取完成。")
+            for sig in required_signals:
+                if sig in raw_data_cache:
+                    print(f"          - {sig}: {raw_data_cache[sig].loc[current_probe_date]:.4f}")
+                elif sig in all_pre_fetched_slopes_accels:
+                    print(f"          - {sig}: {all_pre_fetched_slopes_accels[sig].loc[current_probe_date]:.4f}")
+        # --- 1. 流量方向清晰度 (Flow Directional Clarity) ---
+        # 1.1 主力资金流向与基尼系数MTF动态
+        norm_main_force_flow_directionality_mtf = self._calculate_mtf_cohesion_divergence(df, 'main_force_flow_directionality_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_main_force_flow_gini_inverted_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'main_force_flow_gini_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels) # 低Gini系数代表高健康度
+        # 1.2 净资金流与OFI MTF动态
+        norm_nmfnf_net_flow_mtf = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_main_force_ofi_mtf = self._calculate_mtf_cohesion_divergence(df, 'main_force_ofi_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        # 1.3 大单/特大单与聪明钱MTF动态
+        norm_net_lg_xl_flow_mtf = self._calculate_mtf_cohesion_divergence(df, 'net_lg_amount_calibrated_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels) # 假设net_lg_amount_calibrated_D代表大单和特大单的综合
+        norm_smart_money_net_buy_mtf = self._calculate_mtf_cohesion_divergence(df, 'SMART_MONEY_HM_NET_BUY_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        flow_clarity_components = {
+            'main_force_flow_directionality_mtf': (norm_main_force_flow_directionality_mtf + 1) / 2,
+            'main_force_flow_gini_inverted_mtf': norm_main_force_flow_gini_inverted_mtf,
+            'nmfnf_net_flow_mtf': (norm_nmfnf_net_flow_mtf + 1) / 2,
+            'main_force_ofi_mtf': (norm_main_force_ofi_mtf + 1) / 2,
+            'net_lg_xl_flow_mtf': (norm_net_lg_xl_flow_mtf + 1) / 2,
+            'smart_money_net_buy_mtf': (norm_smart_money_net_buy_mtf + 1) / 2
+        }
+        flow_clarity_score_unipolar = _robust_geometric_mean(flow_clarity_components, flow_clarity_weights, df_index)
+        flow_clarity_score = (flow_clarity_score_unipolar * 2 - 1).clip(-1, 1)
+        if probe_enabled and current_probe_date:
+            print(f"        [探针] 流量方向清晰度 (flow_clarity_score): {flow_clarity_score.loc[current_probe_date]:.4f}")
+        # --- 2. 执行质量与效率 (Execution Quality & Efficiency) ---
+        # 2.1 主力T0效率、滑点与执行Alpha MTF动态
+        norm_main_force_t0_efficiency_mtf = self._calculate_mtf_cohesion_divergence(df, 'main_force_t0_efficiency_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_main_force_slippage_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'main_force_slippage_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_main_force_execution_alpha_mtf = self._calculate_mtf_cohesion_divergence(df, 'main_force_execution_alpha_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        # 2.2 VWAP控制与订单簿清算MTF动态
+        norm_vwap_control_strength_mtf = self._calculate_mtf_cohesion_divergence(df, 'vwap_control_strength_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_order_book_clearing_rate_mtf = self._calculate_mtf_cohesion_divergence(df, 'order_book_clearing_rate_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels) # 高清算率代表高效率，但这里是反向，因为清算率高可能意味着流动性被快速消耗
+        # 2.3 微观结构效率与市场冲击成本MTF动态
+        norm_microstructure_efficiency_mtf = self._calculate_mtf_cohesion_divergence(df, 'microstructure_efficiency_index_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_market_impact_cost_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'market_impact_cost_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        # 2.4 扫单强度MTF动态 (买卖扫单的差值，反映主动性)
+        norm_buy_sweep_intensity_mtf = self._calculate_mtf_cohesion_divergence(df, 'buy_sweep_intensity_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_sell_sweep_intensity_mtf = self._calculate_mtf_cohesion_divergence(df, 'sell_sweep_intensity_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        sweep_intensity_bipolar_mtf = (norm_buy_sweep_intensity_mtf - norm_sell_sweep_intensity_mtf).clip(-1, 1)
+        execution_quality_components = {
+            'main_force_t0_efficiency_mtf': (norm_main_force_t0_efficiency_mtf + 1) / 2,
+            'main_force_slippage_inverse_mtf': norm_main_force_slippage_inverse_mtf,
+            'main_force_execution_alpha_mtf': (norm_main_force_execution_alpha_mtf + 1) / 2,
+            'vwap_control_strength_mtf': (norm_vwap_control_strength_mtf + 1) / 2,
+            'order_book_clearing_rate_mtf': norm_order_book_clearing_rate_mtf,
+            'microstructure_efficiency_mtf': (norm_microstructure_efficiency_mtf + 1) / 2,
+            'market_impact_cost_inverse_mtf': norm_market_impact_cost_inverse_mtf,
+            'sweep_intensity_bipolar_mtf': (sweep_intensity_bipolar_mtf + 1) / 2
+        }
+        execution_quality_score_unipolar = _robust_geometric_mean(execution_quality_components, execution_quality_weights, df_index)
+        execution_quality_score = (execution_quality_score_unipolar * 2 - 1).clip(-1, 1)
+        if probe_enabled and current_probe_date:
+            print(f"        [探针] 执行质量与效率 (execution_quality_score): {execution_quality_score.loc[current_probe_date]:.4f}")
+        # --- 3. 欺骗与操纵过滤 (Deception & Manipulation Filter) ---
+        # 3.1 欺骗指数与对倒强度MTF动态
+        norm_deception_index_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_wash_trade_intensity_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        # 3.2 诱多/诱空强度MTF动态
+        norm_deception_lure_long_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'deception_lure_long_intensity_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_deception_lure_short_mtf = self._calculate_mtf_cohesion_divergence(df, 'deception_lure_short_intensity_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        # 3.3 隐蔽吸筹/派发MTF动态 (隐蔽吸筹为正，隐蔽派发为负)
+        norm_covert_accumulation_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'covert_accumulation_signal_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_covert_distribution_mtf = self._calculate_mtf_cohesion_divergence(df, 'covert_distribution_signal_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        deception_filter_components = {
+            'deception_index_inverse_mtf': norm_deception_index_inverse_mtf,
+            'wash_trade_intensity_inverse_mtf': norm_wash_trade_intensity_inverse_mtf,
+            'deception_lure_long_inverse_mtf': norm_deception_lure_long_inverse_mtf,
+            'deception_lure_short_mtf': norm_deception_lure_short_mtf,
+            'covert_accumulation_inverse_mtf': norm_covert_accumulation_inverse_mtf,
+            'covert_distribution_mtf': norm_covert_distribution_mtf
+        }
+        deception_filter_score_unipolar = _robust_geometric_mean(deception_filter_components, deception_filter_weights, df_index)
+        deception_filter_score = (deception_filter_score_unipolar * 2 - 1).clip(-1, 1)
+        if probe_enabled and current_probe_date:
+            print(f"        [探针] 欺骗与操纵过滤 (deception_filter_score): {deception_filter_score.loc[current_probe_date]:.4f}")
+        # --- 4. 情境强化 (Contextual Reinforcement) ---
+        # 4.1 资金流可信度、市场情绪与波动不稳定性MTF动态
+        norm_flow_credibility_index_mtf = self._calculate_mtf_cohesion_divergence(df, 'flow_credibility_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_market_sentiment_score_mtf = self._calculate_mtf_cohesion_divergence(df, 'market_sentiment_score_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_volatility_instability_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        # 4.2 趋势活力与战略阶段MTF动态
+        norm_trend_vitality_mtf = self._calculate_mtf_cohesion_divergence(df, 'trend_vitality_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_strategic_phase_mtf = self._calculate_mtf_cohesion_divergence(df, 'strategic_phase_score_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+        context_reinforcement_components = {
+            'flow_credibility_index_mtf': norm_flow_credibility_index_mtf,
+            'market_sentiment_score_mtf': (norm_market_sentiment_score_mtf + 1) / 2,
+            'volatility_instability_inverse_mtf': norm_volatility_instability_inverse_mtf,
+            'trend_vitality_mtf': norm_trend_vitality_mtf,
+            'strategic_phase_mtf': (norm_strategic_phase_mtf + 1) / 2
+        }
+        context_reinforcement_score_unipolar = _robust_geometric_mean(context_reinforcement_components, context_reinforcement_weights, df_index)
+        context_reinforcement_score = (context_reinforcement_score_unipolar * 2 - 1).clip(-1, 1)
+        if probe_enabled and current_probe_date:
+            print(f"        [探针] 情境强化 (context_reinforcement_score): {context_reinforcement_score.loc[current_probe_date]:.4f}")
+        # --- 5. 主维度自适应融合 (Adaptive Fusion of Main Dimensions) ---
+        norm_volatility_instability_raw = get_adaptive_mtf_normalized_score(raw_data_cache['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_market_sentiment_raw = get_adaptive_mtf_normalized_bipolar_score(raw_data_cache['market_sentiment_score_D'], df_index, tf_weights=tf_weights_ff)
+        norm_flow_credibility_raw = get_adaptive_mtf_normalized_score(raw_data_cache['flow_credibility_index_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        volatility_sensitivity = main_dimension_adaptive_weights.get('volatility_sensitivity', 0.2)
+        sentiment_sensitivity = main_dimension_adaptive_weights.get('sentiment_sensitivity', 0.15)
+        flow_credibility_sensitivity = main_dimension_adaptive_weights.get('flow_credibility_sensitivity', 0.1)
+        # 动态调整权重
+        dynamic_flow_clarity_weight = main_dimension_adaptive_weights.get('flow_clarity_base', 0.3) * (1 - norm_volatility_instability_raw * volatility_sensitivity + norm_flow_credibility_raw * flow_credibility_sensitivity)
+        dynamic_execution_quality_weight = main_dimension_adaptive_weights.get('execution_quality_base', 0.3) * (1 + norm_volatility_instability_raw * volatility_sensitivity + norm_flow_credibility_raw * flow_credibility_sensitivity)
+        dynamic_deception_filter_weight = main_dimension_adaptive_weights.get('deception_filter_base', 0.2) * (1 + norm_volatility_instability_raw * volatility_sensitivity - norm_flow_credibility_raw * flow_credibility_sensitivity)
+        dynamic_context_reinforcement_weight = main_dimension_adaptive_weights.get('context_reinforcement_base', 0.2) * (1 + norm_market_sentiment_raw.abs() * sentiment_sensitivity)
+        total_dynamic_weights = dynamic_flow_clarity_weight + dynamic_execution_quality_weight + dynamic_deception_filter_weight + dynamic_context_reinforcement_weight
+        dynamic_flow_clarity_weight /= total_dynamic_weights
+        dynamic_execution_quality_weight /= total_dynamic_weights
+        dynamic_deception_filter_weight /= total_dynamic_weights
+        dynamic_context_reinforcement_weight /= total_dynamic_weights
+        final_components_unipolar = {
+            'flow_clarity': (flow_clarity_score + 1) / 2,
+            'execution_quality': (execution_quality_score + 1) / 2,
+            'deception_filter': (deception_filter_score + 1) / 2,
+            'context_reinforcement': (context_reinforcement_score + 1) / 2
+        }
+        final_fusion_weights_dynamic = {
+            'flow_clarity': dynamic_flow_clarity_weight,
+            'execution_quality': dynamic_execution_quality_weight,
+            'deception_filter': dynamic_deception_filter_weight,
+            'context_reinforcement': dynamic_context_reinforcement_weight
+        }
+        base_intent_purity_score_unipolar = _robust_geometric_mean(final_components_unipolar, final_fusion_weights_dynamic, df_index)
+        base_intent_purity_score = (base_intent_purity_score_unipolar * 2 - 1).pow(final_fusion_exponent).clip(-1, 1)
+        if probe_enabled and current_probe_date:
+            print(f"        [探针] 基础意图纯度分数 (base_intent_purity_score): {base_intent_purity_score.loc[current_probe_date]:.4f}")
+        # --- 6. 意图纯度动态演化与前瞻性增强 (Dynamic Evolution & Foresight Enhancement) ---
+        smoothed_base_score = base_intent_purity_score.ewm(span=smoothing_ema_span, adjust=False).mean()
+        velocity = smoothed_base_score.diff(1).fillna(0)
+        acceleration = velocity.diff(1).fillna(0)
+        norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights=tf_weights_ff)
+        norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights=tf_weights_ff)
+        norm_dynamic_evolution_context_1 = get_adaptive_mtf_normalized_score(raw_data_cache[dynamic_evolution_context_modulator_signal_1_name], df_index, ascending=False, tf_weights=tf_weights_ff)
+        norm_dynamic_evolution_context_2 = get_adaptive_mtf_normalized_score(raw_data_cache[dynamic_evolution_context_modulator_signal_2_name], df_index, ascending=True, tf_weights=tf_weights_ff)
+        combined_evolution_context_mod = (
+            norm_dynamic_evolution_context_1 * dynamic_evolution_context_sensitivity_1 +
+            norm_dynamic_evolution_context_2 * dynamic_evolution_context_sensitivity_2
+        )
+        dynamic_velocity_weight = dynamic_evolution_base_weights.get('velocity', 0.2) * (1 + combined_evolution_context_mod)
+        dynamic_acceleration_weight = dynamic_evolution_base_weights.get('acceleration', 0.2) * (1 + combined_evolution_context_mod)
+        dynamic_base_score_weight = dynamic_evolution_base_weights.get('base_score', 0.6) * (1 - combined_evolution_context_mod)
+        total_dynamic_weights = dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight
+        dynamic_base_score_weight /= total_dynamic_weights
+        dynamic_velocity_weight /= total_dynamic_weights
+        dynamic_acceleration_weight /= total_dynamic_weights
+        final_score_components = {
+            'base_score': (base_intent_purity_score + 1) / 2,
+            'velocity': (norm_velocity + 1) / 2,
+            'acceleration': (norm_acceleration + 1) / 2
+        }
+        final_score_weights = {
+            'base_score': dynamic_base_score_weight,
+            'velocity': dynamic_velocity_weight,
+            'acceleration': dynamic_acceleration_weight
+        }
+        final_score_unipolar = _robust_geometric_mean(final_score_components, final_score_weights, df_index)
+        final_score = (final_score_unipolar * 2 - 1).clip(-1, 1)
+        if probe_enabled and current_probe_date:
+            print(f"        [探针] 最终意图纯度分数 (final_score): {final_score.loc[current_probe_date]:.4f}")
+            print(f"        [探针] 资金流意图纯度诊断完成。")
+        return final_score.astype(np.float32)
 
 
 

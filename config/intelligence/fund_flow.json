@@ -742,6 +742,85 @@
                 "flow_credibility": 0.5
             },
             "comment_purity_context_mod_factors": "影响纯度调制器敏感度的上下文因子及其权重。"
+        },
+        "axiom_intent_purity_params": {
+            "description": "【V2.0 · 动态意图演化版】资金流公理：意图纯度。旨在量化主导资金流意图的清晰度、执行效率和抗操纵性，并捕捉其动态演化。",
+            "probe_enabled": false,
+            "comment_probe_enabled": "是否启用详细探针输出调试信息。",
+            "flow_clarity_weights": {
+                "description": "流量方向清晰度融合权重。",
+                "main_force_flow_directionality_mtf": 0.25,
+                "main_force_flow_gini_inverted_mtf": 0.15,
+                "nmfnf_net_flow_mtf": 0.2,
+                "main_force_ofi_mtf": 0.2,
+                "net_lg_xl_flow_mtf": 0.1,
+                "smart_money_net_buy_mtf": 0.1
+            },
+            "execution_quality_weights": {
+                "description": "执行质量与效率融合权重。",
+                "main_force_t0_efficiency_mtf": 0.2,
+                "main_force_slippage_inverse_mtf": 0.15,
+                "main_force_execution_alpha_mtf": 0.15,
+                "vwap_control_strength_mtf": 0.15,
+                "order_book_clearing_rate_mtf": 0.1,
+                "microstructure_efficiency_mtf": 0.1,
+                "market_impact_cost_inverse_mtf": 0.05,
+                "sweep_intensity_bipolar_mtf": 0.1
+            },
+            "deception_filter_weights": {
+                "description": "欺骗与操纵过滤融合权重。",
+                "deception_index_inverse_mtf": 0.3,
+                "wash_trade_intensity_inverse_mtf": 0.25,
+                "deception_lure_long_inverse_mtf": 0.15,
+                "deception_lure_short_mtf": 0.1,
+                "covert_accumulation_inverse_mtf": 0.1,
+                "covert_distribution_mtf": 0.1
+            },
+            "context_reinforcement_weights": {
+                "description": "情境强化融合权重。",
+                "flow_credibility_index_mtf": 0.3,
+                "market_sentiment_score_mtf": 0.2,
+                "volatility_instability_inverse_mtf": 0.2,
+                "trend_vitality_mtf": 0.15,
+                "strategic_phase_mtf": 0.15
+            },
+            "mtf_periods_short": [5, 13],
+            "comment_mtf_periods_short": "用于MTF动态计算的短期周期。",
+            "mtf_periods_long": [21, 34, 55],
+            "comment_mtf_periods_long": "用于MTF动态计算的长期周期。",
+            "mtf_dynamic_weights": {
+                "short": 0.6,
+                "long": 0.4
+            },
+            "comment_mtf_dynamic_weights": "短期和长期MTF动态融合权重。",
+            "main_dimension_adaptive_weights": {
+                "description": "四大主维度自适应融合权重。",
+                "flow_clarity_base": 0.3,
+                "execution_quality_base": 0.3,
+                "deception_filter_base": 0.2,
+                "context_reinforcement_base": 0.2,
+                "volatility_sensitivity": 0.2,
+                "sentiment_sensitivity": 0.15,
+                "flow_credibility_sensitivity": 0.1
+            },
+            "final_fusion_exponent": 1.2,
+            "comment_final_fusion_exponent": "最终融合的非线性指数，用于放大协同效应。",
+            "smoothing_ema_span": 5,
+            "comment_smoothing_ema_span": "意图纯度演化趋势平滑EMA周期。",
+            "dynamic_evolution_base_weights": {
+                "base_score": 0.6,
+                "velocity": 0.2,
+                "acceleration": 0.2
+            },
+            "comment_dynamic_evolution_base_weights": "融合基础意图纯度分数与时间序列动态时的基础权重。",
+            "dynamic_evolution_context_modulator_signal_1": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "comment_dynamic_evolution_context_modulator_signal_1": "动态演化权重的情境因子信号1（波动不稳定性）。",
+            "dynamic_evolution_context_sensitivity_1": 0.2,
+            "comment_dynamic_evolution_context_sensitivity_1": "情境因子1对动态演化权重调整的敏感度。",
+            "dynamic_evolution_context_modulator_signal_2": "flow_credibility_index_D",
+            "comment_dynamic_evolution_context_modulator_signal_2": "动态演化权重的情境因子信号2（资金流可信度）。",
+            "dynamic_evolution_context_sensitivity_2": 0.1,
+            "comment_dynamic_evolution_context_sensitivity_2": "情境因子2对动态演化权重调整的敏感度。"
         }
     }
 }
