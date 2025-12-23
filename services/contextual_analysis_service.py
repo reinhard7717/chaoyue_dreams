@@ -352,6 +352,9 @@ class ContextualAnalysisService:
             # 信号2: 游资协同攻击
             coordination_threshold = params.get('hm_coordination_threshold', 3)
             signals_df['SMART_MONEY_HM_COORDINATED_ATTACK_D'] = signals_df['hm_buyer_count'] >= coordination_threshold
+        else:
+            signals_df['SMART_MONEY_HM_COORDINATED_ATTACK_D'] = False
+            signals_df['SMART_MONEY_HM_NET_BUY_D'] = False
         # 3. 处理机构信号 (Institution)
         if not top_inst_df.empty:
             top_inst_df['trade_date'] = pd.to_datetime(top_inst_df['trade_date'], utc=True)
