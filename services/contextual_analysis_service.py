@@ -363,6 +363,8 @@ class ContextualAnalysisService:
             signals_df = signals_df.merge(inst_daily_summary, left_index=True, right_index=True, how='left')
             # 信号3: 机构净买入
             signals_df['SMART_MONEY_INST_NET_BUY_D'] = signals_df['inst_net_buy'] > 0
+        else:
+            signals_df['SMART_MONEY_INST_NET_BUY_D'] = False
         # 4. 处理协同与背离信号
         # 信号4: 游资与机构协同买入 (最强看涨信号之一)
         signals_df['SMART_MONEY_SYNERGY_BUY_D'] = signals_df.get('SMART_MONEY_HM_NET_BUY_D', False) & signals_df.get('SMART_MONEY_INST_NET_BUY_D', False)
