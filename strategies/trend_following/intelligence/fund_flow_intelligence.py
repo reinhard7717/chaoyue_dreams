@@ -122,6 +122,8 @@ class FundFlowIntelligence:
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        # 修正：在调用依赖它的方法之前，将 axiom_divergence 存储到 atomic_states
+        self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         # 新增：意图纯度公理
         axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window)
@@ -189,7 +191,7 @@ class FundFlowIntelligence:
         harmony_inflection_score = (norm_velocity.clip(lower=0) * norm_acceleration.clip(lower=0)).pow(0.5)
         # --- 4. 资金流看涨/看跌背离信号 ---
         # 将所有原子公理存储到 self.strategy.atomic_states，以便 _diagnose_fund_flow_divergence_signals 可以获取
-        self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
+        # axiom_divergence 已经在上面存储，这里不再重复
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
         print(f"    -> [资金流情报校验] 计算“资金流内部分歧与意图张力(SCORE_FF_AXIOM_CONVICTION)” 分数：{axiom_conviction.mean():.4f}")
