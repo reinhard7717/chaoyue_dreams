@@ -479,12 +479,6 @@ class FundFlowIntelligence:
         ac_params = get_param_value(p_conf_ff.get('axiom_consensus_params'), {})
         probe_enabled = get_param_value(ac_params.get('probe_enabled'), False)
         current_probe_date = None
-        if probe_enabled and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates] # 标准化探针日期
-            for date in reversed(df_index):
-                if pd.to_datetime(date).normalize() in probe_dates_dt: # 标准化df_index中的日期进行比较
-                    current_probe_date = date
-                    break
         if probe_enabled: # 只有当probe_enabled为True时才打印
             if current_probe_date:
                 print(f"        [探针] 战场控制权诊断启动。探针日期: {current_probe_date.strftime('%Y-%m-%d')}")
@@ -1771,22 +1765,21 @@ class FundFlowIntelligence:
         p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         afsh_params = get_param_value(p_conf_ff.get('axiom_flow_structure_health_params'), {})
-        probe_enabled = get_param_value(afsh_params.get('probe_enabled'), False)
+        # probe_enabled = get_param_value(afsh_params.get('probe_enabled'), False) # 移除探针相关变量
 
-        current_probe_date = None
-        if probe_enabled and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates] # 标准化探针日期
-            for date in reversed(df_index):
-                # 修正：先移除时区信息，再进行标准化和比较
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    current_probe_date = date
-                    break
+        # current_probe_date = None # 移除探针相关变量
+        # if probe_enabled and self.probe_dates: # 移除探针相关逻辑
+        #     probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+        #     for date in reversed(df_index):
+        #         if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+        #             current_probe_date = date
+        #             break
 
-        if probe_enabled: # 只有当probe_enabled为True时才打印
-            if current_probe_date:
-                print(f"        [探针] 资金流结构健康度诊断启动。探针日期: {current_probe_date.strftime('%Y-%m-%d')}")
-            else:
-                print(f"        [探针] 资金流结构健康度诊断启动。probe_enabled为True，但当前DataFrame不包含任何指定探针日期。")
+        # if probe_enabled: # 移除探针相关逻辑
+        #     if current_probe_date:
+        #         print(f"        [探针] 资金流结构健康度诊断启动。探针日期: {current_probe_date.strftime('%Y-%m-%d')}")
+        #     else:
+        #         print(f"        [探针] 资金流结构健康度诊断启动。probe_enabled为True，但当前DataFrame不包含任何指定探针日期。")
 
         flow_steadiness_params = get_param_value(afsh_params.get('flow_steadiness_params'), {})
         net_flow_std_window = get_param_value(flow_steadiness_params.get('net_flow_std_window'), 21)
@@ -1836,14 +1829,14 @@ class FundFlowIntelligence:
         main_force_flow_gini_raw = raw_data_cache['main_force_flow_gini_D']
         order_book_imbalance_raw = raw_data_cache['order_book_imbalance_D']
         flow_credibility_raw = raw_data_cache['flow_credibility_index_D']
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 原始数据获取完成。")
-            print(f"          - main_force_net_flow_calibrated_D: {net_flow_raw.loc[current_probe_date]:.4f}")
-            print(f"          - ATR_14_D: {atr_raw.loc[current_probe_date]:.4f}")
-            print(f"          - buy_flow_efficiency_index_D: {buy_flow_efficiency_raw.loc[current_probe_date]:.4f}")
-            print(f"          - sell_flow_efficiency_index_D: {sell_flow_efficiency_raw.loc[current_probe_date]:.4f}")
-            print(f"          - main_force_flow_gini_D: {main_force_flow_gini_raw.loc[current_probe_date]:.4f}")
-            print(f"          - order_book_imbalance_D: {order_book_imbalance_raw.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 原始数据获取完成。")
+        #     print(f"          - main_force_net_flow_calibrated_D: {net_flow_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - ATR_14_D: {atr_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - buy_flow_efficiency_index_D: {buy_flow_efficiency_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - sell_flow_efficiency_index_D: {sell_flow_efficiency_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - main_force_flow_gini_D: {main_force_flow_gini_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - order_book_imbalance_D: {order_book_imbalance_raw.loc[current_probe_date]:.4f}")
         # --- 1. 流量平稳度 (Flow Steadiness) - 引入方向性 ---
         flow_volatility = net_flow_raw.rolling(window=net_flow_std_window, min_periods=1).std().fillna(0)
         norm_flow_volatility_health = get_adaptive_mtf_normalized_score(flow_volatility, df_index, flow_steadiness_norm_tf_weights, ascending=False) # 低波动性 = 高健康度
@@ -1851,19 +1844,19 @@ class FundFlowIntelligence:
         norm_net_flow_direction_health = get_adaptive_mtf_normalized_score(net_flow_direction_mean, df_index, flow_steadiness_norm_tf_weights, ascending=True) # 正向流 = 高健康度
         # 融合波动性和方向性：只有当资金流平稳且方向为正时，才算健康
         norm_flow_steadiness = (norm_flow_volatility_health * norm_net_flow_direction_health).pow(0.5) # 几何平均融合
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 原始流量波动率 (flow_volatility): {flow_volatility.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 流量波动健康度 (norm_flow_volatility_health): {norm_flow_volatility_health.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 流量方向健康度 (norm_net_flow_direction_health): {norm_net_flow_direction_health.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 流量平稳度 (norm_flow_steadiness): {norm_flow_steadiness.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 原始流量波动率 (flow_volatility): {flow_volatility.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 流量波动健康度 (norm_flow_volatility_health): {norm_flow_volatility_health.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 流量方向健康度 (norm_net_flow_direction_health): {norm_net_flow_direction_health.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 流量平稳度 (norm_flow_steadiness): {norm_flow_steadiness.loc[current_probe_date]:.4f}")
         # --- 2. 流量效率 (Flow Efficiency) ---
         net_flow_mean = net_flow_raw.rolling(window=net_flow_mean_window, min_periods=1).mean().fillna(0)
         price_volatility_mean = atr_raw.rolling(window=price_volatility_window, min_periods=1).mean().replace(0, 1e-9).fillna(1e-9)
         base_flow_efficiency_raw = (net_flow_mean / price_volatility_mean).replace([np.inf, -np.inf], 0).fillna(0)
         norm_base_flow_efficiency = get_adaptive_mtf_normalized_bipolar_score(base_flow_efficiency_raw, df_index, flow_efficiency_norm_tf_weights)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 原始基础流量效率 (base_flow_efficiency_raw): {base_flow_efficiency_raw.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 归一化基础流量效率 (norm_base_flow_efficiency): {norm_base_flow_efficiency.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 原始基础流量效率 (base_flow_efficiency_raw): {base_flow_efficiency_raw.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 归一化基础流量效率 (norm_base_flow_efficiency): {norm_base_flow_efficiency.loc[current_probe_date]:.4f}")
         norm_buy_flow_efficiency = get_adaptive_mtf_normalized_score(buy_flow_efficiency_raw, df_index, flow_efficiency_norm_tf_weights, ascending=True)
         norm_sell_flow_efficiency = get_adaptive_mtf_normalized_score(sell_flow_efficiency_raw, df_index, flow_efficiency_norm_tf_weights, ascending=False) # 低卖方效率 = 高健康度
         norm_buy_order_book_clearing_rate = get_adaptive_mtf_normalized_score(buy_order_book_clearing_rate_raw, df_index, flow_efficiency_norm_tf_weights, ascending=True)
@@ -1890,8 +1883,8 @@ class FundFlowIntelligence:
         }
         enhanced_flow_efficiency_unipolar = _robust_geometric_mean(efficiency_components, efficiency_component_weights, df_index)
         enhanced_flow_efficiency = (enhanced_flow_efficiency_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 流量效率 (enhanced_flow_efficiency): {enhanced_flow_efficiency.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 流量效率 (enhanced_flow_efficiency): {enhanced_flow_efficiency.loc[current_probe_date]:.4f}")
         # --- 3. 结构风险过滤器 (Structural Risk Filter) ---
         norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
         norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
@@ -1899,24 +1892,24 @@ class FundFlowIntelligence:
             norm_bid_side_liquidity * liquidity_weights.get('bid_side_liquidity', 0.5) +
             norm_ask_side_liquidity * liquidity_weights.get('ask_side_liquidity', 0.5)
         ).clip(0, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 流动性支持 (liquidity_support_score): {liquidity_support_score.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 流动性支持 (liquidity_support_score): {liquidity_support_score.loc[current_probe_date]:.4f}")
         # 高Gini = 高风险 = 低健康度
         norm_flow_gini_risk = get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
         flow_concentration_health_score = (1 - norm_flow_gini_risk) * flow_gini_weights.get('main_force_flow_gini', 1.0)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 原始资金流基尼系数 (main_force_flow_gini_D): {main_force_flow_gini_raw.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 资金流集中度健康度 (flow_concentration_health_score): {flow_concentration_health_score.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 原始资金流基尼系数 (main_force_flow_gini_D): {main_force_flow_gini_raw.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 资金流集中度健康度 (flow_concentration_health_score): {flow_concentration_health_score.loc[current_probe_date]:.4f}")
         order_book_imbalance_volatility = order_book_imbalance_raw.rolling(window=order_book_imbalance_std_window, min_periods=1).std().fillna(0)
         norm_order_book_stability = 1 - get_adaptive_mtf_normalized_score(order_book_imbalance_volatility, df_index, structural_risk_norm_tf_weights, ascending=True)
         order_book_stability_health_score = norm_order_book_stability * order_book_stability_params.get('order_book_imbalance', 1.0)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 订单簿不稳定性 (order_book_imbalance_volatility): {order_book_imbalance_volatility.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 订单簿稳定性健康度 (order_book_stability_health_score): {order_book_stability_health_score.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 订单簿不稳定性 (order_book_imbalance_volatility): {order_book_imbalance_volatility.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 订单簿稳定性健康度 (order_book_stability_health_score): {order_book_stability_health_score.loc[current_probe_date]:.4f}")
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
         flow_credibility_score = norm_flow_credibility * flow_credibility_weights.get('flow_credibility_index', 1.0)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 资金流可信度 (flow_credibility_score): {flow_credibility_score.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 资金流可信度 (flow_credibility_score): {flow_credibility_score.loc[current_probe_date]:.4f}")
         structural_risk_components = {
             'liquidity_support': liquidity_support_score,
             'flow_concentration_health': flow_concentration_health_score,
@@ -1925,8 +1918,8 @@ class FundFlowIntelligence:
         }
         structural_risk_component_weights = {k: 1.0 for k in structural_risk_components.keys()} # 默认等权重
         structural_risk_filter = _robust_geometric_mean(structural_risk_components, structural_risk_component_weights, df_index)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 结构风险过滤器 (structural_risk_filter): {structural_risk_filter.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 结构风险过滤器 (structural_risk_filter): {structural_risk_filter.loc[current_probe_date]:.4f}")
         # --- 4. 最终融合 ---
         final_components = {
             'flow_steadiness': norm_flow_steadiness,
@@ -1940,9 +1933,9 @@ class FundFlowIntelligence:
         }
         flow_structure_health_score_unipolar = _robust_geometric_mean(final_components, final_fusion_weights_adjusted, df_index)
         flow_structure_health_score = (flow_structure_health_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 资金流结构健康度诊断完成。")
+        # if probe_enabled and current_probe_date: # 移除探针相关逻辑
+        #     print(f"        [探针] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 资金流结构健康度诊断完成。")
         return flow_structure_health_score.astype(np.float32)
 
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
@@ -2594,7 +2587,19 @@ class FundFlowIntelligence:
         axiom_divergence = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0, method_name="_diagnose_axiom_intent_purity")
         intent_divergence_modulator = 1 - axiom_divergence.abs() * intent_divergence_mod_sensitivity
         intent_divergence_modulator = intent_divergence_modulator.clip(0.5, 1.0) # 确保只惩罚，不奖励
-        final_modulated_score = (base_intent_purity_score * intent_divergence_modulator).pow(dynamic_fusion_exponent).clip(-1, 1)
+
+        # 计算幂运算的基数
+        base_for_power = base_intent_purity_score * intent_divergence_modulator
+
+        # 处理负数基数和非整数指数，避免产生 NaN
+        # 步骤：1. 获取基数的符号；2. 对基数的绝对值进行幂运算；3. 重新应用符号；4. 裁剪到 [-1, 1] 范围
+        # dynamic_fusion_exponent 已经是 Series，确保其类型为浮点数
+        signed_base = np.sign(base_for_power)
+        abs_powered = base_for_power.abs().pow(dynamic_fusion_exponent)
+
+        # 重新应用符号，并确保结果在 [-1, 1] 范围内
+        final_modulated_score = (signed_base * abs_powered).clip(-1, 1)
+
         if probe_enabled and current_probe_date:
             print(f"        [探针] 动态融合指数 (dynamic_fusion_exponent): {dynamic_fusion_exponent.loc[current_probe_date]:.4f}")
             print(f"        [探针] 意图背离调制器 (intent_divergence_modulator): {intent_divergence_modulator.loc[current_probe_date]:.4f}")
