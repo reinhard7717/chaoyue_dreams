@@ -138,48 +138,36 @@ class BehavioralIntelligence:
         return atomic_signals
 
     def _get_mtf_fused_indicator_score(self, df: pd.DataFrame, base_name: str, mtf_slope_accel_weights: Dict, mtf_indicator_component_weights: Dict, is_negative_indicator: bool = False, ascending: bool = True, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
-        """
-        【V1.0 · 新增】通用辅助方法：融合多时间框架（MTF）指标的原始值、斜率和加速度。
-        - 核心功能: 根据配置的MTF周期权重和每个指标内部组件（原始值、斜率、加速度）的权重，
-                      计算一个综合的、动态的指标分数。
-        """
-        method_name = debug_info[2] if debug_info else "Unknown" # 仅用于_get_safe_series
-        # 获取当前指标的组件权重，如果未配置则使用默认权重
+        method_name = debug_info[2] if debug_info else "Unknown"
         component_weights = mtf_indicator_component_weights.get(base_name, mtf_indicator_component_weights.get('default', {"raw_weight": 0.4, "slope_weight": 0.3, "accel_weight": 0.3}))
         raw_w = component_weights.get('raw_weight', 0.4)
         slope_w = component_weights.get('slope_weight', 0.3)
         accel_w = component_weights.get('accel_weight', 0.3)
         total_component_weight = raw_w + slope_w + accel_w
         if total_component_weight == 0:
-            total_component_weight = 1.0 # 避免除以零
+            total_component_weight = 1.0
         scores = []
         total_mtf_weight = sum(mtf_slope_accel_weights.values())
         if total_mtf_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 优化：将原始值获取移到循环外部，因为它在所有周期中都是相同的
         raw_val = self._get_safe_series(df, f'{base_name}_D', 0.0, method_name=method_name)
         for period_str, weight in mtf_slope_accel_weights.items():
             period = int(period_str)
             if weight == 0:
                 continue
-            # 原始值 (已在循环外部获取)
-            # raw_val = self._get_safe_series(df, f'{base_name}_D', 0.0, method_name=method_name) # 原始行
-            # 斜率
             slope_col = f'SLOPE_{period}_{base_name}_D'
             slope_val = self._get_safe_series(df, slope_col, 0.0, method_name=method_name)
-            # 加速度
             accel_col = f'ACCEL_{period}_{base_name}_D'
             accel_val = self._get_safe_series(df, accel_col, 0.0, method_name=method_name)
-            # 根据指标特性进行处理和归一化
-            if is_negative_indicator: # 如果是负向指标（如卖压），值越大风险越高
-                norm_raw = get_adaptive_mtf_normalized_score(raw_val.abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=debug_info) # 传递debug_info
-                norm_slope = get_adaptive_mtf_normalized_score(slope_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=debug_info) # 传递debug_info
-                norm_accel = get_adaptive_mtf_normalized_score(accel_val.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0}, ascending=True, debug_info=debug_info) # 传递debug_info
-            else: # 正向指标，值越大风险越高（如恐慌指数）
-                norm_raw = get_adaptive_mtf_normalized_score(raw_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=debug_info) # 传递debug_info
-                norm_slope = get_adaptive_mtf_normalized_score(slope_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=debug_info) # 传递debug_info
-                norm_accel = get_adaptive_mtf_normalized_score(accel_val, df.index, tf_weights={str(period): 1.0}, ascending=ascending, debug_info=debug_info) # 传递debug_info
-            # 融合原始值、斜率和加速度
+            norm_window = period * 2 # 归一化窗口通常取周期的两倍
+            if is_negative_indicator:
+                norm_raw = normalize_score(raw_val.abs(), df.index, window=norm_window, ascending=True, debug_info=debug_info)
+                norm_slope = normalize_score(slope_val.clip(upper=0).abs(), df.index, window=norm_window, ascending=True, debug_info=debug_info)
+                norm_accel = normalize_score(accel_val.clip(upper=0).abs(), df.index, window=norm_window, ascending=True, debug_info=debug_info)
+            else:
+                norm_raw = normalize_score(raw_val, df.index, window=norm_window, ascending=ascending, debug_info=debug_info)
+                norm_slope = normalize_score(slope_val, df.index, window=norm_window, ascending=ascending, debug_info=debug_info)
+                norm_accel = normalize_score(accel_val, df.index, window=norm_window, ascending=ascending, debug_info=debug_info)
             fused_period_score = (
                 (norm_raw + 1e-9).pow(raw_w) *
                 (norm_slope + 1e-9).pow(slope_w) *
@@ -194,30 +182,22 @@ class BehavioralIntelligence:
     def _calculate_series_dynamics(self, series: pd.Series, periods: List[int], df_index: pd.Index, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp], base_name: str) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series]]:
         slopes = {}
         accels = {}
-        # 优化：确保输入series为float32类型，以保持内存效率和类型一致性
         series = series.astype(np.float32)
-        # 检查 series 长度，确保有足够数据进行 diff 操作
-        if len(series) < max(periods) + 1: # 至少需要 max(periods) + 1 根K线才能计算最长周期的斜率
+        if len(series) < max(periods) + 1:
             for p in periods:
                 slopes[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
                 if p <= 34:
-                    accels[p] = pd.Series(0.0, index=df.index, dtype=np.float32)
+                    accels[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
             return slopes, accels
         for p in periods:
-            # 计算斜率
-            # diff操作会产生NaN，fillna(0.0)将其替换为0，并确保结果为float32
             slope_series = series.diff(p).fillna(0.0).astype(np.float32)
             slopes[p] = slope_series
-            # 计算加速度 (斜率的1日差分)
-            if p <= 34: # 通常加速度在较短周期内更有效
-                # diff操作会产生NaN，fillna(0.0)将其替换为0，并确保结果为float32
+            if p <= 34:
                 accel_series = slope_series.diff(1).fillna(0.0).astype(np.float32)
                 accels[p] = accel_series
         return slopes, accels
 
     def _calculate_mtf_dynamic_score(self, df: pd.DataFrame, base_indicator_name: str, periods: List[int], tf_weights: Dict, dynamic_type: str, is_positive_trend: bool, method_name: str) -> pd.Series:
-        # dynamic_type: 'slope' or 'accel'
-        # is_positive_trend: True for positive slope/accel, False for negative
         scores = []
         total_weight = 0.0
         for period in periods:
@@ -225,20 +205,18 @@ class BehavioralIntelligence:
             if weight == 0:
                 continue
             col_name = f"{dynamic_type.upper()}_{period}_{base_indicator_name}_D"
-            # 依赖 _validate_required_signals 确保数据存在，这里直接访问
             raw_series = df[col_name]
+            norm_window = period * 2
             if is_positive_trend:
-                # 归一化正向趋势（clip负值，归一化到0-1）
-                score = get_adaptive_mtf_normalized_score(raw_series.clip(lower=0), df.index, tf_weights={str(period): 1.0})
+                score = normalize_score(raw_series.clip(lower=0), df.index, window=norm_window, ascending=True)
             else:
-                # 归一化负向趋势（clip正值，取绝对值，归一化到0-1）
-                score = get_adaptive_mtf_normalized_score(raw_series.clip(upper=0).abs(), df.index, tf_weights={str(period): 1.0})
+                score = normalize_score(raw_series.clip(upper=0).abs(), df.index, window=norm_window, ascending=True)
             scores.append(score * weight)
             total_weight += weight
         if not scores or total_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         fused_score = sum(scores) / total_weight
-        return fused_score # 移除 .astype(np.float32)
+        return fused_score.astype(np.float32)
 
     def _calculate_signal_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """

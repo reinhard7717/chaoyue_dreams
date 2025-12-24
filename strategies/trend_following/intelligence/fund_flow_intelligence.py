@@ -2321,20 +2321,6 @@ class FundFlowIntelligence:
         df_index = df.index
         p_conf_ff = self.p_conf_ff
         aip_params = get_param_value(p_conf_ff.get('axiom_intent_purity_params'), {})
-        probe_enabled = get_param_value(aip_params.get('probe_enabled'), False)
-        current_probe_date = None
-        if probe_enabled and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates] # 标准化探针日期
-            for date in reversed(df_index):
-                # 修正：先移除时区信息，再进行标准化和比较
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    current_probe_date = date
-                    break
-        if probe_enabled:
-            if current_probe_date:
-                print(f"        [探针] 资金流意图纯度诊断启动。探针日期: {current_probe_date.strftime('%Y-%m-%d')}")
-            else:
-                print(f"        [探针] 资金流意图纯度诊断启动。probe_enabled为True，但当前DataFrame不包含任何指定探针日期。")
         print(f"    -> [资金流层] 正在诊断 资金流公理：意图纯度 (V3.0 · 意图韧性与适应性版)...")
         tf_weights_ff = self.tf_weights_ff
         flow_clarity_weights = get_param_value(aip_params.get('flow_clarity_weights'), {})
@@ -2354,7 +2340,7 @@ class FundFlowIntelligence:
         dynamic_evolution_base_weights = get_param_value(aip_params.get('dynamic_evolution_base_weights'), {'base_score': 0.6, 'velocity': 0.2, 'acceleration': 0.2})
         dynamic_evolution_context_modulator_signal_1_name = get_param_value(aip_params.get('dynamic_evolution_context_modulator_signal_1'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         dynamic_evolution_context_sensitivity_1 = get_param_value(aip_params.get('dynamic_evolution_context_sensitivity_1'), 0.2)
-        dynamic_evolution_context_modulator_signal_2_name = get_param_value(aip_params.get('dynamic_evolution_context_modulator_signal_2'), 'flow_credibility_index_D')
+        dynamic_evolution_context_modulator_signal_2_name = get_param_value(aip_params.get('dynamic_evolution_context_modulator_2'), 'flow_credibility_index_D')
         dynamic_evolution_context_sensitivity_2 = get_param_value(aip_params.get('dynamic_evolution_context_sensitivity_2'), 0.1)
         # --- 信号依赖校验 ---
         required_signals = [
@@ -2404,15 +2390,6 @@ class FundFlowIntelligence:
         for signal_name in required_signals:
             if signal_name not in all_pre_fetched_slopes_accels and signal_name not in self.strategy.atomic_states:
                 raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name="_diagnose_axiom_intent_purity")
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 原始数据获取完成。")
-            for sig in required_signals:
-                if sig in raw_data_cache:
-                    print(f"          - {sig}: {raw_data_cache[sig].loc[current_probe_date]:.4f}")
-                elif sig in all_pre_fetched_slopes_accels:
-                    print(f"          - {sig}: {all_pre_fetched_slopes_accels[sig].loc[current_probe_date]:.4f}")
-                elif sig in self.strategy.atomic_states:
-                    print(f"          - {sig} (from atomic_states): {self.strategy.atomic_states[sig].loc[current_probe_date]:.4f}")
         # --- 1. 流量方向清晰度 (Flow Directional Clarity) ---
         norm_main_force_flow_directionality_mtf = self._calculate_mtf_cohesion_divergence(df, 'main_force_flow_directionality_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_main_force_flow_gini_inverted_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'main_force_flow_gini_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -2430,8 +2407,6 @@ class FundFlowIntelligence:
         }
         flow_clarity_score_unipolar = _robust_geometric_mean(flow_clarity_components, flow_clarity_weights, df_index)
         flow_clarity_score = (flow_clarity_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 流量方向清晰度 (flow_clarity_score): {flow_clarity_score.loc[current_probe_date]:.4f}")
         # --- 2. 执行质量与效率 (Execution Quality & Efficiency) ---
         norm_main_force_t0_efficiency_mtf = self._calculate_mtf_cohesion_divergence(df, 'main_force_t0_efficiency_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_main_force_slippage_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'main_force_slippage_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -2455,8 +2430,6 @@ class FundFlowIntelligence:
         }
         execution_quality_score_unipolar = _robust_geometric_mean(execution_quality_components, execution_quality_weights, df_index)
         execution_quality_score = (execution_quality_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 执行质量与效率 (execution_quality_score): {execution_quality_score.loc[current_probe_date]:.4f}")
         # --- 3. 欺骗与操纵过滤 (Deception & Manipulation Filter) ---
         norm_deception_index_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_wash_trade_intensity_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -2474,8 +2447,6 @@ class FundFlowIntelligence:
         }
         deception_filter_score_unipolar = _robust_geometric_mean(deception_filter_components, deception_filter_weights, df_index)
         deception_filter_score = (deception_filter_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 欺骗与操纵过滤 (deception_filter_score): {deception_filter_score.loc[current_probe_date]:.4f}")
         # --- 4. 微观意图凝聚力 (Micro-Intent Cohesion) ---
         norm_order_book_imbalance_mtf = self._calculate_mtf_cohesion_divergence(df, 'order_book_imbalance_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_buy_exhaustion_mtf = self._calculate_mtf_cohesion_divergence(df, 'buy_quote_exhaustion_rate_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -2488,13 +2459,11 @@ class FundFlowIntelligence:
             'order_book_imbalance_mtf': (norm_order_book_imbalance_mtf + 1) / 2,
             'buy_sell_exhaustion_bipolar_mtf': (buy_sell_exhaustion_bipolar_mtf + 1) / 2,
             'liquidity_authenticity_mtf': norm_liquidity_authenticity_mtf,
-            'order_flow_imbalance_score_mtf': (norm_order_flow_imbalance_score_mtf + 1) / 2,
+            'order_flow_imbalance_score_mtf': (norm_order_book_imbalance_score_mtf + 1) / 2,
             'micro_price_impact_asymmetry_mtf': (norm_micro_price_impact_asymmetry_mtf + 1) / 2
         }
         micro_intent_cohesion_score_unipolar = _robust_geometric_mean(micro_intent_cohesion_components, micro_intent_cohesion_weights, df_index)
         micro_intent_cohesion_score = (micro_intent_cohesion_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 微观意图凝聚力 (micro_intent_cohesion_score): {micro_intent_cohesion_score.loc[current_probe_date]:.4f}")
         # --- 5. 意图稳定性与抗干扰性 (Intent Stability & Resilience) ---
         nmfnf_raw = raw_data_cache['NMFNF_D']
         nmfnf_volatility = nmfnf_raw.rolling(window=norm_window, min_periods=1).std().fillna(0)
@@ -2512,8 +2481,6 @@ class FundFlowIntelligence:
         }
         intent_stability_score_unipolar = _robust_geometric_mean(intent_stability_components, intent_stability_weights, df_index)
         intent_stability_score = (intent_stability_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 意图稳定性与抗干扰性 (intent_stability_score): {intent_stability_score.loc[current_probe_date]:.4f}")
         # --- 6. 情境强化 (Contextual Reinforcement) ---
         norm_flow_credibility_index_mtf = self._calculate_mtf_cohesion_divergence(df, 'flow_credibility_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_market_sentiment_score_mtf = self._calculate_mtf_cohesion_divergence(df, 'market_sentiment_score_D', mtf_periods_short, mtf_periods_long, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -2529,8 +2496,6 @@ class FundFlowIntelligence:
         }
         context_reinforcement_score_unipolar = _robust_geometric_mean(context_reinforcement_components, context_reinforcement_weights, df_index)
         context_reinforcement_score = (context_reinforcement_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 情境强化 (context_reinforcement_score): {context_reinforcement_score.loc[current_probe_date]:.4f}")
         # --- 7. 主维度自适应融合 (Adaptive Fusion of Main Dimensions) ---
         norm_volatility_instability_raw = get_adaptive_mtf_normalized_score(raw_data_cache['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_market_sentiment_raw = get_adaptive_mtf_normalized_bipolar_score(raw_data_cache['market_sentiment_score_D'], df_index, tf_weights=tf_weights_ff)
@@ -2572,8 +2537,6 @@ class FundFlowIntelligence:
         }
         base_intent_purity_score_unipolar = _robust_geometric_mean(final_components_unipolar, final_fusion_weights_dynamic, df_index)
         base_intent_purity_score = (base_intent_purity_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 基础意图纯度分数 (base_intent_purity_score): {base_intent_purity_score.loc[current_probe_date]:.4f}")
         # --- 8. 动态融合指数与意图背离调制 (Dynamic Fusion Exponent & Intent Divergence Modulation) ---
         norm_volatility_instability_exp = get_adaptive_mtf_normalized_score(raw_data_cache['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_trend_vitality_exp = get_adaptive_mtf_normalized_score(raw_data_cache['trend_vitality_index_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -2587,23 +2550,15 @@ class FundFlowIntelligence:
         axiom_divergence = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0, method_name="_diagnose_axiom_intent_purity")
         intent_divergence_modulator = 1 - axiom_divergence.abs() * intent_divergence_mod_sensitivity
         intent_divergence_modulator = intent_divergence_modulator.clip(0.5, 1.0) # 确保只惩罚，不奖励
-
         # 计算幂运算的基数
         base_for_power = base_intent_purity_score * intent_divergence_modulator
-
         # 处理负数基数和非整数指数，避免产生 NaN
         # 步骤：1. 获取基数的符号；2. 对基数的绝对值进行幂运算；3. 重新应用符号；4. 裁剪到 [-1, 1] 范围
         # dynamic_fusion_exponent 已经是 Series，确保其类型为浮点数
         signed_base = np.sign(base_for_power)
         abs_powered = base_for_power.abs().pow(dynamic_fusion_exponent)
-
         # 重新应用符号，并确保结果在 [-1, 1] 范围内
         final_modulated_score = (signed_base * abs_powered).clip(-1, 1)
-
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 动态融合指数 (dynamic_fusion_exponent): {dynamic_fusion_exponent.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 意图背离调制器 (intent_divergence_modulator): {intent_divergence_modulator.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 最终调制分数 (final_modulated_score): {final_modulated_score.loc[current_probe_date]:.4f}")
         # --- 9. 意图纯度动态演化与前瞻性增强 (Dynamic Evolution & Foresight Enhancement) ---
         smoothed_base_score = final_modulated_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
@@ -2635,9 +2590,6 @@ class FundFlowIntelligence:
         }
         final_score_unipolar = _robust_geometric_mean(final_score_components, final_score_weights, df_index)
         final_score = (final_score_unipolar * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 最终意图纯度分数 (final_score): {final_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 资金流意图纯度诊断完成。")
         return final_score.astype(np.float32)
 
 
