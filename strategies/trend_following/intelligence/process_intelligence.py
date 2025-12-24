@@ -150,14 +150,14 @@ class ProcessIntelligence:
         if bipolar:
             return get_adaptive_mtf_normalized_bipolar_score(
                 series=series,
-                index=target_index, # 将 target_index 改为 index
+                target_index=target_index, # 将 index 改为 target_index
                 tf_weights=actual_mtf_weights, # 使用修正后的权重字典
                 sensitivity=self.bipolar_sensitivity
             )
         else:
             return get_adaptive_mtf_normalized_score(
                 series=series,
-                index=target_index, # 将 target_index 改为 index
+                target_index=target_index, # 将 index 改为 target_index
                 ascending=ascending, # 传递 ascending 参数
                 tf_weights=actual_mtf_weights # 使用修正后的权重字典
             )
