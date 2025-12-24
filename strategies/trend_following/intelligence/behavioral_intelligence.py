@@ -3185,7 +3185,7 @@ class BehavioralIntelligence:
             'floating_chip_cleansing_efficiency_D', 'main_force_conviction_index_D',
             'covert_accumulation_signal_D', 'ADX_14_D', 'retail_fomo_premium_index_D',
             'robust_close_slope', 'robust_pct_change_slope', 'robust_RSI_13_slope',
-            'robust_MACDh_13_34_8_D', # 修正：添加缺失的信号
+            'robust_MACDh_13_34_8_slope', # 修正：将 'robust_MACDh_13_34_8_D' 改为 'robust_MACDh_13_34_8_slope'
             'robust_volume_slope',
             'long_term_close_slope', 'long_term_adx_slope',
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
@@ -3232,7 +3232,7 @@ class BehavioralIntelligence:
         robust_close_slope = signals_data['robust_close_slope']
         robust_pct_change_slope = signals_data['robust_pct_change_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
-        robust_macd_slope = signals_data['robust_MACDh_13_34_8_D'] # 修正：从 signals_data 获取
+        robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope'] # 修正：从 signals_data 获取
         robust_volume_slope = signals_data['robust_volume_slope']
         long_term_close_slope = signals_data['long_term_close_slope']
         long_term_adx_slope = signals_data['long_term_adx_slope']
