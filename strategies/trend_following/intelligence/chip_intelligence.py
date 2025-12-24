@@ -52,6 +52,20 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df_index)
 
+    def _get_all_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> Dict[str, pd.Series]:
+        """
+        高效地从DataFrame中获取所有必需的Series，如果不存在则打印警告并返回默认Series。
+        """
+        df_index = df.index
+        signals_data = {}
+        for signal_name in required_signals:
+            if signal_name not in df.columns:
+                print(f"    -> [筹码情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{signal_name}'，使用默认值 0.0。")
+                signals_data[signal_name] = pd.Series(0.0, index=df_index)
+            else:
+                signals_data[signal_name] = df[signal_name]
+        return signals_data
+
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
         """
         【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
@@ -154,20 +168,17 @@ class ChipIntelligence:
         - 核心升级1: 诡道博弈深度融合与情境调制：引入主力信念和筹码健康度作为情境，动态调整欺骗指数和对倒强度的影响，实现非对称调制，更精准识别和应对主力诡道博弈。
         - 核心升级2: 动态权重自适应：根据筹码波动不稳定性、筹码健康度斜率等情境因子，动态调整基础态势、速度和加速度的融合权重，使信号自适应市场动态。
         - 核心升级3: 维度间非线性互动增强：引入“协同/冲突”因子，评估阵型部署、指挥官决心、战场控制各维度之间的非线性互动，提高信号的敏感性和准确性。
-        - 核心升级4: 全局情境调制器：引入筹码健康度、市场情绪作为全局调制器，对最终战略态势分数进行校准，提高信号在不同市场情境下的可靠性。
+        - 核心升级4: 全局情境调制器：引入筹码健康度、市场情绪作为全局调制器，对最终战略态态势分数进行校准，提高信号在不同市场情境下的可靠性。
         - 核心升级5: 新增筹码指标整合：
             - 诱多/诱空欺骗强度 (`deception_lure_long_intensity_D`, `deception_lure_short_intensity_D`) 进一步精细化诡道调制。
             - 主力成本区买卖意图 (`mf_cost_zone_buy_intent_D`, `mf_cost_zone_sell_intent_D`) 增强指挥官决心维度。
             - 隐蔽派发信号 (`covert_distribution_signal_D`) 作为负向调制器。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        # --- 探针: 原始输入 ---
         df_index = df.index
-        # --- 参数加载 ---
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         sp_params = get_param_value(p_conf.get('strategic_posture_params'), {})
-        # V9.0 诡道博弈深度融合参数
         deception_fusion_weights = get_param_value(sp_params.get('deception_fusion_weights'), {"bear_trap_positive": 0.6, "bull_trap_negative": 0.2, "wash_trade_negative": 0.2})
         deception_context_mod_enabled = get_param_value(sp_params.get('deception_context_mod_enabled'), True)
         deception_conviction_threshold = get_param_value(sp_params.get('deception_conviction_threshold'), 0.2)
@@ -175,69 +186,59 @@ class ChipIntelligence:
         deception_boost_factor = get_param_value(sp_params.get('deception_boost_factor'), 0.5)
         deception_penalty_factor = get_param_value(sp_params.get('deception_penalty_factor'), 0.7)
         wash_trade_penalty_factor = get_param_value(sp_params.get('wash_trade_penalty_factor'), 0.3)
-        # V9.1 新增欺骗指标参数
         deception_lure_long_penalty_factor = get_param_value(sp_params.get('deception_lure_long_penalty_factor'), 0.3)
         deception_lure_short_boost_factor = get_param_value(sp_params.get('deception_lure_short_boost_factor'), 0.3)
-        # V9.1 新增主力成本区意图参数
         mf_cost_zone_buy_intent_weight = get_param_value(sp_params.get('mf_cost_zone_buy_intent_weight'), 0.1)
         mf_cost_zone_sell_intent_weight = get_param_value(sp_params.get('mf_cost_zone_sell_intent_weight'), 0.1)
-        # V9.1 新增隐蔽派发信号参数
         covert_distribution_penalty_factor = get_param_value(sp_params.get('covert_distribution_penalty_factor'), 0.2)
-        # V9.0 动态权重自适应参数
         dynamic_fusion_weights_base = get_param_value(sp_params.get('dynamic_fusion_weights_base'), {'base_score': 0.6, 'velocity': 0.2, 'acceleration': 0.2})
         dynamic_weight_modulator_signal_1_name = get_param_value(sp_params.get('dynamic_weight_modulator_signal_1'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         dynamic_weight_modulator_signal_2_name = get_param_value(sp_params.get('dynamic_weight_modulator_signal_2'), 'SLOPE_5_chip_health_score_D')
         dynamic_weight_sensitivity_volatility = get_param_value(sp_params.get('dynamic_weight_sensitivity_volatility'), 0.4)
         dynamic_weight_sensitivity_health_slope = get_param_value(sp_params.get('dynamic_weight_sensitivity_health_slope'), 0.3)
-        # V9.0 维度间非线性互动增强参数
         inter_dimension_interaction_enabled = get_param_value(sp_params.get('inter_dimension_interaction_enabled'), True)
         synergy_bonus_factor = get_param_value(sp_params.get('synergy_bonus_factor'), 0.15)
         conflict_penalty_factor = get_param_value(sp_params.get('conflict_penalty_factor'), 0.2)
-        # V9.0 全局情境调制器参数
         global_context_modulator_enabled = get_param_value(sp_params.get('global_context_modulator_enabled'), True)
         global_context_signal_1_name = get_param_value(sp_params.get('global_context_signal_1'), 'chip_health_score_D')
         global_context_signal_2_name = get_param_value(sp_params.get('global_context_signal_2'), 'market_sentiment_score_D')
         global_context_sensitivity_health = get_param_value(sp_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_sentiment = get_param_value(sp_params.get('global_context_sensitivity_sentiment'), 0.3)
         smoothing_ema_span = get_param_value(sp_params.get('smoothing_ema_span'), 5)
-        # --- 信号依赖校验 ---
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
             'floating_chip_cleansing_efficiency_D', 'dominant_peak_solidity_D',
             'deception_index_D', 'wash_trade_intensity_D',
-            'main_force_conviction_index_D', 'chip_health_score_D', # V9.0 新增诡道情境依赖
-            dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name, # V9.0 新增动态权重依赖
-            global_context_signal_1_name, global_context_signal_2_name, # V9.0 新增全局情境依赖
-            # V9.1 新增筹码指标
+            'main_force_conviction_index_D', 'chip_health_score_D',
+            dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name,
+            global_context_signal_1_name, global_context_signal_2_name,
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
             'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D', 'covert_distribution_signal_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_posture"):
             return pd.Series(0.0, index=df.index)
-        # --- 原始数据获取 (用于探针和计算) ---
-        cost_gini_coefficient_raw = self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.5, method_name="_diagnose_strategic_posture")
-        covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_strategic_posture")
-        peak_exchange_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', 0.0, method_name="_diagnose_strategic_posture")
-        main_force_cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_strategic_posture")
-        control_solidity_index_raw = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0, method_name="_diagnose_strategic_posture")
-        conviction_slope_raw = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_strategic_posture")
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_strategic_posture")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_strategic_posture")
-        cleansing_efficiency_raw = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_strategic_posture")
-        dominant_peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5, method_name="_diagnose_strategic_posture")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_strategic_posture")
-        chip_health_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_strategic_posture")
-        volatility_instability_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_1_name, 0.0, method_name="_diagnose_strategic_posture")
-        chip_health_slope_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_2_name, 0.0, method_name="_diagnose_strategic_posture")
-        market_sentiment_raw = self._get_safe_series(df, df, global_context_signal_2_name, 0.0, method_name="_diagnose_strategic_posture")
-        # V9.1 获取新增筹码指标
-        deception_lure_long_intensity_raw = self._get_safe_series(df, df, 'deception_lure_long_intensity_D', 0.0, method_name="_diagnose_strategic_posture")
-        deception_lure_short_intensity_raw = self._get_safe_series(df, df, 'deception_lure_short_intensity_D', 0.0, method_name="_diagnose_strategic_posture")
-        mf_cost_zone_buy_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_buy_intent_D', 0.0, method_name="_diagnose_strategic_posture")
-        mf_cost_zone_sell_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_sell_intent_D', 0.0, method_name="_diagnose_strategic_posture")
-        covert_distribution_signal_raw = self._get_safe_series(df, df, 'covert_distribution_signal_D', 0.0, method_name="_diagnose_strategic_posture")
-        # --- 维度1: 阵型部署 (Formation Deployment) ---
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_strategic_posture")
+        cost_gini_coefficient_raw = signals_data['cost_gini_coefficient_D']
+        covert_accumulation_raw = signals_data['covert_accumulation_signal_D']
+        peak_exchange_purity_raw = signals_data['peak_exchange_purity_D']
+        main_force_cost_advantage_raw = signals_data['main_force_cost_advantage_D']
+        control_solidity_index_raw = signals_data['control_solidity_index_D']
+        conviction_slope_raw = signals_data['SLOPE_5_main_force_conviction_index_D']
+        deception_index_raw = signals_data['deception_index_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        cleansing_efficiency_raw = signals_data['floating_chip_cleansing_efficiency_D']
+        dominant_peak_solidity_raw = signals_data['dominant_peak_solidity_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        chip_health_raw = signals_data['chip_health_score_D']
+        volatility_instability_raw = signals_data[dynamic_weight_modulator_signal_1_name]
+        chip_health_slope_raw = signals_data[dynamic_weight_modulator_signal_2_name]
+        market_sentiment_raw = signals_data[global_context_signal_2_name]
+        deception_lure_long_intensity_raw = signals_data['deception_lure_long_intensity_D']
+        deception_lure_short_intensity_raw = signals_data['deception_lure_short_intensity_D']
+        mf_cost_zone_buy_intent_raw = signals_data['mf_cost_zone_buy_intent_D']
+        mf_cost_zone_sell_intent_raw = signals_data['mf_cost_zone_sell_intent_D']
+        covert_distribution_signal_raw = signals_data['covert_distribution_signal_D']
         concentration_level = 1 - cost_gini_coefficient_raw
         level_score = get_adaptive_mtf_normalized_bipolar_score(concentration_level, df_index, tf_weights)
         efficiency_score = (
@@ -245,118 +246,88 @@ class ChipIntelligence:
             get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df_index, tf_weights).add(1)/2
         ).pow(0.5) * 2 - 1
         formation_deployment_score = (level_score.add(1)/2 * efficiency_score.add(1)/2).pow(0.5) * 2 - 1
-        # --- 维度2: 指挥官决心 (Commander's Resolve) ---
         advantage_score = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights)
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity_index_raw, df_index, tf_weights)
         intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope_raw, df_index, tf_weights)
-        # V9.1 整合主力成本区买卖意图
         norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # V9.0 诡道博弈深度融合与情境调制
         norm_deception_index = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
         norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # V9.1 归一化诱多/诱空欺骗强度
         norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_deception_lure_short = get_adaptive_mtf_normalized_score(deception_lure_short_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         deception_modulator = pd.Series(1.0, index=df_index)
         if deception_context_mod_enabled:
-            # 情境：主力信念强且筹码健康
             strong_conviction_healthy_chip_mask = (norm_main_force_conviction > deception_conviction_threshold) & \
                                                   (norm_chip_health > deception_health_threshold)
-            # 情境：主力信念弱或筹码不健康
             weak_conviction_unhealthy_chip_mask = (norm_main_force_conviction < -deception_conviction_threshold) | \
                                                    (norm_chip_health < (1 - deception_health_threshold))
-            # 诱空（负向欺骗）在强信念健康筹码情境下，可能被视为善意洗盘，增强决心
             bear_trap_boost_mask = strong_conviction_healthy_chip_mask & (norm_deception_index < 0)
-            # 整合诱空欺骗强度
             deception_modulator.loc[bear_trap_boost_mask] = 1 + (norm_deception_index.loc[bear_trap_boost_mask].abs() * deception_boost_factor + \
                                                                  norm_deception_lure_short.loc[bear_trap_boost_mask] * deception_lure_short_boost_factor)
-            # 诱多（正向欺骗）在任何情境下都惩罚，尤其在弱信念不健康筹码情境下更严厉
             bull_trap_penalty_mask = (norm_deception_index > 0)
-            # 整合诱多欺骗强度
             deception_modulator.loc[bull_trap_penalty_mask] = 1 - (norm_deception_index.loc[bull_trap_penalty_mask] * deception_penalty_factor + \
                                                                    norm_deception_lure_long.loc[bull_trap_penalty_mask] * deception_lure_long_penalty_factor)
-            # 在弱信念不健康筹码情境下，诱多惩罚加倍
             deception_modulator.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] = \
                 deception_modulator.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] - \
                 (norm_deception_index.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] * deception_penalty_factor + \
                  norm_deception_lure_long.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] * deception_lure_long_penalty_factor)
-            # 对倒行为始终惩罚，惩罚力度受信念和健康度影响
             wash_trade_penalty_mod = norm_wash_trade_intensity * wash_trade_penalty_factor
-            # 在强信念健康筹码情境下，对倒惩罚略轻
             deception_modulator.loc[strong_conviction_healthy_chip_mask] = \
                 deception_modulator.loc[strong_conviction_healthy_chip_mask] * (1 - wash_trade_penalty_mod.loc[strong_conviction_healthy_chip_mask] * 0.5)
-            # 在弱信念不健康筹码情境下，对倒惩罚更重
             deception_modulator.loc[weak_conviction_unhealthy_chip_mask] = \
                 deception_modulator.loc[weak_conviction_unhealthy_chip_mask] * (1 - wash_trade_penalty_mod.loc[weak_conviction_unhealthy_chip_mask] * 1.5)
-            # 其他情况正常惩罚
             deception_modulator.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)] = \
                 deception_modulator.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)] * (1 - wash_trade_penalty_mod.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)])
-            deception_modulator = deception_modulator.clip(0.1, 2.0) # 限制调制范围
-        # 将诡道调制器融入指挥官决心
+            deception_modulator = deception_modulator.clip(0.1, 2.0)
         commanders_resolve_score = (
             (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
             (intent_score.clip(lower=-1, upper=1).add(1)/2)
-        ).pow(1/3) * 2 - 1 # 基础融合
-        # V9.1 整合主力成本区买卖意图到指挥官决心
+        ).pow(1/3) * 2 - 1
         commanders_resolve_score = commanders_resolve_score + \
                                    (norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight) - \
                                    (norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
-        commanders_resolve_score = commanders_resolve_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
-        commanders_resolve_score = commanders_resolve_score * deception_modulator.pow(np.sign(commanders_resolve_score)) # 诡道调制
-        # --- 维度3: 战场控制 (Battlefield Control) ---
+        commanders_resolve_score = commanders_resolve_score.clip(-1, 1)
+        commanders_resolve_score = commanders_resolve_score * deception_modulator.pow(np.sign(commanders_resolve_score))
         cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency_raw, df_index, tf_weights)
         peak_solidity_score = get_adaptive_mtf_normalized_bipolar_score(dominant_peak_solidity_raw, df_index, tf_weights)
         battlefield_control_score = (cleansing_score.add(1)/2 * peak_solidity_score.add(1)/2).pow(0.5) * 2 - 1
-        # --- 基础融合 (含维度间非线性互动) ---
         base_strategic_posture_score = (
             (commanders_resolve_score.add(1)/2).pow(0.5) *
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ).pow(1/(0.5+0.3+0.2)) * 2 - 1
-        # V9.1 整合隐蔽派发信号
         norm_covert_distribution_signal = get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights)
         base_strategic_posture_score = base_strategic_posture_score * (1 - norm_covert_distribution_signal * covert_distribution_penalty_factor)
-        base_strategic_posture_score = base_strategic_posture_score.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
-        # V9.0 维度间非线性互动增强
+        base_strategic_posture_score = base_strategic_posture_score.clip(-1, 1)
         if inter_dimension_interaction_enabled:
-            # 协同/冲突因子：评估各维度方向一致性
             synergy_factor = pd.Series(0.0, index=df_index)
-            # 积极协同：三个维度都为正
             positive_synergy_mask = (formation_deployment_score > 0) & (commanders_resolve_score > 0) & (battlefield_control_score > 0)
             synergy_factor.loc[positive_synergy_mask] = synergy_bonus_factor
-            # 消极协同：三个维度都为负
             negative_synergy_mask = (formation_deployment_score < 0) & (commanders_resolve_score < 0) & (battlefield_control_score < 0)
             synergy_factor.loc[negative_synergy_mask] = -synergy_bonus_factor
-            # 冲突：例如，指挥官决心积极但阵型部署消极
             conflict_mask = ((formation_deployment_score > 0) & (commanders_resolve_score < 0)) | \
                             ((formation_deployment_score < 0) & (commanders_resolve_score > 0)) | \
                             ((battlefield_control_score > 0) & (commanders_resolve_score < 0)) | \
                             ((battlefield_control_score < 0) & (commanders_resolve_score > 0))
             synergy_factor.loc[conflict_mask] = -conflict_penalty_factor
-            base_strategic_posture_score = np.tanh(base_strategic_posture_score + synergy_factor) # 使用tanh平滑融合协同/冲突因子
-        # --- 时间序列分析 (Strategic Dynamics) ---
+            base_strategic_posture_score = np.tanh(base_strategic_posture_score + synergy_factor)
         smoothed_base_score = base_strategic_posture_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
         acceleration = velocity.diff(1).fillna(0)
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights)
-        # V9.0 动态权重自适应
         dynamic_base_weight = pd.Series(dynamic_fusion_weights_base.get('base_score', 0.6), index=df_index)
         dynamic_velocity_weight = pd.Series(dynamic_fusion_weights_base.get('velocity', 0.2), index=df_index)
         dynamic_acceleration_weight = pd.Series(dynamic_fusion_weights_base.get('acceleration', 0.2), index=df_index)
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights) # 波动性越高，值越大
-        norm_chip_health_slope = get_adaptive_mtf_normalized_bipolar_score(chip_health_slope_raw, df_index, tf_weights) # 健康度斜率，正值代表改善
-        # 波动性高或健康度恶化时，增加速度和加速度权重，降低基础分权重
-        # 波动性低或健康度改善时，增加基础分权重，降低速度和加速度权重
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_chip_health_slope = get_adaptive_mtf_normalized_bipolar_score(chip_health_slope_raw, df_index, tf_weights)
         mod_factor = (norm_volatility_instability * dynamic_weight_sensitivity_volatility) - \
-                     (norm_chip_health_slope.clip(upper=0).abs() * dynamic_weight_sensitivity_health_slope) # 负向健康度斜率增加动态权重
+                     (norm_chip_health_slope.clip(upper=0).abs() * dynamic_weight_sensitivity_health_slope)
         dynamic_base_weight = dynamic_base_weight * (1 - mod_factor)
         dynamic_velocity_weight = dynamic_velocity_weight * (1 + mod_factor * 0.5)
         dynamic_acceleration_weight = dynamic_acceleration_weight * (1 + mod_factor * 0.5)
-        # 归一化动态权重
         sum_dynamic_weights = dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight
         dynamic_base_weight = dynamic_base_weight / sum_dynamic_weights
         dynamic_velocity_weight = dynamic_velocity_weight / sum_dynamic_weights
@@ -366,7 +337,6 @@ class ChipIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        # V9.0 全局情境调制器
         final_score = final_score_unmodulated
         if global_context_modulator_enabled:
             norm_global_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -374,7 +344,7 @@ class ChipIntelligence:
             global_modulator_effect = (
                 (1 + norm_global_chip_health * global_context_sensitivity_health) *
                 (1 + norm_market_sentiment * global_context_sensitivity_sentiment)
-            ).clip(0.5, 1.5) # 限制调制范围
+            ).clip(0.5, 1.5)
             final_score = final_score * global_modulator_effect
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
@@ -392,125 +362,98 @@ class ChipIntelligence:
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         df_index = df.index
-        # --- 参数加载 ---
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        bg_params = get_param_value(p_conf.get('battlefield_geography_params'), {}) # 新增参数块
-        # V9.0 最小阻力路径动态调制参数
+        bg_params = get_param_value(p_conf.get('battlefield_geography_params'), {})
         path_efficiency_mod_factor = get_param_value(bg_params.get('path_efficiency_mod_factor'), 0.5)
         path_efficiency_non_linear_exponent = get_param_value(bg_params.get('path_efficiency_non_linear_exponent'), 1.5)
-        # V9.0 动态演化趋势强化参数
         dynamic_evolution_mod_factor = get_param_value(bg_params.get('dynamic_evolution_mod_factor'), 0.3)
         dynamic_evolution_non_linear_exponent = get_param_value(bg_params.get('dynamic_evolution_non_linear_exponent'), 1.2)
-        # V9.0 诡道地形过滤与惩罚参数
         deception_signal_name = get_param_value(bg_params.get('deception_signal'), 'deception_index_D')
         chip_fault_signal_name = get_param_value(bg_params.get('chip_fault_signal'), 'chip_fault_magnitude_D')
         deception_penalty_sensitivity = get_param_value(bg_params.get('deception_penalty_sensitivity'), 0.6)
         chip_fault_penalty_sensitivity = get_param_value(bg_params.get('chip_fault_penalty_sensitivity'), 0.4)
         deception_mitigation_sensitivity = get_param_value(bg_params.get('deception_mitigation_sensitivity'), 0.3)
-        # V9.0 情境感知与自适应权重参数
         context_modulator_signal_1_name = get_param_value(bg_params.get('context_modulator_signal_1'), 'chip_health_score_D')
         context_modulator_signal_2_name = get_param_value(bg_params.get('context_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         context_modulator_sensitivity_health = get_param_value(bg_params.get('context_modulator_sensitivity_health'), 0.4)
         context_modulator_sensitivity_volatility = get_param_value(bg_params.get('context_modulator_sensitivity_volatility'), 0.3)
-        # V9.1 新增指标参数
         upward_impulse_strength_weight = get_param_value(bg_params.get('upward_impulse_strength_weight'), 0.1)
         downward_impulse_strength_weight = get_param_value(bg_params.get('downward_impulse_strength_weight'), 0.1)
         mf_cost_zone_buy_intent_weight = get_param_value(bg_params.get('mf_cost_zone_buy_intent_weight'), 0.1)
         mf_cost_zone_sell_intent_weight = get_param_value(bg_params.get('mf_cost_zone_sell_intent_weight'), 0.1)
-        # --- 信号依赖校验 ---
         required_signals = [
             'dominant_peak_solidity_D', 'support_validation_strength_D', 'chip_fault_blockage_ratio_D',
             'pressure_rejection_strength_D', 'vacuum_zone_magnitude_D', 'vacuum_traversal_efficiency_D',
             'SLOPE_5_support_validation_strength_D', 'SLOPE_5_pressure_rejection_strength_D',
             deception_signal_name, chip_fault_signal_name,
             context_modulator_signal_1_name, context_modulator_signal_2_name,
-            # V9.1 新增筹码指标
             'upward_impulse_strength_D', 'downward_impulse_strength_D',
             'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_battlefield_geography"):
             return pd.Series(0.0, index=df.index)
-        # --- 原始数据获取 ---
-        peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5, method_name="_diagnose_battlefield_geography")
-        support_validation = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_battlefield_geography")
-        fault_blockage = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5, method_name="_diagnose_battlefield_geography")
-        pressure_rejection = self._get_safe_series(df, df, 'pressure_rejection_strength_D', 0.5, method_name="_diagnose_battlefield_geography")
-        vacuum_magnitude = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_battlefield_geography")
-        vacuum_efficiency = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_battlefield_geography")
-        support_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_support_validation_strength_D', 0.0, method_name="_diagnose_battlefield_geography")
-        resistance_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_pressure_rejection_strength_D', 0.0, method_name="_diagnose_battlefield_geography")
-        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_battlefield_geography")
-        chip_fault_raw = self._get_safe_series(df, df, chip_fault_signal_name, 0.0, method_name="_diagnose_battlefield_geography")
-        chip_health_raw = self._get_safe_series(df, df, context_modulator_signal_1_name, 0.0, method_name="_diagnose_battlefield_geography")
-        volatility_instability_raw = self._get_safe_series(df, df, context_modulator_signal_2_name, 0.0, method_name="_diagnose_battlefield_geography")
-        # V9.1 获取新增筹码指标
-        upward_impulse_strength_raw = self._get_safe_series(df, df, 'upward_impulse_strength_D', 0.0, method_name="_diagnose_battlefield_geography")
-        downward_impulse_strength_raw = self._get_safe_series(df, df, 'downward_impulse_strength_D', 0.0, method_name="_diagnose_battlefield_geography")
-        mf_cost_zone_buy_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_buy_intent_D', 0.0, method_name="_diagnose_battlefield_geography")
-        mf_cost_zone_sell_intent_raw = self._get_safe_series(df, df, 'mf_cost_zone_sell_intent_D', 0.0, method_name="_diagnose_battlefield_geography")
-        # --- 1. 下方支撑 (Support Strength) ---
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_battlefield_geography")
+        peak_solidity = signals_data['dominant_peak_solidity_D']
+        support_validation = signals_data['support_validation_strength_D']
+        fault_blockage = signals_data['chip_fault_blockage_ratio_D']
+        pressure_rejection = signals_data['pressure_rejection_strength_D']
+        vacuum_magnitude = signals_data['vacuum_zone_magnitude_D']
+        vacuum_efficiency = signals_data['vacuum_traversal_efficiency_D']
+        support_trend_raw = signals_data['SLOPE_5_support_validation_strength_D']
+        resistance_trend_raw = signals_data['SLOPE_5_pressure_rejection_strength_D']
+        deception_raw = signals_data[deception_signal_name]
+        chip_fault_raw = signals_data[chip_fault_signal_name]
+        chip_health_raw = signals_data[context_modulator_signal_1_name]
+        volatility_instability_raw = signals_data[context_modulator_signal_2_name]
+        upward_impulse_strength_raw = signals_data['upward_impulse_strength_D']
+        downward_impulse_strength_raw = signals_data['downward_impulse_strength_D']
+        mf_cost_zone_buy_intent_raw = signals_data['mf_cost_zone_buy_intent_D']
+        mf_cost_zone_sell_intent_raw = signals_data['mf_cost_zone_sell_intent_D']
         solidity_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, tf_weights)
         validation_score = get_adaptive_mtf_normalized_score(support_validation, df_index, tf_weights)
         support_strength_score = (solidity_score * validation_score).pow(0.5)
-        # V9.1 整合向上脉冲强度和主力成本区买入意图
         norm_upward_impulse_strength = get_adaptive_mtf_normalized_score(upward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
         support_strength_score = support_strength_score * (1 + norm_upward_impulse_strength * upward_impulse_strength_weight + \
                                                               norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight)
         support_strength_score = support_strength_score.clip(0, 1)
-        # --- 2. 上方阻力 (Resistance Strength) ---
         blockage_score = get_adaptive_mtf_normalized_score(fault_blockage, df_index, tf_weights)
         rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection, df_index, tf_weights)
         resistance_strength_score = (blockage_score * rejection_score).pow(0.5)
-        # V9.1 整合向下脉冲强度和主力成本区卖出意图
         norm_downward_impulse_strength = get_adaptive_mtf_normalized_score(downward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
         resistance_strength_score = resistance_strength_score * (1 + norm_downward_impulse_strength * downward_impulse_strength_weight + \
                                                                     norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
         resistance_strength_score = resistance_strength_score.clip(0, 1)
-        # --- 3. 核心地形优势量化 (Core Terrain Advantage Quantification - Bipolar) ---
-        # 正值代表地形有利 (支撑强于阻力)，负值代表地形不利 (阻力强于支撑)
         base_terrain_advantage_score = support_strength_score - resistance_strength_score
-        # --- 4. 最小阻力路径动态调制 (Dynamic Path of Least Resistance Modulation) ---
         norm_vacuum_magnitude = get_adaptive_mtf_normalized_score(vacuum_magnitude, df_index, tf_weights)
         norm_vacuum_efficiency = get_adaptive_mtf_normalized_score(vacuum_efficiency, df_index, tf_weights)
-        path_efficiency = (norm_vacuum_magnitude * norm_vacuum_efficiency).pow(0.5) # 归一化到 [0, 1]
-        # 路径效率越高，对地形优势的放大作用越强
+        path_efficiency = (norm_vacuum_magnitude * norm_vacuum_efficiency).pow(0.5)
         path_modulation_factor = (1 + path_efficiency * path_efficiency_mod_factor).pow(path_efficiency_non_linear_exponent)
-        # --- 5. 动态演化趋势强化 (Dynamic Evolution Trend Reinforcement) ---
-        norm_support_trend = get_adaptive_mtf_normalized_bipolar_score(support_trend_raw, df_index, tf_weights) # 探针输出位置调整
-        norm_resistance_trend = get_adaptive_mtf_normalized_bipolar_score(resistance_trend_raw, df_index, tf_weights) # 探针输出位置调整
-        # 地形优势变化趋势 (正值代表趋势改善，负值代表趋势恶化)
+        norm_support_trend = get_adaptive_mtf_normalized_bipolar_score(support_trend_raw, df_index, tf_weights)
+        norm_resistance_trend = get_adaptive_mtf_normalized_bipolar_score(resistance_trend_raw, df_index, tf_weights)
         terrain_advantage_change = norm_support_trend - norm_resistance_trend
-        # 趋势改善时，对地形优势进行放大；趋势恶化时，对地形优势进行削弱
         dynamic_evolution_modulator = (1 + terrain_advantage_change * dynamic_evolution_mod_factor).pow(dynamic_evolution_non_linear_exponent)
-        dynamic_evolution_modulator = dynamic_evolution_modulator.clip(0.5, 1.5) # 限制调制范围
-        # --- 6. 诡道地形过滤与惩罚 (Deceptive Terrain Filtering & Penalty) ---
-        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights) # 归一化到 [-1, 1]
-        norm_chip_fault = get_adaptive_mtf_normalized_bipolar_score(chip_fault_raw, df_index, tf_weights) # 归一化到 [-1, 1]
+        dynamic_evolution_modulator = dynamic_evolution_modulator.clip(0.5, 1.5)
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights)
+        norm_chip_fault = get_adaptive_mtf_normalized_bipolar_score(chip_fault_raw, df_index, tf_weights)
         deception_filter_factor = pd.Series(1.0, index=df_index)
-        # 地形有利 (base_terrain_advantage_score > 0) 且伴随诱多 (norm_deception > 0) 或虚假支撑 (norm_chip_fault > 0) -> 惩罚
         bull_trap_penalty_mask = (base_terrain_advantage_score > 0) & ((norm_deception > 0) | (norm_chip_fault > 0))
         deception_filter_factor.loc[bull_trap_penalty_mask] = \
             1 - ((norm_deception.loc[bull_trap_penalty_mask].clip(lower=0) * deception_penalty_sensitivity) + \
                  (norm_chip_fault.loc[bull_trap_penalty_mask].clip(lower=0) * chip_fault_penalty_sensitivity)).clip(0, 1)
-        # 地形不利 (base_terrain_advantage_score < 0) 且伴随诱空洗盘 (norm_deception < 0) 或虚假阻力 (norm_chip_fault < 0) -> 缓解
         bear_trap_mitigation_mask = (base_terrain_advantage_score < 0) & ((norm_deception < 0) | (norm_chip_fault < 0))
         deception_filter_factor.loc[bear_trap_mitigation_mask] = \
             1 + ((norm_deception.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity) + \
-                 (norm_chip_fault.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity)).clip(0, 0.5) # 限制缓解幅度
-        deception_filter_factor = deception_filter_factor.clip(0.1, 2.0) # 限制过滤因子范围
-        # --- 7. 情境感知与自适应权重 (Contextual Awareness & Adaptive Weighting) ---
-        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights) # 波动性越高，值越小 (负向影响)
-        # 融合情境调制器：健康度越高，波动性越低，情境因子越接近1，地形信号越可靠
+                 (norm_chip_fault.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity)).clip(0, 0.5)
+        deception_filter_factor = deception_filter_factor.clip(0.1, 2.0)
+        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
         context_modulator = (
             (1 + norm_chip_health * context_modulator_sensitivity_health) *
             (1 + norm_volatility_instability * context_modulator_sensitivity_volatility)
-        ).clip(0.5, 1.5) # 限制调制范围
-        # --- 最终融合 ---
-        # 核心地形优势 * 路径调制 * 动态演化调制 * 诡道过滤 * 情境调制
+        ).clip(0.5, 1.5)
         final_score = base_terrain_advantage_score * path_modulation_factor * dynamic_evolution_modulator * deception_filter_factor * context_modulator
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
@@ -548,6 +491,7 @@ class ChipIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment")
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         holder_sentiment_params = get_param_value(p_conf.get('holder_sentiment_params'), {})
@@ -590,53 +534,50 @@ class ChipIntelligence:
         impurity_resilience_mod_enabled = get_param_value(holder_sentiment_params.get('impurity_resilience_mod_enabled'), True)
         chip_health_slope_impurity_damp_factor = get_param_value(holder_sentiment_params.get('chip_health_slope_impurity_damp_factor'), 0.2)
         structural_tension_impurity_amp_factor = get_param_value(holder_sentiment_params.get('structural_tension_impurity_amp_factor'), 0.2)
-        # 加载 global_context_modulator_enabled 参数
         global_context_modulator_enabled = get_param_value(holder_sentiment_params.get('global_context_modulator_enabled'), True)
         global_context_sensitivity_health = get_param_value(holder_sentiment_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_conviction = get_param_value(holder_sentiment_params.get('global_context_sensitivity_conviction'), 0.3)
-        df_index = df.index
-        chip_health_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        total_loser_rate_raw = self._get_safe_series(df, df, 'total_loser_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        winner_loser_momentum_raw = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_winner_stability_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        accel_5_loser_pain_raw = self._get_safe_series(df, df, 'ACCEL_5_loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_winner_loser_momentum_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        absorption_power = self._get_safe_series(df, df, 'active_buying_support_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        defense_intent = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        capitulation_absorption = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        opening_gap_defense_strength_raw = self._get_safe_series(df, df, 'opening_gap_defense_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        control_solidity_raw = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        order_book_clearing_rate_raw = self._get_safe_series(df, df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_support_validation_raw = self._get_safe_series(df, df, 'SLOPE_5_support_validation_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        accel_5_capitulation_absorption_raw = self._get_safe_series(df, df, 'ACCEL_5_capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_active_buying_support_raw = self._get_safe_series(df, df, 'SLOPE_5_active_buying_support_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        fomo_index_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        profit_taking_quality_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        upper_shadow_selling_pressure_raw = self._get_safe_series(df, df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        rally_distribution_pressure_raw = self._get_safe_series(df, df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        retail_fomo_premium_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_winner_profit_margin_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_profit_margin_avg_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        accel_5_retail_fomo_premium_raw = self._get_safe_series(df, df, 'ACCEL_5_retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        chip_fatigue_raw = self._get_safe_series(df, df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        conviction_flow_buy_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        conviction_flow_sell_intensity_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        deception_lure_long_intensity_raw = self._get_safe_series(df, df, 'deception_lure_long_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        deception_lure_short_intensity_raw = self._get_safe_series(df, df, 'deception_lure_short_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        panic_buy_absorption_contribution_raw = self._get_safe_series(df, df, 'panic_buy_absorption_contribution_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        dip_buy_absorption_strength_raw = self._get_safe_series(df, df, 'dip_buy_absorption_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_chip_health_raw = self._get_safe_series(df, df, 'SLOPE_5_chip_health_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        # --- 维度1: 信念内核 (Belief Core Score) ---
+        chip_health_raw = signals_data['chip_health_score_D']
+        winner_stability = signals_data['winner_stability_index_D']
+        loser_pain = signals_data['loser_pain_index_D']
+        total_winner_rate_raw = signals_data['total_winner_rate_D']
+        total_loser_rate_raw = signals_data['total_loser_rate_D']
+        winner_loser_momentum_raw = signals_data['winner_loser_momentum_D']
+        slope_5_winner_stability_raw = signals_data['SLOPE_5_winner_stability_index_D']
+        accel_5_loser_pain_raw = signals_data['ACCEL_5_loser_pain_index_D']
+        slope_5_winner_loser_momentum_raw = signals_data['SLOPE_5_winner_loser_momentum_D']
+        absorption_power = signals_data['active_buying_support_D']
+        defense_intent = signals_data['support_validation_strength_D']
+        capitulation_absorption = signals_data['capitulation_absorption_index_D']
+        opening_gap_defense_strength_raw = signals_data['opening_gap_defense_strength_D']
+        control_solidity_raw = signals_data['control_solidity_index_D']
+        order_book_clearing_rate_raw = signals_data['order_book_clearing_rate_D']
+        micro_price_impact_asymmetry_raw = signals_data['micro_price_impact_asymmetry_D']
+        slope_5_support_validation_raw = signals_data['SLOPE_5_support_validation_strength_D']
+        accel_5_capitulation_absorption_raw = signals_data['ACCEL_5_capitulation_absorption_index_D']
+        slope_5_active_buying_support_raw = signals_data['SLOPE_5_active_buying_support_D']
+        fomo_index_raw = signals_data['winner_concentration_90pct_D']
+        profit_taking_quality_raw = signals_data['winner_profit_margin_avg_D']
+        upper_shadow_selling_pressure_raw = signals_data['upper_shadow_selling_pressure_D']
+        rally_distribution_pressure_raw = signals_data['rally_distribution_pressure_D']
+        retail_fomo_premium_raw = signals_data['retail_fomo_premium_index_D']
+        slope_5_winner_profit_margin_raw = signals_data['SLOPE_5_winner_profit_margin_avg_D']
+        accel_5_retail_fomo_premium_raw = signals_data['ACCEL_5_retail_fomo_premium_index_D']
+        chip_fatigue_raw = signals_data['chip_fatigue_index_D']
+        deception_raw = signals_data[deception_signal_name]
+        deception_index_raw = signals_data['deception_index_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
+        flow_credibility_raw = signals_data['flow_credibility_index_D']
+        conviction_flow_buy_intensity_raw = signals_data['conviction_flow_buy_intensity_D']
+        conviction_flow_sell_intensity_raw = signals_data['conviction_flow_sell_intensity_D']
+        deception_lure_long_intensity_raw = signals_data['deception_lure_long_intensity_D']
+        deception_lure_short_intensity_raw = signals_data['deception_lure_short_intensity_D']
+        panic_buy_absorption_contribution_raw = signals_data['panic_buy_absorption_contribution_D']
+        dip_buy_absorption_strength_raw = signals_data['dip_buy_absorption_strength_D']
+        structural_tension_raw = signals_data['structural_tension_index_D']
+        slope_5_chip_health_raw = signals_data['SLOPE_5_chip_health_score_D']
         norm_winner_stability = get_adaptive_mtf_normalized_bipolar_score(winner_stability, df_index, tf_weights)
         norm_loser_pain = get_adaptive_mtf_normalized_bipolar_score(loser_pain, df_index, tf_weights)
         norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -645,7 +586,7 @@ class ChipIntelligence:
         norm_slope_5_winner_stability = get_adaptive_mtf_normalized_bipolar_score(slope_5_winner_stability_raw, df_index, tf_weights)
         norm_accel_5_loser_pain = get_adaptive_mtf_normalized_bipolar_score(accel_5_loser_pain_raw, df_index, tf_weights)
         norm_slope_5_winner_loser_momentum = get_adaptive_mtf_normalized_bipolar_score(slope_5_winner_loser_momentum_raw, df_index, tf_weights)
-        sentiment_trend_raw = self._get_safe_series(df, df, sentiment_trend_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        sentiment_trend_raw = signals_data[sentiment_trend_modulator_signal_name]
         normalized_sentiment_trend = get_adaptive_mtf_normalized_score(sentiment_trend_raw, df_index, tf_weights=tf_weights, ascending=True)
         x = (normalized_sentiment_trend * sentiment_trend_mod_factor).clip(-0.4, 0.4)
         dynamic_stability_weight = 0.5 + x
@@ -677,7 +618,6 @@ class ChipIntelligence:
             comp_conviction_flow_sell
         ).pow(1 / total_belief_core_weight) * 2 - 1
         belief_core_score = belief_core_score.clip(-1, 1)
-        # --- 维度2: 压力测试 (Pressure Test Score) ---
         norm_absorption_power = get_adaptive_mtf_normalized_bipolar_score(absorption_power, df_index, tf_weights)
         norm_defense_intent = get_adaptive_mtf_normalized_bipolar_score(defense_intent, df_index, tf_weights)
         norm_capitulation_absorption = get_adaptive_mtf_normalized_score(capitulation_absorption, df_index, tf_weights=tf_weights)
@@ -709,21 +649,20 @@ class ChipIntelligence:
                 norm_panic_buy_absorption_contribution.pow(base_pressure_test_numeric_weights.get('panic_buy_absorption_contribution', 0.05)) *
                 norm_dip_buy_absorption_strength.pow(base_pressure_test_numeric_weights.get('dip_buy_absorption_strength', 0.05))
             ).pow(1 / total_base_pressure_test_weight) * 2 - 1
-        panic_modulator_raw = self._get_safe_series(df, df, panic_reward_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        panic_modulator_raw = signals_data[panic_reward_modulator_signal_name]
         normalized_panic_modulator = get_adaptive_mtf_normalized_score(panic_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
         panic_reward_adjustment_factor = np.tanh(normalized_panic_modulator * panic_reward_mod_tanh_factor) * panic_reward_mod_factor
         dynamic_capitulation_reward_multiplier = capitulation_base_reward_multiplier * (1 + panic_reward_adjustment_factor)
         dynamic_capitulation_reward_multiplier = dynamic_capitulation_reward_multiplier.clip(0.1, 0.8)
         capitulation_bonus = norm_capitulation_absorption * dynamic_capitulation_reward_multiplier
         deception_impact = pd.Series(0.0, index=df_index)
-        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        deception_raw = signals_data[deception_signal_name]
         if deception_factor_enabled:
             negative_deception = deception_raw.clip(upper=0).abs()
             normalized_negative_deception = get_adaptive_mtf_normalized_score(negative_deception, df_index, tf_weights)
             deception_impact = normalized_negative_deception * deception_impact_factor
         pressure_test_score = base_pressure_score * (1 + capitulation_bonus + deception_impact)
         pressure_test_score = pressure_test_score.clip(-1, 1)
-        # --- 动态融合信念内核与压力测试 ---
         s_belief_core = belief_core_score.add(1)/2
         s_pressure_test = pressure_test_score.add(1)/2
         dynamic_belief_core_weight = pd.Series(0.5, index=df_index)
@@ -732,7 +671,6 @@ class ChipIntelligence:
             dynamic_pressure_test_weight = min_pressure_weight + (max_pressure_weight - min_pressure_weight) * normalized_panic_modulator
             dynamic_belief_core_weight = 1.0 - dynamic_pressure_test_weight
         conviction_base = (s_belief_core.pow(dynamic_belief_core_weight) * s_pressure_test.pow(dynamic_pressure_test_weight))
-        # --- 诡道因子 (Deception Factors) ---
         positive_deception_penalty = pd.Series(0.0, index=df_index)
         if positive_deception_penalty_enabled:
             positive_deception_raw = deception_raw.clip(lower=0)
@@ -750,7 +688,6 @@ class ChipIntelligence:
         conviction_base.loc[deception_penalty_mask] = conviction_base.loc[deception_penalty_mask] * (1 - norm_deception_index_bipolar.loc[deception_penalty_mask] * deception_modulator_weights.get('deception_index_boost', 0.5))
         conviction_base = conviction_base * (1 - norm_wash_trade_intensity * deception_modulator_weights.get('wash_trade_penalty', 0.3))
         conviction_base = conviction_base.clip(0, 1)
-        # --- 杂质削弱 (Impurity Score) ---
         norm_fomo_deviation = get_adaptive_mtf_normalized_score((fomo_index_raw - fomo_concentration_optimal_target).abs(), df_index, tf_weights=tf_weights)
         profit_taking_quality_thresholded = (profit_taking_quality_raw - profit_taking_threshold).clip(lower=0)
         norm_profit_taking_quality = get_adaptive_mtf_normalized_score(profit_taking_quality_thresholded, df_index, tf_weights=tf_weights)
@@ -784,7 +721,7 @@ class ChipIntelligence:
                 ).pow(1 / total_context_modulator_weight)
                 context_adjustment_factor = context_adjustment_factor * (1 + (fused_context_modulator - 0.5) * 0.5)
             if impurity_context_modulation_enabled:
-                context_modulator_raw = self._get_safe_series(df, df, impurity_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
+                context_modulator_raw = signals_data[impurity_context_modulator_signal_name]
                 normalized_context_modulator = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
                 overbought_mask = normalized_context_modulator > 0.7
                 oversold_mask = normalized_context_modulator < 0.3
@@ -825,7 +762,6 @@ class ChipIntelligence:
             final_impurity_effect = final_impurity_effect.clip(0, 1)
         else:
             final_impurity_effect = pd.Series(0.0, index=df_index)
-        # --- 全局情境调制器 (Global Context Modulators) ---
         global_modulator_effect = pd.Series(1.0, index=df_index)
         if global_context_modulator_enabled:
             norm_global_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -857,11 +793,9 @@ class ChipIntelligence:
             'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D',
             'chip_health_score_D', 'chip_fault_magnitude_D', 'SLOPE_5_vacuum_zone_magnitude_D',
             'vacuum_traversal_efficiency_D',
-            # V7.2 新增筹码指标
-            'upward_impulse_strength_D'
+            'upward_impulse_strength_D',
+            'SLOPE_5_chip_health_score_D' # Added for engine_power_dynamic_weight_modulator_signal_name
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
-            return pd.Series(0.0, index=df.index)
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         trend_momentum_params = get_param_value(p_conf.get('trend_momentum_params'), {})
@@ -884,24 +818,26 @@ class ChipIntelligence:
             'battlefield_geography': {'signal': "battlefield_geography", 'weight': 0.3, 'sensitivity': 0.3},
             'holder_sentiment': {'signal': "holder_sentiment", 'weight': 0.2, 'sensitivity': 0.2}
         })
-        # V7.2 新增向上脉冲强度权重
         upward_impulse_strength_weight = get_param_value(trend_momentum_params.get('upward_impulse_strength_weight'), 0.2)
-        df_index = df.index
-        # [修改代码块] 创建信号映射字典
+        # Ensure modulator signals are in required_signals
+        if engine_power_dynamic_weight_modulator_signal_name not in required_signals:
+            required_signals.append(engine_power_dynamic_weight_modulator_signal_name)
+        if synergy_bonus_context_modulator_signal_name not in required_signals:
+            required_signals.append(synergy_bonus_context_modulator_signal_name)
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
+            return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum")
         signal_map = {
             "strategic_posture": strategic_posture,
             "battlefield_geography": battlefield_geography,
             "holder_sentiment": holder_sentiment
         }
-        # --- 1. 引擎功率 (Engine Power) ---
-        # 静态引擎功率：由战略态势、战场地形、持仓信念韧性融合而成
         static_engine_power = (
             strategic_posture * health_weights['posture'] +
             battlefield_geography * health_weights['geography'] +
             holder_sentiment * health_weights['sentiment']
         )
-        # 动态调整静态和动态引擎功率的融合权重
-        health_score_slope_raw = self._get_safe_series(df, df, engine_power_dynamic_weight_modulator_signal_name, 0.0, method_name="_diagnose_axiom_trend_momentum")
+        health_score_slope_raw = signals_data[engine_power_dynamic_weight_modulator_signal_name]
         norm_health_score_slope = get_adaptive_mtf_normalized_bipolar_score(health_score_slope_raw, df_index, tf_weights)
         dynamic_weight_mod = (norm_health_score_slope * engine_power_dynamic_weight_sensitivity).clip(-0.5, 0.5)
         current_static_weight = (static_engine_power_base_weight - dynamic_weight_mod).clip(0.1, 0.9)
@@ -909,37 +845,28 @@ class ChipIntelligence:
         sum_current_weights = current_static_weight + current_dynamic_weight
         current_static_weight = current_static_weight / sum_current_weights
         current_dynamic_weight = current_dynamic_weight / sum_current_weights
-        # 动态引擎功率：由静态引擎功率的速度和加速度组成
         slope = static_engine_power.diff(1).fillna(0)
         accel = slope.diff(1).fillna(0)
         norm_slope = get_adaptive_mtf_normalized_bipolar_score(slope, df_index, tf_weights)
         norm_accel = get_adaptive_mtf_normalized_bipolar_score(accel, df_index, tf_weights)
         dynamic_engine_power = (norm_slope.add(1)/2 * norm_accel.clip(lower=-1, upper=1).add(1)/2).pow(0.5) * 2 - 1
-        # 融合静态和动态引擎功率
         engine_power_score = static_engine_power * current_static_weight + dynamic_engine_power * current_dynamic_weight
-        # --- 2. 燃料品质 (Fuel Quality) ---
-        conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
-        impulse_purity_raw = self._get_safe_series(df, df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
-        # V7.2 获取向上脉冲强度
-        upward_impulse_strength_raw = self._get_safe_series(df, df, 'upward_impulse_strength_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
+        conviction_raw = signals_data['main_force_conviction_index_D']
+        impulse_purity_raw = signals_data['upward_impulse_purity_D']
+        upward_impulse_strength_raw = signals_data['upward_impulse_strength_D']
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights)
         purity_score = get_adaptive_mtf_normalized_bipolar_score(impulse_purity_raw, df_index, tf_weights)
-        # V7.2 归一化向上脉冲强度
         norm_upward_impulse_strength = get_adaptive_mtf_normalized_score(upward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 基础燃料品质：由主力信念和上涨脉冲纯度融合
         base_fuel_quality = ((conviction_score.add(1)/2) * (purity_score.add(1)/2)).pow(0.5) * 2 - 1
-        # V7.2 整合向上脉冲强度到燃料品质
         base_fuel_quality = base_fuel_quality * (1 + norm_upward_impulse_strength * upward_impulse_strength_weight)
-        base_fuel_quality = base_fuel_quality.clip(-1, 1) # 确保分数在 [-1, 1] 范围内
-        # 诡道调制：筹码故障（诱多）对燃料品质的惩罚
-        chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
+        base_fuel_quality = base_fuel_quality.clip(-1, 1)
+        chip_fault_raw = signals_data['chip_fault_magnitude_D']
         norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         deception_penalty = pd.Series(0.0, index=df_index)
-        positive_fault_mask = chip_fault_raw > 0 # 正向筹码故障通常代表诱多
+        positive_fault_mask = chip_fault_raw > 0
         deception_penalty.loc[positive_fault_mask] = norm_chip_fault.loc[positive_fault_mask] * fuel_purity_deception_penalty_factor
         fuel_quality_score_after_deception = base_fuel_quality * (1 - deception_penalty.clip(0, 1))
-        # 协同奖励：当主力信念和脉冲纯度都高时，给予额外奖励
-        synergy_context_raw = self._get_safe_series(df, df, synergy_bonus_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_trend_momentum")
+        synergy_context_raw = signals_data[synergy_bonus_context_modulator_signal_name]
         norm_synergy_context = get_adaptive_mtf_normalized_score(synergy_context_raw, df_index, ascending=True, tf_weights=tf_weights)
         dynamic_synergy_bonus_factor = synergy_bonus_base * (1 + norm_synergy_context * synergy_bonus_context_sensitivity)
         dynamic_synergy_bonus_factor = dynamic_synergy_bonus_factor.clip(0.1, 0.5)
@@ -949,10 +876,9 @@ class ChipIntelligence:
         synergy_activation = ((synergy_potential - synergy_activation_threshold) / (1 - synergy_activation_threshold)).clip(0, 1)
         synergy_bonus = synergy_activation * dynamic_synergy_bonus_factor
         fuel_quality_score = fuel_quality_score_after_deception + synergy_bonus
-        # --- 3. 喷管效率 (Nozzle Efficiency) ---
-        vacuum_magnitude_raw = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
-        vacuum_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
-        vacuum_traversal_raw = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
+        vacuum_magnitude_raw = signals_data['vacuum_zone_magnitude_D']
+        vacuum_trend_raw = signals_data['SLOPE_5_vacuum_zone_magnitude_D']
+        vacuum_traversal_raw = signals_data['vacuum_traversal_efficiency_D']
         norm_vacuum_magnitude = get_adaptive_mtf_normalized_bipolar_score(vacuum_magnitude_raw, df_index, tf_weights)
         norm_vacuum_trend = get_adaptive_mtf_normalized_bipolar_score(vacuum_trend_raw, df_index, tf_weights)
         norm_traversal_efficiency = get_adaptive_mtf_normalized_bipolar_score(vacuum_traversal_raw, df_index, tf_weights)
@@ -961,11 +887,9 @@ class ChipIntelligence:
             norm_vacuum_trend * nozzle_efficiency_weights.get('trend', 0.3) +
             norm_traversal_efficiency * nozzle_efficiency_weights.get('traversal', 0.2)
         ).clip(-1, 1)
-        # --- 4. 最终融合 (Final Fusion) ---
         engine_score_normalized = engine_power_score.add(1)/2
         fuel_score_normalized = fuel_quality_score.clip(-1, 1).add(1)/2
         nozzle_score_normalized = nozzle_efficiency_score.add(1)/2
-        # 动态调整最终融合权重
         final_engine_weight = pd.Series(final_fusion_weights_base.get('engine', 0.33), index=df_index)
         final_fuel_weight = pd.Series(final_fusion_weights_base.get('fuel', 0.33), index=df_index)
         final_nozzle_weight = pd.Series(final_fusion_weights_base.get('nozzle', 0.34), index=df_index)
@@ -986,22 +910,16 @@ class ChipIntelligence:
                 normalized_fusion_modulator = context_fusion_modulator
             else:
                 normalized_fusion_modulator = pd.Series(0.0, index=df_index)
-            # 根据情境调制器调整各维度的权重
             engine_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('engine', 0.5)
             fuel_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('fuel', 0.5)
-            nozzle_mod = -normalized_fusion_modulator * final_fusion_weights_sensitivity.get('nozzle', 0.5) # 喷管效率在情境好时权重降低，情境差时权重增加
+            nozzle_mod = -normalized_fusion_modulator * final_fusion_weights_sensitivity.get('nozzle', 0.5)
             final_engine_weight = (final_fusion_weights_base.get('engine', 0.33) + engine_mod).clip(0.1, 0.6)
             final_fuel_weight = (final_fusion_weights_base.get('fuel', 0.33) + fuel_mod).clip(0.1, 0.6)
             final_nozzle_weight = (final_fusion_weights_base.get('nozzle', 0.34) + nozzle_mod).clip(0.1, 0.6)
-            # 重新归一化动态权重，使其和为1
             sum_dynamic_fusion_weights = final_engine_weight + final_fuel_weight + final_nozzle_weight
-            # 修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
             final_engine_weight = final_engine_weight / sum_dynamic_fusion_weights
-            # 修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
             final_fuel_weight = final_fuel_weight / sum_dynamic_fusion_weights
-            # 修正变量名 sum_dynamic_weights 为 sum_dynamic_fusion_weights
             final_nozzle_weight = final_nozzle_weight / sum_dynamic_fusion_weights
-        # 最终融合得分
         final_score = (
             engine_score_normalized.pow(final_engine_weight) *
             fuel_score_normalized.pow(final_fuel_weight) *
@@ -1029,8 +947,6 @@ class ChipIntelligence:
             'constructive_turnover_ratio_D', 'main_force_conviction_index_D', 'chip_fault_magnitude_D',
             'chip_health_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D'
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
-            return pd.Series(0.0, index=df.index)
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         divergence_params = get_param_value(p_conf.get('divergence_params'), {})
@@ -1050,35 +966,41 @@ class ChipIntelligence:
         dynamic_chip_trend_weights_enabled = get_param_value(divergence_params.get('dynamic_chip_trend_weights_enabled'), True)
         chip_trend_weight_modulator_signal_name = get_param_value(divergence_params.get('chip_trend_weight_modulator_signal_name'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         chip_trend_weight_mod_sensitivity = get_param_value(divergence_params.get('chip_trend_weight_mod_sensitivity'), 0.5)
-        df_index = df.index
+        if chip_trend_weight_modulator_signal_name not in required_signals:
+            required_signals.append(chip_trend_weight_modulator_signal_name)
+        if context_modulator_signal_name not in required_signals:
+            required_signals.append(context_modulator_signal_name)
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
+            return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_axiom_divergence")
         dynamic_momentum_weight = pd.Series(chip_trend_momentum_weight_base, index=df_index)
         dynamic_concentration_weight = pd.Series(chip_trend_concentration_weight_base, index=df_index)
         if dynamic_chip_trend_weights_enabled:
-            chip_trend_modulator_raw = self._get_safe_series(df, df, chip_trend_weight_modulator_signal_name, 0.0, method_name="_diagnose_axiom_divergence")
+            chip_trend_modulator_raw = signals_data[chip_trend_weight_modulator_signal_name]
             normalized_chip_trend_modulator = get_adaptive_mtf_normalized_score(chip_trend_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
             dynamic_momentum_weight = chip_trend_momentum_weight_base * (1 + normalized_chip_trend_modulator * chip_trend_weight_mod_sensitivity)
             dynamic_concentration_weight = chip_trend_concentration_weight_base * (1 - normalized_chip_trend_modulator * chip_trend_weight_mod_sensitivity)
             sum_dynamic_weights = dynamic_momentum_weight + dynamic_concentration_weight
             dynamic_momentum_weight = (dynamic_momentum_weight / sum_dynamic_weights).clip(0.1, 0.9)
             dynamic_concentration_weight = (dynamic_concentration_weight / sum_dynamic_weights).clip(0.1, 0.9)
-        chip_momentum_raw = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_divergence")
-        chip_concentration_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_axiom_divergence")
+        chip_momentum_raw = signals_data['winner_loser_momentum_D']
+        chip_concentration_raw = signals_data['winner_concentration_90pct_D']
         norm_chip_momentum = get_adaptive_mtf_normalized_bipolar_score(chip_momentum_raw, df_index, tf_weights)
         norm_chip_concentration = get_adaptive_mtf_normalized_bipolar_score(chip_concentration_raw, df_index, tf_weights)
         composite_chip_trend = (
             norm_chip_momentum * dynamic_momentum_weight +
             norm_chip_concentration * dynamic_concentration_weight
         )
-        price_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_axiom_divergence")
+        price_trend_raw = signals_data['SLOPE_5_close_D']
         norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, tf_weights)
         disagreement_vector = composite_chip_trend - norm_price_trend
         persistence_raw = np.sign(disagreement_vector).rolling(window=13, min_periods=5).sum().fillna(0)
         norm_persistence = get_adaptive_mtf_normalized_score(persistence_raw.abs(), df_index, tf_weights=tf_weights)
-        constructive_turnover_raw = self._get_safe_series(df, df, 'constructive_turnover_ratio_D', 0.0, method_name="_diagnose_axiom_divergence")
+        constructive_turnover_raw = signals_data['constructive_turnover_ratio_D']
         norm_constructive_turnover = get_adaptive_mtf_normalized_score(constructive_turnover_raw, df_index, tf_weights=tf_weights)
         energy_injection = norm_constructive_turnover * disagreement_vector.abs()
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
-        mf_chip_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0)
+        mf_chip_conviction_raw = signals_data['main_force_conviction_index_D']
         norm_mf_chip_conviction = get_adaptive_mtf_normalized_bipolar_score(mf_chip_conviction_raw, df_index, tf_weights)
         is_aligned = (np.sign(disagreement_vector) * np.sign(norm_mf_chip_conviction)) > 0
         intent_strength = norm_mf_chip_conviction.abs()
@@ -1086,7 +1008,7 @@ class ChipIntelligence:
         dynamic_tension_amplifier = pd.Series(tension_magnitude_amplifier_base, index=df_index)
         dynamic_chip_intent_factor_amplifier = pd.Series(chip_intent_factor_amplifier_base, index=df_index)
         if contextual_amplification_enabled:
-            context_modulator_raw = self._get_safe_series(df, df, context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_divergence")
+            context_modulator_raw = signals_data[context_modulator_signal_name]
             normalized_context = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
             dynamic_tension_amplifier = tension_magnitude_amplifier_base * (1 + normalized_context * context_sensitivity_tension)
             dynamic_chip_intent_factor_amplifier = chip_intent_factor_amplifier_base * (1 + normalized_context * context_sensitivity_intent)
@@ -1098,7 +1020,7 @@ class ChipIntelligence:
             tension_amplification_term = np.tanh(tension_amplification_term * non_linear_amp_tanh_factor)
             chip_intent_amplification_term = np.tanh(chip_intent_amplification_term * non_linear_amp_tanh_factor)
         chip_intent_factor = 1.0 + chip_intent_amplification_term
-        chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0)
+        chip_fault_raw = signals_data['chip_fault_magnitude_D']
         norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         divergence_sign = np.sign(disagreement_vector)
         fault_sign = np.sign(chip_fault_raw)
@@ -1116,7 +1038,7 @@ class ChipIntelligence:
         final_score = np.tanh(np.arctanh(safe_base_score) * conflict_amplifier)
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
-    def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series: # 增加 holder_sentiment_scores 参数
+    def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
         【V7.18 · 最终分数敏感度动态版 (生产就绪版)】诊断筹码同调驱动力
         一个基于“引擎-传动”思想的终极信号，旨在量化筹码结构对上涨意愿的真实转化效率。
@@ -1137,7 +1059,6 @@ class ChipIntelligence:
         高分代表市场不仅想涨，而且其内部筹码结构健康且具备高效转化这种意愿的能力。
         """
         df_index = df.index
-        # 根据 self.debug_params 设置 probe_date
         p_conf = self.chip_ultimate_params
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
         base_amplification_power = get_param_value(coherent_drive_params.get('amplification_power'), 1.2)
@@ -1159,8 +1080,8 @@ class ChipIntelligence:
         cost_structure_impact_base_factor_bullish = get_param_value(coherent_drive_params.get('cost_structure_impact_base_factor_bullish'), 1.0)
         cost_structure_impact_base_factor_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_base_factor_bearish'), 1.0)
         cost_structure_impact_sentiment_sensitivity_bullish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_sensitivity_bullish'), 1.0)
-        cost_structure_impact_sentiment_sensitivity_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_sensitivity_bearish'), 1.0)
         cost_structure_impact_sentiment_tanh_factor_bullish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_tanh_factor_bullish'), 1.0)
+        cost_structure_impact_sentiment_sensitivity_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_sensitivity_bearish'), 1.0)
         cost_structure_impact_sentiment_tanh_factor_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_tanh_factor_bearish'), 1.0)
         sentiment_cost_structure_coupling_enabled = get_param_value(coherent_drive_params.get('sentiment_cost_structure_coupling_enabled'), False)
         sentiment_coupling_base_factor = get_param_value(coherent_drive_params.get('sentiment_coupling_base_factor'), 1.0)
@@ -1218,19 +1139,18 @@ class ChipIntelligence:
         dynamic_structural_power_sensitivity_amp = pd.Series(default_structural_power_sensitivity_amp, index=df.index)
         dynamic_structural_power_sensitivity_damp = pd.Series(default_structural_power_sensitivity_damp, index=df.index)
         dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
-        # 添加信号依赖校验
         required_signals = [
-            'chip_health_score_D', # 用于 current_chip_health_score_raw
+            'chip_health_score_D',
         ]
-        # 动态添加调制器信号，如果它们与默认值不同或尚未添加
         if chip_sensitivity_modulator_signal_name not in required_signals:
             required_signals.append(chip_sensitivity_modulator_signal_name)
         if final_score_modulator_signal_name not in required_signals:
             required_signals.append(final_score_modulator_signal_name)
         if not self._validate_required_signals(df, required_signals, "_diagnose_structural_consensus"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_structural_consensus")
         if chip_health_modulation_enabled:
-            current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
+            current_chip_health_score_raw = signals_data['chip_health_score_D']
             normalized_chip_health = get_adaptive_mtf_normalized_bipolar_score(
                 current_chip_health_score_raw,
                 df.index,
@@ -1247,11 +1167,10 @@ class ChipIntelligence:
                 base_damp_sensitivity_series.loc[positive_health_mask] = chip_health_sensitivity_damp_positive_health
                 base_damp_sensitivity_series.loc[negative_health_mask] = chip_health_sensitivity_damp_negative_health
             if chip_health_sensitivity_modulation_enabled:
-                modulator_signal_raw = self._get_safe_series(df, df, chip_sensitivity_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
-                # 修正 normalize_score 的调用参数，添加 df_index
+                modulator_signal_raw = signals_data[chip_sensitivity_modulator_signal_name]
                 normalized_modulator_signal = normalize_score(
                     modulator_signal_raw,
-                    df_index, # 添加 df_index
+                    df_index,
                     window=chip_sensitivity_mod_norm_window,
                     ascending=True
                 )
@@ -1261,7 +1180,7 @@ class ChipIntelligence:
                 dynamic_chip_health_sensitivity_amp = base_amp_sensitivity_series * (1 + non_linear_modulator_effect_amp * chip_sensitivity_mod_factor_amp)
                 dynamic_chip_health_sensitivity_damp = base_damp_sensitivity_series * (1 + non_linear_modulator_effect_damp * chip_sensitivity_mod_factor_damp)
                 dynamic_chip_health_sensitivity_amp = dynamic_chip_health_sensitivity_amp.clip(base_amp_sensitivity_series * 0.1, base_amp_sensitivity_series * 2.0)
-                dynamic_chip_health_sensitivity_damp = dynamic_chip_health_sensitivity_damp.clip(base_damp_sensitivity_series * 0.1, base_damp_sensitivity_series * 2.0) # 修正变量名
+                dynamic_chip_health_sensitivity_damp = dynamic_chip_health_sensitivity_damp.clip(base_damp_sensitivity_series * 0.1, base_damp_sensitivity_series * 2.0)
             else:
                 dynamic_chip_health_sensitivity_amp = base_amp_sensitivity_series
                 dynamic_chip_health_sensitivity_damp = base_damp_sensitivity_series
@@ -1269,8 +1188,8 @@ class ChipIntelligence:
             modulated_chip_health_damp = np.tanh(normalized_chip_health * chip_health_tanh_factor_damp)
             amplification_power = base_amplification_power * (1 + modulated_chip_health_amp * dynamic_chip_health_sensitivity_amp)
             dampening_power = base_dampening_power * (1 - modulated_chip_health_damp * dynamic_chip_health_sensitivity_damp)
-            amplification_power = amplification_power.clip(0.5, 2.0) 
-            dampening_power = dampening_power.clip(0.5, 2.0) 
+            amplification_power = amplification_power.clip(0.5, 2.0)
+            dampening_power = dampening_power.clip(0.5, 2.0)
         if dynamic_neutrality_thresholds_enabled:
             dynamic_sentiment_neutrality_threshold = sentiment_neutrality_base_threshold + (normalized_chip_health * sentiment_neutrality_chip_health_sensitivity)
             dynamic_cost_structure_neutrality_threshold = cost_structure_neutrality_base_threshold + (normalized_chip_health * cost_structure_neutrality_chip_health_sensitivity)
@@ -1352,10 +1271,10 @@ class ChipIntelligence:
         modulation_factor.loc[bearish_headwind_mask] = (1 - final_cost_structure_for_modulation_scaled.loc[bearish_headwind_mask]) ** dampening_power.loc[bearish_headwind_mask]
         coherent_drive_raw = activated_holder_sentiment_scores * modulation_factor
         if final_score_sensitivity_modulation_enabled:
-            final_score_modulator_signal_raw = self._get_safe_series(df, df, final_score_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
+            final_score_modulator_signal_raw = signals_data[final_score_modulator_signal_name]
             final_score_normalized_modulator_signal = normalize_score(
                 final_score_modulator_signal_raw,
-                df_index, # 添加 df_index
+                df_index,
                 window=final_score_mod_norm_window,
                 ascending=True
             )
@@ -1406,15 +1325,15 @@ class ChipIntelligence:
             'ACCEL_5_main_force_cost_advantage_D', 'SLOPE_5_main_force_flow_directionality_D',
             'ACCEL_5_main_force_vpoc_D', 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D',
             'flow_credibility_index_D',
-            # V5.1 新增筹码指标
-            'supportive_distribution_intensity_D'
+            'supportive_distribution_intensity_D',
+            'vwap_control_strength_D', 'vwap_crossing_intensity_D', 'micro_price_impact_asymmetry_D' # Added missing signals
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_absorption_echo"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_absorption_echo")
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         absorption_echo_params = get_param_value(p_conf.get('absorption_echo_params'), {})
-        # --- 参数加载 ---
         panic_source_weights = get_param_value(absorption_echo_params.get('panic_source_weights'), {})
         panic_context_threshold = get_param_value(absorption_echo_params.get('panic_context_threshold'), 0.3)
         counter_flow_medium_weights = get_param_value(absorption_echo_params.get('counter_flow_medium_weights'), {})
@@ -1422,68 +1341,63 @@ class ChipIntelligence:
         deception_modulator_params = get_param_value(absorption_echo_params.get('deception_modulator_params'), {})
         final_fusion_exponent = get_param_value(absorption_echo_params.get('final_fusion_exponent'), 0.25)
         context_modulator_weights = get_param_value(absorption_echo_params.get('context_modulator_weights'), {})
-        # V5.1 新增支持性派发强度权重
         supportive_distribution_penalty_factor = get_param_value(absorption_echo_params.get('supportive_distribution_penalty_factor'), 0.2)
-        df_index = df.index
-        # --- 原始数据获取 ---
-        retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        loser_pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        chip_fatigue_raw = self._get_safe_series(df, df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        panic_selling_cascade_raw = self._get_safe_series(df, df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_absorption_echo")
-        total_loser_rate_raw = self._get_safe_series(df, df, 'total_loser_rate_D', 0.0, method_name="_diagnose_absorption_echo")
-        loser_loss_margin_avg_raw = self._get_safe_series(df, df, 'loser_loss_margin_avg_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_loser_pain_raw = self._get_safe_series(df, df, 'SLOPE_5_loser_pain_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_chip_fatigue_raw = self._get_safe_series(df, df, 'ACCEL_5_chip_fatigue_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_total_loser_rate_raw = self._get_safe_series(df, df, 'ACCEL_5_total_loser_rate_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_retail_panic_surrender_raw = self._get_safe_series(df, df, 'SLOPE_5_retail_panic_surrender_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_structural_tension_raw = self._get_safe_series(df, df, 'ACCEL_5_structural_tension_index_D', 0.0, method_name="_diagnose_absorption_echo")
+        retail_panic_surrender_raw = signals_data['retail_panic_surrender_index_D']
+        loser_pain_raw = signals_data['loser_pain_index_D']
+        chip_fatigue_raw = signals_data['chip_fatigue_index_D']
+        structural_tension_raw = signals_data['structural_tension_index_D']
+        panic_selling_cascade_raw = signals_data['panic_selling_cascade_D']
+        total_loser_rate_raw = signals_data['total_loser_rate_D']
+        loser_loss_margin_avg_raw = signals_data['loser_loss_margin_avg_D']
+        slope_5_loser_pain_raw = signals_data['SLOPE_5_loser_pain_index_D']
+        accel_5_chip_fatigue_raw = signals_data['ACCEL_5_chip_fatigue_index_D']
+        volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
+        accel_5_total_loser_rate_raw = signals_data['ACCEL_5_total_loser_rate_D']
+        slope_5_retail_panic_surrender_raw = signals_data['SLOPE_5_retail_panic_surrender_index_D']
+        accel_5_structural_tension_raw = signals_data['ACCEL_5_structural_tension_index_D']
         divergence_bullish_raw = divergence_scores
-        capitulation_absorption_raw = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        cleansing_efficiency_raw = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_absorption_echo")
-        support_validation_raw = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_execution_alpha_raw = self._get_safe_series(df, df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_absorption_echo")
-        active_buying_support_raw = self._get_safe_series(df, df, 'active_buying_support_D', 0.0, method_name="_diagnose_absorption_echo")
-        opening_gap_defense_strength_raw = self._get_safe_series(df, df, 'opening_gap_defense_strength_D', 0.0, method_name="_diagnose_absorption_echo")
-        control_solidity_raw = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_support_validation_raw = self._get_safe_series(df, df, 'SLOPE_5_support_validation_strength_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_main_force_execution_alpha_raw = self._get_safe_series(df, df, 'ACCEL_5_main_force_execution_alpha_D', 0.0, method_name="_diagnose_absorption_echo")
-        order_book_clearing_rate_raw = self._get_safe_series(df, df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_floating_chip_cleansing_raw = self._get_safe_series(df, df, 'SLOPE_5_floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_order_book_clearing_raw = self._get_safe_series(df, df, 'ACCEL_5_order_book_clearing_rate_D', 0.0, method_name="_diagnose_absorption_echo")
-        micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'SLOPE_5_micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_absorption_echo")
-        vwap_control_strength_raw = self._get_safe_series(df, df, 'vwap_control_strength_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_vwap_control_strength_raw = self._get_safe_series(df, df, 'SLOPE_5_vwap_control_strength_D', 0.0, method_name="_diagnose_absorption_echo")
-        vwap_crossing_intensity_raw = self._get_safe_series(df, df, 'vwap_crossing_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_vwap_crossing_intensity_raw = self._get_safe_series(df, df, 'ACCEL_5_vwap_crossing_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
-        covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_absorption_echo")
-        suppressive_accumulation_raw = self._get_safe_series(df, df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_absorption_echo")
-        peak_control_transfer_raw = self._get_safe_series(df, df, 'peak_control_transfer_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_net_flow_calibrated_raw = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_flow_directionality_raw = self._get_safe_series(df, df, 'main_force_flow_directionality_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_vpoc_raw = self._get_safe_series(df, df, 'main_force_vpoc_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_activity_ratio_raw = self._get_safe_series(df, df, 'main_force_activity_ratio_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_covert_accumulation_raw = self._get_safe_series(df, df, 'SLOPE_5_covert_accumulation_signal_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_main_force_conviction_raw = self._get_safe_series(df, df, 'ACCEL_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        smart_money_net_buy_raw = self._get_safe_series(df, df, 'SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_covert_accumulation_raw = self._get_safe_series(df, df, 'ACCEL_5_covert_accumulation_signal_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_suppressive_accumulation_raw = self._get_safe_series(df, df, 'SLOPE_5_suppressive_accumulation_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_main_force_cost_advantage_raw = self._get_safe_series(df, df, 'ACCEL_5_main_force_cost_advantage_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_main_force_flow_directionality_raw = self._get_safe_series(df, df, 'SLOPE_5_main_force_flow_directionality_D', 0.0, method_name="_diagnose_absorption_echo")
-        accel_5_main_force_vpoc_raw = self._get_safe_series(df, df, 'ACCEL_5_main_force_vpoc_D', 0.0, method_name="_diagnose_absorption_echo")
-        slope_5_smart_money_net_buy_raw = self._get_safe_series(df, df, 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_absorption_echo")
-        chip_fault_magnitude_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_absorption_echo")
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
-        chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_absorption_echo")
-        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_absorption_echo")
-        # V5.1 获取支持性派发强度
-        supportive_distribution_intensity_raw = self._get_safe_series(df, df, 'supportive_distribution_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
-        # --- 维度1: 恐慌声源 (Panic Source Score) ---
+        capitulation_absorption_raw = signals_data['capitulation_absorption_index_D']
+        cleansing_efficiency_raw = signals_data['floating_chip_cleansing_efficiency_D']
+        support_validation_raw = signals_data['support_validation_strength_D']
+        main_force_execution_alpha_raw = signals_data['main_force_execution_alpha_D']
+        active_buying_support_raw = signals_data['active_buying_support_D']
+        opening_gap_defense_strength_raw = signals_data['opening_gap_defense_strength_D']
+        control_solidity_raw = signals_data['control_solidity_index_D']
+        slope_5_support_validation_raw = signals_data['SLOPE_5_support_validation_strength_D']
+        accel_5_main_force_execution_alpha_raw = signals_data['ACCEL_5_main_force_execution_alpha_D']
+        order_book_clearing_rate_raw = signals_data['order_book_clearing_rate_D']
+        slope_5_floating_chip_cleansing_raw = signals_data['SLOPE_5_floating_chip_cleansing_efficiency_D']
+        accel_5_order_book_clearing_raw = signals_data['ACCEL_5_order_book_clearing_rate_D']
+        micro_price_impact_asymmetry_raw = signals_data['micro_price_impact_asymmetry_D']
+        slope_5_micro_price_impact_asymmetry_raw = signals_data['SLOPE_5_micro_price_impact_asymmetry_D']
+        vwap_control_strength_raw = signals_data['vwap_control_strength_D']
+        slope_5_vwap_control_strength_raw = signals_data['SLOPE_5_vwap_control_strength_D']
+        vwap_crossing_intensity_raw = signals_data['vwap_crossing_intensity_D']
+        accel_5_vwap_crossing_intensity_raw = signals_data['ACCEL_5_vwap_crossing_intensity_D']
+        covert_accumulation_raw = signals_data['covert_accumulation_signal_D']
+        suppressive_accumulation_raw = signals_data['suppressive_accumulation_intensity_D']
+        main_force_cost_advantage_raw = signals_data['main_force_cost_advantage_D']
+        peak_control_transfer_raw = signals_data['peak_control_transfer_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        main_force_net_flow_calibrated_raw = signals_data['main_force_net_flow_calibrated_D']
+        main_force_flow_directionality_raw = signals_data['main_force_flow_directionality_D']
+        main_force_vpoc_raw = signals_data['main_force_vpoc_D']
+        main_force_activity_ratio_raw = signals_data['main_force_activity_ratio_D']
+        slope_5_covert_accumulation_raw = signals_data['SLOPE_5_covert_accumulation_signal_D']
+        accel_5_main_force_conviction_raw = signals_data['ACCEL_5_main_force_conviction_index_D']
+        smart_money_net_buy_raw = signals_data['SMART_MONEY_HM_NET_BUY_D']
+        accel_5_covert_accumulation_raw = signals_data['ACCEL_5_covert_accumulation_signal_D']
+        slope_5_suppressive_accumulation_raw = signals_data['SLOPE_5_suppressive_accumulation_intensity_D']
+        accel_5_main_force_cost_advantage_raw = signals_data['ACCEL_5_main_force_cost_advantage_D']
+        slope_5_main_force_flow_directionality_raw = signals_data['SLOPE_5_main_force_flow_directionality_D']
+        accel_5_main_force_vpoc_raw = signals_data['ACCEL_5_main_force_vpoc_D']
+        slope_5_smart_money_net_buy_raw = signals_data['SLOPE_5_SMART_MONEY_HM_NET_BUY_D']
+        chip_fault_magnitude_raw = signals_data['chip_fault_magnitude_D']
+        deception_index_raw = signals_data['deception_index_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        chip_health_score_raw = signals_data['chip_health_score_D']
+        flow_credibility_raw = signals_data['flow_credibility_index_D']
+        supportive_distribution_intensity_raw = signals_data['supportive_distribution_intensity_D']
         norm_retail_panic_surrender = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_loser_pain = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_chip_fatigue = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1515,7 +1429,6 @@ class ChipIntelligence:
             norm_accel_5_structural_tension.pow(panic_source_numeric_weights.get('structural_tension_accel', 0.05))
         ).pow(1 / total_panic_source_weight)
         is_panic_context = panic_source_score > panic_context_threshold
-        # --- 维度2: 逆流介质 (Counter Flow Medium Score) ---
         norm_divergence_bullish = get_adaptive_mtf_normalized_score(divergence_bullish_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_capitulation_absorption = get_adaptive_mtf_normalized_score(capitulation_absorption_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_cleansing_efficiency = get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1558,7 +1471,6 @@ class ChipIntelligence:
             norm_vwap_crossing_intensity.pow(counter_flow_medium_numeric_weights.get('vwap_crossing_intensity', 0.03)) *
             norm_accel_5_vwap_crossing_intensity.pow(counter_flow_medium_numeric_weights.get('vwap_crossing_intensity_accel', 0.02))
         ).pow(1 / total_counter_flow_medium_weight)
-        # --- 维度3: 主力回声 (Main Force Echo Score) ---
         norm_covert_accumulation = get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_suppressive_accumulation = get_adaptive_mtf_normalized_score(suppressive_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_cost_advantage = get_adaptive_mtf_normalized_score(main_force_cost_advantage_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1599,13 +1511,11 @@ class ChipIntelligence:
             norm_accel_5_main_force_vpoc.pow(main_force_echo_numeric_weights.get('main_force_vpoc_accel', 0.05)) *
             norm_slope_5_smart_money_net_buy.pow(main_force_echo_numeric_weights.get('smart_money_net_buy_slope', 0.05))
         ).pow(1 / total_main_force_echo_weight)
-        # --- 诡道背景调制 (Deception Modulator) ---
         deception_modulator = pd.Series(1.0, index=df_index)
         norm_chip_fault_magnitude_bipolar = get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights)
         norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
-        # V5.1 归一化支持性派发强度
         norm_supportive_distribution_intensity = get_adaptive_mtf_normalized_score(supportive_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         conviction_threshold = deception_modulator_params.get('conviction_threshold', 0.2)
         deception_index_boost_weight = deception_modulator_params.get('deception_index_boost_weight', 0.5)
@@ -1617,10 +1527,8 @@ class ChipIntelligence:
         deception_modulator.loc[deception_penalty_mask] = deception_modulator.loc[deception_penalty_mask] * (1 - norm_deception_index_bipolar.loc[deception_penalty_mask] * deception_index_penalty_weight)
         deception_modulator = deception_modulator * (1 - norm_wash_trade_intensity * wash_trade_penalty_weight)
         deception_modulator = deception_modulator * (1 - norm_chip_fault_magnitude_bipolar.clip(lower=0) * deception_modulator_params.get('penalty_factor', 0.4))
-        # V5.1 整合支持性派发强度作为负向调制
         deception_modulator = deception_modulator * (1 - norm_supportive_distribution_intensity * supportive_distribution_penalty_factor)
         deception_modulator = deception_modulator.clip(0.1, 2.0)
-        # --- 情境调制器 (Contextual Modulators) ---
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_structural_tension = get_adaptive_mtf_normalized_score(structural_tension_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_chip_health_score = get_adaptive_mtf_normalized_score(chip_health_score_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1635,7 +1543,6 @@ class ChipIntelligence:
             ).pow(1 / total_context_modulator_weight)
             context_modulator = 1 + (fused_context_modulator_raw - 0.5) * 0.5
         context_modulator = context_modulator.clip(0.5, 1.5)
-        # --- 最终融合 ---
         base_score = pd.Series(0.0, index=df_index)
         valid_mask = is_panic_context
         if valid_mask.any():
@@ -1659,45 +1566,45 @@ class ChipIntelligence:
         df_index = df.index
         required_signals = [
             'retail_fomo_premium_index_D', 'winner_profit_margin_avg_D', 'THEME_HOTNESS_SCORE_D', 'market_sentiment_score_D', 'winner_concentration_90pct_D',
-            'total_winner_rate_D', 'winner_loser_momentum_D', 'SLOPE_5_winner_loser_momentum_D', # V4.0 新增
+            'total_winner_rate_D', 'winner_loser_momentum_D', 'SLOPE_5_winner_loser_momentum_D',
             'dispersal_by_distribution_D', 'profit_taking_flow_ratio_D', 'chip_fault_magnitude_D',
             'cost_structure_skewness_D', 'winner_stability_index_D', 'chip_fault_blockage_ratio_D',
-            'dominant_peak_profit_margin_D', 'dominant_peak_solidity_D', 'upper_shadow_selling_pressure_D', 'pressure_rejection_strength_D', # V4.0 新增
-            'SLOPE_5_dominant_peak_solidity_D', 'SLOPE_5_pressure_rejection_strength_D', # V4.0 新增
+            'dominant_peak_profit_margin_D', 'dominant_peak_solidity_D', 'upper_shadow_selling_pressure_D', 'pressure_rejection_strength_D',
+            'SLOPE_5_dominant_peak_solidity_D', 'SLOPE_5_pressure_rejection_strength_D',
             'covert_accumulation_signal_D', 'wash_trade_intensity_D', 'main_force_conviction_index_D', 'retail_flow_dominance_index_D',
-            'main_force_net_flow_calibrated_D', 'main_force_slippage_index_D', 'rally_distribution_pressure_D', 'control_solidity_index_D', # V4.0 新增
-            'counterparty_exhaustion_index_D', 'SMART_MONEY_HM_NET_BUY_D', # V4.0 新增
-            'SLOPE_5_main_force_net_flow_calibrated_D', 'ACCEL_5_main_force_slippage_index_D', # V4.0 新增
-            'deception_index_D' # V4.0 新增
+            'main_force_net_flow_calibrated_D', 'main_force_slippage_index_D', 'rally_distribution_pressure_D', 'control_solidity_index_D',
+            'counterparty_exhaustion_index_D', 'SMART_MONEY_HM_NET_BUY_D',
+            'SLOPE_5_main_force_net_flow_calibrated_D', 'ACCEL_5_main_force_slippage_index_D',
+            'deception_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_distribution_whisper"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_distribution_whisper")
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         distribution_whisper_params = get_param_value(p_conf.get('distribution_whisper_params'), {})
-        fomo_backdrop_weights = get_param_value(distribution_whisper_params.get('fomo_backdrop_weights'), {'retail_fomo_premium': 0.2, 'winner_profit_margin': 0.2, 'theme_hotness': 0.15, 'market_sentiment_positive': 0.1, 'winner_concentration_negative': 0.1, 'total_winner_rate': 0.15, 'winner_loser_momentum': 0.05, 'winner_loser_momentum_slope': 0.05}) # V4.0 权重调整
+        fomo_backdrop_weights = get_param_value(distribution_whisper_params.get('fomo_backdrop_weights'), {'retail_fomo_premium': 0.2, 'winner_profit_margin': 0.2, 'theme_hotness': 0.15, 'market_sentiment_positive': 0.1, 'winner_concentration_negative': 0.1, 'total_winner_rate': 0.15, 'winner_loser_momentum': 0.05, 'winner_loser_momentum_slope': 0.05})
         fomo_context_threshold = get_param_value(distribution_whisper_params.get('fomo_context_threshold'), 0.3)
-        divergence_shadow_weights = get_param_value(distribution_whisper_params.get('divergence_shadow_weights'), {'divergence_bearish': 0.15, 'distribution_intensity': 0.15, 'chip_fault_magnitude': 0.1, 'cost_structure_negative': 0.1, 'winner_stability_negative': 0.1, 'chip_fault_blockage': 0.1, 'dominant_peak_profit_margin': 0.1, 'dominant_peak_solidity_negative': 0.05, 'upper_shadow_selling_pressure': 0.05, 'pressure_rejection_strength_negative': 0.05, 'dominant_peak_solidity_slope_negative': 0.025, 'pressure_rejection_strength_slope_negative': 0.025}) # V4.0 权重调整
-        main_force_retreat_weights = get_param_value(distribution_whisper_params.get('main_force_retreat_weights'), {'profit_taking_flow': 0.15, 'dispersal_by_distribution': 0.15, 'covert_accumulation_negative': 0.1, 'wash_trade_intensity': 0.1, 'main_force_conviction_negative': 0.1, 'retail_flow_dominance': 0.1, 'main_force_net_flow_negative': 0.1, 'main_force_slippage': 0.05, 'rally_distribution_pressure': 0.05, 'control_solidity_negative': 0.05, 'counterparty_exhaustion': 0.025, 'smart_money_net_buy_negative': 0.025, 'main_force_net_flow_slope_negative': 0.025, 'main_force_slippage_accel': 0.025}) # V4.0 权重调整
-        deception_modulator_params = get_param_value(distribution_whisper_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5}) # V4.0 权重调整
+        divergence_shadow_weights = get_param_value(distribution_whisper_params.get('divergence_shadow_weights'), {'divergence_bearish': 0.15, 'distribution_intensity': 0.15, 'chip_fault_magnitude': 0.1, 'cost_structure_negative': 0.1, 'winner_stability_negative': 0.1, 'chip_fault_blockage': 0.1, 'dominant_peak_profit_margin': 0.1, 'dominant_peak_solidity_negative': 0.05, 'upper_shadow_selling_pressure': 0.05, 'pressure_rejection_strength_negative': 0.05, 'dominant_peak_solidity_slope_negative': 0.025, 'pressure_rejection_strength_slope_negative': 0.025})
+        main_force_retreat_weights = get_param_value(distribution_whisper_params.get('main_force_retreat_weights'), {'profit_taking_flow': 0.15, 'dispersal_by_distribution': 0.15, 'covert_accumulation_negative': 0.1, 'wash_trade_intensity': 0.1, 'main_force_conviction_negative': 0.1, 'retail_flow_dominance': 0.1, 'main_force_net_flow_negative': 0.1, 'main_force_slippage': 0.05, 'rally_distribution_pressure': 0.05, 'control_solidity_negative': 0.05, 'counterparty_exhaustion': 0.025, 'smart_money_net_buy_negative': 0.025, 'main_force_net_flow_slope_negative': 0.025, 'main_force_slippage_accel': 0.025})
+        deception_modulator_params = get_param_value(distribution_whisper_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5})
         final_fusion_exponent = get_param_value(distribution_whisper_params.get('final_fusion_exponent'), 0.25)
-        # --- 维度1: 狂热背景 (FOMO Backdrop - Pure Chip FOMO) ---
-        retail_fomo_premium_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_distribution_whisper")
-        winner_profit_margin_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_distribution_whisper")
-        theme_hotness_raw = self._get_safe_series(df, df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name="_diagnose_distribution_whisper")
-        market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_distribution_whisper")
-        winner_concentration_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_distribution_whisper")
-        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        winner_loser_momentum_raw = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        slope_5_winner_loser_momentum_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_loser_momentum_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
+        retail_fomo_premium_raw = signals_data['retail_fomo_premium_index_D']
+        winner_profit_margin_raw = signals_data['winner_profit_margin_avg_D']
+        theme_hotness_raw = signals_data['THEME_HOTNESS_SCORE_D']
+        market_sentiment_raw = signals_data['market_sentiment_score_D']
+        winner_concentration_raw = signals_data['winner_concentration_90pct_D']
+        total_winner_rate_raw = signals_data['total_winner_rate_D']
+        winner_loser_momentum_raw = signals_data['winner_loser_momentum_D']
+        slope_5_winner_loser_momentum_raw = signals_data['SLOPE_5_winner_loser_momentum_D']
         norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_winner_profit_margin = get_adaptive_mtf_normalized_score(winner_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_theme_hotness = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_market_sentiment_positive = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights).clip(0, 1)
         norm_winner_concentration_negative = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
-        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
-        norm_winner_loser_momentum = get_adaptive_mtf_normalized_score(winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
-        norm_slope_5_winner_loser_momentum = get_adaptive_mtf_normalized_score(slope_5_winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
+        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_winner_loser_momentum = get_adaptive_mtf_normalized_score(winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_slope_5_winner_loser_momentum = get_adaptive_mtf_normalized_score(slope_5_winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights)
         fomo_backdrop_numeric_weights = {k: v for k, v in fomo_backdrop_weights.items() if isinstance(v, (int, float))}
         total_fomo_backdrop_weight = sum(fomo_backdrop_numeric_weights.values())
         fomo_backdrop_score = (
@@ -1706,35 +1613,34 @@ class ChipIntelligence:
             norm_theme_hotness.pow(fomo_backdrop_numeric_weights.get('theme_hotness', 0.15)) *
             norm_market_sentiment_positive.pow(fomo_backdrop_numeric_weights.get('market_sentiment_positive', 0.1)) *
             norm_winner_concentration_negative.pow(fomo_backdrop_numeric_weights.get('winner_concentration_negative', 0.1)) *
-            norm_total_winner_rate.pow(fomo_backdrop_numeric_weights.get('total_winner_rate', 0.15)) * # V4.0 新增
-            norm_winner_loser_momentum.pow(fomo_backdrop_numeric_weights.get('winner_loser_momentum', 0.05)) * # V4.0 新增
-            norm_slope_5_winner_loser_momentum.pow(fomo_backdrop_numeric_weights.get('winner_loser_momentum_slope', 0.05)) # V4.0 新增
+            norm_total_winner_rate.pow(fomo_backdrop_numeric_weights.get('total_winner_rate', 0.15)) *
+            norm_winner_loser_momentum.pow(fomo_backdrop_numeric_weights.get('winner_loser_momentum', 0.05)) *
+            norm_slope_5_winner_loser_momentum.pow(fomo_backdrop_numeric_weights.get('winner_loser_momentum_slope', 0.05))
         ).pow(1 / total_fomo_backdrop_weight)
         is_fomo_context = fomo_backdrop_score > fomo_context_threshold
-        # --- 维度2: 背离诡影 (Divergence Shadow - Chip-centric Distribution Evidence) ---
         norm_divergence_bearish = divergence_score.clip(-1, 0).abs()
-        dispersal_by_distribution_raw = self._get_safe_series(df, df, 'dispersal_by_distribution_D', 0.0, method_name="_diagnose_distribution_whisper")
-        chip_fault_magnitude_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_distribution_whisper")
-        cost_structure_skewness_raw = self._get_safe_series(df, df, 'cost_structure_skewness_D', 0.0, method_name="_diagnose_distribution_whisper")
-        winner_stability_raw = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_distribution_whisper")
-        chip_fault_blockage_raw = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.0, method_name="_diagnose_distribution_whisper")
-        dominant_peak_profit_margin_raw = self._get_safe_series(df, df, 'dominant_peak_profit_margin_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        dominant_peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        upper_shadow_selling_pressure_raw = self._get_safe_series(df, df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        pressure_rejection_strength_raw = self._get_safe_series(df, df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        slope_5_dominant_peak_solidity_raw = self._get_safe_series(df, df, 'SLOPE_5_dominant_peak_solidity_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        slope_5_pressure_rejection_strength_raw = self._get_safe_series(df, df, 'SLOPE_5_pressure_rejection_strength_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
+        dispersal_by_distribution_raw = signals_data['dispersal_by_distribution_D']
+        chip_fault_magnitude_raw = signals_data['chip_fault_magnitude_D']
+        cost_structure_skewness_raw = signals_data['cost_structure_skewness_D']
+        winner_stability_raw = signals_data['winner_stability_index_D']
+        chip_fault_blockage_raw = signals_data['chip_fault_blockage_ratio_D']
+        dominant_peak_profit_margin_raw = signals_data['dominant_peak_profit_margin_D']
+        dominant_peak_solidity_raw = signals_data['dominant_peak_solidity_D']
+        upper_shadow_selling_pressure_raw = signals_data['upper_shadow_selling_pressure_D']
+        pressure_rejection_strength_raw = signals_data['pressure_rejection_strength_D']
+        slope_5_dominant_peak_solidity_raw = signals_data['SLOPE_5_dominant_peak_solidity_D']
+        slope_5_pressure_rejection_strength_raw = signals_data['SLOPE_5_pressure_rejection_strength_D']
         norm_dispersal_by_distribution = get_adaptive_mtf_normalized_score(dispersal_by_distribution_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_chip_fault_magnitude_for_shadow = get_adaptive_mtf_normalized_score(chip_fault_magnitude_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         norm_cost_structure_negative = get_adaptive_mtf_normalized_score(cost_structure_skewness_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_winner_stability_negative = get_adaptive_mtf_normalized_score(winner_stability_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_chip_fault_blockage = get_adaptive_mtf_normalized_score(chip_fault_blockage_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_dominant_peak_profit_margin = get_adaptive_mtf_normalized_score(dominant_peak_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
-        norm_dominant_peak_solidity_negative = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
-        norm_upper_shadow_selling_pressure = get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
-        norm_pressure_rejection_strength_negative = get_adaptive_mtf_normalized_score(pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
-        norm_slope_5_dominant_peak_solidity_negative = get_adaptive_mtf_normalized_score(slope_5_dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
-        norm_slope_5_pressure_rejection_strength_negative = get_adaptive_mtf_normalized_score(slope_5_pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
+        norm_dominant_peak_profit_margin = get_adaptive_mtf_normalized_score(dominant_peak_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_dominant_peak_solidity_negative = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_upper_shadow_selling_pressure = get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_pressure_rejection_strength_negative = get_adaptive_mtf_normalized_score(pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_slope_5_dominant_peak_solidity_negative = get_adaptive_mtf_normalized_score(slope_5_dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_slope_5_pressure_rejection_strength_negative = get_adaptive_mtf_normalized_score(slope_5_pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights)
         divergence_shadow_numeric_weights = {k: v for k, v in divergence_shadow_weights.items() if isinstance(v, (int, float))}
         total_divergence_shadow_weight = sum(divergence_shadow_numeric_weights.values())
         divergence_shadow_score = (
@@ -1744,42 +1650,39 @@ class ChipIntelligence:
             norm_cost_structure_negative.pow(divergence_shadow_numeric_weights.get('cost_structure_negative', 0.1)) *
             norm_winner_stability_negative.pow(divergence_shadow_numeric_weights.get('winner_stability_negative', 0.1)) *
             norm_chip_fault_blockage.pow(divergence_shadow_numeric_weights.get('chip_fault_blockage', 0.1)) *
-            norm_dominant_peak_profit_margin.pow(divergence_shadow_numeric_weights.get('dominant_peak_profit_margin', 0.1)) * # V4.0 新增
-            norm_dominant_peak_solidity_negative.pow(divergence_shadow_numeric_weights.get('dominant_peak_solidity_negative', 0.05)) * # V4.0 新增
-            norm_upper_shadow_selling_pressure.pow(divergence_shadow_numeric_weights.get('upper_shadow_selling_pressure', 0.05)) * # V4.0 新增
-            norm_pressure_rejection_strength_negative.pow(divergence_shadow_numeric_weights.get('pressure_rejection_strength_negative', 0.05)) * # V4.0 新增
-            norm_slope_5_dominant_peak_solidity_negative.pow(divergence_shadow_numeric_weights.get('dominant_peak_solidity_slope_negative', 0.025)) * # V4.0 新增
-            norm_slope_5_pressure_rejection_strength_negative.pow(divergence_shadow_numeric_weights.get('pressure_rejection_strength_slope_negative', 0.025)) # V4.0 新增
+            norm_dominant_peak_profit_margin.pow(divergence_shadow_numeric_weights.get('dominant_peak_profit_margin', 0.1)) *
+            norm_dominant_peak_solidity_negative.pow(divergence_shadow_numeric_weights.get('dominant_peak_solidity_negative', 0.05)) *
+            norm_upper_shadow_selling_pressure.pow(divergence_shadow_numeric_weights.get('upper_shadow_selling_pressure', 0.05)) *
+            norm_pressure_rejection_strength_negative.pow(divergence_shadow_numeric_weights.get('pressure_rejection_strength_negative', 0.05)) *
+            norm_slope_5_dominant_peak_solidity_negative.pow(divergence_shadow_numeric_weights.get('dominant_peak_solidity_slope_negative', 0.025)) *
+            norm_slope_5_pressure_rejection_strength_negative.pow(divergence_shadow_numeric_weights.get('pressure_rejection_strength_slope_negative', 0.025))
         ).pow(1 / total_divergence_shadow_weight)
-        # --- 维度3: 主力抽离 (Main Force Retreat - Pure Chip Distribution Evidence) ---
-        profit_taking_flow_ratio_raw = self._get_safe_series(df, df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_distribution_whisper")
-        # dispersal_by_distribution_raw 已经获取过
-        covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_distribution_whisper")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_distribution_whisper")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_distribution_whisper")
-        retail_flow_dominance_raw = self._get_safe_series(df, df, 'retail_flow_dominance_index_D', 0.0, method_name="_diagnose_distribution_whisper")
-        main_force_net_flow_calibrated_raw = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        main_force_slippage_raw = self._get_safe_series(df, df, 'main_force_slippage_index_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        rally_distribution_pressure_raw = self._get_safe_series(df, df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        control_solidity_raw = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        counterparty_exhaustion_raw = self._get_safe_series(df, df, 'counterparty_exhaustion_index_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        smart_money_net_buy_raw = self._get_safe_series(df, df, 'SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        slope_5_main_force_net_flow_calibrated_raw = self._get_safe_series(df, df, 'SLOPE_5_main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        accel_5_main_force_slippage_raw = self._get_safe_series(df, df, 'ACCEL_5_main_force_slippage_index_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
+        profit_taking_flow_ratio_raw = signals_data['profit_taking_flow_ratio_D']
+        covert_accumulation_raw = signals_data['covert_accumulation_signal_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        retail_flow_dominance_raw = signals_data['retail_flow_dominance_index_D']
+        main_force_net_flow_calibrated_raw = signals_data['main_force_net_flow_calibrated_D']
+        main_force_slippage_raw = signals_data['main_force_slippage_index_D']
+        rally_distribution_pressure_raw = signals_data['rally_distribution_pressure_D']
+        control_solidity_raw = signals_data['control_solidity_index_D']
+        counterparty_exhaustion_raw = signals_data['counterparty_exhaustion_index_D']
+        smart_money_net_buy_raw = signals_data['SMART_MONEY_HM_NET_BUY_D']
+        slope_5_main_force_net_flow_calibrated_raw = signals_data['SLOPE_5_main_force_net_flow_calibrated_D']
+        accel_5_main_force_slippage_raw = signals_data['ACCEL_5_main_force_slippage_index_D']
         norm_profit_taking_flow_ratio = get_adaptive_mtf_normalized_score(profit_taking_flow_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # norm_dispersal_by_distribution 已经获取过
         norm_covert_accumulation_negative = get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction_negative = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights).clip(-1, 0).abs()
         norm_retail_flow_dominance = get_adaptive_mtf_normalized_score(retail_flow_dominance_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_main_force_net_flow_negative = get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
-        norm_main_force_slippage = get_adaptive_mtf_normalized_score(main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
-        norm_rally_distribution_pressure = get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
-        norm_control_solidity_negative = get_adaptive_mtf_normalized_score(control_solidity_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
-        norm_counterparty_exhaustion = get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
-        norm_smart_money_net_buy_negative = get_adaptive_mtf_normalized_score(smart_money_net_buy_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
-        norm_slope_5_main_force_net_flow_negative = get_adaptive_mtf_normalized_score(slope_5_main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights) # V4.0 新增
-        norm_accel_5_main_force_slippage = get_adaptive_mtf_normalized_score(accel_5_main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights) # V4.0 新增
+        norm_main_force_net_flow_negative = get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_main_force_slippage = get_adaptive_mtf_normalized_score(main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_rally_distribution_pressure = get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_control_solidity_negative = get_adaptive_mtf_normalized_score(control_solidity_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_counterparty_exhaustion = get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_smart_money_net_buy_negative = get_adaptive_mtf_normalized_score(smart_money_net_buy_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_slope_5_main_force_net_flow_negative = get_adaptive_mtf_normalized_score(slope_5_main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_accel_5_main_force_slippage = get_adaptive_mtf_normalized_score(accel_5_main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights)
         main_force_retreat_numeric_weights = {k: v for k, v in main_force_retreat_weights.items() if isinstance(v, (int, float))}
         total_main_force_retreat_weight = sum(main_force_retreat_numeric_weights.values())
         main_force_retreat_score = (
@@ -1789,43 +1692,35 @@ class ChipIntelligence:
             norm_wash_trade_intensity.pow(main_force_retreat_numeric_weights.get('wash_trade_intensity', 0.1)) *
             norm_main_force_conviction_negative.pow(main_force_retreat_numeric_weights.get('main_force_conviction_negative', 0.1)) *
             norm_retail_flow_dominance.pow(main_force_retreat_numeric_weights.get('retail_flow_dominance', 0.1)) *
-            norm_main_force_net_flow_negative.pow(main_force_retreat_numeric_weights.get('main_force_net_flow_negative', 0.1)) * # V4.0 新增
-            norm_main_force_slippage.pow(main_force_retreat_numeric_weights.get('main_force_slippage', 0.05)) * # V4.0 新增
-            norm_rally_distribution_pressure.pow(main_force_retreat_numeric_weights.get('rally_distribution_pressure', 0.05)) * # V4.0 新增
-            norm_control_solidity_negative.pow(main_force_retreat_numeric_weights.get('control_solidity_negative', 0.05)) * # V4.0 新增
-            norm_counterparty_exhaustion.pow(main_force_retreat_numeric_weights.get('counterparty_exhaustion', 0.025)) * # V4.0 新增
-            norm_smart_money_net_buy_negative.pow(main_force_retreat_numeric_weights.get('smart_money_net_buy_negative', 0.025)) * # V4.0 新增
-            norm_slope_5_main_force_net_flow_negative.pow(main_force_retreat_numeric_weights.get('main_force_net_flow_slope_negative', 0.025)) * # V4.0 新增
-            norm_accel_5_main_force_slippage.pow(main_force_retreat_numeric_weights.get('main_force_slippage_accel', 0.025)) # V4.0 新增
+            norm_main_force_net_flow_negative.pow(main_force_retreat_numeric_weights.get('main_force_net_flow_negative', 0.1)) *
+            norm_main_force_slippage.pow(main_force_retreat_numeric_weights.get('main_force_slippage', 0.05)) *
+            norm_rally_distribution_pressure.pow(main_force_retreat_numeric_weights.get('rally_distribution_pressure', 0.05)) *
+            norm_control_solidity_negative.pow(main_force_retreat_numeric_weights.get('control_solidity_negative', 0.05)) *
+            norm_counterparty_exhaustion.pow(main_force_retreat_numeric_weights.get('counterparty_exhaustion', 0.025)) *
+            norm_smart_money_net_buy_negative.pow(main_force_retreat_numeric_weights.get('smart_money_net_buy_negative', 0.025)) *
+            norm_slope_5_main_force_net_flow_negative.pow(main_force_retreat_numeric_weights.get('main_force_net_flow_slope_negative', 0.025)) *
+            norm_accel_5_main_force_slippage.pow(main_force_retreat_numeric_weights.get('main_force_slippage_accel', 0.025))
         ).pow(1 / total_main_force_retreat_weight)
-        # --- 维度4: 诡道背景调制 (Deception Context Modulation) ---
-        # chip_fault_magnitude_raw 已经获取过
         norm_chip_fault_magnitude_bipolar = get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights)
         norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_distribution_whisper") # V4.0 新增
-        norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights) # V4.0 新增
+        deception_index_raw = signals_data['deception_index_D']
+        norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         deception_modulator = pd.Series(1.0, index=df_index)
-        # 诱多派发 (正向筹码故障 + 主力信念动摇) -> 增强信号
         deceptive_bullish_and_weak_conviction_mask = (norm_chip_fault_magnitude_bipolar > 0) & \
                                                      (norm_main_force_conviction_bipolar < -deception_modulator_params.get('conviction_threshold', 0.2))
         deception_modulator.loc[deceptive_bullish_and_weak_conviction_mask] = 1 + norm_chip_fault_magnitude_bipolar.loc[deceptive_bullish_and_weak_conviction_mask] * deception_modulator_params.get('boost_factor', 0.6)
-        # 诱空吸筹 (负向筹码故障 + 主力信念坚定) -> 惩罚信号 (与派发逻辑相悖)
         induced_panic_and_conviction_mask = (norm_chip_fault_magnitude_bipolar < 0) & \
                                             (norm_main_force_conviction_bipolar > deception_modulator_params.get('conviction_threshold', 0.2))
         deception_modulator.loc[induced_panic_and_conviction_mask] = 1 - norm_chip_fault_magnitude_bipolar.loc[induced_panic_and_conviction_mask].abs() * deception_modulator_params.get('penalty_factor', 0.4)
-        # V4.0 结合欺骗指数进行调制
-        # 如果欺骗指数为正（诱多），且主力信念动摇，则进一步增强派发信号
         deception_index_boost_mask = (norm_deception_index_bipolar > 0) & \
                                      (norm_main_force_conviction_bipolar < -deception_modulator_params.get('conviction_threshold', 0.2))
         deception_modulator.loc[deception_index_boost_mask] = deception_modulator.loc[deception_index_boost_mask] + \
                                                               norm_deception_index_bipolar.loc[deception_index_boost_mask] * deception_modulator_params.get('deception_index_weight', 0.5)
-        # 如果欺骗指数为负（诱空），且主力信念坚定，则削弱派发信号
         deception_index_penalty_mask = (norm_deception_index_bipolar < 0) & \
                                        (norm_main_force_conviction_bipolar > deception_modulator_params.get('conviction_threshold', 0.2))
         deception_modulator.loc[deception_index_penalty_mask] = deception_modulator.loc[deception_index_penalty_mask] - \
                                                                 norm_deception_index_bipolar.loc[deception_index_penalty_mask].abs() * deception_modulator_params.get('deception_index_weight', 0.5)
         deception_modulator = deception_modulator.clip(0.1, 2.0)
-        # --- 最终融合 ---
         base_score = (
             fomo_backdrop_score.pow(final_fusion_exponent) *
             divergence_shadow_score.pow(final_fusion_exponent) *
@@ -1863,8 +1758,6 @@ class ChipIntelligence:
             'retail_panic_surrender_index_D', 'main_force_conviction_index_D',
             'market_sentiment_score_D', 'flow_credibility_index_D'
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_historical_potential"):
-            return pd.Series(0.0, index=df.index)
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         historical_potential_params = get_param_value(p_conf.get('historical_potential_params'), {})
@@ -1905,16 +1798,23 @@ class ChipIntelligence:
         })
         context_modulator_sensitivity = get_param_value(historical_potential_params.get('context_modulator_sensitivity'), 0.5)
         dgm_modulator_sensitivity = get_param_value(historical_potential_params.get('dgm_modulator_sensitivity'), 0.8)
-        chip_health_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_axiom_historical_potential")
+        # Ensure context modulator signals are in required_signals
+        for ctx_key, ctx_config in context_modulator_signals.items():
+            signal_name = ctx_config.get('signal_name')
+            if signal_name and signal_name not in required_signals:
+                required_signals.append(signal_name)
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_historical_potential"):
+            return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_axiom_historical_potential")
+        chip_health_raw = signals_data['chip_health_score_D']
         norm_chip_health = get_adaptive_mtf_normalized_bipolar_score(chip_health_raw, df_index, tf_weights)
-        # --- A. 主力吸筹质量 (Main Force Accumulation Quality - MF_AQ) ---
-        covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        suppressive_accumulation_raw = self._get_safe_series(df, df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        main_force_cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        floating_chip_cleansing_efficiency_raw = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        chip_fault_magnitude_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        main_force_execution_alpha_raw = self._get_safe_series(df, df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        asymmetric_friction_index_raw = self._get_safe_series(df, df, 'asymmetric_friction_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
+        covert_accumulation_raw = signals_data['covert_accumulation_signal_D']
+        suppressive_accumulation_raw = signals_data['suppressive_accumulation_intensity_D']
+        main_force_cost_advantage_raw = signals_data['main_force_cost_advantage_D']
+        floating_chip_cleansing_efficiency_raw = signals_data['floating_chip_cleansing_efficiency_D']
+        chip_fault_magnitude_raw = signals_data['chip_fault_magnitude_D']
+        main_force_execution_alpha_raw = signals_data['main_force_execution_alpha_D']
+        asymmetric_friction_index_raw = signals_data['asymmetric_friction_index_D']
         norm_covert_accumulation = get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_suppressive_accumulation = get_adaptive_mtf_normalized_score(suppressive_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_cost_advantage = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights)
@@ -1946,16 +1846,15 @@ class ChipIntelligence:
             (norm_asymmetric_friction_index * mf_aq_weights.get('friction_index', 0.05))
         ) / sum_dynamic_weights_mf_aq.replace(0, 1e-6) * base_mf_aq_total_weight
         mf_aq_score = mf_aq_score.clip(0, 1)
-        # --- B. 筹码结构张力 (Chip Structure Tension - CST) ---
-        dominant_peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        cost_structure_skewness_slope_raw = self._get_safe_series(df, df, 'SLOPE_5_cost_structure_skewness_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        peak_separation_ratio_slope_raw = self._get_safe_series(df, df, 'SLOPE_5_peak_separation_ratio_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        winner_stability_raw = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        loser_pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        winner_concentration_slope_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_concentration_90pct_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        loser_concentration_slope_raw = self._get_safe_series(df, df, 'SLOPE_5_loser_concentration_90pct_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        structural_entropy_change_raw = self._get_safe_series(df, df, 'structural_entropy_change_D', 0.0, method_name="_diagnose_axiom_historical_potential")
+        dominant_peak_solidity_raw = signals_data['dominant_peak_solidity_D']
+        cost_structure_skewness_slope_raw = signals_data['SLOPE_5_cost_structure_skewness_D']
+        peak_separation_ratio_slope_raw = signals_data['SLOPE_5_peak_separation_ratio_D']
+        winner_stability_raw = signals_data['winner_stability_index_D']
+        loser_pain_raw = signals_data['loser_pain_index_D']
+        winner_concentration_slope_raw = signals_data['SLOPE_5_winner_concentration_90pct_D']
+        loser_concentration_slope_raw = signals_data['SLOPE_5_loser_concentration_90pct_D']
+        structural_tension_raw = signals_data['structural_tension_index_D']
+        structural_entropy_change_raw = signals_data['structural_entropy_change_D']
         norm_dominant_peak_solidity = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_cost_structure_skewness_slope = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_slope_raw, df_index, tf_weights)
         norm_peak_separation_ratio_slope = get_adaptive_mtf_normalized_bipolar_score(peak_separation_ratio_slope_raw, df_index, tf_weights)
@@ -1978,15 +1877,14 @@ class ChipIntelligence:
             norm_structural_tension * cst_weights.get('structural_tension', 0.05) +
             norm_structural_entropy_change * cst_weights.get('structural_entropy', 0.05)
         ).clip(0, 1)
-        # --- C. 势能转化效率 (Potential Conversion Efficiency - PCE) ---
-        vacuum_zone_magnitude_raw = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        vacuum_traversal_efficiency_raw = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        active_selling_pressure_raw = self._get_safe_series(df, df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        capitulation_absorption_raw = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        pressure_rejection_strength_raw = self._get_safe_series(df, df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        support_validation_strength_raw = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        order_book_clearing_rate_raw = self._get_safe_series(df, df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_historical_potential")
+        vacuum_zone_magnitude_raw = signals_data['vacuum_zone_magnitude_D']
+        vacuum_traversal_efficiency_raw = signals_data['vacuum_traversal_efficiency_D']
+        active_selling_pressure_raw = signals_data['active_selling_pressure_D']
+        capitulation_absorption_raw = signals_data['capitulation_absorption_index_D']
+        pressure_rejection_strength_raw = signals_data['pressure_rejection_strength_D']
+        support_validation_strength_raw = signals_data['support_validation_strength_D']
+        order_book_clearing_rate_raw = signals_data['order_book_clearing_rate_D']
+        micro_price_impact_asymmetry_raw = signals_data['micro_price_impact_asymmetry_D']
         norm_vacuum_zone_magnitude = get_adaptive_mtf_normalized_score(vacuum_zone_magnitude_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_vacuum_traversal_efficiency = get_adaptive_mtf_normalized_score(vacuum_traversal_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_active_selling_pressure = get_adaptive_mtf_normalized_score(active_selling_pressure_raw, df_index, ascending=False, tf_weights=tf_weights)
@@ -2005,12 +1903,11 @@ class ChipIntelligence:
             norm_order_book_clearing_rate * pce_weights.get('order_book_clearing_rate', 0.05) +
             norm_micro_price_impact_asymmetry * pce_weights.get('micro_price_impact_asymmetry', 0.05)
         ).clip(0, 1)
-        # --- D. 诡道博弈调制 (Deceptive Game Modulator - DGM) ---
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        main_force_flow_directionality_raw = self._get_safe_series(df, df, 'main_force_flow_directionality_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
+        deception_index_raw = signals_data['deception_index_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        main_force_flow_directionality_raw = signals_data['main_force_flow_directionality_D']
+        retail_panic_surrender_raw = signals_data['retail_panic_surrender_index_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
         norm_deception_index = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights)
@@ -2027,7 +1924,6 @@ class ChipIntelligence:
         dgm_score += norm_retail_panic_surrender * dgm_weights.get('retail_panic_impact', 0.15)
         dgm_score += (norm_main_force_conviction.abs()) * dgm_weights.get('main_force_conviction_impact', 0.15)
         dgm_score = dgm_score.clip(-1, 1)
-        # --- E. 情境自适应权重 (Adaptive Contextual Weights - ACW) ---
         context_modulator_components = []
         total_context_weight = 0.0
         for ctx_key, ctx_config in context_modulator_signals.items():
@@ -2035,7 +1931,7 @@ class ChipIntelligence:
             weight = ctx_config.get('weight', 0.0)
             ascending = ctx_config.get('ascending', True)
             if signal_name and weight > 0:
-                raw_signal = self._get_safe_series(df, df, signal_name, 0.0, method_name="_diagnose_axiom_historical_potential")
+                raw_signal = signals_data[signal_name]
                 norm_signal = get_adaptive_mtf_normalized_score(raw_signal, df_index, ascending=ascending, tf_weights=tf_weights)
                 context_modulator_components.append(norm_signal * weight)
                 total_context_weight += weight
@@ -2050,7 +1946,6 @@ class ChipIntelligence:
         }
         sum_dynamic_weights = sum(dynamic_final_fusion_weights.values())
         normalized_dynamic_weights = {k: v / sum_dynamic_weights for k, v in dynamic_final_fusion_weights.items()}
-        # --- 最终融合 ---
         base_potential_score = (
             mf_aq_score * normalized_dynamic_weights.get('mf_aq', 0.35) +
             cst_score * normalized_dynamic_weights.get('cst', 0.3) +
@@ -2091,8 +1986,6 @@ class ChipIntelligence:
             'main_force_activity_ratio_D', 'main_force_flow_directionality_D',
             'SLOPE_5_main_force_activity_ratio_D', 'SLOPE_5_main_force_flow_directionality_D'
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
-            return pd.Series(0.0, index=df.index)
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         tactical_exchange_params = get_param_value(p_conf.get('tactical_exchange_params'), {})
@@ -2122,24 +2015,49 @@ class ChipIntelligence:
         final_fusion_weights = get_param_value(tactical_exchange_params.get('final_fusion_weights'), {'intent': 0.35, 'quality': 0.35, 'environment': 0.2, 'rhythm_persistence': 0.1})
         meta_modulator_weights = get_param_value(tactical_exchange_params.get('meta_modulator_weights'), {'chip_health': 0.25, 'volatility_instability': 0.25, 'main_force_conviction': 0.25, 'main_force_activity': 0.15, 'flow_credibility': 0.1})
         meta_modulator_sensitivity = get_param_value(tactical_exchange_params.get('meta_modulator_sensitivity'), 0.5)
-        df_index = df.index
+
+        # Add dynamic signals to required_signals if not already present
+        if deception_context_modulator_signal_name not in required_signals:
+            required_signals.append(deception_context_modulator_signal_name)
+        if quality_context_signal_name not in required_signals:
+            required_signals.append(quality_context_signal_name)
+        if chip_stability_modulator_signal_name not in required_signals:
+            required_signals.append(chip_stability_modulator_signal_name)
+        # Add slope signals for structural_optimization_slope_period and psychological_pressure_absorption_slope_period
+        slope_wc_signal = f'SLOPE_{structural_optimization_slope_period}_winner_concentration_90pct_D'
+        if slope_wc_signal not in required_signals: required_signals.append(slope_wc_signal)
+        slope_css_signal = f'SLOPE_{structural_optimization_slope_period}_cost_structure_skewness_D'
+        if slope_css_signal not in required_signals: required_signals.append(slope_css_signal)
+        slope_psr_signal = f'SLOPE_{structural_optimization_slope_period}_peak_separation_ratio_D'
+        if slope_psr_signal not in required_signals: required_signals.append(slope_psr_signal)
+        slope_loser_rate_signal = f'SLOPE_{psychological_pressure_absorption_slope_period}_total_loser_rate_D'
+        if slope_loser_rate_signal not in required_signals: required_signals.append(slope_loser_rate_signal)
+        slope_winner_rate_signal = f'SLOPE_{psychological_pressure_absorption_slope_period}_total_winner_rate_D'
+        if slope_winner_rate_signal not in required_signals: required_signals.append(slope_winner_rate_signal)
+        slope_dps_signal = f'SLOPE_{dominant_peak_health_slope_period}_dominant_peak_solidity_D'
+        if slope_dps_signal not in required_signals: required_signals.append(slope_dps_signal)
+
+        if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
+            return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_tactical_exchange")
+
         # --- 维度1: 换手意图 (Exchange Intent) - 纯筹码化与诡道深化 ---
-        control_transfer_raw = self._get_safe_series(df, df, 'peak_control_transfer_D', method_name="_diagnose_tactical_exchange")
-        cleansing_efficiency_raw = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', method_name="_diagnose_tactical_exchange")
+        control_transfer_raw = signals_data['peak_control_transfer_D']
+        cleansing_efficiency_raw = signals_data['floating_chip_cleansing_efficiency_D']
         norm_control_transfer = get_adaptive_mtf_normalized_bipolar_score(control_transfer_raw, df_index, tf_weights)
         norm_cleansing_efficiency = get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights)
-        suppressive_accum_raw = self._get_safe_series(df, df, 'suppressive_accumulation_intensity_D', method_name="_diagnose_tactical_exchange")
-        gathering_chasing_raw = self._get_safe_series(df, df, 'gathering_by_chasing_D', method_name="_diagnose_tactical_exchange")
-        gathering_support_raw = self._get_safe_series(df, df, 'gathering_by_support_D', method_name="_diagnose_tactical_exchange")
+        suppressive_accum_raw = signals_data['suppressive_accumulation_intensity_D']
+        gathering_chasing_raw = signals_data['gathering_by_chasing_D']
+        gathering_support_raw = signals_data['gathering_by_support_D']
         norm_suppressive_accum = get_adaptive_mtf_normalized_score(suppressive_accum_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_gathering_chasing = get_adaptive_mtf_normalized_score(gathering_chasing_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_gathering_support = get_adaptive_mtf_normalized_score(gathering_support_raw, df_index, ascending=True, tf_weights=tf_weights)
         accumulation_intent_score = (norm_suppressive_accum * 0.4 + norm_gathering_chasing * 0.3 + norm_gathering_support * 0.3)
-        active_buying_support_raw = self._get_safe_series(df, df, 'active_buying_support_D', method_name="_diagnose_tactical_exchange")
-        active_selling_pressure_raw = self._get_safe_series(df, df, 'active_selling_pressure_D', method_name="_diagnose_tactical_exchange")
-        micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', method_name="_diagnose_tactical_exchange")
-        order_book_clearing_rate_raw = self._get_safe_series(df, df, 'order_book_clearing_rate_D', method_name="_diagnose_tactical_exchange")
-        flow_credibility_index_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', method_name="_diagnose_tactical_exchange")
+        active_buying_support_raw = signals_data['active_buying_support_D']
+        active_selling_pressure_raw = signals_data['active_selling_pressure_D']
+        micro_price_impact_asymmetry_raw = signals_data['micro_price_impact_asymmetry_D']
+        order_book_clearing_rate_raw = signals_data['order_book_clearing_rate_D']
+        flow_credibility_index_raw = signals_data['flow_credibility_index_D']
         norm_active_buying_support = get_adaptive_mtf_normalized_score(active_buying_support_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_active_selling_pressure = get_adaptive_mtf_normalized_score(active_selling_pressure_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_micro_price_impact_asymmetry = get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_raw, df_index, tf_weights)
@@ -2158,14 +2076,14 @@ class ChipIntelligence:
             accumulation_intent_score * intent_weights.get('accumulation_intent', 0.3) +
             intent_execution_quality_score * intent_weights.get('intent_execution_quality', 0.2)
         ).clip(-1, 1)
-        chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', method_name="_diagnose_tactical_exchange")
-        mf_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', method_name="_diagnose_tactical_exchange")
+        chip_fault_raw = signals_data['chip_fault_magnitude_D']
+        mf_conviction_raw = signals_data['main_force_conviction_index_D']
         norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         norm_mf_conviction = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_raw, df_index, tf_weights)
         chip_deception_direction = np.sign(norm_mf_conviction)
-        retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', method_name="_diagnose_tactical_exchange")
-        loser_pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', method_name="_diagnose_tactical_exchange")
-        winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', method_name="_diagnose_tactical_exchange")
+        retail_panic_surrender_raw = signals_data['retail_panic_surrender_index_D']
+        loser_pain_raw = signals_data['loser_pain_index_D']
+        winner_profit_margin_avg_raw = signals_data['winner_profit_margin_avg_D']
         norm_retail_panic_surrender = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_loser_pain = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_winner_profit_margin_avg = get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -2176,7 +2094,8 @@ class ChipIntelligence:
         deception_cost_score.loc[induce_bear_mask] = norm_suppressive_accum.loc[induce_bear_mask]
         induce_bull_mask = chip_deception_direction < 0
         deception_effectiveness_score.loc[induce_bull_mask] = norm_winner_profit_margin_avg.loc[induce_bull_mask]
-        deception_cost_score.loc[induce_bull_mask] = (1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, 'profit_realization_quality_D', method_name="_diagnose_tactical_exchange"), df_index, ascending=True, tf_weights=tf_weights)).loc[induce_bull_mask]
+        profit_realization_quality_raw = signals_data['profit_realization_quality_D']
+        deception_cost_score.loc[induce_bull_mask] = (1 - get_adaptive_mtf_normalized_score(profit_realization_quality_raw, df_index, ascending=True, tf_weights=tf_weights)).loc[induce_bull_mask]
         deception_quality_modulator = (
             deception_outcome_weights.get('effectiveness', 0.6) * deception_effectiveness_score.clip(0, 1) +
             deception_outcome_weights.get('cost', 0.4) * deception_cost_score.clip(0, 1)
@@ -2185,26 +2104,26 @@ class ChipIntelligence:
         deception_quality_modulator.loc[~high_quality_deception_mask] *= 0.5
         chip_deception_score_refined = norm_chip_fault * chip_deception_direction * (1 + deception_quality_modulator.clip(0, 1))
         chip_deception_score_refined = chip_deception_score_refined.clip(-1, 1)
-        deception_context_modulator_raw = self._get_safe_series(df, df, deception_context_modulator_signal_name, method_name="_diagnose_tactical_exchange")
+        deception_context_modulator_raw = signals_data[deception_context_modulator_signal_name]
         norm_deception_context = get_adaptive_mtf_normalized_score(deception_context_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
         dynamic_deception_impact_sensitivity = deception_impact_sensitivity * (1 - norm_deception_context * deception_context_sensitivity)
         dynamic_deception_impact_sensitivity = dynamic_deception_impact_sensitivity.clip(0.1, 1.0)
         arbitration_weight = (norm_chip_fault * dynamic_deception_impact_sensitivity).pow(deception_arbitration_power).clip(0, 1)
         intent_score = base_intent_score * (1 - arbitration_weight) + chip_deception_score_refined * arbitration_weight
         intent_score = intent_score.clip(-1, 1)
-        main_force_activity_raw = self._get_safe_series(df, df, 'main_force_activity_ratio_D', method_name="_diagnose_tactical_exchange")
-        main_force_flow_directionality_raw = self._get_safe_series(df, df, 'main_force_flow_directionality_D', method_name="_diagnose_tactical_exchange")
+        main_force_activity_raw = signals_data['main_force_activity_ratio_D']
+        main_force_flow_directionality_raw = signals_data['main_force_flow_directionality_D']
         norm_main_force_activity = get_adaptive_mtf_normalized_score(main_force_activity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights)
         chip_behavioral_pattern_intensity_score = (norm_main_force_activity * 0.6 + norm_main_force_flow_directionality.abs() * 0.4).clip(0, 1)
         intent_score = intent_score * (1 + chip_behavioral_pattern_intensity_score * chip_behavioral_pattern_intensity_modulator_factor)
         intent_score = intent_score.clip(-1, 1)
         # --- 维度2: 换手质量 (Exchange Quality) - 纯筹码化与情境自适应 ---
-        chip_momentum_raw = self._get_safe_series(df, df, quality_context_signal_name, method_name="_diagnose_tactical_exchange")
+        chip_momentum_raw = signals_data[quality_context_signal_name]
         norm_chip_momentum_context = get_adaptive_mtf_normalized_bipolar_score(chip_momentum_raw, df_index, tf_weights)
-        absorption_idx_raw = self._get_safe_series(df, df, 'capitulation_absorption_index_D', method_name="_diagnose_tactical_exchange")
-        impulse_purity_raw = self._get_safe_series(df, df, 'upward_impulse_purity_D', method_name="_diagnose_tactical_exchange")
-        profit_quality_raw = self._get_safe_series(df, df, 'profit_realization_quality_D', method_name="_diagnose_tactical_exchange")
+        absorption_idx_raw = signals_data['capitulation_absorption_index_D']
+        impulse_purity_raw = signals_data['upward_impulse_purity_D']
+        profit_quality_raw = signals_data['profit_realization_quality_D']
         norm_absorption = get_adaptive_mtf_normalized_score(absorption_idx_raw, df_index, tf_weights)
         norm_impulse_purity = get_adaptive_mtf_normalized_score(impulse_purity_raw, df_index, tf_weights)
         norm_profit_realization = get_adaptive_mtf_normalized_score(profit_quality_raw, df_index, ascending=False, tf_weights=tf_weights)
@@ -2215,30 +2134,30 @@ class ChipIntelligence:
             norm_impulse_purity * quality_weights.get('bullish_purity', 0.15)
         ) * dynamic_bullish_quality_weight
         bearish_quality_score = norm_profit_realization * quality_weights.get('bearish_distribution', 0.15) * dynamic_bearish_quality_weight
-        peak_exchange_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', method_name="_diagnose_tactical_exchange")
+        peak_exchange_purity_raw = signals_data['peak_exchange_purity_D']
         exchange_purity_score = get_adaptive_mtf_normalized_score(peak_exchange_purity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        slope_wc_raw = self._get_safe_series(df, df, f'SLOPE_{structural_optimization_slope_period}_winner_concentration_90pct_D', method_name="_diagnose_tactical_exchange")
-        slope_css_raw = self._get_safe_series(df, df, f'SLOPE_{structural_optimization_slope_period}_cost_structure_skewness_D', method_name="_diagnose_tactical_exchange")
-        slope_psr_raw = self._get_safe_series(df, df, f'SLOPE_{structural_optimization_slope_period}_peak_separation_ratio_D', method_name="_diagnose_tactical_exchange")
+        slope_wc_raw = signals_data[f'SLOPE_{structural_optimization_slope_period}_winner_concentration_90pct_D']
+        slope_css_raw = signals_data[f'SLOPE_{structural_optimization_slope_period}_cost_structure_skewness_D']
+        slope_psr_raw = signals_data[f'SLOPE_{structural_optimization_slope_period}_peak_separation_ratio_D']
         norm_slope_wc = get_adaptive_mtf_normalized_score(slope_wc_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_slope_css = get_adaptive_mtf_normalized_score(slope_css_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_slope_psr = get_adaptive_mtf_normalized_score(slope_psr_raw, df_index, ascending=False, tf_weights=tf_weights)
         structural_optimization_score = (norm_slope_wc + norm_slope_css + norm_slope_psr) / 3
         structural_optimization_score = structural_optimization_score.clip(0, 1)
-        slope_loser_rate_raw = self._get_safe_series(df, df, f'SLOPE_{psychological_pressure_absorption_slope_period}_total_loser_rate_D', method_name="_diagnose_tactical_exchange")
-        slope_winner_rate_raw = self._get_safe_series(df, df, f'SLOPE_{psychological_pressure_absorption_slope_period}_total_winner_rate_D', method_name="_diagnose_tactical_exchange")
+        slope_loser_rate_raw = signals_data[f'SLOPE_{psychological_pressure_absorption_slope_period}_total_loser_rate_D']
+        slope_winner_rate_raw = signals_data[f'SLOPE_{psychological_pressure_absorption_slope_period}_total_winner_rate_D']
         norm_slope_loser_rate = get_adaptive_mtf_normalized_bipolar_score(slope_loser_rate_raw, df_index, tf_weights, sensitivity=1.0)
         norm_slope_winner_rate = get_adaptive_mtf_normalized_bipolar_score(slope_winner_rate_raw, df_index, tf_weights, sensitivity=1.0)
         loser_absorption_quality = norm_absorption * (1 - norm_slope_loser_rate.clip(upper=0).abs())
         winner_resilience_quality = norm_profit_realization * (1 - norm_slope_winner_rate.clip(lower=0))
         psychological_pressure_absorption_score = (loser_absorption_quality + winner_resilience_quality) / 2
         psychological_pressure_absorption_score = psychological_pressure_absorption_score.clip(0, 1)
-        volume_raw = self._get_safe_series(df, df, 'volume_D', method_name="_diagnose_tactical_exchange")
+        volume_raw = signals_data['volume_D']
         norm_volume = get_adaptive_mtf_normalized_score(volume_raw, df_index, ascending=True, tf_weights=tf_weights)
         exchange_efficiency_score = structural_optimization_score / (norm_volume.replace(0, 1e-6))
         exchange_efficiency_score = exchange_efficiency_score.clip(0, 1)
-        secondary_peak_cost_raw = self._get_safe_series(df, df, 'secondary_peak_cost_D', method_name="_diagnose_tactical_exchange")
-        dominant_peak_volume_ratio_raw = self._get_safe_series(df, df, 'dominant_peak_volume_ratio_D', method_name="_diagnose_tactical_exchange")
+        secondary_peak_cost_raw = signals_data['secondary_peak_cost_D']
+        dominant_peak_volume_ratio_raw = signals_data['dominant_peak_volume_ratio_D']
         norm_secondary_peak_cost = get_adaptive_mtf_normalized_score(secondary_peak_cost_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_dominant_peak_volume_ratio = get_adaptive_mtf_normalized_score(dominant_peak_volume_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
         chip_peak_dynamics_score = (norm_secondary_peak_cost * chip_peak_dynamics_params.get('secondary_cost_weight', 0.5) +
@@ -2255,20 +2174,20 @@ class ChipIntelligence:
         quality_score = quality_score * (1 + chip_behavioral_pattern_intensity_score * chip_behavioral_pattern_intensity_modulator_factor)
         quality_score = quality_score.clip(-1, 1)
         # --- 维度3: 换手环境 (Exchange Context) - 纯筹码化与情境自适应 ---
-        chip_fatigue_raw = self._get_safe_series(df, df, 'chip_fatigue_index_D', method_name="_diagnose_tactical_exchange")
+        chip_fatigue_raw = signals_data['chip_fatigue_index_D']
         norm_chip_fatigue = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=tf_weights)
-        chip_stability_modulator_raw = self._get_safe_series(df, df, chip_stability_modulator_signal_name, method_name="_diagnose_tactical_exchange")
+        chip_stability_modulator_raw = signals_data[chip_stability_modulator_signal_name]
         norm_chip_stability_modulator = get_adaptive_mtf_normalized_score(chip_stability_modulator_raw, df_index, ascending=False, tf_weights=tf_weights)
-        chip_health_raw = self._get_safe_series(df, df, 'chip_health_score_D', method_name="_diagnose_tactical_exchange")
+        chip_health_raw = signals_data['chip_health_score_D']
         norm_chip_health = get_adaptive_mtf_normalized_bipolar_score(chip_health_raw, df_index, tf_weights)
         dynamic_chip_fatigue_impact = norm_chip_fatigue * chip_fatigue_impact_factor
         dynamic_chip_stability_bonus = norm_chip_stability_modulator * chip_stability_sensitivity
-        dominant_peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', method_name="_diagnose_tactical_exchange")
-        slope_dps_raw = self._get_safe_series(df, df, f'SLOPE_{dominant_peak_health_slope_period}_dominant_peak_solidity_D', method_name="_diagnose_tactical_exchange")
+        dominant_peak_solidity_raw = signals_data['dominant_peak_solidity_D']
+        slope_dps_raw = signals_data[f'SLOPE_{dominant_peak_health_slope_period}_dominant_peak_solidity_D']
         norm_dps = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_slope_dps = get_adaptive_mtf_normalized_bipolar_score(slope_dps_raw, df_index, tf_weights)
         dominant_peak_health_score = (norm_dps * 0.7 + norm_slope_dps * 0.3).clip(0, 1)
-        winner_stability_index_raw = self._get_safe_series(df, df, 'winner_stability_index_D', method_name="_diagnose_tactical_exchange")
+        winner_stability_index_raw = signals_data['winner_stability_index_D']
         norm_winner_stability = get_adaptive_mtf_normalized_score(winner_stability_index_raw, df_index, ascending=True, tf_weights=tf_weights)
         chip_patience_ratio = norm_gathering_support / (norm_gathering_support + norm_gathering_chasing + 1e-6)
         chip_patience_score = get_adaptive_mtf_normalized_score(chip_patience_ratio, df_index, ascending=True, tf_weights=tf_weights)
@@ -2288,13 +2207,13 @@ class ChipIntelligence:
         rhythm_and_persistence_score = (norm_rhythm_intent_slope + norm_rhythm_quality_slope) / 2
         rhythm_and_persistence_score = (rhythm_and_persistence_score * rhythm_persistence_sensitivity).clip(-1, 1)
         # --- 最终融合 ---
-        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', method_name="_diagnose_tactical_exchange")
+        volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
         norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
-        main_force_conviction_abs_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', method_name="_diagnose_tactical_exchange").abs()
+        main_force_conviction_abs_raw = signals_data['main_force_conviction_index_D'].abs()
         norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_abs_raw, df_index, ascending=True, tf_weights=tf_weights)
-        main_force_activity_abs_raw = self._get_safe_series(df, df, 'main_force_activity_ratio_D', method_name="_diagnose_tactical_exchange").abs()
+        main_force_activity_abs_raw = signals_data['main_force_activity_ratio_D'].abs()
         norm_main_force_activity_meta = get_adaptive_mtf_normalized_score(main_force_activity_abs_raw, df_index, ascending=True, tf_weights=tf_weights)
-        flow_credibility_index_meta_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', method_name="_diagnose_tactical_exchange")
+        flow_credibility_index_meta_raw = signals_data['flow_credibility_index_D']
         norm_flow_credibility_index_meta = get_adaptive_mtf_normalized_score(flow_credibility_index_meta_raw, df_index, ascending=True, tf_weights=tf_weights)
         market_context_meta_modulator = (
             norm_chip_health * meta_modulator_weights.get('chip_health', 0.25) +
@@ -2319,7 +2238,7 @@ class ChipIntelligence:
         ).clip(-1, 1)
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
-    def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series: # 增加 holder_sentiment_scores 参数
+    def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
         【V3.0 · 诡道微观共振版】诊断战略与战术的和谐度
         - 核心升级1: 战术执行微观深化。引入高频微观筹码行为（如日内筹码流平衡、订单簿压力等）作为“当日战术执行”的更精细化输入，提升战术评估的颗粒度和准确性。
@@ -2330,111 +2249,83 @@ class ChipIntelligence:
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         df_index = df.index
-        # --- 参数加载 ---
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         harmony_params = get_param_value(p_conf.get('strategic_tactical_harmony_params'), {})
-        # V3.0 动态权重参数
         strategic_weight_base = get_param_value(harmony_params.get('strategic_weight_base'), 0.6)
         tactical_weight_base = get_param_value(harmony_params.get('tactical_weight_base'), 0.4)
-        dynamic_weight_modulator_signal_name = get_param_value(harmony_params.get('dynamic_weight_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D') # 更改为筹码波动不稳定性
-        dynamic_weight_sensitivity = get_param_value(harmony_params.get('dynamic_weight_sensitivity'), 0.3) # 调整敏感度
-        # V3.0 和谐因子参数
-        harmony_non_linear_exponent = get_param_value(harmony_params.get('harmony_non_linear_exponent'), 2.5) # 提高非线性惩罚
-        harmony_context_modulator_signal_name = get_param_value(harmony_params.get('harmony_context_modulator_signal'), 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT') # 更改为纯筹码信号
-        harmony_context_sensitivity = get_param_value(harmony_params.get('harmony_context_sensitivity'), 0.4) # 调整敏感度
-        # V3.0 冲突惩罚参数
-        conflict_threshold = get_param_value(harmony_params.get('conflict_threshold'), 0.6) # 提高冲突阈值
-        conflict_penalty_factor = get_param_value(harmony_params.get('conflict_penalty_factor'), 0.7) # 提高惩罚力度
-        deception_modulator_signal_name = get_param_value(harmony_params.get('deception_modulator_signal'), 'deception_index_D') # 引入欺骗指数
+        dynamic_weight_modulator_signal_name = get_param_value(harmony_params.get('dynamic_weight_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
+        dynamic_weight_sensitivity = get_param_value(harmony_params.get('dynamic_weight_sensitivity'), 0.3)
+        harmony_non_linear_exponent = get_param_value(harmony_params.get('harmony_non_linear_exponent'), 2.5)
+        harmony_context_modulator_signal_name = get_param_value(harmony_params.get('harmony_context_modulator_signal'), 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT')
+        harmony_context_sensitivity = get_param_value(harmony_params.get('harmony_context_sensitivity'), 0.4)
+        conflict_threshold = get_param_value(harmony_params.get('conflict_threshold'), 0.6)
+        conflict_penalty_factor = get_param_value(harmony_params.get('conflict_penalty_factor'), 0.7)
+        deception_modulator_signal_name = get_param_value(harmony_params.get('deception_modulator_signal'), 'deception_index_D')
         deception_penalty_sensitivity = get_param_value(harmony_params.get('deception_penalty_sensitivity'), 0.5)
-        # V3.0 趋势奖励参数
-        trend_alignment_threshold = get_param_value(harmony_params.get('trend_alignment_threshold'), 0.75) # 提高奖励阈值
-        trend_bonus_factor = get_param_value(harmony_params.get('trend_bonus_factor'), 0.15) # 提高奖励力度
-        quality_calibrator_signal_name = get_param_value(harmony_params.get('quality_calibrator_signal'), 'chip_health_score_D') # 引入品质校准
+        trend_alignment_threshold = get_param_value(harmony_params.get('trend_alignment_threshold'), 0.75)
+        trend_bonus_factor = get_param_value(harmony_params.get('trend_bonus_factor'), 0.15)
+        quality_calibrator_signal_name = get_param_value(harmony_params.get('quality_calibrator_signal'), 'chip_health_score_D')
         quality_calibration_sensitivity = get_param_value(harmony_params.get('quality_calibration_sensitivity'), 0.5)
         high_harmony_threshold = get_param_value(harmony_params.get('high_harmony_threshold'), 0.8)
-        # --- 信号依赖校验 ---
         required_signals = [
             dynamic_weight_modulator_signal_name,
             deception_modulator_signal_name,
             quality_calibrator_signal_name
         ]
-        # 如果 harmony_context_modulator_signal_name 不是 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT，则也需要从 df 中获取
         if harmony_context_modulator_signal_name != 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT':
             required_signals.append(harmony_context_modulator_signal_name)
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_tactical_harmony"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_strategic_tactical_harmony")
+
         # --- 1. 动态权重融合 (Dynamic Weight Fusion) ---
-        # 使用筹码波动不稳定性作为调制器
-        dynamic_weight_modulator_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
-        # 归一化到 [0, 1]，波动性越高，值越大
+        dynamic_weight_modulator_raw = signals_data[dynamic_weight_modulator_signal_name]
         norm_dynamic_weight_modulator = get_adaptive_mtf_normalized_score(dynamic_weight_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 根据筹码波动不稳定性调整战略和战术权重
-        # 波动性越高 (norm_dynamic_weight_modulator 越大)，市场越不稳定，短期战术执行的重要性被放大，战略权重降低
-        # 波动性越低 (norm_dynamic_weight_modulator 越小)，市场越稳定，长期战略意图的权重越高，战术权重降低
         dynamic_strategic_weight = strategic_weight_base * (1 - norm_dynamic_weight_modulator * dynamic_weight_sensitivity)
         dynamic_tactical_weight = tactical_weight_base * (1 + norm_dynamic_weight_modulator * dynamic_weight_sensitivity)
-        # 归一化动态权重，使其和为1
         sum_dynamic_weights = dynamic_strategic_weight + dynamic_tactical_weight
         dynamic_strategic_weight = dynamic_strategic_weight / sum_dynamic_weights
         dynamic_tactical_weight = dynamic_tactical_weight / sum_dynamic_weights
-        # 计算以动态权重为基础的意图分
         base_intent_score = strategic_posture * dynamic_strategic_weight + tactical_exchange * dynamic_tactical_weight
         # --- 2. 和谐因子非线性增强 (Non-linear Harmony Factor Enhancement) ---
-        raw_difference = (strategic_posture - tactical_exchange).abs() / 2 # 归一化到 [0, 1]
-        # 应用非线性变换，放大差异的影响
+        raw_difference = (strategic_posture - tactical_exchange).abs() / 2
         non_linear_diff = raw_difference.pow(harmony_non_linear_exponent)
-        # 基础和谐因子
         harmony_factor = (1 - non_linear_diff).clip(lower=0)
-        # 情境化和谐度调制 (使用持仓信念韧性作为调制器，纯筹码信号)
-        # 从传入的 holder_sentiment_scores 中获取，而不是从 df 中获取
         if harmony_context_modulator_signal_name == 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT':
             harmony_context_modulator_raw = holder_sentiment_scores
         else:
-            harmony_context_modulator_raw = self._get_safe_series(df, df, harmony_context_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
-        norm_harmony_context = get_adaptive_mtf_normalized_bipolar_score(harmony_context_modulator_raw, df_index, tf_weights) # 归一化到 [-1, 1]
-        # 持仓信念韧性越强（norm_harmony_context 越大），市场对分歧的容忍度越高，和谐度因子被放大
-        # 持仓信念韧性越弱（norm_harmony_context 越小），市场对分歧越敏感，和谐度因子被削弱
-        context_modulation_effect = (norm_harmony_context * harmony_context_sensitivity).clip(-0.5, 0.5) # 限制调制效果
+            harmony_context_modulator_raw = signals_data[harmony_context_modulator_signal_name]
+        norm_harmony_context = get_adaptive_mtf_normalized_bipolar_score(harmony_context_modulator_raw, df_index, tf_weights)
+        context_modulation_effect = (norm_harmony_context * harmony_context_sensitivity).clip(-0.5, 0.5)
         harmony_factor = harmony_factor * (1 + context_modulation_effect)
-        harmony_factor = harmony_factor.clip(0, 1) # 确保在 [0, 1] 范围内
+        harmony_factor = harmony_factor.clip(0, 1)
         # --- 3. 冲突情境识别与惩罚 (Conflict Context Recognition & Penalty) ---
         conflict_penalty_factor_adjusted = pd.Series(1.0, index=df_index)
-        # 识别战略与战术方向完全背离且强度足够的情境
         strong_bullish_strategic_bearish_tactical = (strategic_posture > conflict_threshold) & (tactical_exchange < -conflict_threshold)
         strong_bearish_strategic_bullish_tactical = (strategic_posture < -conflict_threshold) & (tactical_exchange > conflict_threshold)
         conflict_mask = strong_bullish_strategic_bearish_tactical | strong_bearish_strategic_bullish_tactical
-        # 引入诡道因子进行调制
-        deception_raw = self._get_safe_series(df, df, deception_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
-        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights) # 归一化到 [-1, 1]
-        # 如果冲突伴随着明显的“诱多”式欺骗 (norm_deception > 0)，惩罚更严厉
-        # 如果冲突伴随着“诱空”式欺骗 (norm_deception < 0)，且主力信念坚定，则可能减弱惩罚 (此处简化为不增强惩罚)
+        deception_raw = signals_data[deception_modulator_signal_name]
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights)
         deception_impact = pd.Series(0.0, index=df_index)
         deception_impact.loc[conflict_mask & (norm_deception > 0)] = norm_deception.loc[conflict_mask & (norm_deception > 0)] * deception_penalty_sensitivity
-        # 在冲突情境下施加额外惩罚，并考虑欺骗影响
         conflict_penalty_factor_adjusted.loc[conflict_mask] = 1 - (conflict_penalty_factor + deception_impact.loc[conflict_mask]).clip(0, 1)
-        conflict_penalty_factor_adjusted = conflict_penalty_factor_adjusted.clip(0, 1) # 确保惩罚因子在 [0, 1] 范围内
+        conflict_penalty_factor_adjusted = conflict_penalty_factor_adjusted.clip(0, 1)
         # --- 4. 趋势一致性奖励 (Trend Alignment Bonus) ---
         alignment_bonus = pd.Series(0.0, index=df_index)
-        # 识别战略与战术高度协同且强度足够的情境
         bullish_alignment_mask = (strategic_posture > trend_alignment_threshold) & \
                                  (tactical_exchange > trend_alignment_threshold) & \
                                  (harmony_factor > high_harmony_threshold)
         bearish_alignment_mask = (strategic_posture < -trend_alignment_threshold) & \
                                  (tactical_exchange < -trend_alignment_threshold) & \
                                  (harmony_factor > high_harmony_threshold)
-        # 引入筹码品质因子进行校准
-        quality_calibrator_raw = self._get_safe_series(df, df, quality_calibrator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
-        norm_quality_calibrator = get_adaptive_mtf_normalized_score(quality_calibrator_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
-        # 只有当品质因子较高时才给予奖励，否则削弱奖励
+        quality_calibrator_raw = signals_data[quality_calibrator_signal_name]
+        norm_quality_calibrator = get_adaptive_mtf_normalized_score(quality_calibrator_raw, df_index, ascending=True, tf_weights=tf_weights)
         calibrated_bonus_factor = trend_bonus_factor * (1 + norm_quality_calibrator * quality_calibration_sensitivity)
-        calibrated_bonus_factor = calibrated_bonus_factor.clip(0, trend_bonus_factor * 2) # 限制奖励上限
-        # 给予奖励或惩罚
+        calibrated_bonus_factor = calibrated_bonus_factor.clip(0, trend_bonus_factor * 2)
         alignment_bonus.loc[bullish_alignment_mask] = calibrated_bonus_factor.loc[bullish_alignment_mask]
         alignment_bonus.loc[bearish_alignment_mask] = -calibrated_bonus_factor.loc[bearish_alignment_mask]
         # --- 最终融合 ---
-        # 基础意图分 * 和谐因子 * 冲突惩罚 + 趋势奖励
         final_score = base_intent_score * harmony_factor * conflict_penalty_factor_adjusted + alignment_bonus
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
@@ -2449,16 +2340,13 @@ class ChipIntelligence:
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         df_index = df.index
-        # --- 参数加载 ---
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         inflection_params = get_param_value(p_conf.get('harmony_inflection_params'), {})
-        # V3.0 广义拐点定义参数
         velocity_period = get_param_value(inflection_params.get('velocity_period'), 1)
         acceleration_period = get_param_value(inflection_params.get('acceleration_period'), 1)
         positive_strength_tanh_factor = get_param_value(inflection_params.get('positive_strength_tanh_factor'), 1.5)
         negative_strength_tanh_factor = get_param_value(inflection_params.get('negative_strength_tanh_factor'), 1.5)
-        # V3.0 动态阈值自适应参数
         base_low_harmony_threshold = get_param_value(inflection_params.get('base_low_harmony_threshold'), 0.2)
         base_high_harmony_threshold = get_param_value(inflection_params.get('base_high_harmony_threshold'), 0.8)
         threshold_modulator_signal_name = get_param_value(inflection_params.get('threshold_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
@@ -2466,22 +2354,18 @@ class ChipIntelligence:
         low_harmony_boost_factor = get_param_value(inflection_params.get('low_harmony_boost_factor'), 1.5)
         high_harmony_boost_factor = get_param_value(inflection_params.get('high_harmony_boost_factor'), 1.5)
         mid_harmony_neutral_factor = get_param_value(inflection_params.get('mid_harmony_neutral_factor'), 1.0)
-        # V3.0 诡道博弈过滤与惩罚参数
         deception_signal_name = get_param_value(inflection_params.get('deception_signal'), 'deception_index_D')
         wash_trade_signal_name = get_param_value(inflection_params.get('wash_trade_signal'), 'wash_trade_intensity_D')
         deception_penalty_sensitivity = get_param_value(inflection_params.get('deception_penalty_sensitivity'), 0.7)
         wash_trade_mitigation_sensitivity = get_param_value(inflection_params.get('wash_trade_mitigation_sensitivity'), 0.3)
-        # V3.0 拐点延续性确认奖励参数
         persistence_period = get_param_value(inflection_params.get('persistence_period'), 2)
         persistence_bonus_factor = get_param_value(inflection_params.get('persistence_bonus_factor'), 0.1)
-        # V3.0 增强情境调制器参数
         context_modulator_signal_1_name = get_param_value(inflection_params.get('context_modulator_signal_1'), 'chip_health_score_D')
         context_modulator_signal_2_name = get_param_value(inflection_params.get('context_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
-        context_modulator_signal_3_name = get_param_value(inflection_params.get('context_modulator_signal_3'), 'main_force_conviction_index_D') # 新增主力信念
+        context_modulator_signal_3_name = get_param_value(inflection_params.get('context_modulator_signal_3'), 'main_force_conviction_index_D')
         context_modulator_sensitivity_health = get_param_value(inflection_params.get('context_modulator_sensitivity_health'), 0.5)
         context_modulator_sensitivity_volatility = get_param_value(inflection_params.get('context_modulator_sensitivity_volatility'), 0.3)
         context_modulator_sensitivity_conviction = get_param_value(inflection_params.get('context_modulator_sensitivity_conviction'), 0.4)
-        # --- 信号依赖校验 ---
         required_signals = [
             threshold_modulator_signal_name,
             deception_signal_name,
@@ -2492,92 +2376,74 @@ class ChipIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_harmony_inflection"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_harmony_inflection")
+
         # --- 1. 计算速度与加速度 (保留方向信息) ---
         harmony_velocity = harmony_score.diff(velocity_period).fillna(0)
         harmony_acceleration = harmony_velocity.diff(acceleration_period).fillna(0)
-        # 使用双极归一化，保留方向和强度
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(harmony_velocity, df_index, tf_weights)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(harmony_acceleration, df_index, tf_weights)
         # --- 2. 非对称拐点动能融合 (Asymmetric Inflection Momentum Fusion) ---
-        # 底部拐点强度 (速度负 -> 正, 或速度负但加速度正)
         positive_inflection_strength = pd.Series(0.0, index=df_index)
         positive_inflection_mask = ((norm_velocity.shift(1) < 0) & (norm_velocity >= 0)) | \
                                    ((norm_velocity < 0) & (norm_acceleration > 0)) | \
-                                   ((norm_velocity >= 0) & (norm_acceleration > 0)) # 速度和加速度都为正也算正向动能
+                                   ((norm_velocity >= 0) & (norm_acceleration > 0))
         positive_inflection_strength.loc[positive_inflection_mask] = \
             np.tanh((norm_velocity.loc[positive_inflection_mask].clip(lower=0) + norm_acceleration.loc[positive_inflection_mask].clip(lower=0)) * positive_strength_tanh_factor)
-        # 顶部拐点强度 (速度正 -> 负, 或速度正但加速度负)
         negative_inflection_strength = pd.Series(0.0, index=df_index)
         negative_inflection_mask = ((norm_velocity.shift(1) > 0) & (norm_velocity <= 0)) | \
                                    ((norm_velocity > 0) & (norm_acceleration < 0)) | \
-                                   ((norm_velocity <= 0) & (norm_acceleration < 0)) # 速度和加速度都为负也算负向动能
+                                   ((norm_velocity <= 0) & (norm_acceleration < 0))
         negative_inflection_strength.loc[negative_inflection_mask] = \
             np.tanh((norm_velocity.loc[negative_inflection_mask].abs().clip(lower=0) + norm_acceleration.loc[negative_inflection_mask].abs().clip(lower=0)) * negative_strength_tanh_factor)
-        # 综合拐点强度 (保留方向)
         inflection_strength = positive_inflection_strength - negative_inflection_strength
         # --- 3. 动态阈值自适应 (Dynamic Threshold Adaptation) ---
-        threshold_modulator_raw = self._get_safe_series(df, df, threshold_modulator_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
-        # 归一化到 [0, 1]，波动性越高，值越大
+        threshold_modulator_raw = signals_data[threshold_modulator_signal_name]
         norm_threshold_modulator = get_adaptive_mtf_normalized_score(threshold_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 动态调整阈值：波动性越高，阈值范围越宽 (对拐点判断更宽松)
         dynamic_low_harmony_threshold = base_low_harmony_threshold * (1 - norm_threshold_modulator * threshold_modulator_sensitivity)
         dynamic_high_harmony_threshold = base_high_harmony_threshold * (1 + norm_threshold_modulator * threshold_modulator_sensitivity)
-        dynamic_low_harmony_threshold = dynamic_low_harmony_threshold.clip(0.05, 0.3) # 限制合理范围
-        dynamic_high_harmony_threshold = dynamic_high_harmony_threshold.clip(0.7, 0.95) # 限制合理范围
+        dynamic_low_harmony_threshold = dynamic_low_harmony_threshold.clip(0.05, 0.3)
+        dynamic_high_harmony_threshold = dynamic_high_harmony_threshold.clip(0.7, 0.95)
         # --- 4. 动态位置敏感度 (Dynamic Position Sensitivity) ---
         position_sensitivity_factor = pd.Series(mid_harmony_neutral_factor, index=df_index)
-        # 低和谐度区域 (0 到 dynamic_low_harmony_threshold)
         low_harmony_zone_mask = harmony_score < dynamic_low_harmony_threshold
         position_sensitivity_factor.loc[low_harmony_zone_mask & (inflection_strength > 0)] = low_harmony_boost_factor
-        position_sensitivity_factor.loc[low_harmony_zone_mask & (inflection_strength < 0)] = 1 / low_harmony_boost_factor # 削弱负向拐点
-        # 高和谐度区域 (dynamic_high_harmony_threshold 到 1)
+        position_sensitivity_factor.loc[low_harmony_zone_mask & (inflection_strength < 0)] = 1 / low_harmony_boost_factor
         high_harmony_zone_mask = harmony_score > dynamic_high_harmony_threshold
-        position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength < 0)] = high_harmony_boost_factor # 增强负向拐点
-        position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength > 0)] = 1 / high_harmony_boost_factor # 削弱正向拐点
+        position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength < 0)] = high_harmony_boost_factor
+        position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength > 0)] = 1 / high_harmony_boost_factor
         # --- 5. 诡道博弈过滤与惩罚 (Deceptive Game Filtering & Penalty) ---
-        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
-        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights) # 归一化到 [-1, 1]
-        wash_trade_raw = self._get_safe_series(df, df, wash_trade_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
-        norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
+        deception_raw = signals_data[deception_signal_name]
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights)
+        wash_trade_raw = signals_data[wash_trade_signal_name]
+        norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, ascending=True, tf_weights=tf_weights)
         deception_modulator = pd.Series(1.0, index=df_index)
-        # 诱多陷阱惩罚：正向拐点伴随高欺骗指数
         bull_trap_mask = (inflection_strength > 0) & (norm_deception > 0)
         deception_modulator.loc[bull_trap_mask] = 1 - (norm_deception.loc[bull_trap_mask] * deception_penalty_sensitivity).clip(0, 1)
-        # 诱空洗盘缓解：负向拐点伴随高对倒强度 (可能不是真实恶化)
         bear_trap_mitigation_mask = (inflection_strength < 0) & (norm_wash_trade > 0)
-        deception_modulator.loc[bear_trap_mitigation_mask] = 1 + (norm_wash_trade.loc[bear_trap_mitigation_mask] * wash_trade_mitigation_sensitivity).clip(0, 0.5) # 限制缓解幅度
-        # 应用诡道调制
+        deception_modulator.loc[bear_trap_mitigation_mask] = 1 + (norm_wash_trade.loc[bear_trap_mitigation_mask] * wash_trade_mitigation_sensitivity).clip(0, 0.5)
         inflection_strength_modulated = inflection_strength * deception_modulator
         # --- 6. 拐点延续性确认奖励 (Inflection Persistence Confirmation Bonus) ---
         persistence_bonus = pd.Series(0.0, index=df_index)
-        # 计算拐点方向的短期延续性
-        # 如果当前是正向拐点，且过去 persistence_period 天内，inflection_strength 大部分时间为正
         positive_persistence_mask = (inflection_strength_modulated > 0) & \
                                     (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() > 0)
         persistence_bonus.loc[positive_persistence_mask] = persistence_bonus_factor
-        # 如果当前是负向拐点，且过去 persistence_period 天内，inflection_strength 大部分时间为负
         negative_persistence_mask = (inflection_strength_modulated < 0) & \
                                     (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() < 0)
         persistence_bonus.loc[negative_persistence_mask] = -persistence_bonus_factor
         # --- 7. 增强情境调制器 (Enhanced Contextual Modulators) ---
-        # 筹码健康度 (chip_health_score_D)
-        chip_health_raw = self._get_safe_series(df, df, context_modulator_signal_1_name, 0.0, method_name="_diagnose_harmony_inflection")
-        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
-        # 筹码波动不稳定性 (VOLATILITY_INSTABILITY_INDEX_21d_D)
-        volatility_instability_raw = self._get_safe_series(df, df, context_modulator_signal_2_name, 0.0, method_name="_diagnose_harmony_inflection")
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights) # 波动性越高，值越小 (负向影响)
-        # 主力信念指数 (main_force_conviction_index_D)
-        main_force_conviction_raw = self._get_safe_series(df, df, context_modulator_signal_3_name, 0.0, method_name="_diagnose_harmony_inflection")
-        norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights) # 绝对值越高，信念越强
-        # 融合情境调制器
-        # 健康度越高，波动性越低，主力信念越强，情境因子越接近1，拐点信号越可靠
+        chip_health_raw = signals_data[context_modulator_signal_1_name]
+        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
+        volatility_instability_raw = signals_data[context_modulator_signal_2_name]
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
+        main_force_conviction_raw = signals_data[context_modulator_signal_3_name]
+        norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
         context_modulator = (
             (1 + norm_chip_health * context_modulator_sensitivity_health) *
             (1 + norm_volatility_instability * context_modulator_sensitivity_volatility) *
             (1 + norm_main_force_conviction * context_modulator_sensitivity_conviction)
-        ).clip(0.5, 2.0) # 限制调制范围
+        ).clip(0.5, 2.0)
         # --- 最终融合 ---
-        # 拐点强度 (诡道调制后) * 动态位置敏感度 * 情境调制器 + 延续性奖励
         final_score = (inflection_strength_modulated * position_sensitivity_factor * context_modulator) + persistence_bonus
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
@@ -2599,7 +2465,6 @@ class ChipIntelligence:
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         rv_params = get_param_value(p_conf.get('chip_retail_vulnerability_params'), {})
-        # --- 参数加载 ---
         structure_fragility_weights = get_param_value(rv_params.get('structure_fragility_weights'), {})
         behavior_extremism_weights = get_param_value(rv_params.get('behavior_extremism_weights'), {})
         inducement_context_weights = get_param_value(rv_params.get('inducement_context_weights'), {})
@@ -2608,7 +2473,6 @@ class ChipIntelligence:
         context_modulator_weights = get_param_value(rv_params.get('context_modulator_weights'), {})
         context_modulator_sensitivity = get_param_value(rv_params.get('context_modulator_sensitivity'), 0.5)
         final_exponent = get_param_value(rv_params.get('final_exponent'), 2.0)
-        # --- 信号依赖校验 ---
         required_signals = [
             'total_winner_rate_D', 'total_loser_rate_D', 'retail_fomo_premium_index_D',
             'panic_buy_absorption_contribution_D', 'winner_concentration_90pct_D', 'loser_concentration_90pct_D',
@@ -2618,34 +2482,29 @@ class ChipIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_retail_vulnerability"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_retail_vulnerability")
+
         # --- 原始数据获取 ---
-        # 维度1: 散户筹码结构脆弱性
-        winner_concentration_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        loser_concentration_raw = self._get_safe_series(df, df, 'loser_concentration_90pct_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        cost_gini_coefficient_raw = self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        retail_flow_dominance_raw = self._get_safe_series(df, df, 'retail_flow_dominance_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        # 维度2: 散户行为极端化
-        retail_fomo_premium_index_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        panic_buy_absorption_contribution_raw = self._get_safe_series(df, df, 'panic_buy_absorption_contribution_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        retail_net_flow_calibrated_raw = self._get_safe_series(df, df, 'retail_net_flow_calibrated_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        total_loser_rate_raw = self._get_safe_series(df, df, 'total_loser_rate_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        # 维度3: 主力诱导情境
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        # 情境调制器
-        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
-        market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_retail_vulnerability")
+        winner_concentration_raw = signals_data['winner_concentration_90pct_D']
+        loser_concentration_raw = signals_data['loser_concentration_90pct_D']
+        cost_gini_coefficient_raw = signals_data['cost_gini_coefficient_D']
+        retail_flow_dominance_raw = signals_data['retail_flow_dominance_index_D']
+        retail_fomo_premium_index_raw = signals_data['retail_fomo_premium_index_D']
+        panic_buy_absorption_contribution_raw = signals_data['panic_buy_absorption_contribution_D']
+        retail_net_flow_calibrated_raw = signals_data['retail_net_flow_calibrated_D']
+        total_winner_rate_raw = signals_data['total_winner_rate_D']
+        total_loser_rate_raw = signals_data['total_loser_rate_D']
+        deception_index_raw = signals_data['deception_index_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
+        market_sentiment_raw = signals_data['market_sentiment_score_D']
+
         # --- 维度1: 散户筹码结构脆弱性 (Retail Chip Structure Fragility) ---
-        # 赢家集中度越低，脆弱性越高
-        norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(False, None, "norm_winner_concentration_inverse"))
-        # 输家集中度越低，脆弱性越高
-        norm_loser_concentration_inverse = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(False, None, "norm_loser_concentration_inverse"))
-        # 成本基尼系数越低（筹码越分散），脆弱性越高
-        norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=(False, None, "norm_cost_gini_coefficient_inverse"))
-        # 散户流量主导越强，脆弱性越高
-        norm_retail_flow_dominance = get_adaptive_mtf_normalized_score(retail_flow_dominance_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, "norm_retail_flow_dominance"))
+        norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_loser_concentration_inverse = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_retail_flow_dominance = get_adaptive_mtf_normalized_score(retail_flow_dominance_raw, df_index, ascending=True, tf_weights=tf_weights)
         total_sf_weight = sum(structure_fragility_weights.values())
         structure_fragility_score = (
             norm_winner_concentration_inverse.pow(structure_fragility_weights.get('winner_concentration_inverse', 0.25)) *
@@ -2656,8 +2515,7 @@ class ChipIntelligence:
         # --- 维度2: 散户行为极端化 (Retail Behavior Extremism) ---
         norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_panic_buy_absorption_inverse = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=False, tf_weights=tf_weights)
-        # 散户净流量的绝对值，代表极端化
-        norm_retail_net_flow_abs = get_adaptive_mtf_normalized_bipolar_score(retail_net_flow_calibrated_raw, df_index, tf_weights=tf_weights, debug_info=(False, None, "norm_retail_net_flow_abs")).abs()
+        norm_retail_net_flow_abs = get_adaptive_mtf_normalized_bipolar_score(retail_net_flow_calibrated_raw, df_index, tf_weights=tf_weights).abs()
         norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
         total_be_weight = sum(behavior_extremism_weights.values())
@@ -2669,10 +2527,8 @@ class ChipIntelligence:
             norm_total_loser_rate.pow(behavior_extremism_weights.get('total_loser_rate', 0.15))
         ).pow(1 / total_be_weight)
         # --- 维度3: 主力诱导情境 (Main Force Inducement Context) ---
-        # Positive deception (bull trap) increases fragility
         norm_deception_index_positive = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights).clip(lower=0)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # Absolute value of negative main force conviction (unstable/bearish MF intent) increases fragility
         norm_main_force_conviction_negative_abs = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights).clip(upper=0).abs()
         total_ic_weight = sum(inducement_context_weights.values())
         inducement_context_score = (
@@ -2691,8 +2547,8 @@ class ChipIntelligence:
         final_score = initial_vulnerability_score
         modulator = pd.Series(1.0, index=df_index)
         if contextual_modulator_enabled:
-            norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, "norm_volatility_instability"))
-            norm_market_sentiment_extreme = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights=tf_weights, debug_info=(False, None, "norm_market_sentiment_extreme")).abs()
+            norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights)
+            norm_market_sentiment_extreme = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights=tf_weights).abs()
             total_cm_weight = sum(context_modulator_weights.values())
             if total_cm_weight > 0:
                 context_modulator_effect = (
@@ -2700,7 +2556,7 @@ class ChipIntelligence:
                     norm_market_sentiment_extreme.pow(context_modulator_weights.get('market_sentiment_extreme', 0.5))
                 ).pow(1 / total_cm_weight)
                 modulator = 1 + (context_modulator_effect - 0.5) * context_modulator_sensitivity
-                modulator = modulator.clip(0.5, 1.5) # Limit modulator range
+                modulator = modulator.clip(0.5, 1.5)
                 final_score = final_score * modulator
         # --- 最终非线性放大 ---
         final_score = np.tanh(final_score * final_exponent)
@@ -2755,34 +2611,40 @@ class ChipIntelligence:
             'SLOPE_5_chip_health_score_D', 'SLOPE_5_main_force_conviction_index_D',
             'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'market_sentiment_score_D'
         ]
+        if dynamic_tolerance_mod_enabled and dynamic_tolerance_mod_signal not in required_signals:
+            required_signals.append(dynamic_tolerance_mod_signal)
+        if dynamic_fusion_weights_enabled and dynamic_weight_mod_signal not in required_signals:
+            required_signals.append(dynamic_weight_mod_signal)
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_main_force_cost_intent"):
             return pd.Series(0.0, index=df.index)
-        close_raw = self._get_safe_series(df, df, 'close_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        vpoc_raw = self._get_safe_series(df, df, 'vpoc_D', close_raw.mean(), method_name="_diagnose_chip_main_force_cost_intent")
-        dominant_peak_cost_raw = self._get_safe_series(df, df, 'dominant_peak_cost_D', vpoc_raw, method_name="_diagnose_chip_main_force_cost_intent")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        conviction_flow_buy_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        conviction_flow_sell_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        main_force_activity_ratio_raw = self._get_safe_series(df, df, 'main_force_activity_ratio_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        main_force_flow_directionality_raw = self._get_safe_series(df, df, 'main_force_flow_directionality_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        slope_5_chip_health_raw = self._get_safe_series(df, df, 'SLOPE_5_chip_health_score_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        slope_5_main_force_conviction_raw = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        bbw_raw = self._get_safe_series(df, df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
-        market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_main_force_cost_intent")
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_main_force_cost_intent")
+
+        close_raw = signals_data['close_D']
+        vpoc_raw = signals_data['vpoc_D']
+        dominant_peak_cost_raw = signals_data['dominant_peak_cost_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        conviction_flow_buy_raw = signals_data['conviction_flow_buy_intensity_D']
+        conviction_flow_sell_raw = signals_data['conviction_flow_sell_intensity_D']
+        main_force_activity_ratio_raw = signals_data['main_force_activity_ratio_D']
+        main_force_flow_directionality_raw = signals_data['main_force_flow_directionality_D']
+        deception_index_raw = signals_data['deception_index_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        chip_health_score_raw = signals_data['chip_health_score_D']
+        slope_5_chip_health_raw = signals_data['SLOPE_5_chip_health_score_D']
+        slope_5_main_force_conviction_raw = signals_data['SLOPE_5_main_force_conviction_index_D']
+        volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
+        market_sentiment_raw = signals_data['market_sentiment_score_D']
+
         cost_center = dominant_peak_cost_raw.fillna(vpoc_raw)
         dynamic_cost_zone_tolerance = pd.Series(cost_zone_tolerance_base, index=df_index)
         if dynamic_tolerance_mod_enabled:
-            norm_dynamic_tolerance_mod = get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, dynamic_tolerance_mod_signal, 0.0, method_name="_diagnose_chip_main_force_cost_intent"), df_index, ascending=True, tf_weights=tf_weights)
+            dynamic_tolerance_mod_raw = signals_data[dynamic_tolerance_mod_signal]
+            norm_dynamic_tolerance_mod = get_adaptive_mtf_normalized_score(dynamic_tolerance_mod_raw, df_index, ascending=True, tf_weights=tf_weights)
             dynamic_cost_zone_tolerance = cost_zone_tolerance_base * (1 + norm_dynamic_tolerance_mod * dynamic_tolerance_sensitivity)
             dynamic_cost_zone_tolerance = dynamic_cost_zone_tolerance.clip(cost_zone_tolerance_base * 0.5, cost_zone_tolerance_base * 2.0)
         upper_bound = cost_center * (1 + dynamic_cost_zone_tolerance)
         lower_bound = cost_center * (1 - dynamic_cost_zone_tolerance)
         net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
-        # 修正 net_conviction_flow 的归一化逻辑，确保方向性正确
         norm_positive_flow = get_adaptive_mtf_normalized_score(net_conviction_flow.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
         norm_negative_flow = get_adaptive_mtf_normalized_score(net_conviction_flow.clip(upper=0).abs(), df_index, ascending=True, tf_weights=tf_weights)
         norm_net_conviction_flow_directional = norm_positive_flow - norm_negative_flow
@@ -2823,7 +2685,8 @@ class ChipIntelligence:
         dynamic_weight_above_vpoc = pd.Series(dynamic_fusion_weights_base.get('above_vpoc', 0.4), index=df_index)
         dynamic_weight_in_vpoc = pd.Series(dynamic_fusion_weights_base.get('in_vpoc', 0.2), index=df_index)
         if dynamic_fusion_weights_enabled:
-            norm_dynamic_weight_mod = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, dynamic_weight_mod_signal, 0.0, method_name="_diagnose_chip_main_force_cost_intent"), df_index, tf_weights=tf_weights)
+            dynamic_weight_mod_raw = signals_data[dynamic_weight_mod_signal]
+            norm_dynamic_weight_mod = get_adaptive_mtf_normalized_bipolar_score(dynamic_weight_mod_raw, df_index, tf_weights=tf_weights)
             mod_factor = norm_dynamic_weight_mod * dynamic_weight_sensitivity
             dynamic_weight_below_vpoc = (dynamic_weight_below_vpoc - mod_factor).clip(0.1, 0.7)
             dynamic_weight_above_vpoc = (dynamic_weight_above_vpoc + mod_factor).clip(0.1, 0.7)
@@ -2907,41 +2770,44 @@ class ChipIntelligence:
             if mod_signal_2 and mod_signal_2 not in required_signals: required_signals.append(mod_signal_2)
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_hollowing_out_risk"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_hollowing_out_risk")
+
         # Dimension 1: Dispersion & Weakness
-        winner_concentration_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        loser_concentration_raw = self._get_safe_series(df, df, 'loser_concentration_90pct_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        cost_gini_coefficient_raw = self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        dominant_peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        peak_separation_ratio_raw = self._get_safe_series(df, df, 'peak_separation_ratio_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        slope_winner_concentration_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_concentration_90pct_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        slope_chip_health_raw = self._get_safe_series(df, df, 'SLOPE_5_chip_health_score_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
+        winner_concentration_raw = signals_data['winner_concentration_90pct_D']
+        loser_concentration_raw = signals_data['loser_concentration_90pct_D']
+        cost_gini_coefficient_raw = signals_data['cost_gini_coefficient_D']
+        dominant_peak_solidity_raw = signals_data['dominant_peak_solidity_D']
+        peak_separation_ratio_raw = signals_data['peak_separation_ratio_D']
+        slope_winner_concentration_raw = signals_data['SLOPE_5_winner_concentration_90pct_D']
+        slope_chip_health_raw = signals_data['SLOPE_5_chip_health_score_D']
         # Dimension 2: Distribution Pressure
-        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        rally_distribution_pressure_raw = self._get_safe_series(df, df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        profit_taking_flow_ratio_raw = self._get_safe_series(df, df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        upper_shadow_selling_pressure_raw = self._get_safe_series(df, df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        covert_distribution_signal_raw = self._get_safe_series(df, df, 'covert_distribution_signal_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        slope_rally_distribution_pressure_raw = self._get_safe_series(df, df, 'SLOPE_5_rally_distribution_pressure_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
+        total_winner_rate_raw = signals_data['total_winner_rate_D']
+        winner_profit_margin_avg_raw = signals_data['winner_profit_margin_avg_D']
+        rally_distribution_pressure_raw = signals_data['rally_distribution_pressure_D']
+        profit_taking_flow_ratio_raw = signals_data['profit_taking_flow_ratio_D']
+        upper_shadow_selling_pressure_raw = signals_data['upper_shadow_selling_pressure_D']
+        covert_distribution_signal_raw = signals_data['covert_distribution_signal_D']
+        slope_rally_distribution_pressure_raw = signals_data['SLOPE_5_rally_distribution_pressure_D']
         # Dimension 3: Main Force Deception
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        main_force_net_flow_calibrated_raw = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        main_force_cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
+        deception_index_raw = signals_data['deception_index_D']
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        main_force_net_flow_calibrated_raw = signals_data['main_force_net_flow_calibrated_D']
+        main_force_cost_advantage_raw = signals_data['main_force_cost_advantage_D']
         # Dimension 4: Market Context & Vulnerability
-        retail_fomo_premium_index_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
-        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_chip_hollowing_out_risk")
+        retail_fomo_premium_index_raw = signals_data['retail_fomo_premium_index_D']
+        volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
+        market_sentiment_raw = signals_data['market_sentiment_score_D']
+        flow_credibility_raw = signals_data['flow_credibility_index_D']
+        structural_tension_raw = signals_data['structural_tension_index_D']
+
         norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
-        norm_loser_concentration_high_price = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=True, tf_weights=tf_weights) # 高位套牢盘集中度越高，风险越高
-        norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights) # Gini系数越低（越分散），风险越高
-        norm_dominant_peak_solidity_inverse = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights) # 主峰坚实度越低，风险越高
-        norm_peak_separation_ratio = get_adaptive_mtf_normalized_score(peak_separation_ratio_raw, df_index, ascending=True, tf_weights=tf_weights) # 峰分离度越大，风险越高
-        norm_winner_concentration_slope_inverse = get_adaptive_mtf_normalized_score(slope_winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights) # 赢家集中度斜率下降，风险越高
-        norm_chip_health_score_inverse_slope = get_adaptive_mtf_normalized_score(slope_chip_health_raw, df_index, ascending=False, tf_weights=tf_weights) # 筹码健康度斜率下降，风险越高
+        norm_loser_concentration_high_price = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_dominant_peak_solidity_inverse = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_peak_separation_ratio = get_adaptive_mtf_normalized_score(peak_separation_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_winner_concentration_slope_inverse = get_adaptive_mtf_normalized_score(slope_winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_chip_health_score_inverse_slope = get_adaptive_mtf_normalized_score(slope_chip_health_raw, df_index, ascending=False, tf_weights=tf_weights)
         dispersion_weakness_score = _robust_geometric_mean(
             {
                 'winner_concentration_inverse': norm_winner_concentration_inverse,
@@ -3011,51 +2877,41 @@ class ChipIntelligence:
             sensitivity_sentiment = get_param_value(dynamic_fusion_modulator_params.get('sensitivity_sentiment'))
             volatility_impact_weights = get_param_value(dynamic_fusion_modulator_params.get('volatility_impact_weights'), {})
             sentiment_impact_weights = get_param_value(dynamic_fusion_modulator_params.get('sentiment_impact_weights'), {})
-            norm_mod_signal_1 = get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, mod_signal_1_name, 0.0, method_name="_diagnose_chip_hollowing_out_risk"), df_index, ascending=True, tf_weights=tf_weights)
-            norm_mod_signal_2 = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, mod_signal_2_name, 0.0, method_name="_diagnose_chip_hollowing_out_risk"), df_index, tf_weights=tf_weights)
-            # Initialize dynamic weights as Series
+            norm_mod_signal_1 = get_adaptive_mtf_normalized_score(signals_data[mod_signal_1_name], df_index, ascending=True, tf_weights=tf_weights)
+            norm_mod_signal_2 = get_adaptive_mtf_normalized_bipolar_score(signals_data[mod_signal_2_name], df_index, tf_weights=tf_weights)
             current_dispersion_weight = pd.Series(final_fusion_weights_base.get('dispersion_weakness', 0.0), index=df_index)
             current_distribution_weight = pd.Series(final_fusion_weights_base.get('distribution_pressure', 0.0), index=df_index)
             current_deception_weight = pd.Series(final_fusion_weights_base.get('main_force_deception', 0.0), index=df_index)
             current_vulnerability_weight = pd.Series(final_fusion_weights_base.get('market_vulnerability', 0.0), index=df_index)
-            # Apply volatility impact
             current_dispersion_weight += norm_mod_signal_1 * sensitivity_volatility * volatility_impact_weights.get('dispersion_weakness', 0.0)
             current_distribution_weight += norm_mod_signal_1 * sensitivity_volatility * volatility_impact_weights.get('distribution_pressure', 0.0)
             current_deception_weight += norm_mod_signal_1 * sensitivity_volatility * volatility_impact_weights.get('main_force_deception', 0.0)
             current_vulnerability_weight += norm_mod_signal_1 * sensitivity_volatility * volatility_impact_weights.get('market_vulnerability', 0.0)
-            # Apply sentiment impact (bipolar sentiment, so positive sentiment increases weights, negative decreases)
             current_dispersion_weight += norm_mod_signal_2 * sensitivity_sentiment * sentiment_impact_weights.get('dispersion_weakness', 0.0)
             current_distribution_weight += norm_mod_signal_2 * sensitivity_sentiment * sentiment_impact_weights.get('distribution_pressure', 0.0)
             current_deception_weight += norm_mod_signal_2 * sensitivity_sentiment * sentiment_impact_weights.get('main_force_deception', 0.0)
             current_vulnerability_weight += norm_mod_signal_2 * sensitivity_sentiment * sentiment_impact_weights.get('market_vulnerability', 0.0)
-            # Clip weights to reasonable bounds (e.g., 0.05 to 0.5)
             current_dispersion_weight = current_dispersion_weight.clip(0.05, 0.5)
             current_distribution_weight = current_distribution_weight.clip(0.05, 0.5)
             current_deception_weight = current_deception_weight.clip(0.05, 0.5)
             current_vulnerability_weight = current_vulnerability_weight.clip(0.05, 0.5)
-            # Re-normalize dynamic weights
             sum_dynamic_weights = current_dispersion_weight + current_distribution_weight + current_deception_weight + current_vulnerability_weight
             dynamic_fusion_weights['dispersion_weakness'] = current_dispersion_weight / sum_dynamic_weights
             dynamic_fusion_weights['distribution_pressure'] = current_distribution_weight / sum_dynamic_weights
             dynamic_fusion_weights['main_force_deception'] = current_deception_weight / sum_dynamic_weights
             dynamic_fusion_weights['market_vulnerability'] = current_vulnerability_weight / sum_dynamic_weights
         else:
-            # If dynamic weighting is disabled, use base weights directly
             dynamic_fusion_weights = {k: pd.Series(v, index=df_index) for k, v in final_fusion_weights_base.items()}
-        # Weighted sum of dimension scores
         hollowing_out_risk_score = (
             dispersion_weakness_score * dynamic_fusion_weights['dispersion_weakness'] +
             distribution_pressure_score * dynamic_fusion_weights['distribution_pressure'] +
             main_force_deception_score * dynamic_fusion_weights['main_force_deception'] +
             market_vulnerability_score * dynamic_fusion_weights['market_vulnerability']
         )
-        # Apply deception amplification
         deception_amplifier = 1 + main_force_deception_score * deception_amplification_factor
         hollowing_out_risk_score = hollowing_out_risk_score * deception_amplifier
-        # Apply non-linear exponent
         final_score = np.tanh(hollowing_out_risk_score.clip(0, 1) ** non_linear_exponent)
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        # 最终分数返回
         return final_score
 
     def _diagnose_chip_turnover_purity_cost_optimization(self, df: pd.DataFrame) -> pd.Series:
@@ -3072,26 +2928,22 @@ class ChipIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_turnover_purity_cost_optimization"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_turnover_purity_cost_optimization")
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 获取原始信号
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
-        conviction_flow_buy_raw = self._get_safe_series(df, df, 'conviction_flow_buy_intensity_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
-        conviction_flow_sell_raw = self._get_safe_series(df, df, 'conviction_flow_sell_intensity_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
-        winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
-        loser_pain_index_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
-        turnover_rate_raw = self._get_safe_series(df, df, 'turnover_rate_D', 0.0, method_name="_diagnose_chip_turnover_purity_cost_optimization")
+        wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
+        conviction_flow_buy_raw = signals_data['conviction_flow_buy_intensity_D']
+        conviction_flow_sell_raw = signals_data['conviction_flow_sell_intensity_D']
+        winner_profit_margin_avg_raw = signals_data['winner_profit_margin_avg_D']
+        loser_pain_index_raw = signals_data['loser_pain_index_D']
+        turnover_rate_raw = signals_data['turnover_rate_D']
         # 归一化各项指标
-        # 对倒强度越高，纯度越低，所以ascending=False
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=False, tf_weights=tf_weights)
-        # 净信念流，正值代表买入主导，负值代表卖出主导
         net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
         norm_net_conviction_flow = get_adaptive_mtf_normalized_bipolar_score(net_conviction_flow, df_index, tf_weights=tf_weights)
-        # 赢家平均利润率越低，成本优化越好，所以ascending=False
         norm_winner_profit_margin_avg = get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=False, tf_weights=tf_weights)
-        # 输家痛苦指数越高，成本优化越好（割肉盘被承接），所以ascending=True
         norm_loser_pain_index = get_adaptive_mtf_normalized_score(loser_pain_index_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 换手率作为背景强度，归一化
         norm_turnover_rate = get_adaptive_mtf_normalized_score(turnover_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
         # 纯度因子 (0到1，1为纯净)
         purity_factor = (1 - norm_wash_trade_intensity)
@@ -3100,8 +2952,7 @@ class ChipIntelligence:
         # 换手质量因子 (双极，-1到1)
         turnover_quality_factor = (purity_factor * cost_optimization_factor * norm_net_conviction_flow)
         # 结合换手率强度进行调制
-        # 高换手率下，如果质量好，则放大积极作用；如果质量差，则放大消极作用
-        turnover_purity_cost_optimization = turnover_quality_factor * (1 + norm_turnover_rate * 0.5) # 调制强度可调
+        turnover_purity_cost_optimization = turnover_quality_factor * (1 + norm_turnover_rate * 0.5)
         final_score = turnover_purity_cost_optimization.clip(-1, 1).fillna(0.0).astype(np.float32)
         return final_score
 
@@ -3118,19 +2969,19 @@ class ChipIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_despair_temptation_zones"):
             return pd.Series(0.0, index=df.index)
+        signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_despair_temptation_zones")
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 获取原始信号
-        loser_pain_index_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
-        total_loser_rate_raw = self._get_safe_series(df, df, 'total_loser_rate_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
-        panic_buy_absorption_contribution_raw = self._get_safe_series(df, df, 'panic_buy_absorption_contribution_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
-        retail_fomo_premium_index_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
-        winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
-        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_chip_despair_temptation_zones")
+        loser_pain_index_raw = signals_data['loser_pain_index_D']
+        total_loser_rate_raw = signals_data['total_loser_rate_D']
+        panic_buy_absorption_contribution_raw = signals_data['panic_buy_absorption_contribution_D']
+        retail_fomo_premium_index_raw = signals_data['retail_fomo_premium_index_D']
+        winner_profit_margin_avg_raw = signals_data['winner_profit_margin_avg_D']
+        total_winner_rate_raw = signals_data['total_winner_rate_D']
         # 归一化绝望区相关指标 (高值代表更绝望)
         norm_loser_pain_index = get_adaptive_mtf_normalized_score(loser_pain_index_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 吸收贡献越低，绝望越深，所以ascending=False
         norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=False, tf_weights=tf_weights)
         # 归一化诱惑区相关指标 (高值代表更诱惑)
         norm_retail_fomo_premium_index = get_adaptive_mtf_normalized_score(retail_fomo_premium_index_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -3149,10 +3000,9 @@ class ChipIntelligence:
             norm_total_winner_rate.pow(0.3)
         ).pow(1 / 1.0)
         # 结合成双极分数：正分代表诱惑区风险，负分代表绝望区机会
-        # 诱惑区强度直接作为正向分数，绝望区强度作为负向分数
         despair_temptation_score = temptation_strength - despair_strength
         # 进一步非线性放大，并映射到 [-1, 1]
-        final_score = np.tanh(despair_temptation_score * 2) # 放大因子可调
+        final_score = np.tanh(despair_temptation_score * 2)
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
         return final_score
 
