@@ -445,8 +445,8 @@ class CognitiveIntelligence:
         all_required_signals.add("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER")
         all_required_signals.add(dynamic_context_modulator_signal)
         # 修改开始 - 移除不存在的信号，并添加新的信号
-        all_required_signals.discard("PREDICTIVE_OPP_CAPITULATION_REVERSAL") - 移除不存在的信号
-        all_required_signals.add("SCORE_CHIP_AXIOM_HOLDER_SENTIMENT") - 添加新的信号
+        all_required_signals.discard("PREDICTIVE_OPP_CAPITULATION_REVERSAL")
+        all_required_signals.add("SCORE_CHIP_AXIOM_HOLDER_SENTIMENT")
         all_required_signals.discard("SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM")
         all_required_signals.discard("ACCEL_5_SCORE_BEHAVIOR_ABSORPTION_STRENGTH")
         all_required_signals.add("SCORE_CHIP_COHERENT_DRIVE")
