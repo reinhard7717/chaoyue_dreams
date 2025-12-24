@@ -481,12 +481,6 @@ class FundFlowIntelligence:
         current_probe_date = None
         if probe_enabled and self.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates] # 标准化探针日期
-            if not df_index.empty:
-                # 调试信息：打印df_index的类型和内容
-                print(f"        [探针调试] _diagnose_axiom_consensus - df_index type: {type(df_index)}, first element type: {type(df_index[0])}, content: {df_index.tolist()}")
-            else:
-                print(f"        [探针调试] _diagnose_axiom_consensus - df_index is empty.")
-            print(f"        [探针调试] _diagnose_axiom_consensus - probe_dates_dt type: {type(probe_dates_dt)}, first element type: {type(probe_dates_dt[0]) if probe_dates_dt else 'empty'}, content: {probe_dates_dt}")
             for date in reversed(df_index):
                 if pd.to_datetime(date).normalize() in probe_dates_dt: # 标准化df_index中的日期进行比较
                     current_probe_date = date
@@ -1782,12 +1776,6 @@ class FundFlowIntelligence:
         current_probe_date = None
         if probe_enabled and self.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates] # 标准化探针日期
-            if not df_index.empty:
-                # 调试信息：打印df_index的类型和内容
-                print(f"        [探针调试] _diagnose_axiom_flow_structure_health - df_index type: {type(df_index)}, first element type: {type(df_index[0])}, content: {df_index.tolist()}")
-            else:
-                print(f"        [探针调试] _diagnose_axiom_flow_structure_health - df_index is empty.")
-            print(f"        [探针调试] _diagnose_axiom_flow_structure_health - probe_dates_dt type: {type(probe_dates_dt)}, first element type: {type(probe_dates_dt[0]) if probe_dates_dt else 'empty'}, content: {probe_dates_dt}")
             for date in reversed(df_index):
                 # 修正：先移除时区信息，再进行标准化和比较
                 if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
@@ -2344,12 +2332,6 @@ class FundFlowIntelligence:
         current_probe_date = None
         if probe_enabled and self.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates] # 标准化探针日期
-            if not df_index.empty:
-                # 调试信息：打印df_index的类型和内容
-                print(f"        [探针调试] _diagnose_axiom_intent_purity - df_index type: {type(df_index)}, first element type: {type(df_index[0])}, content: {df_index.tolist()}")
-            else:
-                print(f"        [探针调试] _diagnose_axiom_intent_purity - df_index is empty.")
-            print(f"        [探针调试] _diagnose_axiom_intent_purity - probe_dates_dt type: {type(probe_dates_dt)}, first element type: {type(probe_dates_dt[0]) if probe_dates_dt else 'empty'}, content: {probe_dates_dt}")
             for date in reversed(df_index):
                 # 修正：先移除时区信息，再进行标准化和比较
                 if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
