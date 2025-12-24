@@ -745,7 +745,7 @@
         },
         "axiom_intent_purity_params": {
             "description": "【V3.0 · 意图韧性与适应性版】资金流公理：意图纯度。旨在量化主导资金流意图的清晰度、执行效率、抗操纵性、韧性与适应性，并捕捉其动态演化。",
-            "probe_enabled": false,
+            "probe_enabled": true,
             "comment_probe_enabled": "是否启用详细探针输出调试信息。",
             "flow_clarity_weights": {
                 "description": "流量方向清晰度融合权重。",
