@@ -1919,12 +1919,18 @@ class BehavioralIntelligence:
         - 升级说明: 增加了详细探针，用于调试和检查每一步计算。
         """
         method_name = "_diagnose_distribution_intent"
+        # 从 self.config_params 获取 atmospheric_pressure_params
         params = get_param_value(self.config_params.get('atmospheric_pressure_params'), {})
         synergy_bonus = get_param_value(params.get('synergy_bonus_factor'), 0.2)
+        # 修正：定义 weights 变量
+        weights = get_param_value(params.get('fusion_weights'), {'breach_force': 0.4, 'defense_vacuum': 0.3, 'command_vacuum': 0.3}) # 确保这里获取的是正确的融合权重
+        # 从 self.config_params 获取 judgment_day_protocol_params
         env_params = get_param_value(self.config_params.get('judgment_day_protocol_params'), {})
         env_weights = get_param_value(env_params.get('environment_weights'), {'fatigue': 0.4, 'decay': 0.3, 'betrayal': 0.3})
+        # 从 self.config_params 获取 mtf_normalization_params
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # --- 2. 轨道一：战术风险评估 (风暴强度) ---
         required_signals = [
             'profit_taking_flow_ratio_D', 'rally_distribution_pressure_D',
             'upper_shadow_selling_pressure_D', 'main_force_execution_alpha_D',
@@ -1935,15 +1941,16 @@ class BehavioralIntelligence:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
-        # --- 2. 轨道一：战术风险评估 (风暴强度) ---
         motive_raw = signals_data['profit_taking_flow_ratio_D']
         rally_pressure_raw = signals_data['rally_distribution_pressure_D']
         upper_shadow_pressure_raw = signals_data['upper_shadow_selling_pressure_D']
         fingerprint_raw = signals_data['main_force_execution_alpha_D']
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=default_weights)
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
         weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         tactical_risk_score = (
             (motive_score + 1e-9).pow(weights.get('motive', 0.2)) * # 假设weights中包含motive
@@ -1955,11 +1962,14 @@ class BehavioralIntelligence:
         winner_stability_raw = signals_data['winner_stability_index_D']
         control_solidity_raw = signals_data['control_solidity_index_D']
         conviction_slope_raw = signals_data['SLOPE_5_main_force_conviction_index_D']
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         vitality_score = get_adaptive_mtf_normalized_score(vitality_raw, df.index, ascending=True, tf_weights=default_weights)
         bullish_fatigue_score = ((1 - vitality_score) * overextension_raw).pow(0.5)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=default_weights)
         solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=default_weights)
         fortress_decay_score = ((1 - stability_score) * (1 - solidity_score)).pow(0.5)
+        # get_adaptive_mtf_normalized_score 内部已处理 df.index
         commanders_betrayal_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         strategic_risk_score = (
             bullish_fatigue_score * env_weights.get('fatigue', 0.4) +
