@@ -642,9 +642,10 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 增加 atomic_states 参数
     """
-    【V23.2 · 影线逻辑修正版】“盖亚基石”支撑分计算引擎
+    【V23.3 · 冷却期向量化优化版】“盖亚基石”支撑分计算引擎
     - 核心修复: 修正了上下影线的计算逻辑，使用 np.maximum/minimum(open, close) 作为实体边界，
                   确保在阴阳线上计算的绝对准确性。
+    - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -695,21 +696,28 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     is_standing_firm_in_zone = (df[close_col] > acting_lifeline) & is_in_influence_zone
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
     is_cooldown_reset_signal = (upper_shadow > lower_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
-    confirmation_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-    last_confirmation_date = pd.NaT
-    for idx in df.index:
-        if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
-            if is_cooldown_reset_signal.get(idx, False):
-                last_confirmation_date = pd.NaT
-            continue
-        if is_confirmed_base.get(idx, False):
-            recent_quality = max_recent_defense_quality.get(idx, 0.0)
-            if recent_quality > 0:
-                aegis_score = confirmation_score + recent_quality * aegis_quality_bonus_factor
-                confirmation_score_series.loc[idx] = min(aegis_score, 1.0)
-            else:
-                confirmation_score_series.loc[idx] = confirmation_score
-            last_confirmation_date = idx
+    # --- 冷却期逻辑向量化优化 ---
+    # 1. 计算确认事件的原始分数
+    raw_confirmation_scores = pd.Series(0.0, index=df.index, dtype=np.float32)
+    confirmed_base_with_bonus_mask = is_confirmed_base & (max_recent_defense_quality > 0)
+    raw_confirmation_scores.loc[confirmed_base_with_bonus_mask] = (confirmation_score + max_recent_defense_quality.loc[confirmed_base_with_bonus_mask] * aegis_quality_bonus_factor).clip(0, 1.0)
+    confirmed_base_no_bonus_mask = is_confirmed_base & (max_recent_defense_quality <= 0)
+    raw_confirmation_scores.loc[confirmed_base_no_bonus_mask] = confirmation_score
+    # 2. 标记冷却期重置点
+    #    创建一个组ID，每次遇到重置信号时递增，这样ffill就不会跨越重置点
+    group_ids = is_cooldown_reset_signal.astype(int).cumsum()
+    # 3. 跟踪每个确认事件的日期
+    confirmation_dates = pd.Series(pd.NaT, index=df.index)
+    confirmation_dates.loc[is_confirmed_base] = df.index[is_confirmed_base]
+    # 4. 在每个组内，前向填充确认分数和确认日期
+    #    ffill_limit 确保填充不会超过冷却期
+    filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
+    filled_dates = confirmation_dates.groupby(group_ids).ffill()
+    # 5. 检查当前日期是否在冷却期内
+    is_within_cooldown_period = (df.index - filled_dates).days < confirmation_cooldown_period
+    # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
+    confirmation_score_series = filled_scores.where(is_within_cooldown_period, 0.0).fillna(0.0)
+    # --- 冷却期逻辑向量化优化结束 ---
     # 将确认分数作为一个独立的信号存入 atomic_states
     atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = confirmation_score_series.astype(np.float32)
     gaia_score = np.maximum(defense_quality_score, confirmation_score_series)
@@ -770,8 +778,9 @@ def _calculate_historical_high_resistance(df: pd.DataFrame, params: Dict, qualit
 
 def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V3.0 · 神盾协议版】“乌拉诺斯穹顶”阻力分计算引擎
+    【V3.1 · 冷却期向量化优化版】“乌拉诺斯穹顶”阻力分计算引擎
     - 核心升级: 不再包含拒绝质量评估逻辑，而是调用通用的 _calculate_rejection_quality_score 函数。
+    - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -807,21 +816,26 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
     lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
     is_cooldown_reset_signal = (lower_shadow > upper_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
-    confirmation_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-    last_confirmation_date = pd.NaT
-    for idx in df.index:
-        if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
-            if is_cooldown_reset_signal.get(idx, False):
-                last_confirmation_date = pd.NaT
-            continue
-        if is_confirmed_rejection.get(idx, False):
-            recent_quality = max_recent_rejection_quality.get(idx, 0.0)
-            if recent_quality > 0:
-                rejection_score = confirmation_score + recent_quality * rejection_quality_bonus_factor
-                confirmation_score_series.loc[idx] = min(rejection_score, 1.0)
-            else:
-                confirmation_score_series.loc[idx] = confirmation_score
-            last_confirmation_date = idx
+    # --- 冷却期逻辑向量化优化 ---
+    # 1. 计算确认事件的原始分数
+    raw_confirmation_scores = pd.Series(0.0, index=df.index, dtype=np.float32)
+    confirmed_rejection_with_bonus_mask = is_confirmed_rejection & (max_recent_rejection_quality > 0)
+    raw_confirmation_scores.loc[confirmed_rejection_with_bonus_mask] = (confirmation_score + max_recent_rejection_quality.loc[confirmed_rejection_with_bonus_mask] * rejection_quality_bonus_factor).clip(0, 1.0)
+    confirmed_rejection_no_bonus_mask = is_confirmed_rejection & (max_recent_rejection_quality <= 0)
+    raw_confirmation_scores.loc[confirmed_rejection_no_bonus_mask] = confirmation_score
+    # 2. 标记冷却期重置点
+    group_ids = is_cooldown_reset_signal.astype(int).cumsum()
+    # 3. 跟踪每个确认事件的日期
+    confirmation_dates = pd.Series(pd.NaT, index=df.index)
+    confirmation_dates.loc[is_confirmed_rejection] = df.index[is_confirmed_rejection]
+    # 4. 在每个组内，前向填充确认分数和确认日期
+    filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
+    filled_dates = confirmation_dates.groupby(group_ids).ffill()
+    # 5. 检查当前日期是否在冷却期内
+    is_within_cooldown_period = (df.index - filled_dates).days < confirmation_cooldown_period
+    # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
+    confirmation_score_series = filled_scores.where(is_within_cooldown_period, 0.0).fillna(0.0)
+    # --- 冷却期逻辑向量化优化结束 ---
     # 4. 最终融合
     uranus_score = np.maximum(rejection_quality_score, confirmation_score_series)
     return uranus_score.astype(np.float32)
@@ -1145,7 +1159,6 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     score_df = pd.DataFrame(aligned_scores, index=df_index)
     # 优化: 移除冗余的 pd.to_numeric 和 fillna，因为 aligned_scores 已经确保了数值类型和填充
     # score_df = score_df.apply(pd.to_numeric, errors='coerce').fillna(0.0) # 移除此行
-
     # 优化：一次性构建 dynamic_weights_df，避免循环中逐列赋值
     weights_data = {}
     for col_name in score_df.columns:

@@ -2459,7 +2459,7 @@ class FundFlowIntelligence:
             'order_book_imbalance_mtf': (norm_order_book_imbalance_mtf + 1) / 2,
             'buy_sell_exhaustion_bipolar_mtf': (buy_sell_exhaustion_bipolar_mtf + 1) / 2,
             'liquidity_authenticity_mtf': norm_liquidity_authenticity_mtf,
-            'order_flow_imbalance_score_mtf': (norm_order_book_imbalance_score_mtf + 1) / 2,
+            'order_flow_imbalance_score_mtf': (norm_order_flow_imbalance_score_mtf + 1) / 2, # 修正此处变量名
             'micro_price_impact_asymmetry_mtf': (norm_micro_price_impact_asymmetry_mtf + 1) / 2
         }
         micro_intent_cohesion_score_unipolar = _robust_geometric_mean(micro_intent_cohesion_components, micro_intent_cohesion_weights, df_index)
