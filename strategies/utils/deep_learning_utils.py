@@ -202,7 +202,7 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term) # 偶数索引应用 sin
         pe[:, 1::2] = torch.cos(position * div_term) # 奇数索引应用 cos (如果d_model是奇数，最后一个会被截断)
         if d_model % 2 != 0: # 处理 d_model 为奇数的情况，确保 pe[:, d_model-1] 被填充
-            # 修正：当d_model为奇数时，pe[:, 1::2] 的最后一列可能没有对应的 div_term
+            # 当d_model为奇数时，pe[:, 1::2] 的最后一列可能没有对应的 div_term
             # 应该使用与倒数第二个偶数项相同的 div_term
             pe[:, d_model-1] = torch.cos(position * div_term[d_model//2 -1]) # 确保奇数维度的cos项使用正确的频率
         # pe 形状 (max_len, d_model)

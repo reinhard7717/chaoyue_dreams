@@ -836,7 +836,7 @@ class StockTimeTradeDAO(BaseDAO):
                 return None
             df = pd.DataFrame.from_records(kline_values)
             # 从数据库取出的时间已经是UTC，直接设置为索引，并确保是 aware UTC
-            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True) # 修改行
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'vol': 'volume', 'amount': 'turnover_value'}, inplace=True)
             logger.debug(f"成功从数据库获取 {len(df)} 条 {time_level} K线 for {stock_code}")

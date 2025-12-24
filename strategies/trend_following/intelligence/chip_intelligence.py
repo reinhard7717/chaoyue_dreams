@@ -23,7 +23,7 @@ class ChipIntelligence:
         # loaded_chip_config 应该直接是 chip.json 的内容
         loaded_chip_config = load_external_json_config("config/intelligence/chip.json", {})
         # 直接从加载的配置中获取 chip_ultimate_params 块，而不是通过 get_params_block
-        self.chip_ultimate_params = loaded_chip_config.get('chip_ultimate_params', {}) # 修改行
+        self.chip_ultimate_params = loaded_chip_config.get('chip_ultimate_params', {})
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.should_probe = self.debug_params.get('should_probe', False)
         self.probe_dates_set = {pd.to_datetime(d).date() for d in self.debug_params.get('probe_dates', [])}
@@ -3055,7 +3055,7 @@ class ChipIntelligence:
         # Apply non-linear exponent
         final_score = np.tanh(hollowing_out_risk_score.clip(0, 1) ** non_linear_exponent)
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        # 修改行: 最终分数返回
+        # 最终分数返回
         return final_score
 
     def _diagnose_chip_turnover_purity_cost_optimization(self, df: pd.DataFrame) -> pd.Series:

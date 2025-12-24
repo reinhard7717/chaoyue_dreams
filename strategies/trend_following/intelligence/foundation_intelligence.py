@@ -591,7 +591,7 @@ class FoundationIntelligence:
         main_force_vwap_guidance_raw = self._get_safe_series(df, 'main_force_vwap_guidance_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         upward_impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
-        downward_impulse_strength_raw = self._get_safe_series(df, 'downward_impulse_strength_D', 0.0, method_name="_diagnose_axiom_liquidity_tide") # 修改行
+        downward_impulse_strength_raw = self._get_safe_series(df, 'downward_impulse_strength_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         flow_efficiency_raw = self._get_safe_series(df, 'flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         order_book_clearing_rate_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         hurst_memory_raw = self._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="_diagnose_axiom_liquidity_tide")
@@ -619,13 +619,13 @@ class FoundationIntelligence:
         volume_slope_score = get_adaptive_mtf_normalized_bipolar_score(volume_slope_raw, df_index, default_weights)
         volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw, df_index, default_weights)
         upward_impulse_purity_score = get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, default_weights, ascending=True)
-        downward_impulse_strength_score = get_adaptive_mtf_normalized_score(downward_impulse_strength_raw, df_index, default_weights, ascending=True) # 修改行
+        downward_impulse_strength_score = get_adaptive_mtf_normalized_score(downward_impulse_strength_raw, df_index, default_weights, ascending=True)
         energy_score = (
             amount_slope_score * te_weights.get('amount_slope', 0.3) +
             (volume_burstiness_score * 2 - 1) * te_weights.get('volume_burstiness', 0.25) +
             volume_slope_score * te_weights.get('volume_slope', 0.25) +
             volume_structure_skew_score * te_weights.get('volume_structure_skew', 0.1) +
-            (upward_impulse_purity_score - downward_impulse_strength_score) * te_weights.get('upward_impulse_purity', 0.1) # 修改行
+            (upward_impulse_purity_score - downward_impulse_strength_score) * te_weights.get('upward_impulse_purity', 0.1)
         ).clip(-1, 1)
         # --- 4. 潮汐活跃度 (Tide Activity) - 效率与深度 ---
         ta_weights = p_conf_lt.get('tide_activity_weights', {'turnover_slope': 0.4, 'turnover_rate_level': 0.3, 'flow_efficiency': 0.2, 'order_book_clearing_rate': 0.1})
@@ -1107,7 +1107,7 @@ class FoundationIntelligence:
         print("    -> [基础层] 正在合成“战略态势”顶层信号...")
         weights = params.get('strategic_posture_weights', {
             "constitution": 0.25, "relative_strength": 0.20, "liquidity": 0.15,
-            "sentiment": 0.15, "tension": 0.15, "friction": 0.10 # 修改行
+            "sentiment": 0.15, "tension": 0.15, "friction": 0.10
         })
         w_c = weights.get("constitution", 0.25)
         w_rs = weights.get("relative_strength", 0.20)

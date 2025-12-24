@@ -445,8 +445,8 @@ class CognitiveIntelligence:
         all_required_signals.add("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER")
         all_required_signals.add(dynamic_context_modulator_signal)
         # 修改开始 - 移除不存在的信号，并添加新的信号
-        all_required_signals.discard("PREDICTIVE_OPP_CAPITULATION_REVERSAL") # 修改行 - 移除不存在的信号
-        all_required_signals.add("SCORE_CHIP_AXIOM_HOLDER_SENTIMENT") # 修改行 - 添加新的信号
+        all_required_signals.discard("PREDICTIVE_OPP_CAPITULATION_REVERSAL") - 移除不存在的信号
+        all_required_signals.add("SCORE_CHIP_AXIOM_HOLDER_SENTIMENT") - 添加新的信号
         all_required_signals.discard("SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM")
         all_required_signals.discard("ACCEL_5_SCORE_BEHAVIOR_ABSORPTION_STRENGTH")
         all_required_signals.add("SCORE_CHIP_COHERENT_DRIVE")
@@ -486,7 +486,7 @@ class CognitiveIntelligence:
                 raw_signal = fetched_signals[signal_name]
                 # 修改开始 - 调整信号处理逻辑
                 if "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM" in signal_name or \
-                   "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT" in signal_name: # 修改行 - 添加 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT
+                   "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT" in signal_name: - 添加 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT
                     signal_score = raw_signal.clip(upper=0).abs() # 对于情绪钟摆和信念韧性，负值代表恐慌，取绝对值
                 elif "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name or \
                      "FUSION_RISK_STAGNATION" in signal_name or \

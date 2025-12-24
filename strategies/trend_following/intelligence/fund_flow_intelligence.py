@@ -17,7 +17,7 @@ class FundFlowIntelligence:
         self.strategy = strategy_instance
         external_config = load_external_json_config("config/intelligence/fund_flow.json", {})
         # 直接从加载的配置中获取 fund_flow_ultimate_params 块，而不是通过 get_params_block
-        self.p_conf_ff = external_config.get('fund_flow_ultimate_params', {}) # 修改行
+        self.p_conf_ff = external_config.get('fund_flow_ultimate_params', {})
         # 获取策略实例的 debug_params
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.probe_dates = get_param_value(self.debug_params.get('probe_dates'), [])
@@ -922,7 +922,7 @@ class FundFlowIntelligence:
         # 针对 _get_mtf_dynamic_score 内部调用的 ACCEL 信号，虽然这里没有直接使用，但为了完整性，可以预取
         # 实际上, _get_mtf_dynamic_score 内部会根据 is_accel 参数构建列名，这里只需要确保原始数据存在即可
         # 但在这个方法中，_get_mtf_dynamic_score 并没有被调用来获取 ACCEL 信号，所以这里不需要预取 ACCEL
-        # 修正：_get_mtf_dynamic_score 内部会根据 is_accel 参数构建列名，所以这里需要预取 ACCEL 信号
+        # _get_mtf_dynamic_score 内部会根据 is_accel 参数构建列名，所以这里需要预取 ACCEL 信号
         signal_bases_to_prefetch_accel = [
             'main_force_t0_efficiency_D', 'main_force_slippage_index_D', 'main_force_execution_alpha_D'
         ]
@@ -1906,7 +1906,7 @@ class FundFlowIntelligence:
         ).clip(0, 1)
         if probe_enabled and current_probe_date:
             print(f"        [探针] 流动性支持 (liquidity_support_score): {liquidity_support_score.loc[current_probe_date]:.4f}")
-        # 修正：高Gini = 高风险 = 低健康度
+        # 高Gini = 高风险 = 低健康度
         norm_flow_gini_risk = get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, structural_risk_norm_tf_weights, ascending=True)
         flow_concentration_health_score = (1 - norm_flow_gini_risk) * flow_gini_weights.get('main_force_flow_gini', 1.0)
         if probe_enabled and current_probe_date:
@@ -2514,7 +2514,7 @@ class FundFlowIntelligence:
         flow_credibility_volatility = flow_credibility_raw.rolling(window=norm_window, min_periods=1).std().fillna(0)
         norm_flow_credibility_stability_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'flow_credibility_index_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_panic_selling_cascade_inverse_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'panic_selling_cascade_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_market_impact_resilience_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'market_impact_cost_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels) # 市场冲击成本越低，抵抗力越强
+        norm_market_impact_resilience_mtf = 1 - self._calculate_mtf_cohesion_divergence(df, 'market_impact_cost_D', mtf_periods_short, mtf_periods_long, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
         intent_stability_components = {
             'nmfnf_volatility_inverse_mtf': norm_nmfnf_volatility_inverse_mtf,
             'flow_credibility_stability_mtf': norm_flow_credibility_stability_mtf,

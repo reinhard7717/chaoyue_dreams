@@ -40,10 +40,10 @@ class FusionIntelligence:
             score_series = self.strategy.df_indicators[name]
         if score_series is not None:
             # 确保获取到的Series的索引与主数据帧的索引一致
-            if not score_series.index.equals(df.index): # 修改行
-                print(f"    -> [融合层-原子信号警告] 信号 '{name}' 的索引与主数据帧不一致，正在重新对齐并填充默认值 {default}。") # 修改行
+            if not score_series.index.equals(df.index):
+                print(f"    -> [融合层-原子信号警告] 信号 '{name}' 的索引与主数据帧不一致，正在重新对齐并填充默认值 {default}。")
                 # 重新对齐索引，并用默认值填充因对齐可能产生的NaN
-                score_series = score_series.reindex(df.index).fillna(default) # 修改行
+                score_series = score_series.reindex(df.index).fillna(default)
             return score_series
         else:
             print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 和 df_indicators 中均不存在，使用默认值 {default}。")

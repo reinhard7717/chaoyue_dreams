@@ -544,14 +544,14 @@ class AdvancedFundFlowMetricsService:
         # 计算拆分后的买入/卖出金额指标
         # 这些指标直接从 Tushare 的原始 buy/sell amount 字段计算，不进行复杂的校准，因为它们是原始数据。
         # 确保这些字段在 daily_data_series 中存在，如果不存在则默认为0或NaN
-        buy_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_sm_amount'), errors='coerce'), nan=0.0) # 修改行
-        sell_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_sm_amount'), errors='coerce'), nan=0.0) # 修改行
-        buy_md = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_md_amount'), errors='coerce'), nan=0.0) # 修改行
-        sell_md = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_md_amount'), errors='coerce'), nan=0.0) # 修改行
-        buy_lg = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'), nan=0.0) # 修改行
-        sell_lg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'), nan=0.0) # 修改行
-        buy_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce'), nan=0.0) # 修改行
-        sell_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce'), nan=0.0) # 修改行
+        buy_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_sm_amount'), errors='coerce'), nan=0.0)
+        sell_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_sm_amount'), errors='coerce'), nan=0.0)
+        buy_md = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_md_amount'), errors='coerce'), nan=0.0)
+        sell_md = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_md_amount'), errors='coerce'), nan=0.0)
+        buy_lg = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'), nan=0.0)
+        sell_lg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'), nan=0.0)
+        buy_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce'), nan=0.0)
+        sell_elg = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce'), nan=0.0)
         results['buy_sm_amount_calibrated'] = buy_sm
         results['sell_sm_amount_calibrated'] = sell_sm
         results['buy_md_amount_calibrated'] = buy_md

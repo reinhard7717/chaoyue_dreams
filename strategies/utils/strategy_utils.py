@@ -1188,10 +1188,10 @@ def calculate_kdj_score(k: pd.Series, d: pd.Series, j: pd.Series, params: Dict) 
     # print(f"步骤3 - 常规交叉后 score (前5): {score.head().to_dict()}")
     # 4. K 或 D 在超买超卖区域的评分
     k_or_d_in_os_not_extreme_intermediate = (((k_s >= ext_os_val) & (k_s < os_val)) | ((d_s >= ext_os_val) & (d_s < os_val))) & not_cross_cond
-    k_or_d_in_os_not_extreme = k_or_d_in_os_not_extreme_intermediate.fillna(False).astype(bool) # 修改行
+    k_or_d_in_os_not_extreme = k_or_d_in_os_not_extreme_intermediate.fillna(False).astype(bool)
     score.loc[k_or_d_in_os_not_extreme] = np.maximum(score.loc[k_or_d_in_os_not_extreme], 85.0)
     k_or_d_in_ob_not_extreme_intermediate = (((k_s <= ext_ob_val) & (k_s > ob_val)) | ((d_s <= ext_ob_val) & (d_s > ob_val))) & not_cross_cond
-    k_or_d_in_ob_not_extreme = k_or_d_in_ob_not_extreme_intermediate.fillna(False).astype(bool) # 修改行
+    k_or_d_in_ob_not_extreme = k_or_d_in_ob_not_extreme_intermediate.fillna(False).astype(bool)
     score.loc[k_or_d_in_ob_not_extreme] = np.minimum(score.loc[k_or_d_in_ob_not_extreme], 15.0)
     # print(f"步骤4 - K/D在超买超卖区后 score (前5): {score.head().to_dict()}")
     # 5. J 值反转确认
@@ -1204,10 +1204,10 @@ def calculate_kdj_score(k: pd.Series, d: pd.Series, j: pd.Series, params: Dict) 
     j_turning_down_confirmed_intermediate = j_diff_lt_zero.rolling(window=reversal_confirmation_period).apply(lambda x: x.all(), raw=True) if reversal_confirmation_period > 0 else pd.Series(False, index=j_s.index)
     j_turning_down_confirmed = j_turning_down_confirmed_intermediate.fillna(False).astype(bool)
     start_of_reversal_j = j_s.shift(reversal_confirmation_period - 1).fillna(method='bfill') if reversal_confirmation_period > 0 else j_s
-    cond_start_j_lt_os = (start_of_reversal_j < os_val).fillna(False).astype(bool) # 修改行
+    cond_start_j_lt_os = (start_of_reversal_j < os_val).fillna(False).astype(bool)
     bullish_j_reversal_from_os_confirmed = j_turning_up_confirmed & cond_start_j_lt_os & not_cross_cond
     score.loc[bullish_j_reversal_from_os_confirmed] = np.maximum(score.loc[bullish_j_reversal_from_os_confirmed], 80.0)
-    cond_start_j_gt_ob = (start_of_reversal_j > ob_val).fillna(False).astype(bool) # 修改行
+    cond_start_j_gt_ob = (start_of_reversal_j > ob_val).fillna(False).astype(bool)
     bearish_j_reversal_from_ob_confirmed = j_turning_down_confirmed & cond_start_j_gt_ob & not_cross_cond
     score.loc[bearish_j_reversal_from_ob_confirmed] = np.minimum(score.loc[bearish_j_reversal_from_ob_confirmed], 20.0)
     # print(f"步骤5 - J值反转确认后 score (前5): {score.head().to_dict()}")
@@ -1219,23 +1219,23 @@ def calculate_kdj_score(k: pd.Series, d: pd.Series, j: pd.Series, params: Dict) 
     all_lines_bullish_momentum = k_trend_up & d_trend_up & j_trend_up & not_cross_cond & (~bullish_j_reversal_from_os_confirmed)
     all_lines_bearish_momentum = (~k_trend_up) & (~d_trend_up) & (~j_trend_up) & not_cross_cond & (~bearish_j_reversal_from_ob_confirmed)
     strong_bullish_kdj_config_neutral_intermediate = (j_s >= os_val) & (j_s <= ob_val) & (k_s > d_s) & (j_s > k_s) & all_lines_bullish_momentum
-    strong_bullish_kdj_config_neutral = strong_bullish_kdj_config_neutral_intermediate.fillna(False).astype(bool) # 修改行
+    strong_bullish_kdj_config_neutral = strong_bullish_kdj_config_neutral_intermediate.fillna(False).astype(bool)
     score.loc[strong_bullish_kdj_config_neutral] = np.maximum(score.loc[strong_bullish_kdj_config_neutral], 65.0)
     strong_bearish_kdj_config_neutral_intermediate = (j_s >= os_val) & (j_s <= ob_val) & (k_s < d_s) & (j_s < k_s) & all_lines_bearish_momentum
-    strong_bearish_kdj_config_neutral = strong_bearish_kdj_config_neutral_intermediate.fillna(False).astype(bool) # 修改行
+    strong_bearish_kdj_config_neutral = strong_bearish_kdj_config_neutral_intermediate.fillna(False).astype(bool)
     score.loc[strong_bearish_kdj_config_neutral] = np.minimum(score.loc[strong_bearish_kdj_config_neutral], 35.0)
     # print(f"步骤6 - 三线趋势共振后 score (前5): {score.head().to_dict()}")
     # 7. J 值普通趋势评分
     bullish_j_in_os_intermediate = (j_s < os_val) & j_trend_up & not_cross_cond & (~bullish_j_reversal_from_os_confirmed)
-    bullish_j_in_os = bullish_j_in_os_intermediate.fillna(False).astype(bool) # 修改行
+    bullish_j_in_os = bullish_j_in_os_intermediate.fillna(False).astype(bool)
     score.loc[bullish_j_in_os] = np.maximum(score.loc[bullish_j_in_os], 68.0)
     bearish_j_in_ob_intermediate = (j_s > ob_val) & (~j_trend_up) & not_cross_cond & (~bearish_j_reversal_from_ob_confirmed)
-    bearish_j_in_ob = bearish_j_in_ob_intermediate.fillna(False).astype(bool) # 修改行
+    bearish_j_in_ob = bearish_j_in_ob_intermediate.fillna(False).astype(bool)
     score.loc[bearish_j_in_ob] = np.minimum(score.loc[bearish_j_in_ob], 32.0)
     neutral_j_zone_cond_intermediate = (j_s >= os_val) & (j_s <= ob_val) & not_cross_cond & \
                                 (~bullish_j_reversal_from_os_confirmed) & (~bearish_j_reversal_from_ob_confirmed) & \
                                 (~strong_bullish_kdj_config_neutral) & (~strong_bearish_kdj_config_neutral)
-    neutral_j_zone_cond = neutral_j_zone_cond_intermediate.fillna(False).astype(bool) # 修改行
+    neutral_j_zone_cond = neutral_j_zone_cond_intermediate.fillna(False).astype(bool)
     bullish_j_trend_neutral = neutral_j_zone_cond & j_trend_up
     score.loc[bullish_j_trend_neutral] = np.maximum(score.loc[bullish_j_trend_neutral], 53.0)
     bearish_j_trend_neutral = neutral_j_zone_cond & (~j_trend_up)
