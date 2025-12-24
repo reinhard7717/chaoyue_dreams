@@ -2445,8 +2445,9 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2 · 探针可控版】计算通用的瞬时关系分数。
+        【V2.3 · 参数名修正版】计算通用的瞬时关系分数。
         - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化。
+        - 核心修复: 修正了 `get_adaptive_mtf_normalized_bipolar_score` 函数的参数名，将 `index` 改为 `target_index`。
         """
         signal_name = config.get('name')
         signal_a_name = config.get('signal_A')
@@ -2477,8 +2478,8 @@ class ProcessIntelligence:
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         # 修正 get_param_value 的默认值，避免嵌套的 'weights' 键
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        momentum_a = get_adaptive_mtf_normalized_bipolar_score(change_a, index=df_index, tf_weights=actual_mtf_weights, sensitivity=self.bipolar_sensitivity)
-        thrust_b = get_adaptive_mtf_normalized_bipolar_score(change_b, index=df_index, tf_weights=actual_mtf_weights, sensitivity=self.bipolar_sensitivity)
+        momentum_a = get_adaptive_mtf_normalized_bipolar_score(change_a, target_index=df_index, tf_weights=actual_mtf_weights, sensitivity=self.bipolar_sensitivity)
+        thrust_b = get_adaptive_mtf_normalized_bipolar_score(change_b, target_index=df_index, tf_weights=actual_mtf_weights, sensitivity=self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         if relationship_type == 'divergence':
             relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
