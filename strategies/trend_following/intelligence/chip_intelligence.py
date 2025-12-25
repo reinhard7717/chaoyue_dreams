@@ -219,6 +219,18 @@ class ChipIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_posture"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_strategic_posture")
+
+        # --- 调试信息构建 ---
+        is_debug_enabled = self.should_probe
+        probe_ts = None
+        if is_debug_enabled and self.probe_dates_set:
+            for date in reversed(df_index):
+                if date.date() in self.probe_dates_set:
+                    probe_ts = date
+                    break
+        debug_info_tuple = (is_debug_enabled, probe_ts, "_diagnose_strategic_posture")
+
+        # --- 原始数据获取 ---
         cost_gini_coefficient_raw = signals_data['cost_gini_coefficient_D']
         covert_accumulation_raw = signals_data['covert_accumulation_signal_D']
         peak_exchange_purity_raw = signals_data['peak_exchange_purity_D']
@@ -239,113 +251,165 @@ class ChipIntelligence:
         mf_cost_zone_buy_intent_raw = signals_data['mf_cost_zone_buy_intent_D']
         mf_cost_zone_sell_intent_raw = signals_data['mf_cost_zone_sell_intent_D']
         covert_distribution_signal_raw = signals_data['covert_distribution_signal_D']
+
+        # --- 1. 阵型部署 (Formation Deployment) ---
         concentration_level = 1 - cost_gini_coefficient_raw
-        level_score = get_adaptive_mtf_normalized_bipolar_score(concentration_level, df_index, tf_weights)
+        level_score = get_adaptive_mtf_normalized_bipolar_score(concentration_level, df_index, tf_weights, debug_info=debug_info_tuple)
+        
+        norm_covert_accumulation = get_adaptive_mtf_normalized_bipolar_score(covert_accumulation_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        norm_peak_exchange_purity = get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+
         efficiency_score = (
-            get_adaptive_mtf_normalized_bipolar_score(covert_accumulation_raw, df_index, tf_weights).add(1)/2 *
-            get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df_index, tf_weights).add(1)/2
+            (norm_covert_accumulation.add(1)/2) *
+            (norm_peak_exchange_purity.add(1)/2)
         ).pow(0.5) * 2 - 1
-        formation_deployment_score = (level_score.add(1)/2 * efficiency_score.add(1)/2).pow(0.5) * 2 - 1
-        advantage_score = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights)
-        solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity_index_raw, df_index, tf_weights)
-        intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope_raw, df_index, tf_weights)
-        norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_deception_index = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
-        norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
-        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_deception_lure_short = get_adaptive_mtf_normalized_score(deception_lure_short_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
+        
+        formation_deployment_score = ((level_score.add(1)/2) * (efficiency_score.add(1)/2)).pow(0.5) * 2 - 1
+
+        # --- 2. 指挥官决心 (Commanders Resolve) ---
+        advantage_score = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity_index_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+
+        norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+
+        commanders_resolve_score = (
+            (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
+            (intent_score.clip(lower=-1, upper=1).add(1)/2)
+        ).pow(1/3) * 2 - 1
+        
+        commanders_resolve_score = commanders_resolve_score + \
+                                   (norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight) - \
+                                   (norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
+        commanders_resolve_score = commanders_resolve_score.clip(-1, 1)
+
+        # --- 诡道情境调制 (Deception Context Modulation) ---
+        norm_deception_index = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_deception_lure_short = get_adaptive_mtf_normalized_score(deception_lure_short_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+
         deception_modulator = pd.Series(1.0, index=df_index)
         if deception_context_mod_enabled:
             strong_conviction_healthy_chip_mask = (norm_main_force_conviction > deception_conviction_threshold) & \
                                                   (norm_chip_health > deception_health_threshold)
             weak_conviction_unhealthy_chip_mask = (norm_main_force_conviction < -deception_conviction_threshold) | \
                                                    (norm_chip_health < (1 - deception_health_threshold))
-            bear_trap_boost_mask = strong_conviction_healthy_chip_mask & (norm_deception_index < 0)
-            deception_modulator.loc[bear_trap_boost_mask] = 1 + (norm_deception_index.loc[bear_trap_boost_mask].abs() * deception_boost_factor + \
-                                                                 norm_deception_lure_short.loc[bear_trap_boost_mask] * deception_lure_short_boost_factor)
-            bull_trap_penalty_mask = (norm_deception_index > 0)
-            deception_modulator.loc[bull_trap_penalty_mask] = 1 - (norm_deception_index.loc[bull_trap_penalty_mask] * deception_penalty_factor + \
-                                                                   norm_deception_lure_long.loc[bull_trap_penalty_mask] * deception_lure_long_penalty_factor)
-            deception_modulator.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] = \
-                deception_modulator.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] - \
-                (norm_deception_index.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] * deception_penalty_factor + \
-                 norm_deception_lure_long.loc[bull_trap_penalty_mask & weak_conviction_unhealthy_chip_mask] * deception_lure_long_penalty_factor)
+
+            # 诱空增强 (主力信念强，筹码健康，且有诱空信号或负向欺骗)
+            bear_trap_boost_mask = strong_conviction_healthy_chip_mask & ((norm_deception_index < 0) | (norm_deception_lure_short > 0))
+            deception_modulator.loc[bear_trap_boost_mask] = deception_modulator.loc[bear_trap_boost_mask] * (1 + (norm_deception_index.loc[bear_trap_boost_mask].abs() * deception_boost_factor + \
+                                                                 norm_deception_lure_short.loc[bear_trap_boost_mask] * deception_lure_short_boost_factor))
+
+            # 诱多惩罚 (有诱多信号或正向欺骗)
+            bull_trap_penalty_mask = (norm_deception_index > 0) | (norm_deception_lure_long > 0)
+            deception_modulator.loc[bull_trap_penalty_mask] = deception_modulator.loc[bull_trap_penalty_mask] * (1 - (norm_deception_index.loc[bull_trap_penalty_mask].clip(lower=0) * deception_penalty_factor + \
+                                                                   norm_deception_lure_long.loc[bull_trap_penalty_mask] * deception_lure_long_penalty_factor))
+            
+            # 对倒惩罚
             wash_trade_penalty_mod = norm_wash_trade_intensity * wash_trade_penalty_factor
+            # 主力强时，对倒惩罚减半 (可能为洗盘)
             deception_modulator.loc[strong_conviction_healthy_chip_mask] = \
                 deception_modulator.loc[strong_conviction_healthy_chip_mask] * (1 - wash_trade_penalty_mod.loc[strong_conviction_healthy_chip_mask] * 0.5)
+            # 主力弱时，对倒惩罚加倍 (可能为出货)
             deception_modulator.loc[weak_conviction_unhealthy_chip_mask] = \
                 deception_modulator.loc[weak_conviction_unhealthy_chip_mask] * (1 - wash_trade_penalty_mod.loc[weak_conviction_unhealthy_chip_mask] * 1.5)
+            # 其他情况正常惩罚
             deception_modulator.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)] = \
                 deception_modulator.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)] * (1 - wash_trade_penalty_mod.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)])
+            
             deception_modulator = deception_modulator.clip(0.1, 2.0)
-        commanders_resolve_score = (
-            (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
-            (intent_score.clip(lower=-1, upper=1).add(1)/2)
-        ).pow(1/3) * 2 - 1
-        commanders_resolve_score = commanders_resolve_score + \
-                                   (norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight) - \
-                                   (norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
-        commanders_resolve_score = commanders_resolve_score.clip(-1, 1)
+
         commanders_resolve_score = commanders_resolve_score * deception_modulator.pow(np.sign(commanders_resolve_score))
-        cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency_raw, df_index, tf_weights)
-        peak_solidity_score = get_adaptive_mtf_normalized_bipolar_score(dominant_peak_solidity_raw, df_index, tf_weights)
-        battlefield_control_score = (cleansing_score.add(1)/2 * peak_solidity_score.add(1)/2).pow(0.5) * 2 - 1
+
+        # --- 3. 战场控制 (Battlefield Control) ---
+        cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        peak_solidity_score = get_adaptive_mtf_normalized_bipolar_score(dominant_peak_solidity_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        
+        battlefield_control_score = ((cleansing_score.add(1)/2) * (peak_solidity_score.add(1)/2)).pow(0.5) * 2 - 1
+
+        # --- 基础战略态势融合 ---
         base_strategic_posture_score = (
             (commanders_resolve_score.add(1)/2).pow(0.5) *
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ).pow(1/(0.5+0.3+0.2)) * 2 - 1
-        norm_covert_distribution_signal = get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights)
+
+        # --- 隐蔽派发信号惩罚 ---
+        norm_covert_distribution_signal = get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
         base_strategic_posture_score = base_strategic_posture_score * (1 - norm_covert_distribution_signal * covert_distribution_penalty_factor)
         base_strategic_posture_score = base_strategic_posture_score.clip(-1, 1)
+
+        # --- 维度间非线性互动增强 (Inter-Dimension Interaction) ---
         if inter_dimension_interaction_enabled:
             synergy_factor = pd.Series(0.0, index=df_index)
+            # 正向协同：所有维度都为正
             positive_synergy_mask = (formation_deployment_score > 0) & (commanders_resolve_score > 0) & (battlefield_control_score > 0)
             synergy_factor.loc[positive_synergy_mask] = synergy_bonus_factor
+            # 负向协同：所有维度都为负
             negative_synergy_mask = (formation_deployment_score < 0) & (commanders_resolve_score < 0) & (battlefield_control_score < 0)
             synergy_factor.loc[negative_synergy_mask] = -synergy_bonus_factor
+            # 冲突：任意两个维度方向相反
             conflict_mask = ((formation_deployment_score > 0) & (commanders_resolve_score < 0)) | \
                             ((formation_deployment_score < 0) & (commanders_resolve_score > 0)) | \
                             ((battlefield_control_score > 0) & (commanders_resolve_score < 0)) | \
-                            ((battlefield_control_score < 0) & (commanders_resolve_score > 0))
+                            ((battlefield_control_score < 0) & (commanders_resolve_score > 0)) | \
+                            ((formation_deployment_score > 0) & (battlefield_control_score < 0)) | \
+                            ((formation_deployment_score < 0) & (battlefield_control_score > 0))
             synergy_factor.loc[conflict_mask] = -conflict_penalty_factor
+            
+            # 将协同/冲突因子非线性地作用于基础分数
             base_strategic_posture_score = np.tanh(base_strategic_posture_score + synergy_factor)
+
+        # --- 动态权重自适应 (Dynamic Weight Adaptation) ---
         smoothed_base_score = base_strategic_posture_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
         acceleration = velocity.diff(1).fillna(0)
-        norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights)
-        norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights)
+
+        norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights, debug_info=debug_info_tuple)
+        norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights, debug_info=debug_info_tuple)
+
         dynamic_base_weight = pd.Series(dynamic_fusion_weights_base.get('base_score', 0.6), index=df_index)
         dynamic_velocity_weight = pd.Series(dynamic_fusion_weights_base.get('velocity', 0.2), index=df_index)
         dynamic_acceleration_weight = pd.Series(dynamic_fusion_weights_base.get('acceleration', 0.2), index=df_index)
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_chip_health_slope = get_adaptive_mtf_normalized_bipolar_score(chip_health_slope_raw, df_index, tf_weights)
+
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_chip_health_slope = get_adaptive_mtf_normalized_bipolar_score(chip_health_slope_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+
         mod_factor = (norm_volatility_instability * dynamic_weight_sensitivity_volatility) - \
-                     (norm_chip_health_slope.clip(upper=0).abs() * dynamic_weight_sensitivity_health_slope)
+                     (norm_chip_health_slope.clip(upper=0).abs() * dynamic_weight_sensitivity_health_slope) # 筹码健康度斜率负向时，增强动态权重
+
         dynamic_base_weight = dynamic_base_weight * (1 - mod_factor)
         dynamic_velocity_weight = dynamic_velocity_weight * (1 + mod_factor * 0.5)
         dynamic_acceleration_weight = dynamic_acceleration_weight * (1 + mod_factor * 0.5)
+
         sum_dynamic_weights = dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight
         dynamic_base_weight = dynamic_base_weight / sum_dynamic_weights
         dynamic_velocity_weight = dynamic_velocity_weight / sum_dynamic_weights
         dynamic_acceleration_weight = dynamic_acceleration_weight / sum_dynamic_weights
+
         final_score_unmodulated = (
             (base_strategic_posture_score.add(1)/2).pow(dynamic_base_weight) *
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
+
+        # --- 全局情境调制器 (Global Context Modulator) ---
         final_score = final_score_unmodulated
         if global_context_modulator_enabled:
-            norm_global_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
-            norm_market_sentiment = get_adaptive_mtf_normalized_score(market_sentiment_raw, df_index, ascending=True, tf_weights=tf_weights)
+            norm_global_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+            norm_market_sentiment = get_adaptive_mtf_normalized_score(market_sentiment_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple) # 市场情绪正向归一化
+            
             global_modulator_effect = (
                 (1 + norm_global_chip_health * global_context_sensitivity_health) *
                 (1 + norm_market_sentiment * global_context_sensitivity_sentiment)
-            ).clip(0.5, 1.5)
+            ).clip(0.5, 1.5) # 限制调制范围，防止过度放大或缩小
+            
             final_score = final_score * global_modulator_effect
+
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:

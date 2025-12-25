@@ -53,18 +53,34 @@ class FundFlowIntelligence:
 
     def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False, method_name: str = "未知方法", pre_fetched_data: Optional[Dict[str, pd.Series]] = None, tf_weights: Optional[Dict] = None) -> pd.Series:
         """
-        【V1.3 · 效率优化版】计算多时间框架的动态得分。
-        - 核心优化: 增加了 `pre_fetched_data` 参数，允许预先传入数据，避免重复调用 `_get_safe_series`。
-        - 新增: `tf_weights` 参数，允许传入不同的时间框架权重。
+        【V1.5 · 效率优化与调试增强修正版】计算多时间框架的动态得分。
+        - 核心修正: 确保 `get_adaptive_mtf_normalized_score` 和 `get_adaptive_mtf_normalized_bipolar_score`
+                    被正确调用，以利用其多窗口并行计算能力。
+        - 调试增强: 增加了 `debug_info` 参数的传递，使底层归一化函数也能输出探针信息。
         """
+        # tf_weights 参数在这里是 _get_mtf_dynamic_score 内部用于加权 periods_list 的权重
+        # 而传递给 get_adaptive_mtf_normalized_score 的 tf_weights 应该是全局的 self.tf_weights_ff
+        # 因为 get_adaptive_mtf_normalized_score 内部会用这些权重对单个 Series 进行多时间框架归一化
         if tf_weights is None:
-            tf_weights = self.tf_weights_ff # 使用默认权重
-        mtf_scores = []
+            tf_weights = self.tf_weights_ff # 使用默认权重，但这个 tf_weights 是 _get_mtf_dynamic_score 内部的权重
         numeric_weights = {k: v for k, v in weights_dict.items() if isinstance(v, (int, float))}
         total_weight = sum(numeric_weights.values())
         if total_weight == 0:
             print(f"    -> [资金流情报警告] 方法 '{method_name}' 中权重总和为0，返回全0 Series。")
             return pd.Series(0.0, index=df.index)
+        # 构造 debug_info
+        # is_debug_enabled = get_param_value(self.debug_params.get('should_probe'), False) and get_param_value(self.debug_params.get('enabled'), False)
+        is_debug_enabled = False
+        probe_ts = None
+        if is_debug_enabled and self.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            # 找到 df.index 中最接近 probe_dates_dt 的日期
+            for date in reversed(df.index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        debug_info_tuple = (is_debug_enabled, probe_ts, f"{method_name}_{signal_base_name}_{'ACCEL' if is_accel else 'SLOPE'}")
+        mtf_scores = []
         for period_str, weight in numeric_weights.items():
             period = int(period_str)
             prefix = 'ACCEL' if is_accel else 'SLOPE'
@@ -74,11 +90,12 @@ class FundFlowIntelligence:
                 raw_data = pre_fetched_data[col_name]
             else:
                 raw_data = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
-            # 修改结束
+            # 关键修正：这里传入的 tf_weights 应该是 self.tf_weights_ff，
+            # 因为 get_adaptive_mtf_normalized_score 内部会用这些权重对 raw_data 进行多时间框架归一化
             if is_bipolar:
-                norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, tf_weights)
+                norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
             else:
-                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=tf_weights)
+                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, tf_weights=self.tf_weights_ff, ascending=True, debug_info=debug_info_tuple)
             mtf_scores.append(norm_score * weight)
         if not mtf_scores:
             return pd.Series(0.0, index=df.index)
