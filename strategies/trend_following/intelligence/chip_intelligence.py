@@ -587,14 +587,14 @@ class ChipIntelligence:
         global_context_sensitivity_health = get_param_value(holder_sentiment_params.get('global_context_sensitivity_health'), 0.5)
         global_context_sensitivity_conviction = get_param_value(holder_sentiment_params.get('global_context_sensitivity_conviction'), 0.3)
         # --- 调试信息构建 ---
-        is_debug_enabled = self.should_probe
-        probe_ts = None
-        if is_debug_enabled and self.probe_dates_set:
-            for date in reversed(df_index):
-                if date.date() in self.probe_dates_set:
-                    probe_ts = date
-                    break
-        debug_info_tuple = (is_debug_enabled, probe_ts, "_diagnose_axiom_holder_sentiment")
+        # is_debug_enabled = self.should_probe
+        # probe_ts = None
+        # if is_debug_enabled and self.probe_dates_set:
+        #     for date in reversed(df_index):
+        #         if date.date() in self.probe_dates_set:
+        #             probe_ts = date
+        #             break
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, "_diagnose_axiom_holder_sentiment")
         # --- 原始数据获取 ---
         chip_health_raw = signals_data['chip_health_score_D']
         winner_stability = signals_data['winner_stability_index_D']
@@ -776,7 +776,7 @@ class ChipIntelligence:
         final_impurity_effect = pd.Series(0.0, index=df_index)
         if impurity_non_linear_enabled:
             current_sentiment_strength = (conviction_base_unipolar * 2 - 1).abs() # 转换为 [-1,1] 再取绝对值
-            normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True, debug_info=debug_info_tuple)
+            normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, windows=21, ascending=True, debug_info=debug_info_tuple)
             context_adjustment_factor = pd.Series(1.0, index=df_index)
             norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
             norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
@@ -1297,7 +1297,7 @@ class ChipIntelligence:
                 normalized_modulator_signal = normalize_score(
                     modulator_signal_raw,
                     df_index,
-                    window=chip_sensitivity_mod_norm_window,
+                    windows=chip_sensitivity_mod_norm_window,
                     ascending=True
                 )
                 modulator_bipolar = (normalized_modulator_signal * 2) - 1
@@ -1401,7 +1401,7 @@ class ChipIntelligence:
             final_score_normalized_modulator_signal = normalize_score(
                 final_score_modulator_signal_raw,
                 df_index,
-                window=final_score_mod_norm_window,
+                windows=final_score_mod_norm_window,
                 ascending=True
             )
             final_score_modulator_bipolar = (final_score_normalized_modulator_signal * 2) - 1
