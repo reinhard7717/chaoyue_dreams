@@ -750,7 +750,6 @@ class BehavioralIntelligence:
         ]
         # 使用 set 进行去重，然后转换回 list
         required_signals = list(set(required_signals))
-
         indicators_for_robust_slopes = [
             'close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change',
             'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',

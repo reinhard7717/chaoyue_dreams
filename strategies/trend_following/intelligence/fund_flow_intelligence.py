@@ -1766,7 +1766,6 @@ class FundFlowIntelligence:
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         afsh_params = get_param_value(p_conf_ff.get('axiom_flow_structure_health_params'), {})
         # probe_enabled = get_param_value(afsh_params.get('probe_enabled'), False) # 移除探针相关变量
-
         # current_probe_date = None # 移除探针相关变量
         # if probe_enabled and self.probe_dates: # 移除探针相关逻辑
         #     probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
@@ -1774,13 +1773,11 @@ class FundFlowIntelligence:
         #         if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
         #             current_probe_date = date
         #             break
-
         # if probe_enabled: # 移除探针相关逻辑
         #     if current_probe_date:
         #         print(f"        [探针] 资金流结构健康度诊断启动。探针日期: {current_probe_date.strftime('%Y-%m-%d')}")
         #     else:
         #         print(f"        [探针] 资金流结构健康度诊断启动。probe_enabled为True，但当前DataFrame不包含任何指定探针日期。")
-
         flow_steadiness_params = get_param_value(afsh_params.get('flow_steadiness_params'), {})
         net_flow_std_window = get_param_value(flow_steadiness_params.get('net_flow_std_window'), 21)
         net_flow_direction_window = get_param_value(flow_steadiness_params.get('net_flow_direction_window'), 5)

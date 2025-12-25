@@ -520,8 +520,8 @@ class StructuralIntelligence:
         concept_signals = [
             'support_validation_strength_D', 'pressure_rejection_strength_D', 'lower_shadow_absorption_strength_D',
             'defense_solidity_score_D', 'opening_gap_defense_strength_D',
-            'equilibrium_compression_index_D', 'platform_conviction_score_D', 'value_area_overlap_pct_D',
-            'goodness_of_fit_score_D', 'structural_node_count_D',
+            'equilibrium_compression_index_D', 'value_area_overlap_pct_D',
+            'structural_node_count_D',
             'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'FRACTAL_DIMENSION_89d_D',
             'SAMPLE_ENTROPY_13d_D', 'HURST_144d_D',
             'trend_efficiency_ratio_D', 'asymmetric_friction_index_D', 'impulse_quality_ratio_D',
@@ -607,12 +607,11 @@ class StructuralIntelligence:
             pressure_rejection_strength_score * structural_support_strength_weights.get('pressure_rejection_strength', 0.3) +
             lower_shadow_absorption_strength_score * structural_support_strength_weights.get('lower_shadow_absorption_strength', 0.2) +
             defense_solidity_score * structural_support_strength_weights.get('defense_solidity_score', 0.1) +
-            # 修改开始：修正变量名
             opening_gap_defense_strength_score * structural_support_strength_weights.get('opening_gap_defense_strength', 0.1)
-            # 修改结束
         ).clip(0, 1)
         # --- 2. 结构形态坚固性 (Structural Form Solidity) ---
         equilibrium_compression_raw = self._get_safe_series(df, signal_mapping.get('equilibrium_compression_index_D', 'equilibrium_compression_index_D'), 0.0, method_name="_diagnose_axiom_stability")
+        # platform_conviction_score_D 和 goodness_of_fit_score_D 现在由 _get_safe_series 处理，如果缺失则返回0.0
         platform_conviction_score_raw = self._get_safe_series(df, signal_mapping.get('platform_conviction_score_D', 'platform_conviction_score_D'), 0.0, method_name="_diagnose_axiom_stability")
         value_area_overlap_raw = self._get_safe_series(df, signal_mapping.get('value_area_overlap_pct_D', 'value_area_overlap_pct_D'), 0.0, method_name="_diagnose_axiom_stability")
         goodness_of_fit_score_raw = self._get_safe_series(df, signal_mapping.get('goodness_of_fit_score_D', 'goodness_of_fit_score_D'), 0.0, method_name="_diagnose_axiom_stability")

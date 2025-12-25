@@ -517,6 +517,7 @@ class IndicatorService:
         - 统一命名: 所有日线数据列名统一以 `_D` 结尾。
         - 迭代合并: 逐个合并补充 DataFrame，明确处理列名冲突。
         - 【新增】保留原始数据中的 `pct_change` 和 `pre_close` 列，并将其标准化为 `_D` 后缀，不再重新计算 `pct_change_D`。
+        - 【修复】确保所有启用的补充特征相关列在合并后始终存在，即使数据为空，以避免后续计算报错。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -787,6 +788,15 @@ class IndicatorService:
                 elif col in common_cols: # 如果是冲突列，且我们决定保留了补充数据的值
                     if col in priority_supp_cols:
                         all_merged_cols_for_ffill.add(col)
+        # 【新增代码块】确保所有预期的补充数据列都存在于 df_daily_master 中
+        # 即使某个补充数据源返回空DataFrame，其对应的列也应存在，并用NaN填充，
+        # 以避免后续依赖这些列的计算（如斜率、加速度）因列缺失而报错。
+        for col in priority_supp_cols:
+            if col not in df_daily_master.columns:
+                df_daily_master[col] = np.nan
+                # 这些列如果完全是NaN，通常不应该被ffill，因为ffill会向前填充，
+                # 如果整个列都是NaN，ffill不会改变它。
+                # 如果有部分数据，则在前面的合并逻辑中已经添加到all_merged_cols_for_ffill了。
         # --- 4: 统一 ffill 填充 ---
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:

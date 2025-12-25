@@ -2015,7 +2015,6 @@ class ChipIntelligence:
         final_fusion_weights = get_param_value(tactical_exchange_params.get('final_fusion_weights'), {'intent': 0.35, 'quality': 0.35, 'environment': 0.2, 'rhythm_persistence': 0.1})
         meta_modulator_weights = get_param_value(tactical_exchange_params.get('meta_modulator_weights'), {'chip_health': 0.25, 'volatility_instability': 0.25, 'main_force_conviction': 0.25, 'main_force_activity': 0.15, 'flow_credibility': 0.1})
         meta_modulator_sensitivity = get_param_value(tactical_exchange_params.get('meta_modulator_sensitivity'), 0.5)
-
         # Add dynamic signals to required_signals if not already present
         if deception_context_modulator_signal_name not in required_signals:
             required_signals.append(deception_context_modulator_signal_name)
@@ -2036,11 +2035,9 @@ class ChipIntelligence:
         if slope_winner_rate_signal not in required_signals: required_signals.append(slope_winner_rate_signal)
         slope_dps_signal = f'SLOPE_{dominant_peak_health_slope_period}_dominant_peak_solidity_D'
         if slope_dps_signal not in required_signals: required_signals.append(slope_dps_signal)
-
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_tactical_exchange")
-
         # --- 维度1: 换手意图 (Exchange Intent) - 纯筹码化与诡道深化 ---
         control_transfer_raw = signals_data['peak_control_transfer_D']
         cleansing_efficiency_raw = signals_data['floating_chip_cleansing_efficiency_D']
@@ -2278,7 +2275,6 @@ class ChipIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_tactical_harmony"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_strategic_tactical_harmony")
-
         # --- 1. 动态权重融合 (Dynamic Weight Fusion) ---
         dynamic_weight_modulator_raw = signals_data[dynamic_weight_modulator_signal_name]
         norm_dynamic_weight_modulator = get_adaptive_mtf_normalized_score(dynamic_weight_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -2377,7 +2373,6 @@ class ChipIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_harmony_inflection"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_harmony_inflection")
-
         # --- 1. 计算速度与加速度 (保留方向信息) ---
         harmony_velocity = harmony_score.diff(velocity_period).fillna(0)
         harmony_acceleration = harmony_velocity.diff(acceleration_period).fillna(0)
@@ -2483,7 +2478,6 @@ class ChipIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_retail_vulnerability"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_retail_vulnerability")
-
         # --- 原始数据获取 ---
         winner_concentration_raw = signals_data['winner_concentration_90pct_D']
         loser_concentration_raw = signals_data['loser_concentration_90pct_D']
@@ -2499,7 +2493,6 @@ class ChipIntelligence:
         main_force_conviction_raw = signals_data['main_force_conviction_index_D']
         volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
         market_sentiment_raw = signals_data['market_sentiment_score_D']
-
         # --- 维度1: 散户筹码结构脆弱性 (Retail Chip Structure Fragility) ---
         norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_loser_concentration_inverse = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
@@ -2618,7 +2611,6 @@ class ChipIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_main_force_cost_intent"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_main_force_cost_intent")
-
         close_raw = signals_data['close_D']
         vpoc_raw = signals_data['vpoc_D']
         dominant_peak_cost_raw = signals_data['dominant_peak_cost_D']
@@ -2634,7 +2626,6 @@ class ChipIntelligence:
         slope_5_main_force_conviction_raw = signals_data['SLOPE_5_main_force_conviction_index_D']
         volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
         market_sentiment_raw = signals_data['market_sentiment_score_D']
-
         cost_center = dominant_peak_cost_raw.fillna(vpoc_raw)
         dynamic_cost_zone_tolerance = pd.Series(cost_zone_tolerance_base, index=df_index)
         if dynamic_tolerance_mod_enabled:
@@ -2771,7 +2762,6 @@ class ChipIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_chip_hollowing_out_risk"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_chip_hollowing_out_risk")
-
         # Dimension 1: Dispersion & Weakness
         winner_concentration_raw = signals_data['winner_concentration_90pct_D']
         loser_concentration_raw = signals_data['loser_concentration_90pct_D']
@@ -2800,7 +2790,6 @@ class ChipIntelligence:
         market_sentiment_raw = signals_data['market_sentiment_score_D']
         flow_credibility_raw = signals_data['flow_credibility_index_D']
         structural_tension_raw = signals_data['structural_tension_index_D']
-
         norm_winner_concentration_inverse = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights)
         norm_loser_concentration_high_price = get_adaptive_mtf_normalized_score(loser_concentration_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_cost_gini_coefficient_inverse = get_adaptive_mtf_normalized_score(cost_gini_coefficient_raw, df_index, ascending=False, tf_weights=tf_weights)

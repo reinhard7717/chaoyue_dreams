@@ -2091,7 +2091,8 @@ class ProcessIntelligence:
             'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
             'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
             'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'loser_pain_index_D',
-            'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION', 'goodness_of_fit_score_D', 'platform_conviction_score_D',
+            'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION',
+            # 'goodness_of_fit_score_D', 'platform_conviction_score_D', # 已移除，因为它们并非每天都存在
             'main_force_activity_ratio_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D',
             # 新增信号
             'SCORE_DYN_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
@@ -2191,6 +2192,10 @@ class ProcessIntelligence:
         # Breakout Readiness
         struct_breakout_readiness_score = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', np.nan)
         struct_platform_foundation_score = self._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', np.nan)
+        # 对于 goodness_of_fit_score_D 和 platform_conviction_score_D，即使它们不在df中，
+        # _get_safe_series也会返回一个填充了np.nan的Series，
+        # 随后_normalize_series会将其转换为0.0，这符合“没有平台信息时贡献为0”的逻辑。
+        # 因此，无需将它们列为required_signals。
         goodness_of_fit_raw = self._get_safe_series(df, 'goodness_of_fit_score_D', np.nan, method_name="_calculate_storm_eye_calm")
         platform_conviction_raw = self._get_safe_series(df, 'platform_conviction_score_D', np.nan, method_name="_calculate_storm_eye_calm")
         # Modulators
