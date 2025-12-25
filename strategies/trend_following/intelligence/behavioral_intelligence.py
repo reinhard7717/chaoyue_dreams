@@ -3128,7 +3128,7 @@ class BehavioralIntelligence:
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
-        is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
