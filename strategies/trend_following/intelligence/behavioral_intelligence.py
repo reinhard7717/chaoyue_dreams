@@ -3350,7 +3350,7 @@ class BehavioralIntelligence:
 
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
-            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, window=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
+            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
             volume_change_conf = normalized_scores['robust_volume_slope_for_conf'] # Use normalized_scores
             active_flow_conf = norm_active_buying
         else:
