@@ -777,14 +777,9 @@ class BehavioralIntelligence:
             'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
             'ask_side_liquidity', 'bid_side_liquidity', 'liquidity_slope', 'market_impact_cost',
             'order_book_clearing_rate', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
-            'price_volume_entropy', 'volatility_expansion_ratio',
-            'breakout_quality_score',
-            'upward_impulse_purity',
-            'trend_acceleration_score',
-            'volume_burstiness_index',
-            'constructive_turnover_ratio',
-            'buy_sweep_intensity',
-            'upper_shadow_selling_pressure',
+            'price_volume_entropy', 'volatility_expansion_ratio', 'breakout_quality_score',
+            'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index',
+            'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure',
             'market_sentiment_score'
         ]
         for period in liquidity_drain_mtf_periods:
@@ -1246,8 +1241,7 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         required_signals = [
-            'pct_change_D', 'vacuum_traversal_efficiency_D',
-            'dip_absorption_power_D', 'active_buying_support_D',
+            'pct_change_D', 'vacuum_traversal_efficiency_D', 'dip_absorption_power_D', 'active_buying_support_D',
             'main_force_conviction_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
@@ -1386,8 +1380,7 @@ class BehavioralIntelligence:
         fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
         top_level_fusion_weights = get_param_value(params.get('top_level_fusion_weights'), {"strategic_position": 0.5, "quality_modulator": 0.5})
         required_signals = [
-            'vwap_control_strength_D', 'upward_impulse_purity_D',
-            'pressure_rejection_strength_D', 'main_force_conviction_index_D',
+            'vwap_control_strength_D', 'upward_impulse_purity_D', 'pressure_rejection_strength_D', 'main_force_conviction_index_D',
             'intraday_posture_score_D', 'closing_auction_ambush_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
