@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from decimal import Decimal
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Tuple, Optional, Union, List
 import gc
 import scipy.stats # 新增导入
 

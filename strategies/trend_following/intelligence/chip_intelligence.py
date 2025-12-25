@@ -458,6 +458,18 @@ class ChipIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_battlefield_geography"):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, "_diagnose_battlefield_geography")
+
+        # --- 调试信息构建 ---
+        is_debug_enabled = self.should_probe
+        probe_ts = None
+        if is_debug_enabled and self.probe_dates_set:
+            for date in reversed(df_index):
+                if date.date() in self.probe_dates_set:
+                    probe_ts = date
+                    break
+        debug_info_tuple = (is_debug_enabled, probe_ts, "_diagnose_battlefield_geography")
+
+        # --- 原始数据获取 ---
         peak_solidity = signals_data['dominant_peak_solidity_D']
         support_validation = signals_data['support_validation_strength_D']
         fault_blockage = signals_data['chip_fault_blockage_ratio_D']
@@ -474,51 +486,83 @@ class ChipIntelligence:
         downward_impulse_strength_raw = signals_data['downward_impulse_strength_D']
         mf_cost_zone_buy_intent_raw = signals_data['mf_cost_zone_buy_intent_D']
         mf_cost_zone_sell_intent_raw = signals_data['mf_cost_zone_sell_intent_D']
-        solidity_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, tf_weights)
-        validation_score = get_adaptive_mtf_normalized_score(support_validation, df_index, tf_weights)
+
+        # --- 1. 支撑强度 (Support Strength) ---
+        solidity_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, tf_weights, debug_info=debug_info_tuple)
+        validation_score = get_adaptive_mtf_normalized_score(support_validation, df_index, tf_weights, debug_info=debug_info_tuple)
+        
         support_strength_score = (solidity_score * validation_score).pow(0.5)
-        norm_upward_impulse_strength = get_adaptive_mtf_normalized_score(upward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
+
+        norm_upward_impulse_strength = get_adaptive_mtf_normalized_score(upward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_mf_cost_zone_buy_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_buy_intent_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        
         support_strength_score = support_strength_score * (1 + norm_upward_impulse_strength * upward_impulse_strength_weight + \
                                                               norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight)
         support_strength_score = support_strength_score.clip(0, 1)
-        blockage_score = get_adaptive_mtf_normalized_score(fault_blockage, df_index, tf_weights)
-        rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection, df_index, tf_weights)
+
+        # --- 2. 阻力强度 (Resistance Strength) ---
+        blockage_score = get_adaptive_mtf_normalized_score(fault_blockage, df_index, tf_weights, debug_info=debug_info_tuple)
+        rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection, df_index, tf_weights, debug_info=debug_info_tuple)
+        
         resistance_strength_score = (blockage_score * rejection_score).pow(0.5)
-        norm_downward_impulse_strength = get_adaptive_mtf_normalized_score(downward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights)
+
+        norm_downward_impulse_strength = get_adaptive_mtf_normalized_score(downward_impulse_strength_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_mf_cost_zone_sell_intent = get_adaptive_mtf_normalized_score(mf_cost_zone_sell_intent_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        
         resistance_strength_score = resistance_strength_score * (1 + norm_downward_impulse_strength * downward_impulse_strength_weight + \
                                                                     norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
         resistance_strength_score = resistance_strength_score.clip(0, 1)
+
+        # --- 3. 核心地形优势 (Core Terrain Advantage) ---
         base_terrain_advantage_score = support_strength_score - resistance_strength_score
-        norm_vacuum_magnitude = get_adaptive_mtf_normalized_score(vacuum_magnitude, df_index, tf_weights)
-        norm_vacuum_efficiency = get_adaptive_mtf_normalized_score(vacuum_efficiency, df_index, tf_weights)
+
+        # --- 4. 最小阻力路径动态调制 (Minimum Resistance Path Dynamic Modulation) ---
+        norm_vacuum_magnitude = get_adaptive_mtf_normalized_score(vacuum_magnitude, df_index, tf_weights, debug_info=debug_info_tuple)
+        norm_vacuum_efficiency = get_adaptive_mtf_normalized_score(vacuum_efficiency, df_index, tf_weights, debug_info=debug_info_tuple)
+        
         path_efficiency = (norm_vacuum_magnitude * norm_vacuum_efficiency).pow(0.5)
         path_modulation_factor = (1 + path_efficiency * path_efficiency_mod_factor).pow(path_efficiency_non_linear_exponent)
-        norm_support_trend = get_adaptive_mtf_normalized_bipolar_score(support_trend_raw, df_index, tf_weights)
-        norm_resistance_trend = get_adaptive_mtf_normalized_bipolar_score(resistance_trend_raw, df_index, tf_weights)
+
+        # --- 5. 动态演化趋势强化 (Dynamic Evolution Trend Reinforcement) ---
+        norm_support_trend = get_adaptive_mtf_normalized_bipolar_score(support_trend_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        norm_resistance_trend = get_adaptive_mtf_normalized_bipolar_score(resistance_trend_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        
         terrain_advantage_change = norm_support_trend - norm_resistance_trend
         dynamic_evolution_modulator = (1 + terrain_advantage_change * dynamic_evolution_mod_factor).pow(dynamic_evolution_non_linear_exponent)
         dynamic_evolution_modulator = dynamic_evolution_modulator.clip(0.5, 1.5)
-        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights)
-        norm_chip_fault = get_adaptive_mtf_normalized_bipolar_score(chip_fault_raw, df_index, tf_weights)
+
+        # --- 6. 诡道地形过滤与惩罚 (Deceptive Terrain Filtering & Penalty) ---
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        norm_chip_fault = get_adaptive_mtf_normalized_bipolar_score(chip_fault_raw, df_index, tf_weights, debug_info=debug_info_tuple)
+        
         deception_filter_factor = pd.Series(1.0, index=df_index)
+        
+        # 有利地形伴随诱多或虚假支撑时惩罚 (base_terrain_advantage_score > 0 且有正向欺骗或正向故障)
         bull_trap_penalty_mask = (base_terrain_advantage_score > 0) & ((norm_deception > 0) | (norm_chip_fault > 0))
         deception_filter_factor.loc[bull_trap_penalty_mask] = \
             1 - ((norm_deception.loc[bull_trap_penalty_mask].clip(lower=0) * deception_penalty_sensitivity) + \
                  (norm_chip_fault.loc[bull_trap_penalty_mask].clip(lower=0) * chip_fault_penalty_sensitivity)).clip(0, 1)
+        
+        # 不利地形伴随诱空洗盘或虚假阻力时缓解 (base_terrain_advantage_score < 0 且有负向欺骗或负向故障)
         bear_trap_mitigation_mask = (base_terrain_advantage_score < 0) & ((norm_deception < 0) | (norm_chip_fault < 0))
         deception_filter_factor.loc[bear_trap_mitigation_mask] = \
             1 + ((norm_deception.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity) + \
                  (norm_chip_fault.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity)).clip(0, 0.5)
+        
         deception_filter_factor = deception_filter_factor.clip(0.1, 2.0)
-        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
+
+        # --- 7. 情境感知与自适应权重 (Context-Aware Adaptive Weighting) ---
+        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple)
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple) # 低波动性 = 高健康度
+        
         context_modulator = (
             (1 + norm_chip_health * context_modulator_sensitivity_health) *
             (1 + norm_volatility_instability * context_modulator_sensitivity_volatility)
         ).clip(0.5, 1.5)
+
+        # --- 最终融合 ---
         final_score = base_terrain_advantage_score * path_modulation_factor * dynamic_evolution_modulator * deception_filter_factor * context_modulator
+
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
