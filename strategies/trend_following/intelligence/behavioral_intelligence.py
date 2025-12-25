@@ -382,8 +382,8 @@ class BehavioralIntelligence:
         slope_raw_data = {p: self._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name) for p in momentum_periods}
         accel_raw_data = {p: self._get_safe_series(df, f'ACCEL_{p}_close_D', 0.0, method_name=method_name) for p in momentum_periods}
         # 一次性计算所有窗口的归一化分数
-        slope_scores_df_bipolar = get_robust_bipolar_normalized_score(pd.concat(slope_raw_data.values(), axis=1), df.index, windows=windows_to_normalize, sensitivity=2.0, default_value=0.0)
-        accel_scores_df_bipolar = get_robust_bipolar_normalized_score(pd.concat(accel_raw_data.values(), axis=1), df.index, windows=windows_to_normalize, sensitivity=2.0, default_value=0.0)
+        slope_scores_df_bipolar = get_robust_bipolar_normalized_score(pd.concat(slope_raw_data.values(), axis=1), df.index, window=windows_to_normalize, sensitivity=2.0, default_value=0.0)
+        accel_scores_df_bipolar = get_robust_bipolar_normalized_score(pd.concat(accel_raw_data.values(), axis=1), df.index, window=windows_to_normalize, sensitivity=2.0, default_value=0.0)
         for p in momentum_periods:
             # 从一次性计算的结果中获取对应窗口的分数
             slope_score_bipolar = slope_scores_df_bipolar[p * 2] if p * 2 in slope_scores_df_bipolar.columns else pd.Series(0.0, index=df.index)
@@ -430,7 +430,7 @@ class BehavioralIntelligence:
         windows_order_book_imbalance = [21] # get_robust_bipolar_normalized_score 默认窗口为21
         # 一次性计算所有窗口的归一化分数
         liquidity_authenticity_scores_df = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights), ascending=True)
-        order_book_imbalance_scores_df_bipolar = get_robust_bipolar_normalized_score(order_book_imbalance_raw, df.index, windows=windows_order_book_imbalance, sensitivity=2.0, default_value=0.0)
+        order_book_imbalance_scores_df_bipolar = get_robust_bipolar_normalized_score(order_book_imbalance_raw, df.index, window=windows_order_book_imbalance, sensitivity=2.0, default_value=0.0)
         flow_credibility_scores_df = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights), ascending=True)
         # 从一次性计算的结果中获取对应窗口的分数
         liquidity_authenticity_score = liquidity_authenticity_scores_df # get_adaptive_mtf_normalized_score 返回 Series
@@ -1032,7 +1032,7 @@ class BehavioralIntelligence:
         # --- 1. 计算吸收品质分数 (Absorption Quality Score) ---
         absorption_efficiency = self._get_mtf_fused_indicator_score(df, 'VPA_EFFICIENCY', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
         vwap_control_raw_fused = self._get_mtf_fused_indicator_score(df, 'vwap_control_strength', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        absorption_control = (get_robust_bipolar_normalized_score(vwap_control_raw_fused, df.index, windows=21, sensitivity=2.0, default_value=0.0) + 1) / 2.0
+        absorption_control = (get_robust_bipolar_normalized_score(vwap_control_raw_fused, df.index, window=21, sensitivity=2.0, default_value=0.0) + 1) / 2.0
         offensive_absorption_intent = states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT']
         absorption_strength = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH']
         absorption_quality_score = self._robust_generalized_mean(
