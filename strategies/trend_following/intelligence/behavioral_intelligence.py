@@ -3343,7 +3343,7 @@ class BehavioralIntelligence:
             div_strength_volume * div_weights.get('price_volume', 0.3)
         )
         total_div_strength = total_div_strength.where(total_div_strength > dynamic_min_divergence_slope_diff, 0.0)
-        norm_total_div_strength = normalize_score(total_div_strength, df.index, window=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
+        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
 
         final_strength_factor = norm_total_div_strength * (1 + accelerated_strength)
         final_strength_factor = final_strength_factor.clip(0, 1.5)
