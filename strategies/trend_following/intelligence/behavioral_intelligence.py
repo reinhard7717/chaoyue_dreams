@@ -1783,6 +1783,9 @@ class BehavioralIntelligence:
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
 
+        # --- 预先计算组合 Series，确保 id() 一致性 ---
+        deception_lure_combined_raw = pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1)
+
         # --- 收集所有需要进行多时间框架归一化的 Series ---
         # 修正：使用 id(series_obj) 作为字典的键
         series_for_mtf_norm_map = {
@@ -1793,7 +1796,7 @@ class BehavioralIntelligence:
             id(signals_data['volume_ratio_D']): (signals_data['volume_ratio_D'], default_weights, True, False),
             id(signals_data['upward_impulse_purity_D']): (signals_data['upward_impulse_purity_D'], default_weights, True, False),
             id(signals_data['vacuum_traversal_efficiency_D']): (signals_data['vacuum_traversal_efficiency_D'], default_weights, True, False),
-            id(pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1)): (pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1), default_weights, True, False)
+            id(deception_lure_combined_raw): (deception_lure_combined_raw, default_weights, True, False) # 使用预计算的 Series
         }
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
@@ -1829,8 +1832,8 @@ class BehavioralIntelligence:
         if all(s in signals_data for s in required_signals_behavior):
             upward_purity_score = normalized_mtf_scores[id(signals_data['upward_impulse_purity_D'])]
             downward_purity_score = normalized_mtf_scores[id(signals_data['vacuum_traversal_efficiency_D'])]
-            deception_raw_series = pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1)
-            deception_score = normalized_mtf_scores[id(deception_raw_series)]
+            # 使用预计算的 Series ID 进行检索
+            deception_score = normalized_mtf_scores[id(deception_lure_combined_raw)]
 
             purity_coherence = pd.Series(np.where(
                 core_intent_magnitude > 0, # 看涨意图
