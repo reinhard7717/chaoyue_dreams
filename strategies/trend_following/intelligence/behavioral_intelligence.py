@@ -3166,7 +3166,7 @@ class BehavioralIntelligence:
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
                 normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, window=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
         # 集中获取所有信号
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
@@ -3302,7 +3302,7 @@ class BehavioralIntelligence:
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
                 normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, window=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
         price_trend_condition = (robust_close_slope < 0) if is_bullish else (robust_close_slope > 0)
         rsi_indicator_trend = (robust_rsi_slope > 0) if is_bullish else (robust_rsi_slope < 0)
         macd_indicator_trend = (robust_macd_slope > 0) if is_bullish else (robust_macd_slope < 0)
