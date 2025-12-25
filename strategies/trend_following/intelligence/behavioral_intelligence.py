@@ -3060,17 +3060,9 @@ class BehavioralIntelligence:
         return shakeout_confirmation_score.astype(np.float32)
 
     def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:
-        """
-        【V8.1 · 行为背离强度惯性与自适应引擎版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
-        - 核心重构: 提取看涨/看跌背离的公共计算逻辑到辅助方法，减少代码冗余，提高可读性和维护性。
-        - 优化效率: 集中获取参数和信号，避免重复计算。
-        - 清理探针: 移除所有调试打印，使代码更简洁。
-        """
         method_name = "_diagnose_pure_behavioral_divergence"
         # 1. 获取所有配置参数
         p_conf = self.config_params
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights_from_config = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         params = { # 将所有参数打包成一个字典
             'mtf_slopes_params': get_param_value(p_conf.get('multi_timeframe_slopes'), {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}}),
             'multi_level_resonance_params': get_param_value(p_conf.get('multi_level_resonance_params'), {"enabled": True, "long_term_period": 21, "resonance_bonus": 0.2}),
@@ -3128,14 +3120,7 @@ class BehavioralIntelligence:
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
-        is_debug_enabled = False
-        probe_ts = None
-        if is_debug_enabled and self.strategy.probe_dates_set:
-            for date in reversed(df.index):
-                if date.date() in self.strategy.probe_dates_set:
-                    probe_ts = date
-                    break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         # For purity_factor
         # 修正：从 params 字典中获取 mtf_slopes_params
@@ -3147,18 +3132,17 @@ class BehavioralIntelligence:
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
+            'robust_close_slope_for_purity': (signals_data['robust_close_slope'], 55, True), # For purity_factor
+            'robust_pct_change_slope': (signals_data['robust_pct_change_slope'], 55, True), # For market_context_params
             'ATR_14_D': (signals_data['ATR_14_D'], tf_weights, True), # For norm_atr
-            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True), # For norm_active_buying
-            'active_selling_pressure_D': (signals_data['active_selling_pressure_D'], tf_weights, True), # For norm_active_selling
-            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True), # For trend_vitality
-            'BBW_21_2.0_D': (signals_data['BBW_21_2.0_D'], tf_weights, False), # For structural_context_factor
             'ADX_14_D': (signals_data['ADX_14_D'], 55, True), # For market_regime_params
             'RSI_13_D': (signals_data['RSI_13_D'], 55, True), # For rsi_conf
             'robust_volume_slope_for_conf': (signals_data['robust_volume_slope'], tf_weights, True), # For volume_change_conf
-            'robust_close_slope_for_purity': (signals_data['robust_close_slope'], 55, True), # For purity_factor
             'slope_std_dev_raw': (slope_std_dev_raw, tf_weights, True), # For purity_factor
-            'robust_pct_change_slope': (signals_data['robust_pct_change_slope'], 55, True), # For market_context_params
-            'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True) # For inertia_factor
+            'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True), # For inertia_factor
+            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True), # For norm_active_buying
+            'active_selling_pressure_D': (signals_data['active_selling_pressure_D'], tf_weights, True), # For norm_active_selling
+            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True) # For trend_vitality
         }
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
@@ -3189,7 +3173,6 @@ class BehavioralIntelligence:
         atr_val = signals_data['ATR_14_D']
         active_buying = signals_data['active_buying_support_D']
         active_selling = signals_data['active_selling_pressure_D']
-        raw_trend_vitality = signals_data['trend_vitality_index_D']
         trend_vitality = normalized_mtf_scores['trend_vitality_index_D']
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
@@ -3213,7 +3196,7 @@ class BehavioralIntelligence:
         rsi_overbought_threshold_dynamic = params['rsi_overbought_threshold_base'] + (trend_vitality - 0.5) * params['rsi_overbought_trend_adjust_factor']
         # 3. 调用辅助方法计算看涨和看跌背离
         bullish_divergence_score = self._calculate_single_divergence_type(
-            df, True, params, # 移除 tf_weights，因为它在 _calculate_single_divergence_type 的签名中已经存在
+            df, True, params, tf_weights, # Pass tf_weights here
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
@@ -3227,7 +3210,7 @@ class BehavioralIntelligence:
             debug_info_tuple # 传递 debug_info_tuple
         )
         bearish_divergence_score = self._calculate_single_divergence_type(
-            df, False, params, # 移除 tf_weights
+            df, False, params, tf_weights, # Pass tf_weights here
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
