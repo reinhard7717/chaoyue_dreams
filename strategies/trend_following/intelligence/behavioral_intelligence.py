@@ -376,21 +376,22 @@ class BehavioralIntelligence:
         momentum_periods = [5, 13, 21, 34, 55]
         period_scores_list = []
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        # 收集所有需要归一化的窗口
-        windows_to_normalize = [p * 2 for p in momentum_periods]
+
         # 预取所有斜率和加速度的原始数据
         slope_raw_data = {p: self._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name) for p in momentum_periods}
         accel_raw_data = {p: self._get_safe_series(df, f'ACCEL_{p}_close_D', 0.0, method_name=method_name) for p in momentum_periods}
-        # 一次性计算所有窗口的归一化分数
-        slope_scores_df_bipolar = get_robust_bipolar_normalized_score(pd.concat(slope_raw_data.values(), axis=1), df.index, window=windows_to_normalize, sensitivity=2.0, default_value=0.0)
-        accel_scores_df_bipolar = get_robust_bipolar_normalized_score(pd.concat(accel_raw_data.values(), axis=1), df.index, window=windows_to_normalize, sensitivity=2.0, default_value=0.0)
+
         for p in momentum_periods:
-            # 从一次性计算的结果中获取对应窗口的分数
-            slope_score_bipolar = slope_scores_df_bipolar[p * 2] if p * 2 in slope_scores_df_bipolar.columns else pd.Series(0.0, index=df.index)
-            accel_score_bipolar = accel_scores_df_bipolar[p * 2] if p * 2 in accel_scores_df_bipolar.columns else pd.Series(0.0, index=df.index)
+            norm_window = p * 2 # 归一化窗口通常取周期的两倍
+
+            # 为每个周期单独计算双极归一化分数
+            slope_score_bipolar = get_robust_bipolar_normalized_score(slope_raw_data[p], df.index, window=norm_window, sensitivity=2.0, default_value=0.0)
+            accel_score_bipolar = get_robust_bipolar_normalized_score(accel_raw_data[p], df.index, window=norm_window, sensitivity=2.0, default_value=0.0)
+
             # 转换为单极性 [0, 1]，并确保为 float32
             slope_score = ((slope_score_bipolar + 1) / 2).astype(np.float32)
             accel_score = ((accel_score_bipolar + 1) / 2).astype(np.float32)
+
             period_momentum_score = self._robust_generalized_mean(
                 {"slope": slope_score, "acceleration": accel_score},
                 {"slope": 0.5, "acceleration": 0.5},
@@ -401,9 +402,11 @@ class BehavioralIntelligence:
                 fusion_level_name=f"{p}d 动能子融合"
             )
             period_scores_list.append(period_momentum_score)
+
         momentum_fusion_weights = get_param_value(tf_weights_config.get('price_momentum_resonance'), default_tf_weights)
         if not period_scores_list:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+
         fused_score_components = []
         total_weight = 0.0
         for i, p in enumerate(momentum_periods):
@@ -411,8 +414,10 @@ class BehavioralIntelligence:
             if weight > 0:
                 fused_score_components.append(period_scores_list[i] * weight)
                 total_weight += weight
+
         if not fused_score_components or total_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+
         final_momentum_resonance_score = sum(fused_score_components) / total_weight
         return final_momentum_resonance_score.clip(0, 1).astype(np.float32)
 
