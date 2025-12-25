@@ -1202,7 +1202,6 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
         is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
@@ -1263,6 +1262,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -1327,7 +1327,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -1472,7 +1472,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -1541,7 +1541,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -1600,7 +1600,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -1666,7 +1666,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -1957,7 +1957,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2040,7 +2040,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2101,7 +2101,7 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2199,7 +2199,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2286,7 +2286,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2475,7 +2475,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2576,7 +2576,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2649,7 +2649,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2718,7 +2718,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2790,7 +2790,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -2901,7 +2901,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -3019,7 +3019,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
@@ -3129,7 +3129,7 @@ class BehavioralIntelligence:
         signals_data = {sig: df[sig] for sig in required_signals}
         # --- 调试信息构建 ---
         # is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
-        probe_ts = None
+        is_debug_enabled = False
         probe_ts = None
         if is_debug_enabled and self.strategy.probe_dates_set:
             for date in reversed(df.index):
