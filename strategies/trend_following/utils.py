@@ -939,7 +939,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
         print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_score 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
     return final_score
 
-def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
+def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
     is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if is_debug_enabled and probe_ts:
         print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_bipolar_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
@@ -948,7 +948,7 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
     if not isinstance(series, pd.Series) or series.empty:
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 原始Series为空，返回0。")
-        return pd.Series(0.0, index=target_index)
+        return pd.Series(default_value, index=target_index)
     valid_windows_weights = []
     windows_list = []
     for window_str, weight in tf_weights.items():
@@ -963,8 +963,9 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
     if not valid_windows_weights:
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 没有有效的窗口权重，返回0。")
-        return pd.Series(0.0, index=target_index)
+        return pd.Series(default_value, index=target_index)
     # 一次性调用 normalize_to_bipolar 计算所有窗口的结果
+    # 修正：将 default_value 传递给 normalize_to_bipolar
     normalized_scores_df = normalize_to_bipolar(series, target_index, windows_list, sensitivity, default_value, debug_info)
     final_scores = pd.Series(0.0, index=target_index, dtype=np.float32)
     for window, weight in valid_windows_weights:
