@@ -432,16 +432,14 @@ class BehavioralIntelligence:
         # 收集所有需要归一化的窗口
         windows_liquidity = [int(p) for p in get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights).keys()]
         windows_flow_credibility = [int(p) for p in get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights).keys()]
-        windows_order_book_imbalance = [21] # get_robust_bipolar_normalized_score 默认窗口为21
         # 一次性计算所有窗口的归一化分数
-        liquidity_authenticity_scores_df = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights), ascending=True)
-        order_book_imbalance_scores_df_bipolar = get_robust_bipolar_normalized_score(order_book_imbalance_raw, df.index, window=windows_order_book_imbalance, sensitivity=2.0, default_value=0.0)
-        flow_credibility_scores_df = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights), ascending=True)
+        liquidity_authenticity_score = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights), ascending=True)
+        # 修正：直接传入整数21作为window参数
+        order_book_imbalance_score_bipolar = get_robust_bipolar_normalized_score(order_book_imbalance_raw, df.index, window=21, sensitivity=2.0, default_value=0.0)
+        flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights), ascending=True)
         # 从一次性计算的结果中获取对应窗口的分数
-        liquidity_authenticity_score = liquidity_authenticity_scores_df # get_adaptive_mtf_normalized_score 返回 Series
-        order_book_imbalance_score_bipolar = order_book_imbalance_scores_df_bipolar[21] if 21 in order_book_imbalance_scores_df_bipolar.columns else pd.Series(0.0, index=df.index)
+        # 修正：order_book_imbalance_score_bipolar 现在已经是Series，直接使用
         order_book_imbalance_score = (order_book_imbalance_score_bipolar + 1) / 2
-        flow_credibility_score = flow_credibility_scores_df # get_adaptive_mtf_normalized_score 返回 Series
         # 几何平均融合
         structural_health_score = self._robust_generalized_mean(
             {
