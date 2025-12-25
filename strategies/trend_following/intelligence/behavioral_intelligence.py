@@ -171,11 +171,11 @@ class BehavioralIntelligence:
             # 从一次性计算的结果中获取对应窗口的分数
             norm_raw = norm_raw_scores_df[norm_window] if norm_window in norm_raw_scores_df.columns else pd.Series(0.0, index=df.index)
             if is_negative_indicator:
-                norm_slope = normalize_score(slope_val.clip(upper=0).abs(), df.index, window=norm_window, ascending=True)
-                norm_accel = normalize_score(accel_val.clip(upper=0).abs(), df.index, window=norm_window, ascending=True)
+                norm_slope = normalize_score(slope_val.clip(upper=0).abs(), df.index, windows=norm_window, ascending=True)
+                norm_accel = normalize_score(accel_val.clip(upper=0).abs(), df.index, windows=norm_window, ascending=True)
             else:
-                norm_slope = normalize_score(slope_val, df.index, window=norm_window, ascending=ascending)
-                norm_accel = normalize_score(accel_val, df.index, window=norm_window, ascending=ascending)
+                norm_slope = normalize_score(slope_val, df.index, windows=norm_window, ascending=ascending)
+                norm_accel = normalize_score(accel_val, df.index, windows=norm_window, ascending=ascending)
             fused_period_score = (
                 (norm_raw + 1e-9).pow(raw_w) *
                 (norm_slope + 1e-9).pow(slope_w) *
@@ -216,9 +216,9 @@ class BehavioralIntelligence:
             raw_series = df[col_name]
             norm_window = period * 2
             if is_positive_trend:
-                score = normalize_score(raw_series.clip(lower=0), df.index, window=norm_window, ascending=True)
+                score = normalize_score(raw_series.clip(lower=0), df.index, windows=norm_window, ascending=True)
             else:
-                score = normalize_score(raw_series.clip(upper=0).abs(), df.index, window=norm_window, ascending=True)
+                score = normalize_score(raw_series.clip(upper=0).abs(), df.index, windows=norm_window, ascending=True)
             scores.append(score * weight)
             total_weight += weight
         if not scores or total_weight == 0:
@@ -269,7 +269,7 @@ class BehavioralIntelligence:
                 # 【优化】使用多时间维度自适应归一化
                 norm_momentum = get_adaptive_mtf_normalized_score(momentum, df.index, ascending=True, tf_weights=default_weights)
                 dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum
-                potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series).astype(np.float32)
+                potential = signal_series.rolling(windows=potential_window).mean().fillna(signal_series).astype(np.float32)
                 # 【优化】使用多时间维度自适应归一化
                 norm_potential = get_adaptive_mtf_normalized_score(potential, df.index, ascending=True, tf_weights=default_weights)
                 dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential
@@ -506,7 +506,7 @@ class BehavioralIntelligence:
         # Cache for normalized scores
         normalized_scores_cache = {}
         # Helper to get cached score or compute it
-        def get_cached_norm_score(series_raw, tf_w, asc, is_energy=False, is_bipolar=False, window=None):
+        def get_cached_norm_score(series_raw, tf_w, asc, is_energy=False, is_bipolar=False, windows=None):
             # Create a unique key for the cache based on series ID, tf_weights (as tuple), ascending, and type
             # Using id(series_raw) is crucial here because the same raw data might be clipped or transformed
             # before being passed to the normalizer, creating a new Series object.
@@ -520,7 +520,7 @@ class BehavioralIntelligence:
                 elif is_bipolar:
                     normalized_scores_cache[key] = get_adaptive_mtf_normalized_bipolar_score(series_raw, df.index, tf_weights=tf_w)
                 elif window is not None: # For normalize_score (single window)
-                    normalized_scores_cache[key] = normalize_score(series_raw, df.index, window=window, ascending=asc)
+                    normalized_scores_cache[key] = normalize_score(series_raw, df.index, windows=window, ascending=asc)
                 else: # For get_adaptive_mtf_normalized_score
                     normalized_scores_cache[key] = get_adaptive_mtf_normalized_score(series_raw, df.index, tf_weights=tf_w, ascending=asc)
             return normalized_scores_cache[key]
@@ -1032,7 +1032,7 @@ class BehavioralIntelligence:
         # --- 1. 计算吸收品质分数 (Absorption Quality Score) ---
         absorption_efficiency = self._get_mtf_fused_indicator_score(df, 'VPA_EFFICIENCY', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
         vwap_control_raw_fused = self._get_mtf_fused_indicator_score(df, 'vwap_control_strength', mtf_slope_accel_weights, mtf_indicator_component_weights, is_negative_indicator=False, ascending=True, debug_info=debug_info)
-        absorption_control = (get_robust_bipolar_normalized_score(vwap_control_raw_fused, df.index, window=21, sensitivity=2.0, default_value=0.0) + 1) / 2.0
+        absorption_control = (get_robust_bipolar_normalized_score(vwap_control_raw_fused, df.index, windows=21, sensitivity=2.0, default_value=0.0) + 1) / 2.0
         offensive_absorption_intent = states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT']
         absorption_strength = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH']
         absorption_quality_score = self._robust_generalized_mean(
@@ -1171,7 +1171,7 @@ class BehavioralIntelligence:
         atr = df[f'ATR_{min_atr_period}_D'] / df['close_D'].shift(1) # ATR转换为百分比
         volatility_index = df[f'VOLATILITY_INSTABILITY_INDEX_{volatility_index_period}d_D']
         # 归一化波动率指数到 [0, 1]
-        norm_volatility_index = normalize_score(volatility_index, df.index, window=volatility_index_period * 2, ascending=True)
+        norm_volatility_index = normalize_score(volatility_index, df.index, windows=volatility_index_period * 2, ascending=True)
         # 动态阈值 = 基础阈值 + ATR贡献 + 波动率指数贡献
         dynamic_threshold = base_threshold + (atr * atr_multiplier) + (norm_volatility_index * volatility_index_weight * base_threshold)
         # 确保阈值不会过小或过大，例如限制在 [0.001, 0.02]
@@ -2600,7 +2600,7 @@ class BehavioralIntelligence:
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
                 normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, window=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
         # --- 2. 维度一：战术强攻品质评估 (沿用V2.1逻辑) ---
         magnitude_score = normalized_mtf_scores['volume_ratio_D']
         conviction_score = normalized_mtf_scores['main_force_conviction_index_D_clip']
@@ -2658,7 +2658,7 @@ class BehavioralIntelligence:
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
-        close_pct_change_rolling_std = signals_data['close_D'].pct_change().rolling(window=stability_window).std().fillna(0)
+        close_pct_change_rolling_std = signals_data['close_D'].pct_change().rolling(windows=stability_window).std().fillna(0)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -2675,7 +2675,7 @@ class BehavioralIntelligence:
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
                 normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, window=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
         # --- 3. 计算核心组件 ---
         strategic_context_gate = normalized_mtf_scores['vwap_control_strength_D']
         base_atrophy_score = 1 - normalized_mtf_scores['volume_ratio_D']
@@ -2943,7 +2943,7 @@ class BehavioralIntelligence:
         dynamic_body_ratio_threshold = body_ratio_threshold - atr_val * dynamic_kline_atr_multiplier
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         pct_change_abs_raw = signals_data['pct_change_D'].abs()
-        close_pct_change_rolling_std = signals_data['close_D'].pct_change().rolling(window=5).std().fillna(0) # Assuming stability_window=5 for this context
+        close_pct_change_rolling_std = signals_data['close_D'].pct_change().rolling(windows=5).std().fillna(0) # Assuming stability_windows=5 for this context
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -3039,7 +3039,7 @@ class BehavioralIntelligence:
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
                 normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, window=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
         # --- 3. 计算各维度得分 ---
         strategic_intent_score = (1 - distribution_intent).clip(0, 1)
         tactical_action_score = absorption_strength
@@ -3138,9 +3138,9 @@ class BehavioralIntelligence:
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
-        slope_std_dev_raw = signals_data['robust_close_slope'].rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
+        slope_std_dev_raw = signals_data['robust_close_slope'].rolling(windows=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
         long_term_close_slopes_series = signals_data[f'SLOPE_{long_term_period}_close_D']
-        long_term_slope_std_dev_raw = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
+        long_term_slope_std_dev_raw = long_term_close_slopes_series.rolling(windows=long_term_period).std().fillna(0)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -3163,7 +3163,7 @@ class BehavioralIntelligence:
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
                 normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, window=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
         # 集中获取所有信号
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
@@ -3276,10 +3276,10 @@ class BehavioralIntelligence:
         long_term_period = params['long_term_period']
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         # For purity_factor
-        slope_std_dev_raw = robust_close_slope.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
+        slope_std_dev_raw = robust_close_slope.rolling(windows=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
         # For inertia_factor
         long_term_close_slopes_series = long_term_close_slope # Already a Series
-        long_term_slope_std_dev_raw = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
+        long_term_slope_std_dev_raw = long_term_close_slopes_series.rolling(windows=long_term_period).std().fillna(0)
         # --- 收集所有需要进行归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_norm_config = {
@@ -3298,7 +3298,7 @@ class BehavioralIntelligence:
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
                 normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, window=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info_tuple)
         price_trend_condition = (robust_close_slope < 0) if is_bullish else (robust_close_slope > 0)
         rsi_indicator_trend = (robust_rsi_slope > 0) if is_bullish else (robust_rsi_slope < 0)
         macd_indicator_trend = (robust_macd_slope > 0) if is_bullish else (robust_macd_slope < 0)
@@ -3325,17 +3325,17 @@ class BehavioralIntelligence:
             div_strength_volume * div_weights.get('price_volume', 0.3)
         )
         total_div_strength = total_div_strength.where(total_div_strength > dynamic_min_divergence_slope_diff, 0.0)
-        norm_total_div_strength = normalize_score(total_div_strength, df.index, window=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
+        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
         final_strength_factor = norm_total_div_strength * (1 + accelerated_strength)
         final_strength_factor = final_strength_factor.clip(0, 1.5)
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
-            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, window=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
+            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
             volume_change_conf = normalized_scores['robust_volume_slope_for_conf'] # Use normalized_scores
             active_flow_conf = norm_active_buying
         else:
-            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, window=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
-            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, window=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
+            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
+            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
             active_flow_conf = norm_active_selling
         total_conf_factor = (
             rsi_conf * conf_weights.get('rsi_oversold' if is_bullish else 'rsi_overbought', 0.3) +
@@ -3343,7 +3343,7 @@ class BehavioralIntelligence:
             active_flow_conf * conf_weights.get('buying_support' if is_bullish else 'selling_pressure', 0.2) +
             norm_atr * conf_weights.get('volatility_high', 0.2)
         )
-        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, window=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
+        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=debug_info_tuple) # Use normalize_score
         persistence_factor = pd.Series(0.0, index=df.index)
         if persistence_params.get('enabled'):
             min_persistence_duration = persistence_params.get('min_duration', 2)
@@ -3352,7 +3352,7 @@ class BehavioralIntelligence:
             accel_close_condition = (accel_close > 0) if is_bullish else (accel_close < 0)
             accel_volume_condition = (accel_volume < 0) if is_bullish else (accel_volume < 0) # Volume acceleration for bearish is also negative
             persistence_quality = (accel_close_condition.astype(int) + accel_volume_condition.astype(int)).clip(0, 2)
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0)
+            persistence_count = div_condition_raw.astype(int).rolling(windows=max_persistence_window, min_periods=1).sum().fillna(0)
             persistence_factor = (persistence_count / max_persistence_window) * (1 + persistence_quality * quality_decay_factor * persistence_count)
             persistence_factor = persistence_factor.where(persistence_count >= min_persistence_duration, 0.0)
             persistence_factor = persistence_factor.clip(0, 1.5)
@@ -3449,7 +3449,7 @@ class BehavioralIntelligence:
         purity_factor = pd.Series(1.0, index=df.index)
         if purity_assessment_params.get('enabled'):
             # short_term_close_slopes = robust_close_slope # Already calculated
-            # slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
+            # slope_std_dev = short_term_close_slopes.rolling(windows=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
             norm_slope_std_dev = normalized_scores['slope_std_dev_raw'] # Use normalized_scores
             purity_penalty = pd.Series(0.0, index=df.index)
             purity_penalty = purity_penalty.mask(
@@ -3501,7 +3501,7 @@ class BehavioralIntelligence:
         freshness_factor = pd.Series(1.0, index=df.index)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
-            persistence_count = div_condition_raw.astype(int).rolling(window=persistence_params.get('max_duration_window', 5), min_periods=1).sum().fillna(0)
+            persistence_count = div_condition_raw.astype(int).rolling(windows=persistence_params.get('max_duration_window', 5), min_periods=1).sum().fillna(0)
             freshness_factor = freshness_factor.mask(
                 persistence_count == 1, 1 + freshness_bonus
             )
@@ -3555,7 +3555,7 @@ class BehavioralIntelligence:
             long_term_adx_mean = adx_val.rolling(long_term_period).mean()
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold)
             # long_term_close_slopes_series = signals_data[f'SLOPE_{long_term_period}_close_D'] # Already defined
-            # long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
+            # long_term_slope_std_dev = long_term_close_slopes_series.rolling(windows=long_term_period).std().fillna(0)
             norm_long_term_slope_std_dev = normalized_scores['long_term_slope_std_dev_raw'] # Use normalized_scores
             is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
             is_high_inertia_market = is_strong_long_term_trend & is_stable_long_term_slope
@@ -3651,7 +3651,7 @@ class BehavioralIntelligence:
             if isinstance(window_or_tf_w, dict): # get_adaptive_mtf_normalized_score
                 normalized_scores[id(series_obj)] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=window_or_tf_w, ascending=asc)
             else: # normalize_score
-                normalized_scores[id(series_obj)] = normalize_score(series_obj, df.index, window=window_or_tf_w, ascending=asc)
+                normalized_scores[id(series_obj)] = normalize_score(series_obj, df.index, windows=window_or_tf_w, ascending=asc)
         price_trend_condition = (robust_close_slope < 0) if is_bullish else (robust_close_slope > 0)
         rsi_indicator_trend = (robust_rsi_slope > 0) if is_bullish else (robust_rsi_slope < 0)
         macd_indicator_trend = (robust_macd_slope > 0) if is_bullish else (robust_macd_slope < 0)
@@ -3705,7 +3705,7 @@ class BehavioralIntelligence:
             accel_close_condition = (accel_close > 0) if is_bullish else (accel_close < 0)
             accel_volume_condition = (accel_volume < 0) if is_bullish else (accel_volume < 0)
             persistence_quality = (accel_close_condition.astype(int) + accel_volume_condition.astype(int)).clip(0, 2)
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0)
+            persistence_count = div_condition_raw.astype(int).rolling(windows=max_persistence_window, min_periods=1).sum().fillna(0)
             persistence_factor = (persistence_count / max_persistence_window) * (1 + persistence_quality * quality_decay_factor * persistence_count)
             persistence_factor = persistence_factor.where(persistence_count >= min_persistence_duration, 0.0)
             persistence_factor = persistence_factor.clip(0, 1.5)
@@ -3802,7 +3802,7 @@ class BehavioralIntelligence:
         purity_factor = pd.Series(1.0, index=df.index)
         if purity_assessment_params.get('enabled'):
             short_term_close_slopes = robust_close_slope # Already calculated
-            slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
+            slope_std_dev = short_term_close_slopes.rolling(windows=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
             norm_slope_std_dev = normalized_scores[id(slope_std_dev)] # Use normalized_scores
             purity_penalty = pd.Series(0.0, index=df.index)
             purity_penalty = purity_penalty.mask(
@@ -3854,7 +3854,7 @@ class BehavioralIntelligence:
         freshness_factor = pd.Series(1.0, index=df.index)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
-            persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0)
+            persistence_count = div_condition_raw.astype(int).rolling(windows=max_persistence_window, min_periods=1).sum().fillna(0)
             freshness_factor = freshness_factor.mask(
                 persistence_count == 1, 1 + freshness_bonus
             )
@@ -3908,7 +3908,7 @@ class BehavioralIntelligence:
             long_term_adx_mean = adx_val.rolling(long_term_period).mean()
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold)
             long_term_close_slopes_series = signals_data[f'SLOPE_{long_term_period}_close_D']
-            long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
+            long_term_slope_std_dev = long_term_close_slopes_series.rolling(windows=long_term_period).std().fillna(0)
             norm_long_term_slope_std_dev = normalized_scores[id(long_term_slope_std_dev)] # Use normalized_scores
             is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
             is_high_inertia_market = is_strong_long_term_trend & is_stable_long_term_slope
@@ -4669,7 +4669,7 @@ class BehavioralIntelligence:
         # 批量计算所有双极归一化分数
         normalized_bipolar_scores = {}
         for series_obj, (window, sensitivity) in series_for_bipolar_norm.items():
-            normalized_bipolar_scores[id(series_obj)] = normalize_to_bipolar(series_obj, df.index, window=window, sensitivity=sensitivity)
+            normalized_bipolar_scores[id(series_obj)] = normalize_to_bipolar(series_obj, df.index, windows=window, sensitivity=sensitivity)
         # 3. 多时间维度动量 (MTF Momentum)
         mtf_momentum_scores_raw = {}
         mtf_momentum_scores_weighted = []
