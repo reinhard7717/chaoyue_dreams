@@ -1771,63 +1771,84 @@ class BehavioralIntelligence:
             return {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': pd.Series(0.0, index=df.index)}
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
+
+        # --- 调试信息构建 ---
+        is_debug_enabled = self.strategy.debug_params.get('should_probe', False) and self.strategy.debug_params.get('enabled', False)
+        probe_ts = None
+        if is_debug_enabled and self.strategy.probe_dates_set:
+            for date in reversed(df.index):
+                if date.date() in self.strategy.probe_dates_set:
+                    probe_ts = date
+                    break
+        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+
         # --- 收集所有需要进行多时间框架归一化的 Series ---
-        series_for_mtf_norm = {
-            signals_data['main_force_ofi_D']: (default_weights, True, True), # (tf_weights, ascending, is_bipolar)
-            signals_data['buy_quote_exhaustion_rate_D']: (default_weights, True, False),
-            signals_data['sell_quote_exhaustion_rate_D']: (default_weights, True, False),
-            signals_data['ATR_14_D']: (default_weights, True, False),
-            signals_data['volume_ratio_D']: (default_weights, True, False),
-            signals_data['upward_impulse_purity_D']: (default_weights, True, False),
-            signals_data['vacuum_traversal_efficiency_D']: (default_weights, True, False),
-            pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1): (default_weights, True, False)
+        # 修正：使用 id(series_obj) 作为字典的键
+        series_for_mtf_norm_map = {
+            id(signals_data['main_force_ofi_D']): (signals_data['main_force_ofi_D'], default_weights, True, True), # (series_obj, tf_weights, ascending, is_bipolar)
+            id(signals_data['buy_quote_exhaustion_rate_D']): (signals_data['buy_quote_exhaustion_rate_D'], default_weights, True, False),
+            id(signals_data['sell_quote_exhaustion_rate_D']): (signals_data['sell_quote_exhaustion_rate_D'], default_weights, True, False),
+            id(signals_data['ATR_14_D']): (signals_data['ATR_14_D'], default_weights, True, False),
+            id(signals_data['volume_ratio_D']): (signals_data['volume_ratio_D'], default_weights, True, False),
+            id(signals_data['upward_impulse_purity_D']): (signals_data['upward_impulse_purity_D'], default_weights, True, False),
+            id(signals_data['vacuum_traversal_efficiency_D']): (signals_data['vacuum_traversal_efficiency_D'], default_weights, True, False),
+            id(pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1)): (pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1), default_weights, True, False)
         }
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
-        for series_obj, (tf_w, asc, is_bipolar_flag) in series_for_mtf_norm.items():
+        for series_id, (series_obj, tf_w, asc, is_bipolar_flag) in series_for_mtf_norm_map.items():
             if is_bipolar_flag:
-                normalized_mtf_scores[id(series_obj)] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w)
+                normalized_mtf_scores[series_id] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=debug_info_tuple)
             else:
-                normalized_mtf_scores[id(series_obj)] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc)
+                normalized_mtf_scores[series_id] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info_tuple)
+
         # --- 3. 维度一：核心意图强度 (Core Intent Magnitude) ---
         ofi_score = normalized_mtf_scores[id(signals_data['main_force_ofi_D'])]
         buy_sweep_score = normalized_mtf_scores[id(signals_data['buy_quote_exhaustion_rate_D'])]
         sell_sweep_score = normalized_mtf_scores[id(signals_data['sell_quote_exhaustion_rate_D'])]
+
         bullish_core_intent = (ofi_score.clip(lower=0) * core_intent_weights.get('ofi', 0.6) + buy_sweep_score * core_intent_weights.get('quote_exhaustion', 0.4))
         bearish_core_intent = (ofi_score.clip(upper=0).abs() * core_intent_weights.get('ofi', 0.6) + sell_sweep_score * core_intent_weights.get('quote_exhaustion', 0.4))
         core_intent_magnitude = (bullish_core_intent - bearish_core_intent).clip(-1, 1)
+
         # --- 4. 维度二：环境适应性 (Environmental Adaptability) ---
         environmental_adaptability_factor = pd.Series(1.0, index=df.index)
         if all(s in signals_data for s in required_signals_env):
             volatility_score = normalized_mtf_scores[id(signals_data['ATR_14_D'])]
-            liquidity_score = (1 - normalized_mtf_scores[id(signals_data['volume_ratio_D'])])
+            liquidity_score = (1 - normalized_mtf_scores[id(signals_data['volume_ratio_D'])]) # 流动性越低，适应性越强
+            
             environmental_adaptability_factor_raw = (
                 volatility_score * env_adapt_weights.get('volatility_sensitivity', 0.5) +
                 liquidity_score * env_adapt_weights.get('liquidity_sensitivity', 0.5)
             ).clip(0, 1)
-            environmental_adaptability_factor = 0.5 + environmental_adaptability_factor_raw * 0.5
+            environmental_adaptability_factor = 0.5 + environmental_adaptability_factor_raw * 0.5 # 映射到 [0.5, 1.0]
+
         # --- 5. 维度三：行为一致性 (Behavioral Coherence) ---
         behavioral_coherence_factor = pd.Series(1.0, index=df.index)
         if all(s in signals_data for s in required_signals_behavior):
             upward_purity_score = normalized_mtf_scores[id(signals_data['upward_impulse_purity_D'])]
             downward_purity_score = normalized_mtf_scores[id(signals_data['vacuum_traversal_efficiency_D'])]
-            deception_raw = pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1)
-            deception_score = normalized_mtf_scores[id(deception_raw)]
+            deception_raw_series = pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1)
+            deception_score = normalized_mtf_scores[id(deception_raw_series)]
+
             purity_coherence = pd.Series(np.where(
-                core_intent_magnitude > 0,
-                upward_purity_score * (1 - downward_purity_score),
+                core_intent_magnitude > 0, # 看涨意图
+                upward_purity_score * (1 - downward_purity_score), # 上涨纯度高，下跌纯度低
                 np.where(
-                    core_intent_magnitude < 0,
-                    downward_purity_score * (1 - upward_purity_score),
-                    0.5
+                    core_intent_magnitude < 0, # 看跌意图
+                    downward_purity_score * (1 - upward_purity_score), # 下跌纯度高，上涨纯度低
+                    0.5 # 中性
                 )
             ), index=df.index)
+            
             deception_penalty_factor = (1 - deception_score * behavior_coherence_weights.get('deception_penalty', 0.3)).clip(0, 1)
+            
             behavioral_coherence_factor_raw = (
                 purity_coherence * behavior_coherence_weights.get('impulse_purity', 0.7) +
                 deception_penalty_factor * (1 - behavior_coherence_weights.get('impulse_purity', 0.7))
             ).clip(0, 1)
-            behavioral_coherence_factor = 0.5 + behavioral_coherence_factor_raw * 0.5
+            behavioral_coherence_factor = 0.5 + behavioral_coherence_factor_raw * 0.5 # 映射到 [0.5, 1.0]
+
         # --- 6. 最终合成：三维融合 ---
         final_micro_intent = (core_intent_magnitude * environmental_adaptability_factor * behavioral_coherence_factor).clip(-1, 1)
         print(f"    -> [行为情报调试] {method_name} 计算完成。")
