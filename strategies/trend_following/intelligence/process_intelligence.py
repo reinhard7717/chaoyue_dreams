@@ -1492,6 +1492,7 @@ class ProcessIntelligence:
         - 核心升级: 引入“势能衰减”机制。将累积势能的计算方法从简单的滚动求和(rolling.sum)
                       升级为指数加权移动平均(ewm.mean)，赋予近期吸筹行为更高的权重，
                       更精准地度量具备时效性的“爆发势能”。
+        - 核心修复: 修正了对 `normalize_score` 函数的调用，以匹配 `utils.py` 中更新后的参数签名。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V2.3 · 势能衰减版)...")
         required_signals = [
@@ -1512,7 +1513,8 @@ class ProcessIntelligence:
         daily_accumulation_strength = pd.concat([stealth_accum, deceptive_accum, panic_washout_accum, split_order_accum, power_transfer_accum], axis=1).max(axis=1)
         # 采用指数加权移动平均(ewm)计算势能，引入时间衰减
         potential_energy_raw = daily_accumulation_strength.ewm(span=accumulation_window, adjust=False, min_periods=5).mean()
-        potential_energy_score = normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
+        # 修正：将 window=accumulation_window 修改为 windows=accumulation_window
+        potential_energy_score = normalize_score(potential_energy_raw, df_index, windows=accumulation_window, ascending=True).clip(0, 1)
         rally_intent = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0)
         divergence_confirm = self._get_atomic_score(df, 'PROCESS_META_PD_DIVERGENCE_CONFIRM', 0.0)
         ignition_intent_score = (
@@ -1973,7 +1975,7 @@ class ProcessIntelligence:
         return meta_score
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V10.1 · 情绪与主力意图精细化感知版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V10.0 · 情绪与主力意图精细化感知版)...")
         df_index = df.index
         params = get_param_value(config.get('storm_eye_calm_params'), {})
         # --- 1. 获取配置参数 ---
@@ -1995,6 +1997,9 @@ class ProcessIntelligence:
         sentiment_neutral_range = get_param_value(params.get('sentiment_neutral_range'), 1.0)
         sentiment_pendulum_neutral_range = get_param_value(params.get('sentiment_pendulum_neutral_range'), 0.2)
         ambiguity_components_weights = get_param_value(params.get('ambiguity_components_weights'), {"directionality_neutrality": 0.15, "net_flow_near_zero": 0.15, "deception_score": 0.15, "wash_trade_score": 0.15, "mf_conviction_neutrality": 0.1, "deception_lure_neutrality": 0.1, "covert_action_score": 0.1, "main_force_slippage_inverted": 0.05, "main_force_flow_gini_inverted": 0.05, "micro_impact_elasticity_positive": 0.05, "order_flow_imbalance_neutrality": 0.05, "liquidity_authenticity_positive": 0.05})
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
+        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 2. 校验所有必需的信号 ---
         required_signals = [
             'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'control_solidity_index_D',
@@ -2008,7 +2013,9 @@ class ProcessIntelligence:
             'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
             'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'loser_pain_index_D',
             'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION',
+            # 'goodness_of_fit_score_D', 'platform_conviction_score_D', # 已移除，因为它们并非每天都存在
             'main_force_activity_ratio_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D',
+            # 新增信号
             'SCORE_DYN_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
             'SAMPLE_ENTROPY_13d_D', 'price_volume_entropy_D', 'FRACTAL_DIMENSION_89d_D',
             'bid_side_liquidity_D', 'ask_side_liquidity_D', 'vpin_score_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D',
@@ -2024,6 +2031,7 @@ class ProcessIntelligence:
             'micro_impact_elasticity_D', 'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D',
             'mean_reversion_frequency_D', 'trend_alignment_index_D'
         ]
+        # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in mtf_cohesion_base_signals:
             for period_str in get_param_value(mtf_slope_accel_weights.get('slope_periods'), {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
@@ -2082,6 +2090,7 @@ class ProcessIntelligence:
         covert_distribution_raw = self._get_safe_series(df, 'covert_distribution_signal_D', np.nan, method_name="_calculate_storm_eye_calm")
         main_force_slippage_raw = self._get_safe_series(df, 'main_force_slippage_index_D', np.nan, method_name="_calculate_storm_eye_calm")
         main_force_flow_gini_raw = self._get_safe_series(df, 'main_force_flow_gini_D', np.nan, method_name="_calculate_storm_eye_calm")
+        # 新增主力意图相关原始数据
         micro_impact_elasticity_raw = self._get_safe_series(df, 'micro_impact_elasticity_D', np.nan, method_name="_calculate_storm_eye_calm")
         order_flow_imbalance_score_raw = self._get_safe_series(df, 'order_flow_imbalance_score_D', np.nan, method_name="_calculate_storm_eye_calm")
         liquidity_authenticity_score_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', np.nan, method_name="_calculate_storm_eye_calm")
@@ -2098,11 +2107,16 @@ class ProcessIntelligence:
         market_sentiment_long_term_mean = market_sentiment_raw.rolling(window=long_term_sentiment_window, min_periods=1).mean()
         price_reversion_velocity_raw = self._get_safe_series(df, 'price_reversion_velocity_D', np.nan, method_name="_calculate_storm_eye_calm")
         structural_entropy_change_raw = self._get_safe_series(df, 'structural_entropy_change_D', np.nan, method_name="_calculate_storm_eye_calm")
+        # 新增情绪相关原始数据
         mean_reversion_frequency_raw = self._get_safe_series(df, 'mean_reversion_frequency_D', np.nan, method_name="_calculate_storm_eye_calm")
         trend_alignment_index_raw = self._get_safe_series(df, 'trend_alignment_index_D', np.nan, method_name="_calculate_storm_eye_calm")
         # Breakout Readiness
         struct_breakout_readiness_score = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', np.nan)
         struct_platform_foundation_score = self._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', np.nan)
+        # 对于 goodness_of_fit_score_D 和 platform_conviction_score_D，即使它们不在df中，
+        # _get_safe_series也会返回一个填充了np.nan的Series，
+        # 随后_normalize_series会将其转换为0.0，这符合“没有平台信息时贡献为0”的逻辑。
+        # 因此，无需将它们列为required_signals。
         goodness_of_fit_raw = self._get_safe_series(df, 'goodness_of_fit_score_D', np.nan, method_name="_calculate_storm_eye_calm")
         platform_conviction_raw = self._get_safe_series(df, 'platform_conviction_score_D', np.nan, method_name="_calculate_storm_eye_calm")
         # Modulators
@@ -2181,6 +2195,7 @@ class ProcessIntelligence:
         observed_large_order_size_avg_inverted = self._normalize_series(observed_large_order_size_avg_raw, target_index=df_index, ascending=False)
         market_impact_cost_inverted = self._normalize_series(market_impact_cost_raw, target_index=df_index, ascending=False)
         main_force_net_flow_volatility_inverted = self._normalize_series(mf_net_flow_std_raw, target_index=df_index, ascending=False)
+        # 主力资金流模糊性 (main_force_flow_ambiguity) 的组成部分
         main_force_flow_directionality_neutrality = 1 - self._normalize_series(main_force_flow_directionality_raw.abs(), target_index=df_index, ascending=True)
         mf_net_flow_near_zero = 1 - self._normalize_series(mf_net_flow_raw.abs(), target_index=df_index, ascending=True)
         deception_score = self._normalize_series(deception_index_raw, target_index=df_index, ascending=True)
@@ -2190,6 +2205,7 @@ class ProcessIntelligence:
         covert_action_score = (self._normalize_series(covert_accumulation_raw, target_index=df_index, ascending=True) + self._normalize_series(covert_distribution_raw, target_index=df_index, ascending=True)) / 2
         main_force_slippage_inverted = self._normalize_series(main_force_slippage_raw, target_index=df_index, ascending=False)
         main_force_flow_gini_inverted = self._normalize_series(main_force_flow_gini_raw, target_index=df_index, ascending=False)
+        # 新增模糊性组件
         micro_impact_elasticity_positive = self._normalize_series(micro_impact_elasticity_raw, target_index=df_index, ascending=True)
         order_flow_imbalance_neutrality = 1 - self._normalize_series(order_flow_imbalance_score_raw.abs(), target_index=df_index, ascending=True)
         liquidity_authenticity_positive = self._normalize_series(liquidity_authenticity_score_raw, target_index=df_index, ascending=True)
@@ -2235,10 +2251,11 @@ class ProcessIntelligence:
         sentiment_pendulum_volatility_inverted = self._normalize_series(sentiment_pendulum_std_raw, target_index=df_index, ascending=False)
         long_term_sentiment_subdued = self._normalize_series(market_sentiment_long_term_mean - market_sentiment_raw, target_index=df_index, ascending=True)
         market_sentiment_not_extreme = (1 - (market_sentiment_raw.abs() - sentiment_neutral_range).clip(lower=0) / (market_sentiment_raw.abs().max() - sentiment_neutral_range + 1e-9)).clip(0, 1)
-        sentiment_pendulum_not_extreme = (1 - (sentiment_pendulum_score.abs() - sentiment_pendulum_neutral_range).clip(lower=0) / (sentiment_pendulum_score.abs().abs().max() - sentiment_pendulum_neutral_range + 1e-9)).clip(0, 1)
+        sentiment_pendulum_not_extreme = (1 - (sentiment_pendulum_score.abs() - sentiment_pendulum_neutral_range).clip(lower=0) / (sentiment_pendulum_score.abs().abs().max() - sentiment_pendulum_neutral_range + 1e-9)).clip(0, 1) # 修正了max()的调用
         market_sentiment_boring_score = _robust_geometric_mean({'volatility_inverted': sentiment_volatility_inverted, 'not_extreme': market_sentiment_not_extreme}, {'volatility_inverted': 0.5, 'not_extreme': 0.5}, df_index)
         price_reversion_velocity_inverted = self._normalize_series(price_reversion_velocity_raw, target_index=df_index, ascending=False)
         structural_entropy_change_inverted = self._normalize_series(structural_entropy_change_raw.abs(), target_index=df_index, ascending=False)
+        # 新增情绪组件
         mean_reversion_frequency_inverted = self._normalize_series(mean_reversion_frequency_raw, target_index=df_index, ascending=False)
         trend_alignment_positive = self._normalize_series(trend_alignment_index_raw, target_index=df_index, ascending=True)
         subdued_market_sentiment_scores_dict = {
@@ -2296,7 +2313,7 @@ class ProcessIntelligence:
         base_calm_score = _robust_geometric_mean(base_calm_scores_dict, adjusted_final_fusion_weights, df_index)
         price_slope_norm_bipolar = self._normalize_series(price_slope_raw, target_index=df_index, bipolar=True)
         pct_change_abs_norm_inverted = self._normalize_series(pct_change_raw.abs(), target_index=df_index, ascending=False)
-        price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_slope_norm_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1)
+        price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_slope_norm_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator', 0.5)) * pct_change_abs_norm_inverted).clip(0,1) # 修正了参数名
         price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('modulator_factor', 0.5))
         control_solidity_score = self._normalize_series(control_solidity_raw, target_index=df_index, bipolar=True)
         mf_activity_ratio_score = self._normalize_series(mf_activity_ratio_raw, target_index=df_index, ascending=True)
@@ -2530,7 +2547,8 @@ class ProcessIntelligence:
         ).pow(1/sum(panic_depth_weights.values())).fillna(0.0)
         # --- 5. 维度三：承接反弹品质 (Absorption Rebound Quality) ---
         absorption_intent_score = offensive_absorption_intent
-        closing_strength_score = normalize_score(closing_strength_raw, df_index, 55)
+        # 修正：将 window=55 修改为 windows=55
+        closing_strength_score = normalize_score(closing_strength_raw, df_index, windows=55)
         upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
         # 修改代码：新增归一化和融合
         absorption_strength_normalized = get_adaptive_mtf_normalized_score(absorption_strength_score, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
