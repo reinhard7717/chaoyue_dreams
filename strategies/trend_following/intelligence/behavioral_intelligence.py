@@ -3556,6 +3556,21 @@ class BehavioralIntelligence:
         final_bearish_score = bearish_divergence_score.astype(np.float32)
 
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            # 遍历 signals_data 字典并打印其内容
+            for sig_name, sig_series in signals_data.items():
+                if probe_ts in sig_series.index:
+                    print(f"        - {sig_name}: {sig_series.loc[probe_ts]:.4f}")
+                else:
+                    print(f"        - {sig_name}: N/A (probe_ts not in index)")
+            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - 动态最小背离斜率差异: {dynamic_min_divergence_slope_diff.loc[probe_ts]:.4f}")
+            print(f"        - 动态RSI超卖阈值: {rsi_oversold_threshold_dynamic.loc[probe_ts]:.4f}")
+            print(f"        - 动态RSI超买阈值: {rsi_overbought_threshold_dynamic.loc[probe_ts]:.4f}")
+            print(f"        - 归一化活跃买盘: {norm_active_buying.loc[probe_ts]:.4f}")
+            print(f"        - 归一化活跃卖盘: {norm_active_selling.loc[probe_ts]:.4f}")
+            print(f"        - 归一化ATR: {norm_atr.loc[probe_ts]:.4f}")
+            print(f"        - 趋势活力指数 (归一化): {trend_vitality.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '看涨背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bullish_score.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '看跌背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bearish_score.loc[probe_ts]:.4f}")
         
