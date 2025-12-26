@@ -825,7 +825,6 @@ class ChipIntelligence:
             if impurity_deception_mod_enabled:
                 # 诱多增强杂质 (正向欺骗)
                 impurity_deception_modulator = impurity_deception_modulator * (1 + norm_deception_lure_long_intensity * deception_lure_long_impurity_amp_factor)
-                
                 # 诱空减弱杂质 (负向欺骗，且主力信念强，视为洗盘)
                 deception_lure_short_damp_mask = (norm_deception_lure_short_intensity > 0) & (norm_main_force_conviction_bipolar > conviction_threshold)
                 impurity_deception_modulator.loc[deception_lure_short_damp_mask] = impurity_deception_modulator.loc[deception_lure_short_damp_mask] * (1 - norm_deception_lure_short_intensity.loc[deception_lure_short_damp_mask] * deception_lure_short_impurity_damp_factor)
@@ -1003,7 +1002,6 @@ class ChipIntelligence:
                 signal_series = signal_map.get(signal_key) # 从传入的 signal_map 获取
                 weight = ctx_config.get('weight', 0.0)
                 sensitivity = ctx_config.get('sensitivity', 0.0)
-                
                 if signal_series is not None and weight > 0:
                     norm_signal = get_adaptive_mtf_normalized_bipolar_score(signal_series, df_index, tf_weights, debug_info=debug_info_tuple)
                     context_modulator_components.append(norm_signal * weight * sensitivity)

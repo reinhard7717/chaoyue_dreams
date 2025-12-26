@@ -66,7 +66,8 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V426.0 · 日内引擎重构激活版】情报层总指挥官
+        【V426.1 · 进攻风险分离与动能质量过滤适配版】情报层总指挥官
+        - 核心适配: 捕获 OffensiveLayer 返回的总进攻得分和总风险惩罚，并存储到 df_indicators。
         - 核心重构: 彻底改变日内引擎的调用方式。不再依赖不存在的分钟线数据，
                       而是直接将日线DataFrame传递给重构后的日内引擎，
                       使其能够基于预计算的日线级日内信号进行合成与解读。
@@ -105,6 +106,13 @@ class IntelligenceLayer:
         self._ignite_relational_dynamics_engine()
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
+        # 捕获 OffensiveLayer 返回的总进攻得分和总风险惩罚
+        total_offensive_score, total_risk_sum, score_details_df = self.strategy.offensive_layer.calculate_entry_score(
+            self.strategy.trigger_events, self.strategy.bottom_context_score, self.strategy.top_context_score
+        )
+        self.strategy.df_indicators['entry_score'] = total_offensive_score # 存储总进攻分
+        self.strategy.df_indicators['total_risk_sum'] = total_risk_sum # 存储总风险惩罚分
+        self.strategy.score_details_df = score_details_df # 存储详细得分
         # 修复指挥链，在所有诊断完成后部署法医探针
         self.deploy_forensic_probes()
         return self.strategy.atomic_states

@@ -8,11 +8,12 @@ from strategies.trend_following.utils import get_params_block, get_param_value
 class JudgmentLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
+
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V538.0 · 风险否决净化版】
-        - 核心革命: 彻底废除“趋势破位离场”的逻辑。所有战术离场信号现在都必须接受“神盾协议”的裁决。
-                      只有在“神盾”未激活时，离场信号才会被考虑（当前逻辑下，战术离场被完全压制）。
+        【V538.1 · 进攻风险分离与全面惩罚版】
+        - 核心革命: final_score 现在是 (总进攻分 - 总风险惩罚) * confidence_damper。
+        - 核心增强: df['risk_score'] 现在记录所有负向信号的绝对值之和 (total_risk_sum)。
         - 收益: 实现了从“基于规则的被动离场”到“基于状态的主动防御”的哲学飞跃。
         """
         df = self.strategy.df_indicators
@@ -25,10 +26,17 @@ class JudgmentLayer:
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
-        df['final_score'] = df['entry_score'] * confidence_damper
+        # 获取总进攻分和总风险惩罚分
+        total_offensive_score = df['entry_score'] # 此时 entry_score 已经是 OffensiveLayer 返回的总进攻分
+        total_risk_sum = df['total_risk_sum'] # 从 IntelligenceLayer 传递过来的总风险惩罚分
+        # 计算净得分：总进攻分 - 总风险惩罚
+        net_score = total_offensive_score - total_risk_sum
+        # 应用信心阻尼器到净得分
+        df['final_score'] = net_score * confidence_damper
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
+        # df['risk_score'] 现在直接使用 total_risk_sum，代表所有负向信号的绝对值之和
+        df['risk_score'] = total_risk_sum.fillna(0.0) 
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
@@ -39,7 +47,7 @@ class JudgmentLayer:
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[alert_veto_condition, 'final_score'] = 0.0
+        df.loc[alert_veto_condition, 'final_score'] = 0.0 # 风险否决时最终分归零
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
@@ -51,6 +59,7 @@ class JudgmentLayer:
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
         self._finalize_signals()
+
     def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:
         """
         【V5.2 · 统一情报总线版】
@@ -89,6 +98,7 @@ class JudgmentLayer:
                     offense_list.append(signal_dict)
             return {'offense': offense_list, 'risk': risk_list}
         return details_df_numeric.apply(generate_summary_for_day, axis=1)
+
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
         【V319.0 · 终极信号适配版】动态力学战术矩阵
@@ -108,6 +118,7 @@ class JudgmentLayer:
         actions.loc[is_force_attack] = 'FORCE_ATTACK'
         actions.loc[is_avoid] = 'AVOID'
         return actions
+
     def _finalize_signals(self):
         """
         【V522.0 · 统一号令版】
@@ -122,6 +133,7 @@ class JudgmentLayer:
         final_buy_condition = (df['signal_type'] == '买入信号')
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
+
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
         【V2.9 · 否决权上收版】风险裁决者 (Risk Adjudicator)
@@ -172,6 +184,7 @@ class JudgmentLayer:
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
         return alert_level, alert_reason, fused_risks_df
+
     def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:
         """
         【V1.0】识别每日最强的进攻信号及其类型 ('positional' 或 'dynamic')。

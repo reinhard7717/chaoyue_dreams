@@ -20,6 +20,7 @@ class ReportingLayer:
         self.strategy = strategy_instance
         self.playbooks_cache = None
         self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
+
     async def _ensure_playbooks_cached(self):
         if self.playbooks_cache is not None: return
         try:
@@ -27,9 +28,11 @@ class ReportingLayer:
         except Exception as e:
             self.playbooks_cache = {}
             print(f"    -> [报告层] 警告：异步加载战法定义缓存失败。错误: {e}")
+
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V533.0 · 盖亚裁决适配版】
+        【V533.1 · 进攻风险分离与全面惩罚适配版】
+        - 核心适配: 响应 JudgmentLayer 的修改，正确获取 offensive_score 和 risk_score。
         - 核心适配: 响应“盖亚的最终裁决”，从信号枚举中彻底移除已废弃的“趋势破位离场”信号类型。
         """
         await self._ensure_playbooks_cached()
@@ -54,15 +57,20 @@ class ReportingLayer:
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
         for trade_time, row in signal_days_df.iterrows():
             signal_enum = signal_type_map_enum.get(row['signal_type'], TradingSignal.SignalType.WARN)
-            risk_score_val = row.get('risk_score', 0.0)
-            db_risk_score = risk_score_val * 1000 if pd.notna(risk_score_val) else 0.0
+            # offensive_score_val 现在是 OffensiveLayer 返回的总进攻分
+            offensive_score_val = row.get('entry_score', 0) 
+            # risk_score_val 现在是 JudgmentLayer 设置的 total_risk_sum
+            risk_score_val = row.get('risk_score', 0.0) 
+            db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
+            # db_risk_score 直接使用 risk_score_val (total_risk_sum)，不再乘以1000
+            db_risk_score = int(risk_score_val) if pd.notna(risk_score_val) else 0 
             final_score_for_signal = row.get('final_score', 0.0)
             strategy_name = trend_follow_name
             signal_obj = TradingSignal(
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,
                 signal_type=signal_enum,
-                entry_score=row.get('entry_score', 0.0),
-                risk_score=db_risk_score,
+                entry_score=db_offensive_score, # entry_score 记录总进攻分
+                risk_score=db_risk_score, # risk_score 记录总风险惩罚分
                 final_score=final_score_for_signal,
                 close_price=row.get('close_D', 0.0)
             )
@@ -77,10 +85,13 @@ class ReportingLayer:
         summary_score_names = {'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_TRIGGER'}
         for trade_time, row in result_df.iterrows():
             daily_score_strategy_name = trend_follow_name
-            offensive_score_val = row.get('entry_score', 0)
-            risk_score_val = row.get('risk_score', 0.0)
+            # offensive_score_val 现在是 OffensiveLayer 返回的总进攻分
+            offensive_score_val = row.get('entry_score', 0) 
+            # risk_score_val 现在是 JudgmentLayer 设置的 total_risk_sum
+            risk_score_val = row.get('risk_score', 0.0) 
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
-            db_risk_score = int(risk_score_val * 1000) if pd.notna(risk_score_val) else 0
+            # db_risk_score 直接使用 risk_score_val (total_risk_sum)，不再乘以1000
+            db_risk_score = int(risk_score_val) if pd.notna(risk_score_val) else 0 
             should_save_record = save_all_days or (row['signal_type'] != '无信号') or (db_offensive_score >= min_entry_score_for_db)
             if not should_save_record:
                 continue
@@ -101,7 +112,7 @@ class ReportingLayer:
                 signal_info = self.score_type_map.get(signal_name, {})
                 score_type = signal_info.get('type', 'unknown')
                 db_score_value = int(score_value) if pd.notna(score_value) else 0
-                if db_score_value < 0: score_type = 'penalty'
+                if db_score_value < 0: score_type = 'risk' # 确保负分被标记为风险类型
                 score_components_to_create.append(StrategyScoreComponent(
                     daily_score=daily_score_obj,
                     playbook=playbook_obj,

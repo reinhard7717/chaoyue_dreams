@@ -11,12 +11,14 @@ from stock_models.stock_analytics import StrategyDailyScore # 导入 StrategyDai
 class SimulationLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
+
     def run_position_management_simulation(self):
         """
-        【V516.0 · 解除武装版】
+        【V516.1 · 解除武装与全面风险感知版】
         - 核心革命: 彻底剥夺模拟层修改 `signal_type` 的权力，确保其绝对服从 JudgmentLayer 的最终裁决。
         - 核心逻辑: 删除了在硬性离场时，模拟层越权修改 `signal_type` 的所有代码。
         - 收益: 根除了因模拟层篡改历史而导致的信号污染问题，恢复了指挥链的绝对权威。
+        - 风险感知: 仓位管理现在能更全面地感知 JudgmentLayer 提供的总风险惩罚 (df['risk_score'])。
         """
         df = self.strategy.df_indicators.copy() 
         if 'open_D' not in df.columns:
@@ -65,6 +67,7 @@ class SimulationLayer:
             else:
                 df.loc[current_date, 'current_profit_loss_pct'] = 0.0
             if in_position:
+                # 先知预警离场逻辑
                 if i > 0:
                     prev_row = df.iloc[i-1]
                     prev_alert_level = getattr(prev_row, 'alert_level', 0)
@@ -73,17 +76,17 @@ class SimulationLayer:
                         print(f"  -> {current_date.date()}: [先知预警离场] T-1日收到高潮衰竭警报，今日开盘执行清仓。")
                         in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_EXIT.value
-                        # 移除模拟层对 signal_type 的越权修改
-                        # df.loc[current_date, 'signal_type'] = '先知离场'
                         df.loc[current_date, 'position_size'] = current_position_size
                         df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                         continue
+                # 止损逻辑
                 if stop_loss_enabled and current_price < stop_loss_price:
                     in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                     continue
+                # 硬性离场触发器逻辑
                 exit_triggers = self.strategy.exit_triggers.loc[current_date]
                 if exit_triggers.any():
                     triggered_reasons = exit_triggers[exit_triggers].index.tolist()
@@ -93,14 +96,10 @@ class SimulationLayer:
                     elif 'EXIT_STRATEGY_INVALIDATED' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value
                     in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                     df.loc[current_date, 'trade_action'] = exit_action
-                    # 彻底移除模拟层对 signal_type 的所有越权修改
-                    # if exit_action == StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value:
-                    #     df.loc[current_date, 'signal_type'] = '趋势破位离场'
-                    # elif exit_action == StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value:
-                    #     df.loc[current_date, 'signal_type'] = '战略失效离场'
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                     continue
+                # 加仓逻辑
                 is_profitable = df.loc[current_date, 'current_profit_loss_pct'] > 0
                 is_pyramid_allowed = pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count
                 if is_pyramid_allowed:
@@ -113,6 +112,7 @@ class SimulationLayer:
                     pyramid_count += 1
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.ADD_POSITION.value
                     last_reduction_level = 0
+                # 风险减仓逻辑
                 alert_level, alert_reason = self._check_tactical_alerts(row)
                 df.loc[current_date, 'alert_level'], df.loc[current_date, 'alert_reason'] = alert_level, alert_reason
                 if alert_level > last_reduction_level:
@@ -125,7 +125,7 @@ class SimulationLayer:
                         df.loc[current_date, 'trade_action'], last_reduction_level = reduction_action, 2
                 if df.loc[current_date, 'trade_action'] == StrategyDailyScore.TradeActionType.NO_SIGNAL.value: 
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.HOLD.value
-            else:
+            else: # 不在仓位中
                 if row.signal_entry:
                     t_plus_1_open = pd.NA
                     if i + 1 < len(df):
@@ -168,6 +168,7 @@ class SimulationLayer:
             df.loc[current_date, 'position_size'] = current_position_size
             df.loc[current_date, 'entry_price_actual'] = actual_entry_price
         self.strategy.df_indicators = df
+
     def _check_tactical_alerts(self, row) -> Tuple[int, str]:
         """
         【V2.0 · 审判日协同版】
