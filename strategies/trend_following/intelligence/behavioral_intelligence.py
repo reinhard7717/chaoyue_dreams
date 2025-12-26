@@ -3466,7 +3466,8 @@ class BehavioralIntelligence:
             'slope_std_dev_raw': (slope_std_dev_raw, tf_weights, True), # For purity_factor
             'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True), # For inertia_factor
             'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True), # 新增此处
-            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True)
+            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True),
+            'active_selling_pressure_D': (signals_data['active_selling_pressure_D'], tf_weights, True),
         }
         
         # 批量计算所有多时间框架归一化分数
