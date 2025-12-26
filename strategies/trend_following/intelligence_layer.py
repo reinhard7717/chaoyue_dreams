@@ -108,7 +108,6 @@ class IntelligenceLayer:
         self._ignite_relational_dynamics_engine()
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
-
         # IntelligenceLayer 不再计算或存储 bottom_context_score 和 top_context_score。
         # 这些分数由 TrendFollowStrategy.apply_strategy 计算并直接传递给 OffensiveLayer。
         # 因此，这里 OffensiveLayer.calculate_entry_score 的调用需要从 TrendFollowStrategy.apply_strategy 处获取这些参数。
@@ -121,7 +120,6 @@ class IntelligenceLayer:
         # 并且 OffensiveLayer.calculate_entry_score 是由 TrendFollowStrategy.apply_strategy 调用的。
         # 所以，IntelligenceLayer 应该只负责生成 atomic_states 和 playbook_states，
         # 而 OffensiveLayer 的调用和上下文分数的传递应该在 TrendFollowStrategy.apply_strategy 中完成。
-
         # 移除之前错误的 OffensiveLayer 调用和 score_details_df 赋值
         # total_offensive_score, total_risk_sum, score_details_df = self.strategy.offensive_layer.calculate_entry_score(
         #     self.strategy.trigger_events, self.strategy.bottom_context_score, self.strategy.top_context_score
@@ -129,7 +127,6 @@ class IntelligenceLayer:
         # self.strategy.df_indicators['entry_score'] = total_offensive_score
         # self.strategy.df_indicators['total_risk_sum'] = total_risk_sum
         # self.strategy.score_details_df = score_details_df
-
         # 修复指挥链，在所有诊断完成后部署法医探针
         self.deploy_forensic_probes()
         return self.strategy.atomic_states
