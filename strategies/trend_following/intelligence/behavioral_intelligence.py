@@ -3464,7 +3464,8 @@ class BehavioralIntelligence:
             'RSI_13_D': (signals_data['RSI_13_D'], 55, True), # For rsi_conf
             'robust_volume_slope_for_conf': (signals_data['robust_volume_slope'], tf_weights, True), # For volume_change_conf
             'slope_std_dev_raw': (slope_std_dev_raw, tf_weights, True), # For purity_factor
-            'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True) # For inertia_factor
+            'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True), # For inertia_factor
+            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True) # 新增此处
         }
         
         # 批量计算所有多时间框架归一化分数
@@ -3498,7 +3499,7 @@ class BehavioralIntelligence:
         active_buying = signals_data['active_buying_support_D']
         active_selling = signals_data['active_selling_pressure_D']
         raw_trend_vitality = signals_data['trend_vitality_index_D']
-        trend_vitality = normalized_scores['trend_vitality_index_D']
+        trend_vitality = normalized_scores['trend_vitality_index_D'] # 现在可以从 normalized_scores 获取
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
         low_price = signals_data['low_D']
