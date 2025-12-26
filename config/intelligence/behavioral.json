@@ -301,7 +301,26 @@
         },
         "puppeteers_gambit_params": {
             "evidence_amplifier_k": 0.5,
-            "comment": "博弈欺骗指数诊断参数。"
+            "description": "博弈欺骗指数诊断参数。",
+            "deception_tool_weights": {
+                "lure_long": 0.4,
+                "wash_trade": 0.3,
+                "lure_short": 0.3
+            },
+            "wash_trade_neutral_dissonance_multiplier": 0.8,
+            "context_modulator_params": {
+                "enabled": true,
+                "fomo_sensitivity": 0.3,
+                "volatility_sensitivity": 0.2,
+                "base_modulator": 1.0
+            },
+            "deception_magnitude_fusion_weights": {
+                "cognitive_dissonance_vector": 0.3,
+                "deception_tool_strength": 0.4,
+                "price_rising_deception_evidence": 0.2,
+                "retail_fomo_premium": 0.1
+            },
+            "fomo_negative_dissonance_amplification_multiplier": 0.5
         },
         "price_overextension_params": {
             "enabled": true,
