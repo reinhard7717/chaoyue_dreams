@@ -3474,9 +3474,9 @@ class BehavioralIntelligence:
         normalized_scores = {}
         for key, (series_obj, tf_w_or_window, asc) in series_for_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         
         # 集中获取所有信号
         robust_close_slope = signals_data['robust_close_slope']
@@ -3643,9 +3643,9 @@ class BehavioralIntelligence:
         normalized_scores = {}
         for key, (series_obj, tf_w_or_window, asc) in series_for_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         
         # 归一化确认因子 (0到1)
         norm_active_buying = normalized_scores['active_buying_support_D']
@@ -3689,19 +3689,19 @@ class BehavioralIntelligence:
             div_strength_volume * div_weights.get('price_volume', 0.3)
         )
         total_div_strength = total_div_strength.where(total_div_strength > dynamic_min_divergence_slope_diff, 0.0)
-        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
         
         final_strength_factor = norm_total_div_strength * (1 + accelerated_strength)
         final_strength_factor = final_strength_factor.clip(0, 1.5)
         
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
-            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
             volume_change_conf = normalized_scores['robust_volume_slope_for_conf'] # Use normalized_scores
             active_flow_conf = norm_active_buying
         else:
-            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
-            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
+            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
             active_flow_conf = norm_active_selling
         
         total_conf_factor = (
@@ -3710,7 +3710,7 @@ class BehavioralIntelligence:
             active_flow_conf * conf_weights.get('buying_support' if is_bullish else 'selling_pressure', 0.2) +
             norm_atr * conf_weights.get('volatility_high', 0.2)
         )
-        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
         
         persistence_factor = pd.Series(0.0, index=df.index, dtype=np.float32)
         if persistence_params.get('enabled'):
@@ -3737,7 +3737,7 @@ class BehavioralIntelligence:
         bbw_slope_penalty = pd.Series(0.0, index=df.index, dtype=np.float32)
         if structural_context_weights_params.get('enabled'):
             bbw_slope_penalty = robust_bbw_slope.clip(lower=0) * structural_context_weights_params.get('bbw_slope_penalty_factor', 0.1)
-        structural_context_factor = (1 - normalize_score(bbw_slope_penalty, df.index, windows=55, ascending=True, debug_info=debug_info)).clip(0.5, 1) # Use normalize_score
+        structural_context_factor = (1 - normalize_score(bbw_slope_penalty, df.index, windows=55, ascending=True, debug_info=False)).clip(0.5, 1) # Use normalize_score
         
         resonance_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if multi_level_resonance_params.get('enabled'):
