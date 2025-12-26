@@ -1357,7 +1357,7 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         final_offensive_absorption_intent = (base_quality_score * strategic_prerequisite_score).clip(0, 1)
         final_score = final_offensive_absorption_intent.astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '进攻性承接意图'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '进攻性承接意图'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
