@@ -1094,7 +1094,7 @@ class FoundationIntelligence:
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
         modulator = 1.0 + (env_score * bonus_factor)
         modulator = modulator.astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '环境共振调节器' 分数: {modulator.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '环境共振调节器' 分数: {modulator}")
         return modulator
 
 

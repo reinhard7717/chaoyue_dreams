@@ -1566,8 +1566,8 @@ class BehavioralIntelligence:
 
     def _diagnose_deception_index(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V2.3 · 欺骗情境感知版】诊断博弈欺骗指数
-        - 核心重构: 废弃V1.2“结果导向”模型，引入基于“认知失调 × 欺骗工具强度 × 情境调制”的全新诊断模型。
+        【V2.4 · 欺骗情境感知与反向认知失调】诊断博弈欺骗指数
+        - 核心重构: 废弃V1.2“结果导向”模型，引入“认知失调 × 欺骗工具强度 × 情境调制”的全新诊断模型。
         - 核心逻辑: 欺骗分 = (主力真实意图向量 - K线表象剧本向量) * 欺骗工具强度 * 情境放大器
                       直接量化“意图”与“表象”的背离程度，并结合欺骗工具的活跃度和市场情境，能识别更高明的欺骗形态。
         - 诊断三要素:
@@ -1577,6 +1577,7 @@ class BehavioralIntelligence:
         - 【新增】情境调制器：根据散户狂热和市场波动性，动态调整欺骗指数。
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
+        - **【二次修改】增强欺骗工具权重，引入“反向认知失调”概念，并调整融合逻辑，使其在涨停诱多场景下更敏感。**
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_deception_index"
@@ -1591,7 +1592,8 @@ class BehavioralIntelligence:
         required_signals = [
             'closing_strength_index_D', 'main_force_ofi_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
-            'wash_trade_intensity_D', 'retail_fomo_premium_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D' # 新增情境信号
+            'wash_trade_intensity_D', 'retail_fomo_premium_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', # 新增情境信号
+            'pct_change_D' # 用于判断是否上涨
         ]
         if not self._validate_required_signals(df, required_signals, method_name, is_debug_enabled, probe_ts):
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
@@ -1600,8 +1602,6 @@ class BehavioralIntelligence:
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        # --- 预先计算组合 Series，确保 id() 一致性 ---
-        # deception_lure_long_wash_trade_combined_raw = (signals_data['deception_lure_long_intensity_D'] + signals_data['wash_trade_intensity_D']).pow(0.5) # 废弃，改为加权融合
         
         # --- 收集所有需要进行归一化的 Series 的配置 ---
         series_for_norm_config = {
@@ -1628,18 +1628,29 @@ class BehavioralIntelligence:
         intent_vector = normalized_scores['main_force_ofi_D']
         
         # 认知失调向量：直接体现意图与表象的背离程度
-        cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2
+        # 修正：当意图低于表象时，也应视为认知失调，且可能指向派发欺骗
+        cognitive_dissonance_vector = (intent_vector - narrative_vector) # 范围 [-1, 1]
         
         # 欺骗工具强度：加权融合诱多、对倒、诱空强度
         norm_lure_long = normalized_scores['deception_lure_long_intensity_D']
         norm_wash_trade = normalized_scores['wash_trade_intensity_D']
         norm_lure_short = normalized_scores['deception_lure_short_intensity_D']
         
-        deception_tool_strength = (
-            norm_lure_long * deception_tool_weights.get('lure_long', 0.4) +
-            norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3) +
-            norm_lure_short * deception_tool_weights.get('lure_short', 0.3)
-        ).clip(0, 1)
+        # 修正：欺骗工具强度应根据认知失调的方向来加权
+        deception_tool_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 如果是正向认知失调（意图 > 表象），则关注诱多和对倒
+        deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector > 0,
+            (norm_lure_long * deception_tool_weights.get('lure_long', 0.4) +
+             norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3)) / (deception_tool_weights.get('lure_long', 0.4) + deception_tool_weights.get('wash_trade', 0.3))
+        )
+        # 如果是负向认知失调（意图 < 表象），则关注诱空和对倒
+        deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector < 0,
+            (norm_lure_short * deception_tool_weights.get('lure_short', 0.3) +
+             norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3)) / (deception_tool_weights.get('lure_short', 0.3) + deception_tool_weights.get('wash_trade', 0.3))
+        )
+        # 如果认知失调接近0，则只考虑对倒
+        deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector.abs() < 1e-9, norm_wash_trade)
+        deception_tool_strength = deception_tool_strength.clip(0, 1)
         
         # 情境调制器：散户狂热和波动性
         context_modulator_factor = pd.Series(context_modulator_params.get('base_modulator', 1.0), index=df.index, dtype=np.float32)
@@ -1655,17 +1666,26 @@ class BehavioralIntelligence:
             context_modulator_factor = context_modulator_factor * fomo_modulator * volatility_modulator
             context_modulator_factor = context_modulator_factor.clip(0.5, 2.0) # 限制调制范围
         
-        # --- 4. 计算认知失调并施加放大器和情境调制 ---
-        # 欺骗指数 = 认知失调的绝对值 * 欺骗工具强度 * 情境调制器
-        final_deception_index = (cognitive_dissonance_vector.abs() * deception_tool_strength * context_modulator_factor).clip(0, 1)
+        # --- 4. 最终合成：认知失调的绝对值 * 欺骗工具强度 * 情境调制器，并保留方向 ---
+        # 修正：使用加权算术平均或更复杂的融合，避免乘积导致零值问题
+        # 欺骗强度 = (abs(认知失调) + 欺骗工具强度) / 2 * 情境调制器
+        # 最终欺骗指数 = 欺骗强度 * sign(认知失调)
         
-        # 区分诱多和诱空：如果认知失调为正（主力意图强于K线），则为诱多；反之为诱空
+        # 欺骗强度基础分：认知失调的绝对值和欺骗工具强度进行加权平均
+        deception_magnitude_score = (cognitive_dissonance_vector.abs() * 0.5 + deception_tool_strength * 0.5).clip(0, 1)
+        
+        # 最终欺骗指数 = 欺骗强度基础分 * 情境调制器 * 认知失调的方向
+        final_deception_index = (deception_magnitude_score * context_modulator_factor * np.sign(cognitive_dissonance_vector)).clip(-1, 1)
+        
+        # 确保在价格上涨时，如果认知失调为负（主力意图低于K线），则视为派发欺骗
+        is_price_rising = (signals_data['pct_change_D'] > 0).astype(float)
+        # 如果价格上涨，且认知失调为负（主力意图低于K线），则放大负向欺骗
         final_deception_index = pd.Series(np.where(
-            cognitive_dissonance_vector > 0,
-            final_deception_index, # 诱多
-            -final_deception_index # 诱空
-        ), index=df.index).clip(-1, 1) # 最终分数映射到 [-1, 1]
-        
+            (is_price_rising > 0.5) & (cognitive_dissonance_vector < 0),
+            final_deception_index.abs() * -1, # 强制为负值，表示派发欺骗
+            final_deception_index
+        ), index=df.index).astype(np.float32)
+
         final_score = final_deception_index.astype(np.float32)
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
@@ -1676,13 +1696,16 @@ class BehavioralIntelligence:
             print(f"        - wash_trade_intensity_D: {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
             print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
             print(f"        - VOLATILITY_INSTABILITY_INDEX_21d_D: {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 中间计算 @ 2025-12-10:")
             print(f"        - 归一化收盘强度 (Narrative Vector): {narrative_vector.loc[probe_ts]:.4f}")
             print(f"        - 归一化主力OFII (Intent Vector): {intent_vector.loc[probe_ts]:.4f}")
             print(f"        - 认知失调向量: {cognitive_dissonance_vector.loc[probe_ts]:.4f}")
             print(f"        - 欺骗工具强度: {deception_tool_strength.loc[probe_ts]:.4f}")
             print(f"        - 情境调制因子: {context_modulator_factor.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '博弈欺骗指数'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+            print(f"        - 欺骗强度基础分: {deception_magnitude_score.loc[probe_ts]:.4f}")
+            print(f"        - 是否上涨: {is_price_rising.loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 最终 '博弈欺骗指数'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3063,14 +3086,15 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V4.3 · 生产就绪版 - 行为过热深度感知】计算纯粹基于行为类原始数据的价格超买亢奋原始分。
+        【V4.4 · 生产就绪版 - 行为过热深度感知与鲁棒融合】计算纯粹基于行为类原始数据的价格超买亢奋原始分。
         - 核心升级: 引入“行为惯性”、“散户狂热”和“动态阈值”概念，使亢奋诊断更具情境感知和前瞻性。
         - 优化点:
           1. 行为惯性: 考虑价格和成交量斜率的加速度，作为动量过热的补充证据。
           2. 动态阈值: 根据市场波动率（ATR）动态调整BIAS和BBP的超买阈值。
           3. 成交量极端细化: 区分放量滞涨和放量加速上涨，避免误判。
           4. 引入散户狂热：将 `retail_fomo_premium_index_D` 纳入过热评估。
-          5. 融合函数优化: 调整融合权重，并引入一个“亢奋加速度”因子。
+          5. **融合函数优化: 从加权几何平均改为加权算术平均，避免零值问题，并调整权重。**
+          6. **引入亢奋加速度因子：直接将价格和动量指标的加速度作为亢奋的独立证据。**
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_behavioral_price_overextension"
@@ -3083,12 +3107,22 @@ class BehavioralIntelligence:
             "dynamic_bias_bbp_atr_multiplier": 0.005,
             "momentum_accel_bonus": 0.1,
             "fomo_weight": 0.2, # 新增散户狂热权重
-            "price_accel_weight": 0.15 # 新增价格加速度权重
+            "price_speed_weight": 0.15, # 价格速度权重
+            "price_accel_weight": 0.15, # 价格加速度权重
+            "fusion_weights": { # 新增融合权重
+                "price_deviation": 0.3,
+                "momentum_overheat": 0.25,
+                "volume_extremity": 0.15,
+                "intraday_extremity": 0.3
+            }
         })
         if not overextension_params.get('enabled', False):
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 信号未启用，返回0分。")
             return pd.Series(0.0, index=df.index)
+        
+        fusion_weights = overextension_params.get('fusion_weights', {})
+
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'VOL_MA_21_D',
             'BIAS_5_D', 'BBP_21_2.0_D', 'ATR_14_D',
@@ -3106,12 +3140,12 @@ class BehavioralIntelligence:
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
         debug_info = (is_debug_enabled, probe_ts, method_name)
+        
         # --- 1. 价格偏离度 (Price Deviation) ---
         rsi_val = signals_data['RSI_13_D']
         bias_val = signals_data['BIAS_5_D']
         bbp_val = signals_data['BBP_21_2.0_D']
         atr_val = signals_data['ATR_14_D']
-        pct_change_val = signals_data['pct_change_D'] # 新增
         
         rsi_overbought_threshold = overextension_params.get('rsi_overbought_threshold', 70)
         bias_overbought_threshold = overextension_params.get('bias_overbought_threshold', 0.05)
@@ -3125,7 +3159,6 @@ class BehavioralIntelligence:
         norm_rsi_overbought = (rsi_val - rsi_overbought_threshold).clip(lower=0) / (100 - rsi_overbought_threshold)
         norm_rsi_overbought = norm_rsi_overbought.fillna(0).clip(0, 1)
         
-        # 修正：当bias_val.max() - dynamic_bias_threshold <= 0时，避免除以零
         bias_denominator = (bias_val.max() - dynamic_bias_threshold)
         norm_bias_overbought = (bias_val - dynamic_bias_threshold).clip(lower=0) / bias_denominator.where(bias_denominator > 1e-9, 1e-9)
         norm_bias_overbought = norm_bias_overbought.fillna(0).clip(0, 1)
@@ -3134,7 +3167,11 @@ class BehavioralIntelligence:
         norm_bbp_overbought = (bbp_val - dynamic_bbp_threshold).clip(lower=0) / bbp_denominator.where(bbp_denominator > 1e-9, 1e-9)
         norm_bbp_overbought = norm_bbp_overbought.fillna(0).clip(0, 1)
 
-        # 2. 动量过热 (Momentum Overheating)
+        # 价格偏离度分数
+        price_deviation_score = (norm_rsi_overbought + norm_bias_overbought + norm_bbp_overbought) / 3
+
+        # --- 2. 动量过热 (Momentum Overheating) ---
+        pct_change_val = signals_data['pct_change_D']
         accel_rsi = signals_data['ACCEL_5_RSI_13_D']
         accel_macd = signals_data['ACCEL_5_MACDh_13_34_8_D']
         robust_pct_change_slope = signals_data['robust_pct_change_slope']
@@ -3157,15 +3194,13 @@ class BehavioralIntelligence:
         price_accel_score = normalize_score(accel_close.clip(lower=0), df.index, windows=5, ascending=True, debug_info=False)
         
         momentum_overheat_score = (
-            norm_rsi_overbought * 0.3 +
-            norm_bias_overbought * 0.3 +
-            price_speed_score * overextension_params.get('price_accel_weight', 0.15) + # 价格速度
-            price_accel_score * overextension_params.get('price_accel_weight', 0.15) + # 价格加速度
-            momentum_accel_factor * 0.05 + # 动量指标加速度
-            behavioral_inertia_bonus * 0.05 # 行为惯性
+            price_speed_score * overextension_params.get('price_speed_weight', 0.15) +
+            price_accel_score * overextension_params.get('price_accel_weight', 0.15) +
+            momentum_accel_factor * 0.35 + # 动量指标加速度
+            behavioral_inertia_bonus * 0.35 # 行为惯性
         ).clip(0, 1)
 
-        # 3. 成交量极端 (Volume Extremity)
+        # --- 3. 成交量极端 (Volume Extremity) ---
         close_price = signals_data['close_D']
         current_volume = signals_data['volume_D']
         volume_avg = signals_data['VOL_MA_21_D']
@@ -3175,7 +3210,7 @@ class BehavioralIntelligence:
         is_volume_climax = (current_volume > volume_avg * volume_climax_multiplier) & is_price_rising_for_volume
         volume_extremity_score = is_volume_climax.astype(float) * (current_volume / volume_avg).clip(1, 2)
         
-        # 4. 日内行为极端 (Intraday Behavioral Extremity)
+        # --- 4. 日内行为极端 (Intraday Behavioral Extremity) ---
         upward_efficiency = signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']
         intraday_bull_control = signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']
         retail_fomo_premium = signals_data['retail_fomo_premium_index_D'] # 新增散户狂热
@@ -3204,15 +3239,15 @@ class BehavioralIntelligence:
             retail_fomo_score * overextension_params.get('fomo_weight', 0.4) # 散户狂热权重
         ).clip(0, 1)
         
-        # 最终融合
+        # --- 5. 最终融合 (加权算术平均) ---
         overextension_score = (
-            (norm_bbp_overbought + 1e-9).pow(0.25) * # 降低BBP权重，因为动态阈值已考虑ATR
-            (momentum_overheat_score + 1e-9).pow(0.3) *
-            (volume_extremity_score + 1e-9).pow(0.2) *
-            (intraday_extremity_score + 1e-9).pow(0.25)
-        ).pow(1/1.0).fillna(0.0).clip(0, 1)
+            price_deviation_score * fusion_weights.get("price_deviation", 0.3) +
+            momentum_overheat_score * fusion_weights.get("momentum_overheat", 0.25) +
+            volume_extremity_score * fusion_weights.get("volume_extremity", 0.15) +
+            intraday_extremity_score * fusion_weights.get("intraday_extremity", 0.3)
+        ) / sum(fusion_weights.values()) # 归一化权重
         
-        final_score = overextension_score.astype(np.float32)
+        final_score = overextension_score.clip(0, 1).astype(np.float32)
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - RSI_13_D: {signals_data['RSI_13_D'].loc[probe_ts]:.4f}")
@@ -3237,13 +3272,14 @@ class BehavioralIntelligence:
             print(f"        - 归一化RSI超买: {norm_rsi_overbought.loc[probe_ts]:.4f}")
             print(f"        - 归一化BIAS超买: {norm_bias_overbought.loc[probe_ts]:.4f}")
             print(f"        - 归一化BBP超买: {norm_bbp_overbought.loc[probe_ts]:.4f}")
+            print(f"        - 价格偏离度分数: {price_deviation_score.loc[probe_ts]:.4f}")
             print(f"        - 价格速度分数: {price_speed_score.loc[probe_ts]:.4f}")
             print(f"        - 价格加速度分数: {price_accel_score.loc[probe_ts]:.4f}")
             print(f"        - 动量过热分数: {momentum_overheat_score.loc[probe_ts]:.4f}")
             print(f"        - 成交量极端分数: {volume_extremity_score.loc[probe_ts]:.4f}")
             print(f"        - 散户狂热分数: {retail_fomo_score.loc[probe_ts]:.4f}")
             print(f"        - 日内行为极端分数: {intraday_extremity_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '价格超买亢奋'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 最终 '价格超买亢奋'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
