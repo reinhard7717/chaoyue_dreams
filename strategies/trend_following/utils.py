@@ -642,7 +642,7 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 增加 atomic_states 参数
     """
-    【V23.6 · 冷却期向量化优化版 & 日期类型修复版】“盖亚基石”支撑分计算引擎
+    【V23.7 · 冷却期向量化优化版 & 日期类型修复版】“盖亚基石”支撑分计算引擎
     - 核心修复: 修正了上下影线的计算逻辑，使用 np.maximum/minimum(open, close) 作为实体边界，
                   确保在阴阳线上计算的绝对准确性。
     - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
@@ -650,6 +650,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
                     确保 `filled_dates` 始终为 `datetime64[ns]` 类型。
     - Timedelta 访问修复: 修正了 `time_diff.days` 为 `time_diff.dt.days`，以正确访问 Timedelta Series 的天数属性。
     - .dt accessor 错误修复: 确保 `time_diff` 是 `Timedelta` Series，以便正确使用 `.dt` 访问器。
+    - 强制类型转换: 在 `ffill` 后强制 `filled_dates` 为 `datetime64[ns]`，提高健壮性。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -718,19 +719,20 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
     
+    # 强制确保 filled_dates 是 datetime64[ns] 类型
+    filled_dates = filled_dates.astype('datetime64[ns]')
+
     # 5. 检查当前日期是否在冷却期内
-    # 过滤掉 filled_dates 中的 NaT 值，只对有效日期进行计算
-    valid_filled_dates_mask = filled_dates.notna()
+    # time_diff 将是一个 Timedelta Series，可能包含 NaT 值
+    time_diff = df.index.to_series() - filled_dates
+    
+    # 过滤掉 time_diff 中的 NaT 值，只对有效日期进行计算
+    valid_time_diff_mask = time_diff.notna()
+
     is_within_cooldown_period = pd.Series(False, index=df.index)
-    if valid_filled_dates_mask.any():
-        # 确保 df.index 和 filled_dates 都是 DatetimeIndex/Series，然后进行减法
-        # time_diff 现在是一个 Timedelta Series
-        # 关键修复：确保 df.index 也是一个 Series，以便与 filled_dates 进行元素级减法，
-        # 并且结果是一个 Timedelta Series。
-        time_diff = df.index.to_series() - filled_dates
-        
-        # 仅对 valid_filled_dates_mask 为 True 的部分进行操作
-        is_within_cooldown_period.loc[valid_filled_dates_mask] = time_diff.loc[valid_filled_dates_mask].dt.days < confirmation_cooldown_period
+    if valid_time_diff_mask.any():
+        # 使用 .dt.days 访问 Timedelta Series 的天数属性，然后通过 loc 筛选
+        is_within_cooldown_period.loc[valid_time_diff_mask] = time_diff.dt.days.loc[valid_time_diff_mask] < confirmation_cooldown_period
     
     # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
     confirmation_score_series = filled_scores.where(is_within_cooldown_period, 0.0).fillna(0.0)
@@ -739,6 +741,86 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = confirmation_score_series.astype(np.float32)
     gaia_score = np.maximum(defense_quality_score, confirmation_score_series)
     return gaia_score.astype(np.float32)
+
+def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
+    """
+    【V3.2 · 冷却期向量化优化版 & 日期类型修复版】“乌拉诺斯穹顶”阻力分计算引擎
+    - 核心升级: 不再包含拒绝质量评估逻辑，而是调用通用的 _calculate_rejection_quality_score 函数。
+    - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
+    - 强制类型转换: 在 `ffill` 后强制 `filled_dates` 为 `datetime64[ns]`，提高健壮性。
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    # ... [获取参数的代码保持不变] ...
+    resistance_levels = get_param_value(params.get('resistance_levels'), [55, 89, 144, 233, 377])
+    confirmation_window = get_param_value(params.get('confirmation_window'), 3)
+    confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
+    confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
+    rejection_quality_bonus_factor = get_param_value(params.get('rejection_quality_bonus_factor'), 0.25)
+    cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
+    rejection_lookback_window = get_param_value(params.get('rejection_lookback_window'), 5)
+    close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
+    cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
+    ma_cols = [f'MA_{p}_D' for p in resistance_levels if f'MA_{p}_D' in df.columns]
+    if not all(col in df.columns for col in [close_col, open_col, low_col, high_col, vol_col, cooldown_vol_ma_col] + ma_cols):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    # 1. 寻找代理天花板 (acting_ceiling)
+    ma_df = df[ma_cols]
+    ma_df_above_price = ma_df.where(ma_df.ge(df[close_col], axis=0))
+    acting_ceiling = ma_df_above_price.min(axis=1).ffill()
+    # 2. 调用通用函数计算拒绝质量分
+    rejection_quality_score = _calculate_rejection_quality_score(df, params, acting_ceiling)
+    # 3. 计算确认压制分
+    max_recent_rejection_quality = rejection_quality_score.rolling(window=rejection_lookback_window, min_periods=1).max()
+    is_in_influence_zone = pd.Series(False, index=df.index)
+    valid_indices = acting_ceiling.dropna().index
+    if not valid_indices.empty:
+        influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
+        lower_bound = acting_ceiling[valid_indices] * (1 - influence_zone_pct)
+        is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, acting_ceiling[valid_indices])
+    is_failing_to_break = (df[close_col] < acting_ceiling) & is_in_influence_zone
+    is_confirmed_rejection = is_failing_to_break.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
+    upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
+    lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
+    is_cooldown_reset_signal = (lower_shadow > upper_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
+    # --- 冷却期逻辑向量化优化 ---
+    # 1. 计算确认事件的原始分数
+    raw_confirmation_scores = pd.Series(0.0, index=df.index, dtype=np.float32)
+    confirmed_rejection_with_bonus_mask = is_confirmed_rejection & (max_recent_rejection_quality > 0)
+    raw_confirmation_scores.loc[confirmed_rejection_with_bonus_mask] = (confirmation_score + max_recent_rejection_quality.loc[confirmed_rejection_with_bonus_mask] * rejection_quality_bonus_factor).clip(0, 1.0)
+    confirmed_rejection_no_bonus_mask = is_confirmed_rejection & (max_recent_rejection_quality <= 0)
+    raw_confirmation_scores.loc[confirmed_rejection_no_bonus_mask] = confirmation_score
+    # 2. 标记冷却期重置点
+    group_ids = is_cooldown_reset_signal.astype(int).cumsum()
+    # 3. 跟踪每个确认事件的日期
+    # 确保 confirmation_dates 的 dtype 是 datetime64[ns]
+    confirmation_dates = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]') # 明确指定 dtype
+    confirmation_dates.loc[is_confirmed_rejection] = df.index[is_confirmed_rejection]
+    # 4. 在每个组内，前向填充确认分数和确认日期
+    filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
+    filled_dates = confirmation_dates.groupby(group_ids).ffill()
+    
+    # 强制确保 filled_dates 是 datetime64[ns] 类型
+    filled_dates = filled_dates.astype('datetime64[ns]')
+
+    # 5. 检查当前日期是否在冷却期内
+    # time_diff 将是一个 Timedelta Series，可能包含 NaT 值
+    time_diff = df.index.to_series() - filled_dates
+    
+    # 过滤掉 time_diff 中的 NaT 值，只对有效日期进行计算
+    valid_time_diff_mask = time_diff.notna()
+
+    is_within_cooldown_period = pd.Series(False, index=df.index)
+    if valid_time_diff_mask.any():
+        # 使用 .dt.days 访问 Timedelta Series 的天数属性，然后通过 loc 筛选
+        is_within_cooldown_period.loc[valid_time_diff_mask] = time_diff.dt.days.loc[valid_time_diff_mask] < confirmation_cooldown_period
+    # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
+    confirmation_score_series = filled_scores.where(is_within_cooldown_period, 0.0).fillna(0.0)
+    # --- 冷却期逻辑向量化优化结束 ---
+    # 4. 最终融合
+    uranus_score = np.maximum(rejection_quality_score, confirmation_score_series)
+    return uranus_score.astype(np.float32)
+
 
 def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
