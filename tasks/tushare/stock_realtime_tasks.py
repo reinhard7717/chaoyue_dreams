@@ -166,7 +166,6 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     trade_date = datetime.datetime.now().strftime('%Y-%m-%d')
     try:
         async def main():
-            print(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
             # 接收DAO返回的 success 和 message
             success, message = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
             if not success:

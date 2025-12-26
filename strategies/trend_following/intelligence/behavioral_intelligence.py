@@ -3136,6 +3136,7 @@ class BehavioralIntelligence:
         method_name = "_calculate_behavioral_stagnation_evidence"
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"    -> [探针 - {method_name}] 正在计算 '纯粹基于行为类原始数据的滞涨证据原始分' @ {probe_ts.strftime('%Y-%m-%d')}")
+        
         stagnation_params = get_param_value(self.config_params.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
             "volume_stagnation_multiplier": 1.2, "momentum_divergence_penalty": 0.15,
@@ -3148,9 +3149,10 @@ class BehavioralIntelligence:
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 信号未启用，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+        
         required_signals = [
             'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D',
-            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
+            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope', # 修正此处
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
             'pct_change_D'
@@ -3159,9 +3161,12 @@ class BehavioralIntelligence:
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 缺少核心信号，返回0分。")
             return pd.Series(0.0, index=df.index)
+        
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
+        
         debug_info = (is_debug_enabled, probe_ts, method_name)
+        
         # --- K线形态分析 ---
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
@@ -3173,18 +3178,21 @@ class BehavioralIntelligence:
         atr_val = signals_data['ATR_14_D']
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
-        robust_macd_slope = signals_data['robust_MACDh_13_34_8_D']
+        robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope'] # 修正此处
         accel_rsi = signals_data['ACCEL_5_RSI_13_D']
         accel_macd = signals_data['ACCEL_5_MACDh_13_34_8_D']
         upward_efficiency = signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']
         intraday_bull_control = signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']
+        
         total_range = high_price - low_price
         total_range_safe = total_range.replace(0, 1e-9)
         body_range = (close_price - open_price).abs()
         upper_shadow = high_price - np.maximum(open_price, close_price)
         lower_shadow = np.minimum(open_price, close_price) - low_price
+        
         upper_shadow_ratio = (upper_shadow / total_range_safe).clip(0, 1)
         body_ratio = (body_range / total_range_safe).clip(0, 1)
+        
         upper_shadow_ratio_threshold = stagnation_params.get('upper_shadow_ratio_threshold', 0.4)
         body_ratio_threshold = stagnation_params.get('body_ratio_threshold', 0.3)
         volume_stagnation_multiplier = stagnation_params.get('volume_stagnation_multiplier', 1.2)
@@ -3192,58 +3200,75 @@ class BehavioralIntelligence:
         dynamic_kline_atr_multiplier = stagnation_params.get('dynamic_kline_atr_multiplier', 0.005)
         momentum_deceleration_bonus = stagnation_params.get('momentum_deceleration_bonus', 0.1)
         volume_drying_up_multiplier = stagnation_params.get('volume_drying_up_multiplier', 0.8)
+        
         dynamic_upper_shadow_threshold = upper_shadow_ratio_threshold + atr_val * dynamic_kline_atr_multiplier
         dynamic_body_ratio_threshold = body_ratio_threshold - atr_val * dynamic_kline_atr_multiplier
+        
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         pct_change_abs_raw = signals_data['pct_change_D'].abs()
+        
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         series_for_mtf_norm_config = {
             'pct_change_abs_raw': (pct_change_abs_raw, tf_weights, True), # For volume_anomaly_score
             'upward_efficiency': (upward_efficiency, tf_weights, True), # For norm_upward_efficiency_decay
             'intraday_bull_control': (intraday_bull_control, tf_weights, True) # For norm_intraday_control_decay
         }
+        
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
             normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+        
         # 1. 价格行为疲软 (Price Action Weakness)
         is_long_upper_shadow = (upper_shadow_ratio > dynamic_upper_shadow_threshold)
         is_small_body = (body_ratio < dynamic_body_ratio_threshold)
         is_high_open_low_close = (open_price > close_price) & (pct_change_val < 0)
+        
         price_weakness_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         price_weakness_score = price_weakness_score.mask(is_long_upper_shadow & is_small_body, 0.3)
         price_weakness_score = price_weakness_score.mask(is_high_open_low_close, price_weakness_score + 0.4)
+        
         # 2. 动量背离 (Momentum Divergence)
         is_price_rising = (robust_close_slope > 0)
         is_rsi_momentum_decay = (robust_rsi_slope < 0)
         is_macd_momentum_decay = (robust_macd_slope < 0)
+        
         momentum_divergence_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         rsi_deceleration_bonus = (is_rsi_momentum_decay & (accel_rsi < 0)).astype(int) * momentum_deceleration_bonus
         macd_deceleration_bonus = (is_macd_momentum_decay & (accel_macd < 0)).astype(int) * momentum_deceleration_bonus
+        
         momentum_divergence_score = momentum_divergence_score.mask(
             is_price_rising & (is_rsi_momentum_decay | is_macd_momentum_decay),
             momentum_divergence_penalty * (is_rsi_momentum_decay.astype(int) + is_macd_momentum_decay.astype(int)) + \
             rsi_deceleration_bonus + macd_deceleration_bonus
         )
         momentum_divergence_score = momentum_divergence_score.clip(0, 0.3)
+        
         # 3. 成交量异常 (Volume Anomaly)
         norm_pct_change_abs = normalized_mtf_scores['pct_change_abs_raw']
         is_volume_stagnation = (norm_pct_change_abs < 0.01) & (current_volume > volume_avg * volume_stagnation_multiplier) & (robust_close_slope > 0)
         volume_extremity_score = is_volume_stagnation.astype(float) * (current_volume / volume_avg).clip(1, 2)
+        
         is_volume_drying_up = (pct_change_val > 0) & (current_volume < volume_avg * volume_drying_up_multiplier) & (robust_close_slope > 0)
         volume_drying_up_score = is_volume_drying_up.astype(float) * (1 - (current_volume / volume_avg)).clip(0, 1)
+        
         volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1)
+        
         # 4. 日内控制力减弱 (Intraday Control Weakness)
         norm_upward_efficiency_decay = (1 - normalized_mtf_scores['upward_efficiency']).clip(0, 1) * stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
         norm_intraday_control_decay = (1 - normalized_mtf_scores['intraday_bull_control']).clip(0, 1) * stagnation_params.get('intraday_control_decay_bonus', 0.1)
+        
         intraday_control_weakness_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
+        
         stagnation_score = (
             (price_weakness_score + 1e-9).pow(0.3) *
             (momentum_divergence_score + 1e-9).pow(0.3) *
             (volume_anomaly_score + 1e-9).pow(0.2) *
             (intraday_control_weakness_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1)
+        
         final_score = stagnation_score.astype(np.float32)
+
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
@@ -3255,7 +3280,7 @@ class BehavioralIntelligence:
             print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
             print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
             print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
+            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
             print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
             print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
             print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
@@ -3267,6 +3292,7 @@ class BehavioralIntelligence:
             print(f"        - 成交量异常分数: {volume_anomaly_score.loc[probe_ts]:.4f}")
             print(f"        - 日内控制力减弱分数: {intraday_control_weakness_score.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '滞涨证据'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        
         return final_score
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3449,7 +3475,7 @@ class BehavioralIntelligence:
         # 集中获取所有信号
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
-        robust_macd_slope = signals_data['robust_MACDh_13_34_8_D']
+        robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope']
         robust_volume_slope = signals_data['robust_volume_slope']
         robust_bbw_slope = signals_data['robust_BBW_21_2.0_slope']
         robust_pct_change_slope = signals_data['robust_pct_change_slope']
@@ -4013,7 +4039,7 @@ class BehavioralIntelligence:
             'floating_chip_cleansing_efficiency_D', 'main_force_conviction_index_D',
             'covert_accumulation_signal_D', 'ADX_14_D', 'retail_fomo_premium_index_D',
             'robust_close_slope', 'robust_pct_change_slope', 'robust_RSI_13_slope',
-            'robust_MACDh_13_34_8_D', # Corrected from _slope to _D
+            'robust_MACDh_13_34_8_slope', # Corrected from _slope to _D
             'robust_volume_slope',
             'long_term_close_slope', 'long_term_adx_slope',
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
@@ -4062,7 +4088,7 @@ class BehavioralIntelligence:
         robust_close_slope = signals_data['robust_close_slope']
         robust_pct_change_slope = signals_data['robust_pct_change_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
-        robust_macd_slope = signals_data['robust_MACDh_13_34_8_D']
+        robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope']
         robust_volume_slope = signals_data['robust_volume_slope']
         long_term_close_slope = signals_data['long_term_close_slope']
         long_term_adx_slope = signals_data['long_term_adx_slope']
@@ -4210,7 +4236,7 @@ class BehavioralIntelligence:
             print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
             print(f"        - robust_pct_change_slope: {signals_data['robust_pct_change_slope'].loc[probe_ts]:.4f}")
             print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_MACDh_13_34_8_D: {signals_data['robust_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
+            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
             print(f"        - robust_volume_slope: {signals_data['robust_volume_slope'].loc[probe_ts]:.4f}")
             print(f"        - long_term_close_slope: {signals_data['long_term_close_slope'].loc[probe_ts]:.4f}")
             print(f"        - long_term_adx_slope: {signals_data['long_term_adx_slope'].loc[probe_ts]:.4f}")
