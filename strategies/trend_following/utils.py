@@ -962,14 +962,6 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     # 4. 在每个组内，前向填充确认分数和确认日期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
-    
-    # --- 调试探针开始 ---
-    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] df.index.to_series().dtype: {df.index.to_series().dtype}")
-    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates.dtype (after ffill): {filled_dates.dtype}")
-    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] df.index.to_series() head:\n{df.index.to_series().head()}")
-    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates head:\n{filled_dates.head()}")
-    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates contains NaT: {filled_dates.isna().any()}")
-    # --- 调试探针结束 ---
 
     # 5. 检查当前日期是否在冷却期内
     # 关键修复：显式处理 NaT，避免 Pandas 内部将 NaT 转换为 float 导致 TypeError
