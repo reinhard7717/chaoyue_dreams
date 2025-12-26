@@ -841,7 +841,7 @@ class BehavioralIntelligence:
             'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D',
             'SLOPE_5_winner_stability_index_D', 'retail_fomo_premium_index_D', 'BBP_21_2.0_D', 'BIAS_5_D',
             'ATR_14_D', 'BBW_21_2.0_D', 'ADX_14_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'intraday_posture_score_D',
-            'volume_structure_skew_D', 'volume_burstiness_skew_D', 'SLOPE_55_close_D', 'market_sentiment_score_D',
+            'volume_structure_skew_D', 'SLOPE_55_close_D', 'market_sentiment_score_D',
             'SLOPE_55_ADX_14_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D',
             'sell_sweep_intensity_D', 'panic_sell_volume_contribution_D', 'ask_side_liquidity_D', 'bid_side_liquidity_D', 'liquidity_slope_D',
             'market_impact_cost_D', 'order_book_clearing_rate_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
