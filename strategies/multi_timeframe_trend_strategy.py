@@ -471,6 +471,13 @@ class MultiTimeframeTrendStrategy:
             # 步骤 2: 立即部署探针，确保其在最新的数据上运行
             # print("\n    -> [阶段 2/3] 正在部署法医探针，以解剖本次运行的中间过程...")
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
+            # --- 新增的调试打印 ---
+            print(f"    -> [Debug Probe Check] 从 get_params_block 获取到的 debug_params: {debug_params}")
+            raw_enabled_value = debug_params.get('enabled')
+            print(f"    -> [Debug Probe Check] debug_params.get('enabled') 的原始值: {raw_enabled_value}")
+            resolved_enabled_value = get_param_value(raw_enabled_value, False)
+            print(f"    -> [Debug Probe Check] 经过 get_param_value 解析后的 enabled 值: {resolved_enabled_value}")
+            # --- 调试打印结束 ---
             if get_param_value(debug_params.get('enabled'), False):
                 # 确保探针使用的是本次运行的最新 atomic_states
                 self.tactical_engine.intelligence_layer.deploy_forensic_probes()
