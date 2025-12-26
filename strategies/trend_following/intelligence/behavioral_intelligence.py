@@ -291,15 +291,15 @@ class BehavioralIntelligence:
                 signal_series = signal_series.astype(np.float32)
                 
                 momentum = signal_series.diff(momentum_span).fillna(0.0).astype(np.float32)
-                norm_momentum = get_adaptive_mtf_normalized_score(momentum, df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
+                norm_momentum = get_adaptive_mtf_normalized_score(momentum, df.index, ascending=True, tf_weights=default_weights, debug_info=False)
                 dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum
                 
                 potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series).astype(np.float32)
-                norm_potential = get_adaptive_mtf_normalized_score(potential, df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
+                norm_potential = get_adaptive_mtf_normalized_score(potential, df.index, ascending=True, tf_weights=default_weights, debug_info=False)
                 dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential
                 
                 thrust = momentum.diff(1).fillna(0.0).astype(np.float32)
-                norm_thrust = get_adaptive_mtf_normalized_score(thrust, df.index, ascending=True, tf_weights=default_weights, debug_info=debug_info)
+                norm_thrust = get_adaptive_mtf_normalized_score(thrust, df.index, ascending=True, tf_weights=default_weights, debug_info=False)
                 dynamics_df[f'THRUST_{signal_name}'] = norm_thrust
                 if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                     print(f"      [探针 - {method_name}] 增强信号 '{signal_name}' @ {probe_ts.strftime('%Y-%m-%d')}:")
@@ -416,8 +416,8 @@ class BehavioralIntelligence:
         for p in momentum_periods:
             norm_window = p * 2 # 归一化窗口通常取周期的两倍
             # 为每个周期单独计算双极归一化分数
-            slope_score_bipolar = get_robust_bipolar_normalized_score(slope_raw_data[p], df.index, window=norm_window, sensitivity=2.0, default_value=0.0, debug_info=debug_info)
-            accel_score_bipolar = get_robust_bipolar_normalized_score(accel_raw_data[p], df.index, window=norm_window, sensitivity=2.0, default_value=0.0, debug_info=debug_info)
+            slope_score_bipolar = get_robust_bipolar_normalized_score(slope_raw_data[p], df.index, window=norm_window, sensitivity=2.0, default_value=0.0, debug_info=False)
+            accel_score_bipolar = get_robust_bipolar_normalized_score(accel_raw_data[p], df.index, window=norm_window, sensitivity=2.0, default_value=0.0, debug_info=False)
             
             # 转换为单极性 [0, 1]，并确保为 float32
             slope_score = ((slope_score_bipolar + 1) / 2).astype(np.float32)
@@ -469,10 +469,10 @@ class BehavioralIntelligence:
         windows_liquidity = [int(p) for p in get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights).keys()]
         windows_flow_credibility = [int(p) for p in get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights).keys()]
         # 一次性计算所有窗口的归一化分数
-        liquidity_authenticity_score = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights), ascending=True, debug_info=debug_info)
+        liquidity_authenticity_score = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights), ascending=True, debug_info=False)
         # 修正：直接传入整数21作为window参数
-        order_book_imbalance_score_bipolar = get_robust_bipolar_normalized_score(order_book_imbalance_raw, df.index, window=21, sensitivity=2.0, default_value=0.0, debug_info=debug_info)
-        flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights), ascending=True, debug_info=debug_info)
+        order_book_imbalance_score_bipolar = get_robust_bipolar_normalized_score(order_book_imbalance_raw, df.index, window=21, sensitivity=2.0, default_value=0.0, debug_info=False)
+        flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights), ascending=True, debug_info=False)
         # 从一次性计算的结果中获取对应窗口的分数
         # 修正：order_book_imbalance_score_bipolar 现在已经是Series，直接使用
         order_book_imbalance_score = (order_book_imbalance_score_bipolar + 1) / 2
@@ -557,13 +557,13 @@ class BehavioralIntelligence:
             key = tuple(key_components)
             if key not in normalized_scores_cache:
                 if is_energy:
-                    normalized_scores_cache[key] = get_adaptive_mtf_normalized_energy_score(series_raw, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                    normalized_scores_cache[key] = get_adaptive_mtf_normalized_energy_score(series_raw, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
                 elif is_bipolar:
-                    normalized_scores_cache[key] = get_adaptive_mtf_normalized_bipolar_score(series_raw, df.index, tf_weights=tf_w, debug_info=debug_info)
+                    normalized_scores_cache[key] = get_adaptive_mtf_normalized_bipolar_score(series_raw, df.index, tf_weights=tf_w, debug_info=False)
                 elif window is not None: # For normalize_score (single window)
-                    normalized_scores_cache[key] = normalize_score(series_raw, df.index, windows=window, ascending=asc, debug_info=debug_info)
+                    normalized_scores_cache[key] = normalize_score(series_raw, df.index, windows=window, ascending=asc, debug_info=False)
                 else: # For get_adaptive_mtf_normalized_score
-                    normalized_scores_cache[key] = get_adaptive_mtf_normalized_score(series_raw, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                    normalized_scores_cache[key] = get_adaptive_mtf_normalized_score(series_raw, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
             return normalized_scores_cache[key]
         # --- 2. 战役结果评估 (Outcome Assessment) ---
         intraday_posture_score = (signals_data['intraday_posture_score_D'].clip(-1, 1) + 1) / 2
@@ -1106,7 +1106,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         pressure_magnitude_score = normalized_mtf_scores['raw_selling_pressure']
         absorption_capacity_score = absorption_strength
         intent_confirmation_score = distribution_intent
@@ -1177,7 +1177,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各维度得分 ---
         active_selling_score = normalized_mtf_scores['active_selling_pressure_D']
         upper_shadow_score = normalized_mtf_scores['upper_shadow_selling_pressure_D']
@@ -1279,7 +1279,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 2. 计算各要素得分 ---
         purity_score = normalized_mtf_scores['upward_impulse_purity_D']
         quality_score = normalized_mtf_scores['impulse_quality_ratio_D']
@@ -1345,7 +1345,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算核心组件 ---
         drop_score = normalized_mtf_scores['pct_change_D_clip_abs']
         efficiency_score = normalized_mtf_scores['vacuum_traversal_efficiency_D']
@@ -1415,7 +1415,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各组件得分 ---
         strategic_prerequisite_score = (1 - distribution_intent).clip(0, 1)
         crisis_context_score = normalized_mtf_scores['panic_selling_cascade_D']
@@ -1487,9 +1487,9 @@ class BehavioralIntelligence:
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc, is_bipolar_flag) in series_for_mtf_norm_config.items():
             if is_bipolar_flag:
-                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=debug_info)
+                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=False)
             else:
-                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各维度得分 ---
         strategic_position_score = signals_data['vwap_control_strength_D'].clip(-1, 1)
         strategic_position_score_mapped = (strategic_position_score + 1) / 2
@@ -1573,11 +1573,11 @@ class BehavioralIntelligence:
         normalized_scores = {}
         for key, (series_obj, norm_type, window, sensitivity, tf_w) in series_for_norm_config.items():
             if norm_type == 'bipolar':
-                normalized_scores[key] = normalize_to_bipolar(series_obj, df.index, windows=window, sensitivity=sensitivity, debug_info=debug_info)
+                normalized_scores[key] = normalize_to_bipolar(series_obj, df.index, windows=window, sensitivity=sensitivity, debug_info=False)
             elif norm_type == 'mtf_bipolar':
-                normalized_scores[key] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=debug_info)
+                normalized_scores[key] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=False)
             elif norm_type == 'mtf_norm':
-                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=True, debug_info=debug_info)
+                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=True, debug_info=False)
         # --- 3. 计算核心组件 ---
         narrative_vector = normalized_scores['closing_strength_index_D']
         intent_vector = normalized_scores['main_force_ofi_D']
@@ -1650,7 +1650,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 2. 计算各维度得分 ---
         winner_rate_score = normalized_mtf_scores['total_winner_rate_D']
         price_accel_score = normalized_mtf_scores['ACCEL_5_pct_change_D']
@@ -1715,7 +1715,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各维度得分 ---
         purity_score = normalized_mtf_scores['upward_impulse_purity_D']
         offensive_efficiency_score = normalized_mtf_scores['impulse_quality_ratio_D']
@@ -1787,7 +1787,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各维度得分 ---
         passive_absorption_score = normalized_mtf_scores['dip_absorption_power_D']
         active_defense_score = normalized_mtf_scores['support_validation_strength_D']
@@ -1886,7 +1886,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各维度得分 ---
         price_breakthrough_score = normalized_mtf_scores['pct_change_D_clip']
         ma_slope_score = normalized_mtf_scores['SLOPE_5_EMA_55_D_clip']
@@ -1994,9 +1994,9 @@ class BehavioralIntelligence:
         normalized_mtf_scores = {}
         for series_id, (series_obj, tf_w, asc, is_bipolar_flag) in series_for_mtf_norm_map.items():
             if is_bipolar_flag:
-                normalized_mtf_scores[series_id] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=debug_info)
+                normalized_mtf_scores[series_id] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=False)
             else:
-                normalized_mtf_scores[series_id] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[series_id] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 维度一：核心意图强度 (Core Intent Magnitude) ---
         ofi_score = normalized_mtf_scores[id(signals_data['main_force_ofi_D'])]
         buy_sweep_score = normalized_mtf_scores[id(signals_data['buy_quote_exhaustion_rate_D'])]
@@ -2111,7 +2111,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 2. 维度一：微观战局僵持 (Micro-Battlefield Stalemate) ---
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
         momentum_decay_score = normalized_mtf_scores['price_accel_clip_abs']
@@ -2192,7 +2192,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各幕得分 ---
         script_quality_score = normalized_mtf_scores['panic_selling_cascade_D']
         performance_active_score = normalized_mtf_scores['active_buying_support_D']
@@ -2273,7 +2273,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         motive_score = normalized_mtf_scores['profit_taking_flow_ratio_D']
         rally_pressure_score = normalized_mtf_scores['rally_distribution_pressure_D']
         upper_shadow_score = normalized_mtf_scores['upper_shadow_selling_pressure_D']
@@ -2374,7 +2374,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 维度一：脆弱战场 (Vulnerable Battlefield) ---
         panic_score = normalized_mtf_scores['panic_selling_cascade_D']
         prior_weakness_score = normalized_mtf_scores[f'SLOPE_{prior_weakness_slope_window}_close_D_clip_abs']
@@ -2399,7 +2399,7 @@ class BehavioralIntelligence:
         ).pow(1/(action_weights.get('absorption', 0.6) + action_weights.get('deception_positive', 0.4))).fillna(0.0)
         # --- 5. 维度三：突袭品质 (Strike Quality) ---
         closing_strength_raw = signals_data['closing_strength_index_D']
-        closing_strength_score = normalize_score(closing_strength_raw, df.index, 55, default_value=0.5, debug_info=debug_info) # normalize_score uses window
+        closing_strength_score = normalize_score(closing_strength_raw, df.index, 55, default_value=0.5, debug_info=False) # normalize_score uses window
         upward_purity_score = normalized_mtf_scores['upward_impulse_purity_D']
         counterattack_quality_score = (
             (closing_strength_score + 1e-9).pow(quality_weights.get('closing_strength', 0.6)) *
@@ -2514,7 +2514,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 2. 计算各要素得分 ---
         lure_score = normalized_mtf_scores['breakout_quality_score_D']
         market_weakness_score = (1 - normalized_mtf_scores['trend_vitality_index_D']).clip(0, 1)
@@ -2587,7 +2587,7 @@ class BehavioralIntelligence:
             }
             normalized_risk_bipolar_scores = {}
             for key, (series_obj, tf_w, asc) in risk_series_for_bipolar_norm_config.items():
-                normalized_risk_bipolar_scores[key] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=debug_info)
+                normalized_risk_bipolar_scores[key] = get_adaptive_mtf_normalized_bipolar_score(series_obj, df.index, tf_weights=tf_w, debug_info=False)
             
             risk_trend_score = normalized_risk_bipolar_scores['risk_trend']
             risk_momentum_score = normalized_risk_bipolar_scores['risk_momentum']
@@ -2705,7 +2705,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算牛市背离 (价格下跌趋势 vs 信念上升趋势) ---
         price_downtrend_score = normalized_mtf_scores['bullish_price_slope_clip_abs_raw']
         conviction_uptrend_score = normalized_mtf_scores['bullish_conviction_slope_clip_raw']
@@ -2804,9 +2804,9 @@ class BehavioralIntelligence:
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w_or_window, asc, is_bipolar_flag) in series_for_mtf_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         # --- 2. 维度一：战术强攻品质评估 (沿用V2.1逻辑) ---
         magnitude_score = normalized_mtf_scores['volume_ratio_D']
         conviction_score = normalized_mtf_scores['main_force_conviction_index_D_clip']
@@ -2886,9 +2886,9 @@ class BehavioralIntelligence:
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w_or_window, asc, is_bipolar_flag) in series_for_mtf_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         # --- 3. 计算核心组件 ---
         strategic_context_gate = normalized_mtf_scores['vwap_control_strength_D']
         base_atrophy_score = 1 - normalized_mtf_scores['volume_ratio_D']
@@ -2959,7 +2959,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 3. 计算各维度得分 ---
         foundation_score = normalized_mtf_scores['support_validation_strength_D']
         action_dip_score = normalized_mtf_scores['dip_absorption_power_D']
@@ -3084,7 +3084,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores_for_decay = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores_for_decay[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores_for_decay[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         norm_upward_efficiency_decay = (1 - normalized_mtf_scores_for_decay['upward_efficiency']).clip(0, 1) * upward_efficiency_decay_penalty
         norm_intraday_control_decay = (1 - normalized_mtf_scores_for_decay['intraday_bull_control']).clip(0, 1) * intraday_control_decay_penalty
         intraday_extremity_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
@@ -3217,7 +3217,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         
         # 1. 价格行为疲软 (Price Action Weakness)
         is_long_upper_shadow = (upper_shadow_ratio > dynamic_upper_shadow_threshold)
@@ -3331,9 +3331,9 @@ class BehavioralIntelligence:
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w_or_window, asc, is_bipolar_flag) in series_for_mtf_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
             else: # normalize_score
-                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         # --- 3. 计算各维度得分 ---
         strategic_intent_score = (1 - distribution_intent).clip(0, 1)
         tactical_action_score = absorption_strength
@@ -3469,9 +3469,9 @@ class BehavioralIntelligence:
         normalized_scores = {}
         for key, (series_obj, tf_w_or_window, asc) in series_for_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         # 集中获取所有信号
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
@@ -3481,7 +3481,7 @@ class BehavioralIntelligence:
         robust_pct_change_slope = signals_data['robust_pct_change_slope']
         long_term_close_slope = signals_data['long_term_close_slope']
         long_term_rsi_slope = signals_data['long_term_RSI_13_slope']
-        long_term_macd_slope = signals_data['long_term_MACDh_13_34_8_D']
+        long_term_macd_slope = signals_data['long_term_MACDh_13_34_8_slope']
         long_term_volume_slope = signals_data['long_term_volume_slope']
         long_term_adx_slope = signals_data['long_term_adx_slope']
         pattern_close_slope = signals_data['pattern_close_slope']
@@ -3612,9 +3612,9 @@ class BehavioralIntelligence:
         normalized_scores = {}
         for key, (series_obj, tf_w_or_window, asc) in series_for_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         price_trend_condition = (robust_close_slope < 0) if is_bullish else (robust_close_slope > 0)
         rsi_indicator_trend = (robust_rsi_slope > 0) if is_bullish else (robust_rsi_slope < 0)
         macd_indicator_trend = (robust_macd_slope > 0) if is_bullish else (robust_macd_slope < 0)
@@ -3643,17 +3643,17 @@ class BehavioralIntelligence:
             div_strength_volume * div_weights.get('price_volume', 0.3)
         )
         total_div_strength = total_div_strength.where(total_div_strength > dynamic_min_divergence_slope_diff, 0.0)
-        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=False)
         final_strength_factor = norm_total_div_strength * (1 + accelerated_strength)
         final_strength_factor = final_strength_factor.clip(0, 1.5)
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
-            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False)
             volume_change_conf = normalized_scores['robust_volume_slope_for_conf'] # Use normalized_scores
             active_flow_conf = norm_active_buying
         else:
-            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
-            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False)
+            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=False)
             active_flow_conf = norm_active_selling
         total_conf_factor = (
             rsi_conf * conf_weights.get('rsi_oversold' if is_bullish else 'rsi_overbought', 0.3) +
@@ -3661,7 +3661,7 @@ class BehavioralIntelligence:
             active_flow_conf * conf_weights.get('buying_support' if is_bullish else 'selling_pressure', 0.2) +
             norm_atr * conf_weights.get('volatility_high', 0.2)
         )
-        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=False)
         persistence_factor = pd.Series(0.0, index=df.index, dtype=np.float32)
         if persistence_params.get('enabled'):
             min_persistence_duration = persistence_params.get('min_duration', 2)
@@ -3685,7 +3685,7 @@ class BehavioralIntelligence:
         bbw_slope_penalty = pd.Series(0.0, index=df.index, dtype=np.float32)
         if structural_context_weights_params.get('enabled'):
             bbw_slope_penalty = robust_bbw_slope.clip(lower=0) * structural_context_weights_params.get('bbw_slope_penalty_factor', 0.1)
-        structural_context_factor = (1 - normalize_score(bbw_slope_penalty, df.index, windows=55, ascending=True, debug_info=debug_info)).clip(0.5, 1) # Use normalize_score
+        structural_context_factor = (1 - normalize_score(bbw_slope_penalty, df.index, windows=55, ascending=True, debug_info=False)).clip(0.5, 1)
         resonance_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if multi_level_resonance_params.get('enabled'):
             long_term_price_trend = (long_term_close_slope < 0) if is_bullish else (long_term_close_slope > 0)
@@ -4138,7 +4138,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         # --- 2. 计算四大维度分数 ---
         # Rally Purity
         price_momentum_coherence_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -4425,7 +4425,7 @@ class BehavioralIntelligence:
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
         current_fusion_power_p = get_param_value(selling_exhaustion_params.get('fusion_power_p'), 0.0)
         if get_param_value(dynamic_modulator_params.get('enabled'), False):
             modulator_signal_1 = signals_data[dynamic_modulator_params.get('modulator_signal_1')]
@@ -4446,7 +4446,7 @@ class BehavioralIntelligence:
             }
             normalized_modulator_scores = {}
             for key, (series_obj, tf_w, asc) in series_for_modulator_norm_config.items():
-                normalized_modulator_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                normalized_modulator_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
             
             norm_volatility_inverse = (1 - normalized_modulator_scores['modulator_signal_1']).clip(0, 1)
             norm_sentiment_negative = normalized_modulator_scores['modulator_signal_2_clip_upper_0_abs']
@@ -4580,7 +4580,7 @@ class BehavioralIntelligence:
             }
             normalized_modulator_scores = {}
             for key, (series_obj, tf_w, asc) in series_for_modulator_norm_config.items():
-                normalized_modulator_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                normalized_modulator_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
             
             norm_volatility_inverse = (1 - normalized_modulator_scores['modulator_signal_1']).clip(0, 1)
             norm_sentiment_negative = normalized_modulator_scores['modulator_signal_2_clip_upper_0_abs']
@@ -4726,7 +4726,7 @@ class BehavioralIntelligence:
             # 批量计算所有多时间框架归一化分数
             normalized_mtf_scores_for_modulator = {}
             for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-                normalized_mtf_scores_for_modulator[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                normalized_mtf_scores_for_modulator[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
             
             norm_volatility = normalized_mtf_scores_for_modulator['modulator_signal_1']
             norm_sentiment = normalized_mtf_scores_for_modulator['modulator_signal_2']
@@ -4749,7 +4749,7 @@ class BehavioralIntelligence:
             
             fused_indicator_scores[indicator_base_name] = self._get_mtf_fused_indicator_score(
                 df, indicator_base_name, mtf_slope_accel_weights, mtf_indicator_component_weights,
-                is_negative_indicator=is_negative, ascending=ascending, debug_info=debug_info
+                is_negative_indicator=is_negative, ascending=ascending, debug_info=False
             )
         norm_price_drop_magnitude = fused_indicator_scores['pct_change']
         norm_panic_cascade = fused_indicator_scores['panic_selling_cascade']
@@ -4896,7 +4896,7 @@ class BehavioralIntelligence:
         # 批量计算所有双极归一化分数
         normalized_bipolar_scores = {}
         for key, (series_obj, window, sensitivity) in series_for_bipolar_norm_config.items():
-            normalized_bipolar_scores[key] = normalize_to_bipolar(series_obj, df.index, windows=window, sensitivity=sensitivity, debug_info=debug_info)
+            normalized_bipolar_scores[key] = normalize_to_bipolar(series_obj, df.index, windows=window, sensitivity=sensitivity, debug_info=False)
         # 3. 多时间维度动量 (MTF Momentum)
         mtf_momentum_scores_raw = {}
         mtf_momentum_scores_weighted = []
@@ -4979,7 +4979,7 @@ class BehavioralIntelligence:
             # 批量计算所有多时间框架归一化分数
             normalized_context_scores = {}
             for key, (series_obj, tf_w, asc) in series_for_context_norm_config.items():
-                normalized_context_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=debug_info)
+                normalized_context_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
             
             # 将归一化后的分数赋值给 context_scores
             for key in normalized_context_scores:
