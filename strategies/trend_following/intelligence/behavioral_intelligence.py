@@ -3578,7 +3578,7 @@ class BehavioralIntelligence:
         
         return final_bullish_score, final_bearish_score
 
-    def _calculate_single_divergence_type(self, df: pd.DataFrame, is_bullish: bool, params: Dict, tf_weights: Dict, signals_data: Dict[str, pd.Series], # 新增 signals_data 参数
+    def _calculate_single_divergence_type(self, df: pd.DataFrame, is_bullish: bool, params: Dict, tf_weights: Dict, signals_data: Dict[str, pd.Series],
                                           robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
                                           long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
                                           pattern_close_slope, pattern_volume_slope,
@@ -3587,7 +3587,7 @@ class BehavioralIntelligence:
                                           open_price, high_price, low_price, close_price, adx_val, current_volume, volume_avg, pct_change_val,
                                           upward_efficiency_val, intraday_bull_control_val,
                                           internal_price_overextension_raw, internal_stagnation_evidence_raw,
-                                          norm_active_buying, norm_active_selling, norm_atr,
+                                          norm_active_buying, norm_active_selling, norm_atr, # 这些参数已经传入，无需再次从 normalized_scores 获取
                                           dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic,
                                           is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         method_name = "_calculate_single_divergence_type"
@@ -3631,7 +3631,7 @@ class BehavioralIntelligence:
         series_for_norm_config = {
             'robust_close_slope_for_purity': (robust_close_slope, 55, True), # For purity_factor
             'robust_pct_change_slope': (robust_pct_change_slope, 55, True), # For market_context_params
-            'ATR_14_D': (atr_val, tf_weights, True), # For norm_atr
+            # 'ATR_14_D': (atr_val, tf_weights, True), # For norm_atr - 移除，因为 norm_atr 已作为参数传入
             'ADX_14_D': (adx_val, 55, True), # For market_regime_params
             'RSI_13_D': (rsi_val, 55, True), # For rsi_conf
             'robust_volume_slope_for_conf': (robust_volume_slope, tf_weights, True), # For volume_change_conf
@@ -3647,10 +3647,14 @@ class BehavioralIntelligence:
             else: # normalize_score
                 normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
         
-        # 归一化确认因子 (0到1)
-        norm_active_buying = normalized_scores['active_buying_support_D']
-        norm_active_selling = normalized_scores['active_selling_pressure_D']
-        norm_atr = normalized_scores['ATR_14_D']
+        # 集中获取所有信号 (这些信号已经作为参数传入，这里只是为了调试打印方便)
+        # robust_close_slope = signals_data['robust_close_slope'] # 已经作为参数传入
+        # ... (其他已传入的信号，此处省略)
+        
+        # 归一化确认因子 (0到1) - 这些值已作为参数传入，无需再次从 normalized_scores 获取
+        # norm_active_buying = normalized_scores['active_buying_support_D'] # 移除此行
+        # norm_active_selling = normalized_scores['active_selling_pressure_D'] # 移除此行
+        # norm_atr = normalized_scores['ATR_14_D'] # 移除此行
         
         # 动态阈值计算
         dynamic_min_divergence_slope_diff = params['min_divergence_slope_diff_base'] + atr_val * params['min_slope_diff_atr_multiplier']
@@ -3697,18 +3701,18 @@ class BehavioralIntelligence:
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
             rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
-            volume_change_conf = normalized_scores['robust_volume_slope_for_conf'] # Use normalized_scores
-            active_flow_conf = norm_active_buying
+            volume_change_conf = normalize_score(robust_volume_slope.clip(lower=0), df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
+            active_flow_conf = norm_active_buying # 直接使用传入的参数
         else:
             rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
             volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
-            active_flow_conf = norm_active_selling
+            active_flow_conf = norm_active_selling # 直接使用传入的参数
         
         total_conf_factor = (
             rsi_conf * conf_weights.get('rsi_oversold' if is_bullish else 'rsi_overbought', 0.3) +
             volume_change_conf * conf_weights.get('volume_increase' if is_bullish else 'volume_decrease', 0.3) +
             active_flow_conf * conf_weights.get('buying_support' if is_bullish else 'selling_pressure', 0.2) +
-            norm_atr * conf_weights.get('volatility_high', 0.2)
+            norm_atr * conf_weights.get('volatility_high', 0.2) # 直接使用传入的参数
         )
         norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=False) # Use normalize_score
         
@@ -3719,7 +3723,7 @@ class BehavioralIntelligence:
             quality_decay_factor = persistence_params.get('quality_decay_factor', 0.05)
             
             accel_close_condition = (accel_close > 0) if is_bullish else (accel_close < 0)
-            accel_volume_condition = (accel_volume < 0) if is_bullish else (accel_volume < 0) # Volume acceleration for bearish is also negative
+            accel_volume_condition = (accel_volume > 0) if is_bullish else (accel_volume < 0) # Volume acceleration for bearish is also negative
             persistence_quality = (accel_close_condition.astype(int) + accel_volume_condition.astype(int)).clip(0, 2)
             
             persistence_count = div_condition_raw.astype(int).rolling(window=max_persistence_window, min_periods=1).sum().fillna(0)
@@ -3756,7 +3760,10 @@ class BehavioralIntelligence:
             lower_shadow = np.minimum(open_price, close_price) - low_price # Corrected lower shadow calculation
             upper_shadow = high_price - np.maximum(open_price, close_price) # Corrected upper shadow calculation
             
-            lower_shadow_ratio = (lower_shadow / total_range_safe).clip(0, 1)
+            is_long_lower_shadow = (lower_shadow / total_range_safe) > price_action_confirmation_params.get('lower_shadow_ratio_threshold', 0.4) # 定义 is_long_lower_shadow
+            is_long_upper_shadow = (upper_shadow / total_range_safe) > price_action_confirmation_params.get('upper_shadow_ratio_threshold', 0.4) # 定义 is_long_upper_shadow
+            is_small_body = (body_range / total_range_safe) < price_action_confirmation_params.get('body_ratio_threshold', 0.3) # 定义 is_small_body
+
             upper_shadow_ratio = (upper_shadow / total_range_safe).clip(0, 1)
             body_ratio = (body_range / total_range_safe).clip(0, 1)
             
@@ -3981,7 +3988,7 @@ class BehavioralIntelligence:
                 is_ranging_market, adaptive_fusion_weight_multiplier * (1 + ranging_bonus_factor)
             )
             
-            is_high_volatility = (normalized_scores['ATR_14_D'] > 0.8) # Use normalized_scores
+            is_high_volatility = (norm_atr > 0.8) # 直接使用传入的 norm_atr 参数
             adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(
                 is_high_volatility, adaptive_fusion_weight_multiplier * (1 - volatility_high_penalty_factor)
             )
