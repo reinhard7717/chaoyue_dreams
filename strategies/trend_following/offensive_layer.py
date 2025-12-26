@@ -63,6 +63,7 @@ class OffensiveLayer:
                 # 应用动能阻尼器到 SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM
                 if signal_name == 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM':
                     opportunity_part *= price_momentum_damper
+                    # 无条件输出调试信息
                     print(f"    -> [进攻层 Debug] {signal_name} 原始贡献: {(processed_signal_series * positive_score).iloc[-1]:.2f}，应用阻尼器后: {(opportunity_part * positive_score).iloc[-1]:.2f}")
                 bonus_amount_for_signal += opportunity_part * positive_score
                 risk_part = processed_signal_series.clip(upper=0).abs()
@@ -87,13 +88,14 @@ class OffensiveLayer:
                     # 应用动能阻尼器到 SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM
                     if signal_name == 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM':
                         unipolar_series *= price_momentum_damper
+                        # 无条件输出调试信息
                         print(f"    -> [进攻层 Debug] {signal_name} 原始贡献: {(processed_signal_series * positive_score).iloc[-1]:.2f}，应用阻尼器后: {(unipolar_series * positive_score).iloc[-1]:.2f}")
                     bonus_amount_for_signal = unipolar_series * positive_score
             # 分离正向和负向贡献
             total_offensive_score += bonus_amount_for_signal.clip(lower=0)
             total_risk_sum += bonus_amount_for_signal.clip(upper=0).abs() # 累加负向贡献的绝对值
             score_details_df[signal_name] = bonus_amount_for_signal
-        # Debugging print for final totals
+        # 无条件输出调试信息
         if not df.empty:
             print(f"    -> [OffensiveLayer Debug] Date: {df.index[-1].strftime('%Y-%m-%d')}")
             print(f"    -> [OffensiveLayer Debug] Final total_offensive_score: {total_offensive_score.iloc[-1]:.2f}")
