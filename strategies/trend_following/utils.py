@@ -642,7 +642,7 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 增加 atomic_states 参数
     """
-    【V23.9 · 冷却期向量化优化版 & 日期类型修复版 & 调试探针版】“盖亚基石”支撑分计算引擎
+    【V23.10 · 冷却期向量化优化版 & 日期类型修复版 & 调试探针版】“盖亚基石”支撑分计算引擎
     - 核心修复: 修正了上下影线的计算逻辑，使用 np.maximum/minimum(open, close) 作为实体边界，
                   确保在阴阳线上计算的绝对准确性。
     - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
@@ -652,6 +652,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     - .dt accessor 错误修复: 确保 `time_diff` 是 `Timedelta` Series，以便正确使用 `.dt` 访问器。
     - 强制类型转换移除: 移除了多余的 `astype('datetime64[ns]')`，避免与时区信息冲突。
     - 调试探针: 添加了打印语句，用于在错误发生时输出 `df.index.to_series()` 和 `filled_dates` 的详细信息。
+    - 关键修复: 确保 `confirmation_dates` 初始化时与 `df.index` 具有相同的 `dtype` (包括时区)，避免类型冲突。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -713,8 +714,8 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     #    创建一个组ID，每次遇到重置信号时递增，这样ffill就不会跨越重置点
     group_ids = is_cooldown_reset_signal.astype(int).cumsum()
     # 3. 跟踪每个确认事件的日期
-    # 确保 confirmation_dates 的 dtype 是 datetime64[ns]
-    confirmation_dates = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]') 
+    # 确保 confirmation_dates 的 dtype 与 df.index 保持一致，包括时区信息
+    confirmation_dates = pd.Series(pd.NaT, index=df.index, dtype=df.index.dtype) 
     confirmation_dates.loc[is_confirmed_base] = df.index[is_confirmed_base]
     # 4. 在每个组内，前向填充确认分数和确认日期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
@@ -748,11 +749,12 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
 
 def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V3.4 · 冷却期向量化优化版 & 日期类型修复版 & 调试探针版】“乌拉诺斯穹顶”阻力分计算引擎
+    【V3.5 · 冷却期向量化优化版 & 日期类型修复版 & 调试探针版】“乌拉诺斯穹顶”阻力分计算引擎
     - 核心升级: 不再包含拒绝质量评估逻辑，而是调用通用的 _calculate_rejection_quality_score 函数。
     - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
     - 强制类型转换移除: 移除了多余的 `astype('datetime64[ns]')`，避免与时区信息冲突。
     - 调试探针: 添加了打印语句，用于在错误发生时输出 `df.index.to_series()` 和 `filled_dates` 的详细信息。
+    - 关键修复: 确保 `confirmation_dates` 初始化时与 `df.index` 具有相同的 `dtype` (包括时区)，避免类型冲突。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -798,7 +800,8 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     # 2. 标记冷却期重置点
     group_ids = is_cooldown_reset_signal.astype(int).cumsum()
     # 3. 跟踪每个确认事件的日期
-    confirmation_dates = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]') # 明确指定 dtype
+    # 确保 confirmation_dates 的 dtype 与 df.index 保持一致，包括时区信息
+    confirmation_dates = pd.Series(pd.NaT, index=df.index, dtype=df.index.dtype) 
     confirmation_dates.loc[is_confirmed_rejection] = df.index[is_confirmed_rejection]
     # 4. 在每个组内，前向填充确认分数和确认日期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
