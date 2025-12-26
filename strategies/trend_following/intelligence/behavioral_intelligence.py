@@ -841,7 +841,7 @@ class BehavioralIntelligence:
             'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D',
             'SLOPE_5_winner_stability_index_D', 'retail_fomo_premium_index_D', 'BBP_21_2.0_D', 'BIAS_5_D',
             'ATR_14_D', 'BBW_21_2.0_D', 'ADX_14_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'intraday_posture_score_D',
-            'volume_structure_skew_D', 'volume_burstiness_index_D', 'SLOPE_55_close_D', 'market_sentiment_score_D',
+            'volume_structure_skew_D', 'volume_burstiness_skew_D', 'SLOPE_55_close_D', 'market_sentiment_score_D',
             'SLOPE_55_ADX_14_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D',
             'sell_sweep_intensity_D', 'panic_sell_volume_contribution_D', 'ask_side_liquidity_D', 'bid_side_liquidity_D', 'liquidity_slope_D',
             'market_impact_cost_D', 'order_book_clearing_rate_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D',
@@ -879,10 +879,7 @@ class BehavioralIntelligence:
             'order_book_imbalance', 'volume_structure_skew', 'micro_price_impact_asymmetry',
             'ask_side_liquidity', 'bid_side_liquidity', 'market_impact_cost',
             'BID_LIQUIDITY_SAMPLE_ENTROPY_13d', 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d',
-            'price_volume_entropy', 'volatility_expansion_ratio', 'breakout_quality_score',
-            'upward_impulse_purity', 'trend_acceleration_score', 'volume_burstiness_index',
-            'constructive_turnover_ratio', 'buy_sweep_intensity', 'upper_shadow_selling_pressure',
-            'market_sentiment_score'
+            'price_volume_entropy', 'volatility_expansion_ratio'
         ]
         for period in liquidity_drain_mtf_periods:
             for indicator in indicators_for_mtf_dynamics:
@@ -1069,7 +1066,9 @@ class BehavioralIntelligence:
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'],
-            is_debug_enabled, probe_ts
+            states, # 传递 states
+            is_debug_enabled,
+            probe_ts # 传递 probe_ts
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
@@ -2735,160 +2734,6 @@ class BehavioralIntelligence:
             print(f"        - 风险动态调制器: {risk_dynamic_modulator.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '突破失败级联风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
-
-    def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, states: Dict[str, pd.Series], is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, pd.Series]:
-        """
-        【V5.2 · Production Ready版 - 背离品质鲁棒融合】诊断高品质价量/价资背离
-        - 核心重构: 废弃V4.0“宏观趋势分析”模型，引入“背离深度与广度 × 战略位置 × 双重确认 × 欺骗叙事确认”的全新四维诊断框架。
-        - 诊断四维度:
-          1. 背离深度与广度 (Divergence Depth & Breadth): 使用斜率更鲁棒地检测价格趋势和主力信念趋势。
-          2. 战略位置 (Strategic Location): 评估背离是否发生在绝望区或获利盘不稳定区。
-          3. 双重确认 (Dual Confirmation): 由“主力承接/派发”和“微观意图”进行双重印证。
-          4. 欺骗叙事确认 (Deceptive Narrative Confirmation): 引入欺骗指数的负向部分，捕捉诱多本质。
-        - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
-        - **【修正】直接使用 `SCORE_BEHAVIOR_BULLISH_DIVERGENCE` 和 `SCORE_BEHAVIOR_BEARISH_DIVERGENCE` 作为背离深度与广度的输入，避免重复计算和逻辑错误。**
-        - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
-        """
-        method_name = "_diagnose_divergence_quality"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质价量/价资背离' @ {probe_ts.strftime('%Y-%m-%d')}")
-        params = get_param_value(self.config_params.get('deceptive_divergence_protocol_params'), {})
-        # bullish_magnitude_params = get_param_value(params.get('bullish_magnitude_params'), {"price_downtrend_slope_window": 5, "conviction_uptrend_slope_window": 5}) # 废弃
-        # bearish_magnitude_params = get_param_value(params.get('bearish_magnitude_params'), {"price_slope_window": 5, "conviction_downtrend_slope_window": 5}) # 废弃
-        fusion_weights = get_param_value(params.get('fusion_weights'), {"magnitude": 0.4, "location": 0.3, "bullish_absorption_confirmation": 0.2, "bearish_distribution_confirmation": 0.2, "micro_intent_confirmation": 0.1, "deceptive_narrative_confirmation": 0.1})
-        p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-        required_signals = [
-            'close_D', 'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D',
-            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 'SCORE_BEHAVIOR_DECEPTION_INDEX'
-        ]
-        required_state_signals = [ # 新增对纯行为背离信号的依赖
-            'SCORE_BEHAVIOR_BULLISH_DIVERGENCE', 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE'
-        ]
-        missing_df_signals = [s for s in required_signals if s not in df.columns]
-        missing_state_signals = [s for s in required_state_signals if s not in states]
-        if missing_df_signals or missing_state_signals:
-            if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-                print(f"      [探针 - {method_name}] 缺少核心信号。")
-                if missing_df_signals: print(f"         - DataFrame中缺失: {missing_df_signals}")
-                if missing_state_signals: print(f"         - States中缺失: {missing_state_signals}")
-            return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
-        # 集中提取所有必需的原始信号
-        signals_data = {sig: df[sig] for sig in required_signals}
-        state_signals_data = {sig: states[sig] for sig in required_state_signals} # 获取纯行为背离信号
-        debug_info = (is_debug_enabled, probe_ts, method_name)
-        
-        # --- 2. 获取所有原始数据 ---
-        price = signals_data['close_D']
-        conviction_raw = signals_data['main_force_conviction_index_D']
-        loser_pain_raw = signals_data['loser_pain_index_D']
-        winner_stability_raw = signals_data['winner_stability_index_D']
-        micro_intent_raw = signals_data['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT']
-        deception_raw = signals_data['SCORE_BEHAVIOR_DECEPTION_INDEX']
-        
-        # --- 预先计算组合 Series，确保 id() 一致性 ---
-        winner_instability_raw = (1 - winner_stability_raw)
-        micro_intent_raw_clip_lower_0 = micro_intent_raw.clip(lower=0)
-        micro_intent_raw_clip_upper_0_abs = micro_intent_raw.clip(upper=0).abs()
-        deception_raw_clip_upper_0_abs = deception_raw.clip(upper=0).abs() # 只有负向欺骗才作为欺骗叙事确认
-        
-        # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
-        series_for_mtf_norm_config = {
-            'loser_pain_index_D': (loser_pain_raw, default_weights, True),
-            'winner_instability_raw': (winner_instability_raw, default_weights, True), # winner_instability_raw
-            'micro_intent_raw_clip_lower_0': (micro_intent_raw_clip_lower_0, default_weights, True), # bullish_micro_intent_confirmation_score
-            'micro_intent_raw_clip_upper_0_abs': (micro_intent_raw_clip_upper_0_abs, default_weights, True), # bearish_micro_intent_confirmation_score
-            'deception_raw_clip_upper_0_abs': (deception_raw_clip_upper_0_abs, default_weights, True) # deceptive_narrative_confirmation_score
-        }
-        # 批量计算所有多时间框架归一化分数
-        normalized_mtf_scores = {}
-        for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
-        
-        # --- 3. 牛市背离品质 (Bullish Divergence Quality) ---
-        # 直接使用 SCORE_BEHAVIOR_BULLISH_DIVERGENCE 作为背离深度与广度
-        bullish_magnitude_score = state_signals_data['SCORE_BEHAVIOR_BULLISH_DIVERGENCE']
-        bullish_location_score = normalized_mtf_scores['loser_pain_index_D']
-        bullish_absorption_confirmation_score = absorption_strength
-        bullish_micro_intent_confirmation_score = normalized_mtf_scores['micro_intent_raw_clip_lower_0']
-        
-        bullish_divergence_quality = self._robust_generalized_mean(
-            {
-                "magnitude": bullish_magnitude_score,
-                "location": bullish_location_score,
-                "absorption_confirmation": bullish_absorption_confirmation_score,
-                "micro_intent_confirmation": bullish_micro_intent_confirmation_score
-            },
-            {
-                "magnitude": fusion_weights.get('magnitude', 0.4),
-                "location": fusion_weights.get('location', 0.3),
-                "absorption_confirmation": fusion_weights.get('bullish_absorption_confirmation', 0.2),
-                "micro_intent_confirmation": fusion_weights.get('micro_intent_confirmation', 0.1)
-            },
-            df.index,
-            power_p=0.0, # 几何平均
-            is_debug_enabled=is_debug_enabled,
-            probe_ts=probe_ts,
-            fusion_level_name="牛市背离品质融合"
-        ).fillna(0.0)
-        
-        # --- 4. 熊市背离品质 (Bearish Divergence Quality) ---
-        # 直接使用 SCORE_BEHAVIOR_BEARISH_DIVERGENCE 作为背离深度与广度
-        bearish_magnitude_score = state_signals_data['SCORE_BEHAVIOR_BEARISH_DIVERGENCE']
-        bearish_location_score = normalized_mtf_scores['winner_instability_raw']
-        bearish_distribution_confirmation_score = distribution_intent
-        bearish_micro_intent_confirmation_score = normalized_mtf_scores['micro_intent_raw_clip_upper_0_abs']
-        deceptive_narrative_confirmation_score = normalized_mtf_scores['deception_raw_clip_upper_0_abs']
-        
-        bearish_divergence_quality = self._robust_generalized_mean(
-            {
-                "magnitude": bearish_magnitude_score,
-                "location": bearish_location_score,
-                "distribution_confirmation": bearish_distribution_confirmation_score,
-                "micro_intent_confirmation": bearish_micro_intent_confirmation_score,
-                "deceptive_narrative_confirmation": deceptive_narrative_confirmation_score
-            },
-            {
-                "magnitude": fusion_weights.get('magnitude', 0.4),
-                "location": fusion_weights.get('location', 0.3),
-                "distribution_confirmation": fusion_weights.get('bearish_distribution_confirmation', 0.2),
-                "micro_intent_confirmation": fusion_weights.get('micro_intent_confirmation', 0.1),
-                "deceptive_narrative_confirmation": fusion_weights.get('deceptive_narrative_confirmation', 0.1)
-            },
-            df.index,
-            power_p=0.0, # 几何平均
-            is_debug_enabled=is_debug_enabled,
-            probe_ts=probe_ts,
-            fusion_level_name="熊市背离品质融合"
-        ).fillna(0.0)
-        
-        bullish_divergence_quality_final_score = bullish_divergence_quality.clip(0, 1).astype(np.float32)
-        bearish_divergence_quality_final_score = bearish_divergence_quality.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - loser_pain_index_D: {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - winner_stability_index_D: {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT: {signals_data['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_DECEPTION_INDEX: {signals_data['SCORE_BEHAVIOR_DECEPTION_INDEX'].loc[probe_ts]:.4f}")
-            print(f"        - absorption_strength (来自外部): {absorption_strength.loc[probe_ts]:.4f}")
-            print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_BULLISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_BEARISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 牛市背离幅度分数: {bullish_magnitude_score.loc[probe_ts]:.4f}")
-            print(f"        - 牛市背离位置分数: {bullish_location_score.loc[probe_ts]:.4f}")
-            print(f"        - 牛市吸收确认分数: {bullish_absorption_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 牛市微观意图确认分数: {bullish_micro_intent_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市背离幅度分数: {bearish_magnitude_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市背离位置分数: {bearish_location_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市派发确认分数: {bearish_distribution_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市微观意图确认分数: {bearish_micro_intent_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 欺骗叙事确认分数: {deceptive_narrative_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '牛市背离品质'分数 @ 2025-12-10: {bullish_divergence_quality_final_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '熊市背离品质'分数 @ 2025-12-10: {bearish_divergence_quality_final_score.loc[probe_ts]:.4f}")
-        return bullish_divergence_quality_final_score, bearish_divergence_quality_final_score
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
