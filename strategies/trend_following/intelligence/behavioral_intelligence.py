@@ -3380,6 +3380,7 @@ class BehavioralIntelligence:
         method_name = "_diagnose_pure_behavioral_divergence"
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"    -> [探针 - {method_name}] 正在计算 '纯粹基于行为类原始数据的看涨/看跌背离信号' @ {probe_ts.strftime('%Y-%m-%d')}")
+        
         # 1. 获取所有配置参数
         p_conf = self.config_params
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -3439,39 +3440,41 @@ class BehavioralIntelligence:
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
+        
         # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
+        
         debug_info = (is_debug_enabled, probe_ts, method_name)
+        
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         # For purity_factor
-        # 修正：从 params 字典中获取 mtf_slopes_params
+        # 修正：从 params 中获取 mtf_slopes_params
         mtf_slopes_params_local = params['mtf_slopes_params']
         slope_std_dev_raw = signals_data['robust_close_slope'].rolling(window=mtf_slopes_params_local.get("periods", [5])[0]).std().fillna(0)
         # For inertia_factor
         long_term_close_slopes_series = signals_data['long_term_close_slope'] # Already a Series
         long_term_slope_std_dev_raw = long_term_close_slopes_series.rolling(window=params['long_term_period']).std().fillna(0)
+        
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         series_for_norm_config = {
+            'robust_close_slope_for_purity': (signals_data['robust_close_slope'], 55, True), # For purity_factor
+            'robust_pct_change_slope': (signals_data['robust_pct_change_slope'], 55, True), # For market_context_params
             'ATR_14_D': (signals_data['ATR_14_D'], tf_weights, True), # For norm_atr
-            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True), # For norm_active_buying
-            'active_selling_pressure_D': (signals_data['active_selling_pressure_D'], tf_weights, True), # For norm_active_selling
-            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True), # For trend_vitality
-            'BBW_21_2.0_D': (signals_data['BBW_21_2.0_D'], tf_weights, False), # For structural_context_factor
             'ADX_14_D': (signals_data['ADX_14_D'], 55, True), # For market_regime_params
             'RSI_13_D': (signals_data['RSI_13_D'], 55, True), # For rsi_conf
             'robust_volume_slope_for_conf': (signals_data['robust_volume_slope'], tf_weights, True), # For volume_change_conf
-            'robust_close_slope_for_purity': (signals_data['robust_close_slope'], 55, True), # For purity_factor
             'slope_std_dev_raw': (slope_std_dev_raw, tf_weights, True), # For purity_factor
-            'robust_pct_change_slope': (signals_data['robust_pct_change_slope'], 55, True), # For market_context_params
             'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True) # For inertia_factor
         }
+        
         # 批量计算所有多时间框架归一化分数
         normalized_scores = {}
         for key, (series_obj, tf_w_or_window, asc) in series_for_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
+                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+        
         # 集中获取所有信号
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
@@ -3508,17 +3511,20 @@ class BehavioralIntelligence:
         intraday_bull_control_val = signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']
         internal_price_overextension_raw = signals_data['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW']
         internal_stagnation_evidence_raw = signals_data['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW']
+        
         # 归一化确认因子 (0到1)
         norm_active_buying = normalized_scores['active_buying_support_D']
         norm_active_selling = normalized_scores['active_selling_pressure_D']
         norm_atr = normalized_scores['ATR_14_D']
+        
         # 动态阈值计算
         dynamic_min_divergence_slope_diff = params['min_divergence_slope_diff_base'] + atr_val * params['min_slope_diff_atr_multiplier']
         rsi_oversold_threshold_dynamic = params['rsi_oversold_threshold_base'] - (trend_vitality - 0.5) * params['rsi_oversold_trend_adjust_factor']
         rsi_overbought_threshold_dynamic = params['rsi_overbought_threshold_base'] + (trend_vitality - 0.5) * params['rsi_overbought_trend_adjust_factor']
+        
         # 3. 调用辅助方法计算看涨和看跌背离
         bullish_divergence_score = self._calculate_single_divergence_type(
-            df, True, params, tf_weights, # 确保 tf_weights 传递
+            df, True, params, tf_weights, signals_data, # 传递 signals_data
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
@@ -3532,7 +3538,7 @@ class BehavioralIntelligence:
             is_debug_enabled, probe_ts # 传递 debug_info_tuple
         )
         bearish_divergence_score = self._calculate_single_divergence_type(
-            df, False, params, tf_weights, # 确保 tf_weights 传递
+            df, False, params, tf_weights, signals_data, # 传递 signals_data
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
@@ -3547,12 +3553,14 @@ class BehavioralIntelligence:
         )
         final_bullish_score = bullish_divergence_score.astype(np.float32)
         final_bearish_score = bearish_divergence_score.astype(np.float32)
+
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"      [探针 - {method_name}] 最终 '看涨背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bullish_score.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '看跌背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bearish_score.loc[probe_ts]:.4f}")
+        
         return final_bullish_score, final_bearish_score
 
-    def _calculate_single_divergence_type(self, df: pd.DataFrame, is_bullish: bool, params: Dict, tf_weights: Dict, # tf_weights 已经作为参数传入
+    def _calculate_single_divergence_type(self, df: pd.DataFrame, is_bullish: bool, params: Dict, tf_weights: Dict, signals_data: Dict[str, pd.Series], # 新增 signals_data 参数
                                           robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
                                           long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
                                           pattern_close_slope, pattern_volume_slope,
@@ -3567,7 +3575,9 @@ class BehavioralIntelligence:
         method_name = "_calculate_single_divergence_type"
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"    -> [探针 - {method_name}] 正在计算 {'看涨' if is_bullish else '看跌'} 背离类型 @ {probe_ts.strftime('%Y-%m-%d')}")
+        
         debug_info = (is_debug_enabled, probe_ts, method_name)
+
         # 修正：从 params 字典中获取 mtf_slopes_params
         mtf_slopes_params = params['mtf_slopes_params']
         multi_level_resonance_params = params['multi_level_resonance_params']
@@ -3591,12 +3601,14 @@ class BehavioralIntelligence:
         bullish_conf_weights = params['bullish_conf_weights']
         bearish_conf_weights = params['bearish_conf_weights']
         long_term_period = params['long_term_period']
+        
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         # For purity_factor
         slope_std_dev_raw = robust_close_slope.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
         # For inertia_factor
         long_term_close_slopes_series = long_term_close_slope # Already a Series
         long_term_slope_std_dev_raw = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
+        
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         series_for_norm_config = {
             'robust_close_slope_for_purity': (robust_close_slope, 55, True), # For purity_factor
@@ -3608,18 +3620,69 @@ class BehavioralIntelligence:
             'slope_std_dev_raw': (slope_std_dev_raw, tf_weights, True), # For purity_factor
             'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True) # For inertia_factor
         }
+        
         # 批量计算所有多时间框架归一化分数
         normalized_scores = {}
         for key, (series_obj, tf_w_or_window, asc) in series_for_norm_config.items():
             if isinstance(tf_w_or_window, dict): # get_adaptive_mtf_normalized_score
-                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=False)
+                normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
             else: # normalize_score
-                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=False)
+                normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
+        
+        # 集中获取所有信号 (这些信号已经作为参数传入，这里只是为了调试打印方便)
+        # robust_close_slope = signals_data['robust_close_slope'] # 已经作为参数传入
+        # robust_rsi_slope = signals_data['robust_RSI_13_slope'] # 已经作为参数传入
+        # robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope'] # 已经作为参数传入
+        # robust_volume_slope = signals_data['robust_volume_slope'] # 已经作为参数传入
+        # robust_bbw_slope = signals_data['robust_BBW_21_2.0_slope'] # 已经作为参数传入
+        # robust_pct_change_slope = signals_data['robust_pct_change_slope'] # 已经作为参数传入
+        # long_term_close_slope = signals_data['long_term_close_slope'] # 已经作为参数传入
+        # long_term_rsi_slope = signals_data['long_term_RSI_13_slope'] # 已经作为参数传入
+        # long_term_macd_slope = signals_data['long_term_MACDh_13_34_8_slope'] # 已经作为参数传入
+        # long_term_volume_slope = signals_data['long_term_volume_slope'] # 已经作为参数传入
+        # long_term_adx_slope = signals_data['long_term_adx_slope'] # 已经作为参数传入
+        # pattern_close_slope = signals_data['pattern_close_slope'] # 已经作为参数传入
+        # pattern_volume_slope = signals_data['pattern_volume_slope'] # 已经作为参数传入
+        # accel_close = signals_data[f'ACCEL_{accel_period}_close_D'] # 已经作为参数传入
+        # accel_rsi = signals_data[f'ACCEL_{accel_period}_RSI_13_D'] # 已经作为参数传入
+        # accel_macd = signals_data[f'ACCEL_{accel_period}_MACDh_13_34_8_D'] # 已经作为参数传入
+        # accel_volume = signals_data[f'ACCEL_{accel_period}_volume_D'] # 已经作为参数传入
+        # rsi_val = signals_data['RSI_13_D'] # 已经作为参数传入
+        # atr_val = signals_data['ATR_14_D'] # 已经作为参数传入
+        # active_buying = signals_data['active_buying_support_D'] # 已经作为参数传入
+        # active_selling = signals_data['active_selling_pressure_D'] # 已经作为参数传入
+        # raw_trend_vitality = signals_data['trend_vitality_index_D'] # 已经作为参数传入
+        # trend_vitality = normalized_scores['trend_vitality_index_D'] # 已经作为参数传入
+        # open_price = signals_data['open_D'] # 已经作为参数传入
+        # high_price = signals_data['high_D'] # 已经作为参数传入
+        # low_price = signals_data['low_D'] # 已经作为参数传入
+        # close_price = signals_data['close_D'] # 已经作为参数传入
+        # adx_val = signals_data['ADX_14_D'] # 已经作为参数传入
+        # current_volume = signals_data['volume_D'] # 已经作为参数传入
+        # volume_avg = signals_data['VOL_MA_21_D'] # 已经作为参数传入
+        # pct_change_val = signals_data['pct_change_D'] # 已经作为参数传入
+        # upward_efficiency_val = signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] # 已经作为参数传入
+        # intraday_bull_control_val = signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] # 已经作为参数传入
+        # internal_price_overextension_raw = signals_data['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] # 已经作为参数传入
+        # internal_stagnation_evidence_raw = signals_data['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] # 已经作为参数传入
+        
+        # 归一化确认因子 (0到1)
+        norm_active_buying = normalized_scores['active_buying_support_D']
+        norm_active_selling = normalized_scores['active_selling_pressure_D']
+        norm_atr = normalized_scores['ATR_14_D']
+        
+        # 动态阈值计算
+        dynamic_min_divergence_slope_diff = params['min_divergence_slope_diff_base'] + atr_val * params['min_slope_diff_atr_multiplier']
+        rsi_oversold_threshold_dynamic = params['rsi_oversold_threshold_base'] - (trend_vitality - 0.5) * params['rsi_oversold_trend_adjust_factor']
+        rsi_overbought_threshold_dynamic = params['rsi_overbought_threshold_base'] + (trend_vitality - 0.5) * params['rsi_overbought_trend_adjust_factor']
+        
         price_trend_condition = (robust_close_slope < 0) if is_bullish else (robust_close_slope > 0)
         rsi_indicator_trend = (robust_rsi_slope > 0) if is_bullish else (robust_rsi_slope < 0)
         macd_indicator_trend = (robust_macd_slope > 0) if is_bullish else (robust_macd_slope < 0)
         volume_indicator_trend = (robust_volume_slope > 0) if is_bullish else (robust_volume_slope < 0)
+        
         div_condition_raw = price_trend_condition & (rsi_indicator_trend | macd_indicator_trend | volume_indicator_trend)
+        
         accelerated_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
         if behavioral_strength_params.get('enabled'):
             acceleration_bonus = behavioral_strength_params.get('acceleration_bonus', 0.05)
@@ -3633,9 +3696,11 @@ class BehavioralIntelligence:
             accel_strength_volume = (volume_indicator_trend & accel_volume_condition).astype(int) * acceleration_bonus
             
             accelerated_strength = (accel_strength_rsi + accel_strength_macd + accel_strength_volume).clip(0, 0.15)
+        
         div_strength_rsi = (rsi_indicator_trend * (robust_rsi_slope - robust_close_slope * (-1 if is_bullish else 1))).clip(lower=0)
         div_strength_macd = (macd_indicator_trend * (robust_macd_slope - robust_close_slope * (-1 if is_bullish else 1))).clip(lower=0)
         div_strength_volume = (volume_indicator_trend * (robust_volume_slope - robust_close_slope * (-1 if is_bullish else 1))).clip(lower=0)
+        
         div_weights = bullish_div_weights if is_bullish else bearish_div_weights
         total_div_strength = (
             div_strength_rsi * div_weights.get('price_rsi', 0.4) +
@@ -3643,25 +3708,29 @@ class BehavioralIntelligence:
             div_strength_volume * div_weights.get('price_volume', 0.3)
         )
         total_div_strength = total_div_strength.where(total_div_strength > dynamic_min_divergence_slope_diff, 0.0)
-        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=False)
+        norm_total_div_strength = normalize_score(total_div_strength, df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+        
         final_strength_factor = norm_total_div_strength * (1 + accelerated_strength)
         final_strength_factor = final_strength_factor.clip(0, 1.5)
+        
         conf_weights = bullish_conf_weights if is_bullish else bearish_conf_weights
         if is_bullish:
-            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False)
+            rsi_conf = normalize_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
             volume_change_conf = normalized_scores['robust_volume_slope_for_conf'] # Use normalized_scores
             active_flow_conf = norm_active_buying
         else:
-            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=False)
-            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=False)
+            rsi_conf = normalize_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+            volume_change_conf = normalize_score(robust_volume_slope.clip(upper=0).abs(), df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
             active_flow_conf = norm_active_selling
+        
         total_conf_factor = (
             rsi_conf * conf_weights.get('rsi_oversold' if is_bullish else 'rsi_overbought', 0.3) +
             volume_change_conf * conf_weights.get('volume_increase' if is_bullish else 'volume_decrease', 0.3) +
             active_flow_conf * conf_weights.get('buying_support' if is_bullish else 'selling_pressure', 0.2) +
             norm_atr * conf_weights.get('volatility_high', 0.2)
         )
-        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=False)
+        norm_total_conf_factor = normalize_score(total_conf_factor, df.index, windows=55, ascending=True, debug_info=debug_info) # Use normalize_score
+        
         persistence_factor = pd.Series(0.0, index=df.index, dtype=np.float32)
         if persistence_params.get('enabled'):
             min_persistence_duration = persistence_params.get('min_duration', 2)
@@ -3676,16 +3745,19 @@ class BehavioralIntelligence:
             persistence_factor = (persistence_count / max_persistence_window) * (1 + persistence_quality * quality_decay_factor * persistence_count)
             persistence_factor = persistence_factor.where(persistence_count >= min_persistence_duration, 0.0)
             persistence_factor = persistence_factor.clip(0, 1.5)
+        
         num_indicators_diverging = rsi_indicator_trend.astype(int) + macd_indicator_trend.astype(int) + volume_indicator_trend.astype(int)
         synergy_bonus = pd.Series(0.0, index=df.index, dtype=np.float32)
         if synergy_weights_params.get('enabled'):
             synergy_bonus = synergy_bonus.mask(num_indicators_diverging == 2, synergy_weights_params.get('two_indicators_synergy_bonus', 0.1))
             synergy_bonus = synergy_bonus.mask(num_indicators_diverging >= 3, synergy_weights_params.get('three_indicators_synergy_bonus', 0.2))
         synergy_factor = (1 + synergy_bonus).clip(1, 1.5)
+        
         bbw_slope_penalty = pd.Series(0.0, index=df.index, dtype=np.float32)
         if structural_context_weights_params.get('enabled'):
             bbw_slope_penalty = robust_bbw_slope.clip(lower=0) * structural_context_weights_params.get('bbw_slope_penalty_factor', 0.1)
-        structural_context_factor = (1 - normalize_score(bbw_slope_penalty, df.index, windows=55, ascending=True, debug_info=False)).clip(0.5, 1)
+        structural_context_factor = (1 - normalize_score(bbw_slope_penalty, df.index, windows=55, ascending=True, debug_info=debug_info)).clip(0.5, 1) # Use normalize_score
+        
         resonance_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if multi_level_resonance_params.get('enabled'):
             long_term_price_trend = (long_term_close_slope < 0) if is_bullish else (long_term_close_slope > 0)
@@ -3694,6 +3766,7 @@ class BehavioralIntelligence:
             long_term_volume_trend = (long_term_volume_slope > 0) if is_bullish else (long_term_volume_slope < 0)
             long_term_div_condition = long_term_price_trend & (long_term_rsi_trend | long_term_macd_trend | long_term_volume_trend)
             resonance_factor = resonance_factor.mask(div_condition_raw & long_term_div_condition, 1 + multi_level_resonance_params.get('resonance_bonus', 0.2))
+        
         price_action_conf = pd.Series(0.0, index=df.index, dtype=np.float32)
         if price_action_confirmation_params.get('enabled'):
             body_range = (close_price - open_price).abs()
@@ -3705,10 +3778,6 @@ class BehavioralIntelligence:
             lower_shadow_ratio = (lower_shadow / total_range_safe).clip(0, 1)
             upper_shadow_ratio = (upper_shadow / total_range_safe).clip(0, 1)
             body_ratio = (body_range / total_range_safe).clip(0, 1)
-            
-            is_long_lower_shadow = (lower_shadow_ratio > price_action_confirmation_params.get('lower_shadow_ratio_threshold', 0.4))
-            is_long_upper_shadow = (upper_shadow_ratio > price_action_confirmation_params.get('upper_shadow_ratio_threshold', 0.4))
-            is_small_body = (body_ratio < price_action_confirmation_params.get('body_ratio_threshold', 0.3))
             
             if is_bullish:
                 is_engulfing = (
@@ -3740,7 +3809,9 @@ class BehavioralIntelligence:
             price_action_conf = price_action_conf.mask((is_long_lower_shadow if is_bullish else is_long_upper_shadow) & is_small_body, price_action_confirmation_params.get('confirmation_bonus', 0.15))
             price_action_conf = price_action_conf.mask(is_engulfing, price_action_confirmation_params.get('engulfing_pattern_bonus', 0.1))
             price_action_conf = price_action_conf.mask(is_reversal_candle, price_action_confirmation_params.get('hammer_shooting_star_bonus', 0.1))
+        
         price_action_factor = (1 + price_action_conf).clip(1, 1.5)
+        
         volume_price_structure_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if volume_price_structure_params.get('enabled'):
             vol_climax_mult = volume_price_structure_params.get('volume_climax_threshold_multiplier', 2.0)
@@ -3773,6 +3844,7 @@ class BehavioralIntelligence:
                     price_trend_condition & is_volume_climax & (close_price < open_price), structure_bonus
                 )
             volume_price_structure_factor = (1 + volume_price_structure_conf).clip(1, 1.5)
+        
         purity_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if purity_assessment_params.get('enabled'):
             # short_term_close_slopes = robust_close_slope # Already calculated
@@ -3785,6 +3857,7 @@ class BehavioralIntelligence:
                 norm_slope_std_dev * purity_assessment_params.get('whipsaw_penalty_factor', 0.1)
             )
             purity_factor = (1 - purity_penalty).clip(0.5, 1)
+        
         dynamic_div_weight_multiplier = pd.Series(1.0, index=df.index, dtype=np.float32)
         dynamic_conf_weight_multiplier = pd.Series(1.0, index=df.index, dtype=np.float32)
         if market_regime_params.get('enabled'):
@@ -3801,6 +3874,7 @@ class BehavioralIntelligence:
             )
             dynamic_conf_weight_multiplier = dynamic_conf_weight_multiplier * (1 - norm_atr * market_regime_params.get('atr_conf_weight_max_adjust', 0.2))
             dynamic_conf_weight_multiplier = dynamic_conf_weight_multiplier.clip(0.5, 1.5)
+        
         market_context_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if market_context_params.get('enabled'):
             favorable_sentiment_slope_threshold = market_context_params.get('favorable_sentiment_slope_threshold', 0.001)
@@ -3830,6 +3904,7 @@ class BehavioralIntelligence:
                     is_favorable_sentiment & ~is_healthy_trend, -unfavorable_context_penalty
                 )
             market_context_factor = (1 + market_context_bonus_penalty).clip(0.5, 1.5)
+        
         freshness_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
@@ -3838,6 +3913,7 @@ class BehavioralIntelligence:
                 persistence_count == 1, 1 + freshness_bonus
             )
         freshness_factor = freshness_factor.clip(1, 1.5)
+        
         consistency_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if behavioral_consistency_params.get('enabled'):
             min_consistent_indicators = behavioral_consistency_params.get('min_consistent_indicators_for_bonus', 2)
@@ -3864,6 +3940,7 @@ class BehavioralIntelligence:
                 1 - conflict_penalty
             )
         consistency_factor = consistency_factor.clip(0.5, 1.5)
+        
         pattern_sequence_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if pattern_sequence_params.get('enabled'):
             lookback_window = pattern_sequence_params.get('lookback_window', 3)
@@ -3883,6 +3960,7 @@ class BehavioralIntelligence:
             is_pattern_sequence = price_trend_in_window & volume_drying_up_in_window & current_bar_reversal
             pattern_sequence_factor = pattern_sequence_factor.mask(is_pattern_sequence, 1 + sequence_bonus)
         pattern_sequence_factor = pattern_sequence_factor.clip(1, 1.5)
+        
         inertia_factor = pd.Series(1.0, index=df.index, dtype=np.float32)
         if behavioral_inertia_params.get('enabled'):
             long_term_adx_threshold = behavioral_inertia_params.get('long_term_adx_threshold', 30)
@@ -3905,6 +3983,7 @@ class BehavioralIntelligence:
             inertia_adjustment = inertia_adjustment.mask(is_high_inertia_market, -high_inertia_penalty)
             inertia_adjustment = inertia_adjustment.mask(is_low_inertia_market, low_inertia_bonus)
             inertia_factor = (1 + inertia_adjustment).clip(0.5, 1.5)
+        
         adaptive_fusion_weight_multiplier = pd.Series(1.0, index=df.index, dtype=np.float32)
         if behavioral_inertia_params.get('enabled'):
             trend_strong_penalty_factor = adaptive_fusion_weights_params.get('trend_strong_penalty_factor', 0.1)
@@ -3926,6 +4005,7 @@ class BehavioralIntelligence:
                 is_high_volatility, adaptive_fusion_weight_multiplier * (1 - volatility_high_penalty_factor)
             )
         adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.clip(0.5, 1.5)
+        
         divergence_score = (
             (final_strength_factor + 1e-9).pow(0.4 * dynamic_div_weight_multiplier) *
             (persistence_factor + 1e-9).pow(0.2) *
@@ -3942,28 +4022,18 @@ class BehavioralIntelligence:
             (pattern_sequence_factor + 1e-9).pow(0.1) *
             (inertia_factor + 1e-9).pow(0.1)
         ).pow(1 / (2.2 * adaptive_fusion_weight_multiplier)).fillna(0.0).clip(0, 1)
+        
         divergence_score = divergence_score.where(div_condition_raw, 0.0)
         final_score = divergence_score.astype(np.float32)
+
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - robust_close_slope: {robust_close_slope.loc[probe_ts]:.4f}")
-            print(f"        - robust_rsi_slope: {robust_rsi_slope.loc[probe_ts]:.4f}")
-            print(f"        - robust_macd_slope: {robust_macd_slope.loc[probe_ts]:.4f}")
-            print(f"        - robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
-            print(f"        - ATR_14_D: {atr_val.loc[probe_ts]:.4f}")
-            print(f"        - RSI_13_D: {rsi_val.loc[probe_ts]:.4f}")
-            print(f"        - ADX_14_D: {adx_val.loc[probe_ts]:.4f}")
-            print(f"        - active_buying_support_D: {active_buying.loc[probe_ts]:.4f}")
-            print(f"        - active_selling_pressure_D: {active_selling.loc[probe_ts]:.4f}")
-            print(f"        - trend_vitality_index_D: {trend_vitality.loc[probe_ts]:.4f}")
-            print(f"        - BBW_21_2.0_D: {signals_data['BBW_21_2.0_D'].loc[probe_ts]:.4f}")
-            print(f"        - open_D: {open_price.loc[probe_ts]:.4f}")
-            print(f"        - high_D: {high_price.loc[probe_ts]:.4f}")
-            print(f"        - low_D: {low_price.loc[probe_ts]:.4f}")
-            print(f"        - close_D: {close_price.loc[probe_ts]:.4f}")
-            print(f"        - volume_D: {current_volume.loc[probe_ts]:.4f}")
-            print(f"        - VOL_MA_21_D: {volume_avg.loc[probe_ts]:.4f}")
-            print(f"        - pct_change_D: {pct_change_val.loc[probe_ts]:.4f}")
+            # 遍历 signals_data 字典并打印其内容
+            for sig_name, sig_series in signals_data.items():
+                if probe_ts in sig_series.index:
+                    print(f"        - {sig_name}: {sig_series.loc[probe_ts]:.4f}")
+                else:
+                    print(f"        - {sig_name}: N/A (probe_ts not in index)")
             print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - 价格趋势条件: {price_trend_condition.loc[probe_ts]}")
             print(f"        - RSI指标趋势: {rsi_indicator_trend.loc[probe_ts]}")
@@ -3988,6 +4058,7 @@ class BehavioralIntelligence:
             print(f"        - 惯性因子: {inertia_factor.loc[probe_ts]:.4f}")
             print(f"        - 自适应融合权重乘数: {adaptive_fusion_weight_multiplier.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '背离信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        
         return final_score
 
     def _calculate_lockup_rally_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
