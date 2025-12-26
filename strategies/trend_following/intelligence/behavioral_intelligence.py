@@ -3429,7 +3429,7 @@ class BehavioralIntelligence:
             'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
             'robust_BBW_21_2.0_slope', 'robust_pct_change_slope',
             'long_term_close_slope', 'long_term_RSI_13_slope', 'long_term_MACDh_13_34_8_slope', 'long_term_volume_slope',
-            'long_term_adx_slope',
+            'long_term_adx_slope', 
             'pattern_close_slope', 'pattern_volume_slope',
             f'ACCEL_{accel_period}_close_D',
             f'ACCEL_{accel_period}_RSI_13_D',
@@ -3465,7 +3465,8 @@ class BehavioralIntelligence:
             'robust_volume_slope_for_conf': (signals_data['robust_volume_slope'], tf_weights, True), # For volume_change_conf
             'slope_std_dev_raw': (slope_std_dev_raw, tf_weights, True), # For purity_factor
             'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True), # For inertia_factor
-            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True) # 新增此处
+            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True), # 新增此处
+            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True)
         }
         
         # 批量计算所有多时间框架归一化分数
