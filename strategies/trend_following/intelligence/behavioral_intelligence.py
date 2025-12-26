@@ -2736,7 +2736,7 @@ class BehavioralIntelligence:
             print(f"      [探针 - {method_name}] 最终 '突破失败级联风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
-    def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, pd.Series]:
+    def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, states: Dict[str, pd.Series], is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, pd.Series]:
         """
         【V5.2 · Production Ready版 - 背离品质鲁棒融合】诊断高品质价量/价资背离
         - 核心重构: 废弃V4.0“宏观趋势分析”模型，引入“背离深度与广度 × 战略位置 × 双重确认 × 欺骗叙事确认”的全新四维诊断框架。
@@ -2745,7 +2745,6 @@ class BehavioralIntelligence:
           2. 战略位置 (Strategic Location): 评估背离是否发生在绝望区或获利盘不稳定区。
           3. 双重确认 (Dual Confirmation): 由“主力承接/派发”和“微观意图”进行双重印证。
           4. 欺骗叙事确认 (Deceptive Narrative Confirmation): 引入欺骗指数的负向部分，捕捉诱多本质。
-        - 数学模型: 品质分 = (背离深度与广度分^0.4 * 战略位置分^0.3 * 主力承接/派发确认分^0.2 * 微观意图确认分^0.1 * 欺骗叙事确认分^0.1)
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         - **【修正】直接使用 `SCORE_BEHAVIOR_BULLISH_DIVERGENCE` 和 `SCORE_BEHAVIOR_BEARISH_DIVERGENCE` 作为背离深度与广度的输入，避免重复计算和逻辑错误。**
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
