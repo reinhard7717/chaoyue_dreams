@@ -3429,7 +3429,7 @@ class BehavioralIntelligence:
             'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
             'robust_BBW_21_2.0_slope', 'robust_pct_change_slope',
             'long_term_close_slope', 'long_term_RSI_13_slope', 'long_term_MACDh_13_34_8_slope', 'long_term_volume_slope',
-            'long_term_adx_slope', 
+            'long_term_adx_slope',
             'pattern_close_slope', 'pattern_volume_slope',
             f'ACCEL_{accel_period}_close_D',
             f'ACCEL_{accel_period}_RSI_13_D',
@@ -3465,9 +3465,9 @@ class BehavioralIntelligence:
             'robust_volume_slope_for_conf': (signals_data['robust_volume_slope'], tf_weights, True), # For volume_change_conf
             'slope_std_dev_raw': (slope_std_dev_raw, tf_weights, True), # For purity_factor
             'long_term_slope_std_dev_raw': (long_term_slope_std_dev_raw, tf_weights, True), # For inertia_factor
-            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True), # 新增此处
-            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True),
-            'active_selling_pressure_D': (signals_data['active_selling_pressure_D'], tf_weights, True),
+            'trend_vitality_index_D': (signals_data['trend_vitality_index_D'], tf_weights, True), # 已经添加
+            'active_buying_support_D': (signals_data['active_buying_support_D'], tf_weights, True), # 新增此处
+            'active_selling_pressure_D': (signals_data['active_selling_pressure_D'], tf_weights, True) # 新增此处
         }
         
         # 批量计算所有多时间框架归一化分数
@@ -3501,7 +3501,7 @@ class BehavioralIntelligence:
         active_buying = signals_data['active_buying_support_D']
         active_selling = signals_data['active_selling_pressure_D']
         raw_trend_vitality = signals_data['trend_vitality_index_D']
-        trend_vitality = normalized_scores['trend_vitality_index_D'] # 现在可以从 normalized_scores 获取
+        trend_vitality = normalized_scores['trend_vitality_index_D']
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
         low_price = signals_data['low_D']
@@ -3646,43 +3646,6 @@ class BehavioralIntelligence:
                 normalized_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w_or_window, ascending=asc, debug_info=debug_info)
             else: # normalize_score
                 normalized_scores[key] = normalize_score(series_obj, df.index, windows=tf_w_or_window, ascending=asc, debug_info=debug_info)
-        
-        # 集中获取所有信号 (这些信号已经作为参数传入，这里只是为了调试打印方便)
-        # robust_close_slope = signals_data['robust_close_slope'] # 已经作为参数传入
-        # robust_rsi_slope = signals_data['robust_RSI_13_slope'] # 已经作为参数传入
-        # robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope'] # 已经作为参数传入
-        # robust_volume_slope = signals_data['robust_volume_slope'] # 已经作为参数传入
-        # robust_bbw_slope = signals_data['robust_BBW_21_2.0_slope'] # 已经作为参数传入
-        # robust_pct_change_slope = signals_data['robust_pct_change_slope'] # 已经作为参数传入
-        # long_term_close_slope = signals_data['long_term_close_slope'] # 已经作为参数传入
-        # long_term_rsi_slope = signals_data['long_term_RSI_13_slope'] # 已经作为参数传入
-        # long_term_macd_slope = signals_data['long_term_MACDh_13_34_8_slope'] # 已经作为参数传入
-        # long_term_volume_slope = signals_data['long_term_volume_slope'] # 已经作为参数传入
-        # long_term_adx_slope = signals_data['long_term_adx_slope'] # 已经作为参数传入
-        # pattern_close_slope = signals_data['pattern_close_slope'] # 已经作为参数传入
-        # pattern_volume_slope = signals_data['pattern_volume_slope'] # 已经作为参数传入
-        # accel_close = signals_data[f'ACCEL_{accel_period}_close_D'] # 已经作为参数传入
-        # accel_rsi = signals_data[f'ACCEL_{accel_period}_RSI_13_D'] # 已经作为参数传入
-        # accel_macd = signals_data[f'ACCEL_{accel_period}_MACDh_13_34_8_D'] # 已经作为参数传入
-        # accel_volume = signals_data[f'ACCEL_{accel_period}_volume_D'] # 已经作为参数传入
-        # rsi_val = signals_data['RSI_13_D'] # 已经作为参数传入
-        # atr_val = signals_data['ATR_14_D'] # 已经作为参数传入
-        # active_buying = signals_data['active_buying_support_D'] # 已经作为参数传入
-        # active_selling = signals_data['active_selling_pressure_D'] # 已经作为参数传入
-        # raw_trend_vitality = signals_data['trend_vitality_index_D'] # 已经作为参数传入
-        # trend_vitality = normalized_scores['trend_vitality_index_D'] # 已经作为参数传入
-        # open_price = signals_data['open_D'] # 已经作为参数传入
-        # high_price = signals_data['high_D'] # 已经作为参数传入
-        # low_price = signals_data['low_D'] # 已经作为参数传入
-        # close_price = signals_data['close_D'] # 已经作为参数传入
-        # adx_val = signals_data['ADX_14_D'] # 已经作为参数传入
-        # current_volume = signals_data['volume_D'] # 已经作为参数传入
-        # volume_avg = signals_data['VOL_MA_21_D'] # 已经作为参数传入
-        # pct_change_val = signals_data['pct_change_D'] # 已经作为参数传入
-        # upward_efficiency_val = signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] # 已经作为参数传入
-        # intraday_bull_control_val = signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] # 已经作为参数传入
-        # internal_price_overextension_raw = signals_data['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] # 已经作为参数传入
-        # internal_stagnation_evidence_raw = signals_data['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] # 已经作为参数传入
         
         # 归一化确认因子 (0到1)
         norm_active_buying = normalized_scores['active_buying_support_D']
