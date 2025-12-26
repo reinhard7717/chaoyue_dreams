@@ -71,6 +71,7 @@ class IntelligenceLayer:
         - 核心重构: 彻底改变日内引擎的调用方式。不再依赖不存在的分钟线数据，
                       而是直接将日线DataFrame传递给重构后的日内引擎，
                       使其能够基于预计算的日线级日内信号进行合成与解读。
+        - 错误修复: 修复了 'TrendFollowStrategy' 对象缺少 'bottom_context_score' 和 'top_context_score' 属性的错误。
         """
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -106,6 +107,13 @@ class IntelligenceLayer:
         self._ignite_relational_dynamics_engine()
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
+        # 计算 bottom_context_score 和 top_context_score 并存储到 strategy 实例中
+        # 这些分数用于 OffensiveLayer 中的情境抑制
+        self.strategy.bottom_context_score, self.strategy.top_context_score = calculate_context_scores(
+            self.strategy.atomic_states,
+            self.strategy.df_indicators.index,
+            self.strategy # 传递 strategy 实例以获取参数
+        )
         # 捕获 OffensiveLayer 返回的总进攻得分和总风险惩罚
         total_offensive_score, total_risk_sum, score_details_df = self.strategy.offensive_layer.calculate_entry_score(
             self.strategy.trigger_events, self.strategy.bottom_context_score, self.strategy.top_context_score
@@ -116,6 +124,7 @@ class IntelligenceLayer:
         # 修复指挥链，在所有诊断完成后部署法医探针
         self.deploy_forensic_probes()
         return self.strategy.atomic_states
+
 
     def deploy_forensic_probes(self):
         """
