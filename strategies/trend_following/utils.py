@@ -232,10 +232,11 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         print(f'    -> [内存优化] DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
     return df
 
-def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
+def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict, strategy_instance) -> Tuple[pd.Series, pd.Series]:
     """
-    【V11.6 · 归一化函数调用修复版】计算全局的底部和顶部上下文分数
+    【V11.7 · 签名修复与参数直传版】计算全局的底部和顶部上下文分数
     - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名，避免参数错位和未定义参数的错误。
+    - 签名修复: 明确接受 `strategy_instance` 作为第三个参数，以便直接获取配置，避免间接依赖。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -244,8 +245,8 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         print(f"      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'{close_col}'列，无法计算。")
         empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
         return empty_series, empty_series
-    strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
-    p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
+    # 直接使用传入的 strategy_instance 来获取参数
+    p_synthesis = get_params_block(strategy_instance, 'ultimate_signal_synthesis_params', {})
     # 修复NameError: 从参数块中获取 norm_window 的值
     norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
@@ -264,7 +265,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     distance_from_ma55 = (df[close_col] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
     lifeline_support_score_raw = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
     lifeline_support_score = lifeline_support_score_raw * slope_moderator
-    price_pos_yearly = normalize_score(df[close_col], df.index, 250, ascending=True, default_value=0.5)
+    price_pos_yearly = normalize_score(df[close_col], df.index, 250, ascending=True) # 修正 normalize_score 调用
     absolute_value_zone_score = 1.0 - price_pos_yearly
     deep_bottom_context_score_values = np.maximum.reduce([
         lifeline_support_score.values,
@@ -272,7 +273,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
     rsi_w_col = 'RSI_13_W'
-    rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, 52, ascending=False, default_value=0.5)
+    rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, 52, ascending=False) # 修正 normalize_score 调用
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
     context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
@@ -299,8 +300,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         bonus_factor = get_param_value(p_meta.get('bonus_factor'), 0.3)
         meta_dynamics_col = f'SLOPE_{short_slope_p}_EMA_{long_ma_p}_D'
         if meta_dynamics_col in df.columns:
-            # 修正 normalize_score 调用
-            deceleration_score = normalize_score(df[meta_dynamics_col], df.index, norm_window, ascending=True)
+            deceleration_score = normalize_score(df[meta_dynamics_col], df.index, norm_window, ascending=True) # 修正 normalize_score 调用
             meta_dynamics_bonus = (deceleration_score * is_deep_bearish_zone * bonus_factor)
             bottom_context_score_raw = (bottom_context_score_raw + meta_dynamics_bonus).clip(0, 1)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone

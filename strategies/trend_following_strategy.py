@@ -41,13 +41,16 @@ class TrendFollowStrategy:
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
+
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V416.0 · 数据完整性卫兵版】
+        【V416.2 · 数据完整性卫兵与进攻风险分离适配版】
         - 核心修复: 移除了上一版中错误的、基于 start_date_str 的数据切片逻辑。
         - 核心新增: 增加了“数据完整性卫兵”。在策略执行开始时，会检查传入的数据帧长度是否
                       满足配置文件中 `base_needed_bars` 的要求。如果数据长度不足，将打印
                       明确警告并提前终止，从根本上防止因上游数据供给不足导致的所有后续错误。
+        - 核心适配: 调整 OffensiveLayer 的调用，以捕获并存储总进攻得分和总风险惩罚。
+        - 签名修复: 修正 calculate_context_scores 的调用，传入 strategy 实例。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
@@ -62,26 +65,35 @@ class TrendFollowStrategy:
             print(f"       请检查调用本策略的上层代码，确保为回测或分析提供了足够的历史回溯数据。")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
+        # IntelligenceLayer 负责填充 self.atomic_states, self.playbook_states, self.trigger_events
         self.intelligence_layer.run_all_diagnostics(self.df_indicators)
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
         from .trend_following.utils import calculate_context_scores
-        bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
+        # 修正 calculate_context_scores 的调用，传入 self (strategy_instance)
+        bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states, self)
         self.atomic_states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = bottom_context_score
         self.atomic_states['SCORE_CONTEXT_TOP_ZONE'] = top_context_score
         # 步骤3: 执行攻防决策与模拟
-        entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
+        # OffensiveLayer.calculate_entry_score 现在返回三个值：total_offensive_score, total_risk_sum, score_details_df
+        total_offensive_score, total_risk_sum, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
             bottom_context_score,
             top_context_score
         )
-        self.df_indicators['entry_score'] = entry_score
+        self.df_indicators['entry_score'] = total_offensive_score # 存储总进攻分
+        self.df_indicators['total_risk_sum'] = total_risk_sum # 存储总风险惩罚分
         risk_details_df = self.warning_layer.run_all_warnings()
+        # JudgmentLayer 现在会使用 df_indicators 中的 'entry_score' 和 'total_risk_sum'
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
         self.simulation_layer.run_position_management_simulation()
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
         if risk_details_df is None:
             risk_details_df = pd.DataFrame(index=self.df_indicators.index)
+        # 将 score_details_df 存储为实例属性，以便 ReportingLayer 访问
+        self.score_details_df = score_details_df 
         return self.df_indicators, score_details_df, risk_details_df
+
+
     def _merge_all_timeframes(self, all_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """
         将所有时间框架的数据合并到一个DataFrame中。
@@ -102,6 +114,7 @@ class TrendFollowStrategy:
                 how='left'
             )
         return ensure_numeric_types(merged_df)
+
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
         对外暴露的报告生成接口。

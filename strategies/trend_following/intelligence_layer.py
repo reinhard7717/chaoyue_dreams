@@ -66,13 +66,13 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V426.2 · 进攻风险分离与动能质量过滤适配版】情报层总指挥官
+        【V426.3 · 进攻风险分离与动能质量过滤适配版】情报层总指挥官
         - 核心适配: 捕获 OffensiveLayer 返回的总进攻得分和总风险惩罚，并存储到 df_indicators。
         - 核心重构: 彻底改变日内引擎的调用方式。不再依赖不存在的分钟线数据，
                       而是直接将日线DataFrame传递给重构后的日内引擎，
                       使其能够基于预计算的日线级日内信号进行合成与解读。
-        - 错误修复: 修复了 'TrendFollowStrategy' 对象缺少 'bottom_context_score' 和 'top_context_score' 属性的错误，
-                    并调整 calculate_context_scores 的调用参数以匹配其预期签名。
+        - 错误修复: 移除了 IntelligenceLayer 中对 calculate_context_scores 的冗余调用和对 strategy 属性的错误赋值。
+                    现在 IntelligenceLayer 仅负责生成原子状态和剧本状态，并将 OffensiveLayer 的结果存储。
         """
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -109,28 +109,31 @@ class IntelligenceLayer:
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
 
-        # 导入 calculate_context_scores 函数
-        from strategies.trend_following.utils import calculate_context_scores
-        
-        # 计算 bottom_context_score 和 top_context_score 并存储到 strategy 实例中
-        # 假设 calculate_context_scores 的签名是 (df_indicators, atomic_states, strategy_instance)
-        self.strategy.bottom_context_score, self.strategy.top_context_score = calculate_context_scores(
-            self.strategy.df_indicators, # 第一个参数
-            self.strategy.atomic_states, # 第二个参数
-            self.strategy # 第三个参数，用于获取参数配置
-        )
+        # IntelligenceLayer 不再计算或存储 bottom_context_score 和 top_context_score。
+        # 这些分数由 TrendFollowStrategy.apply_strategy 计算并直接传递给 OffensiveLayer。
+        # 因此，这里 OffensiveLayer.calculate_entry_score 的调用需要从 TrendFollowStrategy.apply_strategy 处获取这些参数。
+        # 为了保持 OffensiveLayer.calculate_entry_score 的签名不变，
+        # 我们需要确保在 IntelligenceLayer 调用它时，这些参数是可用的。
+        # 最直接的方式是让 OffensiveLayer 成为 IntelligenceLayer 的属性，
+        # 并在 IntelligenceLayer 内部调用 OffensiveLayer 的方法时，
+        # 传递从 self.strategy 获取的上下文分数。
+        # 但是，根据当前的架构，OffensiveLayer 是 TrendFollowStrategy 的属性，
+        # 并且 OffensiveLayer.calculate_entry_score 是由 TrendFollowStrategy.apply_strategy 调用的。
+        # 所以，IntelligenceLayer 应该只负责生成 atomic_states 和 playbook_states，
+        # 而 OffensiveLayer 的调用和上下文分数的传递应该在 TrendFollowStrategy.apply_strategy 中完成。
 
-        # 捕获 OffensiveLayer 返回的总进攻得分和总风险惩罚
-        total_offensive_score, total_risk_sum, score_details_df = self.strategy.offensive_layer.calculate_entry_score(
-            self.strategy.trigger_events, self.strategy.bottom_context_score, self.strategy.top_context_score
-        )
-        self.strategy.df_indicators['entry_score'] = total_offensive_score # 存储总进攻分
-        self.strategy.df_indicators['total_risk_sum'] = total_risk_sum # 存储总风险惩罚分
-        self.strategy.score_details_df = score_details_df # 存储详细得分
+        # 移除之前错误的 OffensiveLayer 调用和 score_details_df 赋值
+        # total_offensive_score, total_risk_sum, score_details_df = self.strategy.offensive_layer.calculate_entry_score(
+        #     self.strategy.trigger_events, self.strategy.bottom_context_score, self.strategy.top_context_score
+        # )
+        # self.strategy.df_indicators['entry_score'] = total_offensive_score
+        # self.strategy.df_indicators['total_risk_sum'] = total_risk_sum
+        # self.strategy.score_details_df = score_details_df
 
         # 修复指挥链，在所有诊断完成后部署法医探针
         self.deploy_forensic_probes()
         return self.strategy.atomic_states
+
 
     def deploy_forensic_probes(self):
         """
