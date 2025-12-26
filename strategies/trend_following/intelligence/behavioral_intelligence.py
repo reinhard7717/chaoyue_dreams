@@ -262,7 +262,7 @@ class BehavioralIntelligence:
                     filtered_series = raw_series.clip(upper=0).abs() # 负向趋势取绝对值
                 
                 # 归一化
-                norm_score = normalize_score(filtered_series, df.index, windows=p * 2, ascending=True, debug_info=debug_info)
+                norm_score = normalize_score(filtered_series, df.index, windows=p * 2, ascending=True, debug_info=False)
                 
                 weight = mtf_weights.get(str(p), 0.0)
                 if weight > 0:
