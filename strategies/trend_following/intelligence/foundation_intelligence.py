@@ -108,7 +108,7 @@ class FoundationIntelligence:
         # 4. 最终融合
         trend_confirmed = (adx_score * direction_score * trend_health_score).pow(1/3).fillna(0.0)
         trend_confirmed = trend_confirmed.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '趋势确认' 分数: {trend_confirmed.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '趋势确认' 分数: {trend_confirmed.iloc[-1]}")
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed}
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -360,7 +360,7 @@ class FoundationIntelligence:
         constitution_score = raw_constitution_score * short_board_penalty * (1 + synergy_bonus)
         # 确保最终分数在 [-1, 1] 范围内
         constitution_score = constitution_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '市场体质' 分数: {constitution_score.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '市场体质' 分数: {constitution_score.iloc[-1]}")
         return constitution_score
 
     def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
@@ -534,7 +534,7 @@ class FoundationIntelligence:
         # --- 5. 最终情绪钟摆分数 ---
         sentiment_pendulum_score = (sentiment_core * deception_modulator * context_multiplier).clip(-1, 1)
         sentiment_pendulum_score = sentiment_pendulum_score.astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '情绪钟摆' 分数: {sentiment_pendulum_score.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '情绪钟摆' 分数: {sentiment_pendulum_score.iloc[-1]}")
         return sentiment_pendulum_score
 
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
@@ -727,7 +727,7 @@ class FoundationIntelligence:
         # --- 8. 最终流动性潮汐分数 ---
         tide_score = (base_tide_score * deception_modulator).clip(-1, 1)
         tide_score = tide_score.astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '流动性潮汐' 分数: {tide_score.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '流动性潮汐' 分数: {tide_score.iloc[-1]}")
         return tide_score
 
     def _diagnose_axiom_market_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -888,7 +888,7 @@ class FoundationIntelligence:
         else:
             tension_final_score = base_tension_score
         tension_final_score = tension_final_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '市场张力' 分数: {tension_final_score.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '市场张力' 分数: {tension_final_score.iloc[-1]}")
         return tension_final_score
 
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
@@ -1036,7 +1036,7 @@ class FoundationIntelligence:
         )
         # 确保最终分数在 [-1, 1] 范围内
         relative_strength_score = relative_strength_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '相对强度' 分数: {relative_strength_score.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '相对强度' 分数: {relative_strength_score.iloc[-1]}")
         return relative_strength_score
 
     def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 接收调节器
@@ -1061,7 +1061,7 @@ class FoundationIntelligence:
         # 新增: 应用环境调节器
         inflection_score = raw_inflection_score * modulator
         inflection_score = inflection_score.clip(0, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '和谐拐点' 分数: {inflection_score.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '和谐拐点' 分数: {inflection_score.iloc[-1]}")
         return inflection_score
 
     def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 增加df参数
@@ -1094,7 +1094,7 @@ class FoundationIntelligence:
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
         modulator = 1.0 + (env_score * bonus_factor)
         modulator = modulator.astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '环境共振调节器' 分数: {modulator}")
+        print(f"    -> [基础层] 计算完成 '环境共振调节器' 分数: {modulator.iloc[-1]}")
         return modulator
 
 
@@ -1135,7 +1135,7 @@ class FoundationIntelligence:
         )
         strategic_posture = raw_strategic_posture * modulator
         strategic_posture = strategic_posture.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '战略态势' 分数: {strategic_posture.loc[-1]}")
+        print(f"    -> [基础层] 计算完成 '战略态势' 分数: {strategic_posture.iloc[-1]}")
         return strategic_posture
 
     def _diagnose_axiom_market_friction(self, df: pd.DataFrame) -> pd.Series:
@@ -1368,7 +1368,7 @@ class FoundationIntelligence:
             market_friction_score = market_friction_score * (1 - total_penalty)
         # 最终分数裁剪并转换为float32类型
         market_friction_score = market_friction_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '市场摩擦' 分数: {market_friction_score.loc[-1]}")   
+        print(f"    -> [基础层] 计算完成 '市场摩擦' 分数: {market_friction_score.iloc[-1]}")   
         return market_friction_score
 
 

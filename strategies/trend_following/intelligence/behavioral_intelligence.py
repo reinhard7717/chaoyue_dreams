@@ -1566,7 +1566,7 @@ class BehavioralIntelligence:
 
     def _diagnose_deception_index(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V2.4 · 欺骗情境感知与反向认知失调】诊断博弈欺骗指数
+        【V2.5 · 欺骗情境感知与价格上涨中的主力意图背离】诊断博弈欺骗指数
         - 核心重构: 废弃V1.2“结果导向”模型，引入“认知失调 × 欺骗工具强度 × 情境调制”的全新诊断模型。
         - 核心逻辑: 欺骗分 = (主力真实意图向量 - K线表象剧本向量) * 欺骗工具强度 * 情境放大器
                       直接量化“意图”与“表象”的背离程度，并结合欺骗工具的活跃度和市场情境，能识别更高明的欺骗形态。
@@ -1577,7 +1577,7 @@ class BehavioralIntelligence:
         - 【新增】情境调制器：根据散户狂热和市场波动性，动态调整欺骗指数。
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
-        - **【二次修改】增强欺骗工具权重，引入“反向认知失调”概念，并调整融合逻辑，使其在涨停诱多场景下更敏感。**
+        - **【三次修改】强化欺骗工具权重，引入“价格上涨中的主力意图背离”作为欺骗的直接证据，并调整融合逻辑。**
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_deception_index"
@@ -1628,7 +1628,6 @@ class BehavioralIntelligence:
         intent_vector = normalized_scores['main_force_ofi_D']
         
         # 认知失调向量：直接体现意图与表象的背离程度
-        # 修正：当意图低于表象时，也应视为认知失调，且可能指向派发欺骗
         cognitive_dissonance_vector = (intent_vector - narrative_vector) # 范围 [-1, 1]
         
         # 欺骗工具强度：加权融合诱多、对倒、诱空强度
@@ -1636,7 +1635,6 @@ class BehavioralIntelligence:
         norm_wash_trade = normalized_scores['wash_trade_intensity_D']
         norm_lure_short = normalized_scores['deception_lure_short_intensity_D']
         
-        # 修正：欺骗工具强度应根据认知失调的方向来加权
         deception_tool_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
         # 如果是正向认知失调（意图 > 表象），则关注诱多和对倒
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector > 0,
@@ -1646,7 +1644,7 @@ class BehavioralIntelligence:
         # 如果是负向认知失调（意图 < 表象），则关注诱空和对倒
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector < 0,
             (norm_lure_short * deception_tool_weights.get('lure_short', 0.3) +
-             norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3)) / (deception_tool_weights.get('lure_short', 0.3) + deception_tool_weights.get('wash_trade', 0.3))
+             norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3)) / (deception_tool_weights.get('lure_lure_short', 0.3) + deception_tool_weights.get('wash_trade', 0.3))
         )
         # 如果认知失调接近0，则只考虑对倒
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector.abs() < 1e-9, norm_wash_trade)
@@ -1666,23 +1664,32 @@ class BehavioralIntelligence:
             context_modulator_factor = context_modulator_factor * fomo_modulator * volatility_modulator
             context_modulator_factor = context_modulator_factor.clip(0.5, 2.0) # 限制调制范围
         
-        # --- 4. 最终合成：认知失调的绝对值 * 欺骗工具强度 * 情境调制器，并保留方向 ---
-        # 修正：使用加权算术平均或更复杂的融合，避免乘积导致零值问题
-        # 欺骗强度 = (abs(认知失调) + 欺骗工具强度) / 2 * 情境调制器
-        # 最终欺骗指数 = 欺骗强度 * sign(认知失调)
-        
-        # 欺骗强度基础分：认知失调的绝对值和欺骗工具强度进行加权平均
-        deception_magnitude_score = (cognitive_dissonance_vector.abs() * 0.5 + deception_tool_strength * 0.5).clip(0, 1)
+        # --- 4. 价格上涨中的主力意图背离作为欺骗的直接证据 ---
+        is_price_rising = (signals_data['pct_change_D'] > 0.005).astype(float) # 价格显著上涨
+        # 主力意图低于K线表象，且价格上涨，这可能是派发欺骗
+        price_rising_deception_evidence = pd.Series(0.0, index=df.index, dtype=np.float32)
+        price_rising_deception_evidence = price_rising_deception_evidence.mask(
+            (is_price_rising > 0.5) & (cognitive_dissonance_vector < 0),
+            cognitive_dissonance_vector.abs() * (1 + norm_wash_trade) # 放大对倒强度
+        ).clip(0, 1)
+
+        # --- 5. 最终合成：认知失调的绝对值 * 欺骗工具强度 * 情境调制器，并保留方向 ---
+        # 欺骗强度基础分：认知失调的绝对值和欺骗工具强度进行加权平均，并加入价格上涨中的主力意图背离
+        deception_magnitude_score = (
+            cognitive_dissonance_vector.abs() * 0.4 +
+            deception_tool_strength * 0.4 +
+            price_rising_deception_evidence * 0.2 # 新增权重
+        ).clip(0, 1)
         
         # 最终欺骗指数 = 欺骗强度基础分 * 情境调制器 * 认知失调的方向
         final_deception_index = (deception_magnitude_score * context_modulator_factor * np.sign(cognitive_dissonance_vector)).clip(-1, 1)
         
         # 确保在价格上涨时，如果认知失调为负（主力意图低于K线），则视为派发欺骗
-        is_price_rising = (signals_data['pct_change_D'] > 0).astype(float)
-        # 如果价格上涨，且认知失调为负（主力意图低于K线），则放大负向欺骗
+        # 这一步在上面的融合中已经通过 np.sign(cognitive_dissonance_vector) 实现了方向性
+        # 但为了强调“诱多”的风险，可以进一步强化负向欺骗的绝对值
         final_deception_index = pd.Series(np.where(
             (is_price_rising > 0.5) & (cognitive_dissonance_vector < 0),
-            final_deception_index.abs() * -1, # 强制为负值，表示派发欺骗
+            final_deception_index.abs() * -1 * (1 + norm_fomo * 0.5), # 价格上涨且主力意图背离，放大负向欺骗，尤其在散户狂热时
             final_deception_index
         ), index=df.index).astype(np.float32)
 
@@ -1703,6 +1710,7 @@ class BehavioralIntelligence:
             print(f"        - 认知失调向量: {cognitive_dissonance_vector.loc[probe_ts]:.4f}")
             print(f"        - 欺骗工具强度: {deception_tool_strength.loc[probe_ts]:.4f}")
             print(f"        - 情境调制因子: {context_modulator_factor.loc[probe_ts]:.4f}")
+            print(f"        - 价格上涨中的欺骗证据: {price_rising_deception_evidence.loc[probe_ts]:.4f}")
             print(f"        - 欺骗强度基础分: {deception_magnitude_score.loc[probe_ts]:.4f}")
             print(f"        - 是否上涨: {is_price_rising.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '博弈欺骗指数'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
