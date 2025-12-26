@@ -904,9 +904,13 @@ def _calculate_historical_high_resistance(df: pd.DataFrame, params: Dict, qualit
 
 def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V3.1 · 冷却期向量化优化版】“乌拉诺斯穹顶”阻力分计算引擎
+    【V3.7 · 冷却期向量化优化版 & 日期类型修复版 & 调试探针版】“乌拉诺斯穹顶”阻力分计算引擎
     - 核心升级: 不再包含拒绝质量评估逻辑，而是调用通用的 _calculate_rejection_quality_score 函数。
     - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
+    - 强制类型转换移除: 移除了多余的 `astype('datetime64[ns]')`，避免与时区信息冲突。
+    - 调试探针: 添加了打印语句，用于在错误发生时输出 `df.index.to_series()` 和 `filled_dates` 的详细信息。
+    - 关键修复: 确保 `confirmation_dates` 初始化时与 `df.index` 具有相同的 `dtype` (包括时区)，避免类型冲突。
+    - 显式处理NaT: 在日期减法前显式过滤掉 `NaT` 值，避免 `Timestamp` 与 `float` 运算错误。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -952,13 +956,38 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     # 2. 标记冷却期重置点
     group_ids = is_cooldown_reset_signal.astype(int).cumsum()
     # 3. 跟踪每个确认事件的日期
-    confirmation_dates = pd.Series(pd.NaT, index=df.index)
+    # 确保 confirmation_dates 的 dtype 与 df.index 保持一致，包括时区信息
+    confirmation_dates = pd.Series(pd.NaT, index=df.index, dtype=df.index.dtype) 
     confirmation_dates.loc[is_confirmed_rejection] = df.index[is_confirmed_rejection]
     # 4. 在每个组内，前向填充确认分数和确认日期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
+    
+    # --- 调试探针开始 ---
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] df.index.to_series().dtype: {df.index.to_series().dtype}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates.dtype (after ffill): {filled_dates.dtype}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] df.index.to_series() head:\n{df.index.to_series().head()}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates head:\n{filled_dates.head()}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates contains NaT: {filled_dates.isna().any()}")
+    # --- 调试探针结束 ---
+
     # 5. 检查当前日期是否在冷却期内
-    is_within_cooldown_period = (df.index - filled_dates).days < confirmation_cooldown_period
+    # 关键修复：显式处理 NaT，避免 Pandas 内部将 NaT 转换为 float 导致 TypeError
+    time_diff = pd.Series(pd.NaT, index=df.index, dtype='timedelta64[ns]') # 初始化为 Timedelta Series
+    
+    # 找出 filled_dates 中非 NaT 的位置
+    non_nat_filled_dates_mask = filled_dates.notna()
+
+    if non_nat_filled_dates_mask.any():
+        # 只对非 NaT 的部分进行减法运算，确保 Timestamp - Timestamp
+        time_diff.loc[non_nat_filled_dates_mask] = df.index.to_series().loc[non_nat_filled_dates_mask] - filled_dates.loc[non_nat_filled_dates_mask]
+
+    # 过滤掉 time_diff 中的 NaT 值，只对有效日期进行计算
+    valid_time_diff_mask = time_diff.notna()
+
+    is_within_cooldown_period = pd.Series(False, index=df.index)
+    if valid_time_diff_mask.any():
+        is_within_cooldown_period.loc[valid_time_diff_mask] = time_diff.dt.days.loc[valid_time_diff_mask] < confirmation_cooldown_period
     # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
     confirmation_score_series = filled_scores.where(is_within_cooldown_period, 0.0).fillna(0.0)
     # --- 冷却期逻辑向量化优化结束 ---
