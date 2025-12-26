@@ -229,26 +229,62 @@ class BehavioralIntelligence:
                 accels[p] = accel_series
         return slopes, accels
 
-    def _calculate_mtf_dynamic_score(self, df: pd.DataFrame, base_indicator_name: str, periods: List[int], tf_weights: Dict, dynamic_type: str, is_positive_trend: bool, method_name: str) -> pd.Series:
-        scores = []
+    def _calculate_mtf_dynamic_score(self, df: pd.DataFrame, base_indicator_name: str, mtf_periods: List[int], mtf_weights: Dict[str, float], dynamic_type: str, is_positive_trend: bool, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+        """
+        【V1.0 · 新增】计算多时间框架动态指标分数（斜率或加速度）。
+        - 核心职责: 根据给定的基础指标名称、时间框架周期和权重，计算其在不同时间框架下的斜率或加速度，并进行加权融合。
+        - 参数:
+            - df: 包含指标数据的DataFrame。
+            - base_indicator_name: 基础指标的名称（例如 'RSI_13', 'MACDh_13_34_8'）。
+            - mtf_periods: 多时间框架周期列表（例如 [5, 13, 21]）。
+            - mtf_weights: 各时间框架的权重字典（例如 {'5': 0.4, '13': 0.3, '21': 0.2}）。
+            - dynamic_type: 'SLOPE' 或 'ACCEL'，表示计算斜率或加速度。
+            - is_positive_trend: 如果为True，则只考虑正向趋势（斜率>0或加速度>0），负向趋势归零；否则相反。
+            - method_name: 调用此方法的父方法名称，用于调试信息。
+            - is_debug_enabled: 是否启用调试模式。
+            - probe_ts: 调试的目标时间戳。
+        - 返回: 融合后的多时间框架动态分数。
+        """
+        scores_list = []
         total_weight = 0.0
-        for period in periods:
-            weight = tf_weights.get(str(period), 0.0)
-            if weight == 0:
-                continue
-            col_name = f"{dynamic_type.upper()}_{period}_{base_indicator_name}_D"
-            raw_series = df[col_name]
-            norm_window = period * 2
-            if is_positive_trend:
-                score = normalize_score(raw_series.clip(lower=0), df.index, windows=norm_window, ascending=True)
-            else:
-                score = normalize_score(raw_series.clip(upper=0).abs(), df.index, windows=norm_window, ascending=True)
-            scores.append(score * weight)
-            total_weight += weight
-        if not scores or total_weight == 0:
+        
+        debug_info = (is_debug_enabled, probe_ts, method_name)
+
+        for p in mtf_periods:
+            col_name = f"{dynamic_type}_{p}_{base_indicator_name}_D"
+            if col_name in df.columns:
+                raw_series = df[col_name]
+                
+                # 根据 is_positive_trend 过滤
+                if is_positive_trend:
+                    filtered_series = raw_series.clip(lower=0)
+                else:
+                    filtered_series = raw_series.clip(upper=0).abs() # 负向趋势取绝对值
+                
+                # 归一化
+                norm_score = normalize_score(filtered_series, df.index, windows=p * 2, ascending=True, debug_info=debug_info)
+                
+                weight = mtf_weights.get(str(p), 0.0)
+                if weight > 0:
+                    scores_list.append(norm_score * weight)
+                    total_weight += weight
+                
+                if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+                    print(f"        [探针 - {method_name}] {dynamic_type} {base_indicator_name} {p}d @ {probe_ts.strftime('%Y-%m-%d')}:")
+                    print(f"          - 原始值: {raw_series.loc[probe_ts]:.4f}")
+                    print(f"          - 过滤后值: {filtered_series.loc[probe_ts]:.4f}")
+                    print(f"          - 归一化分数: {norm_score.loc[probe_ts]:.4f}")
+                    print(f"          - 权重: {weight:.4f}")
+
+        if not scores_list or total_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        fused_score = sum(scores) / total_weight
-        return fused_score.astype(np.float32)
+        
+        fused_score = sum(scores_list) / total_weight
+        
+        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+            print(f"        [探针 - {method_name}] 融合 {dynamic_type} {base_indicator_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}: {fused_score.loc[probe_ts]:.4f}")
+
+        return fused_score.clip(0, 1).astype(np.float32)
 
     def _calculate_signal_dynamics(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.DataFrame:
         """
