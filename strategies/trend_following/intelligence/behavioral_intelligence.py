@@ -1199,7 +1199,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -1259,7 +1259,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -1325,7 +1325,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -1378,7 +1378,7 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         params = get_param_value(self.config_params.get('chronos_protocol_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
         top_level_fusion_weights = get_param_value(params.get('top_level_fusion_weights'), {"strategic_position": 0.5, "quality_modulator": 0.5})
@@ -1470,7 +1470,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         deception_lure_long_wash_trade_combined_raw = (signals_data['deception_lure_long_intensity_D'] + signals_data['wash_trade_intensity_D']).pow(0.5)
         # --- 收集所有需要进行归一化的 Series 的配置 ---
@@ -1540,7 +1540,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -1600,7 +1600,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -1667,7 +1667,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -1721,7 +1721,7 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         fusion_weights = get_param_value(params.get('fusion_weights'), {"price_momentum_quality": 0.3, "volume_liquidity_confirmation": 0.25, "resistance_overextension": 0.25, "intraday_control_sentiment": 0.2})
         price_momentum_quality_weights = get_param_value(params.get('price_momentum_quality_weights'), {"pct_change": 0.25, "ma_slope": 0.25, "breakout_quality": 0.2, "upward_impulse_purity": 0.15, "trend_acceleration": 0.15})
         volume_liquidity_confirmation_weights = get_param_value(params.get('volume_liquidity_confirmation_weights'), {"volume_burstiness": 0.4, "constructive_turnover": 0.3, "buy_sweep_intensity": 0.3})
@@ -1859,7 +1859,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         deception_lure_combined_raw = pd.concat([signals_data['deception_lure_long_intensity_D'], signals_data['deception_lure_short_intensity_D']], axis=1).max(axis=1)
         # --- 收集所有需要进行多时间框架归一化的 Series ---
@@ -1961,7 +1961,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 1. 获取原始数据 ---
         pct_change = signals_data['pct_change_D']
         price_accel = signals_data['ACCEL_5_pct_change_D']
@@ -2045,7 +2045,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -2107,7 +2107,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 2. 轨道一：战术风险评估 (风暴强度) ---
         required_signals = [
             'profit_taking_flow_ratio_D', 'rally_distribution_pressure_D',
@@ -2206,7 +2206,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         stagnation_slope_raw = signals_data[f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D']
         bbw_score_raw = signals_data['BBW_21_2.0_D']
@@ -2294,7 +2294,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         p_behavioral_div_conf = self.config_params
         p_mtf = get_param_value(p_behavioral_div_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
@@ -2484,7 +2484,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 2. 获取所有原始数据 ---
         price = signals_data['close_D']
         conviction_raw = signals_data['main_force_conviction_index_D']
@@ -2586,7 +2586,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -2660,7 +2660,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         close_pct_change_rolling_std = signals_data['close_D'].pct_change().rolling(window=stability_window).std().fillna(0)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
@@ -2730,7 +2730,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -2803,7 +2803,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 1. 价格偏离度 (Price Deviation) ---
         rsi_val = signals_data['RSI_13_D']
         bias_val = signals_data['BIAS_5_D']
@@ -2915,7 +2915,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- K线形态分析 ---
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
@@ -3034,7 +3034,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         # 修正：使用字符串名称作为键
         series_for_mtf_norm_config = {
@@ -3144,7 +3144,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         # For purity_factor
         # 修正：从 params 字典中获取 mtf_slopes_params
@@ -3692,7 +3692,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         pct_change = signals_data['pct_change_D']
         is_rising = (pct_change > 0).astype(float)
         upward_momentum_score = state_signals_data['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM']
@@ -3958,7 +3958,7 @@ class BehavioralIntelligence:
                 if date.date() in self.strategy.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # 获取信号
         pct_change = signals_data['pct_change_D']
         is_falling = (pct_change < 0).astype(float) # 简化为0，因为min_price_drop_pct_threshold在_diagnose_liquidity_drain_risk中计算
@@ -4405,7 +4405,7 @@ class BehavioralIntelligence:
         # 确保 day_quality_score 为 float32 类型，并处理 NaN
         day_quality_score = pd.to_numeric(day_quality_score, errors='coerce').fillna(0).astype(np.float32)
         # --- 调试信息构建 ---
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False # (is_debug_enabled, probe_ts, method_name)
         # 2. 动态计算 day_quality_score 的斜率和加速度
         bq_slopes, bq_accels = self._calculate_series_dynamics(day_quality_score, mtf_periods, df.index, is_debug_enabled, probe_ts, 'BIPOLAR_BEHAVIORAL_DAY_QUALITY')
         # --- 收集所有需要进行双极归一化的 Series 的配置 ---
