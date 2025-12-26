@@ -175,7 +175,7 @@ class ChipIntelligence:
             - 隐蔽派发信号 (`covert_distribution_signal_D`) 作为负向调制器。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '主力综合战略态势(SCORE_CHIP_STRATEGIC_POSTURE)' 分数……")
+        print(f"    -> [筹码层] 正在计算 '主力综合战略态势(SCORE_CHIP_STRATEGIC_POSTURE)' 分数")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -391,7 +391,7 @@ class ChipIntelligence:
             - 主力成本区买卖意图 (`mf_cost_zone_buy_intent_D`, `mf_cost_zone_sell_intent_D`) 进一步强化支撑/阻力。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '战场地形信号' 分数……")
+        print(f"    -> [筹码层] 正在计算 '战场地形信号' 分数")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -518,7 +518,7 @@ class ChipIntelligence:
         - 核心升级5: 全局情境调制器优化。将全局市场情绪替换为筹码主力信念，使情境调制更聚焦于筹码层面。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '持仓信念韧性' 分数……")
+        print(f"    -> [筹码层] 正在计算 '持仓信念韧性' 分数")
         df_index = df.index
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'active_buying_support_D',
@@ -1046,7 +1046,7 @@ class ChipIntelligence:
         - 核心数学升级7: “非线性放大控制”。对放大项引入tanh变换，使其增长更平滑，并有饱和上限，防止过度放大。
         - 核心数学升级8: “动态复合筹码趋势权重”。引入筹码波动不稳定性指数作为调制器，自适应调整复合筹码趋势中动量和集中度的权重。
         """
-        print(f"    -> [筹码层] 正在计算 '价筹张力' 分数……")
+        print(f"    -> [筹码层] 正在计算 '价筹张力' 分数")
         df_index = df.index
         required_signals = [
             'winner_loser_momentum_D', 'winner_concentration_90pct_D', 'SLOPE_5_close_D',
@@ -1186,7 +1186,7 @@ class ChipIntelligence:
         - 最终分数敏感度的动态调整，final_score 的饱和速度将根据市场环境进行动态调整。
         高分代表市场不仅想涨，而且其内部筹码结构健康且具备高效转化这种意愿的能力。
         """
-        print(f"    -> [筹码层] 正在计算 '筹码同调驱动力' 分数……")
+        print(f"    -> [筹码层] 正在计算 '筹码同调驱动力' 分数")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -1719,7 +1719,7 @@ class ChipIntelligence:
         - 核心升级4: 诡道背景调制强化。引入欺骗指数，结合筹码故障幅度与主力信念指数，更智能地判断诡道意图并进行调制。
         - 探针增强: 详细输出所有原始数据、归一化数据、各维度子分数、动态权重、最终分数，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '派发诡影' 分数……")
+        print(f"    -> [筹码层] 正在计算 '派发诡影' 分数")
         df_index = df.index
         required_signals = [
             'retail_fomo_premium_index_D', 'winner_profit_margin_avg_D', 'THEME_HOTNESS_SCORE_D', 'market_sentiment_score_D', 'winner_concentration_90pct_D',
@@ -1921,7 +1921,7 @@ class ChipIntelligence:
         - 核心升级4: 诡道博弈调制 (DGM)。引入“诡道博弈的非对称影响”，对诱多/诱空施加不同敏感度的调制，并考虑散户恐慌和主力信念对诡道博弈有效性的影响。
         - 核心升级5: 情境自适应权重 (ACW)。引入“市场情绪与流动性情境”，增加市场情绪分数和资金流可信度指数作为情境调制器。
         """
-        print(f"    -> [筹码层] 正在计算 '筹码势能' 分数……")
+        print(f"    -> [筹码层] 正在计算 '筹码势能' 分数")
         df_index = df.index
         required_signals = [
             'covert_accumulation_signal_D', 'suppressive_accumulation_intensity_D',
@@ -2173,7 +2173,7 @@ class ChipIntelligence:
         - 核心升级3: 筹码“情绪”与“行为模式”识别。引入筹码行为模式强度，作为意图或质量维度的调制器。
         - 核心升级4: 非线性融合的“自学习”与“情境权重矩阵”。升级元调制器，使其能够更精细地调整融合权重。
         """
-        print(f"    -> [筹码层] 正在计算 '战术换手博弈' 分数……")
+        print(f"    -> [筹码层] 正在计算 '战术换手博弈' 分数")
         df_index = df.index
         required_signals = [
             'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D',
@@ -2508,7 +2508,7 @@ class ChipIntelligence:
         - 核心升级5: 趋势一致性品质校准。当战略与战术在同一方向上高度协同并具备足够强度时，引入筹码品质因子（如筹码健康度、主力信念指数）进行校准，确保奖励的是高质量、可持续的趋势。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '战略与战术和谐度' 分数……")
+        print(f"    -> [筹码层] 正在计算 '战略与战术和谐度' 分数")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -2610,7 +2610,7 @@ class ChipIntelligence:
         - 核心升级5: 增强情境调制器：除了筹码健康度和波动性，再引入主力信念指数作为情境调制器，更全面评估拐点信号在不同市场参与者意图下的可靠性。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '战略与战术和谐度' 拐点……")
+        print(f"    -> [筹码层] 正在计算 '战略与战术和谐度' 拐点")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -2748,7 +2748,7 @@ class ChipIntelligence:
         - 核心升级4: 引入情境调制器，根据市场波动性和情绪动态调整最终分数。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '散户筹码脆弱性' 分数……")
+        print(f"    -> [筹码层] 正在计算 '散户筹码脆弱性' 分数")
         df_index = df.index
         df_dates_set = set(df_index.date)
         probe_dates_in_df = sorted([d for d in self.probe_dates_set if d in df_dates_set])
@@ -2883,7 +2883,7 @@ class ChipIntelligence:
         - 核心升级7: 动态权重融合：根据市场波动性和情绪，动态调整不同意图场景（低于、高于、在成本区内）的融合权重。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print(f"    -> [筹码层] 正在计算 '主力成本区攻防意图' 分数……")
+        print(f"    -> [筹码层] 正在计算 '主力成本区攻防意图' 分数")
         df_index = df.index
         df_dates_set = set(df_index.date)
         probe_dates_in_df = sorted([d for d in self.probe_dates_set if d in df_dates_set])
@@ -3269,7 +3269,7 @@ class ChipIntelligence:
         高分代表换手是健康的，有助于优化筹码结构，降低整体持仓成本，为后续上涨奠定基础；
         低分或负分代表换手是恶性的，筹码从低成本向高成本转移，或伴随大量对倒和虚假交易。
         """
-        print(f"    -> [筹码层] 正在计算 '换手纯度与成本优化' 分数……")
+        print(f"    -> [筹码层] 正在计算 '换手纯度与成本优化' 分数")
         df_index = df.index
         required_signals = [
             'wash_trade_intensity_D', 'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
@@ -3321,7 +3321,7 @@ class ChipIntelligence:
         识别当前筹码分布中，散户或弱势资金处于极端亏损（绝望区）或极端浮盈（诱惑区）的价格区间。
         正分代表诱惑区风险（主力派发），负分代表绝望区机会（主力吸筹）。
         """
-        print(f"    -> [筹码层] 正在计算 '筹码绝望与诱惑区' 分数……")
+        print(f"    -> [筹码层] 正在计算 '筹码绝望与诱惑区' 分数")
         df_index = df.index
         required_signals = [
             'loser_pain_index_D', 'total_loser_rate_D', 'panic_buy_absorption_contribution_D',

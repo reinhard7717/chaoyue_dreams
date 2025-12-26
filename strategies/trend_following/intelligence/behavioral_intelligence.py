@@ -1180,7 +1180,7 @@ class BehavioralIntelligence:
                                         采用 `winner_stability_index_D`。
         - 数学模型: 动能分 = (攻击力度分 * 战略指挥分 * 后勤支撑分) ^ (1/3)
         """
-        print(f"    -> [行为层] 正在计算 '上涨动能'……")
+        print(f"    -> [行为层] 正在计算 '上涨动能'")
         method_name = "_diagnose_upward_momentum"
         required_signals = [
             'upward_impulse_purity_D', 'impulse_quality_ratio_D',
@@ -1236,7 +1236,7 @@ class BehavioralIntelligence:
           3. 指挥系统溃败 (The Command Collapse): 审判主力信心的崩塌 (1 - 主力正面信念分)。
         - 数学模型: 动能分 = (破坏力 * 防御真空 * 信念真空) ^ (1/3)
         """
-        print(f"    -> [行为层] 正在计算 '下跌动能'……")
+        print(f"    -> [行为层] 正在计算 '下跌动能'")
         method_name = "_diagnose_downward_momentum"
         params = get_param_value(self.config_params.get('scorched_earth_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'breach_force': 0.4, 'defense_vacuum': 0.3, 'command_vacuum': 0.3})
@@ -1302,7 +1302,7 @@ class BehavioralIntelligence:
           4. 司令部意志 (Commander's Will): 审判主力真实信念 (`main_force_conviction_index_D`)。
         - 数学模型: 意图分 = 战略前提 * (背景分 * 行动分 * 意志分) ^ (1/3)
         """
-        print(f"    -> [行为层] 正在计算 '进攻性承接意图'……")
+        print(f"    -> [行为层] 正在计算 '进攻性承接意图'")
         method_name = "_diagnose_offensive_absorption_intent"
         params = get_param_value(self.config_params.get('offensive_absorption_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'crisis_context': 0.3, 'counter_offensive_force': 0.4, 'commanders_will': 0.3})
@@ -1445,7 +1445,7 @@ class BehavioralIntelligence:
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
         """
-        print(f"    -> [行为层] 正在计算 '博弈欺骗指数'……")
+        print(f"    -> [行为层] 正在计算 '博弈欺骗指数'")
         method_name = "_diagnose_deception_index"
         params = get_param_value(self.config_params.get('puppeteers_gambit_params'), {})
         k_amplifier = params.get('evidence_amplifier_k', 0.5)
@@ -1521,7 +1521,7 @@ class BehavioralIntelligence:
                                                 `control_solidity_index_D`, `main_force_conviction_index_D` 构成。
         - 数学模型: 脆弱度分 = 内部压力分 / (结构完整性分 + ε)，并废弃成交量放大器。
         """
-        print(f"    -> [行为层] 正在计算 '价格过热风险'……")
+        print(f"    -> [行为层] 正在计算 '价格过热风险'")
         method_name = "_diagnose_price_overextension"
         required_signals = [
             'total_winner_rate_D', 'ACCEL_5_pct_change_D', 'turnover_rate_f_D',
@@ -1578,7 +1578,7 @@ class BehavioralIntelligence:
           2. 战略环境地形 (The Battlefield Terrain): 新增战略评估，审判前方“地形”的阻力。
         - 数学模型: 最终效率分 = 战术品质分 * (1 - 战略阻力分)
         """
-        print(f"    -> [行为层] 正在计算 '高品质上涨效率'……")
+        print(f"    -> [行为层] 正在计算 '高品质上涨效率'")
         method_name = "_diagnose_upward_efficiency"
         params = get_param_value(self.config_params.get('pathfinder_protocol_params'), {})
         resistance_weights = get_param_value(params.get('resistance_weights'), {'chip_fatigue': 0.6, 'loser_pain': 0.4})
@@ -1643,7 +1643,7 @@ class BehavioralIntelligence:
           2. 战略欺诈意图 (The Strategic Feint): 新增战略评估，审判抵抗的真实目的。
         - 数学模型: 最终抵抗分 = 战术应对分 * 战略意图分
         """
-        print(f"    -> [行为层] 正在计算 '高品质下跌抵抗'……")
+        print(f"    -> [行为层] 正在计算 '高品质下跌抵抗'")
         method_name = "_diagnose_downward_resistance"
         params = get_param_value(self.config_params.get('elastic_defense_params'), {})
         intent_weights = get_param_value(params.get('intent_weights'), {'conviction': 0.6, 'cleansing': 0.4})
@@ -1709,7 +1709,7 @@ class BehavioralIntelligence:
         - 【探针】加入详细探针，输出原料数据、关键计算节点、结果的值，以便于检查和调试。
         - 【修正】优化 breakout_quality_score_D 的 nan 处理，将其视为质量缺失，赋予0分。
         """
-        print(f"    -> [行为层] 正在计算 '新高强度'……")
+        print(f"    -> [行为层] 正在计算 '新高强度'")
         method_name = "_diagnose_context_new_high_strength"
         params = get_param_value(self.config_params.get('new_high_strength_params'), {})
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -1832,7 +1832,7 @@ class BehavioralIntelligence:
         - 数学模型: 最终微观意图 = 核心意图强度 × 环境适应性因子 × 行为一致性因子
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         """
-        print(f"    -> [行为层] 正在计算 '微观结构意图'……")
+        print(f"    -> [行为层] 正在计算 '微观结构意图'")
         method_name = "_diagnose_microstructure_intent"
         params = get_param_value(self.config_params.get('fog_of_war_protocol_params'), {})
         core_intent_weights = get_param_value(params.get('core_intent_weights'), {"ofi": 0.6, "quote_exhaustion": 0.4})
@@ -1935,7 +1935,7 @@ class BehavioralIntelligence:
           1. 微观战局僵持 (Micro-Battlefield Stalemate): 审判前线战况的胶着程度。
           2. 宏观信念动摇 (Macro-Conviction Erosion): 审判主力司令部的真实意图与筹码结构的稳定性。
         """
-        print(f"    -> [行为层] 正在计算 '滞涨证据'……")
+        print(f"    -> [行为层] 正在计算 '滞涨证据'")
         method_name = "_diagnose_stagnation_evidence"
         df_index = df.index
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -2021,7 +2021,7 @@ class BehavioralIntelligence:
           3. 意图 (The Intent): 审判“导演”的真实内心独白 (融合 `main_force_conviction_index_D` 等)。
         - 数学模型: 品质分 = (剧本品质 * 表演品质) ^ 0.5 * 导演意图分
         """
-        print(f"    -> [行为层] 正在计算 '下影线承接品质'……")
+        print(f"    -> [行为层] 正在计算 '下影线承接品质'")
         method_name = "_diagnose_lower_shadow_quality"
         params = get_param_value(self.config_params.get('directors_cut_params'), {})
         intent_weights = get_param_value(params.get('intent_weights'), {'conviction': 0.7, 'covert_ops': 0.3})
@@ -2085,7 +2085,7 @@ class BehavioralIntelligence:
         - 数学模型: 最终风险 = max(战术风险, 战略风险) * (1 + 协同奖励)
         - 升级说明: 增加了详细探针，用于调试和检查每一步计算。
         """
-        print(f"    -> [行为层] 正在计算 '派发意图'……")
+        print(f"    -> [行为层] 正在计算 '派发意图'")
         method_name = "_diagnose_distribution_intent"
         # 从 self.config_params 获取 atmospheric_pressure_params
         params = get_param_value(self.config_params.get('atmospheric_pressure_params'), {})
@@ -2175,7 +2175,7 @@ class BehavioralIntelligence:
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
         """
-        print(f"    -> [行为层] 正在计算 '伏击反击'……")
+        print(f"    -> [行为层] 正在计算 '伏击反击'")
         method_name = "_diagnose_ambush_counterattack"
         params = get_param_value(self.config_params.get('ambush_counterattack_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"context": 0.3, "action": 0.4, "quality": 0.3})
@@ -2274,7 +2274,7 @@ class BehavioralIntelligence:
                               因其本质依赖筹码/资金流数据，已从本方法中移除，以确保行为情报的纯粹性。
                               本信号现在专注于纯粹的市场行为模式。
         """
-        print(f"    -> [行为层] 正在计算 '突破失败级联风险'……")
+        print(f"    -> [行为层] 正在计算 '突破失败级联风险'")
         method_name = "_diagnose_breakout_failure_risk"
         required_signals = [
             'breakout_quality_score_D', 'retail_fomo_premium_index_D', 'trend_vitality_index_D',
@@ -2454,7 +2454,7 @@ class BehavioralIntelligence:
         - 数学模型: 品质分 = (背离深度与广度分^0.4 * 战略位置分^0.3 * 主力承接/派发确认分^0.2 * 微观意图确认分^0.1 * 欺骗叙事确认分^0.1)
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         """
-        print(f"    -> [行为层] 正在计算 '高品质价量/价资背离'……")
+        print(f"    -> [行为层] 正在计算 '高品质价量/价资背离'")
         method_name = "_diagnose_divergence_quality"
         params = get_param_value(self.config_params.get('deceptive_divergence_protocol_params'), {})
         bullish_magnitude_params = get_param_value(params.get('bullish_magnitude_params'), {"price_downtrend_slope_window": 5, "conviction_uptrend_slope_window": 5})
@@ -2564,7 +2564,7 @@ class BehavioralIntelligence:
           2. 战略环境评估 (Strategic Environment Assessment): 新增“滩头阵地阻力指数”，评估登陆点上方的套牢盘压力。
         - 数学模型: 品质分 = 战术品质分 * (1 - 战略阻力分)
         """
-        print(f"    -> [行为层] 正在计算 '高品质量能爆发'……")
+        print(f"    -> [行为层] 正在计算 '高品质量能爆发'")
         method_name = "_calculate_volume_burst_quality"
         params = get_param_value(self.config_params.get('beachhead_protocol_params'), {})
         strategic_weights = get_param_value(params.get('strategic_weights'), {'chip_fatigue': 0.6, 'loser_pain': 0.4})
@@ -2635,7 +2635,7 @@ class BehavioralIntelligence:
           3. 过程稳定性封印 (The Stability Seal): 新增动态诊断，审判“淬炼”过程是否平稳（低波动率）。
         - 数学模型: 品质分 = 战略门控 * 基础萎缩分 * (纯度分 * 稳定分) ^ 0.5
         """
-        print(f"    -> [行为层] 正在计算 '高品质成交量萎缩'……")
+        print(f"    -> [行为层] 正在计算 '高品质成交量萎缩'")
         method_name = "_calculate_volume_atrophy"
         params = get_param_value(self.config_params.get('crucible_protocol_params'), {})
         stability_window = get_param_value(params.get('stability_window'), 5)
@@ -2707,7 +2707,7 @@ class BehavioralIntelligence:
           3. 总督意志 (The Governor's Will): 审判承接行为背后的主力真实信念。
         - 数学模型: 强度分 = (地基品质分 * 构筑行动分 * 总督意志分) ^ (1/3)
         """
-        print(f"    -> [行为层] 正在计算 '高品质承接强度'……")
+        print(f"    -> [行为层] 正在计算 '高品质承接强度'")
         method_name = "_calculate_absorption_strength"
         params = get_param_value(self.config_params.get('citadel_protocol_params'), {})
         action_weights = get_param_value(params.get('action_weights'), {'dip_absorption': 0.6, 'active_buying': 0.4})
@@ -2771,7 +2771,7 @@ class BehavioralIntelligence:
           4. 融合函数优化: 调整融合权重，并引入一个“亢奋加速度”因子。
         - 【清理】移除所有调试探针代码，恢复生产状态。
         """
-        print(f"    -> [行为层] 正在计算 '高品质价格超买亢奋'……")
+        print(f"    -> [行为层] 正在计算 '高品质价格超买亢奋'")
         method_name = "_calculate_behavioral_price_overextension"
         overextension_params = get_param_value(self.config_params.get('price_overextension_params'), {
             "enabled": True, "rsi_overbought_threshold": 70, "bias_overbought_threshold": 0.05,
@@ -2882,7 +2882,7 @@ class BehavioralIntelligence:
           4. 成交量异常细化: 区分放量滞涨和缩量上涨，后者在某些情境下也可能是滞涨证据。
           5. 融合函数优化: 调整融合权重，并引入一个“滞涨加速度”因子。
         """
-        print(f"    -> [行为层] 正在计算 '纯粹基于行为类原始数据的滞涨证据原始分'……")
+        print(f"    -> [行为层] 正在计算 '纯粹基于行为类原始数据的滞涨证据原始分'")
         method_name = "_calculate_behavioral_stagnation_evidence"
         stagnation_params = get_param_value(self.config_params.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
@@ -3011,7 +3011,7 @@ class BehavioralIntelligence:
           3. 执行品质 (Execution Quality): 评估洗盘技艺（效率、控制力、决断力）。
         - 数学模型: 确认分 = 战略意图 * (战术行动 * 执行品质) ^ 0.5
         """
-        print(f"    -> [行为层] 正在计算 '震荡洗盘确认信号'……")
+        print(f"    -> [行为层] 正在计算 '震荡洗盘确认信号'")
         method_name = "_diagnose_shakeout_confirmation"
         params = get_param_value(self.config_params.get('grandmasters_protocol_params'), {})
         quality_weights = get_param_value(params.get('quality_weights'), {'efficiency': 0.4, 'control': 0.4, 'decisiveness': 0.2})
@@ -3074,7 +3074,7 @@ class BehavioralIntelligence:
         - 优化效率: 集中获取参数和信号，避免重复计算。
         - 清理探针: 移除所有调试打印，使代码更简洁。
         """
-        print(f"    -> [行为层] 正在计算 '纯粹基于行为类原始数据的看涨/看跌背离信号'……")
+        print(f"    -> [行为层] 正在计算 '纯粹基于行为类原始数据的看涨/看跌背离信号'")
         method_name = "_diagnose_pure_behavioral_divergence"
         # 1. 获取所有配置参数
         p_conf = self.config_params
@@ -3623,7 +3623,7 @@ class BehavioralIntelligence:
         - 【新增】在方法开始时加入对所有原料数据的存在性检查。
         - 【清理】移除所有调试探针代码，恢复生产状态。
         """
-        print(f"    -> [行为层] 正在计算 '锁仓拉升机会信号'……")
+        print(f"    -> [行为层] 正在计算 '锁仓拉升机会信号'")
         method_name = "_calculate_lockup_rally_opportunity"
         p_behavioral_div_conf = self.config_params
         lockup_rally_params = get_param_value(p_behavioral_div_conf.get('lockup_rally_params'), {})
@@ -3893,7 +3893,7 @@ class BehavioralIntelligence:
         - 【行为层纯化】该信号仅针对行为类原始数据进行分析，不引用其他情报层的信号。
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         """
-        print(f"    -> [行为层] 正在计算 '卖盘衰竭机会信号'……")
+        print(f"    -> [行为层] 正在计算 '卖盘衰竭机会信号'")
         method_name = "_diagnose_selling_exhaustion_opportunity"
         p_behavioral_div_conf = self.config_params
         selling_exhaustion_params = get_param_value(p_behavioral_div_conf.get('selling_exhaustion_params'), {})
@@ -4175,7 +4175,7 @@ class BehavioralIntelligence:
         - 核心重构: 在“恐慌瀑布协议”基础上深度进化，旨在更早期、更精准地识别由恐慌抛售、买盘抵抗瓦解、
                     市场流动性枯竭以及市场结构混沌脆弱共同驱动的系统性风险。
         """
-        print(f"    -> [行为层] 正在计算 '流动性枯竭风险'……")
+        print(f"    -> [行为层] 正在计算 '流动性枯竭风险'")
         method_name = "_diagnose_liquidity_drain_risk"
         p_behavioral_div_conf = self.config_params
         liquidity_drain_params = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params'), {})
@@ -4381,7 +4381,7 @@ class BehavioralIntelligence:
         - 目标: 提供一个更具前瞻性和情境感知的短期行为趋势信号。
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         """
-        print(f"    -> [行为层] 正在计算 '战场动量信号'……")
+        print(f"    -> [行为层] 正在计算 '战场动量信号'")
         method_name = "_calculate_battlefield_momentum"
         # 1. 获取参数
         # 从 self.config_params 获取 battlefield_momentum_params

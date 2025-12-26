@@ -642,7 +642,7 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 增加 atomic_states 参数
     """
-    【V23.8 · 冷却期向量化优化版 & 日期类型修复版】“盖亚基石”支撑分计算引擎
+    【V23.9 · 冷却期向量化优化版 & 日期类型修复版 & 调试探针版】“盖亚基石”支撑分计算引擎
     - 核心修复: 修正了上下影线的计算逻辑，使用 np.maximum/minimum(open, close) 作为实体边界，
                   确保在阴阳线上计算的绝对准确性。
     - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
@@ -651,6 +651,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     - Timedelta 访问修复: 修正了 `time_diff.days` 为 `time_diff.dt.days`，以正确访问 Timedelta Series 的天数属性。
     - .dt accessor 错误修复: 确保 `time_diff` 是 `Timedelta` Series，以便正确使用 `.dt` 访问器。
     - 强制类型转换移除: 移除了多余的 `astype('datetime64[ns]')`，避免与时区信息冲突。
+    - 调试探针: 添加了打印语句，用于在错误发生时输出 `df.index.to_series()` 和 `filled_dates` 的详细信息。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -719,11 +720,15 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
     
-    # 移除强制确保 filled_dates 是 datetime64[ns] 类型，因为这可能导致与时区冲突
-    # filled_dates = filled_dates.astype('datetime64[ns]')
+    # --- 调试探针开始 ---
+    print(f"    -> [DEBUG: _calculate_gaia_bedrock_support] df.index.to_series().dtype: {df.index.to_series().dtype}")
+    print(f"    -> [DEBUG: _calculate_gaia_bedrock_support] filled_dates.dtype (after ffill): {filled_dates.dtype}")
+    print(f"    -> [DEBUG: _calculate_gaia_bedrock_support] df.index.to_series() head:\n{df.index.to_series().head()}")
+    print(f"    -> [DEBUG: _calculate_gaia_bedrock_support] filled_dates head:\n{filled_dates.head()}")
+    print(f"    -> [DEBUG: _calculate_gaia_bedrock_support] filled_dates contains NaT: {filled_dates.isna().any()}")
+    # --- 调试探针结束 ---
 
     # 5. 检查当前日期是否在冷却期内
-    # time_diff 将是一个 Timedelta Series，可能包含 NaT 值
     time_diff = df.index.to_series() - filled_dates
     
     # 过滤掉 time_diff 中的 NaT 值，只对有效日期进行计算
@@ -731,7 +736,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
 
     is_within_cooldown_period = pd.Series(False, index=df.index)
     if valid_time_diff_mask.any():
-        # 使用 .dt.days 访问 Timedelta Series 的天数属性，然后通过 loc 筛选
         is_within_cooldown_period.loc[valid_time_diff_mask] = time_diff.dt.days.loc[valid_time_diff_mask] < confirmation_cooldown_period
     
     # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
@@ -744,10 +748,11 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
 
 def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V3.3 · 冷却期向量化优化版 & 日期类型修复版】“乌拉诺斯穹顶”阻力分计算引擎
+    【V3.4 · 冷却期向量化优化版 & 日期类型修复版 & 调试探针版】“乌拉诺斯穹顶”阻力分计算引擎
     - 核心升级: 不再包含拒绝质量评估逻辑，而是调用通用的 _calculate_rejection_quality_score 函数。
     - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
     - 强制类型转换移除: 移除了多余的 `astype('datetime64[ns]')`，避免与时区信息冲突。
+    - 调试探针: 添加了打印语句，用于在错误发生时输出 `df.index.to_series()` 和 `filled_dates` 的详细信息。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -799,8 +804,13 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
     
-    # 移除强制确保 filled_dates 是 datetime64[ns] 类型，因为这可能导致与时区冲突
-    # filled_dates = filled_dates.astype('datetime64[ns]')
+    # --- 调试探针开始 ---
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] df.index.to_series().dtype: {df.index.to_series().dtype}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates.dtype (after ffill): {filled_dates.dtype}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] df.index.to_series() head:\n{df.index.to_series().head()}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates head:\n{filled_dates.head()}")
+    print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates contains NaT: {filled_dates.isna().any()}")
+    # --- 调试探针结束 ---
 
     # 5. 检查当前日期是否在冷却期内
     time_diff = df.index.to_series() - filled_dates
@@ -817,7 +827,6 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     # 4. 最终融合
     uranus_score = np.maximum(rejection_quality_score, confirmation_score_series)
     return uranus_score.astype(np.float32)
-
 
 def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
