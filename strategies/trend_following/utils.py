@@ -642,10 +642,12 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 增加 atomic_states 参数
     """
-    【V23.3 · 冷却期向量化优化版】“盖亚基石”支撑分计算引擎
+    【V23.4 · 冷却期向量化优化版 & 日期类型修复版】“盖亚基石”支撑分计算引擎
     - 核心修复: 修正了上下影线的计算逻辑，使用 np.maximum/minimum(open, close) 作为实体边界，
                   确保在阴阳线上计算的绝对准确性。
     - 性能优化: 将冷却期逻辑从显式 `for` 循环重构为向量化操作，显著提升效率。
+    - 日期类型修复: 解决了 `df.index - filled_dates` 运算中 `Timestamp` 与 `float` 混淆的 `TypeError`，
+                    确保 `filled_dates` 始终为 `datetime64[ns]` 类型。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -707,14 +709,22 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     #    创建一个组ID，每次遇到重置信号时递增，这样ffill就不会跨越重置点
     group_ids = is_cooldown_reset_signal.astype(int).cumsum()
     # 3. 跟踪每个确认事件的日期
-    confirmation_dates = pd.Series(pd.NaT, index=df.index)
+    # 确保 confirmation_dates 的 dtype 是 datetime64[ns]
+    confirmation_dates = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]') 
     confirmation_dates.loc[is_confirmed_base] = df.index[is_confirmed_base]
     # 4. 在每个组内，前向填充确认分数和确认日期
-    #    ffill_limit 确保填充不会超过冷却期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
+    
     # 5. 检查当前日期是否在冷却期内
-    is_within_cooldown_period = (df.index - filled_dates).days < confirmation_cooldown_period
+    # 过滤掉 filled_dates 中的 NaT 值，只对有效日期进行计算
+    valid_filled_dates_mask = filled_dates.notna()
+    is_within_cooldown_period = pd.Series(False, index=df.index)
+    if valid_filled_dates_mask.any():
+        # 确保 df.index 和 filled_dates 都是 DatetimeIndex/Series，然后进行减法
+        time_diff = df.index[valid_filled_dates_mask] - filled_dates[valid_filled_dates_mask]
+        is_within_cooldown_period.loc[valid_filled_dates_mask] = time_diff.days < confirmation_cooldown_period
+    
     # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
     confirmation_score_series = filled_scores.where(is_within_cooldown_period, 0.0).fillna(0.0)
     # --- 冷却期逻辑向量化优化结束 ---
