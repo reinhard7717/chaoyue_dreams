@@ -3757,15 +3757,17 @@ class BehavioralIntelligence:
             body_range = (close_price - open_price).abs()
             total_range = high_price - low_price
             total_range_safe = total_range.replace(0, 1e-9)
-            lower_shadow = np.minimum(open_price, close_price) - low_price # Corrected lower shadow calculation
-            upper_shadow = high_price - np.maximum(open_price, close_price) # Corrected upper shadow calculation
+            lower_shadow = np.minimum(open_price, close_price) - low_price
+            upper_shadow = high_price - np.maximum(open_price, close_price)
             
-            is_long_lower_shadow = (lower_shadow / total_range_safe) > price_action_confirmation_params.get('lower_shadow_ratio_threshold', 0.4) # 定义 is_long_lower_shadow
-            is_long_upper_shadow = (upper_shadow / total_range_safe) > price_action_confirmation_params.get('upper_shadow_ratio_threshold', 0.4) # 定义 is_long_upper_shadow
-            is_small_body = (body_range / total_range_safe) < price_action_confirmation_params.get('body_ratio_threshold', 0.3) # 定义 is_small_body
-
+            # 显式计算并定义这些比率
+            lower_shadow_ratio = (lower_shadow / total_range_safe).clip(0, 1)
             upper_shadow_ratio = (upper_shadow / total_range_safe).clip(0, 1)
             body_ratio = (body_range / total_range_safe).clip(0, 1)
+
+            is_long_lower_shadow = (lower_shadow_ratio > price_action_confirmation_params.get('lower_shadow_ratio_threshold', 0.4))
+            is_long_upper_shadow = (upper_shadow_ratio > price_action_confirmation_params.get('upper_shadow_ratio_threshold', 0.4))
+            is_small_body = (body_ratio < price_action_confirmation_params.get('body_ratio_threshold', 0.3))
             
             if is_bullish:
                 is_engulfing = (
@@ -3791,7 +3793,7 @@ class BehavioralIntelligence:
                     (close_price < open_price) &
                     (is_long_upper_shadow) &
                     (is_small_body) &
-                    (lower_shadow_ratio < 0.1)
+                    (lower_shadow_ratio < 0.1) # 现在 lower_shadow_ratio 已被定义
                 )
             
             price_action_conf = price_action_conf.mask((is_long_lower_shadow if is_bullish else is_long_upper_shadow) & is_small_body, price_action_confirmation_params.get('confirmation_bonus', 0.15))
