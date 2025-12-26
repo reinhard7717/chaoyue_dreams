@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
-from typing import Dict, Tuple, Optional, List, Any
+from typing import Dict, Tuple, Optional, List, Any, final
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_energy_score,
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score, get_robust_bipolar_normalized_score,
@@ -1224,7 +1224,9 @@ class BehavioralIntelligence:
             (strategic_command_score + 1e-9) *
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        return upward_momentum_score.clip(0, 1).astype(np.float32)
+        final_score = upward_momentum_score.clip(0, 1).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '上涨动能'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -1289,7 +1291,9 @@ class BehavioralIntelligence:
             (defense_vacuum_score + 1e-9).pow(weights.get('defense_vacuum', 0.3)) *
             (command_vacuum_score + 1e-9).pow(weights.get('command_vacuum', 0.3))
         ).fillna(0.0)
-        return downward_momentum_score.clip(0, 1).astype(np.float32)
+        final_score = downward_momentum_score.clip(0, 1).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '下跌动能'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
@@ -1352,7 +1356,9 @@ class BehavioralIntelligence:
             (commanders_will_score + 1e-9).pow(weights.get('commanders_will', 0.3))
         ).fillna(0.0)
         final_offensive_absorption_intent = (base_quality_score * strategic_prerequisite_score).clip(0, 1)
-        return final_offensive_absorption_intent.astype(np.float32)
+        final_score = final_offensive_absorption_intent.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '进攻性承接意图'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -1430,7 +1436,9 @@ class BehavioralIntelligence:
             quality_modulator * top_level_fusion_weights.get('quality_modulator', 0.5)
         ) / total_top_level_weight
         final_control_score = final_control_score.clip(0, 1)
-        return final_control_score.astype(np.float32)
+        final_score = final_control_score.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '时序裁决'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -1506,8 +1514,9 @@ class BehavioralIntelligence:
         evidence_amplifier = 1 + k_amplifier * deception_evidence_score
         # --- 4. 计算认知失调并施加放大器 ---
         final_deception_index = (cognitive_dissonance_vector * evidence_amplifier).clip(-1, 1)
-        print(f"    -> [行为情报调试] {method_name} 计算完成。")
-        return final_deception_index.astype(np.float32)
+        final_score = final_deception_index.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， ' deception_index'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
         """
@@ -1567,7 +1576,9 @@ class BehavioralIntelligence:
         # --- 3. “泡沫脆弱度”合成 ---
         bubble_fragility_score = (internal_pressure_score / (structural_integrity_score + 1e-9)).fillna(0.0)
         final_overextension_score = np.tanh(bubble_fragility_score * 0.5)
-        return final_overextension_score.clip(0, 1).astype(np.float32)
+        final_score = final_overextension_score.clip(0, 1).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '价格过热风险'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -1632,7 +1643,9 @@ class BehavioralIntelligence:
         strategic_environment_score = (1 - strategic_resistance_score)
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_upward_efficiency = (tactical_assault_score * strategic_environment_score).clip(0, 1)
-        return final_upward_efficiency.astype(np.float32)
+        final_score = final_upward_efficiency.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '高品质上涨效率'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -1698,7 +1711,9 @@ class BehavioralIntelligence:
         ).clip(0, 1)
         # --- 4. 最终合成：战术应对 × 战略意图 ---
         final_downward_resistance = (tactical_response_score * strategic_intent_score).clip(0, 1)
-        return final_downward_resistance.astype(np.float32)
+        final_score = final_downward_resistance.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '高品质下跌抵抗'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -1819,7 +1834,9 @@ class BehavioralIntelligence:
             (intraday_control_sentiment_score + 1e-9).pow(fusion_weights.get('intraday_control_sentiment', 0.2))
         ).pow(1 / sum(fusion_weights.values())).fillna(0.0).clip(0, 1)
         final_new_high_strength = new_high_strength.pow(final_exponent)
-        return {'CONTEXT_NEW_HIGH_STRENGTH': final_new_high_strength.astype(np.float32)}
+        final_score = final_new_high_strength.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '新高强度'最终分数：{final_score}")
+        return {'CONTEXT_NEW_HIGH_STRENGTH': final_score}
 
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -1922,8 +1939,9 @@ class BehavioralIntelligence:
             behavioral_coherence_factor = 0.5 + behavioral_coherence_factor_raw * 0.5 # 映射到 [0.5, 1.0]
         # --- 6. 最终合成：三维融合 ---
         final_micro_intent = (core_intent_magnitude * environmental_adaptability_factor * behavioral_coherence_factor).clip(-1, 1)
-        print(f"    -> [行为情报调试] {method_name} 计算完成。")
-        states = {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': final_micro_intent.astype(np.float32)}
+        final_score = final_micro_intent.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '微观结构意图'最终分数：{final_score}")
+        states = {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': final_score}
         return states
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
@@ -2009,7 +2027,9 @@ class BehavioralIntelligence:
         stagnation_evidence = (micro_stalemate_score * 0.6 + macro_erosion_score * 0.4)
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
-        return final_stagnation_evidence.astype(np.float32)
+        final_score = final_stagnation_evidence.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '微观战局僵持'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -2073,7 +2093,9 @@ class BehavioralIntelligence:
         # --- 4. 最终合成 ---
         base_drama_quality = (script_quality_score * performance_quality_score).pow(0.5).fillna(0.0)
         final_lower_shadow_quality = (base_drama_quality * directors_intent_score).clip(0, 1)
-        return final_lower_shadow_quality.astype(np.float32)
+        final_score = final_lower_shadow_quality.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '下影线承接品质'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict, overextension_raw: pd.Series) -> pd.Series:
         """
@@ -2161,7 +2183,9 @@ class BehavioralIntelligence:
         base_risk = pd.concat([tactical_risk_score, strategic_risk_score], axis=1).max(axis=1)
         synergy_amplifier = 1 + (tactical_risk_score * strategic_risk_score).pow(0.5) * synergy_bonus
         final_distribution_intent = (base_risk * synergy_amplifier).clip(0, 1)
-        return final_distribution_intent.astype(np.float32)
+        final_score = final_distribution_intent.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '分布意图'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
@@ -2261,8 +2285,9 @@ class BehavioralIntelligence:
             (deceptive_action_score + 1e-9).pow(fusion_weights.get('action', 0.4)) *
             (counterattack_quality_score + 1e-9).pow(fusion_weights.get('quality', 0.3))
         ).pow(1/(fusion_weights.get('context', 0.3) + fusion_weights.get('action', 0.4) + fusion_weights.get('quality', 0.3))).fillna(0.0)
-        print(f"    -> [行为情报调试] {method_name} 计算完成。")
-        return ambush_counterattack_score.clip(0, 1).astype(np.float32)
+        final_score = ambush_counterattack_score.clip(0, 1).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '突袭品质'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
@@ -2440,7 +2465,9 @@ class BehavioralIntelligence:
             ).clip(0.5, 1.5)
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base_initial * final_amplifier * risk_dynamic_modulator).clip(0, 1)
-        return breakout_failure_risk.astype(np.float32)
+        final_score = breakout_failure_risk.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '突破失败风险'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
@@ -2552,8 +2579,11 @@ class BehavioralIntelligence:
             (bearish_micro_intent_confirmation_score + 1e-9).pow(fusion_weights.get('micro_intent_confirmation', 0.1)) *
             (deceptive_narrative_confirmation_score + 1e-9).pow(fusion_weights.get('deceptive_narrative_confirmation', 0.1))
         ).fillna(0.0)
-        print(f"    -> [行为情报调试] {method_name} 计算完成。")
-        return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
+        bullish_divergence_quality_final_score = bullish_divergence_quality.clip(0, 1).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '牛市背离品质'最终分数：{bullish_divergence_quality_final_score}")
+        bearish_divergence_quality_final_score = bearish_divergence_quality.clip(0, 1).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '熊市背离品质'最终分数：{bearish_divergence_quality_final_score}")
+        return bullish_divergence_quality_final_score, bearish_divergence_quality_final_score
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -2623,7 +2653,9 @@ class BehavioralIntelligence:
         strategic_environment_score = (1 - beachhead_resistance_score)
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_burst_quality = (tactical_assault_quality_score * strategic_environment_score).clip(0, 1)
-        return final_burst_quality.astype(np.float32)
+        final_score = final_burst_quality.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '高品质量能爆发'最终分数：{final_score}")
+        return final_score
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -2695,7 +2727,9 @@ class BehavioralIntelligence:
             (stability_score).pow(quality_weights.get('stability_score', 0.4))
         ).fillna(0.0)
         final_atrophy_quality = (strategic_context_gate * base_atrophy_score * quality_modulator).clip(0, 1)
-        return final_atrophy_quality.astype(np.float32)
+        final_score = final_atrophy_quality.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '高品质量承接'最终分数：{final_score}")
+        return final_score
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -2758,7 +2792,9 @@ class BehavioralIntelligence:
             (construction_action_score + 1e-9) *
             (governors_will_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        return absorption_strength.clip(0, 1).astype(np.float32)
+        final_score = absorption_strength.clip(0, 1).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '高品质承接强度'最终分数：{final_score}")
+        return final_score
 
     def _calculate_behavioral_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
@@ -2869,7 +2905,9 @@ class BehavioralIntelligence:
             (volume_extremity_score + 1e-9).pow(0.2) *
             (intraday_extremity_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1)
-        return overextension_score.astype(np.float32)
+        final_score = overextension_score.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '日内行为极端'最终分数：{final_score}")
+        return final_score
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
@@ -2999,7 +3037,9 @@ class BehavioralIntelligence:
             (volume_anomaly_score + 1e-9).pow(0.2) *
             (intraday_control_weakness_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1)
-        return stagnation_score.astype(np.float32)
+        final_score = stagnation_score.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '日内行为减弱'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
@@ -3065,7 +3105,9 @@ class BehavioralIntelligence:
         # --- 4. “大国工匠协议”三维合成 ---
         base_confirmation = (tactical_action_score * execution_quality_score).pow(0.5).fillna(0.0)
         shakeout_confirmation_score = (strategic_intent_score * base_confirmation).clip(0, 1)
-        return shakeout_confirmation_score.astype(np.float32)
+        final_score = shakeout_confirmation_score.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '震荡洗盘确认信号'最终分数：{final_score}")
+        return final_score
 
     def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:
         """
@@ -3249,7 +3291,11 @@ class BehavioralIntelligence:
             dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic,
             debug_info_tuple # 传递 debug_info_tuple
         )
-        return bullish_divergence_score, bearish_divergence_score
+        final_bullish_score = bullish_divergence_score.astype(np.float32)
+        final_bearish_score = bearish_divergence_score.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '看涨背离'最终分数：{final_bullish_score}")
+        print(f"    -> [行为层] 计算完毕， '看跌背离'最终分数：{final_bearish_score}")
+        return final_bullish_score, final_bearish_score
 
     def _calculate_single_divergence_type(self, df: pd.DataFrame, is_bullish: bool, params: Dict, tf_weights: Dict, # tf_weights 已经作为参数传入
                                           robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
@@ -3612,7 +3658,9 @@ class BehavioralIntelligence:
             (inertia_factor + 1e-9).pow(0.1)
         ).pow(1 / (2.2 * adaptive_fusion_weight_multiplier)).fillna(0.0).clip(0, 1)
         divergence_score = divergence_score.where(div_condition_raw, 0.0)
-        return divergence_score.astype(np.float32)
+        final_score = divergence_score.astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '背离信号'最终分数：{final_score}")
+        return final_score
 
     def _calculate_lockup_rally_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
@@ -3848,6 +3896,7 @@ class BehavioralIntelligence:
         ).pow(1 / sum(lockup_rally_fusion_weights.values()))
         lockup_rally_score = lockup_rally_score.where(is_rising > 0, 0.0).clip(0, 1).astype(np.float32)
         final_lockup_rally_score = lockup_rally_score.pow(lockup_rally_final_exponent)
+        print(f"    -> [行为层] 计算完毕， '锁仓 rally 信号'最终分数：{final_lockup_rally_score}")
         return final_lockup_rally_score
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
@@ -4166,6 +4215,7 @@ class BehavioralIntelligence:
             final_score_gated = final_score_gated * (1 - is_strong_uptrend * gate_penalty_factor)
         # --- 6. 最终非线性变换 ---
         final_selling_exhaustion_score = final_score_gated.pow(final_exponent).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '卖出耗尽信号'最终分数：{final_selling_exhaustion_score}")
         return final_selling_exhaustion_score
 
     def _diagnose_liquidity_drain_risk(self, df: pd.DataFrame, states: Dict[str, pd.Series], tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -4369,6 +4419,7 @@ class BehavioralIntelligence:
         final_score_gated = liquidity_drain_base_score * is_falling
         # --- 9. 最终非线性变换 ---
         final_liquidity_drain_score = final_score_gated.pow(final_exponent).astype(np.float32)
+        print(f"    -> [行为层] 计算完毕， '流动性枯竭信号'最终分数：{final_liquidity_drain_score}")
         return final_liquidity_drain_score
 
     def _calculate_battlefield_momentum(self, df: pd.DataFrame, day_quality_score: pd.Series, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -4539,6 +4590,7 @@ class BehavioralIntelligence:
         )
         # 9. 最终非线性变换
         final_battlefield_momentum = final_fused_momentum.pow(final_exponent).clip(0, 1)
+        print(f"    -> [行为层] 计算完毕， '最终战场动量'最终分数：{final_battlefield_momentum}")
         return final_battlefield_momentum.astype(np.float32)
 
 
