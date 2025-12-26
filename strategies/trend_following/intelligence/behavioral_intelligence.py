@@ -1225,7 +1225,7 @@ class BehavioralIntelligence:
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
         final_score = upward_momentum_score.clip(0, 1).astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '上涨动能'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '上涨动能'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame) -> pd.Series:
@@ -1292,7 +1292,7 @@ class BehavioralIntelligence:
             (command_vacuum_score + 1e-9).pow(weights.get('command_vacuum', 0.3))
         ).fillna(0.0)
         final_score = downward_momentum_score.clip(0, 1).astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '下跌动能'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '下跌动能'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
@@ -1437,7 +1437,7 @@ class BehavioralIntelligence:
         ) / total_top_level_weight
         final_control_score = final_control_score.clip(0, 1)
         final_score = final_control_score.astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '时序裁决'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '时序裁决'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
@@ -1515,7 +1515,7 @@ class BehavioralIntelligence:
         # --- 4. 计算认知失调并施加放大器 ---
         final_deception_index = (cognitive_dissonance_vector * evidence_amplifier).clip(-1, 1)
         final_score = final_deception_index.astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， ' deception_index'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '博弈欺骗指数'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
@@ -1577,7 +1577,7 @@ class BehavioralIntelligence:
         bubble_fragility_score = (internal_pressure_score / (structural_integrity_score + 1e-9)).fillna(0.0)
         final_overextension_score = np.tanh(bubble_fragility_score * 0.5)
         final_score = final_overextension_score.clip(0, 1).astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '价格过热风险'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '价格过热风险'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -1644,7 +1644,7 @@ class BehavioralIntelligence:
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_upward_efficiency = (tactical_assault_score * strategic_environment_score).clip(0, 1)
         final_score = final_upward_efficiency.astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '高品质上涨效率'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '高品质上涨效率'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -1712,7 +1712,7 @@ class BehavioralIntelligence:
         # --- 4. 最终合成：战术应对 × 战略意图 ---
         final_downward_resistance = (tactical_response_score * strategic_intent_score).clip(0, 1)
         final_score = final_downward_resistance.astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '高品质下跌抵抗'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '高品质下跌抵抗'最终分数：{final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1835,7 +1835,7 @@ class BehavioralIntelligence:
         ).pow(1 / sum(fusion_weights.values())).fillna(0.0).clip(0, 1)
         final_new_high_strength = new_high_strength.pow(final_exponent)
         final_score = final_new_high_strength.astype(np.float32)
-        print(f"    -> [行为层] 计算完毕， '新高强度'最终分数：{final_score}")
+        print(f"    -> [行为层] 计算完毕， '新高强度'最终分数：{final_score.iloc[-1]}")
         return {'CONTEXT_NEW_HIGH_STRENGTH': final_score}
 
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
