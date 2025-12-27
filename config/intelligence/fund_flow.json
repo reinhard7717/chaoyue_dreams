@@ -751,7 +751,23 @@
                 "comment": "对前期显著下跌的看涨信号进行惩罚。"
             },
             "deception_lure_long_penalty_factor": 0.5,
-            "comment_deception_lure_long_penalty_factor": "诱多欺骗强度对看涨背离纯度的惩罚因子。"
+            "comment_deception_lure_long_penalty_factor": "诱多欺骗强度对看涨背离纯度的惩罚因子。",
+            "fund_flow_weakness_penalty_params": {
+                "enabled": true,
+                "long_term_nmfnf_accel_period": 21,
+                "sell_exhaustion_weight": 0.4,
+                "nmfnf_accel_weight": 0.6,
+                "penalty_factor": 0.7,
+                "comment": "基于资金流自身疲软度对看涨信号进行惩罚。"
+            },
+            "fund_flow_trend_consistency_params": {
+                "enabled": true,
+                "long_term_nmfnf_slope_period": 55,
+                "flow_credibility_weight": 0.5,
+                "nmfnf_slope_weight": 0.5,
+                "modulator_factor": 0.8,
+                "comment": "基于资金流自身趋势一致性对看涨信号进行调制。"
+            }
         },
         "axiom_intent_purity_params": {
             "description": "【V3.0 · 意图韧性与适应性版】资金流公理：意图纯度。旨在量化主导资金流意图的清晰度、执行效率、抗操纵性、韧性与适应性，并捕捉其动态演化。",
