@@ -741,7 +741,17 @@
                 "market_sentiment": 0.5,
                 "flow_credibility": 0.5
             },
-            "comment_purity_context_mod_factors": "影响纯度调制器敏感度的上下文因子及其权重。"
+            "comment_purity_context_mod_factors": "影响纯度调制器敏感度的上下文因子及其权重。",
+            "prior_weakness_penalty_params": {
+                "enabled": true,
+                "pct_change_window": 3,
+                "pct_change_threshold": -0.03,
+                "downward_momentum_weight": 0.5,
+                "penalty_factor": 0.5,
+                "comment": "对前期显著下跌的看涨信号进行惩罚。"
+            },
+            "deception_lure_long_penalty_factor": 0.5,
+            "comment_deception_lure_long_penalty_factor": "诱多欺骗强度对看涨背离纯度的惩罚因子。"
         },
         "axiom_intent_purity_params": {
             "description": "【V3.0 · 意图韧性与适应性版】资金流公理：意图纯度。旨在量化主导资金流意图的清晰度、执行效率、抗操纵性、韧性与适应性，并捕捉其动态演化。",
