@@ -2210,24 +2210,24 @@ class FundFlowIntelligence:
         # market_trend_strength_raw = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_BEHAVIOR_TREND_STRENGTH', 0.0, method_name=method_name) # 移除非资金流信号
 
         # --- 1. 纯度过滤 (Purity Filter) ---
-        norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, self.tf_weights_ff)
+        norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, self.tf_weights_ff)
+        norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, self.tf_weights_ff)
         norm_deception_multi_tf = (
             norm_deception_slope_5 * 0.5 +
             norm_deception_slope_13 * 0.3 +
             norm_deception_slope_21 * 0.2
         ).clip(-1, 1)
-        norm_wash_trade_slope_5 = get_adaptive_mtf_normalized_score(wash_trade_slope_5_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_wash_trade_slope_13 = get_adaptive_mtf_normalized_score(wash_trade_slope_13_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_wash_trade_slope_21 = get_adaptive_mtf_normalized_score(wash_trade_slope_21_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_wash_trade_slope_5 = get_adaptive_mtf_normalized_score(wash_trade_slope_5_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_wash_trade_slope_13 = get_adaptive_mtf_normalized_score(wash_trade_slope_13_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_wash_trade_slope_21 = get_adaptive_mtf_normalized_score(wash_trade_slope_21_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_wash_trade_multi_tf = (
             norm_wash_trade_slope_5 * 0.5 +
             norm_wash_trade_slope_13 * 0.3 +
             norm_wash_trade_slope_21 * 0.2
         ).clip(0, 1)
-        norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_flow_credibility_purity = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, self.tf_weights_ff)
+        norm_flow_credibility_purity = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
 
         purity_context_mod = (
             (1 + norm_market_sentiment.abs() * np.sign(norm_market_sentiment) * purity_context_mod_factors.get('market_sentiment', 0.5)) *
@@ -2235,7 +2235,7 @@ class FundFlowIntelligence:
         ).clip(0.5, 1.5)
 
         # 增强诱多欺骗敏感度：将 deception_lure_long_intensity_D 整合到看涨背离的纯度调制器中
-        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
 
         bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * \
                                    (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod) * \
@@ -2259,11 +2259,11 @@ class FundFlowIntelligence:
         bullish_posture_mod = norm_strategic_posture.clip(lower=0) * context_modulator_weights.get('strategic_posture', 0.4)
         bearish_posture_mod = norm_strategic_posture.clip(upper=0).abs() * context_modulator_weights.get('strategic_posture', 0.4)
 
-        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         credibility_mod = norm_flow_credibility * context_modulator_weights.get('flow_credibility', 0.3)
 
-        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         bullish_retail_context_mod = norm_retail_panic * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
         bearish_retail_context_mod = norm_retail_fomo * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
 
@@ -2272,9 +2272,9 @@ class FundFlowIntelligence:
         if fund_flow_weakness_enabled:
             # 资金流中长期加速度为负，表示资金流持续疲软
             long_term_nmfnf_accel_raw = raw_data_cache.get(f'ACCEL_{long_term_nmfnf_accel_period}_NMFNF_D', all_pre_fetched_slopes_accels.get(f'ACCEL_{long_term_nmfnf_accel_period}_NMFNF_D'))
-            norm_long_term_nmfnf_accel = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_accel_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
+            norm_long_term_nmfnf_accel = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_accel_raw, df_index, self.tf_weights_ff)
             # 卖盘枯竭率高，表示卖压沉重
-            norm_sell_exhaustion_penalty = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+            norm_sell_exhaustion_penalty = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
 
             # 只有当资金流加速度为负（疲软）且卖盘枯竭率较高时，才施加惩罚
             fund_flow_weakness_base = (norm_long_term_nmfnf_accel.clip(upper=0).abs() * nmfnf_accel_weight + 
@@ -2287,9 +2287,9 @@ class FundFlowIntelligence:
         if fund_flow_trend_consistency_enabled:
             # 中长期资金流斜率
             long_term_nmfnf_slope_raw = raw_data_cache.get(f'SLOPE_{long_term_nmfnf_slope_period}_NMFNF_D', all_pre_fetched_slopes_accels.get(f'SLOPE_{long_term_nmfnf_slope_period}_NMFNF_D'))
-            norm_long_term_nmfnf_slope = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_slope_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
+            norm_long_term_nmfnf_slope = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_slope_raw, df_index, self.tf_weights_ff)
             # 资金流可信度
-            norm_flow_credibility_consistency = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+            norm_flow_credibility_consistency = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
 
             # 资金流趋势一致性：当长期资金流斜率为正且资金流可信度高时，调制因子接近1
             # 否则，调制因子降低，惩罚看涨信号
@@ -2318,37 +2318,37 @@ class FundFlowIntelligence:
         ).clip(-1, 1)
 
         # --- V4.0 升级: 更全面的微观意图强度 (Comprehensive Micro-Intent Strength) ---
-        norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_micro_impact_elasticity = get_adaptive_mtf_normalized_bipolar_score(micro_impact_elasticity_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_main_force_t0_efficiency = get_adaptive_mtf_normalized_bipolar_score(main_force_t0_efficiency_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, self.tf_weights_ff)
+        norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
+        norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_micro_impact_elasticity = get_adaptive_mtf_normalized_bipolar_score(micro_impact_elasticity_raw, df_index, self.tf_weights_ff)
+        norm_main_force_t0_efficiency = get_adaptive_mtf_normalized_bipolar_score(main_force_t0_efficiency_raw, df_index, self.tf_weights_ff)
         # V4.1 整合新增资金指标到微观意图强度
-        norm_dip_buy_absorption_strength = get_adaptive_mtf_normalized_score(dip_buy_absorption_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_opening_buy_strength = get_adaptive_mtf_normalized_score(opening_buy_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_pre_closing_buy_posture = get_adaptive_mtf_normalized_score(pre_closing_buy_posture_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_closing_auction_buy_ambush = get_adaptive_mtf_normalized_score(closing_auction_buy_ambush_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_main_force_t0_buy_efficiency = get_adaptive_mtf_normalized_score(main_force_t0_buy_efficiency_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_buy_flow_efficiency_index = get_adaptive_mtf_normalized_score(buy_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_buy_order_book_clearing_rate = get_adaptive_mtf_normalized_score(buy_order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_vwap_buy_control_strength = get_adaptive_mtf_normalized_score(vwap_buy_control_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_main_force_vwap_up_guidance = get_adaptive_mtf_normalized_score(main_force_vwap_up_guidance_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_vwap_cross_up_intensity = get_adaptive_mtf_normalized_score(vwap_cross_up_intensity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_dip_sell_pressure_resistance = get_adaptive_mtf_normalized_score(dip_sell_pressure_resistance_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_panic_sell_volume_contribution = get_adaptive_mtf_normalized_score(panic_sell_volume_contribution_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_opening_sell_strength = get_adaptive_mtf_normalized_score(opening_sell_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_pre_closing_sell_posture = get_adaptive_mtf_normalized_score(pre_closing_sell_posture_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_closing_auction_sell_ambush = get_adaptive_mtf_normalized_score(closing_auction_sell_ambush_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_main_force_on_peak_sell_flow = get_adaptive_mtf_normalized_score(main_force_on_peak_sell_flow_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_main_force_t0_sell_efficiency = get_adaptive_mtf_normalized_score(main_force_t0_sell_efficiency_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_sell_flow_efficiency_index = get_adaptive_mtf_normalized_score(sell_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_sell_order_book_clearing_rate = get_adaptive_mtf_normalized_score(sell_order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_vwap_sell_control_strength = get_adaptive_mtf_normalized_score(vwap_sell_control_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_main_force_vwap_down_guidance = get_adaptive_mtf_normalized_score(main_force_vwap_down_guidance_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_vwap_cross_down_intensity = get_adaptive_mtf_normalized_score(vwap_cross_down_intensity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_dip_buy_absorption_strength = get_adaptive_mtf_normalized_score(dip_buy_absorption_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_panic_buy_absorption_contribution = get_adaptive_mtf_normalized_score(panic_buy_absorption_contribution_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_opening_buy_strength = get_adaptive_mtf_normalized_score(opening_buy_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_pre_closing_buy_posture = get_adaptive_mtf_normalized_score(pre_closing_buy_posture_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_closing_auction_buy_ambush = get_adaptive_mtf_normalized_score(closing_auction_buy_ambush_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_bid_side_liquidity = get_adaptive_mtf_normalized_score(bid_side_liquidity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_main_force_t0_buy_efficiency = get_adaptive_mtf_normalized_score(main_force_t0_buy_efficiency_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_buy_flow_efficiency_index = get_adaptive_mtf_normalized_score(buy_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_buy_order_book_clearing_rate = get_adaptive_mtf_normalized_score(buy_order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_vwap_buy_control_strength = get_adaptive_mtf_normalized_score(vwap_buy_control_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_main_force_vwap_up_guidance = get_adaptive_mtf_normalized_score(main_force_vwap_up_guidance_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_vwap_cross_up_intensity = get_adaptive_mtf_normalized_score(vwap_cross_up_intensity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_dip_sell_pressure_resistance = get_adaptive_mtf_normalized_score(dip_sell_pressure_resistance_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_panic_sell_volume_contribution = get_adaptive_mtf_normalized_score(panic_sell_volume_contribution_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_opening_sell_strength = get_adaptive_mtf_normalized_score(opening_sell_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_pre_closing_sell_posture = get_adaptive_mtf_normalized_score(pre_closing_sell_posture_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_closing_auction_sell_ambush = get_adaptive_mtf_normalized_score(closing_auction_sell_ambush_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_ask_side_liquidity = get_adaptive_mtf_normalized_score(ask_side_liquidity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_main_force_on_peak_sell_flow = get_adaptive_mtf_normalized_score(main_force_on_peak_sell_flow_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_main_force_t0_sell_efficiency = get_adaptive_mtf_normalized_score(main_force_t0_sell_efficiency_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_sell_flow_efficiency_index = get_adaptive_mtf_normalized_score(sell_flow_efficiency_index_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_sell_order_book_clearing_rate = get_adaptive_mtf_normalized_score(sell_order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_vwap_sell_control_strength = get_adaptive_mtf_normalized_score(vwap_sell_control_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_main_force_vwap_down_guidance = get_adaptive_mtf_normalized_score(main_force_vwap_down_guidance_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_vwap_cross_down_intensity = get_adaptive_mtf_normalized_score(vwap_cross_down_intensity_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
 
         total_micro_buy_strength = (
             norm_dip_buy_absorption_strength * micro_buy_power_weights.get('dip_buy_absorption_strength', 0.1) +
@@ -2397,9 +2397,9 @@ class FundFlowIntelligence:
         bearish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(upper=0).abs())
 
         # --- V4.0 升级: 看涨/看跌专属动态非线性指数 (Bullish/Bearish Adaptive Non-linear Exponents) ---
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         # norm_trend_vitality 已经在上面计算过
-        norm_flow_credibility_exp = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_flow_credibility_exp = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         
         bullish_exponent_mod_factor = (
             # 移除对非资金流信号的依赖
