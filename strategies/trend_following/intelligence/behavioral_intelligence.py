@@ -1162,8 +1162,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_raw_selling_pressure"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '原始卖压' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('raw_selling_pressure_params'), {})
         tactical_weights = get_param_value(params.get('tactical_weights'), {"active_selling": 0.4, "upper_shadow": 0.3, "sell_sweep": 0.3})
         strategic_weights = get_param_value(params.get('strategic_weights'), {"downward_resistance_inverse": 0.5, "support_validation_inverse": 0.5})
@@ -1228,8 +1226,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_dynamic_threshold"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '动态阈值' @ {probe_ts.strftime('%Y-%m-%d')}")
         base_threshold = get_param_value(params.get('base_threshold', 0.01))
         atr_multiplier = get_param_value(params.get('atr_multiplier', 0.005))
         min_threshold = get_param_value(params.get('min_threshold', 0.005))
@@ -1269,8 +1265,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_upward_momentum"
-        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-        #     print(f"    -> [探针 - {method_name}] 正在计算 '上涨动能' @ {probe_ts.strftime('%Y-%m-%d')}")
         required_signals = [
             'upward_impulse_purity_D', 'impulse_quality_ratio_D',
             'main_force_conviction_index_D', 'winner_stability_index_D'
@@ -1330,8 +1324,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_downward_momentum"
-        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-        #     print(f"    -> [探针 - {method_name}] 正在计算 '下跌动能' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('scorched_earth_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'breach_force': 0.4, 'defense_vacuum': 0.3, 'command_vacuum': 0.3})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -1401,8 +1393,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_offensive_absorption_intent"
-        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-        #     print(f"    -> [探针 - {method_name}] 正在计算 '进攻性承接意图' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('offensive_absorption_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'crisis_context': 0.3, 'counter_offensive_force': 0.4, 'commanders_will': 0.3})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -1473,8 +1463,6 @@ class BehavioralIntelligence:
         - 【修正】调整最终融合逻辑，避免战略位置中性时分数强制归零。
         """
         method_name = "_diagnose_intraday_bull_control"
-        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-        #     print(f"    -> [探针 - {method_name}] 正在计算 '日内多头控制力' @ {probe_ts.strftime('%Y-%m-%d')}")
         debug_info = (is_debug_enabled, probe_ts, method_name)
         params = get_param_value(self.config_params.get('chronos_protocol_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
@@ -1556,8 +1544,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_deception_index"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '博弈欺骗指数' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('puppeteers_gambit_params'), {})
         k_amplifier = params.get('evidence_amplifier_k', 0.5)
         deception_tool_weights = get_param_value(params.get('deception_tool_weights'), {"lure_long": 0.4, "wash_trade": 0.3, "lure_short": 0.3}) # 新增权重
@@ -1693,8 +1679,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_divergence_quality"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质价量/价资背离' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('deceptive_divergence_protocol_params'), {})
         # bullish_magnitude_params = get_param_value(params.get('bullish_magnitude_params'), {"price_downtrend_slope_window": 5, "conviction_uptrend_slope_window": 5}) # 废弃
         # bearish_magnitude_params = get_param_value(params.get('bearish_magnitude_params'), {"price_slope_window": 5, "conviction_downtrend_slope_window": 5}) # 废弃
@@ -1839,8 +1823,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_price_overextension"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '价格过热风险' @ {probe_ts.strftime('%Y-%m-%d')}")
         required_signals = [
             'total_winner_rate_D', 'ACCEL_5_pct_change_D', 'turnover_rate_f_D',
             'winner_stability_index_D', 'control_solidity_index_D', 'main_force_conviction_index_D'
@@ -1902,8 +1884,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_upward_efficiency"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质上涨效率' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('pathfinder_protocol_params'), {})
         resistance_weights = get_param_value(params.get('resistance_weights'), {'chip_fatigue': 0.6, 'loser_pain': 0.4})
         required_signals = [
@@ -1972,8 +1952,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_downward_resistance"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质下跌抵抗' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('elastic_defense_params'), {})
         intent_weights = get_param_value(params.get('intent_weights'), {'conviction': 0.6, 'cleansing': 0.4})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -2041,8 +2019,6 @@ class BehavioralIntelligence:
         - 【修正】优化 breakout_quality_score_D 的 nan 处理，将其视为质量缺失，赋予0分。
         """
         method_name = "_diagnose_context_new_high_strength"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '新高强度' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('new_high_strength_params'), {})
         debug_info = (is_debug_enabled, probe_ts, method_name)
         fusion_weights = get_param_value(params.get('fusion_weights'), {"price_momentum_quality": 0.3, "volume_liquidity_confirmation": 0.25, "resistance_overextension": 0.25, "intraday_control_sentiment": 0.2})
@@ -2169,8 +2145,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_microstructure_intent"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '微观结构意图' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('fog_of_war_protocol_params'), {})
         core_intent_weights = get_param_value(params.get('core_intent_weights'), {"ofi": 0.6, "quote_exhaustion": 0.4})
         env_adapt_weights = get_param_value(params.get('environmental_adaptability_weights'), {"volatility_sensitivity": 0.5, "liquidity_sensitivity": 0.5})
@@ -2277,8 +2251,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_stagnation_evidence"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '滞涨证据' @ {probe_ts.strftime('%Y-%m-%d')}")
         df_index = df.index
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
@@ -2373,8 +2345,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_lower_shadow_quality"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '下影线承接品质' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('directors_cut_params'), {})
         intent_weights = get_param_value(params.get('intent_weights'), {'conviction': 0.7, 'covert_ops': 0.3})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -2442,8 +2412,6 @@ class BehavioralIntelligence:
         - 升级说明: 增加了详细探针，用于调试和检查每一步计算。
         """
         method_name = "_diagnose_distribution_intent"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '派发意图' @ {probe_ts.strftime('%Y-%m-%d')}")
         # 从 self.config_params 获取 atmospheric_pressure_params
         params = get_param_value(self.config_params.get('atmospheric_pressure_params'), {})
         synergy_bonus = get_param_value(params.get('synergy_bonus_factor'), 0.2)
@@ -2542,8 +2510,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_ambush_counterattack"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '伏击式反攻' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('ambush_counterattack_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"context": 0.3, "action": 0.4, "quality": 0.3})
         context_weights = get_param_value(params.get('context_weights'), {"panic": 0.3, "prior_weakness_slope": 0.4, "loser_pain": 0.2, "price_stagnation": 0.1})
@@ -2649,8 +2615,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_breakout_failure_risk"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '突破失败级联风险' @ {probe_ts.strftime('%Y-%m-%d')}")
         required_signals = [
             'breakout_quality_score_D', 'retail_fomo_premium_index_D', 'trend_vitality_index_D',
             'active_buying_support_D', 'upward_impulse_purity_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
@@ -2849,8 +2813,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_volume_burst_quality"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质量能爆发' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('beachhead_protocol_params'), {})
         strategic_weights = get_param_value(params.get('strategic_weights'), {'chip_fatigue': 0.6, 'loser_pain': 0.4})
         required_signals = [
@@ -2926,8 +2888,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_volume_atrophy"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质成交量萎缩' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('crucible_protocol_params'), {})
         stability_window = get_param_value(params.get('stability_window'), 5)
         quality_weights = get_param_value(params.get('quality_weights'), {'purity_score': 0.6, 'stability_score': 0.4})
@@ -3006,8 +2966,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_absorption_strength"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质承接强度' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('citadel_protocol_params'), {})
         action_weights = get_param_value(params.get('action_weights'), {'dip_absorption': 0.6, 'active_buying': 0.4})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -3075,8 +3033,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_behavioral_price_overextension"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '高品质价格超买亢奋' @ {probe_ts.strftime('%Y-%m-%d')}")
         overextension_params = get_param_value(self.config_params.get('price_overextension_params'), {
             "enabled": True, "rsi_overbought_threshold": 70, "bias_overbought_threshold": 0.05,
             "bbp_overbought_threshold": 0.95, "volume_climax_multiplier": 1.8,
@@ -3249,8 +3205,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '纯粹基于行为类原始数据的滞涨证据原始分' @ {probe_ts.strftime('%Y-%m-%d')}")
         stagnation_params = get_param_value(self.config_params.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
             "volume_stagnation_multiplier": 1.2, "momentum_divergence_penalty": 0.15,
@@ -3396,8 +3350,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_shakeout_confirmation"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '震荡洗盘确认信号' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('grandmasters_protocol_params'), {})
         quality_weights = get_param_value(params.get('quality_weights'), {'efficiency': 0.4, 'control': 0.4, 'decisiveness': 0.2})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -3467,8 +3419,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_pure_behavioral_divergence"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '纯粹基于行为类原始数据的看涨/看跌背离信号' @ {probe_ts.strftime('%Y-%m-%d')}")
         # 1. 获取所有配置参数
         p_conf = self.config_params
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -4097,8 +4047,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_lockup_rally_opportunity"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '锁仓拉升机会信号' @ {probe_ts.strftime('%Y-%m-%d')}")
         p_behavioral_div_conf = self.config_params
         lockup_rally_params = get_param_value(p_behavioral_div_conf.get('lockup_rally_params'), {})
         lockup_rally_enabled = get_param_value(lockup_rally_params.get('enabled'), False)
@@ -4405,8 +4353,6 @@ class BehavioralIntelligence:
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         """
         method_name = "_diagnose_selling_exhaustion_opportunity"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '卖盘衰竭机会信号' @ {probe_ts.strftime('%Y-%m-%d')}")
         p_behavioral_div_conf = self.config_params
         selling_exhaustion_params = get_param_value(p_behavioral_div_conf.get('selling_exhaustion_params'), {})
         if not selling_exhaustion_params.get('enabled', False):
@@ -4715,8 +4661,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_liquidity_drain_risk"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '流动性枯竭风险' @ {probe_ts.strftime('%Y-%m-%d')}")
         p_behavioral_div_conf = self.config_params
         liquidity_drain_params = get_param_value(p_behavioral_div_conf.get('liquidity_drain_params'), {})
         if not liquidity_drain_params.get('enabled', False):
@@ -4938,8 +4882,6 @@ class BehavioralIntelligence:
         - 【探针增强】输出所有原始数据、关键计算节点和最终结果，以便调试和问题暴露。
         """
         method_name = "_calculate_battlefield_momentum"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '战场动量信号' @ {probe_ts.strftime('%Y-%m-%d')}")
         # 1. 获取参数
         # 从 self.config_params 获取 battlefield_momentum_params
         params = get_param_value(self.config_params.get('battlefield_momentum_params'), {})
