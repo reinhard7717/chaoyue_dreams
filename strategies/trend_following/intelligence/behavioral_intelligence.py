@@ -119,8 +119,8 @@ class BehavioralIntelligence:
         atomic_signals = self._diagnose_behavioral_axioms(df, is_debug_enabled, probe_ts)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
         if not atomic_signals:
-            if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-                print(f"      [探针 - run_behavioral_analysis_command] 核心公理诊断失败，行为分析中止。")
+            # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+            #     print(f"      [探针 - run_behavioral_analysis_command] 核心公理诊断失败，行为分析中止。")
             return {}
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
@@ -938,65 +938,65 @@ class BehavioralIntelligence:
         states['pattern_volume_slope'] = pattern_volume_slope
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM' @ {probe_ts.strftime('%Y-%m-%d')}: {upward_momentum_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM' @ {probe_ts.strftime('%Y-%m-%d')}: {upward_momentum_score.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
         downward_momentum_score = self._diagnose_downward_momentum(df, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM' @ {probe_ts.strftime('%Y-%m-%d')}: {downward_momentum_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM' @ {probe_ts.strftime('%Y-%m-%d')}: {downward_momentum_score.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY' @ {probe_ts.strftime('%Y-%m-%d')}: {upward_efficiency_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY' @ {probe_ts.strftime('%Y-%m-%d')}: {upward_efficiency_score.loc[probe_ts]:.4f}")
         self.strategy.atomic_states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         downward_resistance_score = self._diagnose_downward_resistance(df, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE' @ {probe_ts.strftime('%Y-%m-%d')}: {downward_resistance_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE' @ {probe_ts.strftime('%Y-%m-%d')}: {downward_resistance_score.loc[probe_ts]:.4f}")
         self.strategy.atomic_states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         df['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' @ {probe_ts.strftime('%Y-%m-%d')}: {intraday_bull_control_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' @ {probe_ts.strftime('%Y-%m-%d')}: {intraday_bull_control_score.loc[probe_ts]:.4f}")
         self.strategy.atomic_states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, long_term_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW' @ {probe_ts.strftime('%Y-%m-%d')}: {final_overextension_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW' @ {probe_ts.strftime('%Y-%m-%d')}: {final_overextension_score.loc[probe_ts]:.4f}")
         df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW' @ {probe_ts.strftime('%Y-%m-%d')}: {stagnation_evidence.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW' @ {probe_ts.strftime('%Y-%m-%d')}: {stagnation_evidence.loc[probe_ts]:.4f}")
         df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION' @ {probe_ts.strftime('%Y-%m-%d')}: {lower_shadow_quality.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION' @ {probe_ts.strftime('%Y-%m-%d')}: {lower_shadow_quality.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
         deception_index = self._diagnose_deception_index(df, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_DECEPTION_INDEX' @ {probe_ts.strftime('%Y-%m-%d')}: {deception_index.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_DECEPTION_INDEX' @ {probe_ts.strftime('%Y-%m-%d')}: {deception_index.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index
         distribution_intent = self._diagnose_distribution_intent(df, default_weights, final_overextension_score, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT' @ {probe_ts.strftime('%Y-%m-%d')}: {distribution_intent.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT' @ {probe_ts.strftime('%Y-%m-%d')}: {distribution_intent.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
         offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality, distribution_intent, is_debug_enabled, probe_ts)
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT' @ {probe_ts.strftime('%Y-%m-%d')}: {offensive_absorption_intent.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT' @ {probe_ts.strftime('%Y-%m-%d')}: {offensive_absorption_intent.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
         states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, offensive_absorption_intent, is_debug_enabled, probe_ts)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'].loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK']
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(
             df,
@@ -1006,20 +1006,20 @@ class BehavioralIntelligence:
             is_debug_enabled,
             probe_ts
         )
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_RISK_BREAKOUT_FAILURE_CASCADE' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_RISK_BREAKOUT_FAILURE_CASCADE' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'].loc[probe_ts]:.4f}")
         df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE']
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights, is_debug_enabled, probe_ts)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_VOLUME_BURST' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_VOLUME_BURST'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_VOLUME_BURST' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_VOLUME_BURST'].loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_VOLUME_BURST'] = states['SCORE_BEHAVIOR_VOLUME_BURST']
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights, is_debug_enabled, probe_ts)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_VOLUME_ATROPHY' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_VOLUME_ATROPHY'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_VOLUME_ATROPHY' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_VOLUME_ATROPHY'].loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights, is_debug_enabled, probe_ts)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'].loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH']
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
@@ -1027,8 +1027,8 @@ class BehavioralIntelligence:
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'],
             is_debug_enabled, probe_ts
         )
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'].loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION']
         bullish_pure_div, bearish_pure_div = self._diagnose_pure_behavioral_divergence(
             df,
@@ -1037,12 +1037,12 @@ class BehavioralIntelligence:
             probe_ts
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE' @ {probe_ts.strftime('%Y-%m-%d')}: {bullish_pure_div.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE' @ {probe_ts.strftime('%Y-%m-%d')}: {bullish_pure_div.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE' @ {probe_ts.strftime('%Y-%m-%d')}: {bearish_pure_div.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE' @ {probe_ts.strftime('%Y-%m-%d')}: {bearish_pure_div.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
         microstructure_intent_score = raw_df_signals['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT']
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
@@ -1054,32 +1054,32 @@ class BehavioralIntelligence:
             probe_ts # 传递 probe_ts
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY' @ {probe_ts.strftime('%Y-%m-%d')}: {bullish_divergence_quality.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY' @ {probe_ts.strftime('%Y-%m-%d')}: {bullish_divergence_quality.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY' @ {probe_ts.strftime('%Y-%m-%d')}: {bearish_divergence_quality.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY' @ {probe_ts.strftime('%Y-%m-%d')}: {bearish_divergence_quality.loc[probe_ts]:.4f}")
         df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
         lockup_rally_score = self._calculate_lockup_rally_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_OPPORTUNITY_LOCKUP_RALLY' @ {probe_ts.strftime('%Y-%m-%d')}: {lockup_rally_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_OPPORTUNITY_LOCKUP_RALLY' @ {probe_ts.strftime('%Y-%m-%d')}: {lockup_rally_score.loc[probe_ts]:.4f}")
         df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = lockup_rally_score
         selling_exhaustion_score = self._diagnose_selling_exhaustion_opportunity(df, states, default_weights, is_debug_enabled, probe_ts)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_OPPORTUNITY_SELLING_EXHAUSTION' @ {probe_ts.strftime('%Y-%m-%d')}: {selling_exhaustion_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_OPPORTUNITY_SELLING_EXHAUSTION' @ {probe_ts.strftime('%Y-%m-%d')}: {selling_exhaustion_score.loc[probe_ts]:.4f}")
         df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = selling_exhaustion_score
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = self._diagnose_liquidity_drain_risk(df, states, default_weights, is_debug_enabled, probe_ts)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_RISK_LIQUIDITY_DRAIN' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_RISK_LIQUIDITY_DRAIN'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_RISK_LIQUIDITY_DRAIN' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_RISK_LIQUIDITY_DRAIN'].loc[probe_ts]:.4f}")
         df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
         pressure_absorption_signals = self._resolve_pressure_absorption_dynamics(df, self._calculate_raw_selling_pressure(df, default_weights, is_debug_enabled, probe_ts), states, is_debug_enabled, probe_ts)
         states.update(pressure_absorption_signals)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 发布 'SCORE_RISK_UNRESOLVED_PRESSURE' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_RISK_UNRESOLVED_PRESSURE'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 发布 'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'].loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_RISK_UNRESOLVED_PRESSURE' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_RISK_UNRESOLVED_PRESSURE'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 发布 'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION' @ {probe_ts.strftime('%Y-%m-%d')}: {states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'].loc[probe_ts]:.4f}")
         df['SCORE_RISK_UNRESOLVED_PRESSURE'] = states['SCORE_RISK_UNRESOLVED_PRESSURE']
         df['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION']
         return states

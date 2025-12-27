@@ -58,12 +58,17 @@ class ChipIntelligence:
         """
         df_index = df.index
         signals_data = {}
+        print(f"    -> [DEBUG] _get_all_required_signals for '{method_name}' called. df.columns: {list(df.columns)}")
+        print(f"    -> [DEBUG] _get_all_required_signals for '{method_name}' required_signals count: {len(required_signals)}")
         for signal_name in required_signals:
             if signal_name not in df.columns:
                 print(f"    -> [筹码情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{signal_name}'，使用默认值 0.0。")
                 signals_data[signal_name] = pd.Series(0.0, index=df_index)
+                print(f"    -> [DEBUG] _get_all_required_signals: Added default for missing '{signal_name}'. signals_data keys count: {len(signals_data.keys())}")
             else:
                 signals_data[signal_name] = df[signal_name]
+                # print(f"    -> [DEBUG] _get_all_required_signals: Found '{signal_name}' in df. signals_data keys count: {len(signals_data.keys())}") # 避免输出过多
+        print(f"    -> [DEBUG] _get_all_required_signals for '{method_name}' returning signals_data keys count: {len(signals_data.keys())}")
         return signals_data
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
@@ -539,6 +544,7 @@ class ChipIntelligence:
             'upper_shadow_selling_pressure_D', 'rally_distribution_pressure_D', 'retail_fomo_premium_index_D',
             'SLOPE_5_winner_profit_margin_avg_D', 'ACCEL_5_retail_fomo_premium_index_D',
             'deception_index_D', 'wash_trade_intensity_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'flow_credibility_index_D',
             'main_force_conviction_index_D',
             'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
@@ -613,6 +619,8 @@ class ChipIntelligence:
             print(f"        - 原始数据 (deception_lure_short_intensity_D): {signals_data['deception_lure_short_intensity_D'].loc[probe_ts]:.4f}")
             print(f"        - 原始数据 (SLOPE_5_chip_health_score_D): {signals_data['SLOPE_5_chip_health_score_D'].loc[probe_ts]:.4f}")
             print(f"        - 原始数据 (structural_tension_index_D): {signals_data['structural_tension_index_D'].loc[probe_ts]:.4f}")
+            print(f"      [DEBUG] {method_name} - signals_data keys before raw data access: {list(signals_data.keys())}")
+
 
         # --- 原始数据获取 ---
         chip_health_raw = signals_data['chip_health_score_D']
@@ -646,6 +654,7 @@ class ChipIntelligence:
         deception_index_raw = signals_data['deception_index_D']
         wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
         main_force_conviction_raw = signals_data['main_force_conviction_index_D']
+        # Problematic line:
         volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
         flow_credibility_raw = signals_data['flow_credibility_index_D']
         conviction_flow_buy_intensity_raw = signals_data['conviction_flow_buy_intensity_D']
