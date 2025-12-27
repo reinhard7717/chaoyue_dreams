@@ -2191,30 +2191,30 @@ class FundFlowIntelligence:
         # 新增：市场整体趋势强度
         market_trend_strength_raw = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_BEHAVIOR_TREND_STRENGTH', 0.0, method_name=method_name)
         # --- 1. 纯度过滤 (Purity Filter) ---
-        norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, self.tf_weights_ff)
+        norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, self.tf_weights_ff)
+        norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, self.tf_weights_ff)
         norm_deception_multi_tf = (
             norm_deception_slope_5 * 0.5 +
             norm_deception_slope_13 * 0.3 +
             norm_deception_slope_21 * 0.2
         ).clip(-1, 1)
-        norm_wash_trade_slope_5 = get_adaptive_mtf_normalized_score(wash_trade_slope_5_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_wash_trade_slope_13 = get_adaptive_mtf_normalized_score(wash_trade_slope_13_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_wash_trade_slope_21 = get_adaptive_mtf_normalized_score(wash_trade_slope_21_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_wash_trade_slope_5 = get_adaptive_mtf_normalized_score(wash_trade_slope_5_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_wash_trade_slope_13 = get_adaptive_mtf_normalized_score(wash_trade_slope_13_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_wash_trade_slope_21 = get_adaptive_mtf_normalized_score(wash_trade_slope_21_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_wash_trade_multi_tf = (
             norm_wash_trade_slope_5 * 0.5 +
             norm_wash_trade_slope_13 * 0.3 +
             norm_wash_trade_slope_21 * 0.2
         ).clip(0, 1)
-        norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_flow_credibility_purity = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, self.tf_weights_ff)
+        norm_flow_credibility_purity = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         purity_context_mod = (
             (1 + norm_market_sentiment.abs() * np.sign(norm_market_sentiment) * purity_context_mod_factors.get('market_sentiment', 0.5)) *
             (1 + (norm_flow_credibility_purity - 0.5) * purity_context_mod_factors.get('flow_credibility', 0.5))
         ).clip(0.5, 1.5)
         # 增强诱多欺骗敏感度：将 deception_lure_long_intensity_D 整合到看涨背离的纯度调制器中
-        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * \
                                    (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod) * \
                                    (1 - norm_deception_lure_long * deception_lure_long_penalty_factor) # 新增诱多惩罚
@@ -2233,10 +2233,10 @@ class FundFlowIntelligence:
         norm_strategic_posture = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_STRATEGIC_POSTURE', 0.0, method_name=method_name)
         bullish_posture_mod = norm_strategic_posture.clip(lower=0) * context_modulator_weights.get('strategic_posture', 0.4)
         bearish_posture_mod = norm_strategic_posture.clip(upper=0).abs() * context_modulator_weights.get('strategic_posture', 0.4)
-        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         credibility_mod = norm_flow_credibility * context_modulator_weights.get('flow_credibility', 0.3)
-        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         bullish_retail_context_mod = norm_retail_panic * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
         bearish_retail_context_mod = norm_retail_fomo * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
         # 新增：前期弱势惩罚
@@ -2244,13 +2244,13 @@ class FundFlowIntelligence:
         if prior_weakness_enabled:
             recent_pct_change_min = pct_change_raw.rolling(window=pct_change_window, min_periods=1).min().fillna(0)
             is_significant_drop = (recent_pct_change_min < pct_change_threshold).astype(float)
-            norm_downward_momentum = get_adaptive_mtf_normalized_score(downward_momentum_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+            norm_downward_momentum = get_adaptive_mtf_normalized_score(downward_momentum_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
             # 强化惩罚逻辑：当前期弱势和下跌动能同时存在时，惩罚力度更大
             prior_weakness_penalty = (is_significant_drop * (1 + norm_downward_momentum * downward_momentum_weight * 2)) * prior_weakness_penalty_factor
             prior_weakness_penalty = prior_weakness_penalty.clip(0, 1) # 确保惩罚因子在0-1之间
         # 新增：趋势延续性调制
-        norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-        norm_market_trend_strength = get_adaptive_mtf_normalized_score(market_trend_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_market_trend_strength = get_adaptive_mtf_normalized_score(market_trend_strength_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         # 调整趋势延续性调制器的计算，使其在趋势活力低时能更有效地降低看涨信号
         # 引入市场整体趋势强度进行二次调制，确保在市场整体趋势不佳时，即使个股趋势活力尚可，也进行惩罚
         trend_continuity_modulator = (0.1 + norm_trend_vitality * 0.9) * (0.5 + norm_market_trend_strength * 0.5) # 确保最低为0.1，最高为1.0
@@ -2345,9 +2345,9 @@ class FundFlowIntelligence:
         bullish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(lower=0))
         bearish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(upper=0).abs())
         # --- V4.0 升级: 看涨/看跌专属动态非线性指数 (Bullish/Bearish Adaptive Non-linear Exponents) ---
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         # norm_trend_vitality 已经在上面计算过
-        norm_flow_credibility_exp = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        norm_flow_credibility_exp = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         
         bullish_exponent_mod_factor = (
             norm_trend_vitality * bullish_exponent_context_factors.get('trend_vitality', 0.7) +
