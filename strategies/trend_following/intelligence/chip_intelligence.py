@@ -377,7 +377,7 @@ class ChipIntelligence:
             ).clip(0.5, 1.5) # 限制调制范围，防止过度放大或缩小
             final_score = final_score * global_modulator_effect
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
@@ -509,7 +509,7 @@ class ChipIntelligence:
         # --- 最终融合 ---
         final_score = base_terrain_advantage_score * path_modulation_factor * dynamic_evolution_modulator * deception_filter_factor * context_modulator
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
@@ -861,7 +861,7 @@ class ChipIntelligence:
         final_score = (conviction_base_unipolar * (1 - final_impurity_effect)) * 2 - 1
         final_score = final_score * global_modulator_effect
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
@@ -1037,7 +1037,7 @@ class ChipIntelligence:
         ).pow(1 / (final_engine_weight + final_fuel_weight + final_nozzle_weight)) # 几何平均
         final_score = (final_score_unipolar * 2 - 1).clip(-1, 1)
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
@@ -1173,7 +1173,7 @@ class ChipIntelligence:
         safe_base_score = base_final_score.clip(-0.999, 0.999) # 避免 arctanh(+-1) 为 inf
         final_score = np.tanh(np.arctanh(safe_base_score) * conflict_amplifier)
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
@@ -1424,7 +1424,7 @@ class ChipIntelligence:
         else:
             dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * dynamic_final_score_sensitivity_multiplier))
-        print(f"    -> [筹码层] 计算完成 '筹码一致驱动' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码一致驱动' 分数: {final_score.iloc[-1]}")
         return final_score.astype(np.float32)
 
     def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
@@ -1719,7 +1719,7 @@ class ChipIntelligence:
         final_score = base_score * deception_modulator * context_modulator
         final_score = final_score.pow(final_fusion_exponent) # 非线性放大
         final_score = final_score.clip(0.0, 1.0).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_distribution_whisper(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
@@ -1923,7 +1923,7 @@ class ChipIntelligence:
         ).pow(1 / (3 * final_fusion_exponent)) # 几何平均
         final_score = (base_score * deception_modulator) * is_fomo_context # 只有在FOMO背景下才计算派发诡影
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
@@ -2178,7 +2178,7 @@ class ChipIntelligence:
         dgm_multiplier = dgm_multiplier.clip(0.1, 2.0) # 限制调制范围
         final_potential_score = (base_potential_score * dgm_multiplier).clip(0, 1)
         final_score = final_potential_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
@@ -2512,7 +2512,7 @@ class ChipIntelligence:
             context_score * normalized_dynamic_weights.get('environment', 0.2) +
             rhythm_and_persistence_score * normalized_dynamic_weights.get('rhythm_persistence', 0.1)
         ).clip(-1, 1)
-        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码最终融合' 分数: {final_score.iloc[-1]}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
@@ -2616,7 +2616,7 @@ class ChipIntelligence:
         # --- 最终融合 ---
         final_score = base_intent_score * harmony_factor * conflict_penalty_factor_adjusted + alignment_bonus
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
@@ -2755,7 +2755,7 @@ class ChipIntelligence:
         # --- 最终融合 ---
         final_score = (inflection_strength_modulated * position_sensitivity_factor * context_modulator) + persistence_bonus
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_retail_vulnerability(self, df: pd.DataFrame) -> pd.Series:
@@ -2888,7 +2888,7 @@ class ChipIntelligence:
         # --- 最终非线性放大 ---
         final_score = np.tanh(final_score * final_exponent)
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_main_force_cost_intent(self, df: pd.DataFrame) -> pd.Series:
@@ -3076,7 +3076,7 @@ class ChipIntelligence:
         # --- 最终融合 ---
         final_score = main_force_cost_intent_raw * deception_modulator * global_context_modulator
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '主力成本区意图' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '主力成本区意图' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_hollowing_out_risk(self, df: pd.DataFrame) -> pd.Series:
@@ -3284,7 +3284,7 @@ class ChipIntelligence:
         deception_amplifier = 1 + main_force_deception_score * deception_amplification_factor
         hollowing_out_risk_score = hollowing_out_risk_score * deception_amplifier
         final_score = np.tanh(hollowing_out_risk_score.clip(0, 1) ** non_linear_exponent).clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '空壳风险' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '空壳风险' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_turnover_purity_cost_optimization(self, df: pd.DataFrame) -> pd.Series:
@@ -3338,7 +3338,7 @@ class ChipIntelligence:
         # 结合换手率强度进行调制
         turnover_purity_cost_optimization = turnover_quality_factor * (1 + norm_turnover_rate * 0.5) # 换手率越高，调制效果越强
         final_score = turnover_purity_cost_optimization.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '换手纯度与成本优化' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '换手纯度与成本优化' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_despair_temptation_zones(self, df: pd.DataFrame) -> pd.Series:
@@ -3399,7 +3399,7 @@ class ChipIntelligence:
         # 进一步非线性放大，并映射到 [-1, 1]
         final_score = np.tanh(despair_temptation_score * 2) # 放大因子2
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码绝望与诱惑区' 分数: {final_score.loc[-1]}")
+        print(f"    -> [筹码层] 计算完成 '筹码绝望与诱惑区' 分数: {final_score.iloc[-1]}")
         return final_score
 
 
