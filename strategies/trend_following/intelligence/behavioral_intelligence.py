@@ -272,8 +272,8 @@ class BehavioralIntelligence:
         if not scores_list or total_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         fused_score = sum(scores_list) / total_weight
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"        [探针 - {method_name}] 融合 {dynamic_type} {base_indicator_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}: {fused_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"        [探针 - {method_name}] 融合 {dynamic_type} {base_indicator_name} 最终分数 @ {probe_ts.strftime('%Y-%m-%d')}: {fused_score.loc[probe_ts]:.4f}")
         return fused_score.clip(0, 1).astype(np.float32)
 
     def _calculate_signal_dynamics(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.DataFrame:
