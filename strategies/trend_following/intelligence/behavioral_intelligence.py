@@ -252,27 +252,23 @@ class BehavioralIntelligence:
             col_name = f"{dynamic_type}_{p}_{base_indicator_name}_D"
             if col_name in df.columns:
                 raw_series = df[col_name]
-                
                 # 根据 is_positive_trend 过滤
                 if is_positive_trend:
                     filtered_series = raw_series.clip(lower=0)
                 else:
                     filtered_series = raw_series.clip(upper=0).abs() # 负向趋势取绝对值
-                
                 # 归一化
                 norm_score = normalize_score(filtered_series, df.index, windows=p * 2, ascending=True, debug_info=False)
-                
                 weight = mtf_weights.get(str(p), 0.0)
                 if weight > 0:
                     scores_list.append(norm_score * weight)
                     total_weight += weight
-                
-                if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-                    print(f"        [探针 - {method_name}] {dynamic_type} {base_indicator_name} {p}d @ {probe_ts.strftime('%Y-%m-%d')}:")
-                    print(f"          - 原始值: {raw_series.loc[probe_ts]:.4f}")
-                    print(f"          - 过滤后值: {filtered_series.loc[probe_ts]:.4f}")
-                    print(f"          - 归一化分数: {norm_score.loc[probe_ts]:.4f}")
-                    print(f"          - 权重: {weight:.4f}")
+                # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+                #     print(f"        [探针 - {method_name}] {dynamic_type} {base_indicator_name} {p}d @ {probe_ts.strftime('%Y-%m-%d')}:")
+                #     print(f"          - 原始值: {raw_series.loc[probe_ts]:.4f}")
+                #     print(f"          - 过滤后值: {filtered_series.loc[probe_ts]:.4f}")
+                #     print(f"          - 归一化分数: {norm_score.loc[probe_ts]:.4f}")
+                #     print(f"          - 权重: {weight:.4f}")
         if not scores_list or total_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         fused_score = sum(scores_list) / total_weight
@@ -319,24 +315,21 @@ class BehavioralIntelligence:
             if signal_name in self.strategy.atomic_states:
                 signal_series = self.strategy.atomic_states[signal_name]
                 signal_series = signal_series.astype(np.float32)
-                
                 momentum = signal_series.diff(momentum_span).fillna(0.0).astype(np.float32)
                 norm_momentum = get_adaptive_mtf_normalized_score(momentum, df.index, ascending=True, tf_weights=default_weights, debug_info=False)
                 dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum
-                
                 potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series).astype(np.float32)
                 norm_potential = get_adaptive_mtf_normalized_score(potential, df.index, ascending=True, tf_weights=default_weights, debug_info=False)
                 dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential
-                
                 thrust = momentum.diff(1).fillna(0.0).astype(np.float32)
                 norm_thrust = get_adaptive_mtf_normalized_score(thrust, df.index, ascending=True, tf_weights=default_weights, debug_info=False)
                 dynamics_df[f'THRUST_{signal_name}'] = norm_thrust
-                if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-                    print(f"      [探针 - {method_name}] 增强信号 '{signal_name}' @ {probe_ts.strftime('%Y-%m-%d')}:")
-                    print(f"        - 原始值: {signal_series.loc[probe_ts]:.4f}")
-                    print(f"        - 动量 (MOMENTUM_{signal_name}): {norm_momentum.loc[probe_ts]:.4f}")
-                    print(f"        - 潜力 (POTENTIAL_{signal_name}): {norm_potential.loc[probe_ts]:.4f}")
-                    print(f"        - 推力 (THRUST_{signal_name}): {norm_thrust.loc[probe_ts]:.4f}")
+                # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+                #     print(f"      [探针 - {method_name}] 增强信号 '{signal_name}' @ {probe_ts.strftime('%Y-%m-%d')}:")
+                #     print(f"        - 原始值: {signal_series.loc[probe_ts]:.4f}")
+                #     print(f"        - 动量 (MOMENTUM_{signal_name}): {norm_momentum.loc[probe_ts]:.4f}")
+                #     print(f"        - 潜力 (POTENTIAL_{signal_name}): {norm_potential.loc[probe_ts]:.4f}")
+                #     print(f"        - 推力 (THRUST_{signal_name}): {norm_thrust.loc[probe_ts]:.4f}")
             else:
                 if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                     print(f"      [探针 - {method_name}] 警告：信号 '{signal_name}' 在原子状态库中不存在，跳过动态因子计算。")
@@ -420,13 +413,13 @@ class BehavioralIntelligence:
         # 对于总权重为零的行，最终结果应为 0.0
         result_values[zero_total_weight_mask.values] = 0.0
         final_fused_score = pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
-        if is_debug_enabled and probe_ts and not df_index.empty and probe_ts == df_index[-1]:
-            print(f"        [探针 - _robust_generalized_mean] {fusion_level_name} 融合详情 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            for name in scores_dict.keys():
-                if name in filtered_scores_df.columns:
-                    print(f"          - {name}: 原始分数={scores_df[name].loc[probe_ts]:.4f}, 归一化权重={normalized_weights_df[name].loc[probe_ts]:.4f}")
-            print(f"          - 动态幂参数 (power_p): {power_p_aligned.loc[probe_ts]:.4f}")
-            print(f"          - 最终融合分数: {final_fused_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df_index.empty and probe_ts == df_index[-1]:
+        #     print(f"        [探针 - _robust_generalized_mean] {fusion_level_name} 融合详情 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     for name in scores_dict.keys():
+        #         if name in filtered_scores_df.columns:
+        #             print(f"          - {name}: 原始分数={scores_df[name].loc[probe_ts]:.4f}, 归一化权重={normalized_weights_df[name].loc[probe_ts]:.4f}")
+        #     print(f"          - 动态幂参数 (power_p): {power_p_aligned.loc[probe_ts]:.4f}")
+        #     print(f"          - 最终融合分数: {final_fused_score.loc[probe_ts]:.4f}")
         return final_fused_score
 
     def _calculate_price_momentum_resonance(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -459,11 +452,11 @@ class BehavioralIntelligence:
                 fusion_level_name=f"{p}d 动能子融合"
             )
             period_scores_list.append(period_momentum_score)
-            if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-                print(f"        [探针 - {method_name}] {p}d 周期动量 @ {probe_ts.strftime('%Y-%m-%d')}:")
-                print(f"          - 原始斜率: {slope_raw_data[p].loc[probe_ts]:.4f}, 归一化斜率: {slope_score.loc[probe_ts]:.4f}")
-                print(f"          - 原始加速度: {accel_raw_data[p].loc[probe_ts]:.4f}, 归一化加速度: {accel_score.loc[probe_ts]:.4f}")
-                print(f"          - 周期动量子分数: {period_momentum_score.loc[probe_ts]:.4f}")
+            # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+            #     print(f"        [探针 - {method_name}] {p}d 周期动量 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            #     print(f"          - 原始斜率: {slope_raw_data[p].loc[probe_ts]:.4f}, 归一化斜率: {slope_score.loc[probe_ts]:.4f}")
+            #     print(f"          - 原始加速度: {accel_raw_data[p].loc[probe_ts]:.4f}, 归一化加速度: {accel_score.loc[probe_ts]:.4f}")
+            #     print(f"          - 周期动量子分数: {period_momentum_score.loc[probe_ts]:.4f}")
         momentum_fusion_weights = get_param_value(tf_weights_config.get('price_momentum_resonance'), default_tf_weights)
         if not period_scores_list:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -477,8 +470,8 @@ class BehavioralIntelligence:
         if not fused_score_components or total_weight == 0:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         final_momentum_resonance_score = sum(fused_score_components) / total_weight
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 最终价格动能共振分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_momentum_resonance_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 最终价格动能共振分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_momentum_resonance_score.loc[probe_ts]:.4f}")
         return final_momentum_resonance_score.clip(0, 1).astype(np.float32)
 
     def _calculate_structural_health(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -516,16 +509,16 @@ class BehavioralIntelligence:
             probe_ts=probe_ts,
             fusion_level_name="结构健康子融合"
         )
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - liquidity_authenticity_score_D: {liquidity_authenticity_raw.loc[probe_ts]:.4f}")
-            print(f"        - order_book_imbalance_D: {order_book_imbalance_raw.loc[probe_ts]:.4f}")
-            print(f"        - flow_credibility_index_D: {flow_credibility_raw.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 归一化流动性真实性: {liquidity_authenticity_score.loc[probe_ts]:.4f}")
-            print(f"        - 归一化订单簿不平衡: {order_book_imbalance_score.loc[probe_ts]:.4f}")
-            print(f"        - 归一化资金流可信度: {flow_credibility_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终结构健康分数 @ {probe_ts.strftime('%Y-%m-%d')}: {structural_health_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - liquidity_authenticity_score_D: {liquidity_authenticity_raw.loc[probe_ts]:.4f}")
+        #     print(f"        - order_book_imbalance_D: {order_book_imbalance_raw.loc[probe_ts]:.4f}")
+        #     print(f"        - flow_credibility_index_D: {flow_credibility_raw.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 归一化流动性真实性: {liquidity_authenticity_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化订单簿不平衡: {order_book_imbalance_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化资金流可信度: {flow_credibility_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终结构健康分数 @ {probe_ts.strftime('%Y-%m-%d')}: {structural_health_score.loc[probe_ts]:.4f}")
         return structural_health_score.clip(0, 1)
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -769,20 +762,20 @@ class BehavioralIntelligence:
         final_score_modulated = (day_quality_base_score * dynamic_modulator_factor).clip(0, 1)
         # --- 9. 最终非线性变换并映射到 [-1, 1] ---
         final_day_quality_score = (final_score_modulated.pow(final_exponent) * 2 - 1).clip(-1, 1)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            for sig_name in required_signals:
-                print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 战役结果评估分数: {outcome_assessment_score.loc[probe_ts]:.4f}")
-            print(f"        - 战役过程质量评估分数: {process_quality_score.loc[probe_ts]:.4f}")
-            print(f"        - 战役叙事诚信度分数: {narrative_integrity_score.loc[probe_ts]:.4f}")
-            print(f"        - 行为协同分数: {behavioral_cohesion_score.loc[probe_ts]:.4f}")
-            print(f"        - 趋势动能与结构共振分数: {trend_momentum_resonance_score.loc[probe_ts]:.4f}")
-            print(f"        - 顶层融合基础分数: {day_quality_base_score.loc[probe_ts]:.4f}")
-            print(f"        - 动态调制因子: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
-            print(f"        - 调制后分数: {final_score_modulated.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终行为K线质量分 @ {probe_ts.strftime('%Y-%m-%d')}: {final_day_quality_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     for sig_name in required_signals:
+        #         print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 战役结果评估分数: {outcome_assessment_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战役过程质量评估分数: {process_quality_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战役叙事诚信度分数: {narrative_integrity_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 行为协同分数: {behavioral_cohesion_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 趋势动能与结构共振分数: {trend_momentum_resonance_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 顶层融合基础分数: {day_quality_base_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 动态调制因子: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 调制后分数: {final_score_modulated.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终行为K线质量分 @ {probe_ts.strftime('%Y-%m-%d')}: {final_day_quality_score.loc[probe_ts]:.4f}")
         return final_day_quality_score.astype(np.float32)
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Dict[str, pd.Series]:
@@ -1142,17 +1135,17 @@ class BehavioralIntelligence:
         ).clip(0, 1).fillna(0.0)
         final_unresolved_pressure_risk = unresolved_pressure_risk.astype(np.float32)
         final_pressure_absorption_opportunity = pressure_absorption_opportunity.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - raw_selling_pressure (来自外部): {raw_selling_pressure.loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_ABSORPTION_STRENGTH (from states): {absorption_strength.loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_DISTRIBUTION_INTENT (from states): {distribution_intent.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 压力强度分数: {pressure_magnitude_score.loc[probe_ts]:.4f}")
-            print(f"        - 吸收能力分数: {absorption_capacity_score.loc[probe_ts]:.4f}")
-            print(f"        - 意图确认分数: {intent_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '未解决压力风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_unresolved_pressure_risk.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '压力吸收机会'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_pressure_absorption_opportunity.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - raw_selling_pressure (来自外部): {raw_selling_pressure.loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_ABSORPTION_STRENGTH (from states): {absorption_strength.loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_DISTRIBUTION_INTENT (from states): {distribution_intent.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 压力强度分数: {pressure_magnitude_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 吸收能力分数: {absorption_capacity_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 意图确认分数: {intent_confirmation_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '未解决压力风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_unresolved_pressure_risk.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '压力吸收机会'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_pressure_absorption_opportunity.loc[probe_ts]:.4f}")
         return {
             'SCORE_RISK_UNRESOLVED_PRESSURE': final_unresolved_pressure_risk,
             'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': final_pressure_absorption_opportunity
@@ -1214,17 +1207,17 @@ class BehavioralIntelligence:
         # --- 4. 最终合成 ---
         raw_selling_pressure = (tactical_selling_pressure_score * strategic_vulnerability_score).pow(0.5).fillna(0.0)
         final_score = raw_selling_pressure.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - active_selling_pressure_D: {signals_data['active_selling_pressure_D'].loc[probe_ts]:.4f}")
-            print(f"        - upper_shadow_selling_pressure_D: {signals_data['upper_shadow_selling_pressure_D'].loc[probe_ts]:.4f}")
-            print(f"        - sell_sweep_intensity_D: {signals_data['sell_sweep_intensity_D'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_DOWNWARD_RESISTANCE: {signals_data['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'].loc[probe_ts]:.4f}")
-            print(f"        - support_validation_strength_D: {signals_data['support_validation_strength_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 战术抛压分数: {tactical_selling_pressure_score.loc[probe_ts]:.4f}")
-            print(f"        - 战略脆弱性分数: {strategic_vulnerability_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '原始卖压'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - active_selling_pressure_D: {signals_data['active_selling_pressure_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - upper_shadow_selling_pressure_D: {signals_data['upper_shadow_selling_pressure_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - sell_sweep_intensity_D: {signals_data['sell_sweep_intensity_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_DOWNWARD_RESISTANCE: {signals_data['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'].loc[probe_ts]:.4f}")
+        #     print(f"        - support_validation_strength_D: {signals_data['support_validation_strength_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 战术抛压分数: {tactical_selling_pressure_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战略脆弱性分数: {strategic_vulnerability_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '原始卖压'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _calculate_dynamic_threshold(self, df: pd.DataFrame, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1250,15 +1243,15 @@ class BehavioralIntelligence:
         dynamic_threshold = base_threshold + atr_val * atr_multiplier
         dynamic_threshold = dynamic_threshold.clip(min_threshold, max_threshold).fillna(base_threshold)
         final_score = dynamic_threshold.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - ATR_14_D: {atr_val.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 基础阈值: {base_threshold:.4f}")
-            print(f"        - ATR乘数: {atr_multiplier:.4f}")
-            print(f"        - 最小阈值: {min_threshold:.4f}")
-            print(f"        - 最大阈值: {max_threshold:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '动态阈值' @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - ATR_14_D: {atr_val.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 基础阈值: {base_threshold:.4f}")
+        #     print(f"        - ATR乘数: {atr_multiplier:.4f}")
+        #     print(f"        - 最小阈值: {min_threshold:.4f}")
+        #     print(f"        - 最大阈值: {max_threshold:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '动态阈值' @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1276,8 +1269,8 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_upward_momentum"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '上涨动能' @ {probe_ts.strftime('%Y-%m-%d')}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"    -> [探针 - {method_name}] 正在计算 '上涨动能' @ {probe_ts.strftime('%Y-%m-%d')}")
         required_signals = [
             'upward_impulse_purity_D', 'impulse_quality_ratio_D',
             'main_force_conviction_index_D', 'winner_stability_index_D'
@@ -1311,17 +1304,17 @@ class BehavioralIntelligence:
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
         final_score = upward_momentum_score.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - upward_impulse_purity_D: {signals_data['upward_impulse_purity_D'].loc[probe_ts]:.4f}")
-            print(f"        - impulse_quality_ratio_D: {signals_data['impulse_quality_ratio_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - winner_stability_index_D: {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 攻击力度 (Offensive Force): {offensive_force_score.loc[probe_ts]:.4f}")
-            print(f"        - 战略指挥 (Strategic Command): {strategic_command_score.loc[probe_ts]:.4f}")
-            print(f"        - 后勤支撑 (Sustainability): {sustainability_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '上涨动能'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - upward_impulse_purity_D: {signals_data['upward_impulse_purity_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - impulse_quality_ratio_D: {signals_data['impulse_quality_ratio_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - winner_stability_index_D: {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 攻击力度 (Offensive Force): {offensive_force_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战略指挥 (Strategic Command): {strategic_command_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 后勤支撑 (Sustainability): {sustainability_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '上涨动能'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1337,8 +1330,8 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_downward_momentum"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '下跌动能' @ {probe_ts.strftime('%Y-%m-%d')}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"    -> [探针 - {method_name}] 正在计算 '下跌动能' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('scorched_earth_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'breach_force': 0.4, 'defense_vacuum': 0.3, 'command_vacuum': 0.3})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -1381,18 +1374,18 @@ class BehavioralIntelligence:
             (command_vacuum_score + 1e-9).pow(weights.get('command_vacuum', 0.3))
         ).fillna(0.0)
         final_score = downward_momentum_score.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
-            print(f"        - vacuum_traversal_efficiency_D: {signals_data['vacuum_traversal_efficiency_D'].loc[probe_ts]:.4f}")
-            print(f"        - dip_absorption_power_D: {signals_data['dip_absorption_power_D'].loc[probe_ts]:.4f}")
-            print(f"        - active_buying_support_D: {signals_data['active_buying_support_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 前沿阵地失守 (Breach Force): {breach_force_score.loc[probe_ts]:.4f}")
-            print(f"        - 防御工事崩塌 (Defense Vacuum): {defense_vacuum_score.loc[probe_ts]:.4f}")
-            print(f"        - 指挥系统溃败 (Command Collapse): {command_vacuum_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '下跌动能'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - vacuum_traversal_efficiency_D: {signals_data['vacuum_traversal_efficiency_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - dip_absorption_power_D: {signals_data['dip_absorption_power_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - active_buying_support_D: {signals_data['active_buying_support_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 前沿阵地失守 (Breach Force): {breach_force_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 防御工事崩塌 (Defense Vacuum): {defense_vacuum_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 指挥系统溃败 (Command Collapse): {command_vacuum_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '下跌动能'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1408,8 +1401,8 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_offensive_absorption_intent"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '进攻性承接意图' @ {probe_ts.strftime('%Y-%m-%d')}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"    -> [探针 - {method_name}] 正在计算 '进攻性承接意图' @ {probe_ts.strftime('%Y-%m-%d')}")
         params = get_param_value(self.config_params.get('offensive_absorption_params'), {})
         weights = get_param_value(params.get('fusion_weights'), {'crisis_context': 0.3, 'counter_offensive_force': 0.4, 'commanders_will': 0.3})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
@@ -1449,20 +1442,20 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         final_offensive_absorption_intent = (base_quality_score * strategic_prerequisite_score).clip(0, 1)
         final_score = final_offensive_absorption_intent.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - panic_selling_cascade_D: {signals_data['panic_selling_cascade_D'].loc[probe_ts]:.4f}")
-            print(f"        - dip_absorption_power_D: {signals_data['dip_absorption_power_D'].loc[probe_ts]:.4f}")
-            print(f"        - active_buying_support_D: {signals_data['active_buying_support_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 战略前提 (无派发意图): {strategic_prerequisite_score.loc[probe_ts]:.4f}")
-            print(f"        - 战役背景 (Crisis Context): {crisis_context_score.loc[probe_ts]:.4f}")
-            print(f"        - 核心行动 (Counter Offensive Force): {counter_offensive_force_score.loc[probe_ts]:.4f}")
-            print(f"        - 司令部意志 (Commander's Will): {commanders_will_score.loc[probe_ts]:.4f}")
-            print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '进攻性承接意图'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - panic_selling_cascade_D: {signals_data['panic_selling_cascade_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - dip_absorption_power_D: {signals_data['dip_absorption_power_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - active_buying_support_D: {signals_data['active_buying_support_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 战略前提 (无派发意图): {strategic_prerequisite_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战役背景 (Crisis Context): {crisis_context_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 核心行动 (Counter Offensive Force): {counter_offensive_force_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 司令部意志 (Commander's Will): {commanders_will_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '进攻性承接意图'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1480,8 +1473,8 @@ class BehavioralIntelligence:
         - 【修正】调整最终融合逻辑，避免战略位置中性时分数强制归零。
         """
         method_name = "_diagnose_intraday_bull_control"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 '日内多头控制力' @ {probe_ts.strftime('%Y-%m-%d')}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"    -> [探针 - {method_name}] 正在计算 '日内多头控制力' @ {probe_ts.strftime('%Y-%m-%d')}")
         debug_info = (is_debug_enabled, probe_ts, method_name)
         params = get_param_value(self.config_params.get('chronos_protocol_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
@@ -1534,16 +1527,16 @@ class BehavioralIntelligence:
         ) / total_top_level_weight
         final_control_score = final_control_score.clip(0, 1)
         final_score = final_control_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            for sig_name in required_signals:
-                print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 战略位置分数 (mapped): {strategic_position_score_mapped.loc[probe_ts]:.4f}")
-            print(f"        - 过程品质分数: {process_quality_score.loc[probe_ts]:.4f}")
-            print(f"        - 叙事诚信度分数: {narrative_integrity_score.loc[probe_ts]:.4f}")
-            print(f"        - 品质调制器: {quality_modulator.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '日内多头控制力'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     for sig_name in required_signals:
+        #         print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 战略位置分数 (mapped): {strategic_position_score_mapped.loc[probe_ts]:.4f}")
+        #     print(f"        - 过程品质分数: {process_quality_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 叙事诚信度分数: {narrative_integrity_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 品质调制器: {quality_modulator.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '日内多头控制力'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_deception_index(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1664,26 +1657,26 @@ class BehavioralIntelligence:
             final_deception_index
         ), index=df.index).astype(np.float32)
         final_score = final_deception_index.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - closing_strength_index_D: {signals_data['closing_strength_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_ofi_D: {signals_data['main_force_ofi_D'].loc[probe_ts]:.4f}")
-            print(f"        - deception_lure_long_intensity_D: {signals_data['deception_lure_long_intensity_D'].loc[probe_ts]:.4f}")
-            print(f"        - deception_lure_short_intensity_D: {signals_data['deception_lure_short_intensity_D'].loc[probe_ts]:.4f}")
-            print(f"        - wash_trade_intensity_D: {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
-            print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - VOLATILITY_INSTABILITY_INDEX_21d_D: {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
-            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ 2025-12-10:")
-            print(f"        - 归一化收盘强度 (Narrative Vector): {narrative_vector.loc[probe_ts]:.4f}")
-            print(f"        - 归一化主力OFII (Intent Vector): {intent_vector.loc[probe_ts]:.4f}")
-            print(f"        - 认知失调向量: {cognitive_dissonance_vector.loc[probe_ts]:.4f}")
-            print(f"        - 欺骗工具强度: {deception_tool_strength.loc[probe_ts]:.4f}")
-            print(f"        - 情境调制因子: {context_modulator_factor.loc[probe_ts]:.4f}")
-            print(f"        - 价格上涨中的欺骗证据: {price_rising_deception_evidence.loc[probe_ts]:.4f}")
-            print(f"        - 欺骗强度基础分: {deception_magnitude_score.loc[probe_ts]:.4f}")
-            print(f"        - 是否上涨: {is_price_rising.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '博弈欺骗指数'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - closing_strength_index_D: {signals_data['closing_strength_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_ofi_D: {signals_data['main_force_ofi_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - deception_lure_long_intensity_D: {signals_data['deception_lure_long_intensity_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - deception_lure_short_intensity_D: {signals_data['deception_lure_short_intensity_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - wash_trade_intensity_D: {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - VOLATILITY_INSTABILITY_INDEX_21d_D: {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ 2025-12-10:")
+        #     print(f"        - 归一化收盘强度 (Narrative Vector): {narrative_vector.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化主力OFII (Intent Vector): {intent_vector.loc[probe_ts]:.4f}")
+        #     print(f"        - 认知失调向量: {cognitive_dissonance_vector.loc[probe_ts]:.4f}")
+        #     print(f"        - 欺骗工具强度: {deception_tool_strength.loc[probe_ts]:.4f}")
+        #     print(f"        - 情境调制因子: {context_modulator_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 价格上涨中的欺骗证据: {price_rising_deception_evidence.loc[probe_ts]:.4f}")
+        #     print(f"        - 欺骗强度基础分: {deception_magnitude_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 是否上涨: {is_price_rising.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '博弈欺骗指数'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, states: Dict[str, pd.Series], is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, pd.Series]:
@@ -1806,30 +1799,30 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         bullish_divergence_quality_final_score = bullish_divergence_quality.clip(0, 1).astype(np.float32)
         bearish_divergence_quality_final_score = bearish_divergence_quality.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - loser_pain_index_D: {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - winner_stability_index_D: {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT: {signals_data['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_DECEPTION_INDEX: {signals_data['SCORE_BEHAVIOR_DECEPTION_INDEX'].loc[probe_ts]:.4f}")
-            print(f"        - absorption_strength (来自外部): {absorption_strength.loc[probe_ts]:.4f}")
-            print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_BULLISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_BEARISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 牛市背离幅度分数: {bullish_magnitude_score.loc[probe_ts]:.4f}")
-            print(f"        - 牛市背离位置分数: {bullish_location_score.loc[probe_ts]:.4f}")
-            print(f"        - 牛市吸收确认分数: {bullish_absorption_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 牛市微观意图确认分数: {bullish_micro_intent_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市背离幅度分数: {bearish_magnitude_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市背离位置分数: {bearish_location_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市派发确认分数: {bearish_distribution_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 熊市微观意图确认分数: {bearish_micro_intent_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"        - 欺骗叙事确认分数: {deceptive_narrative_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '牛市背离品质'分数 @ 2025-12-10: {bullish_divergence_quality_final_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '熊市背离品质'分数 @ 2025-12-10: {bearish_divergence_quality_final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - loser_pain_index_D: {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - winner_stability_index_D: {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT: {signals_data['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_DECEPTION_INDEX: {signals_data['SCORE_BEHAVIOR_DECEPTION_INDEX'].loc[probe_ts]:.4f}")
+        #     print(f"        - absorption_strength (来自外部): {absorption_strength.loc[probe_ts]:.4f}")
+        #     print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_BULLISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_BEARISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 牛市背离幅度分数: {bullish_magnitude_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 牛市背离位置分数: {bullish_location_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 牛市吸收确认分数: {bullish_absorption_confirmation_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 牛市微观意图确认分数: {bullish_micro_intent_confirmation_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 熊市背离幅度分数: {bearish_magnitude_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 熊市背离位置分数: {bearish_location_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 熊市派发确认分数: {bearish_distribution_confirmation_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 熊市微观意图确认分数: {bearish_micro_intent_confirmation_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 欺骗叙事确认分数: {deceptive_narrative_confirmation_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '牛市背离品质'分数 @ 2025-12-10: {bullish_divergence_quality_final_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '熊市背离品质'分数 @ 2025-12-10: {bearish_divergence_quality_final_score.loc[probe_ts]:.4f}")
         return bullish_divergence_quality_final_score, bearish_divergence_quality_final_score
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1883,19 +1876,19 @@ class BehavioralIntelligence:
         bubble_fragility_score = (internal_pressure_score / (structural_integrity_score + 1e-9)).fillna(0.0)
         final_overextension_score = np.tanh(bubble_fragility_score * 0.5)
         final_score = final_overextension_score.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - total_winner_rate_D: {signals_data['total_winner_rate_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_pct_change_D: {signals_data['ACCEL_5_pct_change_D'].loc[probe_ts]:.4f}")
-            print(f"        - turnover_rate_f_D: {signals_data['turnover_rate_f_D'].loc[probe_ts]:.4f}")
-            print(f"        - winner_stability_index_D: {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - control_solidity_index_D: {signals_data['control_solidity_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 内部压力分数: {internal_pressure_score.loc[probe_ts]:.4f}")
-            print(f"        - 结构完整性分数: {structural_integrity_score.loc[probe_ts]:.4f}")
-            print(f"        - 泡沫脆弱度分数: {bubble_fragility_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '价格过热风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - total_winner_rate_D: {signals_data['total_winner_rate_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_pct_change_D: {signals_data['ACCEL_5_pct_change_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - turnover_rate_f_D: {signals_data['turnover_rate_f_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - winner_stability_index_D: {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - control_solidity_index_D: {signals_data['control_solidity_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 内部压力分数: {internal_pressure_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 结构完整性分数: {structural_integrity_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 泡沫脆弱度分数: {bubble_fragility_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '价格过热风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -1954,18 +1947,18 @@ class BehavioralIntelligence:
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_upward_efficiency = (tactical_assault_score * strategic_environment_score).clip(0, 1)
         final_score = final_upward_efficiency.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - upward_impulse_purity_D: {signals_data['upward_impulse_purity_D'].loc[probe_ts]:.4f}")
-            print(f"        - impulse_quality_ratio_D: {signals_data['impulse_quality_ratio_D'].loc[probe_ts]:.4f}")
-            print(f"        - pressure_rejection_strength_D: {signals_data['pressure_rejection_strength_D'].loc[probe_ts]:.4f}")
-            print(f"        - chip_fatigue_index_D: {signals_data['chip_fatigue_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - loser_pain_index_D: {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 战术强攻品质分数: {tactical_assault_score.loc[probe_ts]:.4f}")
-            print(f"        - 战略阻力分数: {strategic_resistance_score.loc[probe_ts]:.4f}")
-            print(f"        - 战略环境分数: {strategic_environment_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '高品质上涨效率'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - upward_impulse_purity_D: {signals_data['upward_impulse_purity_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - impulse_quality_ratio_D: {signals_data['impulse_quality_ratio_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - pressure_rejection_strength_D: {signals_data['pressure_rejection_strength_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - chip_fatigue_index_D: {signals_data['chip_fatigue_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - loser_pain_index_D: {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 战术强攻品质分数: {tactical_assault_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战略阻力分数: {strategic_resistance_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战略环境分数: {strategic_environment_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '高品质上涨效率'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3055,17 +3048,17 @@ class BehavioralIntelligence:
             (governors_will_score + 1e-9)
         ).pow(1/3).fillna(0.0)
         final_score = absorption_strength.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - support_validation_strength_D: {signals_data['support_validation_strength_D'].loc[probe_ts]:.4f}")
-            print(f"        - dip_absorption_power_D: {signals_data['dip_absorption_power_D'].loc[probe_ts]:.4f}")
-            print(f"        - active_buying_support_D: {signals_data['active_buying_support_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 地基品质分数: {foundation_score.loc[probe_ts]:.4f}")
-            print(f"        - 构筑行动分数: {construction_action_score.loc[probe_ts]:.4f}")
-            print(f"        - 总督意志分数: {governors_will_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '高品质承接强度'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - support_validation_strength_D: {signals_data['support_validation_strength_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - dip_absorption_power_D: {signals_data['dip_absorption_power_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - active_buying_support_D: {signals_data['active_buying_support_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 地基品质分数: {foundation_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 构筑行动分数: {construction_action_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 总督意志分数: {governors_will_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '高品质承接强度'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _calculate_behavioral_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3209,38 +3202,38 @@ class BehavioralIntelligence:
             intraday_extremity_score * fusion_weights.get("intraday_extremity", 0.3)
         ) / sum(fusion_weights.values()) # 归一化权重
         final_score = overextension_score.clip(0, 1).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - RSI_13_D: {signals_data['RSI_13_D'].loc[probe_ts]:.4f}")
-            print(f"        - BIAS_5_D: {signals_data['BIAS_5_D'].loc[probe_ts]:.4f}")
-            print(f"        - BBP_21_2.0_D: {signals_data['BBP_21_2.0_D'].loc[probe_ts]:.4f}")
-            print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
-            print(f"        - robust_pct_change_slope: {signals_data['robust_pct_change_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_volume_slope: {signals_data['robust_volume_slope'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_close_D: {signals_data['ACCEL_5_close_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_volume_D: {signals_data['ACCEL_5_volume_D'].loc[probe_ts]:.4f}")
-            print(f"        - volume_D: {signals_data['volume_D'].loc[probe_ts]:.4f}")
-            print(f"        - VOL_MA_21_D: {signals_data['VOL_MA_21_D'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
-            print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 动态BIAS阈值: {dynamic_bias_threshold.loc[probe_ts]:.4f}")
-            print(f"        - 动态BBP阈值: {dynamic_bbp_threshold.loc[probe_ts]:.4f}")
-            print(f"        - 归一化RSI超买: {norm_rsi_overbought.loc[probe_ts]:.4f}")
-            print(f"        - 归一化BIAS超买: {norm_bias_overbought.loc[probe_ts]:.4f}")
-            print(f"        - 归一化BBP超买: {norm_bbp_overbought.loc[probe_ts]:.4f}")
-            print(f"        - 价格偏离度分数: {price_deviation_score.loc[probe_ts]:.4f}")
-            print(f"        - 价格速度分数: {price_speed_score.loc[probe_ts]:.4f}")
-            print(f"        - 价格加速度分数: {price_accel_score.loc[probe_ts]:.4f}")
-            print(f"        - 动量过热分数: {momentum_overheat_score.loc[probe_ts]:.4f}")
-            print(f"        - 成交量极端分数: {volume_extremity_score.loc[probe_ts]:.4f}")
-            print(f"        - 散户狂热分数: {retail_fomo_score.loc[probe_ts]:.4f}")
-            print(f"        - 日内行为极端分数: {intraday_extremity_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '价格超买亢奋'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - RSI_13_D: {signals_data['RSI_13_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - BIAS_5_D: {signals_data['BIAS_5_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - BBP_21_2.0_D: {signals_data['BBP_21_2.0_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_pct_change_slope: {signals_data['robust_pct_change_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_volume_slope: {signals_data['robust_volume_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_close_D: {signals_data['ACCEL_5_close_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_volume_D: {signals_data['ACCEL_5_volume_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - volume_D: {signals_data['volume_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - VOL_MA_21_D: {signals_data['VOL_MA_21_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
+        #     print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 动态BIAS阈值: {dynamic_bias_threshold.loc[probe_ts]:.4f}")
+        #     print(f"        - 动态BBP阈值: {dynamic_bbp_threshold.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化RSI超买: {norm_rsi_overbought.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化BIAS超买: {norm_bias_overbought.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化BBP超买: {norm_bbp_overbought.loc[probe_ts]:.4f}")
+        #     print(f"        - 价格偏离度分数: {price_deviation_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 价格速度分数: {price_speed_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 价格加速度分数: {price_accel_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 动量过热分数: {momentum_overheat_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 成交量极端分数: {volume_extremity_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 散户狂热分数: {retail_fomo_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 日内行为极端分数: {intraday_extremity_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '价格超买亢奋'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3366,29 +3359,29 @@ class BehavioralIntelligence:
             (intraday_control_weakness_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1)
         final_score = stagnation_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
-            print(f"        - open_D: {signals_data['open_D'].loc[probe_ts]:.4f}")
-            print(f"        - high_D: {signals_data['high_D'].loc[probe_ts]:.4f}")
-            print(f"        - low_D: {signals_data['low_D'].loc[probe_ts]:.4f}")
-            print(f"        - volume_D: {signals_data['volume_D'].loc[probe_ts]:.4f}")
-            print(f"        - VOL_MA_21_D: {signals_data['VOL_MA_21_D'].loc[probe_ts]:.4f}")
-            print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
-            print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
-            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 价格行为疲软分数: {price_weakness_score.loc[probe_ts]:.4f}")
-            print(f"        - 动量背离分数: {momentum_divergence_score.loc[probe_ts]:.4f}")
-            print(f"        - 成交量异常分数: {volume_anomaly_score.loc[probe_ts]:.4f}")
-            print(f"        - 日内控制力减弱分数: {intraday_control_weakness_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '滞涨证据'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - open_D: {signals_data['open_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - high_D: {signals_data['high_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - low_D: {signals_data['low_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - volume_D: {signals_data['volume_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - VOL_MA_21_D: {signals_data['VOL_MA_21_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
+        #     print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 价格行为疲软分数: {price_weakness_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 动量背离分数: {momentum_divergence_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 成交量异常分数: {volume_anomaly_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 日内控制力减弱分数: {intraday_control_weakness_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '滞涨证据'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -3448,21 +3441,21 @@ class BehavioralIntelligence:
         base_confirmation = (tactical_action_score * execution_quality_score).pow(0.5).fillna(0.0)
         shakeout_confirmation_score = (strategic_intent_score * base_confirmation).clip(0, 1)
         final_score = shakeout_confirmation_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - floating_chip_cleansing_efficiency_D: {signals_data['floating_chip_cleansing_efficiency_D'].loc[probe_ts]:.4f}")
-            print(f"        - vwap_control_strength_D: {signals_data['vwap_control_strength_D'].loc[probe_ts]:.4f}")
-            print(f"        - high_D: {signals_data['high_D'].loc[probe_ts]:.4f}")
-            print(f"        - low_D: {signals_data['low_D'].loc[probe_ts]:.4f}")
-            print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
-            print(f"        - absorption_strength (来自外部): {absorption_strength.loc[probe_ts]:.4f}")
-            print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 战略意图分数: {strategic_intent_score.loc[probe_ts]:.4f}")
-            print(f"        - 战术行动分数: {tactical_action_score.loc[probe_ts]:.4f}")
-            print(f"        - 执行品质分数: {execution_quality_score.loc[probe_ts]:.4f}")
-            print(f"        - 基础确认分数: {base_confirmation.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '震荡洗盘确认信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - floating_chip_cleansing_efficiency_D: {signals_data['floating_chip_cleansing_efficiency_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - vwap_control_strength_D: {signals_data['vwap_control_strength_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - high_D: {signals_data['high_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - low_D: {signals_data['low_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - absorption_strength (来自外部): {absorption_strength.loc[probe_ts]:.4f}")
+        #     print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 战略意图分数: {strategic_intent_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 战术行动分数: {tactical_action_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 执行品质分数: {execution_quality_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 基础确认分数: {base_confirmation.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '震荡洗盘确认信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, pd.Series]:
@@ -3642,24 +3635,24 @@ class BehavioralIntelligence:
         )
         final_bullish_score = bullish_divergence_score.astype(np.float32)
         final_bearish_score = bearish_divergence_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            # 遍历 signals_data 字典并打印其内容
-            for sig_name, sig_series in signals_data.items():
-                if probe_ts in sig_series.index:
-                    print(f"        - {sig_name}: {sig_series.loc[probe_ts]:.4f}")
-                else:
-                    print(f"        - {sig_name}: N/A (probe_ts not in index)")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 动态最小背离斜率差异: {dynamic_min_divergence_slope_diff.loc[probe_ts]:.4f}")
-            print(f"        - 动态RSI超卖阈值: {rsi_oversold_threshold_dynamic.loc[probe_ts]:.4f}")
-            print(f"        - 动态RSI超买阈值: {rsi_overbought_threshold_dynamic.loc[probe_ts]:.4f}")
-            print(f"        - 归一化活跃买盘: {norm_active_buying.loc[probe_ts]:.4f}")
-            print(f"        - 归一化活跃卖盘: {norm_active_selling.loc[probe_ts]:.4f}")
-            print(f"        - 归一化ATR: {norm_atr.loc[probe_ts]:.4f}")
-            print(f"        - 趋势活力指数 (归一化): {trend_vitality.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '看涨背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bullish_score.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '看跌背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bearish_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     # 遍历 signals_data 字典并打印其内容
+        #     for sig_name, sig_series in signals_data.items():
+        #         if probe_ts in sig_series.index:
+        #             print(f"        - {sig_name}: {sig_series.loc[probe_ts]:.4f}")
+        #         else:
+        #             print(f"        - {sig_name}: N/A (probe_ts not in index)")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 动态最小背离斜率差异: {dynamic_min_divergence_slope_diff.loc[probe_ts]:.4f}")
+        #     print(f"        - 动态RSI超卖阈值: {rsi_oversold_threshold_dynamic.loc[probe_ts]:.4f}")
+        #     print(f"        - 动态RSI超买阈值: {rsi_overbought_threshold_dynamic.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化活跃买盘: {norm_active_buying.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化活跃卖盘: {norm_active_selling.loc[probe_ts]:.4f}")
+        #     print(f"        - 归一化ATR: {norm_atr.loc[probe_ts]:.4f}")
+        #     print(f"        - 趋势活力指数 (归一化): {trend_vitality.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '看涨背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bullish_score.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '看跌背离'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_bearish_score.loc[probe_ts]:.4f}")
         return final_bullish_score, final_bearish_score
 
     def _calculate_single_divergence_type(self, df: pd.DataFrame, is_bullish: bool, params: Dict, tf_weights: Dict, signals_data: Dict[str, pd.Series],
@@ -4384,21 +4377,21 @@ class BehavioralIntelligence:
                       用于终极的根源验证。
         """
         probe_date_str = probe_ts.strftime('%Y-%m-%d')
-        print(f"      [原料探针] 关键输入数据 @ {probe_date_str}")
+        # print(f"      [原料探针] 关键输入数据 @ {probe_date_str}")
         # --- 追溯“意图分”和“驱动分”的根源 ---
         raw_mf_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_probe_raw_material_diagnostics").loc[probe_ts]
         raw_amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_probe_raw_material_diagnostics").loc[probe_ts]
         flow_ratio = (raw_mf_flow / raw_amount) if raw_amount > 0 else 0
-        print(f"        - 主力资金流 (根源): raw_mf_flow={raw_mf_flow:.2f}, amount={raw_amount:.2f} -> flow_ratio={flow_ratio:.6f}")
+        # print(f"        - 主力资金流 (根源): raw_mf_flow={raw_mf_flow:.2f}, amount={raw_amount:.2f} -> flow_ratio={flow_ratio:.6f}")
         # --- 追溯“恐慌承接度”的根源 ---
         raw_panic = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_probe_raw_material_diagnostics").loc[probe_ts]
         raw_capitulation = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_probe_raw_material_diagnostics").loc[probe_ts]
-        print(f"        - 恐慌承接度 (根源): panic_cascade={raw_panic:.2f}, capitulation_absorption={raw_capitulation:.2f}")
+        # print(f"        - 恐慌承接度 (根源): panic_cascade={raw_panic:.2f}, capitulation_absorption={raw_capitulation:.2f}")
         # --- 追溯“滞涨证据”中“宏观风险”的根源 ---
         raw_winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_probe_raw_material_diagnostics").loc[probe_ts]
         raw_trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_probe_raw_material_diagnostics")
         vitality_diff = raw_trend_vitality.diff(3).clip(upper=0).abs().loc[probe_ts]
-        print(f"        - 宏观风险 (根源): winner_rate={raw_winner_rate:.2f}, trend_vitality_decay={vitality_diff:.2f}")
+        # print(f"        - 宏观风险 (根源): winner_rate={raw_winner_rate:.2f}, trend_vitality_decay={vitality_diff:.2f}")
 
     def _diagnose_selling_exhaustion_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
