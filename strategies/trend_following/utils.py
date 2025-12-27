@@ -1155,33 +1155,44 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Uni
             return pd.Series(default_value, index=target_index, dtype=np.float32)
         else:
             return pd.DataFrame({w: default_value for w in windows}, index=target_index, dtype=np.float32)
+    
     # 重新索引并填充 NaN。使用 fillna(0) 确保滚动统计量计算的连续性。
     padded_series = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0)
+    
     # 记录原始值为零的位置，以便在最终结果中强制为零
     is_original_zero = (padded_series.abs() < 1e-9)
+
     if isinstance(windows, int):
         windows_list = [windows]
     else:
         windows_list = windows
+    
     results_df = pd.DataFrame(index=target_index, dtype=np.float32)
+    
     for window in windows_list:
         if is_debug_enabled and probe_ts:
             print(f"           [探针] {signal_name} - normalize_to_bipolar (window={window}) 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
             if probe_ts in series.index:
                 print(f"             - 原始值: {series.loc[probe_ts]:.4f}")
+        
         if window > len(padded_series):
             results_df[window] = default_value
             continue
+        
         min_periods_for_rolling = max(1, int(window * 0.2)) # 确保至少有1个周期进行滚动计算
+        
         # 直接在 padded_series 上计算滚动均值和标准差
         rolling_mean = padded_series.rolling(window=window, min_periods=min_periods_for_rolling).mean()
         rolling_std = padded_series.rolling(window=window, min_periods=min_periods_for_rolling).std()
+        
         bipolar_score_window = pd.Series(np.nan, index=target_index, dtype=np.float32)
+        
         # 情况1: 标准差不为零且非 NaN
         valid_std_mask = rolling_std.notna() & (rolling_std.abs() > 1e-9)
         if valid_std_mask.any():
             z_score = (padded_series.loc[valid_std_mask] - rolling_mean.loc[valid_std_mask]) / (rolling_std.loc[valid_std_mask] * sensitivity)
             bipolar_score_window.loc[valid_std_mask] = np.tanh(z_score)
+        
         # 情况2: 标准差为零或 NaN (窗口内所有值相同，或数据不足)
         zero_or_nan_std_mask = ~valid_std_mask
         if zero_or_nan_std_mask.any():
@@ -1189,13 +1200,18 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Uni
             # 如果值是正的，分数是 1；负的，分数是 -1；零，分数是 0。
             # np.sign() 函数可以很好地处理这种情况。
             bipolar_score_window.loc[zero_or_nan_std_mask] = np.sign(padded_series.loc[zero_or_nan_std_mask])
+            
             # 对于因数据不足导致 rolling_mean/std 为 NaN 的情况，np.sign(NaN) 仍为 NaN，
             # 最终会由 fillna(default_value) 处理。
+            
         # 确保原始值为零的条目在双极性分数中也为零
         bipolar_score_window = bipolar_score_window.where(~is_original_zero, 0.0)
+        
         results_df[window] = bipolar_score_window.reindex(target_index).fillna(default_value)
+        
         if is_debug_enabled and probe_ts:
             print(f"           [探针] {signal_name} - normalize_to_bipolar (window={window}) 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {results_df[window].loc[probe_ts]:.4f}")
+            
     if isinstance(windows, int):
         return results_df[windows].astype(np.float32)
     else:
