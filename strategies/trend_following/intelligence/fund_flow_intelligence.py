@@ -2027,9 +2027,8 @@ class FundFlowIntelligence:
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V4.7 · 资金流纯粹视角与阈值应用修复版】诊断资金流看涨/看跌背离信号。
-        - 核心修复: 解决了 `bullish_divergence_score` 幂运算后值异常小的 Bug，确保浮点数精度和计算逻辑的正确性。
-                    彻底修复了 `bullish_divergence_score.where(...)` 阈值应用不生效的问题。
+        【V4.8 · 调试输出修正与资金流纯粹视角优化版】诊断资金流看涨/看跌背离信号。
+        - 核心修复: 修正了调试输出，确保在探针日期打印的是当日信号值，而非整个Series的平均值，避免误导。
         - 业务逻辑增强 (严格遵守资金流维度):
             1. 移除对非资金流信号（如价格下跌动能、行为趋势强度）的依赖。
             2. 引入“资金流前期疲软惩罚”机制：基于中长期资金流的负向动能和订单簿卖压，对看涨信号进行惩罚。
@@ -2121,9 +2120,6 @@ class FundFlowIntelligence:
             f'ACCEL_{long_term_nmfnf_accel_period}_NMFNF_D', # 用于资金流前期疲软惩罚
             f'SLOPE_{long_term_nmfnf_slope_period}_NMFNF_D' # 用于资金流趋势一致性调制
         ]
-        # 移除对非资金流信号的引用
-        # required_signals.remove('SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM')
-        # required_signals.remove('SCORE_BEHAVIOR_TREND_STRENGTH')
 
         if not self._validate_required_signals(df, required_signals, method_name, atomic_states=self.strategy.atomic_states):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
@@ -2271,7 +2267,7 @@ class FundFlowIntelligence:
         fund_flow_weakness_penalty = pd.Series(0.0, index=df_index)
         if fund_flow_weakness_enabled:
             # 资金流中长期加速度为负，表示资金流持续疲软
-            long_term_nmfnf_accel_raw = raw_data_cache.get(f'ACCEL_{long_term_nmfnf_accel_period}_NMFNF_D', all_pre_fetched_slopes_accels.get(f'ACCEL_{long_term_nmfnf_accel_period}_NMFNF_D'))
+            long_term_nmfnf_accel_raw = all_pre_fetched_slopes_accels.get(f'ACCEL_{long_term_nmfnf_accel_period}_NMFNF_D')
             norm_long_term_nmfnf_accel = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_accel_raw, df_index, self.tf_weights_ff)
             # 卖盘枯竭率高，表示卖压沉重
             norm_sell_exhaustion_penalty = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -2286,7 +2282,7 @@ class FundFlowIntelligence:
         fund_flow_trend_consistency_modulator = pd.Series(1.0, index=df_index)
         if fund_flow_trend_consistency_enabled:
             # 中长期资金流斜率
-            long_term_nmfnf_slope_raw = raw_data_cache.get(f'SLOPE_{long_term_nmfnf_slope_period}_NMFNF_D', all_pre_fetched_slopes_accels.get(f'SLOPE_{long_term_nmfnf_slope_period}_NMFNF_D'))
+            long_term_nmfnf_slope_raw = all_pre_fetched_slopes_accels.get(f'SLOPE_{long_term_nmfnf_slope_period}_NMFNF_D')
             norm_long_term_nmfnf_slope = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_slope_raw, df_index, self.tf_weights_ff)
             # 资金流可信度
             norm_flow_credibility_consistency = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -2474,10 +2470,14 @@ class FundFlowIntelligence:
         final_bearish_score = bearish_divergence_score_raw.where(bearish_base_divergence > 1e-9, 0.0) # 同样对看跌信号进行门控
         final_bearish_score = final_bearish_score.where(final_bearish_score > bearish_divergence_threshold, 0.0) # 确保阈值应用正确
 
-        print(f"    -> [资金流层] 看涨 (Bullish): {final_bullish_score.mean():.4f}")
-        print(f"    -> [资金流层] 看跌 (Bearish): {final_bearish_score.mean():.4f}")
+        # 修正调试输出：打印探针日期当天的信号值
+        if is_debug_enabled and probe_ts and probe_ts in df_index:
+            print(f"    -> [资金流层] 看涨 (Bullish) @ {probe_ts.strftime('%Y-%m-%d')}: {final_bullish_score.loc[probe_ts]:.4f}")
+            print(f"    -> [资金流层] 看跌 (Bearish) @ {probe_ts.strftime('%Y-%m-%d')}: {final_bearish_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"    -> [资金流层] 看涨 (Bullish): {final_bullish_score.mean():.4f}")
+            print(f"    -> [资金流层] 看跌 (Bearish): {final_bearish_score.mean():.4f}")
         return final_bullish_score.astype(np.float32), final_bearish_score.astype(np.float32)
-
 
     def _diagnose_axiom_intent_purity(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
