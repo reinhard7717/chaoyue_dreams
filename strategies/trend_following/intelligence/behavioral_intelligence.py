@@ -1091,9 +1091,6 @@ class BehavioralIntelligence:
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_resolve_pressure_absorption_dynamics"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在解析 '压力吸收动态' @ {probe_ts.strftime('%Y-%m-%d')}")
-        params = get_param_value(self.config_params.get('pressure_absorption_params'), {})
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         required_state_signals = [
@@ -3618,8 +3615,6 @@ class BehavioralIntelligence:
                                           dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic,
                                           is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         method_name = "_calculate_single_divergence_type"
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"    -> [探针 - {method_name}] 正在计算 {'看涨' if is_bullish else '看跌'} 背离类型 @ {probe_ts.strftime('%Y-%m-%d')}")
         debug_info = (is_debug_enabled, probe_ts, method_name)
         # 修正：从 params 字典中获取 mtf_slopes_params
         mtf_slopes_params = params['mtf_slopes_params']
