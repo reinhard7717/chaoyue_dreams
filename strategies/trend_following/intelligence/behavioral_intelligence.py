@@ -4056,41 +4056,41 @@ class BehavioralIntelligence:
         ).pow(1 / (2.2 * adaptive_fusion_weight_multiplier)).fillna(0.0).clip(0, 1)
         divergence_score = divergence_score.where(div_condition_raw, 0.0)
         final_score = divergence_score.astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            # 遍历 signals_data 字典并打印其内容
-            for sig_name, sig_series in signals_data.items():
-                if probe_ts in sig_series.index:
-                    print(f"        - {sig_name}: {sig_series.loc[probe_ts]:.4f}")
-                else:
-                    print(f"        - {sig_name}: N/A (probe_ts not in index)")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 价格趋势条件: {price_trend_condition.loc[probe_ts]}")
-            print(f"        - RSI指标趋势: {rsi_indicator_trend.loc[probe_ts]}")
-            print(f"        - MACD指标趋势: {macd_indicator_trend.loc[probe_ts]}")
-            print(f"        - 成交量指标趋势: {volume_indicator_trend.loc[probe_ts]}")
-            print(f"        - 背离原始条件: {div_condition_raw.loc[probe_ts]}")
-            print(f"        - 加速强度: {accelerated_strength.loc[probe_ts]:.4f}")
-            print(f"        - RSI背离强度: {div_strength_rsi.loc[probe_ts]:.4f}")
-            print(f"        - MACD背离强度: {div_strength_macd.loc[probe_ts]:.4f}")
-            print(f"        - 成交量背离强度: {div_strength_volume.loc[probe_ts]:.4f}")
-            print(f"        - 总背离强度: {total_div_strength.loc[probe_ts]:.4f}")
-            print(f"        - 最终强度因子: {final_strength_factor.loc[probe_ts]:.4f}")
-            print(f"        - 总确认因子: {norm_total_conf_factor.loc[probe_ts]:.4f}")
-            print(f"        - 持续性因子: {persistence_factor.loc[probe_ts]:.4f}")
-            print(f"        - 协同因子: {synergy_factor.loc[probe_ts]:.4f}")
-            print(f"        - 结构上下文因子: {structural_context_factor.loc[probe_ts]:.4f}")
-            print(f"        - 共振因子: {resonance_factor.loc[probe_ts]:.4f}")
-            print(f"        - 价格行为因子: {price_action_factor.loc[probe_ts]:.4f}")
-            print(f"        - 量价结构因子: {volume_price_structure_factor.loc[probe_ts]:.4f}")
-            print(f"        - 纯度因子: {purity_factor.loc[probe_ts]:.4f}")
-            print(f"        - 市场情境因子: {market_context_factor.loc[probe_ts]:.4f}")
-            print(f"        - 新鲜度因子: {freshness_factor.loc[probe_ts]:.4f}")
-            print(f"        - 一致性因子: {consistency_factor.loc[probe_ts]:.4f}")
-            print(f"        - 模式序列因子: {pattern_sequence_factor.loc[probe_ts]:.4f}")
-            print(f"        - 惯性因子: {inertia_factor.loc[probe_ts]:.4f}")
-            print(f"        - 自适应融合权重乘数: {adaptive_fusion_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '背离信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     # 遍历 signals_data 字典并打印其内容
+        #     for sig_name, sig_series in signals_data.items():
+        #         if probe_ts in sig_series.index:
+        #             print(f"        - {sig_name}: {sig_series.loc[probe_ts]:.4f}")
+        #         else:
+        #             print(f"        - {sig_name}: N/A (probe_ts not in index)")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 价格趋势条件: {price_trend_condition.loc[probe_ts]}")
+        #     print(f"        - RSI指标趋势: {rsi_indicator_trend.loc[probe_ts]}")
+        #     print(f"        - MACD指标趋势: {macd_indicator_trend.loc[probe_ts]}")
+        #     print(f"        - 成交量指标趋势: {volume_indicator_trend.loc[probe_ts]}")
+        #     print(f"        - 背离原始条件: {div_condition_raw.loc[probe_ts]}")
+        #     print(f"        - 加速强度: {accelerated_strength.loc[probe_ts]:.4f}")
+        #     print(f"        - RSI背离强度: {div_strength_rsi.loc[probe_ts]:.4f}")
+        #     print(f"        - MACD背离强度: {div_strength_macd.loc[probe_ts]:.4f}")
+        #     print(f"        - 成交量背离强度: {div_strength_volume.loc[probe_ts]:.4f}")
+        #     print(f"        - 总背离强度: {total_div_strength.loc[probe_ts]:.4f}")
+        #     print(f"        - 最终强度因子: {final_strength_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 总确认因子: {norm_total_conf_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 持续性因子: {persistence_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 协同因子: {synergy_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 结构上下文因子: {structural_context_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 共振因子: {resonance_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 价格行为因子: {price_action_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 量价结构因子: {volume_price_structure_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 纯度因子: {purity_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 市场情境因子: {market_context_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 新鲜度因子: {freshness_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 一致性因子: {consistency_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 模式序列因子: {pattern_sequence_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 惯性因子: {inertia_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 自适应融合权重乘数: {adaptive_fusion_weight_multiplier.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '背离信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _calculate_lockup_rally_opportunity(self, df: pd.DataFrame, states: Dict[str, pd.Series], default_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -4323,45 +4323,45 @@ class BehavioralIntelligence:
         ).pow(1 / sum(lockup_rally_fusion_weights.values()))
         lockup_rally_score = lockup_rally_score.where(is_rising > 0, 0.0).clip(0, 1).astype(np.float32)
         final_lockup_rally_score = lockup_rally_score.pow(lockup_rally_final_exponent)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
-            print(f"        - turnover_rate_f_D: {signals_data['turnover_rate_f_D'].loc[probe_ts]:.4f}")
-            print(f"        - VOLATILITY_INSTABILITY_INDEX_21d_D: {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
-            print(f"        - deception_lure_short_intensity_D: {signals_data['deception_lure_short_intensity_D'].loc[probe_ts]:.4f}")
-            print(f"        - chip_fatigue_index_D: {signals_data['chip_fatigue_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - loser_pain_index_D: {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - floating_chip_cleansing_efficiency_D: {signals_data['floating_chip_cleansing_efficiency_D'].loc[probe_ts]:.4f}")
-            print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - covert_accumulation_signal_D: {signals_data['covert_accumulation_signal_D'].loc[probe_ts]:.4f}")
-            print(f"        - ADX_14_D: {signals_data['ADX_14_D'].loc[probe_ts]:.4f}")
-            print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_pct_change_slope: {signals_data['robust_pct_change_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_volume_slope: {signals_data['robust_volume_slope'].loc[probe_ts]:.4f}")
-            print(f"        - long_term_close_slope: {signals_data['long_term_close_slope'].loc[probe_ts]:.4f}")
-            print(f"        - long_term_adx_slope: {signals_data['long_term_adx_slope'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_close_D: {signals_data['ACCEL_5_close_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
-            print(f"        - ACCEL_5_volume_D: {signals_data['ACCEL_5_volume_D'].loc[probe_ts]:.4f}")
-            print(f"        - SLOPE_5_main_force_conviction_index_D: {signals_data['SLOPE_5_main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM (from states): {state_signals_data['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY (from states): {state_signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_VOLUME_ATROPHY (from states): {state_signals_data['SCORE_BEHAVIOR_VOLUME_ATROPHY'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL (from states): {state_signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_DISTRIBUTION_INTENT (from states): {state_signals_data['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'].loc[probe_ts]:.4f}")
-            print(f"        - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (from states): {state_signals_data['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'].loc[probe_ts]:.4f}")
-            print(f"        - INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW (from states): {state_signals_data['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 上涨纯度分数: {rally_purity_score.loc[probe_ts]:.4f}")
-            print(f"        - 供应枯竭分数: {supply_exhaustion_score.loc[probe_ts]:.4f}")
-            print(f"        - 主力意图分数: {main_force_intent_score.loc[probe_ts]:.4f}")
-            print(f"        - 情境共振分数: {context_resonance_score.loc[probe_ts]:.4f}")
-            print(f"        - 是否上涨: {is_rising.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '锁仓拉升机会信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_lockup_rally_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - turnover_rate_f_D: {signals_data['turnover_rate_f_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - VOLATILITY_INSTABILITY_INDEX_21d_D: {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - deception_lure_short_intensity_D: {signals_data['deception_lure_short_intensity_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - chip_fatigue_index_D: {signals_data['chip_fatigue_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - loser_pain_index_D: {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - floating_chip_cleansing_efficiency_D: {signals_data['floating_chip_cleansing_efficiency_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - main_force_conviction_index_D: {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - covert_accumulation_signal_D: {signals_data['covert_accumulation_signal_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ADX_14_D: {signals_data['ADX_14_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_pct_change_slope: {signals_data['robust_pct_change_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - robust_volume_slope: {signals_data['robust_volume_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - long_term_close_slope: {signals_data['long_term_close_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - long_term_adx_slope: {signals_data['long_term_adx_slope'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_close_D: {signals_data['ACCEL_5_close_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - ACCEL_5_volume_D: {signals_data['ACCEL_5_volume_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - SLOPE_5_main_force_conviction_index_D: {signals_data['SLOPE_5_main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM (from states): {state_signals_data['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY (from states): {state_signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_VOLUME_ATROPHY (from states): {state_signals_data['SCORE_BEHAVIOR_VOLUME_ATROPHY'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL (from states): {state_signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_DISTRIBUTION_INTENT (from states): {state_signals_data['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'].loc[probe_ts]:.4f}")
+        #     print(f"        - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (from states): {state_signals_data['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'].loc[probe_ts]:.4f}")
+        #     print(f"        - INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW (from states): {state_signals_data['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 上涨纯度分数: {rally_purity_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 供应枯竭分数: {supply_exhaustion_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 主力意图分数: {main_force_intent_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 情境共振分数: {context_resonance_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 是否上涨: {is_rising.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '锁仓拉升机会信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_lockup_rally_score.loc[probe_ts]:.4f}")
         return final_lockup_rally_score
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float, is_debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
@@ -4371,9 +4371,9 @@ class BehavioralIntelligence:
         """
         if threshold > 0:
             filtered_series = series.where(series.abs() > threshold, 0.0)
-            if is_debug_enabled and probe_ts and not series.empty and probe_ts == series.index[-1]:
-                if series.loc[probe_ts].abs() <= threshold and series.loc[probe_ts] != 0.0:
-                    print(f"      [探针 - _apply_neutral_zone_filter] 信号值 {series.loc[probe_ts]:.4f} 小于阈值 {threshold:.4f}，被过滤为0。")
+            # if is_debug_enabled and probe_ts and not series.empty and probe_ts == series.index[-1]:
+            #     if series.loc[probe_ts].abs() <= threshold and series.loc[probe_ts] != 0.0:
+            #         print(f"      [探针 - _apply_neutral_zone_filter] 信号值 {series.loc[probe_ts]:.4f} 小于阈值 {threshold:.4f}，被过滤为0。")
             return filtered_series
         return series
 
@@ -4695,22 +4695,22 @@ class BehavioralIntelligence:
             final_score_gated = final_score_gated * (1 - is_strong_uptrend * gate_penalty_factor)
         # --- 6. 最终非线性变换 ---
         final_selling_exhaustion_score = final_score_gated.pow(final_exponent).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            for sig_name in required_df_signals:
-                print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
-            for sig_name in required_state_signals:
-                print(f"        - {sig_name} (from states): {state_signals_data[sig_name].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 下降与减速分数: {descent_deceleration_score.loc[probe_ts]:.4f}")
-            print(f"        - 净化与枯竭分数: {purification_exhaustion_score.loc[probe_ts]:.4f}")
-            print(f"        - 吸收与意图分数: {absorption_intent_score.loc[probe_ts]:.4f}")
-            print(f"        - 情境就绪分数: {contextual_readiness_score.loc[probe_ts]:.4f}")
-            print(f"        - 基础卖盘衰竭分数: {selling_exhaustion_base_score.loc[probe_ts]:.4f}")
-            print(f"        - 动态调制因子: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
-            print(f"        - 调制后分数: {final_score_modulated.loc[probe_ts]:.4f}")
-            print(f"        - 是否下跌: {is_falling.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '卖盘衰竭机会信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_selling_exhaustion_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     for sig_name in required_df_signals:
+        #         print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
+        #     for sig_name in required_state_signals:
+        #         print(f"        - {sig_name} (from states): {state_signals_data[sig_name].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 下降与减速分数: {descent_deceleration_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 净化与枯竭分数: {purification_exhaustion_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 吸收与意图分数: {absorption_intent_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 情境就绪分数: {contextual_readiness_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 基础卖盘衰竭分数: {selling_exhaustion_base_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 动态调制因子: {dynamic_modulator_factor.loc[probe_ts]:.4f}")
+        #     print(f"        - 调制后分数: {final_score_modulated.loc[probe_ts]:.4f}")
+        #     print(f"        - 是否下跌: {is_falling.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '卖盘衰竭机会信号'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_selling_exhaustion_score.loc[probe_ts]:.4f}")
         return final_selling_exhaustion_score
 
     def _diagnose_liquidity_drain_risk(self, df: pd.DataFrame, states: Dict[str, pd.Series], tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -4917,21 +4917,21 @@ class BehavioralIntelligence:
         final_score_gated = liquidity_drain_base_score * is_falling
         # --- 9. 最终非线性变换 ---
         final_liquidity_drain_score = final_score_gated.pow(final_exponent).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            for sig_name in required_df_signals:
-                print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
-            for sig_name in required_state_signals:
-                print(f"        - {sig_name} (from states): {state_signals_data[sig_name].loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - 动态价格跌幅阈值: {min_price_drop_pct_threshold.loc[probe_ts]:.4f}")
-            print(f"        - 恐慌抛售烈度分数: {psi_score.loc[probe_ts]:.4f}")
-            print(f"        - 抵抗瓦解度分数: {rc_score.loc[probe_ts]:.4f}")
-            print(f"        - 流动性枯竭证据分数: {lee_score.loc[probe_ts]:.4f}")
-            print(f"        - 混沌与脆弱性分数: {cf_score.loc[probe_ts]:.4f}")
-            print(f"        - 基础流动性枯竭分数: {liquidity_drain_base_score.loc[probe_ts]:.4f}")
-            print(f"        - 是否下跌: {is_falling.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '流动性枯竭风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_liquidity_drain_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     for sig_name in required_df_signals:
+        #         print(f"        - {sig_name}: {signals_data[sig_name].loc[probe_ts]:.4f}")
+        #     for sig_name in required_state_signals:
+        #         print(f"        - {sig_name} (from states): {state_signals_data[sig_name].loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - 动态价格跌幅阈值: {min_price_drop_pct_threshold.loc[probe_ts]:.4f}")
+        #     print(f"        - 恐慌抛售烈度分数: {psi_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 抵抗瓦解度分数: {rc_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 流动性枯竭证据分数: {lee_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 混沌与脆弱性分数: {cf_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 基础流动性枯竭分数: {liquidity_drain_base_score.loc[probe_ts]:.4f}")
+        #     print(f"        - 是否下跌: {is_falling.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '流动性枯竭风险'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_liquidity_drain_score.loc[probe_ts]:.4f}")
         return final_liquidity_drain_score
 
     def _calculate_battlefield_momentum(self, df: pd.DataFrame, day_quality_score: pd.Series, params: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -5108,20 +5108,20 @@ class BehavioralIntelligence:
         # 3. 将融合结果与 behavioral_context_health 相乘
         battlefield_momentum_score = (weighted_momentum_consistency * behavioral_context_health).clip(0, 1)
         final_battlefield_momentum = battlefield_momentum_score.pow(final_exponent).astype(np.float32)
-        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - day_quality_score: {day_quality_score.loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY (from states): {self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.0, index=df.index)).loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_DOWNWARD_RESISTANCE (from states): {self.strategy.atomic_states.get('SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', pd.Series(0.0, index=df.index)).loc[probe_ts]:.4f}")
-            print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL (from states): {self.strategy.atomic_states.get('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', pd.Series(0.0, index=df.index)).loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            print(f"        - MTF动量分数: {mtf_momentum_score.loc[probe_ts]:.4f}")
-            print(f"        - MTF加速度分数: {mtf_acceleration_score.loc[probe_ts]:.4f}")
-            print(f"        - MTF方向一致性: {mtf_directional_consistency.loc[probe_ts]:.4f}")
-            print(f"        - 基础方向动量: {base_directional_momentum.loc[probe_ts]:.4f}")
-            print(f"        - 行为情境健康度: {behavioral_context_health.loc[probe_ts]:.4f}")
-            print(f"        - 加权动量一致性: {weighted_momentum_consistency.loc[probe_ts]:.4f}")
-            print(f"      [探针 - {method_name}] 最终 '战场动量'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_battlefield_momentum.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - day_quality_score: {day_quality_score.loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY (from states): {self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.0, index=df.index)).loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_DOWNWARD_RESISTANCE (from states): {self.strategy.atomic_states.get('SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', pd.Series(0.0, index=df.index)).loc[probe_ts]:.4f}")
+        #     print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL (from states): {self.strategy.atomic_states.get('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', pd.Series(0.0, index=df.index)).loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     print(f"        - MTF动量分数: {mtf_momentum_score.loc[probe_ts]:.4f}")
+        #     print(f"        - MTF加速度分数: {mtf_acceleration_score.loc[probe_ts]:.4f}")
+        #     print(f"        - MTF方向一致性: {mtf_directional_consistency.loc[probe_ts]:.4f}")
+        #     print(f"        - 基础方向动量: {base_directional_momentum.loc[probe_ts]:.4f}")
+        #     print(f"        - 行为情境健康度: {behavioral_context_health.loc[probe_ts]:.4f}")
+        #     print(f"        - 加权动量一致性: {weighted_momentum_consistency.loc[probe_ts]:.4f}")
+        #     print(f"      [探针 - {method_name}] 最终 '战场动量'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_battlefield_momentum.loc[probe_ts]:.4f}")
         return final_battlefield_momentum
 
 
