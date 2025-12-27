@@ -210,7 +210,7 @@ class FundFlowIntelligence:
         # axiom_divergence 已经在上面存储，这里不再重复
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
-        print(f"    -> [资金流情报校验] 计算“资金流内部分歧与意图张力(SCORE_FF_AXIOM_CONVICTION)” 分数：{axiom_conviction.mean():.4f}")
+        print(f"    -> [资金流情报校验] 计算“资金流内部分歧与意图张力(SCORE_FF_AXIOM_CONVICTION)” 分数：{axiom_conviction.iloc[-1]:.4f}")
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
         self.strategy.atomic_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
@@ -477,7 +477,7 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        print(f"    -> [资金流层] 资金流内部分歧与意图张力 (final_score): {final_score.mean():.4f}")
+        print(f"    -> [资金流层] 资金流内部分歧与意图张力 (final_score): {final_score.iloc[-1]:.4f}")
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1128,7 +1128,7 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        print(f"    -> [资金流层] 信念韧性 (final_score): {final_score.mean():.4f}")
+        print(f"    -> [资金流层] 信念韧性 (final_score): {final_score.iloc[-1]:.4f}")
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1456,7 +1456,7 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        print(f"    -> [资金流层] 资金流纯度与动能 (final_score): {final_score.mean():.4f}")
+        print(f"    -> [资金流层] 资金流纯度与动能 (final_score): {final_score.iloc[-1]:.4f}")
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1765,7 +1765,7 @@ class FundFlowIntelligence:
         patient_modulated_score = patient_capital_score * dynamic_patient_weight * liquidity_mod * volatility_mod * sentiment_mod * (1 + inter_capital_game_score.clip(lower=0))
         agile_modulated_score = agile_capital_score * dynamic_agile_weight * liquidity_mod * volatility_mod * sentiment_mod * (1 + inter_capital_game_score.clip(upper=0).abs())
         capital_signature_score = np.tanh(patient_modulated_score - agile_modulated_score).pow(fusion_exponent).clip(-1, 1)
-        print(f"    -> [资金流层] 资本属性 (capital_signature_score): {capital_signature_score.mean():.4f}")
+        print(f"    -> [资金流层] 资本属性 (capital_signature_score): {capital_signature_score.iloc[-1]:.4f}")
         return capital_signature_score.astype(np.float32)
 
     def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1953,7 +1953,7 @@ class FundFlowIntelligence:
         # if probe_enabled and current_probe_date: # 移除探针相关逻辑
         #     print(f"        [探针] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.loc[current_probe_date]:.4f}")
         #     print(f"        [探针] 资金流结构健康度诊断完成。")
-        print(f"    -> [资金流层] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.mean():.4f}")
+        print(f"    -> [资金流层] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.iloc[-1]:.4f}")
         return flow_structure_health_score.astype(np.float32)
 
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
@@ -2022,7 +2022,7 @@ class FundFlowIntelligence:
         strength_cohesion = (strength_cohesion_slope + strength_cohesion_accel) / 2
         # 3. 最终双极性共振分数：方向 * 强度
         mtf_resonance_score = strength_cohesion * direction_alignment
-        print(f"    -> [资金流层] 双极性多时间框架的共振/背离因子: {mtf_resonance_score.mean():.4f}")
+        print(f"    -> [资金流层] 双极性多时间框架的共振/背离因子: {mtf_resonance_score.iloc[-1]:.4f}")
         return mtf_resonance_score.astype(np.float32)
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
@@ -2475,8 +2475,8 @@ class FundFlowIntelligence:
             print(f"    -> [资金流层] 看涨 (Bullish) @ {probe_ts.strftime('%Y-%m-%d')}: {final_bullish_score.loc[probe_ts]:.4f}")
             print(f"    -> [资金流层] 看跌 (Bearish) @ {probe_ts.strftime('%Y-%m-%d')}: {final_bearish_score.loc[probe_ts]:.4f}")
         else:
-            print(f"    -> [资金流层] 看涨 (Bullish): {final_bullish_score.mean():.4f}")
-            print(f"    -> [资金流层] 看跌 (Bearish): {final_bearish_score.mean():.4f}")
+            print(f"    -> [资金流层] 看涨 (Bullish): {final_bullish_score.iloc[-1]:.4f}")
+            print(f"    -> [资金流层] 看跌 (Bearish): {final_bearish_score.iloc[-1]:.4f}")
         return final_bullish_score.astype(np.float32), final_bearish_score.astype(np.float32)
 
     def _diagnose_axiom_intent_purity(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -2760,7 +2760,7 @@ class FundFlowIntelligence:
         }
         final_score_unipolar = _robust_geometric_mean(final_score_components, final_score_weights, df_index)
         final_score = (final_score_unipolar * 2 - 1).clip(-1, 1)
-        print(f"    -> [资金流层] 意图纯度: {final_score_unipolar.mean():.4f}")
+        print(f"    -> [资金流层] 意图纯度: {final_score_unipolar.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
 
