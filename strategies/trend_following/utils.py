@@ -721,25 +721,19 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
     # 4. 在每个组内，前向填充确认分数和确认日期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
-
     # 5. 检查当前日期是否在冷却期内
     # 关键修复：显式处理 NaT，避免 Pandas 内部将 NaT 转换为 float 导致 TypeError
     time_diff = pd.Series(pd.NaT, index=df.index, dtype='timedelta64[ns]') # 初始化为 Timedelta Series
-    
     # 找出 filled_dates 中非 NaT 的位置
     non_nat_filled_dates_mask = filled_dates.notna()
-
     if non_nat_filled_dates_mask.any():
         # 只对非 NaT 的部分进行减法运算，确保 Timestamp - Timestamp
         time_diff.loc[non_nat_filled_dates_mask] = df.index.to_series().loc[non_nat_filled_dates_mask] - filled_dates.loc[non_nat_filled_dates_mask]
-    
     # 过滤掉 time_diff 中的 NaT 值，只对有效日期进行计算
     valid_time_diff_mask = time_diff.notna()
-
     is_within_cooldown_period = pd.Series(False, index=df.index)
     if valid_time_diff_mask.any():
         is_within_cooldown_period.loc[valid_time_diff_mask] = time_diff.dt.days.loc[valid_time_diff_mask] < confirmation_cooldown_period
-    
     # 6. 最终的确认分数：只有在冷却期内且有填充分数的地方才有效
     confirmation_score_series = filled_scores.where(is_within_cooldown_period, 0.0).fillna(0.0)
     # --- 冷却期逻辑向量化优化结束 ---
@@ -760,7 +754,6 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-    # ... [获取参数的代码保持不变] ...
     resistance_levels = get_param_value(params.get('resistance_levels'), [55, 89, 144, 233, 377])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
@@ -808,7 +801,6 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     # 4. 在每个组内，前向填充确认分数和确认日期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
-    
     # --- 调试探针开始 ---
     print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] df.index.to_series().dtype: {df.index.to_series().dtype}")
     print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates.dtype (after ffill): {filled_dates.dtype}")
@@ -816,21 +808,16 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates head:\n{filled_dates.head()}")
     print(f"    -> [DEBUG: _calculate_uranus_ceiling_resistance] filled_dates contains NaT: {filled_dates.isna().any()}")
     # --- 调试探针结束 ---
-
     # 5. 检查当前日期是否在冷却期内
     # 关键修复：显式处理 NaT，避免 Pandas 内部将 NaT 转换为 float 导致 TypeError
     time_diff = pd.Series(pd.NaT, index=df.index, dtype='timedelta64[ns]') # 初始化为 Timedelta Series
-    
     # 找出 filled_dates 中非 NaT 的位置
     non_nat_filled_dates_mask = filled_dates.notna()
-
     if non_nat_filled_dates_mask.any():
         # 只对非 NaT 的部分进行减法运算，确保 Timestamp - Timestamp
         time_diff.loc[non_nat_filled_dates_mask] = df.index.to_series().loc[non_nat_filled_dates_mask] - filled_dates.loc[non_nat_filled_dates_mask]
-
     # 过滤掉 time_diff 中的 NaT 值，只对有效日期进行计算
     valid_time_diff_mask = time_diff.notna()
-
     is_within_cooldown_period = pd.Series(False, index=df.index)
     if valid_time_diff_mask.any():
         is_within_cooldown_period.loc[valid_time_diff_mask] = time_diff.dt.days.loc[valid_time_diff_mask] < confirmation_cooldown_period
@@ -954,21 +941,16 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     # 4. 在每个组内，前向填充确认分数和确认日期
     filled_scores = raw_confirmation_scores.groupby(group_ids).ffill()
     filled_dates = confirmation_dates.groupby(group_ids).ffill()
-
     # 5. 检查当前日期是否在冷却期内
     # 关键修复：显式处理 NaT，避免 Pandas 内部将 NaT 转换为 float 导致 TypeError
     time_diff = pd.Series(pd.NaT, index=df.index, dtype='timedelta64[ns]') # 初始化为 Timedelta Series
-    
     # 找出 filled_dates 中非 NaT 的位置
     non_nat_filled_dates_mask = filled_dates.notna()
-
     if non_nat_filled_dates_mask.any():
         # 只对非 NaT 的部分进行减法运算，确保 Timestamp - Timestamp
         time_diff.loc[non_nat_filled_dates_mask] = df.index.to_series().loc[non_nat_filled_dates_mask] - filled_dates.loc[non_nat_filled_dates_mask]
-
     # 过滤掉 time_diff 中的 NaT 值，只对有效日期进行计算
     valid_time_diff_mask = time_diff.notna()
-
     is_within_cooldown_period = pd.Series(False, index=df.index)
     if valid_time_diff_mask.any():
         is_within_cooldown_period.loc[valid_time_diff_mask] = time_diff.dt.days.loc[valid_time_diff_mask] < confirmation_cooldown_period
@@ -1173,9 +1155,10 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Uni
             return pd.Series(default_value, index=target_index, dtype=np.float32)
         else:
             return pd.DataFrame({w: default_value for w in windows}, index=target_index, dtype=np.float32)
-    padded_series = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill')
-    is_zero = (padded_series.abs() < 1e-9)
-    series_for_calc = padded_series.where(~is_zero, np.nan)
+    # 重新索引并填充 NaN。使用 fillna(0) 确保滚动统计量计算的连续性。
+    padded_series = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0)
+    # 记录原始值为零的位置，以便在最终结果中强制为零
+    is_original_zero = (padded_series.abs() < 1e-9)
     if isinstance(windows, int):
         windows_list = [windows]
     else:
@@ -1189,13 +1172,28 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Uni
         if window > len(padded_series):
             results_df[window] = default_value
             continue
-        rolling_mean = series_for_calc.rolling(window=window, min_periods=1).mean()
-        rolling_std = series_for_calc.rolling(window=window, min_periods=1).std()
-        rolling_std = rolling_std.replace(0, np.nan).fillna(1.0)
-        z_score = (padded_series - rolling_mean) / rolling_std
-        tanh_score = np.tanh(z_score * sensitivity)
-        tanh_score[is_zero] = 0.0
-        results_df[window] = tanh_score.reindex(target_index).fillna(default_value)
+        min_periods_for_rolling = max(1, int(window * 0.2)) # 确保至少有1个周期进行滚动计算
+        # 直接在 padded_series 上计算滚动均值和标准差
+        rolling_mean = padded_series.rolling(window=window, min_periods=min_periods_for_rolling).mean()
+        rolling_std = padded_series.rolling(window=window, min_periods=min_periods_for_rolling).std()
+        bipolar_score_window = pd.Series(np.nan, index=target_index, dtype=np.float32)
+        # 情况1: 标准差不为零且非 NaN
+        valid_std_mask = rolling_std.notna() & (rolling_std.abs() > 1e-9)
+        if valid_std_mask.any():
+            z_score = (padded_series.loc[valid_std_mask] - rolling_mean.loc[valid_std_mask]) / (rolling_std.loc[valid_std_mask] * sensitivity)
+            bipolar_score_window.loc[valid_std_mask] = np.tanh(z_score)
+        # 情况2: 标准差为零或 NaN (窗口内所有值相同，或数据不足)
+        zero_or_nan_std_mask = ~valid_std_mask
+        if zero_or_nan_std_mask.any():
+            # 如果窗口内所有值相同，则 z_score 分母为 0。此时，分数应反映值的符号。
+            # 如果值是正的，分数是 1；负的，分数是 -1；零，分数是 0。
+            # np.sign() 函数可以很好地处理这种情况。
+            bipolar_score_window.loc[zero_or_nan_std_mask] = np.sign(padded_series.loc[zero_or_nan_std_mask])
+            # 对于因数据不足导致 rolling_mean/std 为 NaN 的情况，np.sign(NaN) 仍为 NaN，
+            # 最终会由 fillna(default_value) 处理。
+        # 确保原始值为零的条目在双极性分数中也为零
+        bipolar_score_window = bipolar_score_window.where(~is_original_zero, 0.0)
+        results_df[window] = bipolar_score_window.reindex(target_index).fillna(default_value)
         if is_debug_enabled and probe_ts:
             print(f"           [探针] {signal_name} - normalize_to_bipolar (window={window}) 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {results_df[window].loc[probe_ts]:.4f}")
     if isinstance(windows, int):
