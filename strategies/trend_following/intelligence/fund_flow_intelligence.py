@@ -2027,14 +2027,13 @@ class FundFlowIntelligence:
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V4.2 · 效率优化版】诊断资金流看涨/看跌背离信号。
-        - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_calculate_mtf_cohesion_divergence`。
-                    集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
-        【V4.3 · 诱多陷阱免疫与前期弱势感知版】
-        - 核心修复: 解决了 `bullish_divergence_score` 在 `bullish_base_divergence` 为 0 时仍产生非零分数的问题，增加明确门控。
+        【V4.4 · 诱多陷阱免疫与前期弱势感知强化版】诊断资金流看涨/看跌背离信号。
+        - 核心修复: 解决了 `bullish_divergence_score` 幂运算结果异常小的 Bug，确保基数在幂运算前不会被错误归零。
         - 业务逻辑增强:
-            1. 引入“前期弱势惩罚”机制：当近期股价有显著下跌时，对看涨背离信号进行惩罚，避免“诱多陷阱”。
-            2. 增强“诱多欺骗敏感度”：将行为层提供的 `deception_lure_long_intensity_D` 信号整合到看涨背离的纯度调制器中，当诱多强度高时，大幅降低看涨信号的纯度。
+            1. 强化“前期弱势惩罚”机制：当近期股价有显著下跌时，对看涨背离信号进行更严格的惩罚。
+            2. 强化“诱多欺骗敏感度”：将行为层提供的 `deception_lure_long_intensity_D` 信号整合到看涨背离的纯度调制器中，当诱多强度高时，大幅降低看涨信号的纯度。
+            3. 引入“趋势延续性”调制：在趋势不健康时，降低看涨信号的可靠性。
+            4. 引入“散户狂热”反向指标：当散户情绪过于狂热时，惩罚看涨信号。
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理四：诊断“资金流看涨/看跌背离”")
         method_name = "_diagnose_fund_flow_divergence_signals"
@@ -2240,10 +2239,16 @@ class FundFlowIntelligence:
             recent_pct_change_min = pct_change_raw.rolling(window=pct_change_window, min_periods=1).min().fillna(0)
             is_significant_drop = (recent_pct_change_min < pct_change_threshold).astype(float)
             norm_downward_momentum = get_adaptive_mtf_normalized_score(downward_momentum_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
-            prior_weakness_penalty = (is_significant_drop * (1 + norm_downward_momentum * downward_momentum_weight)) * prior_weakness_penalty_factor
+            # 强化惩罚逻辑：当前期弱势和下跌动能同时存在时，惩罚力度更大
+            prior_weakness_penalty = (is_significant_drop * (1 + norm_downward_momentum * downward_momentum_weight * 2)) * prior_weakness_penalty_factor
             prior_weakness_penalty = prior_weakness_penalty.clip(0, 1) # 确保惩罚因子在0-1之间
-        bullish_context_modulator = (1 + bullish_posture_mod + credibility_mod + bullish_retail_context_mod - prior_weakness_penalty).clip(0.5, 2.0) # 整合前期弱势惩罚
-        bearish_context_modulator = (1 + bearish_posture_mod + credibility_mod + bearish_retail_context_mod).clip(0.5, 2.0)
+        # 新增：趋势延续性调制
+        norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        trend_continuity_modulator = (0.5 + norm_trend_vitality * 0.5).clip(0.1, 1.0) # 趋势活力越低，调制因子越小
+        # 新增：散户狂热反向指标
+        retail_fomo_penalty = norm_retail_fomo * 0.5 # 散户狂热时，惩罚看涨信号
+        bullish_context_modulator = (1 + bullish_posture_mod + credibility_mod + bullish_retail_context_mod - prior_weakness_penalty - retail_fomo_penalty).clip(0.1, 2.0) # 整合前期弱势惩罚和散户狂热惩罚
+        bearish_context_modulator = (1 + bearish_posture_mod + credibility_mod + bearish_retail_context_mod).clip(0.1, 2.0)
         # --- V4.0 升级: 双极性多时间框架共振/背离因子 (Bipolar MTF Resonance/Divergence Factor) ---
         short_periods = [5, 13]
         long_periods = [21, 55]
@@ -2332,6 +2337,7 @@ class FundFlowIntelligence:
         norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
         norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
         norm_flow_credibility_exp = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff, debug_info=debug_info_tuple)
+        
         bullish_exponent_mod_factor = (
             norm_trend_vitality * bullish_exponent_context_factors.get('trend_vitality', 0.7) +
             (1 - norm_volatility_instability) * bullish_exponent_context_factors.get('volatility_inverse', 0.3)
@@ -2350,13 +2356,15 @@ class FundFlowIntelligence:
             (bullish_confirmation_score * (1 + norm_volatility_instability * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))).clip(0.1, 2.0),
             (bullish_context_modulator * (1 + norm_flow_credibility * dynamic_context_modulator_sensitivity.get('flow_credibility', 0.15))).clip(0.1, 2.0),
             (1 + mtf_bipolar_resonance_factor.clip(lower=0)),
-            bullish_micro_macro_mod
+            bullish_micro_macro_mod,
+            trend_continuity_modulator # 新增趋势延续性调制
         ]
-        # 初始化产品为第一个组件
-        bullish_product_before_pow = bullish_product_components[0].fillna(0.0)
-        # 逐个乘以其他组件，并确保每个组件都填充NaN为0
+        
+        # 初始化产品为第一个组件，并确保其不为0，除非原始意图就是0
+        bullish_product_before_pow = bullish_product_components[0].fillna(0.0).clip(lower=1e-9) # 修复Bug：确保基数不为0
+        # 逐个乘以其他组件，并确保每个组件都填充NaN为1.0（乘法中性元素）
         for comp in bullish_product_components[1:]:
-            bullish_product_before_pow *= comp.fillna(0.0)
+            bullish_product_before_pow *= comp.fillna(1.0) # 修复Bug：乘数组件的fillna应为1.0
         # --- 调试探针：产品计算结果 ---
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"        [探针] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}")
@@ -2366,6 +2374,7 @@ class FundFlowIntelligence:
             print(f"          - bullish_context_modulator * (1 + norm_flow_credibility * ...): {(bullish_context_modulator * (1 + norm_flow_credibility * dynamic_context_modulator_sensitivity.get('flow_credibility', 0.15))).clip(0.1, 2.0).loc[probe_ts]:.8f}")
             print(f"          - (1 + mtf_bipolar_resonance_factor.clip(lower=0)): {(1 + mtf_bipolar_resonance_factor.clip(lower=0)).loc[probe_ts]:.8f}")
             print(f"          - bullish_micro_macro_mod: {bullish_micro_macro_mod.loc[probe_ts]:.8f}")
+            print(f"          - trend_continuity_modulator: {trend_continuity_modulator.loc[probe_ts]:.8f}")
             print(f"          - bullish_product_before_pow: {bullish_product_before_pow.loc[probe_ts]:.8f}")
             print(f"          - bullish_dynamic_non_linear_exponent: {bullish_dynamic_non_linear_exponent.loc[probe_ts]:.8f}")
         bullish_divergence_score = bullish_product_before_pow.pow(bullish_dynamic_non_linear_exponent).clip(0, 1)
@@ -2380,9 +2389,9 @@ class FundFlowIntelligence:
             (1 + mtf_bipolar_resonance_factor.clip(upper=0).abs()),
             bearish_micro_macro_mod
         ]
-        bearish_product_before_pow = bearish_product_components[0].fillna(0.0)
+        bearish_product_before_pow = bearish_product_components[0].fillna(0.0).clip(lower=1e-9) # 修复Bug：确保基数不为0
         for comp in bearish_product_components[1:]:
-            bearish_product_before_pow *= comp.fillna(0.0)
+            bearish_product_before_pow *= comp.fillna(1.0) # 修复Bug：乘数组件的fillna应为1.0
         bearish_divergence_score = bearish_product_before_pow.pow(bearish_dynamic_non_linear_exponent).clip(0, 1)
         bearish_divergence_score = bearish_divergence_score.where(bearish_base_divergence > 1e-9, 0.0) # 同样对看跌信号进行门控
         bullish_divergence_score = bullish_divergence_score.where(bullish_divergence_score > bullish_divergence_threshold, 0.0)
