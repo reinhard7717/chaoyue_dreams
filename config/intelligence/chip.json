@@ -794,7 +794,11 @@
                 "flow_credibility": {"signal_name": "flow_credibility_index_D", "weight": 0.2, "ascending": true}
             },
             "context_modulator_sensitivity": 0.5,
-            "dgm_modulator_sensitivity": 0.8
+            "dgm_modulator_sensitivity": 0.8,
+            "context_modulator_sensitivity_conviction": 0.4,
+            "comment_context_modulator_sensitivity_conviction": "主力信念对情境调制的敏感度。",
+            "deception_boost_factor_negative": 0.5,
+            "comment_deception_boost_factor_negative": "诱空欺骗强度对正向拐点信号的增强因子。"
         },
         "chip_retail_vulnerability_params": {
             "description": "【V2.0 · 诡道诱导版】散户筹码脆弱性指数的专属参数。",
