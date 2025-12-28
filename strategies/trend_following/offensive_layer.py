@@ -98,28 +98,19 @@ class OffensiveLayer:
                         if not df.empty:
                             print(f"    -> [进攻层 Debug] {signal_name} 原始贡献: {(processed_signal_series * positive_score).iloc[-1]:.2f}，应用阻尼器后: {(unipolar_opportunity_series * positive_score).iloc[-1]:.2f}")
                     bonus_amount_for_signal = unipolar_opportunity_series * positive_score
-            # --- 调试增强: 针对 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT 信号 ---
-            if signal_name == 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT' and not df.empty:
-                current_date = df.index[-1]
-                print(f"    -> [进攻层 Debug] 信号: {signal_name} ({meta.get('cn_name', '')}) @ {current_date.strftime('%Y-%m-%d')}")
-                print(f"        - 原始信号值: {signal_series.loc[current_date]:.4f}")
-                print(f"        - 推断的 score (positive_score): {positive_score}")
-                print(f"        - 推断的 penalty_weight: {penalty_weight}")
-                print(f"        - 计算出的贡献 (bonus_amount_for_signal): {bonus_amount_for_signal.loc[current_date]:.2f}")
-                print(f"        - 是否为风险项 (contribution < 0): {bonus_amount_for_signal.loc[current_date] < 0}")
             # --- 调试增强结束 ---
             # 分离正向和负向贡献
             total_offensive_score += bonus_amount_for_signal.clip(lower=0)
             total_risk_sum += bonus_amount_for_signal.clip(upper=0).abs()
             score_details_df[signal_name] = bonus_amount_for_signal
         # 无条件输出调试信息
-        if not df.empty:
-            print(f"    -> [OffensiveLayer Debug] Date: {df.index[-1].strftime('%Y-%m-%d')}")
-            print(f"    -> [OffensiveLayer Debug] Final total_offensive_score: {total_offensive_score.iloc[-1]:.2f}")
-            print(f"    -> [OffensiveLayer Debug] Final total_risk_sum: {total_risk_sum.iloc[-1]:.2f}")
-            print(f"    -> [OffensiveLayer Debug] Price Momentum Damper: {price_momentum_damper.iloc[-1]:.2f}")
-            print(f"    -> [OffensiveLayer Debug] Trend Quality: {trend_quality.iloc[-1]:.2f}")
-            print(f"    -> [OffensiveLayer Debug] Cognitive Risk Trend Exhaustion: {cognitive_risk_trend_exhaustion.iloc[-1]:.2f}")
+        # if not df.empty:
+        #     print(f"    -> [OffensiveLayer Debug] Date: {df.index[-1].strftime('%Y-%m-%d')}")
+        #     print(f"    -> [OffensiveLayer Debug] Final total_offensive_score: {total_offensive_score.iloc[-1]:.2f}")
+        #     print(f"    -> [OffensiveLayer Debug] Final total_risk_sum: {total_risk_sum.iloc[-1]:.2f}")
+        #     print(f"    -> [OffensiveLayer Debug] Price Momentum Damper: {price_momentum_damper.iloc[-1]:.2f}")
+        #     print(f"    -> [OffensiveLayer Debug] Trend Quality: {trend_quality.iloc[-1]:.2f}")
+        #     print(f"    -> [OffensiveLayer Debug] Cognitive Risk Trend Exhaustion: {cognitive_risk_trend_exhaustion.iloc[-1]:.2f}")
         return total_offensive_score.fillna(0), total_risk_sum.fillna(0), score_details_df.fillna(0)
 
 

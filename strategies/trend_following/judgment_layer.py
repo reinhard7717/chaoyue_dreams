@@ -76,14 +76,14 @@ class JudgmentLayer:
         def generate_summary_for_day(row):
             offense_list = []
             risk_list = []
-            # --- 调试增强: 检查特定日期和信号的原始数据 ---
-            if not df.empty and row.name.date() == pd.to_datetime('2025-12-10').date():
-                print(f"    -> [JudgmentLayer Debug] _get_human_readable_summary processing row for {row.name.strftime('%Y-%m-%d')}")
-                if 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT' in row.index:
-                    print(f"        - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT contribution in row: {row['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']:.2f}")
-                else:
-                    print(f"        - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT column NOT FOUND in row for {row.name.strftime('%Y-%m-%d')}")
-                print(f"        - All non-zero contributions in row: {row[row != 0].to_dict()}")
+            # # --- 调试增强: 检查特定日期和信号的原始数据 ---
+            # if not df.empty and row.name.date() == pd.to_datetime('2025-12-10').date():
+            #     print(f"    -> [JudgmentLayer Debug] _get_human_readable_summary processing row for {row.name.strftime('%Y-%m-%d')}")
+            #     if 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT' in row.index:
+            #         print(f"        - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT contribution in row: {row['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']:.2f}")
+            #     else:
+            #         print(f"        - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT column NOT FOUND in row for {row.name.strftime('%Y-%m-%d')}")
+            #     print(f"        - All non-zero contributions in row: {row[row != 0].to_dict()}")
             # --- 调试增强结束 ---
             active_signals = row[row != 0]
             for signal_name, contribution in active_signals.items():
