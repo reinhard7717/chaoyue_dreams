@@ -380,15 +380,14 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.3 · 心理学重构版 - 关键指标探针版】
+        【V11.2 · 心理学重构版 - 调试增强版】
         - 核心重构(Winner Stability): 废弃线性利润模型，引入高斯函数来模拟“利润甜蜜区”。
           新模型认为，过高（>50%）或过低的利润都会降低持股稳定性，只有在“甜蜜区”（如20%）附近，
           获利盘的结构才最为稳固，更符合A股“兑现冲动”的博弈心理。
         - 核心重构(Loser Pain): 废弃线性亏损模型，引入“对数增长+指数衰减”模型来模拟“峰值痛苦区”。
           新模型认为，随着亏损加深，投资者的痛苦感（潜在抛压）会先快速上升，但在亏损巨大时
           （如 > 50%）会因“心理麻木”或“彻底投降”而逐渐衰减，更符合A股散户的行为模式。
-        - 调试增强: 针对 `chip_fault_magnitude`, `chip_fault_blockage_ratio`, `total_winner_rate`,
-                     `total_loser_rate`, `winner_profit_margin_avg` 的计算加入详细探针。
+        - 调试增强: 增加对 `loser_loss_margin_avg` 和 `loser_pain_index` 计算过程的详细打印。
         """
         from scipy.signal import find_peaks
         from scipy.stats import skew
@@ -410,12 +409,8 @@ class ChipFeatureCalculator:
         atr_14d = self.ctx.get('atr_14d')
         trade_date = self.ctx.get('trade_date') # 获取交易日期用于调试
 
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date}:")
-        print(f"        - Raw Input: close_price={close_price}, atr_14d={atr_14d}")
-        print(f"        - self.df.empty: {self.df.empty}")
-
         if self.df.empty or pd.isna(close_price) or pd.isna(atr_14d) or atr_14d <= 0:
-            print(f"        - Pre-check failed. Returning empty results.")
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date}: 前置条件不满足，跳过计算。")
             return results
 
         def _calculate_weighted_kurtosis(values: pd.Series, weights: pd.Series) -> float:
@@ -430,8 +425,6 @@ class ChipFeatureCalculator:
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         results['structural_node_count'] = len(peaks)
         results['vacuum_zone_magnitude'] = 0.0
-
-        dominant_peak_cost = np.nan # 初始化，确保在没有峰值时为NaN
         if len(peaks) > 0:
             peaks_df = pd.DataFrame({
                 'peak_index': peaks, 'volume': self.df['percent'].iloc[peaks].values,
@@ -440,8 +433,8 @@ class ChipFeatureCalculator:
             })
             peaks_by_prominence = peaks_df.sort_values(by='prominence', ascending=False).reset_index(drop=True)
             main_peak = peaks_by_prominence.iloc[0]
-            dominant_peak_cost = main_peak['cost'] # 赋值给局部变量
-            results['dominant_peak_cost'] = dominant_peak_cost
+            main_peak_cost = main_peak['cost']
+            results['dominant_peak_cost'] = main_peak_cost
             results['dominant_peak_volume_ratio'] = main_peak['volume']
             peak_region_df = self.df.iloc[int(main_peak['left_base']):int(main_peak['right_base'])+1]
             if not peak_region_df.empty and peak_region_df['percent'].sum() > 0:
@@ -449,8 +442,8 @@ class ChipFeatureCalculator:
             if len(peaks) > 1:
                 secondary_peak = peaks_by_prominence.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
-                if dominant_peak_cost > 0:
-                    results['peak_separation_ratio'] = abs(dominant_peak_cost - secondary_peak['cost']) / dominant_peak_cost * 100
+                if main_peak_cost > 0:
+                    results['peak_separation_ratio'] = abs(main_peak_cost - secondary_peak['cost']) / main_peak_cost * 100
                 peaks_by_cost = peaks_df.sort_values(by='cost').reset_index(drop=True)
                 if len(peaks_by_cost) > 1:
                     peak_separations_atr = (peaks_by_cost['cost'].diff() / atr_14d).dropna()
@@ -460,12 +453,11 @@ class ChipFeatureCalculator:
                         results['vacuum_zone_magnitude'] = max_separation_atr
         else:
             main_peak_idx = self.df['percent'].idxmax()
-            dominant_peak_cost = self.df.loc[main_peak_idx, 'price'] # 赋值给局部变量
-            results['dominant_peak_cost'] = dominant_peak_cost
+            results['dominant_peak_cost'] = self.df.loc[main_peak_idx, 'price']
             results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
 
-        if pd.notna(dominant_peak_cost) and dominant_peak_cost > 0:
-            results['dominant_peak_profit_margin'] = (close_price / dominant_peak_cost - 1) * 100
+        if pd.notna(results['dominant_peak_cost']) and results['dominant_peak_cost'] > 0:
+            results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
 
         def _calculate_gini_final(prices: pd.Series, weights: pd.Series) -> float:
             if weights.sum() <= 0: return np.nan
@@ -487,64 +479,17 @@ class ChipFeatureCalculator:
         if pd.notna(results['cost_gini_coefficient']) and pd.notna(results['dominant_peak_volume_ratio']):
             results['dominant_peak_solidity'] = results['cost_gini_coefficient'] * (results['dominant_peak_volume_ratio'] / 100) * 100
 
-        # --- 探针：chip_fault_magnitude 和 chip_fault_blockage_ratio ---
-        print(f"        - Debugging chip_fault_magnitude and chip_fault_blockage_ratio:")
-        print(f"            - dominant_peak_cost: {dominant_peak_cost}")
-        print(f"            - close_price: {close_price}")
-        print(f"            - atr_14d: {atr_14d}")
-        if pd.notna(dominant_peak_cost):
-            results['chip_fault_magnitude'] = (close_price - dominant_peak_cost) / atr_14d
-            print(f"            - Calculated chip_fault_magnitude: {results['chip_fault_magnitude']:.4f}")
-
-            fault_low, fault_high = sorted([dominant_peak_cost, close_price])
-            print(f"            - fault_low: {fault_low}, fault_high: {fault_high}")
-            # 确保 self.df['price'] 是数值类型，且没有NaN
-            df_prices_numeric = pd.to_numeric(self.df['price'], errors='coerce').dropna()
-            if not df_prices_numeric.empty:
-                fault_blockage_df = self.df[(self.df['price'] > fault_low) & (self.df['price'] < fault_high)]
-                results['chip_fault_blockage_ratio'] = fault_blockage_df['percent'].sum()
-                print(f"            - fault_blockage_df.head():\n{fault_blockage_df.head()}")
-                print(f"            - fault_blockage_df['percent'].sum(): {fault_blockage_df['percent'].sum():.4f}")
-                print(f"            - Calculated chip_fault_blockage_ratio: {results['chip_fault_blockage_ratio']:.4f}")
-            else:
-                print(f"            - self.df['price'] is empty or contains only NaNs, cannot calculate blockage ratio.")
-        else:
-            print(f"            - dominant_peak_cost is NaN, cannot calculate chip_fault metrics.")
-        # --- 探针结束 ---
-
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
 
-        # --- 探针：total_winner_rate 和 total_loser_rate ---
-        print(f"        - Debugging total_winner_rate and total_loser_rate:")
-        total_winner_rate_from_ctx = self.ctx.get('total_winner_rate')
-        print(f"            - total_winner_rate from context: {total_winner_rate_from_ctx}")
-        results['total_winner_rate'] = total_winner_rate_from_ctx
-        if pd.notna(results['total_winner_rate']):
-            results['total_loser_rate'] = 100.0 - results['total_winner_rate']
-            print(f"            - Calculated total_winner_rate: {results['total_winner_rate']:.4f}")
-            print(f"            - Calculated total_loser_rate: {results['total_loser_rate']:.4f}")
-        else:
-            results['total_loser_rate'] = np.nan
-            print(f"            - total_winner_rate is NaN, total_loser_rate set to NaN.")
-        # --- 探针结束 ---
+        results['total_winner_rate'] = self.ctx.get('total_winner_rate')
+        results['total_loser_rate'] = 100.0 - results['total_winner_rate'] if pd.notna(results['total_winner_rate']) else np.nan
 
         winner_avg_cost, loser_avg_cost = np.nan, np.nan
 
-        # --- 探针：winner_profit_margin_avg ---
-        print(f"        - Debugging winner_profit_margin_avg:")
-        print(f"            - close_price: {close_price}")
-        print(f"            - winners_df.empty: {winners_df.empty}")
-        print(f"            - winners_df['percent'].sum(): {winners_df['percent'].sum():.4f}")
         if not winners_df.empty and winners_df['percent'].sum() > 0:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
-            print(f"            - Calculated winner_avg_cost: {winner_avg_cost:.4f}")
-            if winner_avg_cost > 0:
-                results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100
-                print(f"            - Calculated winner_profit_margin_avg: {results['winner_profit_margin_avg']:.4f}")
-            else:
-                results['winner_profit_margin_avg'] = np.nan
-                print(f"            - winner_avg_cost is 0 or less, winner_profit_margin_avg set to NaN.")
+            results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
             gini_w = _calculate_gini_final(winners_df['price'], winners_df['percent'])
             # 重构 winner_stability_index
             if pd.notna(gini_w) and pd.notna(results['winner_profit_margin_avg']):
@@ -555,25 +500,38 @@ class ChipFeatureCalculator:
                 gaussian_factor = np.exp(-((profit_margin - mu)**2) / (2 * sigma**2))
                 # 获利盘成本集中度 * 利润甜蜜区因子
                 results['winner_stability_index'] = (1 - gini_w) * gaussian_factor * 100
-        else:
-            results['winner_profit_margin_avg'] = np.nan
-            print(f"            - winners_df is empty or its percent sum is 0, winner_profit_margin_avg set to NaN.")
-        # --- 探针结束 ---
 
+        # --- 调试探针：loser_loss_margin_avg 和 loser_pain_index ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date} - Loser Metrics 探针:")
+        print(f"        - close_price: {close_price:.4f}")
+        print(f"        - losers_df.empty: {losers_df.empty}")
+        print(f"        - losers_df['percent'].sum(): {losers_df['percent'].sum():.4f}")
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
             results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100 if loser_avg_cost > 0 else np.nan
             gini_l = _calculate_gini_final(losers_df['price'], losers_df['percent'])
+
+            print(f"        - loser_avg_cost: {loser_avg_cost:.4f}")
+            print(f"        - results['loser_loss_margin_avg']: {results['loser_loss_margin_avg']:.4f}")
+            print(f"        - gini_l: {gini_l:.4f}")
+
             # 重构 loser_pain_index
             if pd.notna(gini_l) and pd.notna(results['loser_loss_margin_avg']):
                 loss_margin = abs(results['loser_loss_margin_avg'])
                 # 引入“对数增长 + 指数衰减”模型模拟“峰值痛苦区”和“投降效应”
-                # 对数部分模拟痛苦的非线性增长
                 log_pain = np.log1p(loss_margin)
-                # 指数衰减部分模拟亏损过大后的“心理麻木”
                 capitulation_decay = np.exp(-0.02 * loss_margin)
-                # 套牢盘成本集中度 * 峰值痛苦因子
                 results['loser_pain_index'] = (1 - gini_l) * log_pain * capitulation_decay * 100
+
+                print(f"        - loss_margin (abs(loser_loss_margin_avg)): {loss_margin:.4f}")
+                print(f"        - log_pain (np.log1p(loss_margin)): {log_pain:.4f}")
+                print(f"        - capitulation_decay (np.exp(-0.02 * loss_margin)): {capitulation_decay:.4f}")
+                print(f"        - results['loser_pain_index']: {results['loser_pain_index']:.4f}")
+            else:
+                print(f"        - loser_pain_index 无法计算，因为 gini_l 或 loser_loss_margin_avg 为 NaN。")
+        else:
+            print(f"        - losers_df 为空或 percent.sum() 为0，无法计算 loser_loss_margin_avg 和 loser_pain_index。")
+        # --- 探针结束 ---
 
         if pd.notna(winner_avg_cost) and pd.notna(loser_avg_cost) and close_price > 0:
             tension = (abs(winner_avg_cost - loser_avg_cost) / close_price) * \
@@ -582,6 +540,11 @@ class ChipFeatureCalculator:
 
         leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
         results['structural_leverage'] = leverage
+
+        if pd.notna(results['dominant_peak_cost']):
+            results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
+            fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
+            results['chip_fault_blockage_ratio'] = self.df[(self.df['price'] > fault_low) & (self.df['price'] < fault_high)]['percent'].sum()
 
         def _get_concentration(chip_df: pd.DataFrame):
             if chip_df.empty or chip_df['percent'].sum() < 1e-6: return np.nan
@@ -596,6 +559,7 @@ class ChipFeatureCalculator:
 
         results['winner_concentration_90pct'] = _get_concentration(winners_df)
         results['loser_concentration_90pct'] = _get_concentration(losers_df)
+
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
         intraday_df = self.ctx.get('processed_intraday_df')
         daily_high = self.ctx.get('high_price')
@@ -606,52 +570,111 @@ class ChipFeatureCalculator:
 
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
-        【V2.3 · 多级诊断探针版】
+        【V2.3 · 多级诊断探针版 - 调试增强版】
         - 核心新增: 植入三级诊断探针，分别监控“原始依赖输入”、“三大支柱中间件”和“最终输出”，以解剖计算失败的根源。
+        - 调试增强: 增加对所有输入参数、中间计算结果和最终分数的详细打印。
         """
         stock_code = context.get('stock_code', 'N/A')
         trade_date = context.get('trade_date', 'N/A')
+
+        # --- 调试探针：原始依赖输入 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date} - 原始依赖输入:")
         gini = current_metrics.get('cost_gini_coefficient')
+        print(f"        - gini (cost_gini_coefficient): {gini:.4f}")
         peak_margin = current_metrics.get('dominant_peak_profit_margin')
+        print(f"        - peak_margin (dominant_peak_profit_margin): {peak_margin:.4f}")
         peak_kurtosis = current_metrics.get('primary_peak_kurtosis')
+        print(f"        - peak_kurtosis (primary_peak_kurtosis): {peak_kurtosis:.4f}")
         leverage = current_metrics.get('structural_leverage')
+        print(f"        - leverage (structural_leverage): {leverage:.4f}")
         winner_stability = current_metrics.get('winner_stability_index')
+        print(f"        - winner_stability (winner_stability_index): {winner_stability:.4f}")
         loser_pain = current_metrics.get('loser_pain_index')
+        print(f"        - loser_pain (loser_pain_index): {loser_pain:.4f}")
         tension = current_metrics.get('structural_tension_index')
+        print(f"        - tension (structural_tension_index): {tension:.4f}")
         vacuum = current_metrics.get('vacuum_zone_magnitude')
+        print(f"        - vacuum (vacuum_zone_magnitude): {vacuum:.4f}")
         gini_slope_1d = context.get('cost_gini_coefficient_slope_1d', 0)
+        print(f"        - gini_slope_1d (cost_gini_coefficient_slope_1d): {gini_slope_1d:.4f}")
+        # --- 探针结束 ---
+
         def _sigmoid(x, k=1):
             return 1 / (1 + np.exp(-k * x))
+
         if any(pd.isna(v) for v in [gini, peak_margin, peak_kurtosis]):
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date}: 基础指标缺失，返回 NaN。")
             return np.nan
+
+        # --- 调试探针：基础支柱计算 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date} - 基础支柱计算:")
         gini_score = np.clip(gini, 0, 1)
+        print(f"        - gini_score (np.clip(gini, 0, 1)): {gini_score:.4f}")
         margin_score = _sigmoid(peak_margin / 10)
+        print(f"        - margin_score (_sigmoid(peak_margin / 10)): {margin_score:.4f}")
         kurtosis_score = _sigmoid(peak_kurtosis / 5)
+        print(f"        - kurtosis_score (_sigmoid(peak_kurtosis / 5)): {kurtosis_score:.4f}")
         foundation_score = 0.3 * gini_score + 0.3 * margin_score + 0.4 * kurtosis_score
+        print(f"        - foundation_score: {foundation_score:.4f}")
+        # --- 探针结束 ---
+
         if any(pd.isna(v) for v in [leverage, winner_stability, loser_pain]):
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date}: 压力平衡指标缺失，返回 NaN。")
             return np.nan
+
+        # --- 调试探针：压力平衡支柱计算 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date} - 压力平衡支柱计算:")
         leverage_score = 1 - _sigmoid(leverage, k=5)
+        print(f"        - leverage_score (1 - _sigmoid(leverage, k=5)): {leverage_score:.4f}")
         stability_score = _sigmoid(winner_stability / 20)
+        print(f"        - stability_score (_sigmoid(winner_stability / 20)): {stability_score:.4f}")
         pain_score = 1 - _sigmoid(loser_pain / 50)
+        print(f"        - pain_score (1 - _sigmoid(loser_pain / 50)): {pain_score:.4f}")
         pressure_balance_score = np.mean([leverage_score, stability_score, pain_score])
+        print(f"        - pressure_balance_score (np.mean([leverage_score, stability_score, pain_score])): {pressure_balance_score:.4f}")
+        # --- 探针结束 ---
+
         if any(pd.isna(v) for v in [tension, vacuum]):
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date}: 上行潜力指标缺失，返回 NaN。")
             return np.nan
+
+        # --- 调试探针：上行潜力支柱计算 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date} - 上行潜力支柱计算:")
         tension_score = _sigmoid((tension - 0.1) * 20)
+        print(f"        - tension_score (_sigmoid((tension - 0.1) * 20)): {tension_score:.4f}")
         vacuum_score = _sigmoid((vacuum - 1) * 2)
+        print(f"        - vacuum_score (_sigmoid((vacuum - 1) * 2)): {vacuum_score:.4f}")
         dynamic_factor = 1 + np.tanh(gini_slope_1d * 50)
+        print(f"        - dynamic_factor (1 + np.tanh(gini_slope_1d * 50)): {dynamic_factor:.4f}")
         upward_potential_score = (0.5 * tension_score + 0.5 * vacuum_score) * dynamic_factor
+        print(f"        - upward_potential_score: {upward_potential_score:.4f}")
+        # --- 探针结束 ---
+
         weights = {'foundation': 0.4, 'balance': 0.25, 'potential': 0.35}
         scores = {
             'foundation': foundation_score,
             'balance': pressure_balance_score,
             'potential': upward_potential_score
         }
+
         final_score_raw = 1.0
+        valid_dims = 0
         for pillar, weight in weights.items():
             score = scores.get(pillar)
             if pd.notna(score) and score > 0:
                 final_score_raw *= score ** weight
+                valid_dims += 1
+            else:
+                print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date}: 支柱 '{pillar}' 为 NaN 或 <= 0，不参与乘积计算。")
+
         final_score = final_score_raw * 100
+
+        # --- 调试探针：最终结果 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_structural_potential_score @ {trade_date} - 最终结果:")
+        print(f"        - final_score_raw: {final_score_raw:.4f}")
+        print(f"        - final_score (structural_potential_score): {final_score:.4f}")
+        # --- 探针结束 ---
+
         return final_score
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
@@ -868,7 +891,7 @@ class ChipFeatureCalculator:
 
     def _calculate_cost_structure_skewness(self, context: dict) -> float:
         """
-        【V2.0 · 认知重塑版】计算成本结构偏度，修正“镜像悖论”。
+        【V2.0 · 认知重塑版 - 调试增强版】计算成本结构偏度，修正“镜像悖论”。
         - 核心修正: 彻底纠正了对“偏度”概念的根本性误解。旧版本的注释错误地将“正偏度”
                      解读为“筹码集中在高价区”，导致了对支撑和压力的颠倒认知。
         - 核心澄清 (第一性原理):
@@ -876,42 +899,136 @@ class ChipFeatureCalculator:
           - 负偏度 (Negative Skew): 筹码分布主体集中在【高价区】，形成沉重套牢盘（压力），是消极信号。
         - 最终实现: 本方法直接返回由 `scipy.stats.skew` 计算出的原始偏度值，该值完美符合上述
                      正确的逻辑，无需任何符号反转。
+        - 调试增强: 增加对所有输入数据、中间计算结果和最终偏度值的详细打印。
         """
         skewness = 0.0
+        trade_date = context.get('trade_date') # 获取交易日期用于调试
+
+        # --- 调试探针：原始数据检查 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_cost_structure_skewness @ {trade_date} - 原始数据探针:")
+        print(f"        - self.df.empty: {self.df.empty}")
+        print(f"        - self.df['percent'].sum(): {self.df['percent'].sum():.4f}")
+        if not self.df.empty:
+            print(f"        - self.df['price'].describe():\n{self.df['price'].describe()}")
+            print(f"        - self.df['percent'].describe():\n{self.df['percent'].describe()}")
+        # --- 探针结束 ---
+
         if not self.df.empty and self.df['percent'].sum() >= 1e-6:
             total_percent = self.df['percent'].sum()
             weights = np.round((self.df['percent'] / total_percent) * 10000).astype(int)
             valid_weights = weights[weights > 0]
+
+            # --- 调试探针：权重计算中间结果 ---
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_cost_structure_skewness @ {trade_date} - 权重计算探针:")
+            print(f"        - total_percent: {total_percent:.4f}")
+            print(f"        - weights.head():\n{weights.head()}")
+            print(f"        - weights.sum(): {weights.sum()}")
+            print(f"        - valid_weights.sum(): {valid_weights.sum()}")
+            print(f"        - len(valid_weights): {len(valid_weights)}")
+            # --- 探针结束 ---
+
             if len(valid_weights) >= 3: # 至少需要3个点才能计算偏度
                 valid_prices = self.df['price'][weights > 0]
                 unweighted_sample = np.repeat(valid_prices, valid_weights)
-                # 直接使用scipy计算的偏度值，其符号与我们的战术意图完美对齐
+
+                # --- 调试探针：样本准备 ---
+                print(f"    -> [ChipFeatureCalculator Debug] _calculate_cost_structure_skewness @ {trade_date} - 样本准备探针:")
+                print(f"        - valid_prices.head():\n{valid_prices.head()}")
+                print(f"        - len(unweighted_sample): {len(unweighted_sample)}")
+                print(f"        - unweighted_sample.min(): {unweighted_sample.min()}, unweighted_sample.max(): {unweighted_sample.max()}")
+                # --- 探针结束 ---
+
                 skewness = skew(unweighted_sample)
+                # --- 调试探针：最终结果 ---
+                print(f"    -> [ChipFeatureCalculator Debug] _calculate_cost_structure_skewness @ {trade_date} - 最终结果:")
+                print(f"        - skewness (calculated): {skewness:.4f}")
+                # --- 探针结束 ---
+            else:
+                print(f"    -> [ChipFeatureCalculator Debug] _calculate_cost_structure_skewness @ {trade_date}: 有效权重点少于3个，无法计算偏度。")
+        else:
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_cost_structure_skewness @ {trade_date}: self.df 为空或 percent.sum() 为0，无法计算偏度。")
         return skewness
 
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
+        """
+        【V1.0 · 价格成交量熵 - 调试增强版】
+        - 调试增强: 增加对所有输入数据、中间计算结果和最终熵值的详细打印。
+        """
+        trade_date = self.ctx.get('trade_date') # 获取交易日期用于调试
+
+        # --- 调试探针：输入参数检查 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date} - 输入参数探针:")
+        print(f"        - intraday_df.empty: {intraday_df.empty}")
+        print(f"        - total_daily_volume: {total_daily_volume:.4f}")
+        print(f"        - daily_high: {daily_high:.4f}")
+        print(f"        - daily_low: {daily_low:.4f}")
+        print(f"        - daily_high <= daily_low: {daily_high <= daily_low if pd.notna(daily_high) and pd.notna(daily_low) else 'N/A'}")
+        # --- 探针结束 ---
+
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date}: 前置条件不满足，返回 NaN。")
             return np.nan
+
         price_range = daily_high - daily_low
         if price_range <= 0.01:
             num_bins = 2
         else:
             num_bins = int(price_range / 0.01) + 1
             num_bins = np.clip(num_bins, 20, 200)
+
+        # --- 调试探针：分箱参数 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date} - 分箱参数探针:")
+        print(f"        - price_range: {price_range:.4f}")
+        print(f"        - num_bins: {num_bins}")
+        # --- 探针结束 ---
+
         prices = pd.to_numeric(intraday_df['minute_vwap'], errors='coerce')
         volumes = pd.to_numeric(intraday_df['vol_shares'], errors='coerce')
         valid_data = pd.DataFrame({'price': prices, 'volume': volumes}).dropna()
+
+        # --- 调试探针：有效数据检查 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date} - 有效数据探针:")
+        print(f"        - valid_data.empty: {valid_data.empty}")
+        print(f"        - valid_data['volume'].sum(): {valid_data['volume'].sum():.4f}")
+        if not valid_data.empty:
+            print(f"        - valid_data['price'].describe():\n{valid_data['price'].describe()}")
+            print(f"        - valid_data['volume'].describe():\n{valid_data['volume'].describe()}")
+        # --- 探针结束 ---
+
         if valid_data.empty or valid_data['volume'].sum() <= 0:
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date}: 有效数据为空或成交量为0，返回 NaN。")
             return np.nan
+
         bins = pd.cut(valid_data['price'], bins=num_bins, include_lowest=True, duplicates='drop')
         volume_per_bin = valid_data.groupby(bins)['volume'].sum()
         volume_per_bin = volume_per_bin[volume_per_bin > 0]
+
+        # --- 调试探针：分箱结果 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date} - 分箱结果探针:")
+        print(f"        - volume_per_bin.empty: {volume_per_bin.empty}")
+        if not volume_per_bin.empty:
+            print(f"        - volume_per_bin.head():\n{volume_per_bin.head()}")
+            print(f"        - volume_per_bin.sum(): {volume_per_bin.sum():.4f}")
+            print(f"        - len(volume_per_bin) (number of active bins): {len(volume_per_bin)}")
+        # --- 探针结束 ---
+
         if volume_per_bin.empty:
+            print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date}: 分箱后无有效成交量，返回 0.0。")
             return 0.0
+
         probabilities = volume_per_bin / volume_per_bin.sum()
         shannon_entropy = entropy(probabilities, base=2)
         max_entropy = np.log2(len(volume_per_bin)) if len(volume_per_bin) > 1 else 0
         normalized_entropy = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
+
+        # --- 调试探针：熵值计算 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _calculate_price_volume_entropy @ {trade_date} - 熵值计算探针:")
+        print(f"        - probabilities.head():\n{probabilities.head()}")
+        print(f"        - shannon_entropy: {shannon_entropy:.4f}")
+        print(f"        - max_entropy: {max_entropy:.4f}")
+        print(f"        - normalized_entropy (final result): {normalized_entropy:.4f}")
+        # --- 探针结束 ---
+
         return normalized_entropy
 
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
