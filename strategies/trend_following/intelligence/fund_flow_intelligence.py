@@ -554,14 +554,10 @@ class FundFlowIntelligence:
         mtf_cohesion_micro_control_weights = get_param_value(mtf_cohesion_params.get('micro_control_weights'), {"order_book_imbalance": 0.5, "microstructure_efficiency": 0.5})
         mtf_cohesion_deception_weights = get_param_value(mtf_cohesion_params.get('deception_weights'), {"deception_index": 0.5, "wash_trade_intensity": 0.5})
         required_signals = [
-            'main_force_net_flow_calibrated_D', 'ATR_14_D', 'retail_net_flow_calibrated_D',
-            'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
-            'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D',
-            'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
-            'bid_side_liquidity_D', 'ask_side_liquidity_D',
-            'main_force_flow_gini_D', 'order_book_imbalance_D', 'flow_credibility_index_D',
-            'microstructure_efficiency_index_D', 'wash_trade_intensity_D',
-            'deception_index_D', 'main_force_conviction_index_D',
+            'main_force_net_flow_calibrated_D', 'ATR_14_D', 'retail_net_flow_calibrated_D', 'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
+            'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D', 'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
+            'bid_side_liquidity_D', 'ask_side_liquidity_D', 'main_force_flow_gini_D', 'order_book_imbalance_D', 'flow_credibility_index_D',
+            'microstructure_efficiency_index_D', 'wash_trade_intensity_D', 'deception_index_D', 'main_force_conviction_index_D',
             dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name,
             dynamic_weight_modulator_signal_3_name, dynamic_weight_modulator_signal_4_name, dynamic_weight_modulator_signal_5_name,
             'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
@@ -579,7 +575,7 @@ class FundFlowIntelligence:
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
             'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D',
-            'main_force_flow_directionality_D', 'NMFNF_D',
+            'main_force_flow_directionality_D', 'NMFNF_D', 'SLOPE_5_NMFNF_D',
             'market_impact_cost_D', 'liquidity_slope_D', 'liquidity_authenticity_score_D',
             'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'order_flow_imbalance_score_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D'
