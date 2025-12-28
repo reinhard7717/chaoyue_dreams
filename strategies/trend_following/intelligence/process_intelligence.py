@@ -539,7 +539,8 @@ class ProcessIntelligence:
         close_price = self._get_safe_series(df, 'close_D', method_name=method_name)
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
-        flow_credibility = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
+        # 确保 flow_credibility_raw 在这里被正确获取
+        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
 
         # --- 1. 传统控盘度计算 ---
         ema13 = ta.ema(close=close_price, length=13, append=False)
@@ -557,7 +558,7 @@ class ProcessIntelligence:
         traditional_control_score = self._normalize_series(kongpan_raw, df_index, bipolar=True)
         structural_control_score = self._normalize_series(control_solidity_raw, df_index, bipolar=True)
         main_force_flow_score = self._normalize_series(main_force_net_flow, df_index, bipolar=True)
-        flow_credibility_norm = self._normalize_series(flow_credibility, df_index, bipolar=False)
+        flow_credibility_norm = self._normalize_series(flow_credibility_raw, df_index, bipolar=False) # 使用 flow_credibility_raw
 
         # --- 3. 融合控盘分 ---
         fused_control_score = (traditional_control_score * 0.4 + structural_control_score * 0.6).clip(-1, 1)
@@ -581,7 +582,7 @@ class ProcessIntelligence:
             print(f"    - close_D: {close_price.iloc[last_date_index]:.4f}")
             print(f"    - control_solidity_index_D: {control_solidity_raw.iloc[last_date_index]:.4f}")
             print(f"    - main_force_net_flow_calibrated_D: {main_force_net_flow.iloc[last_date_index]:.4f}")
-            print(f"    - flow_credibility_index_D: {flow_credibility_raw.iloc[last_date_index]:.4f}")
+            print(f"    - flow_credibility_index_D: {flow_credibility_raw.iloc[last_date_index]:.4f}") # 引用 flow_credibility_raw
             print("  [关键计算 (归一化/中间分)]: ")
             print(f"    - kongpan_raw: {kongpan_raw.iloc[last_date_index]:.4f}")
             print(f"    - traditional_control_score: {traditional_control_score.iloc[last_date_index]:.4f}")
