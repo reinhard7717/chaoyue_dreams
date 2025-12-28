@@ -49,11 +49,10 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V12.7 · 情境融合版 - 调用顺序修正版】
+        【V12.6 · 情境融合版 - 调试增强版】
         - 核心升维: 新增对 `_compute_contextual_action_metrics` 的调用，正式将“情境行为融合”指标的计算职责
                      纳入筹码服务，解决了跨服务的数据依赖问题。
-        - 核心修复: 修正了 `_compute_tactical_intent_metrics` 和 `_compute_game_theoretic_metrics` 的调用顺序，
-                     确保 `deception_index` 的计算能正确获取到 `suppressive_accumulation_intensity`。
+        - 调试增强: 增加打印，检查 `suppressive_accumulation_intensity` 在 `self.ctx` 中的存储情况。
         """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -106,28 +105,24 @@ class ChipFeatureCalculator:
         potential_score = self._calculate_structural_potential_score(self.ctx, all_metrics)
         all_metrics['structural_potential_score'] = potential_score
         self.ctx['structural_potential_score'] = potential_score
-
-        # --- 调整调用顺序：确保 tactical_intent_metrics 在 game_theoretic_metrics 之前计算并更新 context ---
-        tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
-        all_metrics.update(tactical_intent_metrics)
-        self.ctx.update(tactical_intent_metrics)
-
-        # 调试打印：检查 context 中的 suppressive_accumulation_intensity
-        print(f"    -> [ChipFeatureCalculator Debug] Context after tactical_intent_metrics update @ {trade_date}:")
-        print(f"        - suppressive_accumulation_intensity in self.ctx: {self.ctx.get('suppressive_accumulation_intensity')}")
-        # --- 调试打印结束 ---
-
         game_theoretic_metrics = self._compute_game_theoretic_metrics(self.ctx)
         all_metrics.update(game_theoretic_metrics)
         self.ctx.update(game_theoretic_metrics)
-        # --- 调整调用顺序结束 ---
-
         vital_signs_metrics = self._compute_vital_sign_metrics(self.ctx)
         all_metrics.update(vital_signs_metrics)
         self.ctx.update(vital_signs_metrics)
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
+
+        # --- 调试打印：检查 context 中的 suppressive_accumulation_intensity ---
+        tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
+        all_metrics.update(tactical_intent_metrics)
+        self.ctx.update(tactical_intent_metrics)
+        print(f"    -> [ChipFeatureCalculator Debug] Context after tactical_intent_metrics update @ {trade_date}:")
+        print(f"        - suppressive_accumulation_intensity in self.ctx: {self.ctx.get('suppressive_accumulation_intensity')}")
+        # --- 调试打印结束 ---
+
         realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
         all_metrics.update(realtime_orderbook_metrics)
         self.ctx.update(realtime_orderbook_metrics)
