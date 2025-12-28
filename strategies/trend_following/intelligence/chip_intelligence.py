@@ -3625,6 +3625,7 @@ class ChipIntelligence:
             penalty_strength = norm_deception_index_bipolar.loc[bull_trap_condition] * deception_penalty_multiplier * dynamic_penalty_sensitivity.loc[bull_trap_condition]
             # 将惩罚强度映射到 0 到 1 之间，1 - 惩罚强度
             penalty_factor.loc[bull_trap_condition] = (1 - penalty_strength).clip(0.0, 1.0)
+        print(f"_calculate_bull_trap_context_penalty debug配置：is_debug_enabled：{is_debug_enabled}， probe_ts：{probe_ts}， probe_ts in df_index：{probe_ts in df_index}")
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"    -> [筹码层 Debug] 牛市陷阱惩罚计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
             # 确保我们获取滚动窗口的正确切片
