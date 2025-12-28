@@ -581,7 +581,7 @@ class FundFlowIntelligence:
             'main_force_on_peak_sell_flow_D',
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
-            'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D', # 确保 wash_trade_sell_volume_D 在这里
+            'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D',
             'main_force_flow_directionality_D', 'NMFNF_D',
             'market_impact_cost_D', 'liquidity_slope_D', 'liquidity_authenticity_score_D',
             'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'order_flow_imbalance_score_D',
@@ -741,7 +741,6 @@ class FundFlowIntelligence:
         norm_vwap_sell_control_strength = get_adaptive_mtf_normalized_score(raw_data_cache['vwap_sell_control_strength_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_vwap_down_guidance = get_adaptive_mtf_normalized_score(raw_data_cache['main_force_vwap_down_guidance_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_vwap_cross_down_intensity = get_adaptive_mtf_normalized_score(raw_data_cache['vwap_cross_down_intensity_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
-        # 修正：添加 norm_wash_trade_sell_volume 的定义
         norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_sell_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
 
         total_buy_power = (
@@ -759,6 +758,7 @@ class FundFlowIntelligence:
             norm_vwap_cross_up_intensity * micro_buy_power_weights.get('vwap_cross_up_intensity', 0.05) +
             norm_wash_trade_buy_volume * micro_buy_power_weights.get('wash_trade_buy_volume', -0.05)
         ).clip(0, 1)
+        # 修正：将 total_micro_sell_power 改名为 total_sell_power
         total_sell_power = (
             norm_dip_sell_pressure_resistance * micro_sell_power_weights.get('dip_sell_pressure_resistance', 0.1) +
             norm_panic_sell_volume_contribution * micro_sell_power_weights.get('panic_sell_volume_contribution', 0.1) +
