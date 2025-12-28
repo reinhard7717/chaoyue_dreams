@@ -49,9 +49,10 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V12.5 · 情境融合版】
+        【V12.6 · 情境融合版 - 调试增强版】
         - 核心升维: 新增对 `_compute_contextual_action_metrics` 的调用，正式将“情境行为融合”指标的计算职责
                      纳入筹码服务，解决了跨服务的数据依赖问题。
+        - 调试增强: 增加打印，检查 `suppressive_accumulation_intensity` 在 `self.ctx` 中的存储情况。
         """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -113,9 +114,15 @@ class ChipFeatureCalculator:
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
+
+        # --- 调试打印：检查 context 中的 suppressive_accumulation_intensity ---
         tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
         all_metrics.update(tactical_intent_metrics)
         self.ctx.update(tactical_intent_metrics)
+        print(f"    -> [ChipFeatureCalculator Debug] Context after tactical_intent_metrics update @ {trade_date}:")
+        print(f"        - suppressive_accumulation_intensity in self.ctx: {self.ctx.get('suppressive_accumulation_intensity')}")
+        # --- 调试打印结束 ---
+
         realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
         all_metrics.update(realtime_orderbook_metrics)
         self.ctx.update(realtime_orderbook_metrics)
@@ -1281,12 +1288,12 @@ class ChipFeatureCalculator:
 
     def _compute_tactical_intent_metrics(self, context: dict) -> dict:
         """
-        【V1.1 · 战术归因引擎 - 调试增强版】
+        【V1.2 · 战术归因引擎 - 调试增强版】
         - 核心职责: 锻造用于识别特定主力战术意图的高级指标。
         - 核心新增: 新增 `suppressive_accumulation_intensity` (打压吸筹强度) 指标。
                      该指标旨在通过融合微观的隐蔽买入证据和买盘质量，来识别主力在价格
                      受抑制的宏观环境下进行的“打压吸筹”战术，从而解决“信号尺度悖论”。
-        - 调试增强: 增加打印，显示 `pct_change` 和 `suppressive_accumulation_intensity` 的计算过程和最终结果。
+        - 调试增强: 增加打印，显示 `pct_change` 和 `suppressive_accumulation_intensity` 的计算过程和最终结果，以及完整的 `results` 字典。
         """
         results = {
             'suppressive_accumulation_intensity': np.nan,
@@ -1320,6 +1327,7 @@ class ChipFeatureCalculator:
         print(f"        - covert_accumulation: {covert_accumulation:.4f}")
         print(f"        - conviction_flow: {conviction_flow:.4f}")
         print(f"        - suppressive_accumulation_intensity (calculated): {results['suppressive_accumulation_intensity']:.4f}")
+        print(f"        - Full results dict: {results}") # 打印完整的 results 字典
         # --- 调试打印结束 ---
 
         # 新增行：计算支撑性派发强度
