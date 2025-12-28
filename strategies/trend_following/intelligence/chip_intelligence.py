@@ -54,7 +54,7 @@ class ChipIntelligence:
 
     def _get_all_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> Dict[str, pd.Series]:
         """
-        高效地从DataFrame中获取所有必需的Series，如果不存在则打印警告并返回默认Series。
+        【V1.0 · 恢复版】高效地从DataFrame中获取所有必需的Series，如果不存在则打印警告并返回默认Series。
         """
         df_index = df.index
         signals_data = {}
@@ -3566,15 +3566,14 @@ class ChipIntelligence:
 
     def _calculate_bull_trap_context_penalty(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.3 · 牛市陷阱情境惩罚 - 调试标志直接访问修复版】计算在近期大幅下跌后，伴随欺骗性反弹情境下的惩罚因子。
+        【V1.5 · 牛市陷阱情境惩罚 - 欺骗信号多维上下文修正版】计算在近期大幅下跌后，伴随欺骗性反弹情境下的惩罚因子。
         - 核心逻辑: 检测近期是否存在大幅下跌，同时当前是否存在正向欺骗信号。
+                    正向欺骗信号的判断现在基于 `deception_index_D` 及其多时间周期（斜率、加速度）的融合。
                     结合市场波动性作为情境调制器，动态调整惩罚强度。
-        - 调试增强: 增加详细打印，追踪牛市陷阱检测的各个中间步骤。
-        - 错误修复: 修正了访问调试标志的路径，直接通过 `self` (ChipIntelligence实例) 获取 `should_probe` 和 `probe_dates_set`。
+        - 调试增强: 增加详细打印，追踪牛市陷阱检测的各个中间步骤，包括多维欺骗信号的融合。
+        - 业务逻辑修正: 恢复使用 `deception_index_D`，并增强其“正向欺骗”的判断逻辑，引入多时间周期分析。
         - 返回值: 一个 Series，值为 0 到 1 之间。1 表示无惩罚，0 表示完全惩罚。
         """
-        # 移除冗余的 debug_params 打印，因为已经确认其在 __init__ 中正确设置
-        # print(f"ChipIntelligence self.debug_params: {self.debug_params}")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         bt_params = get_param_value(p_conf.get('bull_trap_detection_params'), {})
@@ -3585,17 +3584,25 @@ class ChipIntelligence:
         deception_penalty_multiplier = get_param_value(bt_params.get('deception_penalty_multiplier'), 2.5)
         context_modulator_signal_name = get_param_value(bt_params.get('context_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         context_modulator_sensitivity = get_param_value(bt_params.get('context_modulator_sensitivity'), 0.7)
-        required_signals = ['pct_change_D', 'deception_index_D', context_modulator_signal_name]
+
+        # --- 恢复使用 deception_index_D 作为基础欺骗信号 ---
+        deception_signal_to_use = 'deception_index_D'
+        # --- 修正 required_signals，并添加派生信号的原始数据 ---
+        required_signals = ['pct_change_D', deception_signal_to_use, context_modulator_signal_name]
+        # --- 修正结束 ---
+
         if not self._validate_required_signals(df, required_signals, "_calculate_bull_trap_context_penalty"):
             return pd.Series(1.0, index=df_index, dtype=np.float32)
         signals_data = self._get_all_required_signals(df, required_signals, "_calculate_bull_trap_context_penalty")
         pct_change_raw = signals_data['pct_change_D'] / 100 # 转换为小数
-        deception_index_raw = signals_data['deception_index_D']
+        deception_index_raw = signals_data[deception_signal_to_use]
         context_modulator_raw = signals_data[context_modulator_signal_name]
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # --- 调试信息构建 (直接使用 ChipIntelligence 实例自身的属性) ---
+
+        # --- 调试信息构建 ---
         is_debug_enabled = self.should_probe
-        probe_dates_set = self.probe_dates_set # 直接使用 ChipIntelligence 实例的 probe_dates_set
+        probe_dates_set = self.probe_dates_set
+
         probe_ts = None
         if is_debug_enabled and probe_dates_set:
             for date in reversed(df_index):
@@ -3603,41 +3610,70 @@ class ChipIntelligence:
                     probe_ts = date
                     break
         # --- 调试信息构建结束 ---
+
         # 1. 检测近期大幅下跌
-        # 计算过去 N 天的最低跌幅
         min_pct_change_in_window = pct_change_raw.rolling(window=recent_sharp_drop_window, min_periods=1).min()
         has_recent_sharp_drop = (min_pct_change_in_window <= min_sharp_drop_pct)
-        # 2. 检测当前是否存在正向欺骗
+
+        # 2. 检测当前是否存在正向欺骗 (多维上下文判断)
+        # 派生 deception_index_D 的斜率和加速度
+        deception_slope_raw = deception_index_raw.diff(1).fillna(0) # 1日斜率
+        deception_accel_raw = deception_slope_raw.diff(1).fillna(0) # 1日加速度
+
+        # 归一化这些信号到双极分数
         norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
-        has_positive_deception = (norm_deception_index_bipolar > 0)
+        norm_deception_slope_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_slope_raw, df_index, tf_weights)
+        norm_deception_accel_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_accel_raw, df_index, tf_weights)
+
+        # 融合多维欺骗分数
+        # 权重可以根据实际测试调整，这里给一个初始值
+        deception_index_weight = get_param_value(bt_params.get('deception_index_weight', 0.5), 0.5)
+        deception_slope_weight = get_param_value(bt_params.get('deception_slope_weight', 0.3), 0.3)
+        deception_accel_weight = get_param_value(bt_params.get('deception_accel_weight', 0.2), 0.2)
+        positive_deception_threshold = get_param_value(bt_params.get('positive_deception_threshold', 0.3), 0.3) # 复合分数达到此阈值才算正向欺骗
+
+        composite_positive_deception_score = (
+            norm_deception_index_bipolar * deception_index_weight +
+            norm_deception_slope_bipolar * deception_slope_weight +
+            norm_deception_accel_bipolar * deception_accel_weight
+        ) / (deception_index_weight + deception_slope_weight + deception_accel_weight) # 归一化
+
+        has_positive_deception = (composite_positive_deception_score > positive_deception_threshold)
+
         # 3. 结合情境调制器
         norm_context_modulator = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 波动性越高，惩罚越敏感
         dynamic_penalty_sensitivity = 1 + norm_context_modulator * context_modulator_sensitivity
+
         # 4. 计算惩罚因子
         penalty_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
         bull_trap_condition = has_recent_sharp_drop & has_positive_deception
+
         if bull_trap_condition.any():
-            # 惩罚强度 = 欺骗指数 * 惩罚乘数 * 动态敏感度
-            penalty_strength = norm_deception_index_bipolar.loc[bull_trap_condition] * deception_penalty_multiplier * dynamic_penalty_sensitivity.loc[bull_trap_condition]
+            # 惩罚强度 = 复合欺骗分数 * 惩罚乘数 * 动态敏感度
+            penalty_strength = composite_positive_deception_score.loc[bull_trap_condition] * deception_penalty_multiplier * dynamic_penalty_sensitivity.loc[bull_trap_condition]
             # 将惩罚强度映射到 0 到 1 之间，1 - 惩罚强度
             penalty_factor.loc[bull_trap_condition] = (1 - penalty_strength).clip(0.0, 1.0)
+
         print(f"_calculate_bull_trap_context_penalty debug配置：is_debug_enabled：{is_debug_enabled}， probe_ts：{probe_ts}， probe_ts in df_index：{probe_ts in df_index}")
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"    -> [筹码层 Debug] 牛市陷阱惩罚计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            # 确保我们获取滚动窗口的正确切片
-            # 找到 probe_ts 在 df_index 中的位置
             probe_idx = df_index.get_loc(probe_ts)
-            # 计算窗口的起始索引
             start_idx_for_window = max(0, probe_idx - recent_sharp_drop_window + 1)
-            # 获取窗口内的 pct_change_raw
             relevant_pct_change = pct_change_raw.iloc[start_idx_for_window : probe_idx + 1]
+
             print(f"        - pct_change_raw (last {recent_sharp_drop_window} days): {relevant_pct_change.tolist()}")
             print(f"        - min_sharp_drop_pct (config): {min_sharp_drop_pct:.4f}")
             print(f"        - min_pct_change_in_window: {min_pct_change_in_window.loc[probe_ts]:.4f}")
             print(f"        - has_recent_sharp_drop: {has_recent_sharp_drop.loc[probe_ts]}")
+            print(f"        - deception_signal_used: {deception_signal_to_use}")
             print(f"        - deception_index_raw: {deception_index_raw.loc[probe_ts]:.4f}")
             print(f"        - norm_deception_index_bipolar: {norm_deception_index_bipolar.loc[probe_ts]:.4f}")
+            print(f"        - deception_slope_raw: {deception_slope_raw.loc[probe_ts]:.4f}")
+            print(f"        - norm_deception_slope_bipolar: {norm_deception_slope_bipolar.loc[probe_ts]:.4f}")
+            print(f"        - deception_accel_raw: {deception_accel_raw.loc[probe_ts]:.4f}")
+            print(f"        - norm_deception_accel_bipolar: {norm_deception_accel_bipolar.loc[probe_ts]:.4f}")
+            print(f"        - composite_positive_deception_score: {composite_positive_deception_score.loc[probe_ts]:.4f}")
+            print(f"        - positive_deception_threshold (config): {positive_deception_threshold:.4f}")
             print(f"        - has_positive_deception: {has_positive_deception.loc[probe_ts]}")
             print(f"        - bull_trap_condition: {bull_trap_condition.loc[probe_ts]}")
             if bull_trap_condition.loc[probe_ts]:
@@ -3649,6 +3685,7 @@ class ChipIntelligence:
                 print(f"        - final penalty_factor: {penalty_factor.loc[probe_ts]:.4f}")
             else:
                 print(f"        - No penalty applied for this date because bull_trap_condition is False.")
+
         print(f"    -> [筹码层] 计算牛市陷阱情境惩罚，平均惩罚因子: {penalty_factor.mean():.4f}")
         return penalty_factor
 

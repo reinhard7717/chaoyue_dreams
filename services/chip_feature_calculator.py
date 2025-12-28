@@ -254,15 +254,13 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.6 · 博弈论指标详细探针版】
+        【V1.3 · 神经探针植入版】
         - 核心新增: 植入由 `enable_gt_probe` 控制的“神经探针”，用于解剖博弈论指标的依赖链。
                      探针将详细打印所有前置依赖项的值，并明确报告是否因依赖项缺失而“短路”计算，
                      从而精准定位导致指标为空的根本原因。
         - 核心增强: 为 `peak_control_transfer` 等易失败的依赖项增加了安全的默认值，提升代码鲁棒性。
         - 核心修复: 将 `rally_distribution_pressure` 的获取键名从 `'rally_distribution_pressure'` 修正为 `'dispersal_by_distribution'`。
-        - 调试增强: 针对 `deception_lure_long_intensity`, `deception_lure_short_intensity`, `control_solidity_index`,
-                     `exhaustion_risk_index`, `breakout_readiness_score` 增加详细的调试打印，
-                     输出所有原料数据、关键计算节点和结果，并限定只输出 2025-12-10 的数据。
+        - 核心清理: 移除所有调试打印。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -275,12 +273,11 @@ class ChipFeatureCalculator:
         }
         legacy_metrics = self._compute_legacy_game_theory_metrics(context)
         results.update(legacy_metrics)
-
-        # --- 获取所有原始输入数据 ---
         potential = context.get('structural_potential_score')
         posture = context.get('intraday_posture_score')
         entropy_change = context.get('structural_entropy_change')
         gini = context.get('cost_gini_coefficient')
+        # 增加默认值，增强鲁棒性
         peak_transfer = context.get('peak_control_transfer', 0.0)
         fatigue = context.get('chip_fatigue_index')
         loser_pain = context.get('loser_pain_index')
@@ -289,28 +286,8 @@ class ChipFeatureCalculator:
         high_price = context.get('high_price')
         low_5d = context.get('low_5d')
         atr = context.get('atr_14d')
-        rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0)
+        rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0) # 修正键名
         suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
-        trade_date = context.get('trade_date')
-
-        # --- 调试探针：原始输入数据 (仅限 2025-12-10) ---
-        if trade_date == datetime.date(2025, 12, 10):
-            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - 原始输入数据:")
-            print(f"        - potential: {potential:.4f}")
-            print(f"        - posture: {posture:.4f}")
-            print(f"        - entropy_change: {entropy_change:.4f}")
-            print(f"        - gini: {gini:.4f}")
-            print(f"        - peak_transfer: {peak_transfer:.4f}")
-            print(f"        - fatigue: {fatigue:.4f}")
-            print(f"        - loser_pain: {loser_pain:.4f}")
-            print(f"        - close_price: {close_price:.4f}")
-            print(f"        - open_price: {open_price:.4f}")
-            print(f"        - high_price: {high_price:.4f}")
-            print(f"        - low_5d: {low_5d:.4f}")
-            print(f"        - atr: {atr:.4f}")
-            print(f"        - rally_distribution_pressure: {rally_distribution_pressure:.4f}")
-            print(f"        - suppressive_accumulation: {suppressive_accumulation:.4f}")
-
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
@@ -322,25 +299,11 @@ class ChipFeatureCalculator:
         required_vars = list(required_vars_map.values())
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if is_short_circuit:
-            if trade_date == datetime.date(2025, 12, 10):
-                missing_or_invalid = {k: v for k, v in required_vars_map.items() if pd.isna(v) or (k == 'atr' and v <= 0)}
-                print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date}: 计算短路，缺失或无效变量: {missing_or_invalid}")
             return results
-
-        # --- exhaustion_risk_index (衰竭风险指数) ---
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
         fatigue_factor = np.log1p(fatigue)
         results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
-        if trade_date == datetime.date(2025, 12, 10):
-            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - exhaustion_risk_index:")
-            print(f"        - high_price: {high_price:.4f}, low_5d: {low_5d:.4f}, atr: {atr:.4f}")
-            print(f"        - price_extension: {price_extension:.4f}")
-            print(f"        - acceleration_factor: {acceleration_factor:.4f}")
-            print(f"        - fatigue: {fatigue:.4f}, fatigue_factor: {fatigue_factor:.4f}")
-            print(f"        - exhaustion_risk_index: {results['exhaustion_risk_index']:.4f}")
-
-        # --- deception_index, deception_lure_long_intensity, deception_lure_short_intensity ---
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
@@ -348,54 +311,14 @@ class ChipFeatureCalculator:
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
-        if trade_date == datetime.date(2025, 12, 10):
-            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - deception metrics:")
-            print(f"        - close_price: {close_price:.4f}, open_price: {open_price:.4f}, atr: {atr:.4f}")
-            print(f"        - price_momentum: {price_momentum:.4f}, price_momentum_factor: {price_momentum_factor:.4f}")
-            print(f"        - rally_distribution_pressure: {rally_distribution_pressure:.4f}")
-            print(f"        - suppressive_accumulation: {suppressive_accumulation:.4f}")
-            print(f"        - lure_long_score: {lure_long_score:.4f}")
-            print(f"        - lure_short_score: {lure_short_score:.4f}")
-            print(f"        - deception_index: {results['deception_index']:.4f}")
-            print(f"        - deception_lure_long_intensity: {results['deception_lure_long_intensity']:.4f}")
-            print(f"        - deception_lure_short_intensity: {results['deception_lure_short_intensity']:.4f}")
-
-        # --- control_solidity_index (控制力稳固度) ---
         results['control_solidity_index'] = gini * peak_transfer
-        if trade_date == datetime.date(2025, 12, 10):
-            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - control_solidity_index:")
-            print(f"        - gini: {gini:.4f}")
-            print(f"        - peak_transfer: {peak_transfer:.4f}")
-            print(f"        - control_solidity_index: {results['control_solidity_index']:.4f}")
-
-        # --- breakout_readiness_score (突破就绪分) ---
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
-        if trade_date == datetime.date(2025, 12, 10):
-            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - breakout_readiness_score:")
-            print(f"        - potential: {potential:.4f}")
-            print(f"        - posture: {posture:.4f}, posture_unipolar: {posture_unipolar:.4f}")
-            print(f"        - entropy_change: {entropy_change:.4f}")
-            print(f"        - readiness (raw): {readiness:.4f}")
-            print(f"        - breakout_readiness_score: {results['breakout_readiness_score']:.4f}")
-
-        # --- strategic_phase_score (战略阶段评分) ---
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
-        if trade_date == datetime.date(2025, 12, 10):
-            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - strategic_phase_score:")
-            print(f"        - breakout_readiness_score: {results['breakout_readiness_score']:.4f}")
-            print(f"        - control_solidity_index: {results['control_solidity_index']:.4f}")
-            print(f"        - markup_force: {markup_force:.4f}")
-            print(f"        - exhaustion_risk_index: {results['exhaustion_risk_index']:.4f}")
-            print(f"        - deception_index: {results['deception_index']:.4f}")
-            print(f"        - distribution_force: {distribution_force:.4f}")
-            print(f"        - phase_score (raw): {phase_score:.4f}")
-            print(f"        - strategic_phase_score: {results['strategic_phase_score']:.4f}")
-
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
