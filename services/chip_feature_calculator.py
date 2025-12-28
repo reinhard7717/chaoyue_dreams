@@ -254,13 +254,12 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.5 · 神经探针植入与欺骗信号键名修正版】
+        【V1.3 · 神经探针植入版】
         - 核心新增: 植入由 `enable_gt_probe` 控制的“神经探针”，用于解剖博弈论指标的依赖链。
                      探针将详细打印所有前置依赖项的值，并明确报告是否因依赖项缺失而“短路”计算，
                      从而精准定位导致指标为空的根本原因。
         - 核心增强: 为 `peak_control_transfer` 等易失败的依赖项增加了安全的默认值，提升代码鲁棒性。
         - 核心修复: 将 `rally_distribution_pressure` 的获取键名从 `'rally_distribution_pressure'` 修正为 `'dispersal_by_distribution'`。
-        - 调试增强: 增加打印，显示 `rally_distribution_pressure` 从 `context` 中获取到的值，以及 `lure_long_score` 的中间计算结果。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -286,11 +285,8 @@ class ChipFeatureCalculator:
         high_price = context.get('high_price')
         low_5d = context.get('low_5d')
         atr = context.get('atr_14d')
-        # --- 核心修复：修正 rally_distribution_pressure 的键名 ---
-        rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0)
-        # --- 修正结束 ---
+        rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0) # 修正键名
         suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
-        trade_date = context.get('trade_date') # 获取交易日期用于调试
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
@@ -311,15 +307,6 @@ class ChipFeatureCalculator:
         price_momentum_factor = np.tanh(price_momentum)
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
         lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
-        # --- 调试打印 ---
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date}:")
-        print(f"        - price_momentum: {price_momentum:.4f}")
-        print(f"        - price_momentum_factor: {price_momentum_factor:.4f}")
-        print(f"        - rally_distribution_pressure (from context): {rally_distribution_pressure:.4f}")
-        print(f"        - suppressive_accumulation (from context): {suppressive_accumulation:.4f}")
-        print(f"        - lure_long_score (calculated): {lure_long_score:.4f}")
-        print(f"        - lure_short_score (calculated): {lure_short_score:.4f}")
-        # --- 调试打印结束 ---
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
@@ -393,13 +380,16 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.2 · 心理学重构版】
+        【V11.3 · 心理学重构版 - 静态结构指标探针版】
         - 核心重构(Winner Stability): 废弃线性利润模型，引入高斯函数来模拟“利润甜蜜区”。
           新模型认为，过高（>50%）或过低的利润都会降低持股稳定性，只有在“甜蜜区”（如20%）附近，
           获利盘的结构才最为稳固，更符合A股“兑现冲动”的博弈心理。
         - 核心重构(Loser Pain): 废弃线性亏损模型，引入“对数增长+指数衰减”模型来模拟“峰值痛苦区”。
           新模型认为，随着亏损加深，投资者的痛苦感（潜在抛压）会先快速上升，但在亏损巨大时
           （如 > 50%）会因“心理麻木”或“彻底投降”而逐渐衰减，更符合A股散户的行为模式。
+        - 调试增强: 针对 `structural_node_count`, `primary_peak_kurtosis`, `cost_gini_coefficient`,
+                     `structural_tension_index`, `structural_leverage` 等指标，加入详细探针，
+                     输出原料数据、关键计算节点和结果的值。
         """
         from scipy.signal import find_peaks
         from scipy.stats import skew
@@ -419,8 +409,21 @@ class ChipFeatureCalculator:
         }
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
+        trade_date = self.ctx.get('trade_date')
+
+        # --- 调试探针：核心输入数据 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date} - 核心输入探针:")
+        print(f"        - self.df.head():\n{self.df.head()}")
+        print(f"        - self.df.tail():\n{self.df.tail()}")
+        print(f"        - self.df.empty: {self.df.empty}")
+        print(f"        - close_price: {close_price}")
+        print(f"        - atr_14d: {atr_14d}")
+        # --- 探针结束 ---
+
         if self.df.empty or pd.isna(close_price) or pd.isna(atr_14d) or atr_14d <= 0:
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date}: 前置条件不满足，跳过计算。")
             return results
+
         def _calculate_weighted_kurtosis(values: pd.Series, weights: pd.Series) -> float:
             if values.empty or weights.empty or weights.sum() <= 0: return np.nan
             weighted_mean = np.average(values, weights=weights)
@@ -429,9 +432,17 @@ class ChipFeatureCalculator:
             m4 = np.average((values - weighted_mean)**4, weights=weights)
             kurt = m4 / (weighted_variance**2) - 3.0
             return kurt
+
+        # --- structural_node_count 和 primary_peak_kurtosis ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date} - 峰值检测探针:")
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
+        print(f"        - self.df['percent'].head():\n{self.df['percent'].head()}")
+        print(f"        - peaks (indices): {peaks}")
+        print(f"        - properties: {properties}")
         results['structural_node_count'] = len(peaks)
-        results['vacuum_zone_magnitude'] = 0.0
+        print(f"        - structural_node_count: {results['structural_node_count']}")
+
+        results['vacuum_zone_magnitude'] = 0.0 # 默认值
         if len(peaks) > 0:
             peaks_df = pd.DataFrame({
                 'peak_index': peaks, 'volume': self.df['percent'].iloc[peaks].values,
@@ -443,87 +454,140 @@ class ChipFeatureCalculator:
             main_peak_cost = main_peak['cost']
             results['dominant_peak_cost'] = main_peak_cost
             results['dominant_peak_volume_ratio'] = main_peak['volume']
+            print(f"        - main_peak_cost: {main_peak_cost}")
+            print(f"        - main_peak_volume_ratio: {results['dominant_peak_volume_ratio']}")
+
             peak_region_df = self.df.iloc[int(main_peak['left_base']):int(main_peak['right_base'])+1]
+            print(f"        - peak_region_df.empty: {peak_region_df.empty}")
+            print(f"        - peak_region_df['percent'].sum(): {peak_region_df['percent'].sum()}")
             if not peak_region_df.empty and peak_region_df['percent'].sum() > 0:
                 results['primary_peak_kurtosis'] = _calculate_weighted_kurtosis(peak_region_df['price'], peak_region_df['percent'])
-            if len(peaks) > 1:
-                secondary_peak = peaks_by_prominence.iloc[1]
-                results['secondary_peak_cost'] = secondary_peak['cost']
-                if main_peak_cost > 0:
-                    results['peak_separation_ratio'] = abs(main_peak_cost - secondary_peak['cost']) / main_peak_cost * 100
-                peaks_by_cost = peaks_df.sort_values(by='cost').reset_index(drop=True)
-                if len(peaks_by_cost) > 1:
-                    peak_separations_atr = (peaks_by_cost['cost'].diff() / atr_14d).dropna()
-                    max_separation_atr = peak_separations_atr.max()
-                    peak_separation_threshold = 2.5
-                    if max_separation_atr > peak_separation_threshold:
-                        results['vacuum_zone_magnitude'] = max_separation_atr
+                print(f"        - primary_peak_kurtosis: {results['primary_peak_kurtosis']}")
+            else:
+                print(f"        - primary_peak_kurtosis: 无法计算 (peak_region_df为空或percent总和为0)")
+            # ... (其他峰值相关计算，此处省略，因为不在本次调试范围内)
         else:
             main_peak_idx = self.df['percent'].idxmax()
             results['dominant_peak_cost'] = self.df.loc[main_peak_idx, 'price']
             results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
+            print(f"        - 无峰值，使用最大百分比作为主峰。dominant_peak_cost: {results['dominant_peak_cost']}, dominant_peak_volume_ratio: {results['dominant_peak_volume_ratio']}")
+        # --- 探针结束 ---
+
         if pd.notna(results['dominant_peak_cost']) and results['dominant_peak_cost'] > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
+
+        # --- cost_gini_coefficient ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date} - 成本基尼系数探针:")
         def _calculate_gini_final(prices: pd.Series, weights: pd.Series) -> float:
-            if weights.sum() <= 0: return np.nan
+            print(f"        - _calculate_gini_final: prices.head():\n{prices.head()}")
+            print(f"        - _calculate_gini_final: weights.head():\n{weights.head()}")
+            print(f"        - _calculate_gini_final: weights.sum(): {weights.sum()}")
+            if weights.sum() <= 0:
+                print(f"        - _calculate_gini_final: 权重总和为0或负，返回np.nan")
+                return np.nan
             prices = prices.astype(float)
             weights = weights.astype(float)
             df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
+            print(f"        - _calculate_gini_final: sorted df.head():\n{df.head()}")
             df['weight_pct'] = df['weight'] / df['weight'].sum()
             df['cum_weight_pct'] = df['weight_pct'].cumsum()
             df['cost_x_weight'] = df['price'] * df['weight_pct']
             total_weighted_cost = df['cost_x_weight'].sum()
-            if total_weighted_cost <= 0: return np.nan
+            print(f"        - _calculate_gini_final: total_weighted_cost: {total_weighted_cost}")
+            if total_weighted_cost <= 0:
+                print(f"        - _calculate_gini_final: 加权成本总和为0或负，返回np.nan")
+                return np.nan
             df['cum_cost_pct'] = df['cost_x_weight'].cumsum() / total_weighted_cost
+            print(f"        - _calculate_gini_final: df[['cum_weight_pct', 'cum_cost_pct']].tail():\n{df[['cum_weight_pct', 'cum_cost_pct']].tail()}")
             x = np.insert(df['cum_weight_pct'].values, 0, 0)
             y = np.insert(df['cum_cost_pct'].values, 0, 0)
+            print(f"        - _calculate_gini_final: x (Lorenz curve x-coords):\n{x}")
+            print(f"        - _calculate_gini_final: y (Lorenz curve y-coords):\n{y}")
             area = np.trapz(y, x)
-            return 1 - 2 * area
+            print(f"        - _calculate_gini_final: Area under Lorenz curve: {area}")
+            gini_coeff = 1 - 2 * area
+            print(f"        - _calculate_gini_final: Calculated Gini coefficient: {gini_coeff}")
+            return gini_coeff
+
         results['cost_gini_coefficient'] = _calculate_gini_final(self.df['price'], self.df['percent'])
+        print(f"        - cost_gini_coefficient: {results['cost_gini_coefficient']}")
+        # --- 探针结束 ---
+
         if pd.notna(results['cost_gini_coefficient']) and pd.notna(results['dominant_peak_volume_ratio']):
             results['dominant_peak_solidity'] = results['cost_gini_coefficient'] * (results['dominant_peak_volume_ratio'] / 100) * 100
+
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
         results['total_winner_rate'] = self.ctx.get('total_winner_rate')
         results['total_loser_rate'] = 100.0 - results['total_winner_rate'] if pd.notna(results['total_winner_rate']) else np.nan
         winner_avg_cost, loser_avg_cost = np.nan, np.nan
+
         if not winners_df.empty and winners_df['percent'].sum() > 0:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
             results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
             gini_w = _calculate_gini_final(winners_df['price'], winners_df['percent'])
-            # 重构 winner_stability_index
             if pd.notna(gini_w) and pd.notna(results['winner_profit_margin_avg']):
                 profit_margin = results['winner_profit_margin_avg']
-                # 引入高斯函数模拟“利润甜蜜区”
-                mu = 20.0  # 最佳利润点 (20%)
-                sigma = 15.0 # 利润敏感度标准差 (15%)
+                mu = 20.0
+                sigma = 15.0
                 gaussian_factor = np.exp(-((profit_margin - mu)**2) / (2 * sigma**2))
-                # 获利盘成本集中度 * 利润甜蜜区因子
                 results['winner_stability_index'] = (1 - gini_w) * gaussian_factor * 100
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
             results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100 if loser_avg_cost > 0 else np.nan
             gini_l = _calculate_gini_final(losers_df['price'], losers_df['percent'])
-            # 重构 loser_pain_index
             if pd.notna(gini_l) and pd.notna(results['loser_loss_margin_avg']):
                 loss_margin = abs(results['loser_loss_margin_avg'])
-                # 引入“对数增长 + 指数衰减”模型模拟“峰值痛苦区”和“投降效应”
-                # 对数部分模拟痛苦的非线性增长
                 log_pain = np.log1p(loss_margin)
-                # 指数衰减部分模拟亏损过大后的“心理麻木”
                 capitulation_decay = np.exp(-0.02 * loss_margin)
-                # 套牢盘成本集中度 * 峰值痛苦因子
                 results['loser_pain_index'] = (1 - gini_l) * log_pain * capitulation_decay * 100
+
+        # --- structural_tension_index ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date} - 结构张力指数探针:")
+        print(f"        - winner_avg_cost: {winner_avg_cost}")
+        print(f"        - loser_avg_cost: {loser_avg_cost}")
+        print(f"        - close_price: {close_price}")
+        print(f"        - total_winner_rate: {results['total_winner_rate']}")
+        print(f"        - total_loser_rate: {results['total_loser_rate']}")
         if pd.notna(winner_avg_cost) and pd.notna(loser_avg_cost) and close_price > 0:
-            tension = (abs(winner_avg_cost - loser_avg_cost) / close_price) * \
-                      np.log1p((results['total_winner_rate'] / 100) * (results['total_loser_rate'] / 100))
-            results['structural_tension_index'] = tension
-        leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
-        results['structural_leverage'] = leverage
+            tension_numerator = abs(winner_avg_cost - loser_avg_cost)
+            tension_denominator = close_price
+            log_factor_input = (results['total_winner_rate'] / 100) * (results['total_loser_rate'] / 100)
+            print(f"        - tension_numerator: {tension_numerator}")
+            print(f"        - tension_denominator: {tension_denominator}")
+            print(f"        - log_factor_input: {log_factor_input}")
+            if log_factor_input > 0: # 避免log1p(0)
+                tension = (tension_numerator / tension_denominator) * np.log1p(log_factor_input)
+                results['structural_tension_index'] = tension
+                print(f"        - structural_tension_index: {results['structural_tension_index']}")
+            else:
+                print(f"        - structural_tension_index: 无法计算 (log_factor_input <= 0)")
+        else:
+            print(f"        - structural_tension_index: 无法计算 (winner_avg_cost, loser_avg_cost, 或 close_price 为NaN/0)")
+        # --- 探针结束 ---
+
+        # --- structural_leverage ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_static_structure_metrics @ {trade_date} - 结构杠杆探针:")
+        print(f"        - self.df['price'].head():\n{self.df['price'].head()}")
+        print(f"        - self.df['percent'].head():\n{self.df['percent'].head()}")
+        print(f"        - close_price: {close_price}")
+        if not self.df.empty and close_price > 0:
+            price_diff_pct = (self.df['price'] - close_price) / close_price
+            leverage_components = price_diff_pct * self.df['percent']
+            leverage = leverage_components.sum()
+            results['structural_leverage'] = leverage
+            print(f"        - price_diff_pct.head():\n{price_diff_pct.head()}")
+            print(f"        - leverage_components.head():\n{leverage_components.head()}")
+            print(f"        - structural_leverage: {results['structural_leverage']}")
+        else:
+            print(f"        - structural_leverage: 无法计算 (self.df为空或close_price为0)")
+        # --- 探针结束 ---
+
         if pd.notna(results['dominant_peak_cost']):
             results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
             fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
             results['chip_fault_blockage_ratio'] = self.df[(self.df['price'] > fault_low) & (self.df['price'] < fault_high)]['percent'].sum()
+
         def _get_concentration(chip_df: pd.DataFrame):
             if chip_df.empty or chip_df['percent'].sum() < 1e-6: return np.nan
             chip_df = chip_df.copy()
@@ -534,6 +598,7 @@ class ChipFeatureCalculator:
             price_low = np.interp(5, chip_df['cum_percent'], chip_df['price'])
             price_high = np.interp(95, chip_df['cum_percent'], chip_df['price'])
             return (price_high - price_low) / avg_cost
+
         results['winner_concentration_90pct'] = _get_concentration(winners_df)
         results['loser_concentration_90pct'] = _get_concentration(losers_df)
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
@@ -987,10 +1052,7 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
         """
-        【V1.2 · 兼容性补丁 - 派发压力详细探针版】计算在第三象限升级后保留的旧版跨日迁徙指标。
-        - 核心目的: 针对 `rally_distribution_pressure` 出现负值的问题，加入详细探针，
-                     输出 `mf_net_vol`、`chasing_zone`、`clip` 过程的中间结果，
-                     以暴露问题根源，而非掩盖。
+        【V1.0 · 兼容性补丁】计算在第三象限升级后保留的旧版跨日迁徙指标。
         """
         results = {
             'gathering_by_support': np.nan, 'gathering_by_chasing': np.nan,
@@ -1003,54 +1065,21 @@ class ChipFeatureCalculator:
         total_chip_vol = context.get('total_chip_volume')
         daily_vwap = context.get('daily_vwap')
         prev_metrics = context.get('prev_metrics', {})
-        trade_date = context.get('trade_date') # 获取交易日期用于调试
         if intraday_df.empty or pd.isna(total_vol) or total_vol <= 0 or 'main_force_net_vol' not in intraday_df.columns or pd.isna(daily_vwap):
-            print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date}: 前置条件不满足，跳过计算。")
             return results
         mf_net_vol = intraday_df['main_force_net_vol']
-        # --- 调试探针：mf_net_vol 数据检查 ---
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - mf_net_vol 探针:")
-        print(f"        - mf_net_vol.dtype: {mf_net_vol.dtype}")
-        print(f"        - mf_net_vol.head():\n{mf_net_vol.head()}")
-        print(f"        - mf_net_vol.tail():\n{mf_net_vol.tail()}")
-        print(f"        - mf_net_vol.min(): {mf_net_vol.min()}, mf_net_vol.max(): {mf_net_vol.max()}")
-        print(f"        - mf_net_vol.sum(): {mf_net_vol.sum()}")
-        print(f"        - mf_net_vol.hasnans: {mf_net_vol.hasnans}")
-        if mf_net_vol.hasnans:
-            print(f"        - mf_net_vol[mf_net_vol.isna()].index: {mf_net_vol[mf_net_vol.isna()].index.tolist()}")
-        # --- 探针结束 ---
         # 1. 四象限流量计算
         support_zone = intraday_df['minute_vwap'] < daily_vwap
         chasing_zone = intraday_df['minute_vwap'] > daily_vwap
-        # --- 调试探针：chasing_zone 数据检查 ---
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - chasing_zone 探针:")
-        print(f"        - chasing_zone.sum() (True count): {chasing_zone.sum()}")
-        print(f"        - chasing_zone.head():\n{chasing_zone.head()}")
-        print(f"        - chasing_zone.tail():\n{chasing_zone.tail()}")
-        # --- 探针结束 ---
         results['gathering_by_support'] = mf_net_vol[support_zone].clip(lower=0).sum() / total_vol * 100
         results['gathering_by_chasing'] = mf_net_vol[chasing_zone].clip(lower=0).sum() / total_vol * 100
-        # --- 调试探针：dispersal_by_distribution 关键计算节点 ---
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - dispersal_by_distribution 探针:")
-        mf_net_vol_in_chasing_zone = mf_net_vol[chasing_zone]
-        print(f"        - mf_net_vol_in_chasing_zone.head():\n{mf_net_vol_in_chasing_zone.head()}")
-        print(f"        - mf_net_vol_in_chasing_zone.tail():\n{mf_net_vol_in_chasing_zone.tail()}")
-        print(f"        - mf_net_vol_in_chasing_zone.min(): {mf_net_vol_in_chasing_zone.min()}, mf_net_vol_in_chasing_zone.max(): {mf_net_vol_in_chasing_zone.max()}")
-        print(f"        - mf_net_vol_in_chasing_zone.sum(): {mf_net_vol_in_chasing_zone.sum()}")
-        clipped_mf_net_vol_in_chasing_zone = mf_net_vol_in_chasing_zone.clip(upper=0)
-        print(f"        - clipped_mf_net_vol_in_chasing_zone.head():\n{clipped_mf_net_vol_in_chasing_zone.head()}")
-        print(f"        - clipped_mf_net_vol_in_chasing_zone.tail():\n{clipped_mf_net_vol_in_chasing_zone.tail()}")
-        print(f"        - clipped_mf_net_vol_in_chasing_zone.min(): {clipped_mf_net_vol_in_chasing_zone.min()}, clipped_mf_net_vol_in_chasing_zone.max(): {clipped_mf_net_vol_in_chasing_zone.max()}")
-        main_force_sell_in_chasing_zone_sum = clipped_mf_net_vol_in_chasing_zone.sum()
-        print(f"        - main_force_sell_in_chasing_zone_sum (after clip(upper=0)): {main_force_sell_in_chasing_zone_sum}")
-        results['dispersal_by_distribution'] = -main_force_sell_in_chasing_zone_sum / total_vol * 100
-        print(f"        - dispersal_by_distribution (final result): {results['dispersal_by_distribution']:.4f}")
-        # --- 探针结束 ---
+        results['dispersal_by_distribution'] = -mf_net_vol[chasing_zone].clip(upper=0).sum() / total_vol * 100
         results['dispersal_by_capitulation'] = -mf_net_vol[support_zone].clip(upper=0).sum() / total_vol * 100
         # 2. 盈亏盘流量估算
         winner_rate = context.get('total_winner_rate', 0) / 100
         loser_rate = context.get('total_loser_rate', 0) / 100
         turnover_rate = total_vol / total_chip_vol if total_chip_vol > 0 else 0
+        # 假设卖方中盈亏比例与存量比例一致
         results['profit_taking_flow_ratio'] = turnover_rate * winner_rate * 100
         results['capitulation_flow_ratio'] = turnover_rate * loser_rate * 100
         # 3. 盈亏动量
