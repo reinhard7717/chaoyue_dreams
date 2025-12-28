@@ -3573,6 +3573,7 @@ class ChipIntelligence:
         - 错误修复: 修正了访问调试标志的路径，通过 `self.strategy.probes` 获取 `should_probe` 和 `probe_dates_set`。
         - 返回值: 一个 Series，值为 0 到 1 之间。1 表示无惩罚，0 表示完全惩罚。
         """
+        print(f"ChipIntelligence self.debug_params: {self.debug_params}")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         bt_params = get_param_value(p_conf.get('bull_trap_detection_params'), {})
@@ -3625,6 +3626,7 @@ class ChipIntelligence:
             penalty_strength = norm_deception_index_bipolar.loc[bull_trap_condition] * deception_penalty_multiplier * dynamic_penalty_sensitivity.loc[bull_trap_condition]
             # 将惩罚强度映射到 0 到 1 之间，1 - 惩罚强度
             penalty_factor.loc[bull_trap_condition] = (1 - penalty_strength).clip(0.0, 1.0)
+        
         print(f"_calculate_bull_trap_context_penalty debug配置：is_debug_enabled：{is_debug_enabled}， probe_ts：{probe_ts}， probe_ts in df_index：{probe_ts in df_index}")
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"    -> [筹码层 Debug] 牛市陷阱惩罚计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
