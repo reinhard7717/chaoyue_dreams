@@ -49,10 +49,10 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V12.6 · 情境融合版 - 调试增强版】
+        【V12.5 · 情境融合版】
         - 核心升维: 新增对 `_compute_contextual_action_metrics` 的调用，正式将“情境行为融合”指标的计算职责
                      纳入筹码服务，解决了跨服务的数据依赖问题。
-        - 调试增强: 增加打印，检查 `suppressive_accumulation_intensity` 在 `self.ctx` 中的存储情况。
+        - 核心修复: 恢复 `_compute_tactical_intent_metrics` 的调用顺序，移除调试代码。
         """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -114,13 +114,9 @@ class ChipFeatureCalculator:
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
-        # --- 调试打印：检查 context 中的 suppressive_accumulation_intensity ---
-        tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
+        tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx) # 恢复到原始位置
         all_metrics.update(tactical_intent_metrics)
         self.ctx.update(tactical_intent_metrics)
-        print(f"    -> [ChipFeatureCalculator Debug] Context after tactical_intent_metrics update @ {trade_date}:")
-        print(f"        - suppressive_accumulation_intensity in self.ctx: {self.ctx.get('suppressive_accumulation_intensity')}")
-        # --- 调试打印结束 ---
         realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
         all_metrics.update(realtime_orderbook_metrics)
         self.ctx.update(realtime_orderbook_metrics)
@@ -258,13 +254,13 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.4 · 神经探针植入与欺骗调试增强版】
+        【V1.5 · 神经探针植入与欺骗信号键名修正版】
         - 核心新增: 植入由 `enable_gt_probe` 控制的“神经探针”，用于解剖博弈论指标的依赖链。
                      探针将详细打印所有前置依赖项的值，并明确报告是否因依赖项缺失而“短路”计算，
                      从而精准定位导致指标为空的根本原因。
         - 核心增强: 为 `peak_control_transfer` 等易失败的依赖项增加了安全的默认值，提升代码鲁棒性。
-        - 调试增强: 增加打印，显示 `rally_distribution_pressure` 和 `suppressive_accumulation` 的获取值，
-                     以及 `lure_long_score` 和 `lure_short_score` 的中间计算结果。
+        - 核心修复: 将 `rally_distribution_pressure` 的获取键名从 `'rally_distribution_pressure'` 修正为 `'dispersal_by_distribution'`。
+        - 调试增强: 增加打印，显示 `rally_distribution_pressure` 从 `context` 中获取到的值，以及 `lure_long_score` 的中间计算结果。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -290,8 +286,10 @@ class ChipFeatureCalculator:
         high_price = context.get('high_price')
         low_5d = context.get('low_5d')
         atr = context.get('atr_14d')
-        rally_distribution_pressure = context.get('rally_distribution_pressure', 0.0)
-        suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0) # 这里获取
+        # --- 核心修复：修正 rally_distribution_pressure 的键名 ---
+        rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0)
+        # --- 修正结束 ---
+        suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
         trade_date = context.get('trade_date') # 获取交易日期用于调试
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
@@ -1006,13 +1004,10 @@ class ChipFeatureCalculator:
         daily_vwap = context.get('daily_vwap')
         prev_metrics = context.get('prev_metrics', {})
         trade_date = context.get('trade_date') # 获取交易日期用于调试
-
         if intraday_df.empty or pd.isna(total_vol) or total_vol <= 0 or 'main_force_net_vol' not in intraday_df.columns or pd.isna(daily_vwap):
             print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date}: 前置条件不满足，跳过计算。")
             return results
-
         mf_net_vol = intraday_df['main_force_net_vol']
-
         # --- 调试探针：mf_net_vol 数据检查 ---
         print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - mf_net_vol 探针:")
         print(f"        - mf_net_vol.dtype: {mf_net_vol.dtype}")
@@ -1024,21 +1019,17 @@ class ChipFeatureCalculator:
         if mf_net_vol.hasnans:
             print(f"        - mf_net_vol[mf_net_vol.isna()].index: {mf_net_vol[mf_net_vol.isna()].index.tolist()}")
         # --- 探针结束 ---
-
         # 1. 四象限流量计算
         support_zone = intraday_df['minute_vwap'] < daily_vwap
         chasing_zone = intraday_df['minute_vwap'] > daily_vwap
-
         # --- 调试探针：chasing_zone 数据检查 ---
         print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - chasing_zone 探针:")
         print(f"        - chasing_zone.sum() (True count): {chasing_zone.sum()}")
         print(f"        - chasing_zone.head():\n{chasing_zone.head()}")
         print(f"        - chasing_zone.tail():\n{chasing_zone.tail()}")
         # --- 探针结束 ---
-
         results['gathering_by_support'] = mf_net_vol[support_zone].clip(lower=0).sum() / total_vol * 100
         results['gathering_by_chasing'] = mf_net_vol[chasing_zone].clip(lower=0).sum() / total_vol * 100
-
         # --- 调试探针：dispersal_by_distribution 关键计算节点 ---
         print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - dispersal_by_distribution 探针:")
         mf_net_vol_in_chasing_zone = mf_net_vol[chasing_zone]
@@ -1046,36 +1037,28 @@ class ChipFeatureCalculator:
         print(f"        - mf_net_vol_in_chasing_zone.tail():\n{mf_net_vol_in_chasing_zone.tail()}")
         print(f"        - mf_net_vol_in_chasing_zone.min(): {mf_net_vol_in_chasing_zone.min()}, mf_net_vol_in_chasing_zone.max(): {mf_net_vol_in_chasing_zone.max()}")
         print(f"        - mf_net_vol_in_chasing_zone.sum(): {mf_net_vol_in_chasing_zone.sum()}")
-
         clipped_mf_net_vol_in_chasing_zone = mf_net_vol_in_chasing_zone.clip(upper=0)
         print(f"        - clipped_mf_net_vol_in_chasing_zone.head():\n{clipped_mf_net_vol_in_chasing_zone.head()}")
         print(f"        - clipped_mf_net_vol_in_chasing_zone.tail():\n{clipped_mf_net_vol_in_chasing_zone.tail()}")
         print(f"        - clipped_mf_net_vol_in_chasing_zone.min(): {clipped_mf_net_vol_in_chasing_zone.min()}, clipped_mf_net_vol_in_chasing_zone.max(): {clipped_mf_net_vol_in_chasing_zone.max()}")
-
         main_force_sell_in_chasing_zone_sum = clipped_mf_net_vol_in_chasing_zone.sum()
         print(f"        - main_force_sell_in_chasing_zone_sum (after clip(upper=0)): {main_force_sell_in_chasing_zone_sum}")
-
         results['dispersal_by_distribution'] = -main_force_sell_in_chasing_zone_sum / total_vol * 100
         print(f"        - dispersal_by_distribution (final result): {results['dispersal_by_distribution']:.4f}")
         # --- 探针结束 ---
-
         results['dispersal_by_capitulation'] = -mf_net_vol[support_zone].clip(upper=0).sum() / total_vol * 100
-
         # 2. 盈亏盘流量估算
         winner_rate = context.get('total_winner_rate', 0) / 100
         loser_rate = context.get('total_loser_rate', 0) / 100
         turnover_rate = total_vol / total_chip_vol if total_chip_vol > 0 else 0
-
         results['profit_taking_flow_ratio'] = turnover_rate * winner_rate * 100
         results['capitulation_flow_ratio'] = turnover_rate * loser_rate * 100
-
         # 3. 盈亏动量
         prev_winner_rate = prev_metrics.get('total_winner_rate', 0)
         prev_loser_rate = prev_metrics.get('total_loser_rate', 0)
         winner_change = context.get('total_winner_rate', 0) - prev_winner_rate
         loser_change = context.get('total_loser_rate', 0) - prev_loser_rate
         results['winner_loser_momentum'] = winner_change + loser_change # loser_change is negative
-
         # 4. 筹码疲劳指数
         prev_fatigue = prev_metrics.get('chip_fatigue_index', 0)
         price_range = (context.get('high_price', 0) - context.get('low_price', 0)) / context.get('pre_close', 1)
@@ -1329,12 +1312,12 @@ class ChipFeatureCalculator:
 
     def _compute_tactical_intent_metrics(self, context: dict) -> dict:
         """
-        【V1.2 · 战术归因引擎 - 调试增强版】
+        【V1.0 · 战术归因引擎】
         - 核心职责: 锻造用于识别特定主力战术意图的高级指标。
         - 核心新增: 新增 `suppressive_accumulation_intensity` (打压吸筹强度) 指标。
                      该指标旨在通过融合微观的隐蔽买入证据和买盘质量，来识别主力在价格
                      受抑制的宏观环境下进行的“打压吸筹”战术，从而解决“信号尺度悖论”。
-        - 调试增强: 增加打印，显示 `pct_change` 和 `suppressive_accumulation_intensity` 的计算过程和最终结果，以及完整的 `results` 字典。
+        - 核心修复: 移除调试打印。
         """
         results = {
             'suppressive_accumulation_intensity': np.nan,
@@ -1343,7 +1326,6 @@ class ChipFeatureCalculator:
         # 1. 获取宏观环境
         close_price = context.get('close_price')
         pre_close = context.get('pre_close')
-        trade_date = context.get('trade_date') # 获取交易日期用于调试
         if pd.isna(close_price) or pd.isna(pre_close) or pre_close <= 0:
             return results
         pct_change = (close_price / pre_close) - 1
@@ -1360,15 +1342,6 @@ class ChipFeatureCalculator:
             results['suppressive_accumulation_intensity'] = np.clip(intensity_score * 100, 0, 100)
         else:
             results['suppressive_accumulation_intensity'] = 0.0
-        # --- 调试打印 ---
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_tactical_intent_metrics @ {trade_date}:")
-        print(f"        - pct_change: {pct_change:.4f}")
-        print(f"        - suppression_mask: {suppression_mask}")
-        print(f"        - covert_accumulation: {covert_accumulation:.4f}")
-        print(f"        - conviction_flow: {conviction_flow:.4f}")
-        print(f"        - suppressive_accumulation_intensity (calculated): {results['suppressive_accumulation_intensity']:.4f}")
-        print(f"        - Full results dict: {results}") # 打印完整的 results 字典
-        # --- 调试打印结束 ---
         # 新增行：计算支撑性派发强度
         supportive_mask = pct_change >= 0 # 价格上涨或横盘时
         if supportive_mask:
