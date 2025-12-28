@@ -3654,39 +3654,38 @@ class ChipIntelligence:
             # 将惩罚强度映射到 0 到 1 之间，1 - 惩罚强度
             penalty_factor.loc[bull_trap_condition] = (1 - penalty_strength).clip(0.0, 1.0)
 
-        print(f"_calculate_bull_trap_context_penalty debug配置：is_debug_enabled：{is_debug_enabled}， probe_ts：{probe_ts}， probe_ts in df_index：{probe_ts in df_index}")
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"    -> [筹码层 Debug] 牛市陷阱惩罚计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
-            probe_idx = df_index.get_loc(probe_ts)
-            start_idx_for_window = max(0, probe_idx - recent_sharp_drop_window + 1)
-            relevant_pct_change = pct_change_raw.iloc[start_idx_for_window : probe_idx + 1]
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"    -> [筹码层 Debug] 牛市陷阱惩罚计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+        #     probe_idx = df_index.get_loc(probe_ts)
+        #     start_idx_for_window = max(0, probe_idx - recent_sharp_drop_window + 1)
+        #     relevant_pct_change = pct_change_raw.iloc[start_idx_for_window : probe_idx + 1]
 
-            print(f"        - pct_change_raw (last {recent_sharp_drop_window} days): {relevant_pct_change.tolist()}")
-            print(f"        - min_sharp_drop_pct (config): {min_sharp_drop_pct:.4f}")
-            print(f"        - min_pct_change_in_window: {min_pct_change_in_window.loc[probe_ts]:.4f}")
-            print(f"        - has_recent_sharp_drop: {has_recent_sharp_drop.loc[probe_ts]}")
-            print(f"        - deception_signal_used: {deception_signal_to_use}")
-            print(f"        - deception_index_raw: {deception_index_raw.loc[probe_ts]:.4f}")
-            print(f"        - norm_deception_index_bipolar: {norm_deception_index_bipolar.loc[probe_ts]:.4f}")
-            print(f"        - deception_slope_raw: {deception_slope_raw.loc[probe_ts]:.4f}")
-            print(f"        - norm_deception_slope_bipolar: {norm_deception_slope_bipolar.loc[probe_ts]:.4f}")
-            print(f"        - deception_accel_raw: {deception_accel_raw.loc[probe_ts]:.4f}")
-            print(f"        - norm_deception_accel_bipolar: {norm_deception_accel_bipolar.loc[probe_ts]:.4f}")
-            print(f"        - composite_positive_deception_score: {composite_positive_deception_score.loc[probe_ts]:.4f}")
-            print(f"        - positive_deception_threshold (config): {positive_deception_threshold:.4f}")
-            print(f"        - has_positive_deception: {has_positive_deception.loc[probe_ts]}")
-            print(f"        - bull_trap_condition: {bull_trap_condition.loc[probe_ts]}")
-            if bull_trap_condition.loc[probe_ts]:
-                print(f"        - deception_penalty_multiplier (config): {deception_penalty_multiplier:.2f}")
-                print(f"        - norm_context_modulator: {norm_context_modulator.loc[probe_ts]:.4f}")
-                print(f"        - context_modulator_sensitivity (config): {context_modulator_sensitivity:.2f}")
-                print(f"        - dynamic_penalty_sensitivity: {dynamic_penalty_sensitivity.loc[probe_ts]:.4f}")
-                print(f"        - penalty_strength: {penalty_strength.loc[probe_ts]:.4f}")
-                print(f"        - final penalty_factor: {penalty_factor.loc[probe_ts]:.4f}")
-            else:
-                print(f"        - No penalty applied for this date because bull_trap_condition is False.")
+        #     print(f"        - pct_change_raw (last {recent_sharp_drop_window} days): {relevant_pct_change.tolist()}")
+        #     print(f"        - min_sharp_drop_pct (config): {min_sharp_drop_pct:.4f}")
+        #     print(f"        - min_pct_change_in_window: {min_pct_change_in_window.loc[probe_ts]:.4f}")
+        #     print(f"        - has_recent_sharp_drop: {has_recent_sharp_drop.loc[probe_ts]}")
+        #     print(f"        - deception_signal_used: {deception_signal_to_use}")
+        #     print(f"        - deception_index_raw: {deception_index_raw.loc[probe_ts]:.4f}")
+        #     print(f"        - norm_deception_index_bipolar: {norm_deception_index_bipolar.loc[probe_ts]:.4f}")
+        #     print(f"        - deception_slope_raw: {deception_slope_raw.loc[probe_ts]:.4f}")
+        #     print(f"        - norm_deception_slope_bipolar: {norm_deception_slope_bipolar.loc[probe_ts]:.4f}")
+        #     print(f"        - deception_accel_raw: {deception_accel_raw.loc[probe_ts]:.4f}")
+        #     print(f"        - norm_deception_accel_bipolar: {norm_deception_accel_bipolar.loc[probe_ts]:.4f}")
+        #     print(f"        - composite_positive_deception_score: {composite_positive_deception_score.loc[probe_ts]:.4f}")
+        #     print(f"        - positive_deception_threshold (config): {positive_deception_threshold:.4f}")
+        #     print(f"        - has_positive_deception: {has_positive_deception.loc[probe_ts]}")
+        #     print(f"        - bull_trap_condition: {bull_trap_condition.loc[probe_ts]}")
+        #     if bull_trap_condition.loc[probe_ts]:
+        #         print(f"        - deception_penalty_multiplier (config): {deception_penalty_multiplier:.2f}")
+        #         print(f"        - norm_context_modulator: {norm_context_modulator.loc[probe_ts]:.4f}")
+        #         print(f"        - context_modulator_sensitivity (config): {context_modulator_sensitivity:.2f}")
+        #         print(f"        - dynamic_penalty_sensitivity: {dynamic_penalty_sensitivity.loc[probe_ts]:.4f}")
+        #         print(f"        - penalty_strength: {penalty_strength.loc[probe_ts]:.4f}")
+        #         print(f"        - final penalty_factor: {penalty_factor.loc[probe_ts]:.4f}")
+        #     else:
+        #         print(f"        - No penalty applied for this date because bull_trap_condition is False.")
 
-        print(f"    -> [筹码层] 计算牛市陷阱情境惩罚，平均惩罚因子: {penalty_factor.mean():.4f}")
+        # print(f"    -> [筹码层] 计算牛市陷阱情境惩罚，平均惩罚因子: {penalty_factor.mean():.4f}")
         return penalty_factor
 
 

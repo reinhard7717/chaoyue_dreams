@@ -2178,7 +2178,6 @@ class FundFlowIntelligence:
         # 4. 最终双极性共振分数：方向 * 强度 * 趋势质量
         mtf_resonance_score = direction_cohesion * strength_cohesion * trend_quality_modulator
         mtf_resonance_score = mtf_resonance_score.clip(-1, 1) # 确保最终分数在 [-1, 1] 范围内
-        print(f"    -> [资金流层] 双极性多时间框架的共振/背离因子: {mtf_resonance_score.iloc[-1]:.4f}")
         return mtf_resonance_score.astype(np.float32)
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
