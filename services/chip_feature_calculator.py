@@ -114,7 +114,6 @@ class ChipFeatureCalculator:
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
-
         # --- 调试打印：检查 context 中的 suppressive_accumulation_intensity ---
         tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
         all_metrics.update(tactical_intent_metrics)
@@ -122,7 +121,6 @@ class ChipFeatureCalculator:
         print(f"    -> [ChipFeatureCalculator Debug] Context after tactical_intent_metrics update @ {trade_date}:")
         print(f"        - suppressive_accumulation_intensity in self.ctx: {self.ctx.get('suppressive_accumulation_intensity')}")
         # --- 调试打印结束 ---
-
         realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
         all_metrics.update(realtime_orderbook_metrics)
         self.ctx.update(realtime_orderbook_metrics)
@@ -295,7 +293,6 @@ class ChipFeatureCalculator:
         rally_distribution_pressure = context.get('rally_distribution_pressure', 0.0)
         suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0) # 这里获取
         trade_date = context.get('trade_date') # 获取交易日期用于调试
-
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
@@ -308,18 +305,14 @@ class ChipFeatureCalculator:
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if is_short_circuit:
             return results
-
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
         fatigue_factor = np.log1p(fatigue)
         results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
-
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
-
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
         lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
-
         # --- 调试打印 ---
         print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date}:")
         print(f"        - price_momentum: {price_momentum:.4f}")
@@ -329,16 +322,13 @@ class ChipFeatureCalculator:
         print(f"        - lure_long_score (calculated): {lure_long_score:.4f}")
         print(f"        - lure_short_score (calculated): {lure_short_score:.4f}")
         # --- 调试打印结束 ---
-
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
-
         results['control_solidity_index'] = gini * peak_transfer
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
-
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
@@ -999,7 +989,9 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 兼容性补丁】计算在第三象限升级后保留的旧版跨日迁徙指标。
+        【V1.1 · 兼容性补丁 - 派发压力修正版】计算在第三象限升级后保留的旧版跨日迁徙指标。
+        - 核心修复: 修正 `dispersal_by_distribution` 的计算，确保其结果始终为非负值，
+                     避免 `rally_distribution_pressure` 出现负值导致 `lure_long_score` 异常。
         """
         results = {
             'gathering_by_support': np.nan, 'gathering_by_chasing': np.nan,
@@ -1012,6 +1004,7 @@ class ChipFeatureCalculator:
         total_chip_vol = context.get('total_chip_volume')
         daily_vwap = context.get('daily_vwap')
         prev_metrics = context.get('prev_metrics', {})
+        trade_date = context.get('trade_date') # 获取交易日期用于调试
         if intraday_df.empty or pd.isna(total_vol) or total_vol <= 0 or 'main_force_net_vol' not in intraday_df.columns or pd.isna(daily_vwap):
             return results
         mf_net_vol = intraday_df['main_force_net_vol']
@@ -1020,13 +1013,20 @@ class ChipFeatureCalculator:
         chasing_zone = intraday_df['minute_vwap'] > daily_vwap
         results['gathering_by_support'] = mf_net_vol[support_zone].clip(lower=0).sum() / total_vol * 100
         results['gathering_by_chasing'] = mf_net_vol[chasing_zone].clip(lower=0).sum() / total_vol * 100
-        results['dispersal_by_distribution'] = -mf_net_vol[chasing_zone].clip(upper=0).sum() / total_vol * 100
+        # --- 修正 dispersal_by_distribution 的计算逻辑 ---
+        # 确保 mf_net_vol[chasing_zone].clip(upper=0).sum() 结果为负数或零
+        # 如果由于某种异常导致其为正，则将其视为0，避免 rally_distribution_pressure 出现负值
+        main_force_sell_in_chasing_zone = mf_net_vol[chasing_zone].clip(upper=0).sum()
+        if main_force_sell_in_chasing_zone > 0: # 异常情况，理论上 clip(upper=0) 后不应有正值
+            main_force_sell_in_chasing_zone = 0.0 # 强制设为0
+            print(f"    -> [ChipFeatureCalculator Warning] _compute_legacy_cross_day_metrics @ {trade_date}: main_force_sell_in_chasing_zone unexpectedly positive after clip(upper=0). Forcing to 0.")
+        results['dispersal_by_distribution'] = -main_force_sell_in_chasing_zone / total_vol * 100
+        # --- 修正结束 ---
         results['dispersal_by_capitulation'] = -mf_net_vol[support_zone].clip(upper=0).sum() / total_vol * 100
         # 2. 盈亏盘流量估算
         winner_rate = context.get('total_winner_rate', 0) / 100
         loser_rate = context.get('total_loser_rate', 0) / 100
         turnover_rate = total_vol / total_chip_vol if total_chip_vol > 0 else 0
-        # 假设卖方中盈亏比例与存量比例一致
         results['profit_taking_flow_ratio'] = turnover_rate * winner_rate * 100
         results['capitulation_flow_ratio'] = turnover_rate * loser_rate * 100
         # 3. 盈亏动量
@@ -1319,7 +1319,6 @@ class ChipFeatureCalculator:
             results['suppressive_accumulation_intensity'] = np.clip(intensity_score * 100, 0, 100)
         else:
             results['suppressive_accumulation_intensity'] = 0.0
-
         # --- 调试打印 ---
         print(f"    -> [ChipFeatureCalculator Debug] _compute_tactical_intent_metrics @ {trade_date}:")
         print(f"        - pct_change: {pct_change:.4f}")
@@ -1329,7 +1328,6 @@ class ChipFeatureCalculator:
         print(f"        - suppressive_accumulation_intensity (calculated): {results['suppressive_accumulation_intensity']:.4f}")
         print(f"        - Full results dict: {results}") # 打印完整的 results 字典
         # --- 调试打印结束 ---
-
         # 新增行：计算支撑性派发强度
         supportive_mask = pct_change >= 0 # 价格上涨或横盘时
         if supportive_mask:
