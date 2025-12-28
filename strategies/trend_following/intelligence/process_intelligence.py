@@ -342,21 +342,22 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.5 · 全息趋势与风险审判版】计算“主力拉升意图”的专属关系分数。
+        【V5.6 · 全息趋势与风险审判强化版】计算“主力拉升意图”的专属关系分数。
         - 核心升级: 将核心信号（价格变化、主力净流）升级为多时间维度（MTF）斜率/加速度融合，
                       更鲁棒地捕捉趋势和动能。
         - 风险审判强化: 增强风险审判的多时间维度感知，引入更长期的下跌趋势和资金流出背离。
         - 涨停日处理优化: 移除涨停日无条件奖励，改为根据 MTF 融合后的风险信号进行动态调整。
+        - 【强化】调整 `pre_drop_risk_factor` 的计算，确保即使短期累计涨幅为正，单日或短期内的深跌也能贡献风险。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V5.5 · 全息趋势与风险审判版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V5.6 · 全息趋势与风险审判强化版)...")
         method_name = "_calculate_main_force_rally_intent"
         
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        
-        # 引入新的风险审判信号依赖
+        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
+
         required_signals = [
             'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_slippage_index_D',
             'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
@@ -368,7 +369,6 @@ class ProcessIntelligence:
             'retail_fomo_premium_index_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         for base_sig in ['close_D', 'main_force_net_flow_calibrated_D', 'upper_shadow_selling_pressure_D', 'retail_fomo_premium_index_D']:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
@@ -387,10 +387,10 @@ class ProcessIntelligence:
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
 
         # --- 原始数据获取 ---
-        # 价格和主力净流改为MTF融合信号
         mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_mf_net_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         
+        price_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name) # 单日价格变化，用于前置下跌风险
         main_force_slippage = self._get_safe_series(df, 'main_force_slippage_index_D', 0.0, method_name=method_name)
         upward_impulse_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
@@ -408,8 +408,6 @@ class ProcessIntelligence:
         retail_fomo = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
 
         # --- 归一化处理 ---
-        # price_change_norm = self._normalize_series(price_change, df_index, bipolar=True) # 替换为MTF
-        # net_flow_norm = self._normalize_series(main_force_net_flow, df_index, bipolar=True) # 替换为MTF
         price_impact_norm = self._normalize_series(main_force_slippage, df_index, bipolar=True)
         impulse_purity_norm = self._normalize_series(upward_impulse_purity, df_index, bipolar=True)
         volume_ratio_norm = self._normalize_series(volume_ratio - 1.0, df_index, bipolar=True)
@@ -426,8 +424,8 @@ class ProcessIntelligence:
 
         # --- 1. 攻击性 (Aggressiveness) ---
         aggressiveness_score = (
-            mtf_price_trend.clip(lower=0) * 0.20 + # 使用MTF价格趋势
-            mtf_mf_net_flow.clip(lower=0) * 0.20 + # 使用MTF主力净流
+            mtf_price_trend.clip(lower=0) * 0.20 +
+            mtf_mf_net_flow.clip(lower=0) * 0.20 +
             price_impact_norm.clip(lower=0) * 0.15 +
             impulse_purity_norm.clip(lower=0) * 0.15 +
             volume_ratio_norm.clip(lower=0) * 0.10 +
@@ -454,7 +452,7 @@ class ProcessIntelligence:
         bullish_intent = (aggressiveness_score * control_score * obstacle_clearance_score).pow(1/3)
 
         # --- 5. 看跌意图 (Bearish Intent) ---
-        bearish_mask = (mtf_price_trend < 0) | (mtf_mf_net_flow < 0) # 使用MTF信号判断看跌掩码
+        bearish_mask = (mtf_price_trend < 0) | (mtf_mf_net_flow < 0)
         bearish_score = (mtf_price_trend.clip(upper=0).abs() * 0.5 + mtf_mf_net_flow.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
 
         # --- 6. 风险审判模块 (Risk Adjudication) ---
@@ -464,24 +462,26 @@ class ProcessIntelligence:
 
         distribution_intensity_norm = self._normalize_series(distribution_at_peak_intensity, df_index, bipolar=False)
         
-        # 主力资金流出背离 (Main Force Outflow Divergence) - 使用MTF主力净流的负向部分
         mf_outflow_divergence = mtf_mf_net_flow.clip(upper=0).abs()
         
         distribution_risk_score = (
             distribution_intensity_norm * 0.25 +
-            mtf_upper_shadow_pressure * 0.25 + # 使用MTF上影线压力
+            mtf_upper_shadow_pressure * 0.25 +
             mf_outflow_divergence * 0.25 +
-            mtf_retail_fomo * 0.25 # 使用MTF散户Fomo
+            mtf_retail_fomo * 0.25
         ).clip(0, 1)
 
-        # 6.2. 前置下跌风险 (Pre-Drop Risk) - 考虑更长期的下跌趋势
+        # 6.2. 前置下跌风险 (Pre-Drop Risk) - 考虑更长期的下跌趋势和单日深跌
         pre_5day_pct_change = df['close_D'].pct_change(periods=5).shift(1).fillna(0)
         pre_13day_pct_change = df['close_D'].pct_change(periods=13).shift(1).fillna(0)
         
         norm_pre_drop_5d = self._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         norm_pre_drop_13d = self._normalize_series(pre_13day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         
-        pre_drop_risk_factor = (norm_pre_drop_5d * 0.6 + norm_pre_drop_13d * 0.4) * 0.7 # 提高前置下跌风险权重
+        # 引入单日价格变化的负向部分，确保即使短期累计涨幅为正，单日深跌也能贡献风险
+        single_day_drop_risk = self._normalize_series(price_change.clip(upper=0).abs(), df_index, bipolar=False)
+
+        pre_drop_risk_factor = (norm_pre_drop_5d * 0.4 + norm_pre_drop_13d * 0.3 + single_day_drop_risk * 0.3) * 0.7
 
         # 6.3. 综合风险惩罚因子
         total_risk_penalty = (distribution_risk_score * 0.5 + pre_drop_risk_factor * 0.5).clip(0, 1)
@@ -489,7 +489,6 @@ class ProcessIntelligence:
         # --- 7. 最终意图合成 ---
         penalized_bullish_part = bullish_intent * (1 - total_risk_penalty)
         
-        # 涨停日处理：如果风险很高，则进一步惩罚，否则保持原样（不额外奖励）
         final_rally_intent = (penalized_bullish_part + bearish_score).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (total_risk_penalty > 0.5), final_rally_intent * (1 - total_risk_penalty))
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
@@ -510,6 +509,7 @@ class ProcessIntelligence:
         print(f"        - distribution_risk_score: {distribution_risk_score.iloc[-1]:.4f}")
         print(f"        - pre_5day_pct_change: {pre_5day_pct_change.iloc[-1]:.4f}")
         print(f"        - norm_pre_drop_5d: {norm_pre_drop_5d.iloc[-1]:.4f}")
+        print(f"        - single_day_drop_risk: {single_day_drop_risk.iloc[-1]:.4f}")
         print(f"        - pre_drop_risk_factor: {pre_drop_risk_factor.iloc[-1]:.4f}")
         print(f"        - total_risk_penalty: {total_risk_penalty.iloc[-1]:.4f}")
         print(f"        - penalized_bullish_part: {penalized_bullish_part.iloc[-1]:.4f}")
@@ -531,15 +531,15 @@ class ProcessIntelligence:
 
     def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2 · 控盘杠杆与全息资金流验证版】计算“主力控盘”的专属关系分数。
+        【V2.3 · 控盘杠杆与全息资金流验证强化版】计算“主力控盘”的专属关系分数。
         - 核心重构: 创立“控盘即杠杆”模型。将“控盘度”作为调节“资金流向”影响力的核心杠杆。
                       最终分 = 主力净流入分 * (1 + 融合控盘分)。
         - 证据升级: 融合传统的均线控盘度与更现代的“控盘稳固度”，形成更立体的控盘评分。
         - 【强化】引入主力资金净流向和资金流可信度作为控盘杠杆的调节因子，确保控盘的积极性。
-        - 【重要修改】修正 `control_leverage` 逻辑，当控盘不强时，对资金流入进行惩罚。
-        - 【新增】引入 MTF 控盘信号，增强信号鲁棒性。
+        - 【重要修改】修正 `control_leverage` 逻辑，当控盘不强时，对资金流入进行更强的惩罚。
+        - 【新增】引入 MTF 控盘信号和 MTF 主力资金净流，增强信号鲁棒性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (V2.2 · 控盘杠杆与全息资金流验证版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (V2.3 · 控盘杠杆与全息资金流验证强化版)...")
         method_name = "_calculate_main_force_control_relationship"
         
         # 获取MTF权重配置
@@ -550,7 +550,7 @@ class ProcessIntelligence:
 
         required_signals = ['close_D', 'main_force_net_flow_calibrated_D', 'control_solidity_index_D', 'flow_credibility_index_D']
         # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['control_solidity_index_D']:
+        for base_sig in ['control_solidity_index_D', 'main_force_net_flow_calibrated_D']:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
@@ -584,7 +584,8 @@ class ProcessIntelligence:
         # 结构控盘度：使用MTF融合信号
         mtf_structural_control_score = self._get_mtf_slope_accel_score(df, 'control_solidity_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         
-        main_force_flow_score = self._normalize_series(main_force_net_flow, df_index, bipolar=True)
+        # 主力资金流分：使用MTF融合信号
+        mtf_main_force_flow_score = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         flow_credibility_norm = self._normalize_series(flow_credibility_raw, df_index, bipolar=False)
 
         # --- 3. 融合控盘分 ---
@@ -592,18 +593,18 @@ class ProcessIntelligence:
 
         # --- 4. 控盘杠杆模型 ---
         # 杠杆效应：当控盘为正时，放大资金流入；当控盘为负时，抑制资金流入，甚至反向惩罚
-        # 引入资金流验证，确保资金流入是可信的
-        mf_inflow_validation = main_force_flow_score.clip(lower=0) * flow_credibility_norm
+        mf_inflow_validation = mtf_main_force_flow_score.clip(lower=0) * flow_credibility_norm
         
-        # 修正 control_leverage 逻辑
-        # 如果 fused_control_score > 0 (控盘强)，则放大资金流入
-        # 如果 fused_control_score <= 0 (控盘弱或负)，则抑制资金流入，甚至惩罚
         control_leverage = pd.Series(1.0, index=df_index, dtype=np.float32)
-        control_leverage = control_leverage.mask(fused_control_score > 0, 1 + fused_control_score * mf_inflow_validation) # 控盘强且资金流入可信，则放大
-        control_leverage = control_leverage.mask(fused_control_score <= 0, 1 + fused_control_score * (1 - mf_inflow_validation)) # 控盘弱，则抑制资金流入，甚至惩罚
+        # 控盘强 (fused_control_score > 0)，则放大资金流入
+        control_leverage = control_leverage.mask(fused_control_score > 0, 1 + fused_control_score * mf_inflow_validation)
+        # 控盘弱或负 (fused_control_score <= 0)，则更强地抑制资金流入，甚至反向惩罚
+        # 惩罚因子可以是非线性的，例如 (1 + fused_control_score) * (1 - mf_inflow_validation)
+        control_leverage = control_leverage.mask(fused_control_score <= 0, (1 + fused_control_score) * (1 - mf_inflow_validation * 0.5)) # 惩罚力度增强
+        control_leverage = control_leverage.clip(0, 2) # 限制杠杆范围，避免过大或过小的负值
 
         # --- 5. 最终控盘分数 ---
-        final_control_score = (main_force_flow_score * control_leverage).clip(-1, 1)
+        final_control_score = (mtf_main_force_flow_score * control_leverage).clip(-1, 1)
 
         # --- 调试信息 ---
         probe_dates = self.probe_dates
@@ -620,7 +621,7 @@ class ProcessIntelligence:
             print(f"    - traditional_control_score: {traditional_control_score.iloc[last_date_index]:.4f}")
             print(f"    - mtf_structural_control_score: {mtf_structural_control_score.iloc[last_date_index]:.4f}")
             print(f"    - fused_control_score: {fused_control_score.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_flow_score: {main_force_flow_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_main_force_flow_score: {mtf_main_force_flow_score.iloc[last_date_index]:.4f}")
             print(f"    - flow_credibility_norm: {flow_credibility_norm.iloc[last_date_index]:.4f}")
             print(f"    - mf_inflow_validation: {mf_inflow_validation.iloc[last_date_index]:.4f}")
             print(f"    - control_leverage: {control_leverage.iloc[last_date_index]:.4f}")
@@ -2324,14 +2325,15 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.3 · 战术升级与全息资金流验证版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        【V2.4 · 战术升级与全息资金流验证强化版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
         - 核心重构: 废除僵化的“AND”门槛，创立“战术评分”模型。最终分 = 前奏吸筹分 * 强攻分。
         - 证据升级: “前奏分”通过归一化消除尺度问题；“强攻分”对核心证据进行加权，更具实战性。
         - 【强化】引入资金流可信度，确保强攻的资金基础是可靠的。
         - 【强化】调整“前奏分”的计算，引入主力资金净流入的趋势，确保前奏吸筹的持续性。
-        - 【新增】将 `hidden_accumulation_intensity_D`、`buy_quote_exhaustion_rate_D` 和 `large_order_pressure_D` 升级为 MTF 融合信号。
+        - 【强化】将 `hidden_accumulation_intensity_D`、`buy_quote_exhaustion_rate_D` 和 `large_order_pressure_D` 升级为 MTF 融合信号。
+        - 【重要修改】提高 `mtf_large_pressure` 的负面影响权重，并引入 MTF 主力资金净流的负向部分。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.3 · 战术升级与全息资金流验证版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.4 · 战术升级与全息资金流验证强化版)...")
         method_name = "_calculate_fund_flow_accumulation_inflection"
         
         # 获取MTF权重配置
@@ -2346,7 +2348,7 @@ class ProcessIntelligence:
             'flow_credibility_index_D', 'SLOPE_5_main_force_net_flow_calibrated_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['hidden_accumulation_intensity_D', 'buy_quote_exhaustion_rate_D', 'large_order_pressure_D']:
+        for base_sig in ['hidden_accumulation_intensity_D', 'buy_quote_exhaustion_rate_D', 'large_order_pressure_D', 'main_force_net_flow_calibrated_D']:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
@@ -2358,10 +2360,7 @@ class ProcessIntelligence:
 
         df_index = df.index
         # 获取原料
-        # prelude_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name) # 替换为MTF
         main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
-        # buy_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name) # 替换为MTF
-        # large_pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name=method_name) # 替换为MTF
         flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
         mf_net_flow_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
 
@@ -2370,24 +2369,23 @@ class ProcessIntelligence:
         mf_net_flow_slope_norm = self._normalize_series(mf_net_flow_slope_raw.clip(lower=0), df_index, bipolar=False)
 
         # --- 1. 重铸“前奏分”，消除尺度问题并引入主力资金净流入趋势 ---
-        # 隐蔽吸筹强度：使用MTF融合信号
         mtf_hidden_accumulation = self._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         prelude_score_base = self._normalize_series(mtf_hidden_accumulation.rolling(5).mean(), df_index, bipolar=False)
         prelude_score = (prelude_score_base * mf_net_flow_slope_norm).pow(0.5)
 
         # --- 2. 重铸“强攻分”，采用加权模型并引入资金流可信度 ---
-        # 买盘枯竭率：使用MTF融合信号
         mtf_buy_exhaustion = self._get_mtf_slope_accel_score(df, 'buy_quote_exhaustion_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        # 大单压力：使用MTF融合信号
         mtf_large_pressure = self._get_mtf_slope_accel_score(df, 'large_order_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_main_force_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
 
         main_force_flow_momentum = self._normalize_series(main_force_flow_raw.diff(1).fillna(0), df_index, bipolar=True)
         
         attack_score = (
-            mtf_buy_exhaustion * 0.5 +
-            main_force_flow_momentum.clip(lower=0) * 0.3 +
-            (1 - mtf_large_pressure) * 0.1 + # 压力清除
-            flow_credibility_norm * 0.1
+            mtf_buy_exhaustion * 0.4 + # 提高买盘枯竭权重
+            main_force_flow_momentum.clip(lower=0) * 0.2 +
+            (1 - mtf_large_pressure) * 0.2 + # 提高压力清除权重
+            flow_credibility_norm * 0.1 +
+            (1 - mtf_main_force_flow.clip(upper=0).abs()) * 0.1 # 主力资金净流负向部分越小越好
         ).clip(0, 1)
 
         # --- 3. 最终审判 ---
@@ -2413,6 +2411,7 @@ class ProcessIntelligence:
             print(f"    - main_force_flow_momentum: {main_force_flow_momentum.iloc[last_date_index]:.4f}")
             print(f"    - mtf_large_pressure: {mtf_large_pressure.iloc[last_date_index]:.4f}")
             print(f"    - flow_credibility_norm: {flow_credibility_norm.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_main_force_flow: {mtf_main_force_flow.iloc[last_date_index]:.4f}")
             print(f"    - attack_score: {attack_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]: ")
             print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
@@ -2504,15 +2503,15 @@ class ProcessIntelligence:
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.2 · 协同共振与全息资金流验证版】“个股板块协同共振”专属关系计算引擎
+        【V3.3 · 协同共振与全息资金流验证强化版】“个股板块协同共振”专属关系计算引擎
         - 核心重构: 创立“协同共振模型”，明确区分看涨和看跌协同，并融入板块动量。
         - 信号升级: 个股强度由 `pct_change_D` 直接衡量，板块强度由 `industry_strength_rank_D` 衡量，
                       并新增 `SLOPE_5_industry_strength_rank_D` 捕捉板块动量。
         - 【强化】引入主力资金净流向和资金流可信度作为判断看涨协同真实性的关键证据。
         - 【重要修改】强化板块动量的门控作用，只有当板块动量为正时，才允许个股的看涨协同被放大。
-        - 【新增】引入 MTF 板块动量，增强信号鲁棒性。
+        - 【新增】引入 MTF 板块动量和 MTF 行业强度排名，增强信号鲁棒性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STOCK_SECTOR_SYNC (V3.2 · 协同共振与全息资金流验证版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_STOCK_SECTOR_SYNC (V3.3 · 协同共振与全息资金流验证强化版)...")
         method_name = "_calculate_stock_sector_sync"
         stock_signal_name = 'pct_change_D'
         sector_rank_name = 'industry_strength_rank_D'
@@ -2528,7 +2527,7 @@ class ProcessIntelligence:
 
         required_signals = [stock_signal_name, sector_rank_name, sector_momentum_name, main_force_net_flow_name, flow_credibility_name]
         # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['industry_strength_rank_D']: # 板块动量
+        for base_sig in ['industry_strength_rank_D']:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
@@ -2548,7 +2547,8 @@ class ProcessIntelligence:
 
         # 归一化当前状态和动量
         stock_strength_score = self._normalize_series(stock_signal_raw, target_index=df_index, bipolar=True)
-        sector_rank_score = self._normalize_series(sector_rank_raw, target_index=df_index, bipolar=False)
+        # 行业强度排名：使用MTF融合信号
+        mtf_sector_rank_score = self._get_mtf_slope_accel_score(df, 'industry_strength_rank_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # 板块动量：使用MTF融合信号
         mtf_sector_momentum_score = self._get_mtf_slope_accel_score(df, 'industry_strength_rank_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         
@@ -2559,18 +2559,19 @@ class ProcessIntelligence:
         # 1. 提取个股正向运动
         bullish_stock_movement = stock_strength_score.clip(lower=0)
         # 2. 提取板块正向强度和正向动量
-        sector_strength_context_bullish = sector_rank_score
-        sector_momentum_context_bullish = mtf_sector_momentum_score.clip(lower=0) # 使用MTF板块动量
+        sector_strength_context_bullish = mtf_sector_rank_score # 使用MTF行业强度排名
+        sector_momentum_context_bullish = mtf_sector_momentum_score.clip(lower=0)
         # 3. 计算板块看涨共振因子 (几何平均，要求两者都为正才高)
         bullish_sector_resonance = (sector_strength_context_bullish * sector_momentum_context_bullish).pow(0.5).fillna(0.0)
         
         # 4. 引入主力资金净流入和资金流可信度作为看涨放大因子
         mf_inflow_factor = main_force_net_flow_norm.clip(lower=0) * flow_credibility_norm
         
-        # 强化板块动量的门控作用：只有当板块动量为正时，才允许个股的看涨协同被放大
+        # 强化板块动量的门控作用：只有当板块动量为正且达到一定阈值时，才允许个股的看涨协同被放大
         bullish_amplification_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        bullish_amplification_factor = bullish_amplification_factor.mask(sector_momentum_context_bullish > 0.1, 1 + bullish_sector_resonance * mf_inflow_factor) # 板块动量为正才放大
-        
+        bullish_amplification_factor = bullish_amplification_factor.mask(sector_momentum_context_bullish > 0.1, 1 + bullish_sector_resonance * mf_inflow_factor)
+        bullish_amplification_factor = bullish_amplification_factor.mask(sector_momentum_context_bullish <= 0.1, 0.0) # 板块动量不足时，直接归零
+
         # 5. 最终看涨协同分数
         final_bullish_score = bullish_stock_movement * bullish_amplification_factor
 
@@ -2578,8 +2579,8 @@ class ProcessIntelligence:
         # 1. 提取个股负向运动的绝对值
         bearish_stock_movement = stock_strength_score.clip(upper=0).abs()
         # 2. 提取板块负向强度和负向动量
-        sector_weakness_context_bearish = (1 - sector_rank_score)
-        sector_negative_momentum_context_bearish = mtf_sector_momentum_score.clip(upper=0).abs() # 使用MTF板块动量
+        sector_weakness_context_bearish = (1 - mtf_sector_rank_score) # 使用MTF行业强度排名
+        sector_negative_momentum_context_bearish = mtf_sector_momentum_score.clip(upper=0).abs()
         # 3. 计算板块看跌共振因子 (几何平均)
         bearish_sector_resonance = (sector_weakness_context_bearish * sector_negative_momentum_context_bearish).pow(0.5).fillna(0.0)
         # 4. 计算看跌放大因子
@@ -2605,7 +2606,7 @@ class ProcessIntelligence:
             print(f"    - {flow_credibility_name}: {flow_credibility_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算 (归一化/中间分)]: ")
             print(f"    - stock_strength_score (bipolar): {stock_strength_score.iloc[last_date_index]:.4f}")
-            print(f"    - sector_rank_score (unipolar): {sector_rank_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_sector_rank_score (unipolar): {mtf_sector_rank_score.iloc[last_date_index]:.4f}")
             print(f"    - mtf_sector_momentum_score (bipolar): {mtf_sector_momentum_score.iloc[last_date_index]:.4f}")
             print(f"    - main_force_net_flow_norm (bipolar): {main_force_net_flow_norm.iloc[last_date_index]:.4f}")
             print(f"    - flow_credibility_norm (unipolar): {flow_credibility_norm.iloc[last_date_index]:.4f}")
