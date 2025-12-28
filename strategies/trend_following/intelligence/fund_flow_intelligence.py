@@ -554,7 +554,7 @@ class FundFlowIntelligence:
         mtf_cohesion_micro_control_weights = get_param_value(mtf_cohesion_params.get('micro_control_weights'), {"order_book_imbalance": 0.5, "microstructure_efficiency": 0.5})
         mtf_cohesion_deception_weights = get_param_value(mtf_cohesion_params.get('deception_weights'), {"deception_index": 0.5, "wash_trade_intensity": 0.5})
         required_signals = [
-            'main_force_net_flow_calibrated_D', 'ATR_14_D',
+            'main_force_net_flow_calibrated_D', 'ATR_14_D', 'retail_net_flow_calibrated_D',
             'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
             'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D',
             'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
