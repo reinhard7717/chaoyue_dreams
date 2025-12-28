@@ -257,8 +257,10 @@
                 "description": "信念传导效率融合权重。",
                 "main_force_execution_alpha_slope_5": 0.2,
                 "main_force_execution_alpha_slope_13": 0.1,
-                "flow_efficiency_slope_5": 0.2,
-                "flow_efficiency_slope_13": 0.1,
+                "buy_flow_efficiency_slope_5": 0.15,
+                "buy_flow_efficiency_slope_13": 0.05,
+                "sell_flow_efficiency_slope_5": -0.15,
+                "sell_flow_efficiency_slope_13": -0.05,
                 "intraday_price_impact": 0.2,
                 "large_order_pressure": 0.1,
                 "intraday_vwap_deviation": 0.1
@@ -324,7 +326,8 @@
                 "comment_deception_weights": "诡道博弈信号的MTF共振因子融合权重。",
                 "efficiency_weights": {
                     "main_force_execution_alpha": 0.5,
-                    "flow_efficiency": 0.5
+                    "buy_flow_efficiency": 0.25,
+                    "sell_flow_efficiency": 0.25
                 },
                 "comment_efficiency_weights": "信念传导效率信号的MTF共振因子融合权重。"
             }

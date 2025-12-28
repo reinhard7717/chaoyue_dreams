@@ -925,6 +925,7 @@ class FundFlowIntelligence:
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         - 核心升级: 引入多时间框架共振因子，评估关键信念信号在不同时间框架下的协同或背离，作为重要的调制器。
+        - 核心细化: 将资金流效率从 `flow_efficiency_index_D` 细化为 `buy_flow_efficiency_index_D` 和 `sell_flow_efficiency_index_D`。
         """
         print(f"    -> [资金流层] 正在诊断 资金流公理二：诊断“信念韧性”")
         df_index = df.index
@@ -945,7 +946,13 @@ class FundFlowIntelligence:
         deception_slope_weights = get_param_value(ac_params.get('deception_slope_weights'), {'slope_5': 0.5, 'slope_13': 0.3, 'slope_21': 0.2})
         wash_trade_slope_weights = get_param_value(ac_params.get('wash_trade_slope_weights'), {'slope_5': 0.5, 'slope_13': 0.3, 'slope_21': 0.2})
         conviction_feedback_sensitivity = get_param_value(ac_params.get('conviction_feedback_sensitivity'), 0.2)
-        transmission_efficiency_weights = get_param_value(ac_params.get('transmission_efficiency_weights'), {'main_force_execution_alpha_slope_5': 0.2, 'main_force_execution_alpha_slope_13': 0.1, 'flow_efficiency_slope_5': 0.2, 'flow_efficiency_slope_13': 0.1, 'intraday_price_impact': 0.2, 'large_order_pressure': 0.1, 'intraday_vwap_deviation': 0.1})
+        # 修正：更新 transmission_efficiency_weights，移除 flow_efficiency_slope，添加 buy/sell_flow_efficiency_slope
+        transmission_efficiency_weights = get_param_value(ac_params.get('transmission_efficiency_weights'), {
+            'main_force_execution_alpha_slope_5': 0.2, 'main_force_execution_alpha_slope_13': 0.1,
+            'buy_flow_efficiency_slope_5': 0.15, 'buy_flow_efficiency_slope_13': 0.05,
+            'sell_flow_efficiency_slope_5': -0.15, 'sell_flow_efficiency_slope_13': -0.05, # 卖方效率为负贡献
+            'intraday_price_impact': 0.2, 'large_order_pressure': 0.1, 'intraday_vwap_deviation': 0.1
+        })
         dynamic_weight_mod_enabled = get_param_value(ac_params.get('dynamic_weight_mod_enabled'), True)
         core_conviction_base_weight = get_param_value(ac_params.get('core_conviction_base_weight'), 0.4)
         deceptive_resilience_base_weight = get_param_value(ac_params.get('deceptive_resilience_base_weight'), 0.3)
@@ -970,6 +977,7 @@ class FundFlowIntelligence:
             'retail_buy_ofi': -0.05, 'retail_sell_ofi': 0.05,
             'wash_trade_buy_volume': -0.05, 'wash_trade_sell_volume': -0.05
         })
+
         # 新增：MTF共振因子参数
         mtf_cohesion_params = get_param_value(ac_params.get('mtf_cohesion_params'), {})
         mtf_cohesion_enabled = get_param_value(mtf_cohesion_params.get('enabled'), True)
@@ -978,7 +986,13 @@ class FundFlowIntelligence:
         mtf_cohesion_modulator_sensitivity = get_param_value(mtf_cohesion_params.get('modulator_sensitivity'), 0.5)
         mtf_cohesion_conviction_weights = get_param_value(mtf_cohesion_params.get('conviction_weights'), {"main_force_conviction": 0.5, "smart_money_net_buy": 0.5})
         mtf_cohesion_deception_weights = get_param_value(mtf_cohesion_params.get('deception_weights'), {"deception_index": 0.5, "wash_trade_intensity": 0.5})
-        mtf_cohesion_efficiency_weights = get_param_value(mtf_cohesion_params.get('efficiency_weights'), {"main_force_execution_alpha": 0.5, "flow_efficiency": 0.5})
+        # 修正：更新 mtf_cohesion_efficiency_weights，移除 flow_efficiency，添加 buy/sell_flow_efficiency
+        mtf_cohesion_efficiency_weights = get_param_value(mtf_cohesion_params.get('efficiency_weights'), {
+            "main_force_execution_alpha": 0.5,
+            "buy_flow_efficiency": 0.25,
+            "sell_flow_efficiency": 0.25
+        })
+
         required_signals = [
             'SLOPE_5_main_force_conviction_index_D', 'SLOPE_13_main_force_conviction_index_D', 'SLOPE_21_main_force_conviction_index_D',
             'SLOPE_5_SMART_MONEY_HM_NET_BUY_D', 'SLOPE_13_SMART_MONEY_HM_NET_BUY_D',
@@ -989,42 +1003,61 @@ class FundFlowIntelligence:
             'SLOPE_5_wash_trade_intensity_D', 'SLOPE_13_wash_trade_intensity_D', 'SLOPE_21_wash_trade_intensity_D',
             'main_force_cost_advantage_D', resilience_context_modulator_signal_1_name, resilience_context_modulator_signal_3_name,
             'SLOPE_5_main_force_execution_alpha_D', 'SLOPE_13_main_force_execution_alpha_D',
-            'SLOPE_5_flow_efficiency_index_D', 'SLOPE_13_flow_efficiency_index_D',
+            # 修正：移除 flow_efficiency_index_D 的斜率，添加 buy/sell_flow_efficiency_index_D 的斜率
+            'SLOPE_5_buy_flow_efficiency_index_D', 'SLOPE_13_buy_flow_efficiency_index_D',
+            'SLOPE_5_sell_flow_efficiency_index_D', 'SLOPE_13_sell_flow_efficiency_index_D',
             'micro_price_impact_asymmetry_D', 'large_order_pressure_D', 'intraday_vwap_div_index_D',
             dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name, dynamic_weight_modulator_signal_3_name, dynamic_weight_modulator_signal_4_name,
             dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name,
             'rally_sell_distribution_intensity_D', 'rally_buy_support_weakness_D',
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
-            'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D'
+            'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D',
+            # 确保所有可能用到的周期都包含在 required_signals 中，特别是 55
+            'SLOPE_55_main_force_conviction_index_D', 'ACCEL_55_main_force_conviction_index_D',
+            'SLOPE_55_SMART_MONEY_HM_NET_BUY_D', 'ACCEL_55_SMART_MONEY_HM_NET_BUY_D',
+            'SLOPE_55_deception_index_D', 'ACCEL_55_deception_index_D',
+            'SLOPE_55_wash_trade_intensity_D', 'ACCEL_55_wash_trade_intensity_D',
+            'SLOPE_55_main_force_execution_alpha_D', 'ACCEL_55_main_force_execution_alpha_D',
+            'SLOPE_55_buy_flow_efficiency_index_D', 'ACCEL_55_buy_flow_efficiency_index_D',
+            'SLOPE_55_sell_flow_efficiency_index_D', 'ACCEL_55_sell_flow_efficiency_index_D'
         ]
+        required_signals = list(set(required_signals)) # 去重
+
         # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
         # 收集所有需要预取的信号基础名称和周期
-        slope_periods = [5, 13, 21] # 假设这些是所有斜率信号的最大周期
-        accel_periods = [5, 13, 21] # 假设这些是所有加速度信号的最大周期
+        slope_periods = [5, 13, 21, 55] # 包含所有可能用到的斜率周期
+        accel_periods = [5, 13, 21, 55] # 包含所有可能用到的加速度周期
         all_mtf_periods = list(set(slope_periods + accel_periods + mtf_cohesion_short_periods + mtf_cohesion_long_periods))
+
         signal_bases_to_prefetch_slope = [
             'main_force_conviction_index_D', 'SMART_MONEY_HM_NET_BUY_D', 'deception_index_D',
-            'wash_trade_intensity_D', 'main_force_execution_alpha_D', 'flow_efficiency_index_D'
+            'wash_trade_intensity_D', 'main_force_execution_alpha_D',
+            'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D' # 修正：添加 buy/sell_flow_efficiency_index_D
         ]
         for signal_base in signal_bases_to_prefetch_slope:
             for p in all_mtf_periods: # 使用所有MTF周期进行预取
                 all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name="_diagnose_axiom_conviction")
+        
         signal_bases_to_prefetch_accel = [
             'main_force_conviction_index_D', 'SMART_MONEY_HM_NET_BUY_D', 'deception_index_D',
-            'wash_trade_intensity_D', 'main_force_execution_alpha_D', 'flow_efficiency_index_D'
+            'wash_trade_intensity_D', 'main_force_execution_alpha_D',
+            'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D' # 修正：添加 buy/sell_flow_efficiency_index_D
         ]
         for signal_base in signal_bases_to_prefetch_accel:
             for p in all_mtf_periods: # 使用所有MTF周期进行预取
                 all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name="_diagnose_axiom_conviction")
+
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_conviction"):
             return pd.Series(0.0, index=df.index)
         # --- 原始数据获取 (用于探针和计算) ---
         raw_data_cache = {}
         for signal_name in required_signals:
-            # 避免重复获取已在 all_pre_fetched_slopes_accels 中的斜率/加速度数据
-            if signal_name not in all_pre_fetched_slopes_accels:
+            # 修正：如果信号在 all_pre_fetched_slopes_accels 中，则从那里获取，否则从 df 中获取
+            if signal_name in all_pre_fetched_slopes_accels:
+                raw_data_cache[signal_name] = all_pre_fetched_slopes_accels[signal_name]
+            else:
                 raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name="_diagnose_axiom_conviction")
         # Core Conviction
         mf_conviction_slope_5_raw = raw_data_cache.get('SLOPE_5_main_force_conviction_index_D', all_pre_fetched_slopes_accels.get('SLOPE_5_main_force_conviction_index_D'))
@@ -1052,8 +1085,11 @@ class FundFlowIntelligence:
         # Transmission Efficiency
         mf_exec_alpha_slope_5_raw = raw_data_cache.get('SLOPE_5_main_force_execution_alpha_D', all_pre_fetched_slopes_accels.get('SLOPE_5_main_force_execution_alpha_D'))
         mf_exec_alpha_slope_13_raw = raw_data_cache.get('SLOPE_13_main_force_execution_alpha_D', all_pre_fetched_slopes_accels.get('SLOPE_13_main_force_execution_alpha_D'))
-        flow_efficiency_slope_5_raw = raw_data_cache.get('SLOPE_5_flow_efficiency_index_D', all_pre_fetched_slopes_accels.get('SLOPE_5_flow_efficiency_index_D'))
-        flow_efficiency_slope_13_raw = raw_data_cache.get('SLOPE_13_flow_efficiency_index_D', all_pre_fetched_slopes_accels.get('SLOPE_13_flow_efficiency_index_D'))
+        # 修正：获取 buy/sell_flow_efficiency_index_D 的斜率
+        buy_flow_efficiency_slope_5_raw = raw_data_cache.get('SLOPE_5_buy_flow_efficiency_index_D', all_pre_fetched_slopes_accels.get('SLOPE_5_buy_flow_efficiency_index_D'))
+        buy_flow_efficiency_slope_13_raw = raw_data_cache.get('SLOPE_13_buy_flow_efficiency_index_D', all_pre_fetched_slopes_accels.get('SLOPE_13_buy_flow_efficiency_index_D'))
+        sell_flow_efficiency_slope_5_raw = raw_data_cache.get('SLOPE_5_sell_flow_efficiency_index_D', all_pre_fetched_slopes_accels.get('SLOPE_5_sell_flow_efficiency_index_D'))
+        sell_flow_efficiency_slope_13_raw = raw_data_cache.get('SLOPE_13_sell_flow_efficiency_index_D', all_pre_fetched_slopes_accels.get('SLOPE_13_sell_flow_efficiency_index_D'))
         intraday_price_impact_raw = raw_data_cache['micro_price_impact_asymmetry_D']
         large_order_pressure_raw = raw_data_cache['large_order_pressure_D']
         intraday_vwap_deviation_raw = raw_data_cache['intraday_vwap_div_index_D']
@@ -1073,20 +1109,27 @@ class FundFlowIntelligence:
         retail_sell_ofi_raw = raw_data_cache['retail_sell_ofi_D']
         wash_trade_buy_volume_raw = raw_data_cache['wash_trade_buy_volume_D']
         wash_trade_sell_volume_raw = raw_data_cache['wash_trade_sell_volume_D']
+
         # --- MTF共振因子计算 ---
         mf_conviction_cohesion = pd.Series(1.0, index=df_index)
         sm_net_buy_cohesion = pd.Series(1.0, index=df_index)
         deception_cohesion = pd.Series(1.0, index=df_index)
         wash_trade_cohesion = pd.Series(1.0, index=df_index)
         mf_exec_alpha_cohesion = pd.Series(1.0, index=df_index)
-        flow_efficiency_cohesion = pd.Series(1.0, index=df_index)
+        # 修正：拆分 flow_efficiency_cohesion 为 buy/sell_flow_efficiency_cohesion
+        buy_flow_efficiency_cohesion = pd.Series(1.0, index=df_index)
+        sell_flow_efficiency_cohesion = pd.Series(1.0, index=df_index)
+
         if mtf_cohesion_enabled:
             mf_conviction_cohesion = self._calculate_mtf_cohesion_divergence(df, 'main_force_conviction_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             sm_net_buy_cohesion = self._calculate_mtf_cohesion_divergence(df, 'SMART_MONEY_HM_NET_BUY_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             deception_cohesion = self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             wash_trade_cohesion = self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             mf_exec_alpha_cohesion = self._calculate_mtf_cohesion_divergence(df, 'main_force_execution_alpha_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            flow_efficiency_cohesion = self._calculate_mtf_cohesion_divergence(df, 'flow_efficiency_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+            # 修正：计算 buy/sell_flow_efficiency_cohesion
+            buy_flow_efficiency_cohesion = self._calculate_mtf_cohesion_divergence(df, 'buy_flow_efficiency_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+            sell_flow_efficiency_cohesion = self._calculate_mtf_cohesion_divergence(df, 'sell_flow_efficiency_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+
         # --- 1. 核心信念强度 (Core Conviction Strength) ---
         norm_mf_conviction_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_5_raw, df_index, tf_weights_ff)
         norm_mf_conviction_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_13_raw, df_index, tf_weights_ff)
@@ -1096,6 +1139,7 @@ class FundFlowIntelligence:
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_intraday_large_order_flow = get_adaptive_mtf_normalized_bipolar_score(intraday_large_order_flow_synthesized, df_index, tf_weights=tf_weights_ff)
         norm_main_force_flow_purity = get_adaptive_mtf_normalized_score(main_force_flow_purity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        
         core_conviction_score = (
             norm_mf_conviction_slope_5 * core_conviction_weights.get('main_force_conviction_slope_5', 0.2) * (1 + mf_conviction_cohesion * mtf_cohesion_conviction_weights.get('main_force_conviction', 0.5) * mtf_cohesion_modulator_sensitivity) +
             norm_mf_conviction_slope_13 * core_conviction_weights.get('main_force_conviction_slope_13', 0.2) * (1 + mf_conviction_cohesion * mtf_cohesion_conviction_weights.get('main_force_conviction', 0.5) * mtf_cohesion_modulator_sensitivity) +
@@ -1105,14 +1149,14 @@ class FundFlowIntelligence:
             norm_flow_credibility * core_conviction_weights.get('flow_credibility', 0.1) +
             norm_intraday_large_order_flow * core_conviction_weights.get('intraday_large_order_flow', 0.1)
         ).clip(-1, 1)
-        norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(rally_sell_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(rally_buy_support_weakness_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(main_force_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_main_force_sell_ofi = get_adaptive_mtf_normalized_score(main_force_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_retail_buy_ofi = get_adaptive_mtf_normalized_score(retail_buy_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(retail_sell_ofi_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(wash_trade_buy_volume_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(wash_trade_sell_volume_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(raw_data_cache['rally_sell_distribution_intensity_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(raw_data_cache['rally_buy_support_weakness_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['main_force_buy_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_main_force_sell_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['main_force_sell_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_retail_buy_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['retail_buy_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['retail_sell_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_buy_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_sell_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         core_conviction_score = core_conviction_score + \
                                 (norm_main_force_buy_ofi * core_conviction_weights_v4_1.get('main_force_buy_ofi', 0.1)) + \
                                 (norm_retail_sell_ofi * core_conviction_weights_v4_1.get('retail_sell_ofi', 0.05)) - \
@@ -1123,6 +1167,7 @@ class FundFlowIntelligence:
                                 (norm_wash_trade_buy_volume * core_conviction_weights_v4_1.get('wash_trade_buy_volume', -0.05)) - \
                                 (norm_wash_trade_sell_volume * core_conviction_weights_v4_1.get('wash_trade_sell_volume', -0.05))
         core_conviction_score = core_conviction_score.clip(-1, 1)
+
         # --- 2. 诡道博弈韧性调制 (Deceptive Resilience Modulation) ---
         deceptive_resilience_modulator = pd.Series(1.0, index=df_index)
         if deceptive_resilience_mod_enabled:
@@ -1153,31 +1198,42 @@ class FundFlowIntelligence:
             # 引入欺骗和对倒的MTF共振因子
             deception_cohesion_mod = (1 + deception_cohesion * mtf_cohesion_deception_weights.get('deception_index', 0.5) * mtf_cohesion_modulator_sensitivity)
             wash_trade_cohesion_mod = (1 + wash_trade_cohesion * mtf_cohesion_deception_weights.get('wash_trade_intensity', 0.5) * mtf_cohesion_modulator_sensitivity)
+
             deceptive_resilience_modulator = deceptive_resilience_modulator * (1 - norm_wash_trade_multi_tf * wash_trade_penalty_factor * conviction_feedback_mod.clip(0.5, 1.5) * sentiment_mod.clip(0.5, 1.5) * liquidity_mod.clip(0.5, 1.5) * wash_trade_cohesion_mod)
             bull_trap_mask = (norm_deception_multi_tf > 0)
             deceptive_resilience_modulator.loc[bull_trap_mask] = deceptive_resilience_modulator.loc[bull_trap_mask] * (1 - norm_deception_multi_tf.loc[bull_trap_mask] * deception_penalty_factor * conviction_feedback_mod.loc[bull_trap_mask].clip(0.5, 1.5) * sentiment_mod.loc[bull_trap_mask].clip(0.5, 1.5) * liquidity_mod.loc[bull_trap_mask].clip(0.5, 1.5) * deception_cohesion_mod.loc[bull_trap_mask])
             bear_trap_resilience_mask = (norm_deception_multi_tf < 0) & (norm_cost_advantage > 0.5) & (norm_market_sentiment < -0.5) & (norm_market_liquidity < 0.5) & (core_conviction_score > 0.2)
             deceptive_resilience_modulator.loc[bear_trap_resilience_mask] = deceptive_resilience_modulator.loc[bear_trap_resilience_mask] * (1 + norm_deception_multi_tf.loc[bear_trap_resilience_mask].abs() * deception_penalty_factor * cost_advantage_mod.loc[bear_trap_resilience_mask].clip(0.5, 1.5) * (1 - liquidity_mod.loc[bear_trap_resilience_mask].clip(0.5, 1.5)) * deception_cohesion_mod.loc[bear_trap_resilience_mask])
             deceptive_resilience_modulator = deceptive_resilience_modulator.clip(0.01, 2.0)
+
         # --- 3. 信念传导效率 (Conviction Transmission Efficiency) ---
         norm_mf_exec_alpha_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_5_raw, df_index, tf_weights_ff)
         norm_mf_exec_alpha_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_13_raw, df_index, tf_weights_ff)
-        norm_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_slope_5_raw, df_index, tf_weights_ff)
-        norm_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_slope_13_raw, df_index, tf_weights_ff)
+        # 修正：获取 buy/sell_flow_efficiency_index_D 的斜率并归一化
+        norm_buy_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(buy_flow_efficiency_slope_5_raw, df_index, tf_weights_ff)
+        norm_buy_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(buy_flow_efficiency_slope_13_raw, df_index, tf_weights_ff)
+        norm_sell_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sell_flow_efficiency_slope_5_raw, df_index, tf_weights_ff)
+        norm_sell_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(sell_flow_efficiency_slope_13_raw, df_index, tf_weights_ff)
+
         norm_intraday_price_impact = get_adaptive_mtf_normalized_bipolar_score(intraday_price_impact_raw, df_index, tf_weights=tf_weights_ff)
         norm_large_order_pressure = get_adaptive_mtf_normalized_score(large_order_pressure_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_intraday_vwap_deviation = get_adaptive_mtf_normalized_score(intraday_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
         efficiency_ratio = (norm_intraday_price_impact + (1 - norm_intraday_vwap_deviation)) / (norm_large_order_pressure + 1e-9)
         norm_efficiency_ratio = get_adaptive_mtf_normalized_score(efficiency_ratio, df_index, ascending=True, tf_weights=tf_weights_ff)
+        
         transmission_efficiency_score = (
             norm_mf_exec_alpha_slope_5 * transmission_efficiency_weights.get('main_force_execution_alpha_slope_5', 0.2) * (1 + mf_exec_alpha_cohesion * mtf_cohesion_efficiency_weights.get('main_force_execution_alpha', 0.5) * mtf_cohesion_modulator_sensitivity) +
             norm_mf_exec_alpha_slope_13 * transmission_efficiency_weights.get('main_force_execution_alpha_slope_13', 0.1) * (1 + mf_exec_alpha_cohesion * mtf_cohesion_efficiency_weights.get('main_force_execution_alpha', 0.5) * mtf_cohesion_modulator_sensitivity) +
-            norm_flow_efficiency_slope_5 * transmission_efficiency_weights.get('flow_efficiency_slope_5', 0.2) * (1 + flow_efficiency_cohesion * mtf_cohesion_efficiency_weights.get('flow_efficiency', 0.5) * mtf_cohesion_modulator_sensitivity) +
-            norm_flow_efficiency_slope_13 * transmission_efficiency_weights.get('flow_efficiency_slope_13', 0.1) * (1 + flow_efficiency_cohesion * mtf_cohesion_efficiency_weights.get('flow_efficiency', 0.5) * mtf_cohesion_modulator_sensitivity) +
+            # 修正：融合 buy/sell_flow_efficiency_index_D 的斜率
+            norm_buy_flow_efficiency_slope_5 * transmission_efficiency_weights.get('buy_flow_efficiency_slope_5', 0.15) * (1 + buy_flow_efficiency_cohesion * mtf_cohesion_efficiency_weights.get('buy_flow_efficiency', 0.25) * mtf_cohesion_modulator_sensitivity) +
+            norm_buy_flow_efficiency_slope_13 * transmission_efficiency_weights.get('buy_flow_efficiency_slope_13', 0.05) * (1 + buy_flow_efficiency_cohesion * mtf_cohesion_efficiency_weights.get('buy_flow_efficiency', 0.25) * mtf_cohesion_modulator_sensitivity) +
+            norm_sell_flow_efficiency_slope_5 * transmission_efficiency_weights.get('sell_flow_efficiency_slope_5', -0.15) * (1 + sell_flow_efficiency_cohesion * mtf_cohesion_efficiency_weights.get('sell_flow_efficiency', 0.25) * mtf_cohesion_modulator_sensitivity) +
+            norm_sell_flow_efficiency_slope_13 * transmission_efficiency_weights.get('sell_flow_efficiency_slope_13', -0.05) * (1 + sell_flow_efficiency_cohesion * mtf_cohesion_efficiency_weights.get('sell_flow_efficiency', 0.25) * mtf_cohesion_modulator_sensitivity) +
             norm_intraday_price_impact * transmission_efficiency_weights.get('intraday_price_impact', 0.2) +
             norm_large_order_pressure * transmission_efficiency_weights.get('large_order_pressure', 0.1) +
             norm_intraday_vwap_deviation * transmission_efficiency_weights.get('intraday_vwap_deviation', 0.1)
         ).clip(-1, 1)
+
         # --- 4. 动态情境自适应权重 (Dynamic Contextual Weighting) ---
         dynamic_core_conviction_weight = pd.Series(core_conviction_base_weight, index=df_index)
         dynamic_deceptive_resilience_weight = pd.Series(deceptive_resilience_base_weight, index=df_index)
