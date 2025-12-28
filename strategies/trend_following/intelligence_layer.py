@@ -66,20 +66,33 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V426.3 · 进攻风险分离与动能质量过滤适配版】情报层总指挥官
+        【V426.4 · 进攻风险分离与动能质量过滤适配版 & 调试标志前置版】情报层总指挥官
         - 核心适配: 捕获 OffensiveLayer 返回的总进攻得分和总风险惩罚，并存储到 df_indicators。
         - 核心重构: 彻底改变日内引擎的调用方式。不再依赖不存在的分钟线数据，
                       而是直接将日线DataFrame传递给重构后的日内引擎，
                       使其能够基于预计算的日线级日内信号进行合成与解读。
         - 错误修复: 移除了 IntelligenceLayer 中对 calculate_context_scores 的冗余调用和对 strategy 属性的错误赋值。
                     现在 IntelligenceLayer 仅负责生成原子状态和剧本状态，并将 OffensiveLayer 的结果存储。
+        - **新增业务逻辑：将调试标志的初始化前置，确保所有情报模块都能正确访问。**
         """
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         self.strategy.playbook_states = {}
         self.strategy.exit_triggers = pd.DataFrame(index=df.index)
+        # --- 新增逻辑：前置调试标志的初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        self.probes.should_probe = debug_params.get('enabled', {}).get('value', False)
+        probe_dates_list = debug_params.get('probe_dates')
+        if not probe_dates_list:
+            single_date = debug_params.get('probe_date')
+            if single_date:
+                probe_dates_list = [single_date]
+        if probe_dates_list and isinstance(probe_dates_list, list):
+            self.probes.probe_dates_set = {pd.to_datetime(d).date() for d in probe_dates_list if d}
+        else:
+            self.probes.probe_dates_set = set()
+        # --- 调试标志初始化结束 ---
         def update_states(new_states: Dict):
-            # 简化update_states，因为所有引擎现在都应返回Series字典
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
@@ -88,7 +101,6 @@ class IntelligenceLayer:
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
         # 重构日内引擎的调用逻辑
         try:
-            # 直接调用日内引擎，并传递日线DataFrame
             intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
             update_states(intraday_results)
         except Exception as e:
@@ -108,50 +120,26 @@ class IntelligenceLayer:
         self._ignite_relational_dynamics_engine()
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
-        # IntelligenceLayer 不再计算或存储 bottom_context_score 和 top_context_score。
-        # 这些分数由 TrendFollowStrategy.apply_strategy 计算并直接传递给 OffensiveLayer。
-        # 因此，这里 OffensiveLayer.calculate_entry_score 的调用需要从 TrendFollowStrategy.apply_strategy 处获取这些参数。
-        # 为了保持 OffensiveLayer.calculate_entry_score 的签名不变，
-        # 我们需要确保在 IntelligenceLayer 调用它时，这些参数是可用的。
-        # 最直接的方式是让 OffensiveLayer 成为 IntelligenceLayer 的属性，
-        # 并在 IntelligenceLayer 内部调用 OffensiveLayer 的方法时，
-        # 传递从 self.strategy 获取的上下文分数。
-        # 但是，根据当前的架构，OffensiveLayer 是 TrendFollowStrategy 的属性，
-        # 并且 OffensiveLayer.calculate_entry_score 是由 TrendFollowStrategy.apply_strategy 调用的。
-        # 所以，IntelligenceLayer 应该只负责生成 atomic_states 和 playbook_states，
-        # 而 OffensiveLayer 的调用和上下文分数的传递应该在 TrendFollowStrategy.apply_strategy 中完成。
-        # 移除之前错误的 OffensiveLayer 调用和 score_details_df 赋值
-        # total_offensive_score, total_risk_sum, score_details_df = self.strategy.offensive_layer.calculate_entry_score(
-        #     self.strategy.trigger_events, self.strategy.bottom_context_score, self.strategy.top_context_score
-        # )
-        # self.strategy.df_indicators['entry_score'] = total_offensive_score
-        # self.strategy.df_indicators['total_risk_sum'] = total_risk_sum
-        # self.strategy.score_details_df = score_details_df
         # 修复指挥链，在所有诊断完成后部署法医探针
-        self.deploy_forensic_probes()
+        self.deploy_forensic_probes() # 此方法现在主要负责打印探针报告，而不是设置should_probe和probe_dates_set
         return self.strategy.atomic_states
-
 
     def deploy_forensic_probes(self):
         """
-        【V2.24 · 赢家信念探针激活版】法医探针调度中心
+        【V2.25 · 赢家信念探针激活版 & 调试标志精简版】法医探针调度中心
         - 核心扩展: 新增对赢家信念探针的调用。
+        - **新增业务逻辑：移除调试标志的设置逻辑，专注于探针报告的调度和打印。**
         """
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        if not debug_params.get('enabled', {}).get('value', False):
+        # 调试标志已在 IntelligenceLayer.run_all_diagnostics 中前置设置
+        if not self.probes.should_probe:
             return
-        probe_dates_list = debug_params.get('probe_dates')
+        probe_dates_list = list(self.probes.probe_dates_set) # 从已设置的集合中获取日期列表
         if not probe_dates_list:
-            single_date = debug_params.get('probe_date')
-            if single_date:
-                probe_dates_list = [single_date]
-        if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.24] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-        for probe_date_str in probe_dates_list:
-            if not probe_date_str:
-                continue
-            probe_date = pd.to_datetime(probe_date_str)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.25] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        debug_params = get_params_block(self.strategy, 'debug_params', {}) # 仍然需要获取debug_params来判断具体探针是否启用
+        for probe_date_date in probe_dates_list:
+            probe_date = pd.Timestamp(probe_date_date) # 转换为Timestamp以便与df_indicators索引匹配
             if self.strategy.df_indicators.index.tz is not None:
                 try:
                     probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
@@ -159,12 +147,12 @@ class IntelligenceLayer:
                     try:
                         probe_date = probe_date.tz_convert(self.strategy.df_indicators.index.tz)
                     except Exception as e_conv:
-                         print(f"    -> [法医探针] 错误: 转换探针日期 {probe_date_str} 时区失败: {e_conv}。")
+                         print(f"    -> [法医探针] 错误: 转换探针日期 {probe_date_date} 时区失败: {e_conv}。")
                          continue
             if probe_date not in self.strategy.df_indicators.index:
-                print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
+                print(f"    -> [法医探针] 警告: 探针日期 {probe_date_date} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
-            print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
+            print("\n" + "="*25 + f" 正在解剖 {probe_date_date.strftime('%Y-%m-%d')} " + "="*25)
             if debug_params.get('enable_trend_quality_probe', False):
                 self.probes._deploy_trend_quality_probe(probe_date)
             if debug_params.get('enable_liquidity_trap_probe', False):
