@@ -989,9 +989,10 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
         """
-        【V1.1 · 兼容性补丁 - 派发压力修正版】计算在第三象限升级后保留的旧版跨日迁徙指标。
-        - 核心修复: 修正 `dispersal_by_distribution` 的计算，确保其结果始终为非负值，
-                     避免 `rally_distribution_pressure` 出现负值导致 `lure_long_score` 异常。
+        【V1.2 · 兼容性补丁 - 派发压力详细探针版】计算在第三象限升级后保留的旧版跨日迁徙指标。
+        - 核心目的: 针对 `rally_distribution_pressure` 出现负值的问题，加入详细探针，
+                     输出 `mf_net_vol`、`chasing_zone`、`clip` 过程的中间结果，
+                     以暴露问题根源，而非掩盖。
         """
         results = {
             'gathering_by_support': np.nan, 'gathering_by_chasing': np.nan,
@@ -1005,36 +1006,76 @@ class ChipFeatureCalculator:
         daily_vwap = context.get('daily_vwap')
         prev_metrics = context.get('prev_metrics', {})
         trade_date = context.get('trade_date') # 获取交易日期用于调试
+
         if intraday_df.empty or pd.isna(total_vol) or total_vol <= 0 or 'main_force_net_vol' not in intraday_df.columns or pd.isna(daily_vwap):
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date}: 前置条件不满足，跳过计算。")
             return results
+
         mf_net_vol = intraday_df['main_force_net_vol']
+
+        # --- 调试探针：mf_net_vol 数据检查 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - mf_net_vol 探针:")
+        print(f"        - mf_net_vol.dtype: {mf_net_vol.dtype}")
+        print(f"        - mf_net_vol.head():\n{mf_net_vol.head()}")
+        print(f"        - mf_net_vol.tail():\n{mf_net_vol.tail()}")
+        print(f"        - mf_net_vol.min(): {mf_net_vol.min()}, mf_net_vol.max(): {mf_net_vol.max()}")
+        print(f"        - mf_net_vol.sum(): {mf_net_vol.sum()}")
+        print(f"        - mf_net_vol.hasnans: {mf_net_vol.hasnans}")
+        if mf_net_vol.hasnans:
+            print(f"        - mf_net_vol[mf_net_vol.isna()].index: {mf_net_vol[mf_net_vol.isna()].index.tolist()}")
+        # --- 探针结束 ---
+
         # 1. 四象限流量计算
         support_zone = intraday_df['minute_vwap'] < daily_vwap
         chasing_zone = intraday_df['minute_vwap'] > daily_vwap
+
+        # --- 调试探针：chasing_zone 数据检查 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - chasing_zone 探针:")
+        print(f"        - chasing_zone.sum() (True count): {chasing_zone.sum()}")
+        print(f"        - chasing_zone.head():\n{chasing_zone.head()}")
+        print(f"        - chasing_zone.tail():\n{chasing_zone.tail()}")
+        # --- 探针结束 ---
+
         results['gathering_by_support'] = mf_net_vol[support_zone].clip(lower=0).sum() / total_vol * 100
         results['gathering_by_chasing'] = mf_net_vol[chasing_zone].clip(lower=0).sum() / total_vol * 100
-        # --- 修正 dispersal_by_distribution 的计算逻辑 ---
-        # 确保 mf_net_vol[chasing_zone].clip(upper=0).sum() 结果为负数或零
-        # 如果由于某种异常导致其为正，则将其视为0，避免 rally_distribution_pressure 出现负值
-        main_force_sell_in_chasing_zone = mf_net_vol[chasing_zone].clip(upper=0).sum()
-        if main_force_sell_in_chasing_zone > 0: # 异常情况，理论上 clip(upper=0) 后不应有正值
-            main_force_sell_in_chasing_zone = 0.0 # 强制设为0
-            print(f"    -> [ChipFeatureCalculator Warning] _compute_legacy_cross_day_metrics @ {trade_date}: main_force_sell_in_chasing_zone unexpectedly positive after clip(upper=0). Forcing to 0.")
-        results['dispersal_by_distribution'] = -main_force_sell_in_chasing_zone / total_vol * 100
-        # --- 修正结束 ---
+
+        # --- 调试探针：dispersal_by_distribution 关键计算节点 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_legacy_cross_day_metrics @ {trade_date} - dispersal_by_distribution 探针:")
+        mf_net_vol_in_chasing_zone = mf_net_vol[chasing_zone]
+        print(f"        - mf_net_vol_in_chasing_zone.head():\n{mf_net_vol_in_chasing_zone.head()}")
+        print(f"        - mf_net_vol_in_chasing_zone.tail():\n{mf_net_vol_in_chasing_zone.tail()}")
+        print(f"        - mf_net_vol_in_chasing_zone.min(): {mf_net_vol_in_chasing_zone.min()}, mf_net_vol_in_chasing_zone.max(): {mf_net_vol_in_chasing_zone.max()}")
+        print(f"        - mf_net_vol_in_chasing_zone.sum(): {mf_net_vol_in_chasing_zone.sum()}")
+
+        clipped_mf_net_vol_in_chasing_zone = mf_net_vol_in_chasing_zone.clip(upper=0)
+        print(f"        - clipped_mf_net_vol_in_chasing_zone.head():\n{clipped_mf_net_vol_in_chasing_zone.head()}")
+        print(f"        - clipped_mf_net_vol_in_chasing_zone.tail():\n{clipped_mf_net_vol_in_chasing_zone.tail()}")
+        print(f"        - clipped_mf_net_vol_in_chasing_zone.min(): {clipped_mf_net_vol_in_chasing_zone.min()}, clipped_mf_net_vol_in_chasing_zone.max(): {clipped_mf_net_vol_in_chasing_zone.max()}")
+
+        main_force_sell_in_chasing_zone_sum = clipped_mf_net_vol_in_chasing_zone.sum()
+        print(f"        - main_force_sell_in_chasing_zone_sum (after clip(upper=0)): {main_force_sell_in_chasing_zone_sum}")
+
+        results['dispersal_by_distribution'] = -main_force_sell_in_chasing_zone_sum / total_vol * 100
+        print(f"        - dispersal_by_distribution (final result): {results['dispersal_by_distribution']:.4f}")
+        # --- 探针结束 ---
+
         results['dispersal_by_capitulation'] = -mf_net_vol[support_zone].clip(upper=0).sum() / total_vol * 100
+
         # 2. 盈亏盘流量估算
         winner_rate = context.get('total_winner_rate', 0) / 100
         loser_rate = context.get('total_loser_rate', 0) / 100
         turnover_rate = total_vol / total_chip_vol if total_chip_vol > 0 else 0
+
         results['profit_taking_flow_ratio'] = turnover_rate * winner_rate * 100
         results['capitulation_flow_ratio'] = turnover_rate * loser_rate * 100
+
         # 3. 盈亏动量
         prev_winner_rate = prev_metrics.get('total_winner_rate', 0)
         prev_loser_rate = prev_metrics.get('total_loser_rate', 0)
         winner_change = context.get('total_winner_rate', 0) - prev_winner_rate
         loser_change = context.get('total_loser_rate', 0) - prev_loser_rate
         results['winner_loser_momentum'] = winner_change + loser_change # loser_change is negative
+
         # 4. 筹码疲劳指数
         prev_fatigue = prev_metrics.get('chip_fatigue_index', 0)
         price_range = (context.get('high_price', 0) - context.get('low_price', 0)) / context.get('pre_close', 1)
