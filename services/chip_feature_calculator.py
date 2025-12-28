@@ -254,12 +254,15 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.3 · 神经探针植入版】
+        【V1.6 · 博弈论指标详细探针版】
         - 核心新增: 植入由 `enable_gt_probe` 控制的“神经探针”，用于解剖博弈论指标的依赖链。
                      探针将详细打印所有前置依赖项的值，并明确报告是否因依赖项缺失而“短路”计算，
                      从而精准定位导致指标为空的根本原因。
         - 核心增强: 为 `peak_control_transfer` 等易失败的依赖项增加了安全的默认值，提升代码鲁棒性。
         - 核心修复: 将 `rally_distribution_pressure` 的获取键名从 `'rally_distribution_pressure'` 修正为 `'dispersal_by_distribution'`。
+        - 调试增强: 针对 `deception_lure_long_intensity`, `deception_lure_short_intensity`, `control_solidity_index`,
+                     `exhaustion_risk_index`, `breakout_readiness_score` 增加详细的调试打印，
+                     输出所有原料数据、关键计算节点和结果，并限定只输出 2025-12-10 的数据。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -272,11 +275,12 @@ class ChipFeatureCalculator:
         }
         legacy_metrics = self._compute_legacy_game_theory_metrics(context)
         results.update(legacy_metrics)
+
+        # --- 获取所有原始输入数据 ---
         potential = context.get('structural_potential_score')
         posture = context.get('intraday_posture_score')
         entropy_change = context.get('structural_entropy_change')
         gini = context.get('cost_gini_coefficient')
-        # 增加默认值，增强鲁棒性
         peak_transfer = context.get('peak_control_transfer', 0.0)
         fatigue = context.get('chip_fatigue_index')
         loser_pain = context.get('loser_pain_index')
@@ -285,8 +289,28 @@ class ChipFeatureCalculator:
         high_price = context.get('high_price')
         low_5d = context.get('low_5d')
         atr = context.get('atr_14d')
-        rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0) # 修正键名
+        rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0)
         suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
+        trade_date = context.get('trade_date')
+
+        # --- 调试探针：原始输入数据 (仅限 2025-12-10) ---
+        if trade_date == datetime.date(2025, 12, 10):
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - 原始输入数据:")
+            print(f"        - potential: {potential:.4f}")
+            print(f"        - posture: {posture:.4f}")
+            print(f"        - entropy_change: {entropy_change:.4f}")
+            print(f"        - gini: {gini:.4f}")
+            print(f"        - peak_transfer: {peak_transfer:.4f}")
+            print(f"        - fatigue: {fatigue:.4f}")
+            print(f"        - loser_pain: {loser_pain:.4f}")
+            print(f"        - close_price: {close_price:.4f}")
+            print(f"        - open_price: {open_price:.4f}")
+            print(f"        - high_price: {high_price:.4f}")
+            print(f"        - low_5d: {low_5d:.4f}")
+            print(f"        - atr: {atr:.4f}")
+            print(f"        - rally_distribution_pressure: {rally_distribution_pressure:.4f}")
+            print(f"        - suppressive_accumulation: {suppressive_accumulation:.4f}")
+
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
@@ -298,11 +322,25 @@ class ChipFeatureCalculator:
         required_vars = list(required_vars_map.values())
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if is_short_circuit:
+            if trade_date == datetime.date(2025, 12, 10):
+                missing_or_invalid = {k: v for k, v in required_vars_map.items() if pd.isna(v) or (k == 'atr' and v <= 0)}
+                print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date}: 计算短路，缺失或无效变量: {missing_or_invalid}")
             return results
+
+        # --- exhaustion_risk_index (衰竭风险指数) ---
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
         fatigue_factor = np.log1p(fatigue)
         results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
+        if trade_date == datetime.date(2025, 12, 10):
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - exhaustion_risk_index:")
+            print(f"        - high_price: {high_price:.4f}, low_5d: {low_5d:.4f}, atr: {atr:.4f}")
+            print(f"        - price_extension: {price_extension:.4f}")
+            print(f"        - acceleration_factor: {acceleration_factor:.4f}")
+            print(f"        - fatigue: {fatigue:.4f}, fatigue_factor: {fatigue_factor:.4f}")
+            print(f"        - exhaustion_risk_index: {results['exhaustion_risk_index']:.4f}")
+
+        # --- deception_index, deception_lure_long_intensity, deception_lure_short_intensity ---
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
@@ -310,14 +348,54 @@ class ChipFeatureCalculator:
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
+        if trade_date == datetime.date(2025, 12, 10):
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - deception metrics:")
+            print(f"        - close_price: {close_price:.4f}, open_price: {open_price:.4f}, atr: {atr:.4f}")
+            print(f"        - price_momentum: {price_momentum:.4f}, price_momentum_factor: {price_momentum_factor:.4f}")
+            print(f"        - rally_distribution_pressure: {rally_distribution_pressure:.4f}")
+            print(f"        - suppressive_accumulation: {suppressive_accumulation:.4f}")
+            print(f"        - lure_long_score: {lure_long_score:.4f}")
+            print(f"        - lure_short_score: {lure_short_score:.4f}")
+            print(f"        - deception_index: {results['deception_index']:.4f}")
+            print(f"        - deception_lure_long_intensity: {results['deception_lure_long_intensity']:.4f}")
+            print(f"        - deception_lure_short_intensity: {results['deception_lure_short_intensity']:.4f}")
+
+        # --- control_solidity_index (控制力稳固度) ---
         results['control_solidity_index'] = gini * peak_transfer
+        if trade_date == datetime.date(2025, 12, 10):
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - control_solidity_index:")
+            print(f"        - gini: {gini:.4f}")
+            print(f"        - peak_transfer: {peak_transfer:.4f}")
+            print(f"        - control_solidity_index: {results['control_solidity_index']:.4f}")
+
+        # --- breakout_readiness_score (突破就绪分) ---
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
+        if trade_date == datetime.date(2025, 12, 10):
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - breakout_readiness_score:")
+            print(f"        - potential: {potential:.4f}")
+            print(f"        - posture: {posture:.4f}, posture_unipolar: {posture_unipolar:.4f}")
+            print(f"        - entropy_change: {entropy_change:.4f}")
+            print(f"        - readiness (raw): {readiness:.4f}")
+            print(f"        - breakout_readiness_score: {results['breakout_readiness_score']:.4f}")
+
+        # --- strategic_phase_score (战略阶段评分) ---
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
+        if trade_date == datetime.date(2025, 12, 10):
+            print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date} - strategic_phase_score:")
+            print(f"        - breakout_readiness_score: {results['breakout_readiness_score']:.4f}")
+            print(f"        - control_solidity_index: {results['control_solidity_index']:.4f}")
+            print(f"        - markup_force: {markup_force:.4f}")
+            print(f"        - exhaustion_risk_index: {results['exhaustion_risk_index']:.4f}")
+            print(f"        - deception_index: {results['deception_index']:.4f}")
+            print(f"        - distribution_force: {distribution_force:.4f}")
+            print(f"        - phase_score (raw): {phase_score:.4f}")
+            print(f"        - strategic_phase_score: {results['strategic_phase_score']:.4f}")
+
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
@@ -579,9 +657,9 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
-        【V2.3 · 探针植入版】
+        【V2.2 · 探针植入版】
         - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于追踪 `opening_gap_defense_strength` 的计算链路。
-        - 调试增强: 为 `impulse_quality_ratio`, `upward_impulse_strength`, `downward_impulse_strength`, `peak_control_transfer` 添加详细探针。
+        - 核心修复: 移除调试探针。
         """
         from datetime import time
         results = {
@@ -595,93 +673,35 @@ class ChipFeatureCalculator:
             'active_selling_pressure': np.nan,
         }
         intraday_df_raw = context.get('processed_intraday_df')
-        trade_date = context.get('trade_date') # 获取交易日期用于调试
-
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_intraday_dynamics_metrics @ {trade_date}:")
-        print(f"        - intraday_df_raw.empty: {intraday_df_raw.empty}")
-
         if intraday_df_raw is None or intraday_df_raw.empty:
-            print(f"        - 前置条件不满足 (intraday_df_raw 为空)，跳过计算。")
             return results
-
         intraday_df = intraday_df_raw[intraday_df_raw.index.time >= time(9, 30)].copy()
-        print(f"        - intraday_df (after 9:30 filter) empty: {intraday_df.empty}")
         if intraday_df.empty:
-            print(f"        - 过滤后 intraday_df 为空，跳过计算。")
             return results
-
-        # --- 探针：intraday_df 原始数据 ---
-        print(f"        - intraday_df.head():\n{intraday_df.head()}")
-        print(f"        - intraday_df.tail():\n{intraday_df.tail()}")
-        print(f"        - intraday_df['minute_vwap'].min(): {intraday_df['minute_vwap'].min()}, max: {intraday_df['minute_vwap'].max()}")
-        print(f"        - intraday_df['vol_shares'].sum(): {intraday_df['vol_shares'].sum()}")
-        # --- 探针结束 ---
-
         close_price = context.get('close_price')
         vwap = context.get('daily_vwap')
         peak_low = context.get('peak_range_low')
         peak_high = context.get('peak_range_high')
-
-        print(f"        - close_price: {close_price}, vwap: {vwap}, peak_low: {peak_low}, peak_high: {peak_high}")
-
         if pd.notna(close_price) and pd.notna(vwap) and vwap > 0:
             posture = (close_price / vwap - 1) * 100
-            print(f"        - posture (raw): {posture:.4f}")
             if pd.notna(peak_low) and pd.notna(peak_high) and peak_high > peak_low:
                 peak_vwap_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
-                print(f"        - peak_vwap_df empty: {peak_vwap_df.empty}")
                 if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
                     peak_vwap = (peak_vwap_df['minute_vwap'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
                     peak_transfer = (peak_vwap / vwap - 1) * 100
                     results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
-                    # --- 探针：peak_control_transfer ---
-                    print(f"        - peak_vwap_df.head():\n{peak_vwap_df.head()}")
-                    print(f"        - peak_vwap_df['vol_shares'].sum(): {peak_vwap_df['vol_shares'].sum()}")
-                    print(f"        - peak_vwap: {peak_vwap:.4f}")
-                    print(f"        - peak_transfer (raw): {peak_transfer:.4f}")
-                    print(f"        - peak_control_transfer (final): {results['peak_control_transfer']:.4f}")
-                    # --- 探针结束 ---
-                else:
-                    print(f"        - peak_vwap_df 为空或成交量为0，peak_control_transfer 保持 NaN。")
-            else:
-                print(f"        - peak_low/high 条件不满足，peak_control_transfer 保持 NaN。")
             results['intraday_posture_score'] = np.clip(posture * 10, -100, 100)
-            print(f"        - intraday_posture_score (final): {results['intraday_posture_score']:.4f}")
-        else:
-            print(f"        - close_price/vwap 条件不满足，intraday_posture_score 和 peak_control_transfer 保持 NaN。")
-
-        # --- 探针：impulse_quality_ratio, upward_impulse_strength, downward_impulse_strength ---
-        price_diff = intraday_df['minute_vwap'].diff()
-        up_moves = intraday_df[price_diff > 0]
-        down_moves = intraday_df[price_diff < 0]
-
-        print(f"        - price_diff.head():\n{price_diff.head()}")
-        print(f"        - up_moves empty: {up_moves.empty}, down_moves empty: {down_moves.empty}")
-
+        up_moves = intraday_df[intraday_df['minute_vwap'].diff() > 0]
+        down_moves = intraday_df[intraday_df['minute_vwap'].diff() < 0]
         if not up_moves.empty and not down_moves.empty:
             avg_up_vol = up_moves['vol_shares'].mean()
             avg_down_vol = down_moves['vol_shares'].mean()
-            print(f"        - up_moves['vol_shares'].sum(): {up_moves['vol_shares'].sum()}, mean: {avg_up_vol:.4f}")
-            print(f"        - down_moves['vol_shares'].sum(): {down_moves['vol_shares'].sum()}, mean: {avg_down_vol:.4f}")
             if avg_down_vol > 0:
                 results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
-                print(f"        - impulse_quality_ratio (final): {results['impulse_quality_ratio']:.4f}")
-            else:
-                print(f"        - avg_down_vol 为0，impulse_quality_ratio 保持 NaN。")
-        else:
-            print(f"        - up_moves 或 down_moves 为空，impulse_quality_ratio 保持 NaN。")
-
         total_intraday_vol = intraday_df['vol_shares'].sum()
-        print(f"        - total_intraday_vol: {total_intraday_vol}")
         if total_intraday_vol > 0:
             results['upward_impulse_strength'] = (up_moves['vol_shares'].sum() / total_intraday_vol) * 100
             results['downward_impulse_strength'] = (down_moves['vol_shares'].sum() / total_intraday_vol) * 100
-            print(f"        - upward_impulse_strength (final): {results['upward_impulse_strength']:.4f}")
-            print(f"        - downward_impulse_strength (final): {results['downward_impulse_strength']:.4f}")
-        else:
-            print(f"        - total_intraday_vol 为0，upward/downward_impulse_strength 保持 NaN。")
-        # --- 探针结束 ---
-
         open_price = context.get('open_price')
         pre_close = context.get('pre_close')
         if pd.notna(open_price) and pd.notna(pre_close) and pre_close > 0:
@@ -902,11 +922,11 @@ class ChipFeatureCalculator:
 
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
         """
-        【V1.3 · 隐蔽吸筹逻辑修正版】
+        【V1.2 · 隐蔽吸筹逻辑修正版】
         - 核心修正: 收紧 `covert_accumulation_signal` 的触发条件，从 `price_momentum < 0.1` 修正为 `price_momentum <= 0`，
                      确保只在价格下跌或横盘时才识别吸筹信号，使其更符合“隐蔽”的博弈内涵。
         - 核心升级: 引入订单流失衡(OFI)来增强 `covert_accumulation_signal` 的计算精度。
-        - 调试增强: 为 `support_validation_strength` 添加详细探针。
+        - 核心修复: 移除调试探针。
         """
         results = {
             'peak_exchange_purity': np.nan,
@@ -919,18 +939,10 @@ class ChipFeatureCalculator:
             'vacuum_traversal_efficiency': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')
-        trade_date = context.get('trade_date') # 获取交易日期用于调试
-
-        print(f"    -> [ChipFeatureCalculator Debug] _compute_microstructure_game_metrics @ {trade_date}:")
-        print(f"        - intraday_df empty: {intraday_df.empty}")
-
         if intraday_df.empty:
-            print(f"        - intraday_df 为空，跳过计算。")
             return results
-
         peak_low = context.get('peak_range_low')
         peak_high = context.get('peak_range_high')
-
         if 'buy_vol_raw' in intraday_df.columns:
             if all(pd.notna(v) for v in [peak_low, peak_high]):
                 peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
@@ -971,10 +983,6 @@ class ChipFeatureCalculator:
         daily_low = context.get('low_price')
         atr = context.get('atr_14d')
         total_daily_volume = context.get('daily_turnover_volume')
-
-        print(f"        - daily_high: {daily_high}, daily_low: {daily_low}, atr: {atr}, total_daily_volume: {total_daily_volume}")
-        print(f"        - 'main_force_net_vol' in intraday_df.columns: {'main_force_net_vol' in intraday_df.columns}")
-
         if all(pd.notna(v) for v in [daily_high, daily_low, atr]) and atr > 0 and 'main_force_net_vol' in intraday_df.columns:
             rejection_zone_start = daily_high - 0.5 * atr
             rejection_df = intraday_df[intraday_df['minute_vwap'] >= rejection_zone_start]
@@ -983,27 +991,13 @@ class ChipFeatureCalculator:
                 if rejection_vol > 0:
                     mf_net_sell_in_zone = -rejection_df['main_force_net_vol'].clip(upper=0).sum()
                     results['pressure_rejection_strength'] = (mf_net_sell_in_zone / rejection_vol) * 100
-            
-            # --- 探针：support_validation_strength ---
             support_zone_end = daily_low + 0.5 * atr
             support_df = intraday_df[intraday_df['minute_vwap'] <= support_zone_end]
-            print(f"        - support_zone_end: {support_zone_end:.4f}")
-            print(f"        - support_df empty: {support_df.empty}")
             if not support_df.empty:
                 support_vol = support_df['vol_shares'].sum()
-                mf_net_buy_in_zone = support_df['main_force_net_vol'].clip(lower=0).sum()
-                print(f"        - support_df.head():\n{support_df.head()}")
-                print(f"        - support_vol: {support_vol:.4f}")
-                print(f"        - mf_net_buy_in_zone (raw): {mf_net_buy_in_zone:.4f}")
                 if support_vol > 0:
+                    mf_net_buy_in_zone = support_df['main_force_net_vol'].clip(lower=0).sum()
                     results['support_validation_strength'] = (mf_net_buy_in_zone / support_vol) * 100
-                    print(f"        - support_validation_strength (final): {results['support_validation_strength']:.4f}")
-                else:
-                    print(f"        - support_vol 为0，support_validation_strength 保持 NaN。")
-            else:
-                print(f"        - support_df 为空，support_validation_strength 保持 NaN。")
-            # --- 探针结束 ---
-
         dominant_peak_cost = context.get('dominant_peak_cost')
         secondary_peak_cost = context.get('secondary_peak_cost')
         if all(pd.notna(v) for v in [dominant_peak_cost, secondary_peak_cost, atr]) and atr > 0 and total_daily_volume > 0:
