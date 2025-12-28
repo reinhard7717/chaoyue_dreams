@@ -253,11 +253,13 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.3 · 神经探针植入版】
+        【V1.4 · 神经探针植入与欺骗调试增强版】
         - 核心新增: 植入由 `enable_gt_probe` 控制的“神经探针”，用于解剖博弈论指标的依赖链。
                      探针将详细打印所有前置依赖项的值，并明确报告是否因依赖项缺失而“短路”计算，
                      从而精准定位导致指标为空的根本原因。
         - 核心增强: 为 `peak_control_transfer` 等易失败的依赖项增加了安全的默认值，提升代码鲁棒性。
+        - 调试增强: 增加打印，显示 `rally_distribution_pressure` 和 `suppressive_accumulation` 的获取值，
+                     以及 `lure_long_score` 和 `lure_short_score` 的中间计算结果。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -284,7 +286,9 @@ class ChipFeatureCalculator:
         low_5d = context.get('low_5d')
         atr = context.get('atr_14d')
         rally_distribution_pressure = context.get('rally_distribution_pressure', 0.0)
-        suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
+        suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0) # 这里获取
+        trade_date = context.get('trade_date') # 获取交易日期用于调试
+
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
@@ -297,21 +301,37 @@ class ChipFeatureCalculator:
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if is_short_circuit:
             return results
+
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
         fatigue_factor = np.log1p(fatigue)
         results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
+
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
+
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
         lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
+
+        # --- 调试打印 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_game_theoretic_metrics @ {trade_date}:")
+        print(f"        - price_momentum: {price_momentum:.4f}")
+        print(f"        - price_momentum_factor: {price_momentum_factor:.4f}")
+        print(f"        - rally_distribution_pressure (from context): {rally_distribution_pressure:.4f}")
+        print(f"        - suppressive_accumulation (from context): {suppressive_accumulation:.4f}")
+        print(f"        - lure_long_score (calculated): {lure_long_score:.4f}")
+        print(f"        - lure_short_score (calculated): {lure_short_score:.4f}")
+        # --- 调试打印结束 ---
+
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
+
         results['control_solidity_index'] = gini * peak_transfer
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
+
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
@@ -1261,42 +1281,50 @@ class ChipFeatureCalculator:
 
     def _compute_tactical_intent_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 战术归因引擎】
+        【V1.1 · 战术归因引擎 - 调试增强版】
         - 核心职责: 锻造用于识别特定主力战术意图的高级指标。
         - 核心新增: 新增 `suppressive_accumulation_intensity` (打压吸筹强度) 指标。
                      该指标旨在通过融合微观的隐蔽买入证据和买盘质量，来识别主力在价格
                      受抑制的宏观环境下进行的“打压吸筹”战术，从而解决“信号尺度悖论”。
+        - 调试增强: 增加打印，显示 `pct_change` 和 `suppressive_accumulation_intensity` 的计算过程和最终结果。
         """
         results = {
             'suppressive_accumulation_intensity': np.nan,
-            'supportive_distribution_intensity': np.nan, # 新增行
+            'supportive_distribution_intensity': np.nan,
         }
         # 1. 获取宏观环境
         close_price = context.get('close_price')
         pre_close = context.get('pre_close')
+        trade_date = context.get('trade_date') # 获取交易日期用于调试
         if pd.isna(close_price) or pd.isna(pre_close) or pre_close <= 0:
             return results
         pct_change = (close_price / pre_close) - 1
         # 2. 获取微观证据
         covert_accumulation = context.get('covert_accumulation_signal', 0.0)
-        covert_distribution = context.get('covert_distribution_signal', 0.0) # 新增行
+        covert_distribution = context.get('covert_distribution_signal', 0.0)
         conviction_flow = context.get('conviction_flow_index', 0.0)
-        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio', 0.0) # 新增行
+        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio', 0.0)
         # 3. 战术归因与计算
-        # “打压吸筹”战术只在价格下跌或微涨时成立
-        # 将触发条件从允许微涨(<= 0.01)收紧为平盘或下跌(<= 0)，使其更符合“打压”的定义
+        # “打压吸筹”战术只在价格下跌或平盘时成立
         suppression_mask = pct_change <= 0
         if suppression_mask:
-            # 融合直接证据(隐蔽吸筹)和间接证据(信念流转)
-            # 使用 np.log1p 增强对信念流指数的敏感度
             intensity_score = (covert_accumulation / 100) * np.log1p(np.clip(conviction_flow, 0, None))
             results['suppressive_accumulation_intensity'] = np.clip(intensity_score * 100, 0, 100)
         else:
             results['suppressive_accumulation_intensity'] = 0.0
+
+        # --- 调试打印 ---
+        print(f"    -> [ChipFeatureCalculator Debug] _compute_tactical_intent_metrics @ {trade_date}:")
+        print(f"        - pct_change: {pct_change:.4f}")
+        print(f"        - suppression_mask: {suppression_mask}")
+        print(f"        - covert_accumulation: {covert_accumulation:.4f}")
+        print(f"        - conviction_flow: {conviction_flow:.4f}")
+        print(f"        - suppressive_accumulation_intensity (calculated): {results['suppressive_accumulation_intensity']:.4f}")
+        # --- 调试打印结束 ---
+
         # 新增行：计算支撑性派发强度
         supportive_mask = pct_change >= 0 # 价格上涨或横盘时
         if supportive_mask:
-            # 融合隐蔽派发和获利兑现流量
             intensity_score = (covert_distribution / 100) * np.log1p(np.clip(profit_taking_flow_ratio, 0, None))
             results['supportive_distribution_intensity'] = np.clip(intensity_score * 100, 0, 100)
         else:

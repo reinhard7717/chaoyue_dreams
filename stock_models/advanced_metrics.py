@@ -84,7 +84,7 @@ class BaseAdvancedChipMetrics(models.Model):
     GAME_THEORY_METRICS = {
         # 引入新一代战略推演指标
         'strategic_phase_score': '战略阶段评分(-100~100)',
-        'deception_index': '欺骗指数(-100~100)',
+        'deception_index': '欺骗指数(-100~100)，正值代表“诱多”，负值代表“诱空”。',
         'deception_lure_long_intensity': '欺骗性诱多强度(%)', # 新增行
         'deception_lure_short_intensity': '欺骗性诱空强度(%)', # 新增行
         'control_solidity_index': '控制力稳固度',
