@@ -45,8 +45,8 @@ class BaseAdvancedChipMetrics(models.Model):
     INTRADAY_DYNAMICS_METRICS = {
         # 引入新一代日内动态博弈指标
         'impulse_quality_ratio': '脉冲品质比率(%)',
-        'upward_impulse_strength': '上涨脉冲强度(%)', # 新增行
-        'downward_impulse_strength': '下跌脉冲强度(%)', # 新增行
+        'upward_impulse_strength': '上涨脉冲强度(%)',
+        'downward_impulse_strength': '下跌脉冲强度(%)',
         'peak_control_transfer': '主峰控制权转移(%)',
         'support_validation_strength': '支撑验证强度',
         'pressure_rejection_strength': '压力拒绝强度',
@@ -65,8 +65,8 @@ class BaseAdvancedChipMetrics(models.Model):
         # 引入新一代信念交割与结构演化指标
         'peak_mass_transfer_rate': '主峰质量转移率',
         'conviction_flow_index': '信念流转指数',
-        'conviction_flow_buy_intensity': '信念流买入强度(%)', # 新增行
-        'conviction_flow_sell_intensity': '信念流卖出强度(%)', # 新增行
+        'conviction_flow_buy_intensity': '信念流买入强度(%)',
+        'conviction_flow_sell_intensity': '信念流卖出强度(%)',
         'constructive_turnover_ratio': '建设性换手率',
         'structural_entropy_change': '结构熵变',
         'main_force_flow_gini': '主力资金流基尼系数',
@@ -85,14 +85,14 @@ class BaseAdvancedChipMetrics(models.Model):
         # 引入新一代战略推演指标
         'strategic_phase_score': '战略阶段评分(-100~100)',
         'deception_index': '欺骗指数(-100~100)，正值代表“诱多”，负值代表“诱空”。',
-        'deception_lure_long_intensity': '欺骗性诱多强度(%)', # 新增行
-        'deception_lure_short_intensity': '欺骗性诱空强度(%)', # 新增行
+        'deception_lure_long_intensity': '欺骗性诱多强度(%)',
+        'deception_lure_short_intensity': '欺骗性诱空强度(%)',
         'control_solidity_index': '控制力稳固度',
         'exhaustion_risk_index': '衰竭风险指数',
         'breakout_readiness_score': '突破就绪分(0-100)',
         'mf_cost_zone_defense_intent': '主力成本区攻防意图(-100~100)',
-        'mf_cost_zone_buy_intent': '主力成本区买方意图(%)', # 新增行
-        'mf_cost_zone_sell_intent': '主力成本区卖方意图(%)', # 新增行
+        'mf_cost_zone_buy_intent': '主力成本区买方意图(%)',
+        'mf_cost_zone_sell_intent': '主力成本区卖方意图(%)',
         'main_force_cost_advantage': '主力成本优势(%)',
         'chip_health_score': '筹码健康分(0-100)', # 逻辑会依赖新指标
         'auction_intent_signal': '竞价意图信号',
@@ -101,9 +101,9 @@ class BaseAdvancedChipMetrics(models.Model):
         'pressure_validation_score': '压力验证分',
         'support_validation_score': '支撑验证分',
         'covert_accumulation_signal': '隐蔽吸筹信号',
-        'covert_distribution_signal': '隐蔽派发信号', # 新增行
+        'covert_distribution_signal': '隐蔽派发信号',
         'suppressive_accumulation_intensity': '打压吸筹强度',
-        'supportive_distribution_intensity': '支撑性派发强度', # 新增行
+        'supportive_distribution_intensity': '支撑性派发强度',
     }
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
@@ -145,7 +145,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'pressure_validation_score',
         'support_validation_score',
         'covert_accumulation_signal',
-        'covert_distribution_signal', # 新增行
+        'covert_distribution_signal',
         'structural_node_count',
         'primary_peak_kurtosis',
         'cost_gini_coefficient',
@@ -156,15 +156,15 @@ class BaseAdvancedChipMetrics(models.Model):
         'intraday_posture_score',
         'peak_mass_transfer_rate',
         'conviction_flow_index',
-        'conviction_flow_buy_intensity', # 新增行
-        'conviction_flow_sell_intensity', # 新增行
+        'conviction_flow_buy_intensity',
+        'conviction_flow_sell_intensity',
         'constructive_turnover_ratio',
         'structural_entropy_change',
         'main_force_flow_gini',
         'strategic_phase_score',
         'deception_index',
-        'deception_lure_long_intensity', # 新增行
-        'deception_lure_short_intensity', # 新增行
+        'deception_lure_long_intensity',
+        'deception_lure_short_intensity',
         'control_solidity_index',
         'exhaustion_risk_index',
         'breakout_readiness_score',
@@ -173,18 +173,18 @@ class BaseAdvancedChipMetrics(models.Model):
         'trend_vitality_index',
         'overall_t1_rating',
         'mf_cost_zone_defense_intent',
-        'mf_cost_zone_buy_intent', # 新增行
-        'mf_cost_zone_sell_intent', # 新增行
+        'mf_cost_zone_buy_intent',
+        'mf_cost_zone_sell_intent',
         'floating_chip_cleansing_efficiency',
         'suppressive_accumulation_intensity',
-        'supportive_distribution_intensity', # 新增行
+        'supportive_distribution_intensity',
         # [新增的代码块] 将新指标添加到排除列表
         'distribution_at_peak_intensity',
         'absorption_at_peak_intensity',
         'breakthrough_of_peak_quality',
         'defense_of_peak_quality',
-        'upward_impulse_strength', # 新增行
-        'downward_impulse_strength', # 新增行
+        'upward_impulse_strength',
+        'downward_impulse_strength',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
@@ -353,48 +353,48 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     }
     TACTICAL_LOG_METRICS = {
         'dip_absorption_power': '逢低吸筹力度',
-        'dip_buy_absorption_strength': '逢低买入吸筹强度', # 新增行
-        'dip_sell_pressure_resistance': '逢低卖压抵抗能力', # 新增行
+        'dip_buy_absorption_strength': '逢低买入吸筹强度',
+        'dip_sell_pressure_resistance': '逢低卖压抵抗能力',
         'rally_distribution_pressure': '拉高派发压力(%)',
-        'rally_sell_distribution_intensity': '拉高卖出派发强度', # 新增行
-        'rally_buy_support_weakness': '拉高买方支撑弱度', # 新增行
+        'rally_sell_distribution_intensity': '拉高卖出派发强度',
+        'rally_buy_support_weakness': '拉高买方支撑弱度',
         'panic_selling_cascade': '恐慌抛售级联(%)',
-        'panic_sell_volume_contribution': '恐慌卖出量贡献', # 新增行
-        'panic_buy_absorption_contribution': '恐慌买入承接贡献', # 新增行
+        'panic_sell_volume_contribution': '恐慌卖出量贡献',
+        'panic_buy_absorption_contribution': '恐慌买入承接贡献',
         'opening_battle_result': '开盘战役结果',
-        'opening_buy_strength': '开盘买方强度', # 新增行
-        'opening_sell_strength': '开盘卖方强度', # 新增行
+        'opening_buy_strength': '开盘买方强度',
+        'opening_sell_strength': '开盘卖方强度',
         'pre_closing_posturing': '收盘前姿态',
-        'pre_closing_buy_posture': '收盘前买方姿态', # 新增行
-        'pre_closing_sell_posture': '收盘前卖方姿态', # 新增行
+        'pre_closing_buy_posture': '收盘前买方姿态',
+        'pre_closing_sell_posture': '收盘前卖方姿态',
         'closing_auction_ambush': '收盘伏击强度',
-        'closing_auction_buy_ambush': '收盘买方伏击强度', # 新增行
-        'closing_auction_sell_ambush': '收盘卖方伏击强度', # 新增行
+        'closing_auction_buy_ambush': '收盘买方伏击强度',
+        'closing_auction_sell_ambush': '收盘卖方伏击强度',
         'main_force_execution_alpha': '主力执行Alpha(%)',
         'main_force_buy_execution_alpha': '主力买入执行Alpha(%)',
         'main_force_sell_execution_alpha': '主力卖出执行Alpha(%)',
         'retail_panic_surrender_index': '散户恐慌投降指数(%)',
         'retail_fomo_premium_index': '散户追高溢价指数(%)',
         'main_force_t0_efficiency': '主力T+0效率(%)',
-        'main_force_t0_buy_efficiency': '主力T+0买入效率(%)', # 新增行
-        'main_force_t0_sell_efficiency': '主力T+0卖出效率(%)', # 新增行
+        'main_force_t0_buy_efficiency': '主力T+0买入效率(%)',
+        'main_force_t0_sell_efficiency': '主力T+0卖出效率(%)',
         'vwap_structure_skew': 'VWAP结构偏离度',
         'flow_efficiency_index': '资金效率指数',
-        'buy_flow_efficiency_index': '买入资金效率指数', # 新增行
-        'sell_flow_efficiency_index': '卖出资金效率指数', # 新增行
+        'buy_flow_efficiency_index': '买入资金效率指数',
+        'sell_flow_efficiency_index': '卖出资金效率指数',
         'micro_price_impact_asymmetry': '微观价格冲击不对称性',
         'order_book_clearing_rate': '盘口清扫率(%)',
-        'buy_order_book_clearing_rate': '买盘清扫率(%)', # 新增行
-        'sell_order_book_clearing_rate': '卖盘清扫率(%)', # 新增行
+        'buy_order_book_clearing_rate': '买盘清扫率(%)',
+        'sell_order_book_clearing_rate': '卖盘清扫率(%)',
         'vwap_control_strength': 'VWAP控制强度',
-        'vwap_buy_control_strength': 'VWAP买方控制强度', # 新增行
-        'vwap_sell_control_strength': 'VWAP卖方控制强度', # 新增行
+        'vwap_buy_control_strength': 'VWAP买方控制强度',
+        'vwap_sell_control_strength': 'VWAP卖方控制强度',
         'main_force_vwap_guidance': '主力VWAP引导力',
-        'main_force_vwap_up_guidance': '主力VWAP向上引导力', # 新增行
-        'main_force_vwap_down_guidance': '主力VWAP向下引导力', # 新增行
+        'main_force_vwap_up_guidance': '主力VWAP向上引导力',
+        'main_force_vwap_down_guidance': '主力VWAP向下引导力',
         'vwap_crossing_intensity': 'VWAP穿越烈度',
-        'vwap_cross_up_intensity': 'VWAP向上穿越烈度', # 新增行
-        'vwap_cross_down_intensity': 'VWAP向下穿越烈度', # 新增行
+        'vwap_cross_up_intensity': 'VWAP向上穿越烈度',
+        'vwap_cross_down_intensity': 'VWAP向下穿越烈度',
         'upper_shadow_selling_pressure': '上影线抛压强度',
         'lower_shadow_absorption_strength': '下影线承接强度',
         'trend_alignment_index': '趋势同向指数',
@@ -405,24 +405,24 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_vpoc': '主力VPOC',
         'mf_vpoc_premium': '主力VPOC溢价(%)',
         'main_force_on_peak_flow': '主力在主峰区的净流入(万元)',
-        'main_force_on_peak_buy_flow': '主力在主峰区的买入流(万元)', # 新增行
-        'main_force_on_peak_sell_flow': '主力在主峰区的卖出流(万元)', # 新增行
+        'main_force_on_peak_buy_flow': '主力在主峰区的买入流(万元)',
+        'main_force_on_peak_sell_flow': '主力在主峰区的卖出流(万元)',
         'flow_temperature_premium': '资金温度溢价(%)',
         'mf_retail_liquidity_swap_corr': '主力散户流动性交换相关性',
         'main_force_ofi': '主力订单流失衡',
-        'main_force_buy_ofi': '主力买入订单流失衡', # 新增行
-        'main_force_sell_ofi': '主力卖出订单流失衡', # 新增行
+        'main_force_buy_ofi': '主力买入订单流失衡',
+        'main_force_sell_ofi': '主力卖出订单流失衡',
         'retail_ofi': '散户订单流失衡',
-        'retail_buy_ofi': '散户买入订单流失衡', # 新增行
-        'retail_sell_ofi': '散户卖出订单流失衡', # 新增行
+        'retail_buy_ofi': '散户买入订单流失衡',
+        'retail_sell_ofi': '散户卖出订单流失衡',
         'microstructure_efficiency_index': '微观结构效率指数',
         'hidden_accumulation_intensity': '隐蔽吸筹强度',
         'wash_trade_intensity': '主力对倒强度',
-        'wash_trade_buy_volume': '对倒买入量', # 新增行
-        'wash_trade_sell_volume': '对倒卖出量', # 新增行
+        'wash_trade_buy_volume': '对倒买入量',
+        'wash_trade_sell_volume': '对倒卖出量',
         'order_book_imbalance': '五档盘口失衡度',
-        'bid_side_liquidity': '买盘流动性', # 新增行
-        'ask_side_liquidity': '卖盘流动性', # 新增行
+        'bid_side_liquidity': '买盘流动性',
+        'ask_side_liquidity': '卖盘流动性',
         'large_order_pressure': '大单压制强度',
         'large_order_support': '大单支撑强度',
         'order_book_liquidity_supply': '盘口流动性供给(买/卖比)',
@@ -449,66 +449,66 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
         'retail_flow_dominance_index', 'main_force_slippage_index', 'dip_absorption_power',
-        'dip_buy_absorption_strength', # 新增行
-        'dip_sell_pressure_resistance', # 新增行
+        'dip_buy_absorption_strength',
+        'dip_sell_pressure_resistance',
         'rally_distribution_pressure',
-        'rally_sell_distribution_intensity', # 新增行
-        'rally_buy_support_weakness', # 新增行
+        'rally_sell_distribution_intensity',
+        'rally_buy_support_weakness',
         'panic_selling_cascade',
-        'panic_sell_volume_contribution', # 新增行
-        'panic_buy_absorption_contribution', # 新增行
+        'panic_sell_volume_contribution',
+        'panic_buy_absorption_contribution',
         'opening_battle_result',
-        'opening_buy_strength', # 新增行
-        'opening_sell_strength', # 新增行
+        'opening_buy_strength',
+        'opening_sell_strength',
         'pre_closing_posturing',
-        'pre_closing_buy_posture', # 新增行
-        'pre_closing_sell_posture', # 新增行
+        'pre_closing_buy_posture',
+        'pre_closing_sell_posture',
         'closing_auction_ambush',
-        'closing_auction_buy_ambush', # 新增行
-        'closing_auction_sell_ambush', # 新增行
+        'closing_auction_buy_ambush',
+        'closing_auction_sell_ambush',
         'main_force_execution_alpha',
         'main_force_buy_execution_alpha',
         'main_force_sell_execution_alpha',
         'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
-        'main_force_t0_buy_efficiency', # 新增行
-        'main_force_t0_sell_efficiency', # 新增行
+        'main_force_t0_buy_efficiency',
+        'main_force_t0_sell_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index',
-        'buy_flow_efficiency_index', # 新增行
-        'sell_flow_efficiency_index', # 新增行
+        'buy_flow_efficiency_index',
+        'sell_flow_efficiency_index',
         'volatility_asymmetry_index', 'closing_strength_index',
         'order_book_clearing_rate',
-        'buy_order_book_clearing_rate', # 新增行
-        'sell_order_book_clearing_rate', # 新增行
+        'buy_order_book_clearing_rate',
+        'sell_order_book_clearing_rate',
         'vwap_control_strength',
-        'vwap_buy_control_strength', # 新增行
-        'vwap_sell_control_strength', # 新增行
+        'vwap_buy_control_strength',
+        'vwap_sell_control_strength',
         'main_force_vwap_guidance',
-        'main_force_vwap_up_guidance', # 新增行
-        'main_force_vwap_down_guidance', # 新增行
+        'main_force_vwap_up_guidance',
+        'main_force_vwap_down_guidance',
         'vwap_crossing_intensity',
-        'vwap_cross_up_intensity', # 新增行
-        'vwap_cross_down_intensity', # 新增行
+        'vwap_cross_up_intensity',
+        'vwap_cross_down_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
         'trend_alignment_index', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'main_force_vpoc', 'mf_vpoc_premium',
         'main_force_on_peak_flow',
-        'main_force_on_peak_buy_flow', # 新增行
-        'main_force_on_peak_sell_flow', # 新增行
+        'main_force_on_peak_buy_flow',
+        'main_force_on_peak_sell_flow',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
         'main_force_ofi',
-        'main_force_buy_ofi', # 新增行
-        'main_force_sell_ofi', # 新增行
+        'main_force_buy_ofi',
+        'main_force_sell_ofi',
         'retail_ofi',
-        'retail_buy_ofi', # 新增行
-        'retail_sell_ofi', # 新增行
+        'retail_buy_ofi',
+        'retail_sell_ofi',
         'microstructure_efficiency_index',
         'hidden_accumulation_intensity', 'wash_trade_intensity',
-        'wash_trade_buy_volume', # 新增行
-        'wash_trade_sell_volume', # 新增行
+        'wash_trade_buy_volume',
+        'wash_trade_sell_volume',
         'order_book_imbalance',
-        'bid_side_liquidity', # 新增行
-        'ask_side_liquidity', # 新增行
+        'bid_side_liquidity',
+        'ask_side_liquidity',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
@@ -522,30 +522,30 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
         'retail_flow_dominance_index', 'main_force_slippage_index',
-        'dip_absorption_power', 'dip_buy_absorption_strength', 'dip_sell_pressure_resistance', # 新增行
-        'rally_distribution_pressure', 'rally_sell_distribution_intensity', 'rally_buy_support_weakness', # 新增行
-        'panic_selling_cascade', 'panic_sell_volume_contribution', 'panic_buy_absorption_contribution', # 新增行
-        'opening_battle_result', 'opening_buy_strength', 'opening_sell_strength', # 新增行
-        'pre_closing_posturing', 'pre_closing_buy_posture', 'pre_closing_sell_posture', # 新增行
-        'closing_auction_ambush', 'closing_auction_buy_ambush', 'closing_auction_sell_ambush', # 新增行
+        'dip_absorption_power', 'dip_buy_absorption_strength', 'dip_sell_pressure_resistance',
+        'rally_distribution_pressure', 'rally_sell_distribution_intensity', 'rally_buy_support_weakness',
+        'panic_selling_cascade', 'panic_sell_volume_contribution', 'panic_buy_absorption_contribution',
+        'opening_battle_result', 'opening_buy_strength', 'opening_sell_strength',
+        'pre_closing_posturing', 'pre_closing_buy_posture', 'pre_closing_sell_posture',
+        'closing_auction_ambush', 'closing_auction_buy_ambush', 'closing_auction_sell_ambush',
         'main_force_execution_alpha', 'main_force_buy_execution_alpha', 'main_force_sell_execution_alpha',
         'retail_panic_surrender_index',
-        'retail_fomo_premium_index', 'main_force_t0_efficiency', 'main_force_t0_buy_efficiency', 'main_force_t0_sell_efficiency', # 新增行
-        'vwap_structure_skew', 'flow_efficiency_index', 'buy_flow_efficiency_index', 'sell_flow_efficiency_index', # 新增行
+        'retail_fomo_premium_index', 'main_force_t0_efficiency', 'main_force_t0_buy_efficiency', 'main_force_t0_sell_efficiency',
+        'vwap_structure_skew', 'flow_efficiency_index', 'buy_flow_efficiency_index', 'sell_flow_efficiency_index',
         'volatility_asymmetry_index', 'closing_strength_index',
-        'order_book_clearing_rate', 'buy_order_book_clearing_rate', 'sell_order_book_clearing_rate', # 新增行
-        'vwap_control_strength', 'vwap_buy_control_strength', 'vwap_sell_control_strength', # 新增行
-        'main_force_vwap_guidance', 'main_force_vwap_up_guidance', 'main_force_vwap_down_guidance', # 新增行
-        'vwap_crossing_intensity', 'vwap_cross_up_intensity', 'vwap_cross_down_intensity', # 新增行
+        'order_book_clearing_rate', 'buy_order_book_clearing_rate', 'sell_order_book_clearing_rate',
+        'vwap_control_strength', 'vwap_buy_control_strength', 'vwap_sell_control_strength',
+        'main_force_vwap_guidance', 'main_force_vwap_up_guidance', 'main_force_vwap_down_guidance',
+        'vwap_crossing_intensity', 'vwap_cross_up_intensity', 'vwap_cross_down_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
         'trend_alignment_index', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'mf_vpoc_premium', 'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        'main_force_ofi', 'main_force_buy_ofi', 'main_force_sell_ofi', # 新增行
-        'retail_ofi', 'retail_buy_ofi', 'retail_sell_ofi', # 新增行
+        'main_force_ofi', 'main_force_buy_ofi', 'main_force_sell_ofi',
+        'retail_ofi', 'retail_buy_ofi', 'retail_sell_ofi',
         'microstructure_efficiency_index',
-        'hidden_accumulation_intensity', 'wash_trade_intensity', 'wash_trade_buy_volume', 'wash_trade_sell_volume', # 新增行
-        'order_book_imbalance', 'bid_side_liquidity', 'ask_side_liquidity', # 新增行
+        'hidden_accumulation_intensity', 'wash_trade_intensity', 'wash_trade_buy_volume', 'wash_trade_sell_volume',
+        'order_book_imbalance', 'bid_side_liquidity', 'ask_side_liquidity',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
