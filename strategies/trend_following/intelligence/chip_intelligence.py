@@ -3566,14 +3566,15 @@ class ChipIntelligence:
 
     def _calculate_bull_trap_context_penalty(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.2 · 牛市陷阱情境惩罚 - 调试增强与修复版】计算在近期大幅下跌后，伴随欺骗性反弹情境下的惩罚因子。
+        【V1.3 · 牛市陷阱情境惩罚 - 调试标志直接访问修复版】计算在近期大幅下跌后，伴随欺骗性反弹情境下的惩罚因子。
         - 核心逻辑: 检测近期是否存在大幅下跌，同时当前是否存在正向欺骗信号。
                     结合市场波动性作为情境调制器，动态调整惩罚强度。
         - 调试增强: 增加详细打印，追踪牛市陷阱检测的各个中间步骤。
-        - 错误修复: 修正了访问调试标志的路径，通过 `self.strategy.probes` 获取 `should_probe` 和 `probe_dates_set`。
+        - 错误修复: 修正了访问调试标志的路径，直接通过 `self` (ChipIntelligence实例) 获取 `should_probe` 和 `probe_dates_set`。
         - 返回值: 一个 Series，值为 0 到 1 之间。1 表示无惩罚，0 表示完全惩罚。
         """
-        print(f"ChipIntelligence self.debug_params: {self.debug_params}")
+        # 移除冗余的 debug_params 打印，因为已经确认其在 __init__ 中正确设置
+        # print(f"ChipIntelligence self.debug_params: {self.debug_params}")
         df_index = df.index
         p_conf = self.chip_ultimate_params
         bt_params = get_param_value(p_conf.get('bull_trap_detection_params'), {})
@@ -3592,14 +3593,11 @@ class ChipIntelligence:
         deception_index_raw = signals_data['deception_index_D']
         context_modulator_raw = signals_data[context_modulator_signal_name]
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # --- 调试信息构建 (修复访问路径) ---
-        # 确保 self.strategy.probes 已经被正确初始化
-        if not hasattr(self.strategy, 'probes') or self.strategy.probes is None:
-            is_debug_enabled = False
-            probe_dates_set = set()
-        else:
-            is_debug_enabled = self.strategy.probes.should_probe
-            probe_dates_set = self.strategy.probes.probe_dates_set
+
+        # --- 调试信息构建 (直接使用 ChipIntelligence 实例自身的属性) ---
+        is_debug_enabled = self.should_probe
+        probe_dates_set = self.probe_dates_set # 直接使用 ChipIntelligence 实例的 probe_dates_set
+
         probe_ts = None
         if is_debug_enabled and probe_dates_set:
             for date in reversed(df_index):
@@ -3607,26 +3605,31 @@ class ChipIntelligence:
                     probe_ts = date
                     break
         # --- 调试信息构建结束 ---
+
         # 1. 检测近期大幅下跌
         # 计算过去 N 天的最低跌幅
         min_pct_change_in_window = pct_change_raw.rolling(window=recent_sharp_drop_window, min_periods=1).min()
         has_recent_sharp_drop = (min_pct_change_in_window <= min_sharp_drop_pct)
+
         # 2. 检测当前是否存在正向欺骗
         norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         has_positive_deception = (norm_deception_index_bipolar > 0)
+
         # 3. 结合情境调制器
         norm_context_modulator = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
         # 波动性越高，惩罚越敏感
         dynamic_penalty_sensitivity = 1 + norm_context_modulator * context_modulator_sensitivity
+
         # 4. 计算惩罚因子
         penalty_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
         bull_trap_condition = has_recent_sharp_drop & has_positive_deception
+
         if bull_trap_condition.any():
             # 惩罚强度 = 欺骗指数 * 惩罚乘数 * 动态敏感度
             penalty_strength = norm_deception_index_bipolar.loc[bull_trap_condition] * deception_penalty_multiplier * dynamic_penalty_sensitivity.loc[bull_trap_condition]
             # 将惩罚强度映射到 0 到 1 之间，1 - 惩罚强度
             penalty_factor.loc[bull_trap_condition] = (1 - penalty_strength).clip(0.0, 1.0)
-        
+
         print(f"_calculate_bull_trap_context_penalty debug配置：is_debug_enabled：{is_debug_enabled}， probe_ts：{probe_ts}， probe_ts in df_index：{probe_ts in df_index}")
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"    -> [筹码层 Debug] 牛市陷阱惩罚计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
@@ -3637,6 +3640,7 @@ class ChipIntelligence:
             start_idx_for_window = max(0, probe_idx - recent_sharp_drop_window + 1)
             # 获取窗口内的 pct_change_raw
             relevant_pct_change = pct_change_raw.iloc[start_idx_for_window : probe_idx + 1]
+
             print(f"        - pct_change_raw (last {recent_sharp_drop_window} days): {relevant_pct_change.tolist()}")
             print(f"        - min_sharp_drop_pct (config): {min_sharp_drop_pct:.4f}")
             print(f"        - min_pct_change_in_window: {min_pct_change_in_window.loc[probe_ts]:.4f}")
@@ -3654,6 +3658,7 @@ class ChipIntelligence:
                 print(f"        - final penalty_factor: {penalty_factor.loc[probe_ts]:.4f}")
             else:
                 print(f"        - No penalty applied for this date because bull_trap_condition is False.")
+
         print(f"    -> [筹码层] 计算牛市陷阱情境惩罚，平均惩罚因子: {penalty_factor.mean():.4f}")
         return penalty_factor
 
