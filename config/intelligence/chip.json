@@ -338,6 +338,20 @@
             "global_context_sensitivity_conviction": 0.3,
             "comment_global_context_sensitivity_conviction": "主力信念对全局情境调制的敏感度。"
         },
+        "bull_trap_detection_params": {
+            "enabled": true,
+            "description": "【V1.0 · 牛市陷阱识别与惩罚】用于识别近期大幅下跌后的欺骗性反弹。",
+            "recent_sharp_drop_window": 3,
+            "comment_recent_sharp_drop_window": "检测近期大幅下跌的窗口期（天数）。",
+            "min_sharp_drop_pct": -0.05,
+            "comment_min_sharp_drop_pct": "触发“大幅下跌”的最小跌幅百分比（负值）。",
+            "deception_penalty_multiplier": 2.5,
+            "comment_deception_penalty_multiplier": "当检测到牛市陷阱情境时，欺骗指数对惩罚的放大倍数。",
+            "context_modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "comment_context_modulator_signal": "用于调制惩罚强度的情境信号（如波动不稳定性）。",
+            "context_modulator_sensitivity": 0.7,
+            "comment_context_modulator_sensitivity": "情境调制器对惩罚强度的敏感度。"
+        },
         "divergence_params": {
             "description": "【V7.2 · 情境自适应张力版】价筹张力信号的专属参数。",
             "chip_trend_momentum_weight": 0.6,

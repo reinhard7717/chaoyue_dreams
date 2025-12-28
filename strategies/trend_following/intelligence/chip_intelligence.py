@@ -1545,7 +1545,7 @@ class ChipIntelligence:
 
     def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
         """
-        【V5.2 · 诡道反吸强化与恐慌动态修正版】吸筹回声探针
+        【V5.3 · 诡道反吸强化与恐慌动态修正版 & 牛市陷阱惩罚版】吸筹回声探针
         - 核心升级1: 恐慌声源精细化。在V4.0基础上，引入总输家比例短期加速度、散户恐慌投降指数短期斜率、结构性紧张指数短期加速度，更精准捕捉恐慌蔓延。
         - 核心升级2: 逆流介质强化。在V4.0基础上，引入浮动筹码清洗效率短期斜率、订单簿清算率短期加速度、微观价格冲击不对称性短期斜率、VWAP控制强度短期斜率、VWAP穿越强度短期加速度，更全面评估承接能力。
         - 核心升级3: 主力回声深化。在V4.0基础上，引入隐蔽吸筹信号短期加速度、压制式吸筹强度短期斜率、主力成本优势短期加速度、主力资金流向方向性短期斜率、主力VPOC短期加速度、智能资金净买入短期斜率，更细致刻画主力吸筹意图。
@@ -1555,10 +1555,11 @@ class ChipIntelligence:
             - 支持性派发强度 (`supportive_distribution_intensity_D`) 作为负向调制器。
         - 核心修复1: 修正 `panic_source_score` 对恐慌动态的判断，当散户恐慌快速消退时，降低其贡献。
         - 核心修复2: 调整 `deception_modulator` 逻辑，当 `norm_deception_index_bipolar` 为负时，应增强 `absorption_echo` 信号。
+        - **新增业务逻辑：引入“牛市陷阱情境惩罚”，在近期大幅下跌后伴随正向欺骗时，大幅降低吸筹回声的得分。**
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_absorption_echo"
-        print(f"    -> [筹码情报校验] 正在诊断“{method_name}” (V5.2 · 诡道反吸强化与恐慌动态修正版)...")
+        print(f"    -> [筹码情报校验] 正在诊断“{method_name}” (V5.3 · 诡道反吸强化与恐慌动态修正版 & 牛市陷阱惩罚版)...")
         df_index = df.index
         required_signals = [
             'retail_panic_surrender_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
@@ -1584,7 +1585,8 @@ class ChipIntelligence:
             'ACCEL_5_main_force_vpoc_D', 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D',
             'flow_credibility_index_D',
             'supportive_distribution_intensity_D',
-            'vwap_control_strength_D', 'vwap_crossing_intensity_D', 'micro_price_impact_asymmetry_D'
+            'vwap_control_strength_D', 'vwap_crossing_intensity_D', 'micro_price_impact_asymmetry_D',
+            'pct_change_D' # 新增牛市陷阱检测所需信号
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1600,7 +1602,6 @@ class ChipIntelligence:
         final_fusion_exponent = get_param_value(absorption_echo_params.get('final_fusion_exponent'), 0.25)
         context_modulator_weights = get_param_value(absorption_echo_params.get('context_modulator_weights'), {})
         supportive_distribution_penalty_factor = get_param_value(absorption_echo_params.get('supportive_distribution_penalty_factor'), 0.2)
-        # 新增参数
         panic_slope_dampening_enabled = get_param_value(absorption_echo_params.get('panic_slope_dampening_enabled'), True)
         panic_slope_dampening_sensitivity = get_param_value(absorption_echo_params.get('panic_slope_dampening_sensitivity'), 0.5)
         deception_boost_factor_negative = get_param_value(absorption_echo_params.get('deception_boost_factor_negative'), 0.5)
@@ -1613,29 +1614,6 @@ class ChipIntelligence:
                     probe_ts = date
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"      [探针] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-        #     print(f"        - 原始数据 (retail_panic_surrender_index_D): {signals_data['retail_panic_surrender_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (loser_pain_index_D): {signals_data['loser_pain_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (chip_fatigue_index_D): {signals_data['chip_fatigue_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (structural_tension_index_D): {signals_data['structural_tension_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (ACCEL_5_total_loser_rate_D): {signals_data['ACCEL_5_total_loser_rate_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (SLOPE_5_retail_panic_surrender_index_D): {signals_data['SLOPE_5_retail_panic_surrender_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (ACCEL_5_structural_tension_index_D): {signals_data['ACCEL_5_structural_tension_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (divergence_scores): {divergence_scores.loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (capitulation_absorption_index_D): {signals_data['capitulation_absorption_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (floating_chip_cleansing_efficiency_D): {signals_data['floating_chip_cleansing_efficiency_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (SLOPE_5_floating_chip_cleansing_efficiency_D): {signals_data['SLOPE_5_floating_chip_cleansing_efficiency_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (ACCEL_5_order_book_clearing_rate_D): {signals_data['ACCEL_5_order_book_clearing_rate_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (covert_accumulation_signal_D): {signals_data['covert_accumulation_signal_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (suppressive_accumulation_intensity_D): {signals_data['suppressive_accumulation_intensity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (ACCEL_5_covert_accumulation_signal_D): {signals_data['ACCEL_5_covert_accumulation_signal_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (SLOPE_5_suppressive_accumulation_intensity_D): {signals_data['SLOPE_5_suppressive_accumulation_intensity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (chip_fault_magnitude_D): {signals_data['chip_fault_magnitude_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (deception_index_D): {signals_data['deception_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (wash_trade_intensity_D): {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (flow_credibility_index_D): {signals_data['flow_credibility_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (supportive_distribution_intensity_D): {signals_data['supportive_distribution_intensity_D'].loc[probe_ts]:.4f}")
         # --- 原始数据获取 ---
         retail_panic_surrender_raw = signals_data['retail_panic_surrender_index_D']
         loser_pain_raw = signals_data['loser_pain_index_D']
@@ -1726,21 +1704,12 @@ class ChipIntelligence:
             },
             panic_source_numeric_weights, df_index
         )
-        # 修正：恐慌消退速度对 panic_source_score 的调制
         panic_slope_dampening_factor = pd.Series(1.0, index=df_index)
         if panic_slope_dampening_enabled:
             norm_panic_slope = get_adaptive_mtf_normalized_bipolar_score(slope_5_retail_panic_surrender_raw, df_index, tf_weights)
-            # 如果恐慌斜率为负（恐慌消退），则降低 panic_source_score
             panic_slope_dampening_factor = (1 - norm_panic_slope.clip(upper=0).abs() * panic_slope_dampening_sensitivity).clip(0.1, 1.0)
-            # if is_debug_enabled and probe_ts and probe_ts in df_index:
-            #     print(f"        - 中间节点 (norm_panic_slope): {norm_panic_slope.loc[probe_ts]:.4f}")
-            #     print(f"        - 中间节点 (panic_slope_dampening_factor): {panic_slope_dampening_factor.loc[probe_ts]:.4f}")
         panic_source_score_modulated = panic_source_score * panic_slope_dampening_factor
         is_panic_context = panic_source_score_modulated > panic_context_threshold
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (panic_source_score): {panic_source_score.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (panic_source_score_modulated): {panic_source_score_modulated.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (is_panic_context): {is_panic_context.loc[probe_ts]}")
         # --- 2. 逆流介质 (Counter-Flow Medium) ---
         norm_divergence_bullish = get_adaptive_mtf_normalized_score(divergence_bullish_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_capitulation_absorption = get_adaptive_mtf_normalized_score(capitulation_absorption_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1786,8 +1755,6 @@ class ChipIntelligence:
             },
             counter_flow_medium_numeric_weights, df_index
         )
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (counter_flow_medium_score): {counter_flow_medium_score.loc[probe_ts]:.4f}")
         # --- 3. 主力回声 (Main Force Echo) ---
         norm_covert_accumulation = get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_suppressive_accumulation = get_adaptive_mtf_normalized_score(suppressive_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1831,8 +1798,6 @@ class ChipIntelligence:
             },
             main_force_echo_numeric_weights, df_index
         )
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (main_force_echo_score): {main_force_echo_score.loc[probe_ts]:.4f}")
         # --- 4. 诡道背景调制智能化 (Intelligent Deception Context Modulation) ---
         deception_modulator = pd.Series(1.0, index=df_index)
         norm_chip_fault_magnitude_bipolar = get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights)
@@ -1842,7 +1807,7 @@ class ChipIntelligence:
         norm_supportive_distribution_intensity = get_adaptive_mtf_normalized_score(supportive_distribution_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         conviction_threshold = deception_modulator_params.get('conviction_threshold', 0.2)
         deception_index_boost_weight = deception_modulator_params.get('deception_index_boost_weight', 0.5)
-        deception_index_penalty_weight = deception_modulator_params.get('deception_index_penalty_weight', 0.5)
+        deception_index_penalty_weight = deception_modulator_params.get('deception_index_penalty_weight', 0.7) # 提高敏感度
         wash_trade_penalty_weight = deception_modulator_params.get('wash_trade_penalty_weight', 0.3)
         # 修正：诱空反吸增强：负向欺骗时增强吸筹信号
         deception_boost_mask = (norm_deception_index_bipolar < 0)
@@ -1857,8 +1822,6 @@ class ChipIntelligence:
         # 支持性派发惩罚
         deception_modulator = deception_modulator * (1 - norm_supportive_distribution_intensity * supportive_distribution_penalty_factor)
         deception_modulator = deception_modulator.clip(0.1, 2.0)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (deception_modulator): {deception_modulator.loc[probe_ts]:.4f}")
         # --- 5. 情境调制器引入 (Context Modulator Introduction) ---
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_structural_tension = get_adaptive_mtf_normalized_score(structural_tension_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -1874,8 +1837,6 @@ class ChipIntelligence:
             ).pow(1 / total_context_modulator_weight)
             context_modulator = 1 + (fused_context_modulator_raw - 0.5) * 0.5 # 将 [0,1] 映射到 [0.75, 1.25] 左右
         context_modulator = context_modulator.clip(0.5, 1.5)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (context_modulator): {context_modulator.loc[probe_ts]:.4f}")
         # --- 最终融合 ---
         base_score = pd.Series(0.0, index=df_index)
         valid_mask = is_panic_context # 只有在恐慌背景下才计算吸筹回声
@@ -1886,6 +1847,9 @@ class ChipIntelligence:
             )
         final_score = base_score * deception_modulator * context_modulator
         final_score = final_score.pow(final_fusion_exponent) # 非线性放大
+        # --- 应用牛市陷阱情境惩罚 ---
+        bull_trap_penalty = self._calculate_bull_trap_context_penalty(df)
+        final_score = final_score * bull_trap_penalty
         final_score = final_score.clip(0.0, 1.0).fillna(0.0).astype(np.float32)
         print(f"    -> [筹码层] 计算完成 '吸筹回声探针' 分数: {final_score.loc[probe_ts] if probe_ts and probe_ts in df_index else final_score.iloc[-1]:.4f}")
         return final_score
@@ -2095,7 +2059,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.7 · 势能博弈临界强化与诡道惩罚深度修正版】筹码公理六：诊断“筹码势能”
+        【V5.8 · 势能博弈临界强化与诡道惩罚深度修正版 & 牛市陷阱惩罚版】筹码公理六：诊断“筹码势能”
         - 核心升级1: 主力吸筹质量 (MF_AQ)。引入“吸筹效率的非对称性”，结合主力成本优势和筹码健康度动态调整吸筹模式权重，并考虑主力执行效率和非对称摩擦指数等高频聚合信号。
         - 核心升级2: 筹码结构张力 (CST)。引入“结构临界点识别”，结合赢家/输家集中度斜率预判结构转折，并考虑结构张力指数和结构熵变。
         - 核心升级3: 势能转化效率 (PCE)。引入“阻力位博弈强度”，评估关键阻力位和支撑位的博弈激烈程度，并考虑订单簿清算率和微观价格冲击不对称性等微观层面的阻力消化能力。
@@ -2103,6 +2067,7 @@ class ChipIntelligence:
         - 核心升级5: 情境自适应权重 (ACW)。引入“市场情绪与流动性情境”，增加市场情绪分数和资金流可信度指数作为情境调制器。
         - 核心修复: 增强 `dgm_score` 的惩罚机制，当出现“诱空”且主力资金流出时，强制将分数设置为极低负值，并确保其优先级，修正主力流出判断逻辑。
         - 纯筹码化：移除对资金类信号（如主力资金流向、资金流可信度）的依赖，替换为纯筹码类指标。
+        - **新增业务逻辑：引入“牛市陷阱情境惩罚”，在近期大幅下跌后伴随正向欺骗时，大幅降低筹码势能的得分。**
         """
         method_name = "_diagnose_axiom_historical_potential"
         df_index = df.index
@@ -2117,7 +2082,6 @@ class ChipIntelligence:
             'winner_stability_index_D', 'loser_pain_index_D',
             'active_selling_pressure_D', 'capitulation_absorption_index_D',
             'deception_index_D', 'wash_trade_intensity_D',
-            # 'main_force_flow_directionality_D', # 移除资金类信号
             'main_force_execution_alpha_D', 'asymmetric_friction_index_D',
             'SLOPE_5_winner_concentration_90pct_D', 'SLOPE_5_loser_concentration_90pct_D',
             'structural_tension_index_D', 'structural_entropy_change_D',
@@ -2125,8 +2089,8 @@ class ChipIntelligence:
             'order_book_clearing_rate_D', 'micro_price_impact_asymmetry_D',
             'retail_panic_surrender_index_D', 'main_force_conviction_index_D',
             'market_sentiment_score_D',
-            # 'flow_credibility_index_D', # 移除资金类信号
-            'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D' # 新增筹码类信号
+            'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
+            'pct_change_D' # 新增牛市陷阱检测所需信号
         ]
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -2190,32 +2154,6 @@ class ChipIntelligence:
                     probe_ts = date
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"      [探针] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-        #     print(f"        - 原始数据 (covert_accumulation_signal_D): {signals_data['covert_accumulation_signal_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (suppressive_accumulation_intensity_D): {signals_data['suppressive_accumulation_intensity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (main_force_cost_advantage_D): {signals_data['main_force_cost_advantage_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (floating_chip_cleansing_efficiency_D): {signals_data['floating_chip_cleansing_efficiency_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (chip_health_score_D): {signals_data['chip_health_score_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (dominant_peak_solidity_D): {signals_data['dominant_peak_solidity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (SLOPE_5_cost_structure_skewness_D): {signals_data['SLOPE_5_cost_structure_skewness_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (SLOPE_5_peak_separation_ratio_D): {signals_data['SLOPE_5_peak_separation_ratio_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (vacuum_zone_magnitude_D): {signals_data['vacuum_zone_magnitude_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (vacuum_traversal_efficiency_D): {signals_data['vacuum_traversal_efficiency_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (active_selling_pressure_D): {signals_data['active_selling_pressure_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (capitulation_absorption_index_D): {signals_data['capitulation_absorption_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (deception_index_D): {signals_data['deception_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (wash_trade_intensity_D): {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
-        #     # print(f"        - 原始数据 (main_force_flow_directionality_D): {signals_data['main_force_flow_directionality_D'].loc[probe_ts]:.4f}") # 移除
-        #     print(f"        - 原始数据 (retail_panic_surrender_index_D): {signals_data['retail_panic_surrender_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (main_force_conviction_index_D): {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (VOLATILITY_INSTABILITY_INDEX_21d_D): {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (chip_fatigue_index_D): {signals_data['chip_fatigue_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (market_sentiment_score_D): {signals_data['market_sentiment_score_D'].loc[probe_ts]:.4f}")
-        #     # print(f"        - 原始数据 (flow_credibility_index_D): {signals_data['flow_credibility_index_D'].loc[probe_ts]:.4f}") # 移除
-        #     print(f"        - 原始数据 (conviction_flow_buy_intensity_D): {signals_data['conviction_flow_buy_intensity_D'].loc[probe_ts]:.4f}") # 新增
-        #     print(f"        - 原始数据 (conviction_flow_sell_intensity_D): {signals_data['conviction_flow_sell_intensity_D'].loc[probe_ts]:.4f}") # 新增
-        #     print(f"        - 原始数据 (winner_stability_index_D): {signals_data['winner_stability_index_D'].loc[probe_ts]:.4f}") # 新增
         # --- 原始数据获取 ---
         chip_health_raw = signals_data['chip_health_score_D']
         norm_chip_health = get_adaptive_mtf_normalized_bipolar_score(chip_health_raw, df_index, tf_weights)
@@ -2264,8 +2202,6 @@ class ChipIntelligence:
         ) / sum_dynamic_weights_mf_aq.replace(0, 1e-6) * base_mf_aq_total_weight # 确保总权重归一化
         mf_aq_score = mf_aq_score * deception_purity_adjustment # 诡道纯度调整
         mf_aq_score = mf_aq_score.clip(0, 1)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (mf_aq_score): {mf_aq_score.loc[probe_ts]:.4f}")
         # --- 2. 筹码结构张力 (CST) ---
         dominant_peak_solidity_raw = signals_data['dominant_peak_solidity_D']
         cost_structure_skewness_slope_raw = signals_data['SLOPE_5_cost_structure_skewness_D']
@@ -2299,8 +2235,6 @@ class ChipIntelligence:
         }
         cst_score = _robust_geometric_mean(cst_components, cst_weights, df_index)
         cst_score = cst_score.clip(0, 1)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (cst_score): {cst_score.loc[probe_ts]:.4f}")
         # --- 3. 势能转化效率 (PCE) ---
         vacuum_zone_magnitude_raw = signals_data['vacuum_zone_magnitude_D']
         vacuum_traversal_efficiency_raw = signals_data['vacuum_traversal_efficiency_D']
@@ -2330,19 +2264,15 @@ class ChipIntelligence:
         }
         pce_score = _robust_geometric_mean(pce_components, pce_weights, df_index)
         pce_score = pce_score.clip(0, 1)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (pce_score): {pce_score.loc[probe_ts]:.4f}")
         # --- 4. 诡道博弈调制 (DGM) ---
         deception_index_raw = signals_data['deception_index_D']
         wash_trade_intensity_raw = signals_data['wash_trade_intensity_D']
-        # main_force_flow_directionality_raw = signals_data['main_force_flow_directionality_D'] # 移除
         retail_panic_surrender_raw = signals_data['retail_panic_surrender_index_D']
         main_force_conviction_raw = signals_data['main_force_conviction_index_D']
         conviction_flow_buy_raw = signals_data['conviction_flow_buy_intensity_D'] # 新增
         conviction_flow_sell_raw = signals_data['conviction_flow_sell_intensity_D'] # 新增
         norm_deception_index = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights) # 移除
         norm_retail_panic_surrender = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
         # 构建纯筹码流向代理
@@ -2354,6 +2284,7 @@ class ChipIntelligence:
         dgm_score_base = pd.Series(0.0, index=df_index)
         # 诱多惩罚：当有正向欺骗且筹码流向为负时，惩罚
         bull_trap_mask = (norm_deception_index > 0) & (chip_flow_directionality_proxy < 0)
+        # 强化诱多惩罚：使用 bull_trap_penalty_factor 放大惩罚
         dgm_score_base.loc[bull_trap_mask] -= (norm_deception_index.loc[bull_trap_mask] * chip_flow_directionality_proxy.loc[bull_trap_mask].abs()) * dgm_weights.get('deception_impact', 0.4) * dgm_asymmetry_params.get('bull_trap_penalty_factor', 1.5)
         # 诱空奖励：当有负向欺骗且筹码流向为正时，奖励
         bear_trap_absorption_mask = (norm_deception_index < 0) & (chip_flow_directionality_proxy > 0)
@@ -2368,8 +2299,6 @@ class ChipIntelligence:
         # 使用 np.where 确保强制惩罚的优先级
         dgm_score = np.where(bearish_deception_and_mf_out_mask, -0.9, dgm_score_base)
         dgm_score = pd.Series(dgm_score, index=df_index).clip(-1, 1)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (dgm_score): {dgm_score.loc[probe_ts]:.4f}")
         # --- 5. 情境自适应权重 (ACW) ---
         context_modulator_components = []
         total_context_weight = 0.0
@@ -2403,7 +2332,10 @@ class ChipIntelligence:
         dgm_multiplier = 1 + dgm_score * dgm_modulator_sensitivity
         dgm_multiplier = dgm_multiplier.clip(0.01, 2.0) # 限制调制范围，惩罚可以更深
         final_potential_score = (base_potential_score * dgm_multiplier).clip(0, 1)
-        final_score = final_potential_score.clip(0, 1).fillna(0.0).astype(np.float32)
+        # --- 应用牛市陷阱情境惩罚 ---
+        bull_trap_penalty = self._calculate_bull_trap_context_penalty(df)
+        final_score = final_potential_score * bull_trap_penalty
+        final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
         print(f"    -> [筹码层] 计算完成 '“筹码势能”' 分数: {final_score.loc[probe_ts] if probe_ts and probe_ts in df_index else final_score.iloc[-1]:.4f}")
         return final_score
 
@@ -2845,13 +2777,14 @@ class ChipIntelligence:
 
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
         """
-        【V3.3 · 诡道确认强化与参数深度修正版】诊断战略与战术和谐度的动态转折点，旨在构建一个诡道拐点判别与确认系统。
+        【V3.4 · 诡道确认强化与参数深度修正版 & 牛市陷阱惩罚版】诊断战略与战术和谐度的动态转折点，旨在构建一个诡道拐点判别与确认系统。
         - 核心升级1: 动态阈值自适应：和谐度所处区间（低位、中位、高位）的判断阈值不再固定，而是根据市场波动性或筹码健康度动态调整，提高对拐点“位置”判断的适应性。
         - 核心升级2: 非对称拐点动能融合：采用更复杂的非线性函数融合速度和加速度，并允许正向和负向拐点使用不同的融合参数，以更精细地量化拐点背后的真实动能，并反映市场情绪的非对称性。
         - 核心升级3: 诡道博弈过滤与惩罚：引入欺骗指数、对倒强度等诡道因子作为调制器，识别并惩罚伴随诱多欺骗的正向拐点，或适度削弱伴随诱空洗盘的负向拐点，提高信号真实性。
         - 核心升级4: 拐点延续性确认奖励：引入短期延续性检查机制，如果拐点方向在后续几天得到确认，则给予额外奖励，增强信号可靠性和鲁棒性。
         - 核心升级5: 增强情境调制器：除了筹码健康度和波动性，再引入主力信念指数作为情境调制器，更全面评估拐点信号在不同市场参与者意图下的可靠性。
         - 核心修复: 确保 `deception_modulator` 在 `norm_deception` 为负时，能够正确增强正向拐点信号，并增加增强敏感度。
+        - **新增业务逻辑：引入“牛市陷阱情境惩罚”，在近期大幅下跌后伴随正向欺骗时，大幅降低和谐拐点的得分。**
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_harmony_inflection"
@@ -2872,7 +2805,7 @@ class ChipIntelligence:
         mid_harmony_neutral_factor = get_param_value(inflection_params.get('mid_harmony_neutral_factor'), 1.0)
         deception_signal_name = get_param_value(inflection_params.get('deception_signal'), 'deception_index_D')
         wash_trade_signal_name = get_param_value(inflection_params.get('wash_trade_signal'), 'wash_trade_intensity_D')
-        deception_penalty_sensitivity = get_param_value(inflection_params.get('deception_penalty_sensitivity'), 0.7)
+        deception_penalty_sensitivity = get_param_value(inflection_params.get('deception_penalty_sensitivity'), 0.7) # 提高敏感度
         wash_trade_mitigation_sensitivity = get_param_value(inflection_params.get('wash_trade_mitigation_sensitivity'), 0.3)
         persistence_period = get_param_value(inflection_params.get('persistence_period'), 2)
         persistence_bonus_factor = get_param_value(inflection_params.get('persistence_bonus_factor'), 0.1)
@@ -2889,7 +2822,8 @@ class ChipIntelligence:
             wash_trade_signal_name,
             context_modulator_signal_1_name,
             context_modulator_signal_2_name,
-            context_modulator_signal_3_name
+            context_modulator_signal_3_name,
+            'pct_change_D' # 新增牛市陷阱检测所需信号
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -2903,15 +2837,6 @@ class ChipIntelligence:
                     probe_ts = date
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"      [探针] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-        #     print(f"        - 原始数据 (harmony_score): {harmony_score.loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (threshold_modulator_signal): {signals_data[threshold_modulator_signal_name].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (deception_index_D): {signals_data[deception_signal_name].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (wash_trade_intensity_D): {signals_data[wash_trade_signal_name].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (chip_health_score_D): {signals_data[context_modulator_signal_1_name].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (VOLATILITY_INSTABILITY_INDEX_21d_D): {signals_data[context_modulator_signal_2_name].loc[probe_ts]:.4f}")
-        #     print(f"        - 原始数据 (main_force_conviction_index_D): {signals_data[context_modulator_signal_3_name].loc[probe_ts]:.4f}")
         # --- 原始数据获取 ---
         threshold_modulator_raw = signals_data[threshold_modulator_signal_name]
         deception_raw = signals_data[deception_signal_name]
@@ -2924,11 +2849,6 @@ class ChipIntelligence:
         harmony_acceleration = harmony_velocity.diff(acceleration_period).fillna(0)
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(harmony_velocity, df_index, tf_weights)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(harmony_acceleration, df_index, tf_weights)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (harmony_velocity): {harmony_velocity.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (harmony_acceleration): {harmony_acceleration.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}")
         # --- 2. 非对称拐点动能融合 (Asymmetric Inflection Momentum Fusion) ---
         positive_inflection_strength = pd.Series(0.0, index=df_index)
         # 拐点判断逻辑：速度从负转正，或速度为负但加速度为正（即将转正），或速度为正且加速度为正
@@ -2945,19 +2865,12 @@ class ChipIntelligence:
         negative_inflection_strength.loc[negative_inflection_mask] = \
             np.tanh((norm_velocity.loc[negative_inflection_mask].abs().clip(lower=0) + norm_acceleration.loc[negative_inflection_mask].abs().clip(lower=0)) * negative_strength_tanh_factor)
         inflection_strength = positive_inflection_strength - negative_inflection_strength
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (positive_inflection_strength): {positive_inflection_strength.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (negative_inflection_strength): {negative_inflection_strength.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (inflection_strength): {inflection_strength.loc[probe_ts]:.4f}")
         # --- 3. 动态阈值自适应 (Dynamic Threshold Adaptation) ---
         norm_threshold_modulator = get_adaptive_mtf_normalized_score(threshold_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
         dynamic_low_harmony_threshold = base_low_harmony_threshold * (1 - norm_threshold_modulator * threshold_modulator_sensitivity)
         dynamic_high_harmony_threshold = base_high_harmony_threshold * (1 + norm_threshold_modulator * threshold_modulator_sensitivity)
         dynamic_low_harmony_threshold = dynamic_low_harmony_threshold.clip(0.05, 0.3) # 限制阈值范围
         dynamic_high_harmony_threshold = dynamic_high_harmony_threshold.clip(0.7, 0.95)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (dynamic_low_harmony_threshold): {dynamic_low_harmony_threshold.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (dynamic_high_harmony_threshold): {dynamic_high_harmony_threshold.loc[probe_ts]:.4f}")
         # --- 4. 动态位置敏感度 (Dynamic Position Sensitivity) ---
         position_sensitivity_factor = pd.Series(mid_harmony_neutral_factor, index=df_index)
         low_harmony_zone_mask = harmony_score < dynamic_low_harmony_threshold
@@ -2966,8 +2879,6 @@ class ChipIntelligence:
         high_harmony_zone_mask = harmony_score > dynamic_high_harmony_threshold
         position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength < 0)] = high_harmony_boost_factor # 高位负向拐点，放大
         position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength > 0)] = 1 / high_harmony_boost_factor # 高位正向拐点，缩小
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (position_sensitivity_factor): {position_sensitivity_factor.loc[probe_ts]:.4f}")
         # --- 5. 诡道博弈过滤与惩罚 (Deceptive Game Filtering & Penalty) ---
         norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights)
         norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -2982,10 +2893,6 @@ class ChipIntelligence:
         bear_trap_mitigation_mask = (inflection_strength < 0) & (norm_wash_trade > 0)
         deception_modulator.loc[bear_trap_mitigation_mask] = 1 + (norm_wash_trade.loc[bear_trap_mitigation_mask] * wash_trade_mitigation_sensitivity).clip(0, 0.5)
         inflection_strength_modulated = inflection_strength * deception_modulator
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (norm_deception): {norm_deception.loc[probe_ts]:.4f}") # 新增探针
-        #     print(f"        - 中间节点 (deception_modulator): {deception_modulator.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (inflection_strength_modulated): {inflection_strength_modulated.loc[probe_ts]:.4f}")
         # --- 6. 拐点延续性确认奖励 (Inflection Persistence Confirmation Bonus) ---
         persistence_bonus = pd.Series(0.0, index=df_index)
         # 正向拐点在后续几天得到确认
@@ -2996,8 +2903,6 @@ class ChipIntelligence:
         negative_persistence_mask = (inflection_strength_modulated < 0) & \
                                     (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() < 0)
         persistence_bonus.loc[negative_persistence_mask] = -persistence_bonus_factor
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (persistence_bonus): {persistence_bonus.loc[probe_ts]:.4f}")
         # --- 7. 增强情境调制器 (Enhanced Contextual Modulators) ---
         chip_health_raw = signals_data[context_modulator_signal_1_name]
         norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -3010,10 +2915,11 @@ class ChipIntelligence:
             (1 + norm_volatility_instability * context_modulator_sensitivity_volatility) *
             (1 + norm_main_force_conviction * context_modulator_sensitivity_conviction)
         ).clip(0.5, 2.0)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (context_modulator): {context_modulator.loc[probe_ts]:.4f}")
         # --- 最终融合 ---
         final_score = (inflection_strength_modulated * position_sensitivity_factor * context_modulator) + persistence_bonus
+        # --- 应用牛市陷阱情境惩罚 ---
+        bull_trap_penalty = self._calculate_bull_trap_context_penalty(df)
+        final_score = final_score * bull_trap_penalty
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
         print(f"    -> [筹码层] 计算完成 '战略与战术的和谐度' 分数: {final_score.loc[probe_ts] if probe_ts and probe_ts in df_index else final_score.iloc[-1]:.4f}")
         return final_score
@@ -3658,5 +3564,51 @@ class ChipIntelligence:
         print(f"    -> [筹码层] 计算完成 '筹码绝望与诱惑区' 分数: {final_score.iloc[-1]}")
         return final_score
 
+    def _calculate_bull_trap_context_penalty(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 牛市陷阱情境惩罚】计算在近期大幅下跌后，伴随欺骗性反弹情境下的惩罚因子。
+        - 核心逻辑: 检测近期是否存在大幅下跌，同时当前是否存在正向欺骗信号。
+                    结合市场波动性作为情境调制器，动态调整惩罚强度。
+        - 返回值: 一个 Series，值为 0 到 1 之间。1 表示无惩罚，0 表示完全惩罚。
+        """
+        df_index = df.index
+        p_conf = self.chip_ultimate_params
+        bt_params = get_param_value(p_conf.get('bull_trap_detection_params'), {})
+        if not get_param_value(bt_params.get('enabled'), False):
+            return pd.Series(1.0, index=df_index, dtype=np.float32)
+        recent_sharp_drop_window = get_param_value(bt_params.get('recent_sharp_drop_window'), 3)
+        min_sharp_drop_pct = get_param_value(bt_params.get('min_sharp_drop_pct'), -0.05)
+        deception_penalty_multiplier = get_param_value(bt_params.get('deception_penalty_multiplier'), 2.5)
+        context_modulator_signal_name = get_param_value(bt_params.get('context_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
+        context_modulator_sensitivity = get_param_value(bt_params.get('context_modulator_sensitivity'), 0.7)
+        required_signals = ['pct_change_D', 'deception_index_D', context_modulator_signal_name]
+        if not self._validate_required_signals(df, required_signals, "_calculate_bull_trap_context_penalty"):
+            return pd.Series(1.0, index=df_index, dtype=np.float32)
+        signals_data = self._get_all_required_signals(df, required_signals, "_calculate_bull_trap_context_penalty")
+        pct_change_raw = signals_data['pct_change_D'] / 100 # 转换为小数
+        deception_index_raw = signals_data['deception_index_D']
+        context_modulator_raw = signals_data[context_modulator_signal_name]
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 1. 检测近期大幅下跌
+        # 计算过去 N 天的最低跌幅
+        min_pct_change_in_window = pct_change_raw.rolling(window=recent_sharp_drop_window, min_periods=1).min()
+        has_recent_sharp_drop = (min_pct_change_in_window <= min_sharp_drop_pct)
+        # 2. 检测当前是否存在正向欺骗
+        norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
+        has_positive_deception = (norm_deception_index_bipolar > 0)
+        # 3. 结合情境调制器
+        norm_context_modulator = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # 波动性越高，惩罚越敏感
+        dynamic_penalty_sensitivity = 1 + norm_context_modulator * context_modulator_sensitivity
+        # 4. 计算惩罚因子
+        penalty_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
+        bull_trap_condition = has_recent_sharp_drop & has_positive_deception
+        if bull_trap_condition.any():
+            # 惩罚强度 = 欺骗指数 * 惩罚乘数 * 动态敏感度
+            penalty_strength = norm_deception_index_bipolar.loc[bull_trap_condition] * deception_penalty_multiplier * dynamic_penalty_sensitivity.loc[bull_trap_condition]
+            # 将惩罚强度映射到 0 到 1 之间，1 - 惩罚强度
+            penalty_factor.loc[bull_trap_condition] = (1 - penalty_strength).clip(0.0, 1.0)
+        print(f"    -> [筹码层] 计算牛市陷阱情境惩罚，平均惩罚因子: {penalty_factor.mean():.4f}")
+        return penalty_factor
 
 

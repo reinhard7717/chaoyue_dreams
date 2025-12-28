@@ -62,13 +62,13 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:
         """
-        【V5.2 · 统一情报总线版】
+        【V5.3 · 统一情报总线版 & 风险项调试增强版】
         - 核心修复: 在查找原始分(raw_score)时，不再只依赖 atomic_states。
                       同样建立一个临时的“统一情报总线”来合并 atomic_states 和 playbook_states，
                       确保任何来源的信号都能被正确回溯。
+        - 调试增强: 增加对 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT 信号在 summary 生成前的检查。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        # 建立统一情报总线，确保能回溯所有来源的信号
         all_available_signals = self.strategy.atomic_states.copy()
         all_available_signals.update(self.strategy.playbook_states)
         df = self.strategy.df_indicators
@@ -76,12 +76,20 @@ class JudgmentLayer:
         def generate_summary_for_day(row):
             offense_list = []
             risk_list = []
+            # --- 调试增强: 检查特定日期和信号的原始数据 ---
+            if not df.empty and row.name.date() == pd.to_datetime('2025-12-10').date():
+                print(f"    -> [JudgmentLayer Debug] _get_human_readable_summary processing row for {row.name.strftime('%Y-%m-%d')}")
+                if 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT' in row.index:
+                    print(f"        - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT contribution in row: {row['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']:.2f}")
+                else:
+                    print(f"        - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT column NOT FOUND in row for {row.name.strftime('%Y-%m-%d')}")
+                print(f"        - All non-zero contributions in row: {row[row != 0].to_dict()}")
+            # --- 调试增强结束 ---
             active_signals = row[row != 0]
             for signal_name, contribution in active_signals.items():
                 meta = score_map.get(signal_name, {})
                 is_risk = contribution < 0
                 raw_score_source = meta.get('raw_score_source', signal_name)
-                # 从统一情报总线查找原始分
                 raw_score = all_available_signals.get(raw_score_source, pd.Series(0.0, index=df.index)).get(row.name, 0.0)
                 base_score_key = 'penalty_weight' if is_risk else 'score'
                 base_score = meta.get(base_score_key, 0)
