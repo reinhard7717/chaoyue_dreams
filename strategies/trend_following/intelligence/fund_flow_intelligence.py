@@ -556,7 +556,7 @@ class FundFlowIntelligence:
         mtf_cohesion_deception_weights = get_param_value(mtf_cohesion_params.get('deception_weights'), {"deception_index": 0.5, "wash_trade_intensity": 0.5})
 
         required_signals = [
-            'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D', # 确保 retail_net_flow_calibrated_D 在这里
+            'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D',
             'ATR_14_D',
             'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
             'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D',
@@ -581,7 +581,7 @@ class FundFlowIntelligence:
             'main_force_on_peak_sell_flow_D',
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
-            'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D',
+            'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D', # 确保 wash_trade_sell_volume_D 在这里
             'main_force_flow_directionality_D', 'NMFNF_D',
             'market_impact_cost_D', 'liquidity_slope_D', 'liquidity_authenticity_score_D',
             'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'order_flow_imbalance_score_D',
@@ -701,7 +701,7 @@ class FundFlowIntelligence:
         norm_liquidity_authenticity = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_buy_sweep_intensity = get_adaptive_mtf_normalized_score(buy_sweep_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_sell_sweep_intensity_inverted = 1 - get_adaptive_mtf_normalized_score(sell_sweep_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 卖方扫单强度越低越好
-        norm_order_flow_imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_flow_imbalance_score_raw, df_index, tf_weights_ff)
+        norm_order_flow_imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_flow_imbalance_score_raw, df_index, tf_weights=tf_weights_ff)
         micro_control_quality_score = (
             norm_market_impact_cost_inverted * micro_control_quality_weights.get('market_impact_cost_inverted', 0.2) +
             norm_liquidity_slope * micro_control_quality_weights.get('liquidity_slope', 0.2) +
@@ -741,6 +741,9 @@ class FundFlowIntelligence:
         norm_vwap_sell_control_strength = get_adaptive_mtf_normalized_score(raw_data_cache['vwap_sell_control_strength_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_vwap_down_guidance = get_adaptive_mtf_normalized_score(raw_data_cache['main_force_vwap_down_guidance_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_vwap_cross_down_intensity = get_adaptive_mtf_normalized_score(raw_data_cache['vwap_cross_down_intensity_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        # 修正：添加 norm_wash_trade_sell_volume 的定义
+        norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_sell_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+
         total_buy_power = (
             norm_dip_buy_absorption_strength * micro_buy_power_weights.get('dip_buy_absorption_strength', 0.1) +
             norm_panic_buy_absorption_contribution * micro_buy_power_weights.get('panic_buy_absorption_contribution', 0.1) +

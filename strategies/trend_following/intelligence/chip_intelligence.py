@@ -898,7 +898,7 @@ class ChipIntelligence:
         final_score = (conviction_base_unipolar * (1 - final_impurity_effect)) * 2 - 1
         final_score = final_score * global_modulator_effect
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '{method_name}' 分数: {final_score.loc[probe_ts] if probe_ts and probe_ts in df_index else final_score.iloc[-1]:.4f}")
+        print(f"    -> [筹码层] 计算完成 筹码公理三：诊断“持仓信念韧性” 分数: {final_score.loc[probe_ts] if probe_ts and probe_ts in df_index else final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
