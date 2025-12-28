@@ -342,14 +342,16 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.6 · 全息趋势与风险审判强化版】计算“主力拉升意图”的专属关系分数。
+        【V5.8 · 全息趋势与深度情境风险审判版】计算“主力拉升意图”的专属关系分数。
         - 核心升级: 将核心信号（价格变化、主力净流）升级为多时间维度（MTF）斜率/加速度融合，
                       更鲁棒地捕捉趋势和动能。
         - 风险审判强化: 增强风险审判的多时间维度感知，引入更长期的下跌趋势和资金流出背离。
         - 涨停日处理优化: 移除涨停日无条件奖励，改为根据 MTF 融合后的风险信号进行动态调整。
-        - 【强化】调整 `pre_drop_risk_factor` 的计算，确保即使短期累计涨幅为正，单日或短期内的深跌也能贡献风险。
+        - 【重要修正】`pre_drop_risk_factor` 深度情境感知：不再仅仅判断前一日是否下跌，
+                      而是检查更长的周期，判断是否处于“上升波浪结束后开始下跌”的趋势中，
+                      以正确分辨超跌反弹和下跌中继。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V5.6 · 全息趋势与风险审判强化版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V5.8 · 全息趋势与深度情境风险审判版)...")
         method_name = "_calculate_main_force_rally_intent"
         
         # 获取MTF权重配置
@@ -366,7 +368,9 @@ class ProcessIntelligence:
             'profit_realization_quality_D', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH',
             'SCORE_FF_AXIOM_CAPITAL_SIGNATURE', 'distribution_at_peak_intensity_D',
             'upper_shadow_selling_pressure_D', 'flow_credibility_index_D', 'chip_health_score_D',
-            'retail_fomo_premium_index_D'
+            'retail_fomo_premium_index_D',
+            'SLOPE_21_close_D', 'ACCEL_21_close_D', # 新增中长期趋势信号
+            'SLOPE_34_close_D', 'ACCEL_34_close_D' # 进一步增加中长期趋势信号
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in ['close_D', 'main_force_net_flow_calibrated_D', 'upper_shadow_selling_pressure_D', 'retail_fomo_premium_index_D']:
@@ -390,7 +394,15 @@ class ProcessIntelligence:
         mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_mf_net_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         
-        price_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name) # 单日价格变化，用于前置下跌风险
+        prev_day_pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name).shift(1).fillna(0)
+        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name=method_name) # 用于计算从高点回落
+        
+        # 新增中长期趋势信号
+        slope_21_close = self._get_safe_series(df, 'SLOPE_21_close_D', 0.0, method_name=method_name)
+        accel_21_close = self._get_safe_series(df, 'ACCEL_21_close_D', 0.0, method_name=method_name)
+        slope_34_close = self._get_safe_series(df, 'SLOPE_34_close_D', 0.0, method_name=method_name)
+        accel_34_close = self._get_safe_series(df, 'ACCEL_34_close_D', 0.0, method_name=method_name)
+
         main_force_slippage = self._get_safe_series(df, 'main_force_slippage_index_D', 0.0, method_name=method_name)
         upward_impulse_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
@@ -471,17 +483,41 @@ class ProcessIntelligence:
             mtf_retail_fomo * 0.25
         ).clip(0, 1)
 
-        # 6.2. 前置下跌风险 (Pre-Drop Risk) - 考虑更长期的下跌趋势和单日深跌
+        # 6.2. 前置下跌风险 (Pre-Drop Risk) - 深度情境感知
+        # 短期累计跌幅
         pre_5day_pct_change = df['close_D'].pct_change(periods=5).shift(1).fillna(0)
         pre_13day_pct_change = df['close_D'].pct_change(periods=13).shift(1).fillna(0)
-        
         norm_pre_drop_5d = self._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         norm_pre_drop_13d = self._normalize_series(pre_13day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         
-        # 引入单日价格变化的负向部分，确保即使短期累计涨幅为正，单日深跌也能贡献风险
-        single_day_drop_risk = self._normalize_series(price_change.clip(upper=0).abs(), df_index, bipolar=False)
+        # 前一日的下跌风险
+        single_day_drop_risk = self._normalize_series(prev_day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
 
-        pre_drop_risk_factor = (norm_pre_drop_5d * 0.4 + norm_pre_drop_13d * 0.3 + single_day_drop_risk * 0.3) * 0.7
+        # 中长期趋势反转/下跌确认
+        # 21日和34日斜率和加速度的负向强度
+        norm_slope_21_neg = self._normalize_series(slope_21_close.clip(upper=0).abs(), df_index, bipolar=False)
+        norm_accel_21_neg = self._normalize_series(accel_21_close.clip(upper=0).abs(), df_index, bipolar=False)
+        norm_slope_34_neg = self._normalize_series(slope_34_close.clip(upper=0).abs(), df_index, bipolar=False)
+        norm_accel_34_neg = self._normalize_series(accel_34_close.clip(upper=0).abs(), df_index, bipolar=False)
+
+        medium_term_downtrend_strength = (norm_slope_21_neg * 0.3 + norm_accel_21_neg * 0.2 + 
+                                          norm_slope_34_neg * 0.3 + norm_accel_34_neg * 0.2).clip(0, 1)
+
+        # 从近期高点回落幅度
+        # 21日内最高价
+        high_21d = close_price.rolling(window=21).max()
+        # 从21日高点回落的百分比，并归一化
+        fall_from_peak_21d = (1 - close_price / high_21d).clip(lower=0).fillna(0)
+        norm_fall_from_peak_21d = self._normalize_series(fall_from_peak_21d, df_index, bipolar=False)
+
+        # 综合前置下跌风险
+        pre_drop_risk_factor = (
+            single_day_drop_risk * 0.2 + # 短期下跌
+            norm_pre_drop_5d * 0.2 + # 5日累计下跌
+            norm_pre_drop_13d * 0.1 + # 13日累计下跌
+            medium_term_downtrend_strength * 0.3 + # 中长期下跌趋势确认
+            norm_fall_from_peak_21d * 0.2 # 从高点回落幅度
+        ).clip(0, 1) * 0.7 # 整体风险因子权重
 
         # 6.3. 综合风险惩罚因子
         total_risk_penalty = (distribution_risk_score * 0.5 + pre_drop_risk_factor * 0.5).clip(0, 1)
@@ -507,9 +543,17 @@ class ProcessIntelligence:
         print(f"        - obstacle_clearance_score: {obstacle_clearance_score.iloc[-1]:.4f}")
         print(f"        - bullish_intent (基础): {bullish_intent.iloc[-1]:.4f}")
         print(f"        - distribution_risk_score: {distribution_risk_score.iloc[-1]:.4f}")
-        print(f"        - pre_5day_pct_change: {pre_5day_pct_change.iloc[-1]:.4f}")
-        print(f"        - norm_pre_drop_5d: {norm_pre_drop_5d.iloc[-1]:.4f}")
+        print(f"        - prev_day_pct_change: {prev_day_pct_change.iloc[-1]:.4f}")
         print(f"        - single_day_drop_risk: {single_day_drop_risk.iloc[-1]:.4f}")
+        print(f"        - norm_pre_drop_5d: {norm_pre_drop_5d.iloc[-1]:.4f}")
+        print(f"        - norm_pre_drop_13d: {norm_pre_drop_13d.iloc[-1]:.4f}")
+        print(f"        - norm_slope_21_neg: {norm_slope_21_neg.iloc[-1]:.4f}")
+        print(f"        - norm_accel_21_neg: {norm_accel_21_neg.iloc[-1]:.4f}")
+        print(f"        - norm_slope_34_neg: {norm_slope_34_neg.iloc[-1]:.4f}")
+        print(f"        - norm_accel_34_neg: {norm_accel_34_neg.iloc[-1]:.4f}")
+        print(f"        - medium_term_downtrend_strength: {medium_term_downtrend_strength.iloc[-1]:.4f}")
+        print(f"        - fall_from_peak_21d: {fall_from_peak_21d.iloc[-1]:.4f}")
+        print(f"        - norm_fall_from_peak_21d: {norm_fall_from_peak_21d.iloc[-1]:.4f}")
         print(f"        - pre_drop_risk_factor: {pre_drop_risk_factor.iloc[-1]:.4f}")
         print(f"        - total_risk_penalty: {total_risk_penalty.iloc[-1]:.4f}")
         print(f"        - penalized_bullish_part: {penalized_bullish_part.iloc[-1]:.4f}")
@@ -2325,15 +2369,15 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4 · 战术升级与全息资金流验证强化版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        【V2.5 · 战术升级与全息资金流验证强化版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
         - 核心重构: 废除僵化的“AND”门槛，创立“战术评分”模型。最终分 = 前奏吸筹分 * 强攻分。
         - 证据升级: “前奏分”通过归一化消除尺度问题；“强攻分”对核心证据进行加权，更具实战性。
         - 【强化】引入资金流可信度，确保强攻的资金基础是可靠的。
         - 【强化】调整“前奏分”的计算，引入主力资金净流入的趋势，确保前奏吸筹的持续性。
         - 【强化】将 `hidden_accumulation_intensity_D`、`buy_quote_exhaustion_rate_D` 和 `large_order_pressure_D` 升级为 MTF 融合信号。
-        - 【重要修改】提高 `mtf_large_pressure` 的负面影响权重，并引入 MTF 主力资金净流的负向部分。
+        - 【重要修正】提高 `mtf_large_pressure` 的负面影响权重，并引入大单压力与买盘枯竭的背离判断。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.4 · 战术升级与全息资金流验证强化版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.5 · 战术升级与全息资金流验证强化版)...")
         method_name = "_calculate_fund_flow_accumulation_inflection"
         
         # 获取MTF权重配置
@@ -2380,12 +2424,16 @@ class ProcessIntelligence:
 
         main_force_flow_momentum = self._normalize_series(main_force_flow_raw.diff(1).fillna(0), df_index, bipolar=True)
         
+        # 引入大单压力与买盘枯竭的背离判断
+        pressure_exhaustion_divergence = (mtf_large_pressure - mtf_buy_exhaustion).clip(lower=0) # 压力大但枯竭低，则背离
+        
         attack_score = (
-            mtf_buy_exhaustion * 0.4 + # 提高买盘枯竭权重
+            mtf_buy_exhaustion * 0.3 + # 降低买盘枯竭权重，因为其与压力背离
             main_force_flow_momentum.clip(lower=0) * 0.2 +
-            (1 - mtf_large_pressure) * 0.2 + # 提高压力清除权重
+            (1 - mtf_large_pressure) * 0.3 + # 提高压力清除权重
             flow_credibility_norm * 0.1 +
-            (1 - mtf_main_force_flow.clip(upper=0).abs()) * 0.1 # 主力资金净流负向部分越小越好
+            (1 - mtf_main_force_flow.clip(upper=0).abs()) * 0.1 - # 主力资金净流负向部分越小越好
+            pressure_exhaustion_divergence * 0.1 # 惩罚压力与枯竭的背离
         ).clip(0, 1)
 
         # --- 3. 最终审判 ---
@@ -2412,6 +2460,7 @@ class ProcessIntelligence:
             print(f"    - mtf_large_pressure: {mtf_large_pressure.iloc[last_date_index]:.4f}")
             print(f"    - flow_credibility_norm: {flow_credibility_norm.iloc[last_date_index]:.4f}")
             print(f"    - mtf_main_force_flow: {mtf_main_force_flow.iloc[last_date_index]:.4f}")
+            print(f"    - pressure_exhaustion_divergence: {pressure_exhaustion_divergence.iloc[last_date_index]:.4f}")
             print(f"    - attack_score: {attack_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]: ")
             print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
