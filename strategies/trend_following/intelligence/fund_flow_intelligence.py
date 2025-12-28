@@ -556,9 +556,14 @@ class FundFlowIntelligence:
         mtf_cohesion_deception_weights = get_param_value(mtf_cohesion_params.get('deception_weights'), {"deception_index": 0.5, "wash_trade_intensity": 0.5})
 
         required_signals = [
-            'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D',
-            'order_book_imbalance_D', 'microstructure_efficiency_index_D', 'wash_trade_intensity_D',
-            'deception_index_D', 'main_force_conviction_index_D', 'flow_credibility_index_D',
+            'main_force_net_flow_calibrated_D', 'ATR_14_D',
+            'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D', # 确保这两个都在
+            'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D',
+            'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
+            'bid_side_liquidity_D', 'ask_side_liquidity_D',
+            'main_force_flow_gini_D', 'order_book_imbalance_D', 'flow_credibility_index_D',
+            'microstructure_efficiency_index_D', 'wash_trade_intensity_D',
+            'deception_index_D', 'main_force_conviction_index_D',
             dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name,
             dynamic_weight_modulator_signal_3_name, dynamic_weight_modulator_signal_4_name, dynamic_weight_modulator_signal_5_name,
             'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
@@ -570,7 +575,7 @@ class FundFlowIntelligence:
             'pre_closing_buy_posture_D', 'pre_closing_sell_posture_D',
             'closing_auction_buy_ambush_D', 'closing_auction_sell_ambush_D',
             'main_force_t0_buy_efficiency_D', 'main_force_t0_sell_efficiency_D',
-            'buy_flow_efficiency_index_D', 'buy_flow_efficiency_index_D', # 重复，修正为 sell_flow_efficiency_index_D
+            'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
             'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D',
             'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
             'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D',
@@ -585,16 +590,15 @@ class FundFlowIntelligence:
             'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'order_flow_imbalance_score_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D'
         ]
-        # 修正：将重复的 'buy_flow_efficiency_index_D' 替换为 'sell_flow_efficiency_index_D'
-        required_signals = [s if s != 'buy_flow_efficiency_index_D' else 'sell_flow_efficiency_index_D' for s in required_signals]
-        required_signals = list(set(required_signals)) # 去重
+        # 修正：确保 required_signals 列表没有重复项，并且包含所有必要的信号
+        required_signals = list(set(required_signals))
 
         # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
         # 收集所有需要预取的信号基础名称和周期
         all_mtf_periods = list(set(mtf_cohesion_short_periods + mtf_cohesion_long_periods))
         signal_bases_for_mtf_cohesion = [
-            'main_force_flow_directionality_D', 'nmfnf_D', 'order_book_imbalance_D',
+            'main_force_flow_directionality_D', 'NMFNF_D', 'order_book_imbalance_D',
             'microstructure_efficiency_index_D', 'deception_index_D', 'wash_trade_intensity_D'
         ]
         for signal_base in signal_bases_for_mtf_cohesion:
