@@ -6,22 +6,54 @@ from django.utils import timezone
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime, time
-from functools import reduce
-from django.db import transaction
+import numba
 from asgiref.sync import sync_to_async
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockDailyBasic
 from stock_models.advanced_metrics import BaseAdvancedFundFlowMetrics
 from utils.model_helpers import (
     get_advanced_fund_flow_metrics_model_by_code,
-    get_fund_flow_model_by_code,
-    get_fund_flow_ths_model_by_code,
-    get_fund_flow_dc_model_by_code,
     get_daily_data_model_by_code,
-    get_minute_data_model_by_code_and_timelevel,
 )
 
 logger = logging.getLogger('services')
+
+@numba.njit(cache=True)
+def _numba_calculate_attribution_modifiers(
+    vol_shares_arr: np.ndarray,
+    vol_ma_arr: np.ndarray,
+    price_range_arr: np.ndarray,
+    range_ma_arr: np.ndarray,
+    minute_vwap_arr: np.ndarray,
+    daily_vwap: float,
+    momentum_modifier_raw_arr: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    【Numba优化版】计算归因权重中的各种修饰符。
+    """
+    impulse_modifier = np.ones_like(vol_shares_arr, dtype=np.float64)
+    lg_buy_modifier = np.ones_like(vol_shares_arr, dtype=np.float64)
+    lg_sell_modifier = np.ones_like(vol_shares_arr, dtype=np.float64)
+    md_buy_modifier = np.ones_like(vol_shares_arr, dtype=np.float64)
+    md_sell_modifier = np.ones_like(vol_shares_arr, dtype=np.float64)
+    # impulse_modifier
+    for i in range(len(vol_shares_arr)):
+        if vol_ma_arr[i] > 1e-9 and range_ma_arr[i] > 1e-9:
+            impulse_modifier[i] = (vol_shares_arr[i] / vol_ma_arr[i]) * (price_range_arr[i] / range_ma_arr[i])
+        impulse_modifier[i] = np.clip(impulse_modifier[i], 0, 10)
+    # lg_buy_modifier, lg_sell_modifier
+    if not np.isnan(daily_vwap):
+        for i in range(len(minute_vwap_arr)):
+            if daily_vwap > 1e-9:
+                vwap_deviation = (minute_vwap_arr[i] - daily_vwap) / daily_vwap
+                lg_buy_modifier[i] = np.exp(-np.maximum(0, vwap_deviation) * 5)
+                lg_sell_modifier[i] = np.exp(np.minimum(0, vwap_deviation) * 5)
+    # md_buy_modifier, md_sell_modifier
+    for i in range(len(momentum_modifier_raw_arr)):
+        md_buy_modifier[i] = np.exp(momentum_modifier_raw_arr[i] * 50)
+        md_sell_modifier[i] = np.exp(-momentum_modifier_raw_arr[i] * 50)
+    return impulse_modifier, lg_buy_modifier, lg_sell_modifier, md_buy_modifier, md_sell_modifier
+
 
 class AdvancedFundFlowMetricsService:
     """
@@ -1986,9 +2018,9 @@ class AdvancedFundFlowMetricsService:
           - 小单(SM) -> 基准压力: 沿用原有的K线形态压力模型作为基准。
         - 核心修复: 修复了 `price_range` 为零时导致的 `decimal.InvalidOperation` 错误。
         - 【修正】修复 `impulse_modifier` 计算中 `price_range` 的错误使用。
+        - 核心优化: 使用Numba优化后的修饰符计算函数。
         """
         df = intraday_data_for_day.copy()
-        # 移除了所有与debug_params和probe_dates相关的探针初始化代码
         if 'vol_shares' not in df.columns or df['vol_shares'].sum() < 1e-6 or len(df) < 5:
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = 0; df[f'{size}_sell_weight'] = 0
@@ -2013,29 +2045,37 @@ class AdvancedFundFlowMetricsService:
             0.0
         ]
         buy_pressure_proxy = np.select(conditions, choices, default=0.5)
-        # 移除了检查中间计算结果的探针print语句
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
-        impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
-        impulse_modifier = impulse_modifier.fillna(1).clip(0, 10)
         daily_vwap = daily_data.get('daily_vwap')
-        if pd.notna(daily_vwap):
-            vwap_deviation = (df['minute_vwap'] - daily_vwap) / daily_vwap
-            lg_buy_modifier = np.exp(-np.maximum(0, vwap_deviation) * 5)
-            lg_sell_modifier = np.exp(np.minimum(0, vwap_deviation) * 5)
-        else:
-            lg_buy_modifier = pd.Series(1.0, index=df.index); lg_sell_modifier = pd.Series(1.0, index=df.index)
-        momentum_modifier = df['minute_vwap'].pct_change().rolling(window=5).mean().fillna(0)
-        md_buy_modifier = np.exp(momentum_modifier * 50)
-        md_sell_modifier = np.exp(-momentum_modifier * 50)
+        momentum_modifier_raw = df['minute_vwap'].pct_change().rolling(window=5).mean().fillna(0)
+        # 提取数据到NumPy数组
+        vol_shares_arr = df['vol_shares'].values
+        vol_ma_arr = vol_ma.values
+        price_range_arr = price_range.values
+        range_ma_arr = range_ma.values
+        minute_vwap_arr = df['minute_vwap'].values
+        momentum_modifier_raw_arr = momentum_modifier_raw.values
+        # 调用Numba优化函数
+        impulse_modifier, lg_buy_modifier, lg_sell_modifier, md_buy_modifier, md_sell_modifier = \
+            _numba_calculate_attribution_modifiers(
+                vol_shares_arr, vol_ma_arr, price_range_arr, range_ma_arr,
+                minute_vwap_arr, daily_vwap, momentum_modifier_raw_arr
+            )
+        # 将Numba函数的结果重新赋值给DataFrame
+        df['impulse_modifier'] = impulse_modifier
+        df['lg_buy_modifier'] = lg_buy_modifier
+        df['lg_sell_modifier'] = lg_sell_modifier
+        df['md_buy_modifier'] = md_buy_modifier
+        df['md_sell_modifier'] = md_sell_modifier
         sm_buy_score = df['vol_shares'] * buy_pressure_proxy
         sm_sell_score = df['vol_shares'] * (1 - buy_pressure_proxy)
-        md_buy_score = sm_buy_score * md_buy_modifier
-        md_sell_score = sm_sell_score * md_sell_modifier
-        lg_buy_score = sm_buy_score * lg_buy_modifier
-        lg_sell_score = sm_sell_score * lg_sell_modifier
-        elg_buy_score = sm_buy_score * impulse_modifier
-        elg_sell_score = sm_sell_score * impulse_modifier
+        md_buy_score = sm_buy_score * df['md_buy_modifier']
+        md_sell_score = sm_sell_score * df['md_sell_modifier']
+        lg_buy_score = sm_buy_score * df['lg_buy_modifier']
+        lg_sell_score = sm_sell_score * df['lg_sell_modifier']
+        elg_buy_score = sm_buy_score * df['impulse_modifier']
+        elg_sell_score = sm_sell_score * df['impulse_modifier']
         scores = {
             'sm': (sm_buy_score, sm_sell_score), 'md': (md_buy_score, md_sell_score),
             'lg': (lg_buy_score, lg_sell_score), 'elg': (elg_buy_score, elg_sell_score)
@@ -2045,7 +2085,6 @@ class AdvancedFundFlowMetricsService:
             df[f'{size}_buy_weight'] = buy_score / total_buy_score if total_buy_score > 1e-9 else 0
             total_sell_score = sell_score.sum()
             df[f'{size}_sell_weight'] = sell_score / total_sell_score if total_sell_score > 1e-9 else 0
-            # 移除了检查score总和的探针print语句
         return df
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
