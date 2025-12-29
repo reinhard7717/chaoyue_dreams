@@ -2051,9 +2051,8 @@ class ProcessIntelligence:
         context_modulator_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()}, # 确保输入为正
             context_modulator_weights,
-            df_index,
-            # 移除 is_debug_enabled 和 probe_ts 参数
-            fusion_level_name=f"{method_name}_context_modulator_score"
+            df_index
+            # 移除 fusion_level_name 参数
         )
         # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
         context_modulator = 0.5 + context_modulator_score # 0.5 + [0,1] -> [0.5, 1.5]
@@ -2097,9 +2096,8 @@ class ProcessIntelligence:
         fused_magnitude = _robust_geometric_mean(
             fusion_components_for_gm,
             final_fusion_gm_weights,
-            df_index,
-            # 移除 is_debug_enabled 和 probe_ts 参数
-            fusion_level_name=f"{method_name}_fused_magnitude"
+            df_index
+            # 移除 fusion_level_name 参数
         )
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "最终融合 - fused_magnitude", fused_magnitude)
 
@@ -2125,7 +2123,6 @@ class ProcessIntelligence:
         if probe_ts in index:
             value = series.loc[probe_ts]
             print(f"    -> [探针] 方法 '{method_name}' @ {probe_ts.strftime('%Y-%m-%d')} - '{signal_name}': {value:.4f}")
-
 
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
