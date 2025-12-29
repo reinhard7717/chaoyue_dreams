@@ -2203,6 +2203,7 @@ class ChipIntelligence:
         ]
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 优化：预解析 tf_weights 一次
         parsed_tf_data = utils._parse_tf_weights(tf_weights)
         tactical_exchange_params = get_param_value(p_conf.get('tactical_exchange_params'), {})
         intent_weights = get_param_value(tactical_exchange_params.get('intent_weights'), {'control_transfer': 0.3, 'cleansing_efficiency': 0.2, 'accumulation_intent': 0.3, 'intent_execution_quality': 0.2})
@@ -2303,17 +2304,19 @@ class ChipIntelligence:
         deception_context_modulator_raw = signals_data[deception_context_modulator_signal_name]
         quality_context_raw = signals_data[quality_context_signal_name]
         chip_stability_modulator_raw = signals_data[chip_stability_modulator_signal_name]
-        norm_control_transfer = utils.get_adaptive_mtf_normalized_bipolar_score(control_transfer_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_cleansing_efficiency = utils.get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_suppressive_accum = utils.get_adaptive_mtf_normalized_score(suppressive_accum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_gathering_chasing = utils.get_adaptive_mtf_normalized_score(gathering_chasing_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_gathering_support = utils.get_adaptive_mtf_normalized_score(gathering_support_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_control_transfer = utils.get_adaptive_mtf_normalized_bipolar_score(control_transfer_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_cleansing_efficiency = utils.get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_suppressive_accum = utils.get_adaptive_mtf_normalized_score(suppressive_accum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_gathering_chasing = utils.get_adaptive_mtf_normalized_score(gathering_chasing_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_gathering_support = utils.get_adaptive_mtf_normalized_score(gathering_support_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         accumulation_intent_score = (norm_suppressive_accum * 0.4 + norm_gathering_chasing * 0.3 + norm_gathering_support * 0.3)
-        norm_active_buying_support = utils.get_adaptive_mtf_normalized_score(active_buying_support_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_active_selling_pressure = utils.get_adaptive_mtf_normalized_score(active_selling_pressure_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_micro_price_impact_asymmetry = utils.get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_order_book_clearing_rate = utils.get_adaptive_mtf_normalized_score(order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_flow_credibility_index = utils.get_adaptive_mtf_normalized_score(flow_credibility_index_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_active_buying_support = utils.get_adaptive_mtf_normalized_score(active_buying_support_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_active_selling_pressure = utils.get_adaptive_mtf_normalized_score(active_selling_pressure_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_micro_price_impact_asymmetry = utils.get_adaptive_mtf_normalized_bipolar_score(micro_price_impact_asymmetry_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_order_book_clearing_rate = utils.get_adaptive_mtf_normalized_score(order_book_clearing_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_flow_credibility_index = utils.get_adaptive_mtf_normalized_score(flow_credibility_index_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         intent_execution_quality_score = (
             norm_active_buying_support * intent_execution_quality_params.get('buying_support_weight', 0.3) +
             norm_active_selling_pressure * intent_execution_quality_params.get('selling_pressure_weight', 0.2) +
@@ -2327,11 +2330,12 @@ class ChipIntelligence:
             accumulation_intent_score * intent_weights.get('accumulation_intent', 0.3) +
             intent_execution_quality_score * intent_weights.get('intent_execution_quality', 0.2)
         ).clip(-1, 1)
-        chip_deception_direction = np.sign(utils.get_adaptive_mtf_normalized_bipolar_score(mf_conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data))
-        norm_chip_fault = utils.get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_retail_panic_surrender = utils.get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_loser_pain = utils.get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_winner_profit_margin_avg = utils.get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        chip_deception_direction = np.sign(utils.get_adaptive_mtf_normalized_bipolar_score(mf_conviction_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data))
+        # 优化：传递预解析的 tf_weights 数据
+        norm_chip_fault = utils.get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_retail_panic_surrender = utils.get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_loser_pain = utils.get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_winner_profit_margin_avg = utils.get_adaptive_mtf_normalized_score(winner_profit_margin_avg_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         deception_effectiveness_score = pd.Series(0.0, index=df_index)
         deception_cost_score = pd.Series(0.0, index=df_index)
         induce_bear_mask = chip_deception_direction > 0
@@ -2339,7 +2343,8 @@ class ChipIntelligence:
         deception_cost_score.loc[induce_bear_mask] = norm_suppressive_accum.loc[induce_bear_mask]
         induce_bull_mask = chip_deception_direction < 0
         deception_effectiveness_score.loc[induce_bull_mask] = norm_winner_profit_margin_avg.loc[induce_bull_mask]
-        deception_cost_score.loc[induce_bull_mask] = (1 - utils.get_adaptive_mtf_normalized_score(profit_realization_quality_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)).loc[induce_bull_mask]
+        # 优化：传递预解析的 tf_weights 数据
+        deception_cost_score.loc[induce_bull_mask] = (1 - utils.get_adaptive_mtf_normalized_score(profit_realization_quality_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)).loc[induce_bull_mask]
         deception_quality_modulator = (
             deception_outcome_weights.get('effectiveness', 0.6) * deception_effectiveness_score.clip(0, 1) +
             deception_outcome_weights.get('cost', 0.4) * deception_cost_score.clip(0, 1)
@@ -2349,44 +2354,54 @@ class ChipIntelligence:
         chip_deception_score_refined = norm_chip_fault * chip_deception_direction * (1 + deception_quality_modulator.clip(0, 1))
         chip_deception_score_refined = chip_deception_score_refined.clip(-1, 1)
         deception_context_modulator_raw = signals_data[deception_context_modulator_signal_name]
-        norm_deception_context = utils.get_adaptive_mtf_normalized_score(deception_context_modulator_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_deception_context = utils.get_adaptive_mtf_normalized_score(deception_context_modulator_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         dynamic_deception_impact_sensitivity = deception_impact_sensitivity * (1 - norm_deception_context * deception_context_sensitivity)
         dynamic_deception_impact_sensitivity = dynamic_deception_impact_sensitivity.clip(0.1, 1.0)
         arbitration_weight = (norm_chip_fault * dynamic_deception_impact_sensitivity).pow(deception_arbitration_power).clip(0, 1)
         intent_score = base_intent_score * (1 - arbitration_weight) + chip_deception_score_refined * arbitration_weight
         intent_score = intent_score.clip(-1, 1)
-        norm_main_force_activity = utils.get_adaptive_mtf_normalized_score(main_force_activity_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_main_force_flow_directionality = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_main_force_activity = utils.get_adaptive_mtf_normalized_score(main_force_activity_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_flow_directionality = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         chip_behavioral_pattern_intensity_score = (norm_main_force_activity * 0.6 + norm_main_force_flow_directionality.abs() * 0.4).clip(0, 1)
         intent_score = intent_score * (1 + chip_behavioral_pattern_intensity_score * chip_behavioral_pattern_intensity_modulator_factor)
         intent_score = intent_score.clip(-1, 1)
         chip_momentum_raw = signals_data[quality_context_signal_name]
-        norm_chip_momentum_context = utils.get_adaptive_mtf_normalized_bipolar_score(chip_momentum_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_absorption = utils.get_adaptive_mtf_normalized_score(capitulation_absorption_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_impulse_purity = utils.get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_chip_momentum_context = utils.get_adaptive_mtf_normalized_bipolar_score(chip_momentum_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_absorption = utils.get_adaptive_mtf_normalized_score(capitulation_absorption_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_impulse_purity = utils.get_adaptive_mtf_normalized_score(upward_impulse_purity_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         dynamic_bullish_quality_weight = (norm_chip_momentum_context.add(1)/2) * 0.5 + 0.5
         bullish_quality_score = (
             norm_absorption * quality_weights.get('bullish_absorption', 0.15) +
             norm_impulse_purity * quality_weights.get('bullish_purity', 0.15)
         ) * dynamic_bullish_quality_weight
-        norm_profit_realization = utils.get_adaptive_mtf_normalized_score(profit_realization_quality_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_profit_realization = utils.get_adaptive_mtf_normalized_score(profit_realization_quality_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         dynamic_bearish_quality_weight = (1 - norm_chip_momentum_context.add(1)/2) * 0.5 + 0.5
         bearish_quality_score = norm_profit_realization * quality_weights.get('bearish_distribution', 0.15) * dynamic_bearish_quality_weight
-        exchange_purity_score = utils.get_adaptive_mtf_normalized_score(peak_exchange_purity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_slope_wc = utils.get_adaptive_mtf_normalized_score(slope_wc_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_slope_css = utils.get_adaptive_mtf_normalized_score(slope_css_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_slope_psr = utils.get_adaptive_mtf_normalized_score(slope_psr_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        exchange_purity_score = utils.get_adaptive_mtf_normalized_score(peak_exchange_purity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_slope_wc = utils.get_adaptive_mtf_normalized_score(slope_wc_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_slope_css = utils.get_adaptive_mtf_normalized_score(slope_css_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_slope_psr = utils.get_adaptive_mtf_normalized_score(slope_psr_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         structural_optimization_score = (norm_slope_wc + norm_slope_css + norm_slope_psr) / 3
         structural_optimization_score = structural_optimization_score.clip(0, 1)
-        norm_loser_absorption_quality = utils.get_adaptive_mtf_normalized_bipolar_score(slope_loser_rate_raw, df_index, tf_weights, sensitivity=1.0, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_winner_resilience_quality = utils.get_adaptive_mtf_normalized_bipolar_score(slope_winner_rate_raw, df_index, tf_weights, sensitivity=1.0, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_loser_absorption_quality = utils.get_adaptive_mtf_normalized_bipolar_score(slope_loser_rate_raw, df_index, tf_weights, sensitivity=1.0, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_winner_resilience_quality = utils.get_adaptive_mtf_normalized_bipolar_score(slope_winner_rate_raw, df_index, tf_weights, sensitivity=1.0, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         psychological_pressure_absorption_score = (norm_loser_absorption_quality.clip(lower=0) + norm_winner_resilience_quality.clip(upper=0).abs()) / 2
         psychological_pressure_absorption_score = psychological_pressure_absorption_score.clip(0, 1)
-        norm_volume = utils.get_adaptive_mtf_normalized_score(volume_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_volume = utils.get_adaptive_mtf_normalized_score(volume_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         exchange_efficiency_score = structural_optimization_score / (norm_volume.replace(0, 1e-6))
         exchange_efficiency_score = exchange_efficiency_score.clip(0, 1)
-        norm_secondary_peak_cost = utils.get_adaptive_mtf_normalized_score(secondary_peak_cost_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_dominant_peak_volume_ratio = utils.get_adaptive_mtf_normalized_score(dominant_peak_volume_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_secondary_peak_cost = utils.get_adaptive_mtf_normalized_score(secondary_peak_cost_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_dominant_peak_volume_ratio = utils.get_adaptive_mtf_normalized_score(dominant_peak_volume_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         chip_peak_dynamics_score = (norm_secondary_peak_cost * chip_peak_dynamics_params.get('secondary_cost_weight', 0.5) +
                                     norm_dominant_peak_volume_ratio * chip_peak_dynamics_params.get('secondary_volume_weight', 0.5)).clip(0, 1)
         quality_score = (
@@ -2400,21 +2415,25 @@ class ChipIntelligence:
         ).clip(-1, 1)
         quality_score = quality_score * (1 + chip_behavioral_pattern_intensity_score * chip_behavioral_pattern_intensity_modulator_factor)
         quality_score = quality_score.clip(-1, 1)
-        norm_chip_fatigue = utils.get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_chip_fatigue = utils.get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         chip_stability_modulator_raw = signals_data[chip_stability_modulator_signal_name]
-        norm_chip_stability_modulator = utils.get_adaptive_mtf_normalized_score(chip_stability_modulator_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_chip_health = utils.get_adaptive_mtf_normalized_bipolar_score(chip_health_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_chip_stability_modulator = utils.get_adaptive_mtf_normalized_score(chip_stability_modulator_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_chip_health = utils.get_adaptive_mtf_normalized_bipolar_score(chip_health_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         dynamic_chip_fatigue_impact = norm_chip_fatigue * chip_fatigue_impact_factor
         dynamic_chip_stability_bonus = norm_chip_stability_modulator * chip_stability_sensitivity
         dominant_peak_solidity_raw = signals_data['dominant_peak_solidity_D']
         slope_dps_raw = signals_data[f'SLOPE_{dominant_peak_health_slope_period}_dominant_peak_solidity_D']
-        norm_dps = utils.get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_slope_dps = utils.get_adaptive_mtf_normalized_bipolar_score(slope_dps_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_dps = utils.get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_slope_dps = utils.get_adaptive_mtf_normalized_bipolar_score(slope_dps_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         dominant_peak_health_score = (norm_dps * 0.7 + norm_slope_dps * 0.3).clip(0, 1)
         winner_stability_index_raw = signals_data['winner_stability_index_D']
-        norm_winner_stability = utils.get_adaptive_mtf_normalized_score(winner_stability_index_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_winner_stability = utils.get_adaptive_mtf_normalized_score(winner_stability_index_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         chip_patience_ratio = norm_gathering_support / (norm_gathering_support + norm_gathering_chasing + 1e-6)
-        chip_patience_score = utils.get_adaptive_mtf_normalized_score(chip_patience_ratio, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        chip_patience_score = utils.get_adaptive_mtf_normalized_score(chip_patience_ratio, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         chip_patience_and_stability_score = (norm_winner_stability * 0.5 + chip_patience_score * 0.5).clip(0, 1)
         context_score = (
             battlefield_geography * environment_weights.get('geography', 0.3) -
@@ -2423,18 +2442,27 @@ class ChipIntelligence:
             dominant_peak_health_score * environment_weights.get('dominant_peak_health', 0.15) +
             chip_patience_and_stability_score * environment_weights.get('chip_patience_and_stability', 0.15)
         ).clip(-1, 1)
-        norm_rhythm_intent_slope = utils.get_adaptive_mtf_normalized_bipolar_score(rhythm_intent_slope, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_rhythm_quality_slope = utils.get_adaptive_mtf_normalized_bipolar_score(rhythm_quality_slope, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+
+        # --- 计算节奏和持续性 (Rhythm and Persistence) ---
+        # 意图得分的斜率
+        rhythm_intent_slope = intent_score.diff(rhythm_persistence_slope_period).fillna(0)
+        # 质量得分的斜率
+        rhythm_quality_slope = quality_score.diff(rhythm_persistence_slope_period).fillna(0)
+
+        # 优化：传递预解析的 tf_weights 数据
+        norm_rhythm_intent_slope = utils.get_adaptive_mtf_normalized_bipolar_score(rhythm_intent_slope, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_rhythm_quality_slope = utils.get_adaptive_mtf_normalized_bipolar_score(rhythm_quality_slope, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         rhythm_and_persistence_score = (norm_rhythm_intent_slope + norm_rhythm_quality_slope) / 2
         rhythm_and_persistence_score = (rhythm_and_persistence_score * rhythm_persistence_sensitivity).clip(-1, 1)
         volatility_instability_raw = signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D']
-        norm_volatility_instability = utils.get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 优化：传递预解析的 tf_weights 数据
+        norm_volatility_instability = utils.get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         main_force_conviction_abs_raw = signals_data['main_force_conviction_index_D'].abs()
-        norm_main_force_conviction = utils.get_adaptive_mtf_normalized_score(main_force_conviction_abs_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_conviction = utils.get_adaptive_mtf_normalized_score(main_force_conviction_abs_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         main_force_activity_abs_raw = signals_data['main_force_activity_ratio_D'].abs()
-        norm_main_force_activity_meta = utils.get_adaptive_mtf_normalized_score(main_force_activity_abs_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_activity_meta = utils.get_adaptive_mtf_normalized_score(main_force_activity_abs_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         flow_credibility_index_meta_raw = signals_data['flow_credibility_index_D']
-        norm_flow_credibility_index_meta = utils.get_adaptive_mtf_normalized_score(flow_credibility_index_meta_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_flow_credibility_index_meta = utils.get_adaptive_mtf_normalized_score(flow_credibility_index_meta_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
         market_context_meta_modulator = (
             norm_chip_health * meta_modulator_weights.get('chip_health', 0.25) +
             norm_volatility_instability * meta_modulator_weights.get('volatility_instability', 0.25) +
