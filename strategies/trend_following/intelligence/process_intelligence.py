@@ -1,4 +1,6 @@
 # 文件: strategies/trend_following/intelligence/process_intelligence.py
+import json
+import os
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
