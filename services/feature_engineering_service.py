@@ -42,7 +42,6 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
                     continue
                 Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
                 count += 1
-        
         if count > 0 and Lk_sum > 0:
             L[k_idx] = np.log(Lk_sum / count / k)
         else:
@@ -63,14 +62,11 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
         sum_y = np.sum(valid_L)
         sum_xy = np.sum(valid_k_range_log * valid_L)
         sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
-        
         denominator_reg = N * sum_x2 - sum_x * sum_x
-        
         if denominator_reg == 0:
             return np.nan
             
         slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
-        
         fd = np.abs(slope)
         # 核心修复：手动实现标量裁剪，避免np.clip对标量参数的Numba TypingError
         if fd < 1.0:
@@ -365,7 +361,6 @@ class FeatureEngineeringService:
                 return fd
             except Exception:
                 return np.nan
-        
         @numba.njit(cache=True) # <--- 保持Numba装饰器
         def _sample_entropy(x: np.ndarray, m: int, r: float) -> float:
             """
@@ -374,11 +369,9 @@ class FeatureEngineeringService:
             n = len(x)
             if n < m + 1:
                 return np.nan
-
             # 计算距离函数
             def _max_dist(x_i, x_j):
                 return np.max(np.abs(x_i - x_j))
-
             # 重新计算 B 和 A
             count_m = 0
             for i in range(n - m):
@@ -390,11 +383,9 @@ class FeatureEngineeringService:
                 for j in range(i + 1, n - m - 1):
                     if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
                         count_m_plus_1 += 1
-
             if count_m == 0:
                 return np.nan # 避免除以零
             return -np.log(count_m_plus_1 / count_m)
-
         # 移除Numba装饰器，让其作为普通Python函数运行
         def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5): # <--- 移除 @numba.njit
             N = len(x)
@@ -408,7 +399,6 @@ class FeatureEngineeringService:
             # high_freq_idx = int(N * high_freq_cutoff_ratio) # 此行未使用，可以移除
             low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
             return low_freq_energy / total_energy
-
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']

@@ -186,9 +186,32 @@
                 "type": "meta_analysis",
                 "task_type": "base",
                 "relationship_type": "custom",
-                "signal_b_factor_k": 1.0,
-                "enable_probe": false,
-                "description": "【V3.1 · 信念拔河版】诊断“赢家信念”。采用专属的“信念拔河”模型，直接对比“赢家稳定性”与“利润兑现压力”的消长，废除旧的间接信号和复杂的解毒剂逻辑。"
+                "description": "【V4.0 · 韧性博弈与多维时空版】诊断赢家信念的综合强度。正分代表信念坚定，负分代表信念动摇。",
+                "winner_conviction_params": {
+                    "fusion_weights": {
+                        "conviction_strength": 0.4,
+                        "pressure_resilience": 0.3,
+                        "synergy_factor": 0.2,
+                        "deception_penalty": 0.1
+                    },
+                    "relative_position_weights": {
+                        "winner_stability_high": 0.6,
+                        "profit_taking_flow_low": 0.4
+                    },
+                    "context_modulator_weights": {
+                        "market_sentiment": 0.4,
+                        "volatility_inverse": 0.3,
+                        "trend_vitality": 0.3
+                    },
+                    "final_exponent": 1.5,
+                    "final_fusion_gm_weights": {
+                        "conviction_magnitude": 0.3,
+                        "pressure_magnitude": 0.2,
+                        "synergy_factor": 0.2,
+                        "deception_filter": 0.15,
+                        "context_modulator": 0.15
+                    }
+                }
             },
             {
                 "name": "PROCESS_META_LOSER_CAPITULATION",

@@ -1225,10 +1225,10 @@
         },
         "PROCESS_META_WINNER_CONVICTION": {
             "cn_name": "【过程】赢家信念",
-            "type": "process",
+            "type": "bipolar",
             "score": 250,
             "scoring_mode": "bipolar",
-            "description": "【V3.2 · 状态对抗版】诊断'修正后利润'与'紧迫度'的背离。引入total_winner_rate_D作为解毒剂，修正利润垫在突破日被稀释的问题。正分代表信念坚定，负分代表信念动摇。"
+            "description": "【V4.0 · 韧性博弈与多维时空版】诊断赢家信念的综合强度。正分代表信念坚定，负分代表信念动摇。"
         },
         "PROCESS_META_LOSER_CAPITULATION": {
             "cn_name": "【过程】输家投降仪式",
