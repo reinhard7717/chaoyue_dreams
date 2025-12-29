@@ -2289,29 +2289,6 @@ class ProcessIntelligence:
         # --- 3. 最终审判 ---
         final_score = (prelude_score * attack_score).fillna(0.0)
 
-        # --- 调试信息 ---
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            last_date_index = -1
-            print(f"\n--- [PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
-            print("  [输入原料 (原始值)]: ")
-            print(f"    - flow_credibility_index_D: {flow_credibility_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算 (归一化/中间分)]: ")
-            print(f"    - mtf_hidden_accumulation: {mtf_hidden_accumulation.iloc[last_date_index]:.4f}")
-            print(f"    - mtf_mf_net_flow_slope: {mtf_mf_net_flow_slope.iloc[last_date_index]:.4f}")
-            print(f"    - prelude_score_base: {prelude_score_base.iloc[last_date_index]:.4f}")
-            print(f"    - prelude_score: {prelude_score.iloc[last_date_index]:.4f}")
-            print(f"    - mtf_buy_exhaustion: {mtf_buy_exhaustion.iloc[last_date_index]:.4f}")
-            print(f"    - mtf_large_pressure: {mtf_large_pressure.iloc[last_date_index]:.4f}")
-            print(f"    - mtf_main_force_flow: {mtf_main_force_flow.iloc[last_date_index]:.4f}")
-            print(f"    - mtf_active_buying_support: {mtf_active_buying_support.iloc[last_date_index]:.4f}")
-            print(f"    - mtf_main_force_flow_momentum: {mtf_main_force_flow_momentum.iloc[last_date_index]:.4f}")
-            print(f"    - pressure_exhaustion_synergy: {pressure_exhaustion_synergy.iloc[last_date_index]:.4f}")
-            print(f"    - attack_score: {attack_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]: ")
-            print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
-
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -3109,19 +3086,27 @@ class ProcessIntelligence:
         return final_wash_out_rebound_score.clip(0, 1).astype(np.float32)
 
     def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.4 · 深度情境感知版)...")
+        """
+        【V2.5 · 深度情境与多维隐蔽行动版】计算“隐蔽吸筹”的专属信号。
+        - 核心升级: 优化 `market_context_score` 中的价格弱势判断，直接奖励价格弱势。
+        - 【强化】优化 `covert_action_score` 中的欺诈信号融合，更侧重于正向的诱多欺诈。
+        - 【调整】调整 `covert_action_weights` 中拆单吸筹的权重，使用原始指标的MTF融合版本。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.5 · 深度情境与多维隐蔽行动版)...")
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('covert_accumulation_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
         # 修改代码：新增更多权重配置
-        market_context_weights = get_param_value(params.get('market_context_weights'), {"retail_panic": 0.2, "price_weakness_inverted": 0.2, "low_volatility": 0.2, "sentiment_pendulum_inverted": 0.15, "tension_inverted": 0.1, "market_sentiment_inverted": 0.1, "volatility_instability_inverted": 0.05})
-        covert_action_weights = get_param_value(params.get('covert_action_weights'), {"suppressive_accum": 0.15, "main_force_flow": 0.15, "fused_deception": 0.15, "stealth_ops": 0.15, "split_order_accum": 0.1, "chip_historical_potential": 0.1, "mf_buy_ofi": 0.05, "mf_cost_advantage": 0.05, "mf_flow_slope": 0.05, "suppressive_accum_slope": 0.05})
+        market_context_weights = get_param_value(params.get('market_context_weights'), {"retail_panic": 0.2, "price_weakness": 0.2, "low_volatility": 0.2, "sentiment_pendulum_inverted": 0.15, "tension_inverted": 0.1, "market_sentiment_inverted": 0.1, "volatility_instability_inverted": 0.05})
+        covert_action_weights = get_param_value(params.get('covert_action_weights'), {"suppressive_accum": 0.15, "main_force_flow": 0.15, "deception_lure_long": 0.15, "stealth_ops": 0.15, "hidden_accumulation_intensity": 0.1, "chip_historical_potential": 0.1, "mf_buy_ofi": 0.05, "mf_cost_advantage": 0.05, "mf_flow_slope": 0.05, "suppressive_accum_slope": 0.05})
         chip_optimization_weights = get_param_value(params.get('chip_optimization_weights'), {"chip_fatigue": 0.25, "loser_pain": 0.25, "holder_sentiment_inverted": 0.2, "turnover_purity_cost_opt": 0.15, "floating_chip_cleansing": 0.1, "total_loser_rate": 0.05})
         price_weakness_slope_window = get_param_value(params.get('price_weakness_slope_window'), 5)
         low_volatility_bbw_window = get_param_value(params.get('low_volatility_bbw_window'), 21)
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
+
         # --- 2. 获取所有原始数据 ---
         required_df_columns = [
             'retail_panic_surrender_index_D', f'SLOPE_{price_weakness_slope_window}_close_D', f'BBW_{low_volatility_bbw_window}_2.0_D',
@@ -3132,19 +3117,31 @@ class ProcessIntelligence:
             'hidden_accumulation_intensity_D',
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'main_force_buy_ofi_D', 'main_force_cost_advantage_D',
-            'SLOPE_5_main_force_net_flow_calibrated_D', 'SLOPE_5_suppressive_accumulation_intensity_D',
             'floating_chip_cleansing_efficiency_D', 'total_loser_rate_D', 'loser_concentration_90pct_D'
         ]
+        # 动态添加MTF斜率和加速度信号到required_df_columns
+        for base_sig in ['main_force_net_flow_calibrated_D', 'suppressive_accumulation_intensity_D',
+                         'deception_lure_long_intensity_D', 'hidden_accumulation_intensity_D',
+                         'main_force_buy_ofi_D', 'main_force_cost_advantage_D',
+                         'retail_panic_surrender_index_D', 'BBW_21_2.0_D', 'market_sentiment_score_D',
+                         'VOLATILITY_INSTABILITY_INDEX_21d_D', 'chip_fatigue_index_D', 'loser_pain_index_D',
+                         'floating_chip_cleansing_efficiency_D', 'total_loser_rate_D']:
+            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+                required_df_columns.append(f'SLOPE_{period_str}_{base_sig}')
+            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+                required_df_columns.append(f'ACCEL_{period_str}_{base_sig}')
+
         required_atomic_signals = [
             'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 'SCORE_STRUCT_AXIOM_TENSION',
             'SCORE_MICRO_STRATEGY_STEALTH_OPS',
             'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL',
             'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION'
-        ] # 移除 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY
+        ]
         all_required_signals = required_df_columns + required_atomic_signals
         if not self._validate_required_signals(df, all_required_signals, "_calculate_process_covert_accumulation"):
             print(f"    -> [过程情报警告] _calculate_process_covert_accumulation 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index)
+
         df_index = df.index
         retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
         price_weakness_slope_raw = self._get_safe_series(df, f'SLOPE_{price_weakness_slope_window}_close_D', 0.0, method_name="_calculate_process_covert_accumulation")
@@ -3156,94 +3153,153 @@ class ProcessIntelligence:
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
         deception_lure_long_raw = self._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
         deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        # 新增获取 hidden_accumulation_intensity_D
         hidden_accumulation_intensity_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        # 新增获取信号
         sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_calculate_process_covert_accumulation")
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_process_covert_accumulation")
         stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        # 移除 split_order_accum_score 的获取
         chip_historical_potential_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
         mf_buy_ofi_raw = self._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name="_calculate_process_covert_accumulation")
         mf_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        mf_flow_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        suppressive_accum_slope_raw = self._get_safe_series(df, 'SLOPE_5_suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
         holder_sentiment_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
         turnover_purity_cost_opt_score = self._get_atomic_score(df, 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION', 0.0)
         floating_chip_cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_process_covert_accumulation")
         total_loser_rate_raw = self._get_safe_series(df, 'total_loser_rate_D', 0.0, method_name="_calculate_process_covert_accumulation")
+
         # --- 3. 维度一：市场背景 (Market Context) ---
-        retail_panic_score = get_adaptive_mtf_normalized_score(retail_panic_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        price_weakness_score_inverted = (1 - get_adaptive_mtf_normalized_score(price_weakness_slope_raw.clip(upper=0).abs(), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True))
-        low_volatility_score = get_adaptive_mtf_normalized_score(bbw_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=False)
-        # 修改代码：新增归一化和融合
+        retail_panic_score = self._normalize_series(retail_panic_raw, df_index, bipolar=False)
+        # 修正：直接奖励价格弱势
+        mtf_price_weakness_score = self._get_mtf_slope_accel_score(df, f'close_D', mtf_slope_accel_weights, df_index, method_name, ascending=False, bipolar=False)
+        low_volatility_score = self._normalize_series(bbw_raw, df_index, ascending=False)
         sentiment_pendulum_inverted_score = (1 - sentiment_pendulum_score.clip(lower=0)) # 情绪低迷
         tension_inverted_score = (1 - tension_score.clip(lower=0)) # 低张力
-        market_sentiment_inverted_score = (1 - get_adaptive_mtf_normalized_score(market_sentiment_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True))
-        volatility_instability_inverted_score = (1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True))
+        market_sentiment_inverted_score = self._normalize_series(market_sentiment_raw, df_index, ascending=False)
+        volatility_instability_inverted_score = self._normalize_series(volatility_instability_raw, df_index, ascending=False)
+        
         market_context_score = (
             (retail_panic_score).pow(market_context_weights.get('retail_panic', 0.2)) *
-            (price_weakness_score_inverted).pow(market_context_weights.get('price_weakness_inverted', 0.2)) *
+            (mtf_price_weakness_score).pow(market_context_weights.get('price_weakness', 0.2)) * # 修正为直接奖励价格弱势
             (low_volatility_score).pow(market_context_weights.get('low_volatility', 0.2)) *
             (sentiment_pendulum_inverted_score).pow(market_context_weights.get('sentiment_pendulum_inverted', 0.15)) *
             (tension_inverted_score).pow(market_context_weights.get('tension_inverted', 0.1)) *
             (market_sentiment_inverted_score).pow(market_context_weights.get('market_sentiment_inverted', 0.1)) *
             (volatility_instability_inverted_score).pow(market_context_weights.get('volatility_instability_inverted', 0.05))
         ).pow(1/sum(market_context_weights.values())).fillna(0.0)
+
         # --- 4. 维度二：隐蔽行动 (Covert Action) ---
-        suppressive_accum_score = get_adaptive_mtf_normalized_score(suppressive_accum_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        main_force_flow_score = get_adaptive_mtf_normalized_score(main_force_flow_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        deception_positive_lure_long_score = get_adaptive_mtf_normalized_score(deception_lure_long_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        deception_lure_short_score = get_adaptive_mtf_normalized_score(deception_lure_short_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        fused_deception_score = (
-            deception_positive_lure_long_score * covert_action_weights.get('deception_positive_lure_long', 0.2) +
-            deception_lure_short_score * covert_action_weights.get('deception_lure_short', 0.2)
-        ) / (covert_action_weights.get('deception_positive_lure_long', 0.2) + covert_action_weights.get('deception_lure_short', 0.2) + 1e-9)
-        # 新增归一化和融合
-        stealth_ops_normalized = get_adaptive_mtf_normalized_score(stealth_ops_score, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        # 使用 hidden_accumulation_intensity_raw 替代 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY
-        split_order_accum_normalized = get_adaptive_mtf_normalized_score(hidden_accumulation_intensity_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        chip_historical_potential_normalized = get_adaptive_mtf_normalized_score(chip_historical_potential_score.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        mf_buy_ofi_normalized = get_adaptive_mtf_normalized_score(mf_buy_ofi_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        mf_cost_advantage_normalized = get_adaptive_mtf_normalized_score(mf_cost_advantage_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        mf_flow_slope_normalized = get_adaptive_mtf_normalized_score(mf_flow_slope_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        suppressive_accum_slope_normalized = get_adaptive_mtf_normalized_score(suppressive_accum_slope_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
+        mtf_suppressive_accum_score = self._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_main_force_flow_score = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        # 修正：使用 deception_lure_long_intensity_D 的MTF融合版本作为欺诈证据
+        mtf_deception_lure_long_score = self._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        
+        stealth_ops_normalized = self._normalize_series(stealth_ops_score, df_index, bipolar=False)
+        # 使用 hidden_accumulation_intensity_D 的MTF融合版本作为拆单吸筹证据
+        mtf_hidden_accumulation_intensity = self._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        
+        chip_historical_potential_normalized = self._normalize_series(chip_historical_potential_score.clip(lower=0), df_index, bipolar=False)
+        mtf_mf_buy_ofi_normalized = self._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_mf_cost_advantage_normalized = self._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_mf_flow_slope_normalized = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True).clip(lower=0) # 只取正向斜率
+        mtf_suppressive_accum_slope_normalized = self._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True).clip(lower=0) # 只取正向斜率
+
         covert_action_score = (
-            (suppressive_accum_score).pow(covert_action_weights.get('suppressive_accum', 0.15)) *
-            (main_force_flow_score).pow(covert_action_weights.get('main_force_flow', 0.15)) *
-            (fused_deception_score).pow(covert_action_weights.get('fused_deception', 0.15)) *
+            (mtf_suppressive_accum_score).pow(covert_action_weights.get('suppressive_accum', 0.15)) *
+            (mtf_main_force_flow_score).pow(covert_action_weights.get('main_force_flow', 0.15)) *
+            (mtf_deception_lure_long_score).pow(covert_action_weights.get('deception_lure_long', 0.15)) * # 修正为直接使用诱多欺诈
             (stealth_ops_normalized).pow(covert_action_weights.get('stealth_ops', 0.15)) *
-            (split_order_accum_normalized).pow(covert_action_weights.get('split_order_accum', 0.1)) *
+            (mtf_hidden_accumulation_intensity).pow(covert_action_weights.get('hidden_accumulation_intensity', 0.1)) * # 修正为使用原始拆单吸筹的MTF
             (chip_historical_potential_normalized).pow(covert_action_weights.get('chip_historical_potential', 0.1)) *
-            (mf_buy_ofi_normalized).pow(covert_action_weights.get('mf_buy_ofi', 0.05)) *
-            (mf_cost_advantage_normalized).pow(covert_action_weights.get('mf_cost_advantage', 0.05)) *
-            (mf_flow_slope_normalized).pow(covert_action_weights.get('mf_flow_slope', 0.05)) *
-            (suppressive_accum_slope_normalized).pow(covert_action_weights.get('suppressive_accum_slope', 0.05))
+            (mtf_mf_buy_ofi_normalized).pow(covert_action_weights.get('mf_buy_ofi', 0.05)) *
+            (mtf_mf_cost_advantage_normalized).pow(covert_action_weights.get('mf_cost_advantage', 0.05)) *
+            (mtf_mf_flow_slope_normalized).pow(covert_action_weights.get('mf_flow_slope', 0.05)) *
+            (mtf_suppressive_accum_slope_normalized).pow(covert_action_weights.get('suppressive_accum_slope', 0.05))
         ).pow(1/sum(covert_action_weights.values())).fillna(0.0)
+
         # --- 5. 维度三：筹码优化 (Chip Optimization) ---
-        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        # 修改代码：新增归一化和融合
+        mtf_chip_fatigue_score = self._get_mtf_slope_accel_score(df, 'chip_fatigue_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_loser_pain_score = self._get_mtf_slope_accel_score(df, 'loser_pain_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        
         holder_sentiment_inverted_score = (1 - holder_sentiment_score).clip(0, 1)
-        turnover_purity_cost_opt_normalized = get_adaptive_mtf_normalized_score(turnover_purity_cost_opt_score.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        floating_chip_cleansing_normalized = get_adaptive_mtf_normalized_score(floating_chip_cleansing_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        total_loser_rate_normalized = get_adaptive_mtf_normalized_score(total_loser_rate_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
+        turnover_purity_cost_opt_normalized = self._normalize_series(turnover_purity_cost_opt_score.clip(lower=0), df_index, bipolar=False)
+        mtf_floating_chip_cleansing_normalized = self._get_mtf_slope_accel_score(df, 'floating_chip_cleansing_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_total_loser_rate_normalized = self._get_mtf_slope_accel_score(df, 'total_loser_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        
         chip_optimization_score = (
-            (chip_fatigue_score).pow(chip_optimization_weights.get('chip_fatigue', 0.25)) *
-            (loser_pain_score).pow(chip_optimization_weights.get('loser_pain', 0.25)) *
+            (mtf_chip_fatigue_score).pow(chip_optimization_weights.get('chip_fatigue', 0.25)) *
+            (mtf_loser_pain_score).pow(chip_optimization_weights.get('loser_pain', 0.25)) *
             (holder_sentiment_inverted_score).pow(chip_optimization_weights.get('holder_sentiment_inverted', 0.2)) *
             (turnover_purity_cost_opt_normalized).pow(chip_optimization_weights.get('turnover_purity_cost_opt', 0.15)) *
-            (floating_chip_cleansing_normalized).pow(chip_optimization_weights.get('floating_chip_cleansing', 0.1)) *
-            (total_loser_rate_normalized).pow(chip_optimization_weights.get('total_loser_rate', 0.05))
+            (mtf_floating_chip_cleansing_normalized).pow(chip_optimization_weights.get('floating_chip_cleansing', 0.1)) *
+            (mtf_total_loser_rate_normalized).pow(chip_optimization_weights.get('total_loser_rate', 0.05))
         ).pow(1/sum(chip_optimization_weights.values())).fillna(0.0)
+
         # --- 6. 最终合成：三维融合 ---
         covert_accumulation_score = (
             (market_context_score).pow(fusion_weights.get('market_context', 0.3)) *
             (covert_action_score).pow(fusion_weights.get('covert_action', 0.4)) *
             (chip_optimization_score).pow(fusion_weights.get('chip_optimization', 0.3))
-        ).pow(1/(fusion_weights.get('market_context', 0.3) + fusion_weights.get('covert_action', 0.4) + fusion_weights.get('chip_optimization', 0.3))).fillna(0.0)
+        ).pow(1/(sum(fusion_weights.values()))).fillna(0.0) # 确保分母正确
+
+        # --- 调试信息 ---
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            last_date_index = -1
+            print(f"\n--- [PROCESS_META_COVERT_ACCUMULATION 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
+            print("  [输入原料 (原始值)]: ")
+            print(f"    - retail_panic_surrender_index_D: {retail_panic_raw.iloc[last_date_index]:.4f}")
+            print(f"    - SLOPE_{price_weakness_slope_window}_close_D: {price_weakness_slope_raw.iloc[last_date_index]:.4f}")
+            print(f"    - BBW_{low_volatility_bbw_window}_2.0_D: {bbw_raw.iloc[last_date_index]:.4f}")
+            print(f"    - suppressive_accumulation_intensity_D: {suppressive_accum_raw.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_net_flow_calibrated_D: {main_force_flow_raw.iloc[last_date_index]:.4f}")
+            print(f"    - deception_index_D: {deception_raw.iloc[last_date_index]:.4f}")
+            print(f"    - chip_fatigue_index_D: {chip_fatigue_raw.iloc[last_date_index]:.4f}")
+            print(f"    - loser_pain_index_D: {loser_pain_raw.iloc[last_date_index]:.4f}")
+            print(f"    - deception_lure_long_intensity_D: {deception_lure_long_raw.iloc[last_date_index]:.4f}")
+            print(f"    - hidden_accumulation_intensity_D: {hidden_accumulation_intensity_raw.iloc[last_date_index]:.4f}")
+            print(f"    - sentiment_pendulum_score: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
+            print(f"    - tension_score: {tension_score.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
+            print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.iloc[last_date_index]:.4f}")
+            print(f"    - stealth_ops_score: {stealth_ops_score.iloc[last_date_index]:.4f}")
+            print(f"    - chip_historical_potential_score: {chip_historical_potential_score.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_buy_ofi_D: {mf_buy_ofi_raw.iloc[last_date_index]:.4f}")
+            print(f"    - main_force_cost_advantage_D: {mf_cost_advantage_raw.iloc[last_date_index]:.4f}")
+            print(f"    - holder_sentiment_score: {holder_sentiment_score.iloc[last_date_index]:.4f}")
+            print(f"    - turnover_purity_cost_opt_score: {turnover_purity_cost_opt_score.iloc[last_date_index]:.4f}")
+            print(f"    - floating_chip_cleansing_efficiency_D: {floating_chip_cleansing_raw.iloc[last_date_index]:.4f}")
+            print(f"    - total_loser_rate_D: {total_loser_rate_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算 (归一化/中间分)]: ")
+            print(f"    - retail_panic_score: {retail_panic_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_price_weakness_score: {mtf_price_weakness_score.iloc[last_date_index]:.4f}")
+            print(f"    - low_volatility_score: {low_volatility_score.iloc[last_date_index]:.4f}")
+            print(f"    - sentiment_pendulum_inverted_score: {sentiment_pendulum_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - tension_inverted_score: {tension_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_inverted_score: {market_sentiment_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - volatility_instability_inverted_score: {volatility_instability_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - market_context_score: {market_context_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_suppressive_accum_score: {mtf_suppressive_accum_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_main_force_flow_score: {mtf_main_force_flow_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_deception_lure_long_score: {mtf_deception_lure_long_score.iloc[last_date_index]:.4f}")
+            print(f"    - stealth_ops_normalized: {stealth_ops_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_hidden_accumulation_intensity: {mtf_hidden_accumulation_intensity.iloc[last_date_index]:.4f}")
+            print(f"    - chip_historical_potential_normalized: {chip_historical_potential_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_mf_buy_ofi_normalized: {mtf_mf_buy_ofi_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_mf_cost_advantage_normalized: {mtf_mf_cost_advantage_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_mf_flow_slope_normalized: {mtf_mf_flow_slope_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_suppressive_accum_slope_normalized: {mtf_suppressive_accum_slope_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - covert_action_score: {covert_action_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_chip_fatigue_score: {mtf_chip_fatigue_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_loser_pain_score: {mtf_loser_pain_score.iloc[last_date_index]:.4f}")
+            print(f"    - holder_sentiment_inverted_score: {holder_sentiment_inverted_score.iloc[last_date_index]:.4f}")
+            print(f"    - turnover_purity_cost_opt_normalized: {turnover_purity_cost_opt_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_floating_chip_cleansing_normalized: {mtf_floating_chip_cleansing_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_total_loser_rate_normalized: {mtf_total_loser_rate_normalized.iloc[last_date_index]:.4f}")
+            print(f"    - chip_optimization_score: {chip_optimization_score.iloc[last_date_index]:.4f}")
+            print("  [最终结果]: ")
+            print(f"    - covert_accumulation_score: {covert_accumulation_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+
         return covert_accumulation_score.clip(0, 1).astype(np.float32)
 
 
