@@ -2292,11 +2292,6 @@ class FundFlowIntelligence:
                 raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name)
         # 基础背离
         bullish_base_divergence, bearish_base_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
-        # --- 调试探针：检查 bullish_base_divergence 的值 ---
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"        [探针] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"          - axiom_divergence: {axiom_divergence.loc[probe_ts]:.4f}")
-            print(f"          - bullish_base_divergence (from axiom_divergence): {bullish_base_divergence.loc[probe_ts]:.4f}")
         # 确认信号
         axiom_conviction = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONVICTION', 0.0, method_name=method_name)
         axiom_flow_momentum = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name=method_name)
@@ -2563,26 +2558,6 @@ class FundFlowIntelligence:
         # 修复Bug：在进行幂运算前，对基数进行 clip(lower=1e-9) 处理，避免 0 的幂运算问题
         # 并且确保幂运算结果的 dtype 为 float32
         bullish_divergence_score_raw = bullish_product_before_pow.clip(lower=1e-9).pow(bullish_dynamic_non_linear_exponent.astype(np.float64)).astype(np.float32).clip(0, 1)
-        # --- 调试探针：产品计算结果 ---
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"        [探针] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"          - axiom_flow_structure_health: {axiom_flow_structure_health.loc[probe_ts]:.4f}")
-            print(f"          - axiom_intent_purity: {axiom_intent_purity.loc[probe_ts]:.4f}")
-            print(f"          - price_weakness_score: {price_weakness_score.loc[probe_ts]:.4f}")
-            print(f"          - fund_flow_weakness_penalty: {fund_flow_weakness_penalty.loc[probe_ts]:.4f}")
-            print(f"          - retail_fomo_penalty: {retail_fomo_penalty.loc[probe_ts]:.4f}")
-            print(f"          - flow_health_penalty: {flow_health_penalty.loc[probe_ts]:.4f}")
-            print(f"          - intent_purity_penalty: {intent_purity_penalty.loc[probe_ts]:.4f}")
-            print(f"          - bullish_base_divergence: {bullish_base_divergence.loc[probe_ts]:.8f}")
-            print(f"          - bullish_purity_modulator * purity_context_mod: {(bullish_purity_modulator * purity_context_mod).clip(0.1, 2.0).loc[probe_ts]:.8f}")
-            print(f"          - bullish_confirmation_score * (1 + norm_volatility_instability * ...): {(bullish_confirmation_score * (1 + norm_volatility_instability * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))).clip(0.1, 2.0).loc[probe_ts]:.8f}")
-            print(f"          - bullish_context_modulator * (1 + norm_flow_credibility * ...): {(bullish_context_modulator * (1 + norm_flow_credibility * dynamic_context_modulator_sensitivity.get('flow_credibility', 0.15))).clip(0.1, 2.0).loc[probe_ts]:.8f}")
-            print(f"          - (1 + mtf_bipolar_resonance_factor.clip(lower=0)): {(1 + mtf_bipolar_resonance_factor.clip(lower=0)).loc[probe_ts]:.8f}")
-            print(f"          - bullish_micro_macro_mod: {bullish_micro_macro_mod.loc[probe_ts]:.8f}")
-            print(f"          - bullish_product_before_pow: {bullish_product_before_pow.loc[probe_ts]:.8f}")
-            print(f"          - bullish_dynamic_non_linear_exponent: {bullish_dynamic_non_linear_exponent.loc[probe_ts]:.8f}")
-            print(f"          - bullish_divergence_score (after pow and clip): {bullish_divergence_score_raw.loc[probe_ts]:.8f}")
-            print(f"          - bullish_divergence_threshold: {bullish_divergence_threshold:.8f}") # 打印阈值
         # Bug Fix: 确保如果 bullish_base_divergence 为 0，则最终分数也为 0
         # 使用一个小的 epsilon 来处理浮点数比较
         final_bullish_score = bullish_divergence_score_raw.where(bullish_base_divergence > 1e-9, 0.0)
@@ -2601,13 +2576,6 @@ class FundFlowIntelligence:
         bearish_divergence_score_raw = bearish_product_before_pow.clip(lower=1e-9).pow(bearish_dynamic_non_linear_exponent.astype(np.float64)).astype(np.float32).clip(0, 1)
         final_bearish_score = bearish_divergence_score_raw.where(bearish_base_divergence > 1e-9, 0.0) # 同样对看跌信号进行门控
         final_bearish_score = final_bearish_score.where(final_bearish_score > bearish_divergence_threshold, 0.0) # 确保阈值应用正确
-        # 修正调试输出：打印探针日期当天的信号值
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"    -> [资金流层] 看涨 (Bullish) @ {probe_ts.strftime('%Y-%m-%d')}: {final_bullish_score.loc[probe_ts]:.4f}")
-            print(f"    -> [资金流层] 看跌 (Bearish) @ {probe_ts.strftime('%Y-%m-%d')}: {final_bearish_score.loc[probe_ts]:.4f}")
-        else:
-            print(f"    -> [资金流层] 看涨 (Bullish): {final_bullish_score.iloc[-1]:.4f}")
-            print(f"    -> [资金流层] 看跌 (Bearish): {final_bearish_score.iloc[-1]:.4f}")
         return final_bullish_score.astype(np.float32), final_bearish_score.astype(np.float32)
 
     def _diagnose_axiom_intent_purity(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
