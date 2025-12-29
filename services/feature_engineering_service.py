@@ -32,13 +32,10 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
             series_len = (x_len - m - 1) // k + 1
             if series_len < 2:
                 continue
-            
             current_series = np.empty(series_len, dtype=np.float64)
             for i in range(series_len):
                 current_series[i] = x[m + i * k]
-            
             diffs = np.abs(np.diff(current_series))
-            
             if len(diffs) > 0:
                 denominator = ((x_len - m) // k * k)
                 if denominator == 0:
@@ -134,32 +131,6 @@ def _numba_sample_entropy(x: np.ndarray, m: int, r: float) -> float:
         return np.nan # 避免除以零
     
     return -np.log(count_m_plus_1 / count_m)
-
-@numba.njit(cache=True)
-def _numba_fft_energy_ratio(x: np.ndarray, low_freq_cutoff_ratio: float, high_freq_cutoff_ratio: float) -> float:
-    """
-    【Numba优化版】计算FFT能量比。
-    """
-    N = len(x)
-    if N < 2:
-        return np.nan
-    
-    # 使用直接导入的fft函数
-    yf = fft(x) # <--- 确保这里是 fft(x) 而不是 np.fft.fft(x)
-    
-    # 取正频率部分
-    yf_abs = np.abs(yf[:N//2])
-    
-    total_energy = np.sum(yf_abs**2)
-    if total_energy == 0:
-        return np.nan
-        
-    low_freq_idx = int(N * low_freq_cutoff_ratio)
-    # high_freq_idx = int(N * high_freq_cutoff_ratio) # 此行在当前逻辑中未使用，可以保留或移除
-    
-    low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
-    
-    return low_freq_energy / total_energy
 
 class FeatureEngineeringService:
     """
@@ -337,6 +308,107 @@ class FeatureEngineeringService:
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
+        # _higuchi_fractal_dimension 函数修复
+        # 替换为Numba优化版本
+        @numba.njit(cache=True) # <--- 保持Numba装饰器
+        def _higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
+            """
+            【Numba优化版】计算Higuchi分形维数。
+            """
+            L = np.empty(k_max, dtype=np.float64)
+            L.fill(np.nan) # 初始化为NaN
+            x_len = len(x)
+            if x_len < 2:
+                return np.nan
+            for k_idx in range(k_max):
+                k = k_idx + 1
+                Lk_sum = 0.0
+                count = 0
+                for m in range(k):
+                    series_len = (x_len - m - 1) // k + 1
+                    if series_len < 2:
+                        continue
+                    current_series = np.empty(series_len, dtype=np.float64)
+                    for i in range(series_len):
+                        current_series[i] = x[m + i * k]
+                    diffs = np.abs(np.diff(current_series))
+                    if len(diffs) > 0:
+                        denominator = ((x_len - m) // k * k)
+                        if denominator == 0:
+                            continue
+                        Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
+                        count += 1
+                if count > 0 and Lk_sum > 0:
+                    L[k_idx] = np.log(Lk_sum / count / k)
+                else:
+                    L[k_idx] = np.nan
+            valid_L_indices = np.where(~np.isnan(L))[0]
+            if len(valid_L_indices) < 2:
+                return np.nan
+            valid_k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))[valid_L_indices]
+            valid_L = L[valid_L_indices]
+            try:
+                N = len(valid_L)
+                sum_x = np.sum(valid_k_range_log)
+                sum_y = np.sum(valid_L)
+                sum_xy = np.sum(valid_k_range_log * valid_L)
+                sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
+                denominator_reg = N * sum_x2 - sum_x * sum_x
+                if denominator_reg == 0:
+                    return np.nan
+                slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
+                fd = np.abs(slope)
+                if fd < 1.0:
+                    fd = 1.0
+                elif fd > 2.0:
+                    fd = 2.0
+                return fd
+            except Exception:
+                return np.nan
+        
+        @numba.njit(cache=True) # <--- 保持Numba装饰器
+        def _sample_entropy(x: np.ndarray, m: int, r: float) -> float:
+            """
+            【Numba优化版】计算样本熵。
+            """
+            n = len(x)
+            if n < m + 1:
+                return np.nan
+
+            # 计算距离函数
+            def _max_dist(x_i, x_j):
+                return np.max(np.abs(x_i - x_j))
+
+            # 重新计算 B 和 A
+            count_m = 0
+            for i in range(n - m):
+                for j in range(i + 1, n - m):
+                    if _max_dist(x[i:i+m], x[j:j+m]) < r:
+                        count_m += 1
+            count_m_plus_1 = 0
+            for i in range(n - m - 1):
+                for j in range(i + 1, n - m - 1):
+                    if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
+                        count_m_plus_1 += 1
+
+            if count_m == 0:
+                return np.nan # 避免除以零
+            return -np.log(count_m_plus_1 / count_m)
+
+        # 移除Numba装饰器，让其作为普通Python函数运行
+        def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5): # <--- 移除 @numba.njit
+            N = len(x)
+            if N < 2: return np.nan
+            yf = np.fft.fft(x) # <--- 使用 np.fft.fft
+            yf_abs = np.abs(yf[:N//2]) # 取正频率部分
+            total_energy = np.sum(yf_abs**2)
+            if total_energy == 0: return np.nan
+            # freqs = np.fft.fftfreq(N, d=1)[:N//2] # 此行未使用，可以移除
+            low_freq_idx = int(N * low_freq_cutoff_ratio)
+            # high_freq_idx = int(N * high_freq_cutoff_ratio) # 此行未使用，可以移除
+            low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
+            return low_freq_energy / total_energy
+
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
@@ -364,7 +436,7 @@ class FeatureEngineeringService:
                 try:
                     k_max = int(np.sqrt(fd_window))
                     df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
-                        lambda x: _numba_higuchi_fractal_dimension(x.dropna().values, k_max) if len(x.dropna()) >= fd_window else np.nan, raw=False
+                        lambda x: _higuchi_fractal_dimension(x.dropna().values, k_max) if len(x.dropna()) >= fd_window else np.nan, raw=False
                     )
                 except Exception as e:
                     logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
@@ -391,7 +463,7 @@ class FeatureEngineeringService:
                             if pd.isna(r) or r == 0 or len(window_data) < se_window:
                                 entropy_values.append(np.nan)
                                 continue
-                            entropy_values.append(_numba_sample_entropy(window_data, m=2, r=r))
+                            entropy_values.append(_sample_entropy(window_data, m=2, r=r))
                         df[se_col] = pd.Series(entropy_values, index=log_returns_or_series.index).reindex(df.index)
                 except Exception as e:
                     logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
@@ -421,7 +493,7 @@ class FeatureEngineeringService:
                                 energy_ratios.append(np.nan)
                                 continue
                             window_data = log_returns_or_series.iloc[i - fft_window + 1 : i + 1].values
-                            energy_ratios.append(_numba_fft_energy_ratio(window_data, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5))
+                            energy_ratios.append(_fft_energy_ratio(window_data, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5)) # <--- 调用普通Python函数
                         df[fft_col] = pd.Series(energy_ratios, index=log_returns_or_series.index).reindex(df.index)
                 except Exception as e:
                     logger.error(f"FFT能量比(周期{fft_window}, 列: {source_col})计算失败: {e}")

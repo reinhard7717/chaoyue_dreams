@@ -98,7 +98,6 @@ class DataCenterAPI(BaseAPI):
             if days not in [5, 10, 30, 60]:
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return []
-                
             return await self.get(f'data/all/jgcj/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"请求机构席位成交明细数据出错: {str(e)}")
@@ -181,7 +180,6 @@ class DataCenterAPI(BaseAPI):
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取周涨跌排名失败: {data}")
                 return []
-                
             return data
         except Exception as e:
             logger.error(f"获取周涨跌排名出错: {str(e)}")
@@ -198,7 +196,6 @@ class DataCenterAPI(BaseAPI):
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取月涨跌排名失败: {data}")
                 return []
-                
             return data
         except Exception as e:
             logger.error(f"获取月涨跌排名出错: {str(e)}")
@@ -215,7 +212,6 @@ class DataCenterAPI(BaseAPI):
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取本周强势股失败: {data}")
                 return []
-                
             return data
         except Exception as e:
             logger.error(f"获取本周强势股出错: {str(e)}")
@@ -232,7 +228,6 @@ class DataCenterAPI(BaseAPI):
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取本月强势股失败: {data}")
                 return []
-                
             return data
         except Exception as e:
             logger.error(f"获取本月强势股出错: {str(e)}")

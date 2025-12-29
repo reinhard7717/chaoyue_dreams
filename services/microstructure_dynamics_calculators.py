@@ -146,11 +146,9 @@ def _numba_calculate_liquidity_authenticity_score(
             # 检查是否是新增的大单（与前一刻相比）
             if i > 0 and buy_volume1_arr[i] > buy_volume1_arr[i-1] * 2: # 简化判断为显著增加
                 commit_price = buy_price1_arr[i]
-                
                 # 追踪此承诺未来20个快照
                 future_snapshots_start_idx = i + 1
                 future_snapshots_end_idx = min(n_level5, future_snapshots_start_idx + 20)
-                
                 pressure_found = False
                 for j in range(future_snapshots_start_idx, future_snapshots_end_idx):
                     if sell_price1_arr[j] <= commit_price + 0.02: # 卖一价接近承诺价
@@ -186,10 +184,8 @@ def _numba_calculate_liquidity_authenticity_score(
         if sell_volume1_arr[i] > sell_commitment_threshold:
             if i > 0 and sell_volume1_arr[i] > sell_volume1_arr[i-1] * 2: # 简化判断为显著增加
                 commit_price = sell_price1_arr[i]
-                
                 future_snapshots_start_idx = i + 1
                 future_snapshots_end_idx = min(n_level5, future_snapshots_start_idx + 20)
-                
                 pressure_found = False
                 for j in range(future_snapshots_start_idx, future_snapshots_end_idx):
                     if buy_price1_arr[j] >= commit_price - 0.02: # 买一价接近承诺价
@@ -281,7 +277,6 @@ class MicrostructureDynamicsCalculators:
         if level5_df is not None and not level5_df.empty and len(level5_df) > 1:
             df = level5_df[['buy_price1', 'buy_volume1', 'sell_price1', 'sell_volume1']].copy()
             df_prev = df.shift(1).fillna(0) # 填充NaN以避免Numba处理NaN
-            
             # 提取NumPy数组
             buy_price1_arr = df['buy_price1'].values
             buy_volume1_arr = df['buy_volume1'].values
@@ -298,7 +293,6 @@ class MicrostructureDynamicsCalculators:
                 prev_buy_price1_arr, prev_buy_volume1_arr,
                 prev_sell_price1_arr, prev_sell_volume1_arr
             )
-            
             total_ofi = np.nansum(ofi_series_numba)
             if total_volume > 0:
                 results['order_flow_imbalance_score'] = total_ofi / total_volume
@@ -342,7 +336,6 @@ class MicrostructureDynamicsCalculators:
             tick_df['buy_vol'] = np.where(tick_df['type'] == 'B', tick_df['volume'], 0)
             tick_df['sell_vol'] = np.where(tick_df['type'] == 'S', tick_df['volume'], 0)
             tick_df['cum_vol'] = tick_df['volume'].cumsum()
-            
             # 提取NumPy数组
             cum_vol_arr = tick_df['cum_vol'].values
             volume_arr = tick_df['volume'].values
@@ -352,7 +345,6 @@ class MicrostructureDynamicsCalculators:
             imbalance_values, bucket_indices = _numba_calculate_vpin_buckets(
                 cum_vol_arr, volume_arr, buy_vol_arr, sell_vol_arr, vpin_bucket_size
             )
-            
             if len(imbalance_values) > vpin_window:
                 # 将Numba结果转换回Pandas Series进行后续滚动计算
                 bucket_imbalance_series = pd.Series(imbalance_values, index=bucket_indices)
@@ -504,10 +496,8 @@ class MicrostructureDynamicsCalculators:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
             if pd.notna(daily_vwap):
                 deviation = minute_df['minute_vwap'] - daily_vwap
-                
                 # 提取NumPy数组
                 deviation_arr = deviation.values
-                
                 # 调用Numba优化函数
                 results['vwap_mean_reversion_corr'] = _numba_calculate_vwap_reversion_corr(deviation_arr)
         return results

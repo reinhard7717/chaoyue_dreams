@@ -606,7 +606,6 @@ class BaseDAO(Generic[T]):
                 elif field_name in field_to_column_map:
                     sql_record[field_to_column_map[field_name]] = value
                 # 如果key不是模型的字段，则忽略 (例如上游传入的临时辅助字段)
-                
             sql_ready_data_list.append(sql_record)
         if not sql_ready_data_list:
             logger.warning("所有记录在准备阶段均失败或为空，不执行数据库操作。")

@@ -109,7 +109,6 @@ class IndicatorCalculator:
             if atrn_df is None or atrn_df.empty:
                 logger.warning(f"ATRN 计算返回了空结果。")
                 return None
-                
             # 步骤6: 返回计算成功的DataFrame。
             return atrn_df
         except Exception as e:
@@ -661,7 +660,6 @@ class IndicatorCalculator:
                 target_series = df[amount_col]
                 # 直接调用 ta.roc 函数，传入 Series
                 return ta.roc(close=target_series, length=period, append=False)
-                
             aroc_series = await asyncio.to_thread(_sync_aroc)
             if aroc_series is None or aroc_series.empty:
                 logger.warning(f"AROC_{period} 计算结果为空。")

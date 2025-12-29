@@ -97,7 +97,6 @@ class LicenceManager:
                 self._request_counts[licence][api_type] += 1
                 logger.warning(f"强制使用license: {licence}，即使它已达到速率限制")
                 return licence
-                
             logger.error(f"所有license都达到速率限制或处于冷却状态，API类型：{api_type}，用户类型：{user_type}")
             return ""  # 返回空字符串表示没有可用license
     def _is_licence_available(self, licence, api_type='default', user_type='basic'):
@@ -191,7 +190,6 @@ class LicenceManager:
             if max_history_size is None:
                 logger.error("未找到API_RATE_LIMITS.default.basic.error_history_size配置")
                 return
-                
             if len(self._error_history[licence]) > max_history_size:
                 self._error_history[licence] = self._error_history[licence][-max_history_size:]
             # 更新API类型统计

@@ -794,9 +794,7 @@ class FundFlowIntelligence:
             norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(deception_context_modulator_raw, df_index, tf_weights=tf_weights_ff)
             norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_deception_lure_short = get_adaptive_mtf_normalized_score(deception_lure_short_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-            
             sentiment_mod_factor = (1 + norm_market_sentiment.abs() * deception_context_sensitivity * np.sign(norm_market_sentiment))
-            
             # 引入欺骗和对倒的MTF共振因子
             deception_cohesion_mod = (1 + deception_cohesion * mtf_cohesion_deception_weights.get('deception_index', 0.5) * mtf_cohesion_modulator_sensitivity)
             wash_trade_cohesion_mod = (1 + wash_trade_cohesion * mtf_cohesion_deception_weights.get('wash_trade_intensity', 0.5) * mtf_cohesion_modulator_sensitivity)
@@ -1166,7 +1164,6 @@ class FundFlowIntelligence:
             cost_advantage_mod = (1 + norm_cost_advantage.abs() * resilience_context_sensitivity_cost_advantage * np.sign(norm_cost_advantage))
             liquidity_mod = (1 + (norm_market_liquidity - 0.5) * resilience_context_sensitivity_liquidity)
             conviction_feedback_mod = (1 - core_conviction_score.abs() * conviction_feedback_sensitivity * np.sign(core_conviction_score))
-            
             # 引入欺骗和对倒的MTF共振因子
             deception_cohesion_mod = (1 + deception_cohesion * mtf_cohesion_deception_weights.get('deception_index', 0.5) * mtf_cohesion_modulator_sensitivity)
             wash_trade_cohesion_mod = (1 + wash_trade_cohesion * mtf_cohesion_deception_weights.get('wash_trade_intensity', 0.5) * mtf_cohesion_modulator_sensitivity)
@@ -2417,7 +2414,6 @@ class FundFlowIntelligence:
             norm_long_term_nmfnf_accel = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_accel_raw, df_index, self.tf_weights_ff)
             # 卖盘枯竭率高，表示卖压沉重
             norm_sell_exhaustion_penalty = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-            
             # 新增：价格弱势惩罚
             # 价格变化率越负，价格弱势分数越高 (0到1)
             price_weakness_score = (price_weakness_threshold - pct_change_raw).clip(lower=0) * price_weakness_sensitivity

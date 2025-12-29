@@ -147,7 +147,6 @@ class BaseAPI:
                 # 找不到列表，返回空列表
                 logger.warning(f"期望列表类型，但收到字典且无法提取列表: {text[:100]}...")
                 return []
-                
             elif expected_type == 'dict' and isinstance(data, list):
                 # 列表转字典
                 if data and len(data) > 0:
@@ -155,7 +154,6 @@ class BaseAPI:
                     return data[0] if isinstance(data[0], dict) else {"value": data[0]}
                 else:
                     return {}
-                
             return data
         except json.JSONDecodeError as e:
             # logger.warning(f"JSON解析错误: {str(e)}, 文本: {text[:100]}...")
