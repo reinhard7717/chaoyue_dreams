@@ -1914,7 +1914,6 @@ class ProcessIntelligence:
         df_index = df.index
 
         # --- 调试信息构建 ---
-        # 修正：直接访问 self.debug_params 和 self.probe_dates
         is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
         probe_dates_list = self.probe_dates 
         probe_ts_for_debug = None
@@ -1997,7 +1996,7 @@ class ProcessIntelligence:
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - conviction_strength_score", conviction_strength_score)
 
         # --- 2. 压力韧性 (Pressure Resilience) ---
-        # 使用MTF融合利润兑现流量及其斜率和加速度 (双极性，负值代表压力大，正值代表压力小)
+        # 使用MTF融合利润兑现流量及其斜率和加速度 (双极性，负值代表压力大，韧性差)
         # 利润兑现流量是负向指标，所以其MTF分数越低（负值越大）代表压力越大，韧性越差
         mtf_profit_taking_flow = self._get_mtf_slope_accel_score(df, pressure_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         
@@ -2044,13 +2043,16 @@ class ProcessIntelligence:
             "volatility_inverse": norm_volatility_inverse,
             "trend_vitality": norm_trend_vitality
         }
+        # 调试探针：context_modulator_components 的输入
+        for k, v in context_modulator_components.items():
+            self._debug_probe(df_index, probe_ts_for_debug, method_name, f"GM输入 - context_modulator_components[{k}]", v)
+
         # 使用几何平均融合情境调制器，确保只有当多个情境同时有利时才高
         context_modulator_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()}, # 确保输入为正
             context_modulator_weights,
             df_index,
-            is_debug_enabled=is_debug_enabled,
-            probe_ts=probe_ts_for_debug,
+            # 移除 is_debug_enabled 和 probe_ts 参数
             fusion_level_name=f"{method_name}_context_modulator_score"
         )
         # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
@@ -2087,14 +2089,16 @@ class ProcessIntelligence:
             "deception_filter": deception_filter,
             "context_modulator": context_modulator
         }
+        # 调试探针：fusion_components_for_gm 的输入
+        for k, v in fusion_components_for_gm.items():
+            self._debug_probe(df_index, probe_ts_for_debug, method_name, f"GM输入 - fusion_components_for_gm[{k}]", v)
         
         # 3. 使用 _robust_geometric_mean 融合所有强度/幅度组件
         fused_magnitude = _robust_geometric_mean(
             fusion_components_for_gm,
             final_fusion_gm_weights,
             df_index,
-            is_debug_enabled=is_debug_enabled,
-            probe_ts=probe_ts_for_debug,
+            # 移除 is_debug_enabled 和 probe_ts 参数
             fusion_level_name=f"{method_name}_fused_magnitude"
         )
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "最终融合 - fused_magnitude", fused_magnitude)
