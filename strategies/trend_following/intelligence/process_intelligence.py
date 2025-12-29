@@ -3103,6 +3103,7 @@ class ProcessIntelligence:
         - 【调整】调整 `covert_action_weights` 中拆单吸筹的权重，使用原始指标的MTF融合版本。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.5 · 深度情境与多维隐蔽行动版)...")
+        method_name = "_calculate_process_covert_accumulation" # <--- 新增此行
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('covert_accumulation_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
@@ -3148,34 +3149,34 @@ class ProcessIntelligence:
             'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION'
         ]
         all_required_signals = required_df_columns + required_atomic_signals
-        if not self._validate_required_signals(df, all_required_signals, "_calculate_process_covert_accumulation"):
+        if not self._validate_required_signals(df, all_required_signals, method_name):
             print(f"    -> [过程情报警告] _calculate_process_covert_accumulation 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index)
 
         df_index = df.index
-        retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        price_weakness_slope_raw = self._get_safe_series(df, f'SLOPE_{price_weakness_slope_window}_close_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        bbw_raw = self._get_safe_series(df, f'BBW_{low_volatility_bbw_window}_2.0_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        suppressive_accum_raw = self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        deception_lure_long_raw = self._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        hidden_accumulation_intensity_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
+        price_weakness_slope_raw = self._get_safe_series(df, f'SLOPE_{price_weakness_slope_window}_close_D', 0.0, method_name=method_name)
+        bbw_raw = self._get_safe_series(df, f'BBW_{low_volatility_bbw_window}_2.0_D', 0.0, method_name=method_name)
+        suppressive_accum_raw = self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name=method_name)
+        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
+        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
+        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
+        deception_lure_long_raw = self._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name)
+        deception_lure_short_raw = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
+        hidden_accumulation_intensity_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
         sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
-        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         chip_historical_potential_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
-        mf_buy_ofi_raw = self._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        mf_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        mf_buy_ofi_raw = self._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name)
+        mf_cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name=method_name)
         holder_sentiment_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
         turnover_purity_cost_opt_score = self._get_atomic_score(df, 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION', 0.0)
-        floating_chip_cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_process_covert_accumulation")
-        total_loser_rate_raw = self._get_safe_series(df, 'total_loser_rate_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        floating_chip_cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name=method_name)
+        total_loser_rate_raw = self._get_safe_series(df, 'total_loser_rate_D', 0.0, method_name=method_name)
 
         # --- 3. 维度一：市场背景 (Market Context) ---
         retail_panic_score = self._normalize_series(retail_panic_raw, df_index, bipolar=False)
@@ -3269,12 +3270,12 @@ class ProcessIntelligence:
             print(f"    - hidden_accumulation_intensity_D: {hidden_accumulation_intensity_raw.iloc[last_date_index]:.4f}")
             print(f"    - sentiment_pendulum_score: {sentiment_pendulum_score.iloc[last_date_index]:.4f}")
             print(f"    - tension_score: {tension_score.iloc[last_date_index]:.4f}")
-            print(f"    - market_sentiment_score_D: {market_sentiment_raw.iloc[last_date_index]:.4f}")
-            print(f"    - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.iloc[last_date_index]:.4f}")
+            print(f"    - market_sentiment_raw: {market_sentiment_raw.iloc[last_date_index]:.4f}")
+            print(f"    - volatility_instability_raw: {volatility_instability_raw.iloc[last_date_index]:.4f}")
             print(f"    - stealth_ops_score: {stealth_ops_score.iloc[last_date_index]:.4f}")
             print(f"    - chip_historical_potential_score: {chip_historical_potential_score.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_buy_ofi_D: {mf_buy_ofi_raw.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_cost_advantage_D: {mf_cost_advantage_raw.iloc[last_date_index]:.4f}")
+            print(f"    - mf_buy_ofi_raw: {mf_buy_ofi_raw.iloc[last_date_index]:.4f}")
+            print(f"    - mf_cost_advantage_raw: {mf_cost_advantage_raw.iloc[last_date_index]:.4f}")
             print(f"    - holder_sentiment_score: {holder_sentiment_score.iloc[last_date_index]:.4f}")
             print(f"    - turnover_purity_cost_opt_score: {turnover_purity_cost_opt_score.iloc[last_date_index]:.4f}")
             print(f"    - floating_chip_cleansing_efficiency_D: {floating_chip_cleansing_raw.iloc[last_date_index]:.4f}")
