@@ -2867,6 +2867,7 @@ class ChipIntelligence:
         should_probe_overall = self.should_probe and bool(probe_dates_in_df)
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+        # 优化：预解析 tf_weights 一次
         parsed_tf_data = utils._parse_tf_weights(tf_weights)
         mfci_params = get_param_value(p_conf.get('main_force_cost_intent_params'), {})
         cost_zone_tolerance_base = get_param_value(mfci_params.get('cost_zone_tolerance_base'), 0.02)
@@ -2909,7 +2910,7 @@ class ChipIntelligence:
                 if date.date() in self.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = False
+        debug_info_tuple = (is_debug_enabled, probe_ts, "_diagnose_chip_main_force_cost_intent")
         close_raw = signals_data['close_D']
         vpoc_raw = signals_data['vpoc_D']
         dominant_peak_cost_raw = signals_data['dominant_peak_cost_D']
@@ -2930,30 +2931,40 @@ class ChipIntelligence:
         cost_center = dominant_peak_cost_raw.fillna(vpoc_raw)
         dynamic_cost_zone_tolerance = pd.Series(cost_zone_tolerance_base, index=df_index)
         if dynamic_tolerance_mod_enabled and dynamic_tolerance_mod_raw is not None:
+            # 优化：传递预解析的 tf_weights 数据
             norm_dynamic_tolerance_mod = utils.get_adaptive_mtf_normalized_score(dynamic_tolerance_mod_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
             dynamic_cost_zone_tolerance = cost_zone_tolerance_base * (1 + norm_dynamic_tolerance_mod * dynamic_tolerance_sensitivity)
             dynamic_cost_zone_tolerance = dynamic_cost_zone_tolerance.clip(cost_zone_tolerance_base * 0.5, cost_zone_tolerance_base * 2.0)
         upper_bound = cost_center * (1 + dynamic_cost_zone_tolerance)
         lower_bound = cost_center * (1 - dynamic_cost_zone_tolerance)
+
+        # --- 修正：先定义 net_conviction_flow ---
+        net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
+
+        # 优化：传递预解析的 tf_weights 数据
         norm_positive_flow = utils.get_adaptive_mtf_normalized_score(net_conviction_flow.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_negative_flow = utils.get_adaptive_mtf_normalized_score(net_conviction_flow.clip(upper=0).abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
+        
         norm_net_conviction_flow_directional = norm_positive_flow - norm_negative_flow
+        # 优化：传递预解析的 tf_weights 数据
         norm_main_force_activity = utils.get_adaptive_mtf_normalized_score(main_force_activity_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_main_force_flow_directionality = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         flow_quality_modulator = (norm_main_force_activity * 0.5 + norm_main_force_flow_directionality.abs() * 0.5).clip(0, 1)
         net_conviction_flow_quality = norm_net_conviction_flow_directional * (1 + flow_quality_modulator * 0.5)
         net_conviction_flow_quality = net_conviction_flow_quality.clip(-1, 1)
+        # 优化：传递预解析的 tf_weights 数据
         norm_main_force_conviction = utils.get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         price_deviation_factor_buy = (cost_center - close_raw) / cost_center.replace(0, np.nan)
         price_deviation_factor_buy = np.tanh(price_deviation_factor_buy.clip(0, 0.1) * price_deviation_tanh_factor)
         price_deviation_factor_sell = (close_raw - cost_center) / cost_center.replace(0, np.nan)
         price_deviation_factor_sell = np.tanh(price_deviation_factor_sell.clip(0, 0.1) * price_deviation_tanh_factor)
+        # 优化：传递预解析的 tf_weights 数据
         norm_slope_5_chip_health = utils.get_adaptive_mtf_normalized_bipolar_score(slope_5_chip_health_raw, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_slope_5_main_force_conviction = utils.get_adaptive_mtf_normalized_bipolar_score(slope_5_main_force_conviction_raw, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         in_zone_intent_modulator = (norm_slope_5_chip_health * 0.5 + norm_slope_5_main_force_conviction * 0.5).clip(-1, 1)
         deception_modulator = pd.Series(1.0, index=df_index)
         if deception_mod_enabled:
+            # 优化：传递预解析的 tf_weights 数据
             norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
             norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
             bear_trap_boost_mask = (net_conviction_flow_quality > 0) & (norm_deception_index_bipolar < 0)
@@ -2966,6 +2977,7 @@ class ChipIntelligence:
             deception_modulator = deception_modulator.clip(0.1, 2.0)
         global_context_modulator = pd.Series(1.0, index=df_index)
         if global_context_mod_enabled:
+            # 优化：传递预解析的 tf_weights 数据
             norm_chip_health = utils.get_adaptive_mtf_normalized_score(chip_health_score_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
             norm_volatility_instability = utils.get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
             global_context_modulator = (
@@ -2976,6 +2988,7 @@ class ChipIntelligence:
         dynamic_weight_above_vpoc = pd.Series(dynamic_fusion_weights_base.get('above_vpoc', 0.4), index=df_index)
         dynamic_weight_in_vpoc = pd.Series(dynamic_fusion_weights_base.get('in_vpoc', 0.2), index=df_index)
         if dynamic_fusion_weights_enabled and dynamic_weight_mod_raw is not None:
+            # 优化：传递预解析的 tf_weights 数据
             norm_dynamic_weight_mod = utils.get_adaptive_mtf_normalized_bipolar_score(dynamic_weight_mod_raw, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
             mod_factor = norm_dynamic_weight_mod * dynamic_weight_sensitivity
             dynamic_weight_below_vpoc = (dynamic_weight_below_vpoc - mod_factor).clip(0.1, 0.7)
@@ -3012,7 +3025,7 @@ class ChipIntelligence:
         main_force_cost_intent_raw.loc[mask_in_vpoc] = intent_in_vpoc
         final_score = main_force_cost_intent_raw * deception_modulator * global_context_modulator
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.iloc[-1]:.4f}")
+        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_hollowing_out_risk(self, df: pd.DataFrame) -> pd.Series:
