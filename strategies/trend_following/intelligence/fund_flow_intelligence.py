@@ -638,7 +638,6 @@ class FundFlowIntelligence:
         order_flow_imbalance_score_raw = raw_data_cache['order_flow_imbalance_score_D']
         deception_lure_long_raw = raw_data_cache['deception_lure_long_intensity_D']
         deception_lure_short_raw = raw_data_cache['deception_lure_short_intensity_D']
-        
         if probe_enabled and current_probe_date:
             print(f"        [探针] 原始数据获取完成。")
             print(f"          - main_force_flow_directionality_D: {main_force_flow_directionality_raw.loc[current_probe_date]:.4f}")
@@ -672,7 +671,6 @@ class FundFlowIntelligence:
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights_ff)
         norm_main_force_flow_gini_inverted = 1 - get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 基尼系数越低越好，所以反向归一化
         norm_nmfnf_net_flow = get_adaptive_mtf_normalized_bipolar_score(nmfnf_raw, df_index, tf_weights_ff)
-        
         macro_flow_quality_score = (
             norm_main_force_flow_directionality * macro_flow_quality_weights.get('main_force_flow_directionality', 0.3) * (1 + macro_flow_directionality_cohesion * mtf_cohesion_macro_flow_weights.get('main_force_flow_directionality', 0.5) * mtf_cohesion_modulator_sensitivity) +
             norm_main_force_flow_gini_inverted * macro_flow_quality_weights.get('main_force_flow_gini_inverted', 0.2) +
@@ -1020,7 +1018,6 @@ class FundFlowIntelligence:
         for signal_base in signal_bases_to_prefetch_slope:
             for p in all_mtf_periods: # 使用所有MTF周期进行预取
                 all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name="_diagnose_axiom_conviction")
-        
         signal_bases_to_prefetch_accel = [
             'main_force_conviction_index_D', 'SMART_MONEY_HM_NET_BUY_D', 'deception_index_D',
             'wash_trade_intensity_D', 'main_force_execution_alpha_D',
@@ -1116,7 +1113,6 @@ class FundFlowIntelligence:
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_intraday_large_order_flow = get_adaptive_mtf_normalized_bipolar_score(intraday_large_order_flow_synthesized, df_index, tf_weights=tf_weights_ff)
         norm_main_force_flow_purity = get_adaptive_mtf_normalized_score(main_force_flow_purity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        
         core_conviction_score = (
             norm_mf_conviction_slope_5 * core_conviction_weights.get('main_force_conviction_slope_5', 0.2) * (1 + mf_conviction_cohesion * mtf_cohesion_conviction_weights.get('main_force_conviction', 0.5) * mtf_cohesion_modulator_sensitivity) +
             norm_mf_conviction_slope_13 * core_conviction_weights.get('main_force_conviction_slope_13', 0.2) * (1 + mf_conviction_cohesion * mtf_cohesion_conviction_weights.get('main_force_conviction', 0.5) * mtf_cohesion_modulator_sensitivity) +
@@ -1193,7 +1189,6 @@ class FundFlowIntelligence:
         norm_intraday_vwap_deviation = get_adaptive_mtf_normalized_score(intraday_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
         efficiency_ratio = (norm_intraday_price_impact + (1 - norm_intraday_vwap_deviation)) / (norm_large_order_pressure + 1e-9)
         norm_efficiency_ratio = get_adaptive_mtf_normalized_score(efficiency_ratio, df_index, ascending=True, tf_weights=tf_weights_ff)
-        
         transmission_efficiency_score = (
             norm_mf_exec_alpha_slope_5 * transmission_efficiency_weights.get('main_force_execution_alpha_slope_5', 0.2) * (1 + mf_exec_alpha_cohesion * mtf_cohesion_efficiency_weights.get('main_force_execution_alpha', 0.5) * mtf_cohesion_modulator_sensitivity) +
             norm_mf_exec_alpha_slope_13 * transmission_efficiency_weights.get('main_force_execution_alpha_slope_13', 0.1) * (1 + mf_exec_alpha_cohesion * mtf_cohesion_efficiency_weights.get('main_force_execution_alpha', 0.5) * mtf_cohesion_modulator_sensitivity) +
