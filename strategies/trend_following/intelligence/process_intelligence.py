@@ -651,9 +651,9 @@ class ProcessIntelligence:
             meta_score = self._calculate_storm_eye_calm(df, config)
         elif signal_name == 'PROCESS_META_WASH_OUT_REBOUND':
             offensive_absorption_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 0.0)
-            meta_score = self._calculate_process_wash_out_rebound(df, offensive_absorption_intent)
+            meta_score = self._calculate_process_wash_out_rebound(df, offensive_absorption_intent, config) # 传递 config
         elif signal_name == 'PROCESS_META_COVERT_ACCUMULATION':
-            meta_score = self._calculate_process_covert_accumulation(df)
+            meta_score = self._calculate_process_covert_accumulation(df, config) # <--- 修正此处，传递 config
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
             if relationship_score.empty:
@@ -3085,7 +3085,7 @@ class ProcessIntelligence:
         final_wash_out_rebound_score = (wash_out_rebound_score_base * final_amplifier).clip(0, 1)
         return final_wash_out_rebound_score.clip(0, 1).astype(np.float32)
 
-    def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
+    def _calculate_process_covert_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.5 · 深度情境与多维隐蔽行动版】计算“隐蔽吸筹”的专属信号。
         - 核心升级: 优化 `market_context_score` 中的价格弱势判断，直接奖励价格弱势。
