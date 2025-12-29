@@ -33,6 +33,7 @@ tzlocal
 daphne
 tushare
 matplotlib
+numba
 seaborn
 psutil
 tensorboard

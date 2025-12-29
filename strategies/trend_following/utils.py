@@ -4,7 +4,8 @@ import numpy as np
 from decimal import Decimal
 from typing import Any, Dict, Tuple, Optional, Union, List
 import gc
-import scipy.stats # 新增导入
+import scipy.stats
+import numba
 
 # 这个文件包含所有层级都可能用到的通用辅助函数
 
@@ -1098,6 +1099,7 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
         print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_bipolar_score 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
     return final_score
 
+# 文件: strategies/trend_following/utils.py
 def normalize_score(series: pd.Series, target_index: pd.Index, windows: Union[int, List[int]], ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Union[pd.Series, pd.DataFrame]:
     is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if not isinstance(series, pd.Series) or series.empty:
@@ -1123,13 +1125,10 @@ def normalize_score(series: pd.Series, target_index: pd.Index, windows: Union[in
         if window > len(padded_series):
             results_df[window] = default_value
             continue
-        def _rank_window(arr):
-            valid_arr = arr[~np.isnan(arr)]
-            if len(valid_arr) < min_periods_for_rank:
-                return np.nan
-            return scipy.stats.rankdata(arr, method='average')[-1] / len(arr)
+        # 使用 Numba 优化后的排名函数
+        # 将 min_periods_for_rank 作为 args 传递给 Numba 函数
         ranked_series = padded_series.rolling(window=window, min_periods=min_periods_for_rank).apply(
-            _rank_window, raw=True
+            _numba_rank_window_average, raw=True, args=(min_periods_for_rank,)
         )
         if not ascending:
             normalized_series_window = 1 - ranked_series
@@ -1276,7 +1275,6 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     # Initialize NumPy arrays for accumulating weighted log sums and effective weights
     log_sum_weighted_log_scores = np.zeros(len(df_index), dtype=np.float32)
     sum_of_effective_weights = np.zeros(len(df_index), dtype=np.float32)
-
     # 遍历每个分数序列及其对应的权重
     # Iterate through each score series and its corresponding weight
     for name, score_series in scores_dict.items():
@@ -1301,28 +1299,72 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
         # Accumulate weighted log sums, handling NaN values (np.nansum ignores NaNs)
         # 使用 np.nansum 确保在有 NaN 的情况下也能正确累加
         log_sum_weighted_log_scores = np.nansum([log_sum_weighted_log_scores, log_score_col * aligned_weight_values], axis=0)
-        
         # 累加有效权重
         # Accumulate effective weights
         sum_of_effective_weights[is_valid_mask] += aligned_weight_values[is_valid_mask]
-
     # 处理总有效权重为零或接近零的情况，避免除以零
     # Handle cases where total effective weights are zero or close to zero, to avoid division by zero
     sum_of_effective_weights_safe = np.where(np.isclose(sum_of_effective_weights, 0), np.nan, sum_of_effective_weights)
-    
     # 计算指数部分
     # Calculate the exponent part
     exponent = log_sum_weighted_log_scores / sum_of_effective_weights_safe
-    
     # 计算最终结果，并填充NaN为0.0
     # Calculate the final result, and fill NaNs with 0.0
     result_values = np.exp(exponent)
     result_values[np.isnan(result_values)] = 0.0 
-    
     # 将NumPy数组转换为Pandas Series并返回
     # Convert NumPy array to Pandas Series and return
     return pd.Series(result_values, index=df_index, dtype=np.float32)
 
+@numba.njit(cache=True)
+def _numba_rank_window_average(arr_window, min_periods_for_rank):
+    """
+    【Numba优化版】用于 Pandas rolling().apply() 的自定义排名函数。
+    精确模拟 scipy.stats.rankdata(arr_window, method='average')[-1] / len(arr_window) 的行为。
+    - arr_window: 滚动窗口中的数据 (NumPy 数组)。
+    - min_periods_for_rank: 计算排名所需的最小有效周期数。
+    """
+    n = len(arr_window)
+    # 检查有效元素数量是否满足最小周期数条件
+    valid_elements_count = np.sum(~np.isnan(arr_window))
+    if valid_elements_count < min_periods_for_rank:
+        return np.nan
+    # 步骤1: 分离 NaN 和非 NaN 元素及其索引
+    is_nan = np.isnan(arr_window)
+    non_nan_indices = np.where(~is_nan)[0]
+    nan_indices = np.where(is_nan)[0]
+    # 步骤2: 对非 NaN 元素进行排序，获取其在非 NaN 数组中的排序索引
+    # np.argsort 默认将 NaN 放在末尾，但我们这里只对非 NaN 部分排序
+    sorted_non_nan_values_indices = np.argsort(arr_window[non_nan_indices])
+    # 步骤3: 构建完整的排序索引，NaN 元素在前，然后是非 NaN 元素
+    # 这样可以确保 NaN 获得最低的排名，与 scipy.stats.rankdata 默认行为一致
+    # full_sorted_indices 存储的是原始 arr_window 中的索引
+    full_sorted_indices = np.empty(n, dtype=np.intp) # np.intp 是平台相关的整数类型，适合索引
+    full_sorted_indices[:len(nan_indices)] = nan_indices
+    full_sorted_indices[len(nan_indices):] = non_nan_indices[sorted_non_nan_values_indices]
+    # 步骤4: 分配排名 (平均排名法)
+    ranks = np.empty(n, dtype=np.float64)
+    current_rank = 1.0
+    i = 0
+    while i < n:
+        j = i
+        # 处理 NaN 元素
+        if np.isnan(arr_window[full_sorted_indices[i]]):
+            while j < n and np.isnan(arr_window[full_sorted_indices[j]]):
+                j += 1
+        else:
+            # 处理非 NaN 元素
+            while j < n and not np.isnan(arr_window[full_sorted_indices[j]]) and arr_window[full_sorted_indices[j]] == arr_window[full_sorted_indices[i]]:
+                j += 1
+        # 计算并分配平均排名
+        avg_rank = (current_rank + (current_rank + (j - i) - 1)) / 2.0
+        for k in range(i, j):
+            ranks[full_sorted_indices[k]] = avg_rank
+        current_rank += (j - i)
+        i = j
+    # 原始代码取 arr_window 中最后一个元素的排名，并除以窗口总长度
+    rank_of_last_element = ranks[n - 1] # n-1 是 arr_window 中最后一个元素的索引
+    return rank_of_last_element / n # 归一化排名 (除以窗口总长度)
 
 
 

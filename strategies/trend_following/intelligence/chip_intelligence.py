@@ -2656,7 +2656,6 @@ class ChipIntelligence:
         # 优化：传递预解析的 tf_weights 数据
         norm_velocity = utils.get_adaptive_mtf_normalized_bipolar_score(harmony_velocity, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_acceleration = utils.get_adaptive_mtf_normalized_bipolar_score(harmony_acceleration, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        
         positive_inflection_strength = pd.Series(0.0, index=df_index)
         positive_inflection_mask = ((norm_velocity.shift(1) < 0) & (norm_velocity >= 0)) | \
                                    ((norm_velocity < 0) & (norm_acceleration > 0)) | \
@@ -2938,7 +2937,6 @@ class ChipIntelligence:
         # 优化：传递预解析的 tf_weights 数据
         norm_positive_flow = utils.get_adaptive_mtf_normalized_score(net_conviction_flow.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_negative_flow = utils.get_adaptive_mtf_normalized_score(net_conviction_flow.clip(upper=0).abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        
         norm_net_conviction_flow_directional = norm_positive_flow - norm_negative_flow
         # 优化：传递预解析的 tf_weights 数据
         norm_main_force_activity = utils.get_adaptive_mtf_normalized_score(main_force_activity_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)

@@ -1402,7 +1402,6 @@ class ProcessIntelligence:
         print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V5.2 · 全息融合与多维趋势感知版)...")
         method_name = "_calculate_stealth_accumulation"
         df_index = df.index
-        
         # 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
@@ -1437,22 +1436,17 @@ class ProcessIntelligence:
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         # --- 归一化处理 ---
         upward_purity = self._normalize_series(upward_purity_raw, df_index, bipolar=False)
-        
         # 价格趋势：使用MTF融合信号
         mtf_price_trend_norm = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        
         # 筹码集中度趋势：使用MTF融合信号
         mtf_concentration_trend_norm = self._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        
         # 峰值稳固度趋势：使用MTF融合信号
         mtf_peak_solidity_trend_norm = self._get_mtf_slope_accel_score(df, 'dominant_peak_solidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        
         # 成本优势趋势：使用MTF融合信号
         mtf_cost_advantage_norm = self._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         # --- 1. 压制吸筹场景 (Suppressive Accumulation) ---
         # 价格趋势为负或接近零，且成交量萎缩，权力转移为正，筹码集中度上升，成本优势上升
         suppressive_mask = mtf_price_trend_norm <= 0.1 # 价格压制或横盘
-        
         evidence1_suppressive = volume_atrophy_score.clip(lower=0) # 成交量萎缩
         evidence2_suppressive = power_transfer_score.clip(lower=0) # 权力转移为正
         evidence3_suppressive = mtf_concentration_trend_norm.clip(lower=0) # 筹码集中度上升
@@ -1467,7 +1461,6 @@ class ProcessIntelligence:
         # --- 2. 盘整吸筹场景 (Consolidative Accumulation) ---
         # 价格稳定，成交量萎缩，权力转移为正，峰值稳固度上升，拆单吸筹强度高
         consolidative_mask = stability_score > 0.2 # 价格稳定
-        
         evidence1_consolidative = volume_atrophy_score.clip(lower=0) # 成交量萎缩
         evidence2_consolidative = power_transfer_score.clip(lower=0) # 权力转移为正
         evidence3_consolidative = mtf_peak_solidity_trend_norm.clip(lower=0) # 峰值稳固度上升
@@ -1482,7 +1475,6 @@ class ProcessIntelligence:
         # --- 3. 温和推升吸筹场景 (Gentle Push Accumulation) ---
         # 价格温和上涨，上涨纯度高，权力转移为正，拆单吸筹强度高
         gentle_push_mask = (mtf_price_trend_norm > 0.1) & (mtf_price_trend_norm < 0.5) # 价格温和上涨
-        
         evidence1_gentle = upward_purity.clip(lower=0) # 上涨纯度高
         evidence2_gentle = power_transfer_score.clip(lower=0) # 权力转移为正
         evidence3_gentle = split_order_accumulation_score.clip(lower=0) # 拆单吸筹强度高
@@ -1670,7 +1662,6 @@ class ProcessIntelligence:
         """
         print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V3.8 · 价格筹码背离与多维诡道融合版)...")
         method_name = "_calculate_deceptive_accumulation"
-        
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
@@ -1699,16 +1690,13 @@ class ProcessIntelligence:
         main_force_net_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
         # --- 归一化处理 ---
         core_action_score = self._normalize_series(split_order_accum_raw, df_index, bipolar=False)
-        
         # 欺诈证据：使用MTF融合信号
         mtf_deception_evidence = self._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         deception_evidence = mtf_deception_evidence.clip(lower=0) # 确保是正向证据
         # 价格趋势：使用MTF融合信号
         mtf_price_trend_norm = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        
         # 筹码集中度趋势：使用MTF融合信号
         mtf_winner_concentration_slope = self._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        
         # 主力资金净流：使用MTF融合信号
         mtf_mf_net_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         # --- 1. 伪装分 (Disguise Score) ---
@@ -1716,7 +1704,6 @@ class ProcessIntelligence:
         price_down_strength = mtf_price_trend_norm.clip(upper=0).abs()
         # 诡道矛盾1: 价格下跌但主力资金流入
         disguise_score_price_mf_flow = (price_down_strength * mtf_mf_net_flow.clip(lower=0)).pow(0.5)
-        
         # 诡道矛盾2: 价格下跌但整体权力转移为正
         disguise_score_price_power_transfer = (price_down_strength * power_transfer_score.clip(lower=0)).pow(0.5)
         # 融合两种诡道矛盾
