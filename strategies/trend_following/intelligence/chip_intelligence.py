@@ -2442,13 +2442,11 @@ class ChipIntelligence:
             dominant_peak_health_score * environment_weights.get('dominant_peak_health', 0.15) +
             chip_patience_and_stability_score * environment_weights.get('chip_patience_and_stability', 0.15)
         ).clip(-1, 1)
-
         # --- 计算节奏和持续性 (Rhythm and Persistence) ---
         # 意图得分的斜率
         rhythm_intent_slope = intent_score.diff(rhythm_persistence_slope_period).fillna(0)
         # 质量得分的斜率
         rhythm_quality_slope = quality_score.diff(rhythm_persistence_slope_period).fillna(0)
-
         # 优化：传递预解析的 tf_weights 数据
         norm_rhythm_intent_slope = utils.get_adaptive_mtf_normalized_bipolar_score(rhythm_intent_slope, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_rhythm_quality_slope = utils.get_adaptive_mtf_normalized_bipolar_score(rhythm_quality_slope, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -2652,11 +2650,9 @@ class ChipIntelligence:
         chip_health_raw = signals_data[context_modulator_signal_1_name]
         volatility_instability_raw = signals_data[context_modulator_signal_2_name]
         main_force_conviction_raw = signals_data[context_modulator_signal_3_name]
-
         # --- 修正：先计算 harmony_velocity 和 harmony_acceleration ---
         harmony_velocity = harmony_score.diff(velocity_period).fillna(0)
         harmony_acceleration = harmony_velocity.diff(acceleration_period).fillna(0)
-
         # 优化：传递预解析的 tf_weights 数据
         norm_velocity = utils.get_adaptive_mtf_normalized_bipolar_score(harmony_velocity, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_acceleration = utils.get_adaptive_mtf_normalized_bipolar_score(harmony_acceleration, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -2937,10 +2933,8 @@ class ChipIntelligence:
             dynamic_cost_zone_tolerance = dynamic_cost_zone_tolerance.clip(cost_zone_tolerance_base * 0.5, cost_zone_tolerance_base * 2.0)
         upper_bound = cost_center * (1 + dynamic_cost_zone_tolerance)
         lower_bound = cost_center * (1 - dynamic_cost_zone_tolerance)
-
         # --- 修正：先定义 net_conviction_flow ---
         net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
-
         # 优化：传递预解析的 tf_weights 数据
         norm_positive_flow = utils.get_adaptive_mtf_normalized_score(net_conviction_flow.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_negative_flow = utils.get_adaptive_mtf_normalized_score(net_conviction_flow.clip(upper=0).abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)

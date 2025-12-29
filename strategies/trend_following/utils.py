@@ -1265,33 +1265,63 @@ def load_external_json_config(file_path: str, default_return: Any = None) -> dic
         return default_return
 
 def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, Any], df_index: pd.Index) -> pd.Series:
-    # 计算健壮的加权几何平均分数
-    # 值为0（或接近0）的分数将被视为缺失，并从计算中排除，同时调整总权重。
-    # 如果某个日期所有组件都为0，则结果为0。
-    aligned_scores = {name: score.reindex(df_index).fillna(0.0) for name, score in scores_dict.items()}
-    score_df = pd.DataFrame(aligned_scores, index=df_index)
-    # 优化：一次性构建 dynamic_weights_df，避免循环中逐列赋值
-    weights_data = {}
-    for col_name in score_df.columns:
-        weight_val = weights_dict.get(col_name, 0.0)
+    """
+    【V2.0 · NumPy优化版】计算健壮的加权几何平均分数。
+    - 核心优化: 将内部计算从创建多个中间 Pandas DataFrame 转换为直接在 NumPy 数组上进行操作，
+                  显著减少内存分配和 Python 解释器开销，提高计算效率。
+    - 逻辑不变: 保持原始业务逻辑不变，即值为0（或接近0）的分数将被视为缺失，并从计算中排除，
+                  同时调整总权重。如果某个日期所有组件都为0，则结果为0。
+    """
+    # 初始化用于累积加权对数和有效权重的NumPy数组
+    # Initialize NumPy arrays for accumulating weighted log sums and effective weights
+    log_sum_weighted_log_scores = np.zeros(len(df_index), dtype=np.float32)
+    sum_of_effective_weights = np.zeros(len(df_index), dtype=np.float32)
+
+    # 遍历每个分数序列及其对应的权重
+    # Iterate through each score series and its corresponding weight
+    for name, score_series in scores_dict.items():
+        # 确保分数序列与目标索引对齐，填充缺失值，并转换为NumPy数组
+        # Ensure score series is aligned with target index, fill NaNs, and convert to NumPy array
+        aligned_score_values = score_series.reindex(df_index).fillna(0.0).values
+        # 获取权重值，如果权重是Series，则进行对齐和填充；否则，创建常数NumPy数组
+        # Get weight value; if it's a Series, align and fill; otherwise, create a constant NumPy array
+        weight_val = weights_dict.get(name, 0.0)
         if isinstance(weight_val, pd.Series):
-            # 如果权重本身是 Series，则确保其与 df_index 对齐并填充 NaN
-            weights_data[col_name] = weight_val.reindex(df_index).fillna(0.0)
+            aligned_weight_values = weight_val.reindex(df_index).fillna(0.0).values
         else:
-            # 如果权重是标量，则创建一个与 df_index 对齐的 Series，并指定 dtype
-            weights_data[col_name] = pd.Series(weight_val, index=df_index, dtype=np.float32)
-    dynamic_weights_df = pd.DataFrame(weights_data)
-    is_valid = (score_df > 1e-9)
-    # 优化：合并计算 sum_valid_weights，避免创建中间 DataFrame weighted_validity_df
-    sum_valid_weights = (is_valid * dynamic_weights_df).sum(axis=1)
-    log_scores_df = np.log(score_df.where(is_valid, np.nan))
-    # 优化：合并计算 sum_weighted_log_scores，避免创建中间 DataFrame weighted_log_scores_df
-    sum_weighted_log_scores = (log_scores_df * dynamic_weights_df).sum(axis=1)
-    # 确保 sum_valid_weights 是数值类型，并处理接近0的值
-    sum_valid_weights_safe = sum_valid_weights.mask(np.isclose(sum_valid_weights, 0), np.nan)
-    exponent = sum_weighted_log_scores / sum_valid_weights_safe
-    result = np.exp(exponent).fillna(0.0)
-    return result.astype(np.float32)
+            aligned_weight_values = np.full_like(aligned_score_values, weight_val, dtype=np.float32)
+        # 识别有效的分数（大于一个很小的正数，避免log(0)）
+        # Identify valid scores (greater than a small positive number to avoid log(0))
+        is_valid_mask = (aligned_score_values > 1e-9)
+        # 计算有效分数的对数
+        # Calculate logarithm of valid scores
+        log_score_col = np.full_like(aligned_score_values, np.nan, dtype=np.float32)
+        log_score_col[is_valid_mask] = np.log(aligned_score_values[is_valid_mask])
+        # 累加加权对数和，处理NaN值（np.nansum会忽略NaN）
+        # Accumulate weighted log sums, handling NaN values (np.nansum ignores NaNs)
+        # 使用 np.nansum 确保在有 NaN 的情况下也能正确累加
+        log_sum_weighted_log_scores = np.nansum([log_sum_weighted_log_scores, log_score_col * aligned_weight_values], axis=0)
+        
+        # 累加有效权重
+        # Accumulate effective weights
+        sum_of_effective_weights[is_valid_mask] += aligned_weight_values[is_valid_mask]
+
+    # 处理总有效权重为零或接近零的情况，避免除以零
+    # Handle cases where total effective weights are zero or close to zero, to avoid division by zero
+    sum_of_effective_weights_safe = np.where(np.isclose(sum_of_effective_weights, 0), np.nan, sum_of_effective_weights)
+    
+    # 计算指数部分
+    # Calculate the exponent part
+    exponent = log_sum_weighted_log_scores / sum_of_effective_weights_safe
+    
+    # 计算最终结果，并填充NaN为0.0
+    # Calculate the final result, and fill NaNs with 0.0
+    result_values = np.exp(exponent)
+    result_values[np.isnan(result_values)] = 0.0 
+    
+    # 将NumPy数组转换为Pandas Series并返回
+    # Convert NumPy array to Pandas Series and return
+    return pd.Series(result_values, index=df_index, dtype=np.float32)
 
 
 
