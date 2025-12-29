@@ -1640,7 +1640,6 @@ class ProcessIntelligence:
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-
         required_signals = [
             'hidden_accumulation_intensity_D', 'deception_index_D', 'PROCESS_META_POWER_TRANSFER',
             'SCORE_CHIP_COHERENT_DRIVE', 'main_force_net_flow_calibrated_D',
@@ -1652,11 +1651,9 @@ class ProcessIntelligence:
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-
         if not self._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         df_index = df.index
         # --- 原始数据获取 ---
         split_order_accum_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
@@ -1664,14 +1661,12 @@ class ProcessIntelligence:
         power_transfer_score = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
         coherent_drive_score = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0)
         main_force_net_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
-
         # --- 归一化处理 ---
         core_action_score = self._normalize_series(split_order_accum_raw, df_index, bipolar=False)
         
         # 欺诈证据：使用MTF融合信号
         mtf_deception_evidence = self._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         deception_evidence = mtf_deception_evidence.clip(lower=0) # 确保是正向证据
-
         # 价格趋势：使用MTF融合信号
         mtf_price_trend_norm = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         
@@ -1680,28 +1675,22 @@ class ProcessIntelligence:
         
         # 主力资金净流：使用MTF融合信号
         mtf_mf_net_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-
         # --- 1. 伪装分 (Disguise Score) ---
         # 捕捉“价格下跌但主力资金流入”和“价格下跌但整体权力转移为正”这两种诡道矛盾
         price_down_strength = mtf_price_trend_norm.clip(upper=0).abs()
-
         # 诡道矛盾1: 价格下跌但主力资金流入
         disguise_score_price_mf_flow = (price_down_strength * mtf_mf_net_flow.clip(lower=0)).pow(0.5)
         
         # 诡道矛盾2: 价格下跌但整体权力转移为正
         disguise_score_price_power_transfer = (price_down_strength * power_transfer_score.clip(lower=0)).pow(0.5)
-
         # 融合两种诡道矛盾
         disguise_score = (disguise_score_price_mf_flow * 0.5 + disguise_score_price_power_transfer * 0.5).clip(0, 1)
-
         # --- 2. 价格筹码背离共振 (Price-Chip Divergence Resonance) ---
         # 价格下跌的强度 (负向) - 已在 disguise_score 中计算
         # 筹码集中度上升的强度 (正向)
         chip_concentration_up_strength = mtf_winner_concentration_slope.clip(lower=0)
-
         # 价格下跌与筹码集中的背离共振
         price_chip_divergence_resonance = (price_down_strength * chip_concentration_up_strength).pow(0.5)
-
         # --- 3. 诡道氛围 (Deceptive Context) ---
         # 结合背离共振、欺诈证据和伪装分
         deceptive_context_score = (
@@ -1709,20 +1698,16 @@ class ProcessIntelligence:
             deception_evidence * 0.3 + # 欺诈指数
             disguise_score * 0.3 # 多维诡道矛盾
         ).clip(0, 1)
-
         # --- 4. 价格趋势调节因子 (Price Trend Adjustment Factor) ---
         # 在诡道吸筹的语境下，价格下跌是其特征，不应过度惩罚。
         # 但如果价格跌幅过大，也应体现风险。
         # 调整为：当价格趋势为负时，因子为1；当价格趋势为正时，因子为 (1 - mtf_price_trend_norm)
         price_trend_adjustment_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
         price_trend_adjustment_factor = price_trend_adjustment_factor.mask(mtf_price_trend_norm > 0, (1 - mtf_price_trend_norm).clip(0, 1))
-
         # --- 5. 协同惩罚 (Coherence Penalty) ---
         coherence_penalty_factor = (1 - coherent_drive_score.clip(upper=0).abs()).clip(0, 1)
-
         # --- 6. 最终分数 ---
         final_score = (core_action_score * deceptive_context_score * coherence_penalty_factor * price_trend_adjustment_factor).fillna(0.0)
-
         # --- 调试信息 ---
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
@@ -1752,7 +1737,6 @@ class ProcessIntelligence:
             print("  [最终结果]: ")
             print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
-
         return final_score.clip(0, 1).astype(np.float32)
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
