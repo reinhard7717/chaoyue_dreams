@@ -2941,7 +2941,7 @@ class ProcessIntelligence:
         ).clip(-1, 1)
         return final_score
 
-    def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
+    def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series, config: Dict) -> pd.Series:
         print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V2.4 · 深度情境感知版)...")
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
@@ -2956,6 +2956,8 @@ class ProcessIntelligence:
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 从 config 中获取 mtf_slope_accel_weights
+        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         # --- 2. 获取所有原始数据和原子信号 ---
         required_signals = [
             'wash_trade_intensity_D', 'deception_index_D', 'active_selling_pressure_D',
@@ -2965,13 +2967,21 @@ class ProcessIntelligence:
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
             # 修改代码：新增依赖信号
             'SCORE_BEHAVIOR_DECEPTION_INDEX', 'SCORE_MICRO_STRATEGY_STEALTH_OPS',
-            'SLOPE_5_wash_trade_intensity_D', 'SLOPE_5_active_selling_pressure_D',
+            # 'SLOPE_5_wash_trade_intensity_D', 'SLOPE_5_active_selling_pressure_D', # 替换为MTF融合
             'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
-            'SLOPE_5_retail_panic_surrender_index_D', 'SLOPE_5_loser_pain_index_D',
+            # 'SLOPE_5_retail_panic_surrender_index_D', 'SLOPE_5_loser_pain_index_D', # 替换为MTF融合
             'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT',
             'main_force_buy_execution_alpha_D', 'buy_sweep_intensity_D',
             'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_STRUCT_AXIOM_MTF_COHESION'
         ]
+        # 动态添加MTF斜率和加速度信号到required_signals
+        for base_sig in ['wash_trade_intensity_D', 'active_selling_pressure_D',
+                         'retail_panic_surrender_index_D', 'loser_pain_index_D']:
+            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
+            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+
         if not self._validate_required_signals(df, required_signals, "_calculate_process_wash_out_rebound"):
             print(f"    -> [过程情报警告] _calculate_process_wash_out_rebound 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index)
@@ -2991,12 +3001,12 @@ class ProcessIntelligence:
         # 修改代码：新增获取信号
         behavior_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
         stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        wash_trade_slope_raw = self._get_safe_series(df, 'SLOPE_5_wash_trade_intensity_D', 0.0, method_name="_calculate_process_wash_out_rebound")
-        active_selling_slope_raw = self._get_safe_series(df, 'SLOPE_5_active_selling_pressure_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        # wash_trade_slope_raw = self._get_safe_series(df, 'SLOPE_5_wash_trade_intensity_D', 0.0, method_name="_calculate_process_wash_out_rebound") # 替换为MTF融合
+        # active_selling_slope_raw = self._get_safe_series(df, 'SLOPE_5_active_selling_pressure_D', 0.0, method_name="_calculate_process_wash_out_rebound") # 替换为MTF融合
         holder_sentiment_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
         sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
-        retail_surrender_slope_raw = self._get_safe_series(df, 'SLOPE_5_retail_panic_surrender_index_D', 0.0, method_name="_calculate_process_wash_out_rebound")
-        loser_pain_slope_raw = self._get_safe_series(df, 'SLOPE_5_loser_pain_index_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        # retail_surrender_slope_raw = self._get_safe_series(df, 'SLOPE_5_retail_panic_surrender_index_D', 0.0, method_name="_calculate_process_wash_out_rebound") # 替换为MTF融合
+        # loser_pain_slope_raw = self._get_safe_series(df, 'SLOPE_5_loser_pain_index_D', 0.0, method_name="_calculate_process_wash_out_rebound") # 替换为MTF融合
         absorption_strength_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
         offensive_absorption_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 0.0)
         mf_buy_execution_alpha_raw = self._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name="_calculate_process_wash_out_rebound")
@@ -3004,56 +3014,56 @@ class ProcessIntelligence:
         tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
         mtf_cohesion_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_MTF_COHESION', 0.0)
         # --- 3. 维度一：洗盘诱空背景 (Wash-out Deception Context) ---
-        wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        active_selling_score = get_adaptive_mtf_normalized_score(active_selling_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        deception_positive_lure_long_score = get_adaptive_mtf_normalized_score(deception_lure_long_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        deception_lure_short_score = get_adaptive_mtf_normalized_score(deception_lure_short_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
+        mtf_wash_trade_score = self._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False)
+        mtf_active_selling_score = self._get_mtf_slope_accel_score(df, 'active_selling_pressure_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False)
+        deception_positive_lure_long_score = self._normalize_series(deception_lure_long_raw, df_index, bipolar=False)
+        deception_lure_short_score = self._normalize_series(deception_lure_short_raw, df_index, bipolar=False)
         fused_deception_score = (
             deception_positive_lure_long_score * deception_context_weights.get('deception_positive_lure_long', 0.2) +
             deception_lure_short_score * deception_context_weights.get('deception_lure_short', 0.2)
         ) / (deception_context_weights.get('deception_positive_lure_long', 0.2) + deception_context_weights.get('deception_lure_short', 0.2) + 1e-9)
         # 修改代码：新增归一化和融合
         behavior_deception_score_negative = behavior_deception_index.clip(upper=0).abs() # 负向欺骗
-        stealth_ops_normalized = get_adaptive_mtf_normalized_score(stealth_ops_score, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        wash_trade_slope_score = get_adaptive_mtf_normalized_score(wash_trade_slope_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True) # 增加的洗盘强度斜率
-        active_selling_slope_score = get_adaptive_mtf_normalized_score(active_selling_slope_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True) # 增加的主动卖压斜率
+        stealth_ops_normalized = self._normalize_series(stealth_ops_score, df_index, bipolar=False)
+        mtf_wash_trade_slope_score = self._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False) # 增加的洗盘强度斜率
+        mtf_active_selling_slope_score = self._get_mtf_slope_accel_score(df, 'active_selling_pressure_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False) # 增加的主动卖压斜率
         deception_context_score = (
-            (wash_trade_score).pow(deception_context_weights.get('wash_trade', 0.2)) *
-            (active_selling_score).pow(deception_context_weights.get('active_selling', 0.15)) *
+            (mtf_wash_trade_score).pow(deception_context_weights.get('wash_trade', 0.2)) *
+            (mtf_active_selling_score).pow(deception_context_weights.get('active_selling', 0.15)) *
             (fused_deception_score).pow(deception_context_weights.get('fused_deception', 0.2)) *
             (behavior_deception_score_negative).pow(deception_context_weights.get('behavior_deception_index', 0.2)) *
             (stealth_ops_normalized).pow(deception_context_weights.get('stealth_ops', 0.15)) *
-            (wash_trade_slope_score).pow(deception_context_weights.get('wash_trade_slope', 0.05)) *
-            (active_selling_slope_score).pow(deception_context_weights.get('active_selling_slope', 0.05))
+            (mtf_wash_trade_slope_score).pow(deception_context_weights.get('wash_trade_slope', 0.05)) *
+            (mtf_active_selling_slope_score).pow(deception_context_weights.get('active_selling_slope', 0.05))
         ).pow(1/sum(deception_context_weights.values())).fillna(0.0)
         # --- 4. 维度二：恐慌割肉深度 (Panic Capitulation Depth) ---
-        panic_cascade_score = get_adaptive_mtf_normalized_score(panic_cascade_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        retail_surrender_score = get_adaptive_mtf_normalized_score(retail_surrender_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
+        panic_cascade_score = self._normalize_series(panic_cascade_raw, df_index, bipolar=False)
+        mtf_retail_surrender_score = self._get_mtf_slope_accel_score(df, 'retail_panic_surrender_index_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False)
+        mtf_loser_pain_score = self._get_mtf_slope_accel_score(df, 'loser_pain_index_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False)
         # 修改代码：新增归一化和融合
         holder_sentiment_inverted_score = (1 - holder_sentiment_score).clip(0, 1) # 低信念韧性
         sentiment_pendulum_negative_score = sentiment_pendulum_score.clip(upper=0).abs() # 负向情绪
-        retail_surrender_slope_score = get_adaptive_mtf_normalized_score(retail_surrender_slope_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True) # 恐慌加速
-        loser_pain_slope_score = get_adaptive_mtf_normalized_score(loser_pain_slope_raw.clip(lower=0), target_index=df_index, tf_weights=actual_mtf_weights, ascending=True) # 亏损痛苦加速
+        mtf_retail_surrender_slope_score = self._get_mtf_slope_accel_score(df, 'retail_panic_surrender_index_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False) # 恐慌加速
+        mtf_loser_pain_slope_score = self._get_mtf_slope_accel_score(df, 'loser_pain_index_D', mtf_slope_accel_weights, df_index, "_calculate_process_wash_out_rebound", ascending=True, bipolar=False) # 亏损痛苦加速
         panic_depth_score = (
             (panic_cascade_score).pow(panic_depth_weights.get('panic_cascade', 0.2)) *
-            (retail_surrender_score).pow(panic_depth_weights.get('retail_surrender', 0.2)) *
-            (loser_pain_score).pow(panic_depth_weights.get('loser_pain', 0.2)) *
+            (mtf_retail_surrender_score).pow(panic_depth_weights.get('retail_surrender', 0.2)) *
+            (mtf_loser_pain_score).pow(panic_depth_weights.get('loser_pain', 0.2)) *
             (holder_sentiment_inverted_score).pow(panic_depth_weights.get('holder_sentiment_inverted', 0.15)) *
             (sentiment_pendulum_negative_score).pow(panic_depth_weights.get('sentiment_pendulum_negative', 0.15)) *
-            (retail_surrender_slope_score).pow(panic_depth_weights.get('retail_surrender_slope', 0.05)) *
-            (loser_pain_slope_score).pow(panic_depth_weights.get('loser_pain_slope', 0.05))
+            (mtf_retail_surrender_slope_score).pow(panic_depth_weights.get('retail_surrender_slope', 0.05)) *
+            (mtf_loser_pain_slope_score).pow(panic_depth_weights.get('loser_pain_slope', 0.05))
         ).pow(1/sum(panic_depth_weights.values())).fillna(0.0)
         # --- 5. 维度三：承接反弹品质 (Absorption Rebound Quality) ---
         absorption_intent_score = offensive_absorption_intent
         # 修正：将 window=55 修改为 windows=55
         closing_strength_score = normalize_score(closing_strength_raw, df_index, windows=55)
-        upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
+        upward_purity_score = self._normalize_series(upward_purity_raw, df_index, bipolar=False)
         # 修改代码：新增归一化和融合
-        absorption_strength_normalized = get_adaptive_mtf_normalized_score(absorption_strength_score, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        offensive_absorption_normalized = get_adaptive_mtf_normalized_score(offensive_absorption_score, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        mf_buy_execution_alpha_score = get_adaptive_mtf_normalized_score(mf_buy_execution_alpha_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
-        buy_sweep_intensity_score = get_adaptive_mtf_normalized_score(buy_sweep_intensity_raw, target_index=df_index, tf_weights=actual_mtf_weights, ascending=True)
+        absorption_strength_normalized = self._normalize_series(absorption_strength_score, df_index, bipolar=False)
+        offensive_absorption_normalized = self._normalize_series(offensive_absorption_score, df_index, bipolar=False)
+        mf_buy_execution_alpha_score = self._normalize_series(mf_buy_execution_alpha_raw, df_index, bipolar=False)
+        buy_sweep_intensity_score = self._normalize_series(buy_sweep_intensity_raw, df_index, bipolar=False)
         rebound_quality_score = (
             (absorption_intent_score).pow(rebound_quality_weights.get('offensive_absorption_intent', 0.2)) *
             (closing_strength_score).pow(rebound_quality_weights.get('closing_strength', 0.15)) *
