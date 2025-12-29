@@ -540,23 +540,10 @@ class GeometricPatternService:
                                 sanitized_data[k] = v
                         else:
                             sanitized_data[k] = v
-                    print(f"[{self.stock_code}] [平台保存] 准备保存平台数据: {sanitized_data}")
                     try:
                         obj, created = self.platform_model.objects.update_or_create(
                             stock=sanitized_data['stock'], start_date=sanitized_data['start_date'], defaults=sanitized_data
                         )
-                        if created:
-                            print(f"[{self.stock_code}] [平台保存] 成功创建新平台数据: {obj.start_date} - {obj.end_date}")
-                        else:
-                            print(f"[{self.stock_code}] [平台保存] 成功更新现有平台数据: {obj.start_date} - {obj.end_date}")
-                        # 新增代码块：保存后立即验证
-                        try:
-                            retrieved_obj = self.platform_model.objects.get(stock=obj.stock, start_date=obj.start_date)
-                            print(f"[{self.stock_code}] [平台保存] 验证成功：数据 {retrieved_obj.start_date} - {retrieved_obj.end_date} 已在数据库中可见。")
-                        except self.platform_model.DoesNotExist:
-                            print(f"[{self.stock_code}] [平台保存] 验证失败：数据 {obj.start_date} - {obj.end_date} 刚刚保存，但在数据库中不可见！")
-                        except Exception as verify_e:
-                            print(f"[{self.stock_code}] [平台保存] 验证数据时发生异常: {verify_e}")
                     except Exception as e:
                         print(f"[{self.stock_code}] [平台保存] 保存平台数据失败，日期: {sanitized_data.get('start_date')}, 错误: {e}")
 

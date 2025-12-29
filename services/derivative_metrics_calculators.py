@@ -1,6 +1,34 @@
 from datetime import time
 import numpy as np
 import pandas as pd
+import numba # 确保已导入
+
+@numba.njit(cache=True)
+def _numba_calculate_price_thrust_divergence(
+    am_high: float, pm_high: float, am_low: float, pm_low: float,
+    am_thrust: float, pm_thrust: float
+) -> float:
+    """
+    【Numba优化版】计算价格推力背离。
+    """
+    top_divergence_score = 0.0
+    bottom_divergence_score = 0.0
+
+    # 顶背离计算 (价格新高, 动能减弱)
+    if pm_high > am_high and am_thrust > 0 and pm_thrust < am_thrust:
+        price_change_pct = (pm_high / am_high - 1)
+        thrust_change_pct = (pm_thrust - am_thrust) / abs(am_thrust) if am_thrust != 0 else -1.0
+        if thrust_change_pct < 0:
+            top_divergence_score = price_change_pct / abs(thrust_change_pct) * -1
+
+    # 底背离计算 (价格新低, 动能增强)
+    if pm_low < am_low and am_thrust < 0 and pm_thrust > am_thrust:
+        price_change_pct = (am_low / pm_low - 1)
+        thrust_change_pct = (pm_thrust - am_thrust) / abs(am_thrust) if am_thrust != 0 else 1.0
+        if thrust_change_pct > 0:
+            bottom_divergence_score = price_change_pct / abs(thrust_change_pct)
+            
+    return top_divergence_score + bottom_divergence_score
 
 class DerivativeMetricsCalculator:
     """
@@ -15,6 +43,7 @@ class DerivativeMetricsCalculator:
         - 核心升级: 新增对“底背离”的计算逻辑，实现了对“顶背离”与“底背离”的阴阳合一，
                      使指标能同时捕捉上涨衰竭的风险和下跌企稳的机会。
         - 指标整合: 将顶、底背离得分统一至 `price_thrust_divergence`，负值为顶背离，正值为底背离。
+        - 核心优化: 使用Numba优化后的价格推力背离计算函数。
         """
         tick_df = context.get('tick_df')
         group = context.get('group')
@@ -32,7 +61,7 @@ class DerivativeMetricsCalculator:
         pm_group = group[group.index.time >= midday_break_time]
         if am_ticks.empty or pm_ticks.empty or am_group.empty or pm_group.empty:
             return results
-        am_thrust, pm_thrust = 0, 0
+        am_thrust, pm_thrust = 0.0, 0.0 # 确保为浮点数
         am_total_vol = am_ticks['volume'].sum()
         if am_total_vol > 0:
             if 'price_change' in am_ticks.columns and not am_ticks['price_change'].isnull().all():
@@ -59,20 +88,10 @@ class DerivativeMetricsCalculator:
                 pm_thrust = (pm_buy_vol - pm_sell_vol) / pm_total_vol
         am_high, pm_high = am_group['high'].max(), pm_group['high'].max()
         am_low, pm_low = am_group['low'].min(), pm_group['low'].min()
-        top_divergence_score, bottom_divergence_score = 0.0, 0.0
-        # 顶背离计算 (价格新高, 动能减弱)
-        if pm_high > am_high and am_thrust > 0 and pm_thrust < am_thrust:
-            price_change_pct = (pm_high / am_high - 1)
-            thrust_change_pct = (pm_thrust - am_thrust) / abs(am_thrust) if am_thrust != 0 else -1.0
-            if thrust_change_pct < 0:
-                top_divergence_score = price_change_pct / abs(thrust_change_pct) * -1
-        # 底背离计算 (价格新低, 动能增强)
-        if pm_low < am_low and am_thrust < 0 and pm_thrust > am_thrust:
-            price_change_pct = (am_low / pm_low - 1)
-            thrust_change_pct = (pm_thrust - am_thrust) / abs(am_thrust) if am_thrust != 0 else 1.0
-            if thrust_change_pct > 0:
-                bottom_divergence_score = price_change_pct / abs(thrust_change_pct)
-        results['price_thrust_divergence'] = top_divergence_score + bottom_divergence_score
+        # 调用Numba优化函数
+        results['price_thrust_divergence'] = _numba_calculate_price_thrust_divergence(
+            am_high, pm_high, am_low, pm_low, am_thrust, pm_thrust
+        )
         return results
 
 

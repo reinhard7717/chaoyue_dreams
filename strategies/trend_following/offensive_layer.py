@@ -66,11 +66,6 @@ class OffensiveLayer:
             bonus_amount_for_signal = pd.Series(0.0, index=df.index)
             if scoring_mode == 'bipolar':
                 opportunity_part = processed_signal_series.clip(lower=0)
-                # 应用动能阻尼器到 SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM
-                if signal_name == 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM':
-                    opportunity_part *= price_momentum_damper
-                    if not df.empty:
-                        print(f"    -> [进攻层 Debug] {signal_name} 原始贡献: {(processed_signal_series * positive_score).iloc[-1]:.2f}，应用阻尼器后: {(opportunity_part * positive_score).iloc[-1]:.2f}")
                 bonus_amount_for_signal += opportunity_part * positive_score
                 risk_part = processed_signal_series.clip(upper=0).abs()
                 if context_role == 'top_risk':
@@ -92,11 +87,6 @@ class OffensiveLayer:
                         suppression_factor = top_context_score.where(top_context_score >= top_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
                         unipolar_opportunity_series *= damper
-                    # 应用动能阻尼器到 SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM
-                    if signal_name == 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM':
-                        unipolar_opportunity_series *= price_momentum_damper
-                        if not df.empty:
-                            print(f"    -> [进攻层 Debug] {signal_name} 原始贡献: {(processed_signal_series * positive_score).iloc[-1]:.2f}，应用阻尼器后: {(unipolar_opportunity_series * positive_score).iloc[-1]:.2f}")
                     bonus_amount_for_signal = unipolar_opportunity_series * positive_score
             # --- 调试增强结束 ---
             # 分离正向和负向贡献

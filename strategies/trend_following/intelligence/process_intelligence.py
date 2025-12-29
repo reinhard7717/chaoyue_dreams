@@ -1810,7 +1810,6 @@ class ProcessIntelligence:
         """
         print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V2.4 · 势能衰减与多维融合版)...")
         method_name = "_calculate_accumulation_inflection"
-        
         required_signals = [
             'PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION',
             'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
@@ -1823,7 +1822,6 @@ class ProcessIntelligence:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         accumulation_window = config.get('accumulation_window', 21)
-        
         # 获取吸筹信号
         stealth_accum = self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0)
         deceptive_accum = self._get_atomic_score(df, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0)
@@ -2214,7 +2212,7 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.6 · 战术升级与全息资金流验证强化版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        【V2.7 · 战术升级与全息资金流验证强化版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
         - 核心重构: 废除僵化的“AND”门槛，创立“战术评分”模型。最终分 = 前奏吸筹分 * 强攻分。
         - 证据升级: “前奏分”通过归一化消除尺度问题；“强攻分”对核心证据进行加权，更具实战性。
         - 【强化】引入资金流可信度，确保强攻的资金基础是可靠的。
@@ -2223,8 +2221,9 @@ class ProcessIntelligence:
         - 【重要修正】重新定义 `pressure_exhaustion_synergy`，衡量“大单压力与买盘枯竭的协同性”，并增加其惩罚权重。
         - 【新增】引入 `active_buying_support_D` 的 MTF 融合版本，作为强攻的直接证据。
         - 【新增】将 `main_force_flow_momentum` 升级为 MTF 融合版本。
+        - 【修正】调整 `attack_score` 中 `pressure_exhaustion_synergy` 的惩罚项，使其更符合逻辑。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.6 · 战术升级与全息资金流验证强化版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.7 · 战术升级与全息资金流验证强化版)...")
         method_name = "_calculate_fund_flow_accumulation_inflection"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -2245,9 +2244,11 @@ class ProcessIntelligence:
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+
         if not self._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index)
+
         df_index = df.index
         # 获取原料
         flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
@@ -2262,26 +2263,32 @@ class ProcessIntelligence:
         prelude_score_base = self._normalize_series(mtf_hidden_accumulation.rolling(5).mean(), df_index, bipolar=False)
         # 确保主力资金净流入趋势为正向才贡献
         prelude_score = (prelude_score_base * mtf_mf_net_flow_slope.clip(lower=0)).pow(0.5)
+
         # --- 2. 重铸“强攻分”，采用加权模型并引入资金流可信度 ---
         mtf_buy_exhaustion = self._get_mtf_slope_accel_score(df, 'buy_quote_exhaustion_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_large_pressure = self._get_mtf_slope_accel_score(df, 'large_order_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_active_buying_support = self._get_mtf_slope_accel_score(df, 'active_buying_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False) # 新增
+
         # 重新定义 pressure_exhaustion_synergy：大单压力与买盘枯竭的协同性，两者都高时应惩罚
         # 当大单压力和买盘枯竭都高时，协同性高，意味着强攻阻力大，应惩罚
         pressure_exhaustion_synergy = (mtf_large_pressure * mtf_buy_exhaustion).pow(0.5)
+
         # 主力资金流向动量：使用MTF融合信号
         mtf_main_force_flow_momentum = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+
         attack_score = (
             (1 - mtf_buy_exhaustion) * 0.2 + # 买盘韧性，枯竭度越低越好
             mtf_main_force_flow_momentum.clip(lower=0) * 0.25 + # 主力资金流入加速
             (1 - mtf_large_pressure) * 0.2 + # 压力清除，大单压力越低越好
             flow_credibility_norm * 0.15 + # 资金流可信度
-            mtf_active_buying_support * 0.2 + # 主动买盘支持
-            (1 - pressure_exhaustion_synergy) * -0.2 # 惩罚大单压力与买盘枯竭的协同性，权重增加
+            mtf_active_buying_support * 0.2 - # 主动买盘支持
+            pressure_exhaustion_synergy * 0.2 # 惩罚大单压力与买盘枯竭的协同性，权重增加
         ).clip(0, 1) # 确保分数在 [0, 1] 之间
+
         # --- 3. 最终审判 ---
         final_score = (prelude_score * attack_score).fillna(0.0)
+
         # --- 调试信息 ---
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
@@ -2304,6 +2311,7 @@ class ProcessIntelligence:
             print("  [最终结果]: ")
             print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
+
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:

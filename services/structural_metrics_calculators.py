@@ -3,6 +3,25 @@ import pandas as pd
 import numpy as np
 from datetime import time
 import pandas_ta as ta
+import numba # 确保已导入
+
+@numba.njit(cache=True)
+def _numba_calculate_gini(array: np.ndarray) -> float:
+    """
+    【Numba优化版】计算基尼系数。
+    """
+    if len(array) < 2 or np.sum(array) == 0:
+        return 0.0
+    
+    sorted_array = np.sort(array)
+    n = len(array)
+    cum_array = np.cumsum(sorted_array)
+    
+    # 避免除以零
+    if cum_array[-1] == 0:
+        return 0.0
+
+    return (n + 1 - 2 * np.sum(cum_array) / cum_array[-1]) / n
 
 class StructuralMetricsCalculators:
     """
@@ -19,6 +38,7 @@ class StructuralMetricsCalculators:
                      成败的评判从“非黑即白”升维至可量化“战果”的连续谱，使指标更精妙圆融。
         - 核心修正: 调和了 `dynamic_reversal_strength` 中动量惩罚因子的计算方式。
         - 核心重构: 秉持“动能同源”原则，统一 `opening_period_thrust` 的计算逻辑。
+        - 核心优化: 使用Numba优化后的Gini系数计算函数。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -68,6 +88,7 @@ class StructuralMetricsCalculators:
             total_energy = absolute_energy.sum()
             if total_energy > 0:
                 results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
+        # 使用Numba优化后的Gini系数计算函数
         if tick_df is not None and not tick_df.empty:
             results['volume_burstiness_index'] = StructuralMetricsCalculators.calculate_gini(tick_df['volume'].values)
         else:
@@ -202,6 +223,7 @@ class StructuralMetricsCalculators:
                         opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
                         results['opening_period_thrust'] = (opening_buy_vol - opening_sell_vol) / opening_total_vol
         return results
+
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
@@ -321,6 +343,7 @@ class StructuralMetricsCalculators:
                 conviction_purity = tail_thrust_purity if pd.notna(tail_thrust_purity) else np.sign(day_close_qfq - vpoc)
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor * conviction_purity
         return results
+
     @staticmethod
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
@@ -380,18 +403,15 @@ class StructuralMetricsCalculators:
                     weighted_avg_slippage_down = np.average(abs(down_thrust_ticks['price_diff']), weights=down_thrust_ticks['volume'])
                     results['defense_cost_index'] = weighted_avg_slippage_down / atr_14
         return results
+
     @staticmethod
     def calculate_gini(array: np.ndarray) -> float:
         """
         【V22.0 · 计算内核静态化】
         计算基尼系数
+        - 核心优化: 使用Numba优化后的Gini系数计算函数。
         """
-        if array is None or len(array) < 2 or np.sum(array) == 0:
-            return 0.0
-        sorted_array = np.sort(array)
-        n = len(array)
-        cum_array = np.cumsum(sorted_array, dtype=float)
-        return (n + 1 - 2 * np.sum(cum_array) / cum_array[-1]) / n
+        return _numba_calculate_gini(array)
 
 
 

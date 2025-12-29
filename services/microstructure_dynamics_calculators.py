@@ -2,6 +2,246 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import norm, linregress
+import numba # 确保已导入
+
+@numba.njit(cache=True)
+def _numba_calculate_ofi_static_dynamic(
+    buy_price1_arr: np.ndarray, buy_volume1_arr: np.ndarray,
+    sell_price1_arr: np.ndarray, sell_volume1_arr: np.ndarray,
+    prev_buy_price1_arr: np.ndarray, prev_buy_volume1_arr: np.ndarray,
+    prev_sell_price1_arr: np.ndarray, prev_sell_volume1_arr: np.ndarray
+) -> np.ndarray:
+    """
+    【Numba优化版】计算订单流失衡 (OFI) 的静态和动态部分。
+    """
+    n = len(buy_price1_arr)
+    ofi_series = np.zeros(n, dtype=np.float64)
+
+    for i in range(n):
+        if i == 0: # 第一个元素没有前一个状态，OFI为0
+            continue
+        delta_buy_price = buy_price1_arr[i] - prev_buy_price1_arr[i]
+        delta_sell_price = sell_price1_arr[i] - prev_sell_price1_arr[i]
+        ofi_static = 0.0
+        if delta_buy_price == 0 and delta_sell_price == 0:
+            ofi_static = buy_volume1_arr[i] - prev_buy_volume1_arr[i] # 假设买一价和卖一价不变时，OFI由买一量变化决定
+        ofi_dynamic = 0.0
+        if delta_buy_price > 0:
+            ofi_dynamic += prev_buy_volume1_arr[i] # 买一价上涨，前一刻的买一量被吃掉
+        elif delta_buy_price < 0:
+            ofi_dynamic -= buy_volume1_arr[i] # 买一价下跌，当前买一量是新的
+        if delta_sell_price > 0:
+            ofi_dynamic += sell_volume1_arr[i] # 卖一价上涨，当前卖一量是新的
+        elif delta_sell_price < 0:
+            ofi_dynamic -= prev_sell_volume1_arr[i] # 卖一价下跌，前一刻的卖一量被吃掉
+        ofi_series[i] = ofi_static + ofi_dynamic
+
+    return ofi_series
+
+@numba.njit(cache=True)
+def _numba_calculate_vpin_buckets(
+    cum_vol_arr: np.ndarray, volume_arr: np.ndarray,
+    buy_vol_arr: np.ndarray, sell_vol_arr: np.ndarray,
+    vpin_bucket_size: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    【Numba优化版】计算VPIN桶内的买卖失衡。
+    返回每个桶的失衡值和桶的索引。
+    """
+    if vpin_bucket_size <= 0:
+        return np.array([]), np.array([])
+
+    n = len(cum_vol_arr)
+    
+    # 预估最大桶数，避免动态列表增长开销
+    max_buckets = int(cum_vol_arr[-1] / vpin_bucket_size) + 2
+    
+    bucket_imbalance = np.zeros(max_buckets, dtype=np.float64)
+    bucket_buy_vol = np.zeros(max_buckets, dtype=np.float64)
+    bucket_sell_vol = np.zeros(max_buckets, dtype=np.float64)
+    
+    current_bucket_idx = 0
+    
+    for i in range(n):
+        bucket_idx = int(cum_vol_arr[i] / vpin_bucket_size)
+        # 确保桶索引在范围内
+        if bucket_idx >= max_buckets:
+            # 如果超出预估范围，可以动态调整数组大小，但为了Numba效率，这里简单截断或报错
+            # 实际应用中，max_buckets应足够大
+            break 
+            
+        bucket_buy_vol[bucket_idx] += buy_vol_arr[i]
+        bucket_sell_vol[bucket_idx] += sell_vol_arr[i]
+        current_bucket_idx = max(current_bucket_idx, bucket_idx)
+            
+    # 截取实际使用的桶
+    actual_buckets = current_bucket_idx + 1
+    imbalance_values = bucket_buy_vol[:actual_buckets] - bucket_sell_vol[:actual_buckets]
+    bucket_indices = np.arange(actual_buckets)
+
+    return imbalance_values, bucket_indices
+
+@numba.njit(cache=True)
+def _numba_calculate_active_volume_price_efficiency(
+    price_arr: np.ndarray, volume_arr: np.ndarray, price_change_arr: np.ndarray
+) -> float:
+    """
+    【Numba优化版】计算累计推力与累计价格位移的相关性。
+    """
+    n = len(price_arr)
+    if n < 2:
+        return np.nan
+
+    cum_thrust = np.zeros(n, dtype=np.float64)
+    cum_price_change = np.zeros(n, dtype=np.float64)
+
+    first_price = price_arr[0]
+
+    for i in range(n):
+        # 计算每笔tick的有效推力
+        net_thrust_volume = volume_arr[i] * np.sign(price_change_arr[i])
+        if i == 0:
+            cum_thrust[i] = net_thrust_volume
+            cum_price_change[i] = price_arr[i] - first_price
+        else:
+            cum_thrust[i] = cum_thrust[i-1] + net_thrust_volume
+            cum_price_change[i] = price_arr[i] - first_price
+            
+    # 计算相关性
+    # Numba 0.58+ 支持 np.corrcoef，但为了更广泛的兼容性，手动实现
+    mean_cum_thrust = np.mean(cum_thrust)
+    mean_cum_price_change = np.mean(cum_price_change)
+
+    numerator = np.sum((cum_thrust - mean_cum_thrust) * (cum_price_change - mean_cum_price_change))
+    denominator_thrust = np.sqrt(np.sum((cum_thrust - mean_cum_thrust)**2))
+    denominator_price = np.sqrt(np.sum((cum_price_change - mean_cum_price_change)**2))
+
+    denominator = denominator_thrust * denominator_price
+
+    if denominator == 0:
+        return 0.0 # 如果其中一个序列没有变化，相关性为0
+    
+    return numerator / denominator
+
+@numba.njit(cache=True)
+def _numba_calculate_liquidity_authenticity_score(
+    buy_price1_arr: np.ndarray, buy_volume1_arr: np.ndarray,
+    sell_price1_arr: np.ndarray, sell_volume1_arr: np.ndarray,
+    tick_prices_arr: np.ndarray, tick_times_arr: np.ndarray,
+    level5_times_arr: np.ndarray,
+    buy_commitment_threshold: float, sell_commitment_threshold: float
+) -> Tuple[int, int]:
+    """
+    【Numba优化版】计算流动性承诺-兑现分数。
+    """
+    fulfillments = 0
+    defaults = 0
+    
+    n_level5 = len(buy_price1_arr)
+    n_tick = len(tick_prices_arr)
+
+    # 识别买方承诺（大额买单出现）
+    for i in range(n_level5):
+        if buy_volume1_arr[i] > buy_commitment_threshold:
+            # 检查是否是新增的大单（与前一刻相比）
+            if i > 0 and buy_volume1_arr[i] > buy_volume1_arr[i-1] * 2: # 简化判断为显著增加
+                commit_price = buy_price1_arr[i]
+                
+                # 追踪此承诺未来20个快照
+                future_snapshots_start_idx = i + 1
+                future_snapshots_end_idx = min(n_level5, future_snapshots_start_idx + 20)
+                
+                pressure_found = False
+                for j in range(future_snapshots_start_idx, future_snapshots_end_idx):
+                    if sell_price1_arr[j] <= commit_price + 0.02: # 卖一价接近承诺价
+                        pressure_found = True
+                        
+                        # 结局判断：是成交了还是撤单了？
+                        if buy_volume1_arr[j] < buy_volume1_arr[i] * 0.5: # 大单在压力下消失
+                            defaults += 1
+                        else:
+                            # 检查是否有真实成交 (简化为tick数据中是否有承诺价的成交)
+                            # 找到level5快照时间对应的tick数据范围
+                            level5_time_start = level5_times_arr[i]
+                            level5_time_end = level5_times_arr[j]
+                            
+                            tick_start_idx = np.searchsorted(tick_times_arr, level5_time_start)
+                            tick_end_idx = np.searchsorted(tick_times_arr, level5_time_end)
+                            
+                            found_trade = False
+                            for k in range(tick_start_idx, tick_end_idx):
+                                if tick_prices_arr[k] == commit_price:
+                                    found_trade = True
+                                    break
+                            
+                            if found_trade:
+                                fulfillments += 1
+                        break # 找到压力点后就停止追踪
+                # 如果在未来20个快照内没有找到压力点，也算作违约（承诺未被测试）
+                if not pressure_found:
+                    defaults += 1
+
+    # 识别卖方承诺（大额卖单出现）
+    for i in range(n_level5):
+        if sell_volume1_arr[i] > sell_commitment_threshold:
+            if i > 0 and sell_volume1_arr[i] > sell_volume1_arr[i-1] * 2: # 简化判断为显著增加
+                commit_price = sell_price1_arr[i]
+                
+                future_snapshots_start_idx = i + 1
+                future_snapshots_end_idx = min(n_level5, future_snapshots_start_idx + 20)
+                
+                pressure_found = False
+                for j in range(future_snapshots_start_idx, future_snapshots_end_idx):
+                    if buy_price1_arr[j] >= commit_price - 0.02: # 买一价接近承诺价
+                        pressure_found = True
+                        
+                        if sell_volume1_arr[j] < sell_volume1_arr[i] * 0.5:
+                            defaults += 1
+                        else:
+                            level5_time_start = level5_times_arr[i]
+                            level5_time_end = level5_times_arr[j]
+                            
+                            tick_start_idx = np.searchsorted(tick_times_arr, level5_time_start)
+                            tick_end_idx = np.searchsorted(tick_times_arr, level5_time_end)
+                            
+                            found_trade = False
+                            for k in range(tick_start_idx, tick_end_idx):
+                                if tick_prices_arr[k] == commit_price:
+                                    found_trade = True
+                                    break
+                            
+                            if found_trade:
+                                fulfillments += 1
+                        break
+                if not pressure_found:
+                    defaults += 1
+                    
+    return fulfillments, defaults
+
+@numba.njit(cache=True)
+def _numba_calculate_vwap_reversion_corr(deviation_arr: np.ndarray) -> float:
+    """
+    【Numba优化版】计算VWAP均值回归相关性。
+    """
+    n = len(deviation_arr)
+    if n < 2:
+        return np.nan
+    
+    # 计算自相关系数 (lag=1)
+    # corr(X_t, X_{t-1}) = cov(X_t, X_{t-1}) / (std(X_t) * std(X_{t-1}))
+    
+    # 移除NaN
+    clean_deviation = deviation_arr[~np.isnan(deviation_arr)]
+    if len(clean_deviation) < 2:
+        return np.nan
+
+    x_t = clean_deviation[1:]
+    x_t_minus_1 = clean_deviation[:-1]
+
+    if np.std(x_t) == 0 or np.std(x_t_minus_1) == 0:
+        return 0.0 # 如果序列没有变化，自相关为0
+
+    return np.corrcoef(x_t, x_t_minus_1)[0, 1]
 
 class MicrostructureDynamicsCalculators:
     """
@@ -19,6 +259,7 @@ class MicrostructureDynamicsCalculators:
         results.update(MicrostructureDynamicsCalculators._calculate_liquidity_metrics(context))
         results.update(MicrostructureDynamicsCalculators._calculate_vwap_reversion(context))
         return results
+
     @staticmethod
     def _calculate_ofi_and_sweeps(context: dict) -> dict:
         """计算订单流失衡(OFI)与扫单强度"""
@@ -39,16 +280,26 @@ class MicrostructureDynamicsCalculators:
         # 订单流失衡 (OFI)
         if level5_df is not None and not level5_df.empty and len(level5_df) > 1:
             df = level5_df[['buy_price1', 'buy_volume1', 'sell_price1', 'sell_volume1']].copy()
-            df_prev = df.shift(1)
-            delta_buy_price = df['buy_price1'] - df_prev['buy_price1']
-            delta_sell_price = df['sell_price1'] - df_prev['sell_price1']
-            ofi_static = np.where((delta_buy_price == 0) & (delta_sell_price == 0), df['buy_volume1'] - df_prev['buy_volume1'], 0)
-            ofi_dynamic = np.where(delta_buy_price > 0, df_prev['buy_volume1'], 0)
-            ofi_dynamic = np.where(delta_buy_price < 0, -df['buy_volume1'], ofi_dynamic)
-            ofi_dynamic = np.where(delta_sell_price > 0, ofi_dynamic + df['sell_volume1'], ofi_dynamic)
-            ofi_dynamic = np.where(delta_sell_price < 0, ofi_dynamic - df_prev['sell_volume1'], ofi_dynamic)
-            ofi_series = ofi_static + ofi_dynamic
-            total_ofi = np.nansum(ofi_series)
+            df_prev = df.shift(1).fillna(0) # 填充NaN以避免Numba处理NaN
+            
+            # 提取NumPy数组
+            buy_price1_arr = df['buy_price1'].values
+            buy_volume1_arr = df['buy_volume1'].values
+            sell_price1_arr = df['sell_price1'].values
+            sell_volume1_arr = df['sell_volume1'].values
+            prev_buy_price1_arr = df_prev['buy_price1'].values
+            prev_buy_volume1_arr = df_prev['buy_volume1'].values
+            prev_sell_price1_arr = df_prev['sell_price1'].values
+            prev_sell_volume1_arr = df_prev['sell_volume1'].values
+            # 调用Numba优化函数
+            ofi_series_numba = _numba_calculate_ofi_static_dynamic(
+                buy_price1_arr, buy_volume1_arr,
+                sell_price1_arr, sell_volume1_arr,
+                prev_buy_price1_arr, prev_buy_volume1_arr,
+                prev_sell_price1_arr, prev_sell_volume1_arr
+            )
+            
+            total_ofi = np.nansum(ofi_series_numba)
             if total_volume > 0:
                 results['order_flow_imbalance_score'] = total_ofi / total_volume
         # 扫单强度 (Sweep Intensity)
@@ -72,6 +323,7 @@ class MicrostructureDynamicsCalculators:
         if total_sell_vol > 0:
             results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
         return results
+
     @staticmethod
     def _calculate_vpin(context: dict) -> dict:
         """计算VPIN (Volume-Synchronized Probability of Informed Trading)"""
@@ -90,17 +342,28 @@ class MicrostructureDynamicsCalculators:
             tick_df['buy_vol'] = np.where(tick_df['type'] == 'B', tick_df['volume'], 0)
             tick_df['sell_vol'] = np.where(tick_df['type'] == 'S', tick_df['volume'], 0)
             tick_df['cum_vol'] = tick_df['volume'].cumsum()
-            tick_df['bucket'] = (tick_df['cum_vol'] // vpin_bucket_size).astype(int)
-            bucket_imbalance = tick_df.groupby('bucket').agg(buy_vol=('buy_vol', 'sum'), sell_vol=('sell_vol', 'sum'))
-            bucket_imbalance['imbalance'] = bucket_imbalance['buy_vol'] - bucket_imbalance['sell_vol']
-            if len(bucket_imbalance) > vpin_window:
-                imbalance_std = bucket_imbalance['imbalance'].rolling(window=vpin_window).std().bfill()
-                abs_imbalance = bucket_imbalance['imbalance'].abs()
+            
+            # 提取NumPy数组
+            cum_vol_arr = tick_df['cum_vol'].values
+            volume_arr = tick_df['volume'].values
+            buy_vol_arr = tick_df['buy_vol'].values
+            sell_vol_arr = tick_df['sell_vol'].values
+            # 调用Numba优化函数
+            imbalance_values, bucket_indices = _numba_calculate_vpin_buckets(
+                cum_vol_arr, volume_arr, buy_vol_arr, sell_vol_arr, vpin_bucket_size
+            )
+            
+            if len(imbalance_values) > vpin_window:
+                # 将Numba结果转换回Pandas Series进行后续滚动计算
+                bucket_imbalance_series = pd.Series(imbalance_values, index=bucket_indices)
+                imbalance_std = bucket_imbalance_series.rolling(window=vpin_window).std().bfill()
+                abs_imbalance = bucket_imbalance_series.abs()
                 sigma_imbalance = imbalance_std.replace(0, np.nan)
                 z_score = abs_imbalance / sigma_imbalance
                 vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
                 results['vpin_score'] = vpin_series.mean()
         return results
+
     @staticmethod
     def _calculate_hf_mechanics(context: dict) -> dict:
         """
@@ -108,6 +371,7 @@ class MicrostructureDynamicsCalculators:
         - `active_volume_price_efficiency` 升维: 逻辑彻底重构。不再计算静态的“终局”比值，
                      而是通过计算日内“累计推力”与“累计价格位移”两条曲线的相关系数，
                      来动态追溯推力的“过程有效性”，洞察主力资金的控盘合力。
+        - 核心优化: 使用Numba优化后的相关性计算函数。
         """
         tick_df = context.get('tick_df')
         debug_info = context.get('debug', {})
@@ -119,27 +383,24 @@ class MicrostructureDynamicsCalculators:
         }
         if tick_df is None or tick_df.empty or len(tick_df) < 2:
             return results
-        # 升维：计算累计推力与累计价格位移的相关性
         # 1. 计算每笔tick的有效推力
+        price_arr = tick_df['price'].values
+        volume_arr = tick_df['volume'].values
+        # 确保 price_change 存在且有效
+        price_change_arr = np.zeros_like(price_arr, dtype=np.float64)
         if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
-            self_calculated_change = tick_df['price'].diff().fillna(0)
-            zero_change_mask = tick_df['price_change'] == 0
-            effective_price_change = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
-            net_thrust_volume = tick_df['volume'] * np.sign(effective_price_change)
-        else: # 回退逻辑
-            buy_vol = np.where(tick_df['type'] == 'B', tick_df['volume'], 0)
-            sell_vol = np.where(tick_df['type'] == 'S', -tick_df['volume'], 0)
-            net_thrust_volume = buy_vol + sell_vol
-        # 2. 构建两条累计曲线
-        tick_df['cum_thrust'] = net_thrust_volume.cumsum()
-        first_price = tick_df['price'].iloc[0]
-        tick_df['cum_price_change'] = tick_df['price'] - first_price
-        # 3. 按分钟重采样以进行相关性分析（避免tick级别噪声过大）
-        resampled_df = tick_df[['cum_thrust', 'cum_price_change']].resample('1min').last().dropna()
-        if len(resampled_df) > 2:
-            correlation = resampled_df['cum_thrust'].corr(resampled_df['cum_price_change'])
-            results['active_volume_price_efficiency'] = correlation
+            self_calculated_change = np.diff(price_arr, prepend=price_arr[0]) # 计算实际价格变化
+            zero_change_mask = (tick_df['price_change'].values == 0)
+            price_change_arr = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'].values)
+        else: # 回退逻辑，直接使用价格变化
+            price_change_arr = np.diff(price_arr, prepend=price_arr[0])
+        # 调用Numba优化函数
+        correlation = _numba_calculate_active_volume_price_efficiency(
+            price_arr, volume_arr, price_change_arr
+        )
+        results['active_volume_price_efficiency'] = correlation
         return results
+
     @staticmethod
     def _calculate_liquidity_metrics(context: dict) -> dict:
         """
@@ -148,6 +409,7 @@ class MicrostructureDynamicsCalculators:
                      引入“流动性承诺-兑现”动态追踪模型。通过识别盘口异常大额挂单，并追踪
                      其在价格压力下的最终结局（真实成交或提前撤单），深度量化挂单的“诚意”，
                      从而辨别“铁壁”与“幻象”。
+        - 核心优化: 使用Numba优化后的流动性承诺-兑现分数计算函数。
         """
         tick_df = context.get('tick_df')
         level5_df = context.get('level5_df')
@@ -206,58 +468,33 @@ class MicrostructureDynamicsCalculators:
                 if slopes and sum(weights_for_slopes) > 0:
                     results['liquidity_slope'] = np.average(slopes, weights=weights_for_slopes)
         # --- 新增 `liquidity_authenticity_score` 的升维计算逻辑 ---
-        df = level5_df[['buy_price1', 'buy_volume1', 'sell_price1', 'sell_volume1']].copy()
-        df['prev_b1_v'] = df['buy_volume1'].shift(1)
-        df['prev_a1_v'] = df['sell_volume1'].shift(1)
-        # 1. 定义“大单”阈值
-        b1_vol_mean, b1_vol_std = df['buy_volume1'].mean(), df['buy_volume1'].std()
-        a1_vol_mean, a1_vol_std = df['sell_volume1'].mean(), df['sell_volume1'].std()
+        # 提取NumPy数组
+        buy_price1_arr = level5_df['buy_price1'].values
+        buy_volume1_arr = level5_df['buy_volume1'].values
+        sell_price1_arr = level5_df['sell_price1'].values
+        sell_volume1_arr = level5_df['sell_volume1'].values
+        tick_prices_arr = tick_df['price'].values
+        tick_times_arr = tick_df.index.values.astype(np.int64) # 将Timestamp转换为int64
+        level5_times_arr = level5_df.index.values.astype(np.int64) # 将Timestamp转换为int64
+        b1_vol_mean, b1_vol_std = buy_volume1_arr.mean(), buy_volume1_arr.std()
+        a1_vol_mean, a1_vol_std = sell_volume1_arr.mean(), sell_volume1_arr.std()
         buy_commitment_threshold = b1_vol_mean + 2 * b1_vol_std
         sell_commitment_threshold = a1_vol_mean + 2 * a1_vol_std
-        # 2. 识别“承诺”与“结局”
-        fulfillments = 0
-        defaults = 0
-        # 识别买方承诺（大额买单出现）
-        buy_commitments = df[(df['buy_volume1'] > buy_commitment_threshold) & (df['buy_volume1'] > df['prev_b1_v'] * 2)]
-        for idx, commit in buy_commitments.iterrows():
-            # 追踪此承诺
-            future_snapshots = df.loc[idx:].iloc[1:21] # 观察未来20个快照（约1分钟）
-            if future_snapshots.empty: continue
-            commit_price = commit['buy_price1']
-            # 压力测试：卖一价是否接近承诺价
-            pressure_snapshots = future_snapshots[future_snapshots['sell_price1'] <= commit_price + 0.02]
-            if not pressure_snapshots.empty:
-                first_pressure_point = pressure_snapshots.iloc[0]
-                # 结局判断：是成交了还是撤单了？
-                if first_pressure_point['buy_volume1'] < commit['buy_volume1'] * 0.5:
-                    defaults += 1 # 大单在压力下消失，视为违约
-                else:
-                    # 检查是否有真实成交
-                    related_ticks = tick_df.loc[idx:first_pressure_point.name]
-                    if not related_ticks.empty and (related_ticks['price'] == commit_price).any():
-                        fulfillments += 1 # 有成交，视为兑现
-        # 识别卖方承诺（大额卖单出现）
-        sell_commitments = df[(df['sell_volume1'] > sell_commitment_threshold) & (df['sell_volume1'] > df['prev_a1_v'] * 2)]
-        for idx, commit in sell_commitments.iterrows():
-            future_snapshots = df.loc[idx:].iloc[1:21]
-            if future_snapshots.empty: continue
-            commit_price = commit['sell_price1']
-            pressure_snapshots = future_snapshots[future_snapshots['buy_price1'] >= commit_price - 0.02]
-            if not pressure_snapshots.empty:
-                first_pressure_point = pressure_snapshots.iloc[0]
-                if first_pressure_point['sell_volume1'] < commit['sell_volume1'] * 0.5:
-                    defaults += 1
-                else:
-                    related_ticks = tick_df.loc[idx:first_pressure_point.name]
-                    if not related_ticks.empty and (related_ticks['price'] == commit_price).any():
-                        fulfillments += 1
-        # 3. 计算最终得分
+        # 调用Numba优化函数
+        fulfillments, defaults = _numba_calculate_liquidity_authenticity_score(
+            buy_price1_arr, buy_volume1_arr,
+            sell_price1_arr, sell_volume1_arr,
+            tick_prices_arr, tick_times_arr,
+            level5_times_arr,
+            buy_commitment_threshold, sell_commitment_threshold
+        )
         total_events = fulfillments + defaults
         if total_events > 0:
             results['liquidity_authenticity_score'] = fulfillments / total_events
         else:
             results['liquidity_authenticity_score'] = 0.5 # 无事件发生，给予中性分
         return results
+
     @staticmethod
     def _calculate_vwap_reversion(context: dict) -> dict:
         """计算VWAP均值回归相关性"""
@@ -267,5 +504,12 @@ class MicrostructureDynamicsCalculators:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
             if pd.notna(daily_vwap):
                 deviation = minute_df['minute_vwap'] - daily_vwap
-                results['vwap_mean_reversion_corr'] = deviation.autocorr(lag=1)
+                
+                # 提取NumPy数组
+                deviation_arr = deviation.values
+                
+                # 调用Numba优化函数
+                results['vwap_mean_reversion_corr'] = _numba_calculate_vwap_reversion_corr(deviation_arr)
         return results
+
+

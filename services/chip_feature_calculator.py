@@ -1329,10 +1329,8 @@ class ChipFeatureCalculator:
         # block_ids 的计算需要 Pandas，但其结果可以传递给 Numba
         tick_df['block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
         block_ids_arr = tick_df['block'].values
-        
         # 调用Numba优化后的扫单量计算函数
         buy_sweep_vol, sell_sweep_vol = _numba_calculate_sweeps(trade_types_arr, prices_arr, volumes_arr, block_ids_arr, min_sweep_len)
-        
         total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
         total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
         if total_buy_vol > 0: results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol

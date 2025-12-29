@@ -6,9 +6,146 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
+import numba # 确保已导入
 from utils.math_tools import hurst_exponent
 
 logger = logging.getLogger("services")
+
+@numba.njit(cache=True)
+def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
+    """
+    【Numba优化版】计算Higuchi分形维数。
+    """
+    L = np.empty(k_max, dtype=np.float64)
+    L.fill(np.nan) # 初始化为NaN
+    x_len = len(x)
+    if x_len < 2:
+        return np.nan
+    
+    for k_idx in range(k_max):
+        k = k_idx + 1
+        Lk_sum = 0.0
+        count = 0
+        for m in range(k):
+            # Numba不支持切片步长为负，但这里m::k是正向步长
+            series_len = (x_len - m - 1) // k + 1
+            if series_len < 2:
+                continue
+            
+            current_series = np.empty(series_len, dtype=np.float64)
+            for i in range(series_len):
+                current_series[i] = x[m + i * k]
+            
+            diffs = np.abs(np.diff(current_series))
+            
+            if len(diffs) > 0:
+                denominator = ((x_len - m) // k * k)
+                if denominator == 0:
+                    continue
+                Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
+                count += 1
+        if count > 0 and Lk_sum > 0:
+            L[k_idx] = np.log(Lk_sum / count / k)
+        else:
+            L[k_idx] = np.nan            
+    valid_L_indices = np.where(~np.isnan(L))[0]
+    if len(valid_L_indices) < 2:
+        return np.nan
+    valid_L = L[valid_L_indices]
+    k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))
+    valid_k_range_log = k_range_log[valid_L_indices]    
+    try:
+        # 手动实现线性回归斜率
+        N = len(valid_L)
+        sum_x = np.sum(valid_k_range_log)
+        sum_y = np.sum(valid_L)
+        sum_xy = np.sum(valid_k_range_log * valid_L)
+        sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
+        denominator_reg = N * sum_x2 - sum_x * sum_x
+        if denominator_reg == 0:
+            return np.nan            
+        slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
+        fd = np.abs(slope)
+        return np.clip(fd, 1.0, 2.0)
+    except Exception:
+        return np.nan
+
+@numba.njit(cache=True)
+def _numba_sample_entropy(x: np.ndarray, m: int, r: float) -> float:
+    """
+    【Numba优化版】计算样本熵。
+    """
+    n = len(x)
+    if n < m + 1:
+        return np.nan
+
+    # 计算距离函数
+    def _max_dist(x_i, x_j):
+        return np.max(np.abs(x_i - x_j))
+
+    # 计算 B_m(r)
+    B = 0
+    for i in range(n - m + 1):
+        for j in range(i + 1, n - m + 1): # 避免重复和自身比较
+            if _max_dist(x[i:i+m], x[j:j+m]) < r:
+                B += 1
+
+    # 计算 A_m(r)
+    A = 0
+    for i in range(n - m):
+        for j in range(i + 1, n - m): # 避免重复和自身比较
+            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
+                A += 1
+    
+    # 修正：原始实现中 B 和 A 的计算方式可能导致 B < A
+    # 样本熵的定义是 -ln(A/B)
+    # B_m(r) 是匹配长度为 m 的模式对的数量
+    # A_m(r) 是匹配长度为 m+1 的模式对的数量
+    # 这里的 B 和 A 应该对应于原始定义中的 N_m 和 N_{m+1}
+    
+    # 重新计算 B 和 A
+    count_m = 0
+    for i in range(n - m):
+        for j in range(i + 1, n - m):
+            if _max_dist(x[i:i+m], x[j:j+m]) < r:
+                count_m += 1
+    
+    count_m_plus_1 = 0
+    for i in range(n - m - 1):
+        for j in range(i + 1, n - m - 1):
+            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
+                count_m_plus_1 += 1
+
+    if count_m == 0:
+        return np.nan # 避免除以零
+    
+    return -np.log(count_m_plus_1 / count_m)
+
+@numba.njit(cache=True)
+def _numba_fft_energy_ratio(x: np.ndarray, low_freq_cutoff_ratio: float, high_freq_cutoff_ratio: float) -> float:
+    """
+    【Numba优化版】计算FFT能量比。
+    """
+    N = len(x)
+    if N < 2:
+        return np.nan
+    
+    # Numba 0.58+ 支持 np.fft.fft
+    yf = np.fft.fft(x)
+    
+    # 取正频率部分
+    yf_abs = np.abs(yf[:N//2])
+    
+    total_energy = np.sum(yf_abs**2)
+    if total_energy == 0:
+        return np.nan
+        
+    low_freq_idx = int(N * low_freq_cutoff_ratio)
+    high_freq_idx = int(N * high_freq_cutoff_ratio)
+    
+    low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
+    
+    return low_freq_energy / total_energy
 
 class FeatureEngineeringService:
     """
@@ -171,6 +308,7 @@ class FeatureEngineeringService:
         - 细粒度增强: 引入基于主力资金流和订单簿流动性的赫斯特指数和样本熵。
         - 周期调整: 调整元特征计算窗口为斐波那契数列。
         - 【修复】将近似熵计算替换为使用 `nolds` 库的样本熵，并更新相关列名。
+        - 核心优化: 使用Numba优化后的分形维度、样本熵和FFT能量比计算函数。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -185,77 +323,6 @@ class FeatureEngineeringService:
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
-        # _higuchi_fractal_dimension 函数修复
-        def _higuchi_fractal_dimension(x, k_max):
-            """
-            计算Higuchi分形维数。
-            修复：确保返回的分形维数在合理范围内（通常为1到2）。
-            """
-            L = []
-            x_len = len(x)
-            if x_len < 2: # 数据点太少无法计算
-                return np.nan
-            for k in range(1, k_max + 1):
-                Lk_sum = 0.0
-                count = 0
-                for m in range(k):
-                    series = x[m::k]
-                    if len(series) < 2:
-                        continue
-                    # 确保 np.diff(series) 不为空
-                    diffs = np.abs(np.diff(series))
-                    if len(diffs) > 0:
-                        # 修正分母，确保不为零
-                        denominator = ((x_len - m) // k * k)
-                        if denominator == 0:
-                            continue
-                        Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
-                        count += 1
-                if count > 0 and Lk_sum > 0: # 确保有有效计算且和大于0
-                    L.append(np.log(Lk_sum / count / k)) # 平均后再取对数
-                else:
-                    L.append(np.nan) # 如果无法计算，则为NaN
-            # 过滤掉L中的NaN值
-            valid_L = [val for val in L if not np.isnan(val)]
-            k_range_log = np.log(np.arange(1, k_max + 1))
-            valid_k_range_log = k_range_log[[i for i, val in enumerate(L) if not np.isnan(val)]]
-            if len(valid_L) < 2: # 至少需要两个点才能拟合直线
-                return np.nan
-            try:
-                slope, _ = np.polyfit(valid_k_range_log, np.array(valid_L), 1)
-                # 分形维数通常是斜率的绝对值，并限制在合理范围
-                fd = np.abs(slope)
-                # 限制分形维数在合理范围，例如1到2
-                return np.clip(fd, 1.0, 2.0)
-            except Exception as e:
-                logger.debug(f"np.polyfit for Higuchi FD failed: {e}")
-                return np.nan
-        def _sample_entropy(x, m, r):
-            n = len(x)
-            templates = np.array([x[i:i+m] for i in range(n - m + 1)])
-            dist = np.max(np.abs(templates[:, np.newaxis] - templates), axis=2)
-            A = np.sum(dist < r) - n
-            templates_plus_1 = np.array([x[i:i+m+1] for i in range(n - m)])
-            dist_plus_1 = np.max(np.abs(templates_plus_1[:, np.newaxis] - templates_plus_1), axis=2)
-            B = np.sum(dist_plus_1 < r) - (n - m)
-            if A == 0 or B == 0: return np.nan
-            return -np.log(B / A)
-        # FFT能量比计算函数
-        def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5):
-            N = len(x)
-            if N < 2: return np.nan
-            yf = np.fft.fft(x)
-            yf_abs = np.abs(yf[:N//2]) # 取正频率部分
-            total_energy = np.sum(yf_abs**2)
-            if total_energy == 0: return np.nan
-            freqs = np.fft.fftfreq(N, d=1)[:N//2]
-            low_freq_idx = int(N * low_freq_cutoff_ratio)
-            high_freq_idx = int(N * high_freq_cutoff_ratio)
-            low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
-            mid_freq_energy = np.sum(yf_abs[low_freq_idx:high_freq_idx]**2)
-            high_freq_energy = np.sum(yf_abs[high_freq_idx:]**2)
-            # 可以根据需求返回不同频率段的能量比，这里返回低频能量占比
-            return low_freq_energy / total_energy
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
@@ -283,7 +350,7 @@ class FeatureEngineeringService:
                 try:
                     k_max = int(np.sqrt(fd_window))
                     df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
-                        lambda x: _higuchi_fractal_dimension(x.dropna().values, k_max) if len(x.dropna()) >= fd_window else np.nan, raw=False
+                        lambda x: _numba_higuchi_fractal_dimension(x.dropna().values, k_max) if len(x.dropna()) >= fd_window else np.nan, raw=False
                     )
                 except Exception as e:
                     logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
@@ -310,7 +377,7 @@ class FeatureEngineeringService:
                             if pd.isna(r) or r == 0 or len(window_data) < se_window:
                                 entropy_values.append(np.nan)
                                 continue
-                            entropy_values.append(_sample_entropy(window_data, m=2, r=r))
+                            entropy_values.append(_numba_sample_entropy(window_data, m=2, r=r))
                         df[se_col] = pd.Series(entropy_values, index=log_returns_or_series.index).reindex(df.index)
                 except Exception as e:
                     logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
@@ -340,7 +407,7 @@ class FeatureEngineeringService:
                                 energy_ratios.append(np.nan)
                                 continue
                             window_data = log_returns_or_series.iloc[i - fft_window + 1 : i + 1].values
-                            energy_ratios.append(_fft_energy_ratio(window_data))
+                            energy_ratios.append(_numba_fft_energy_ratio(window_data, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5))
                         df[fft_col] = pd.Series(energy_ratios, index=log_returns_or_series.index).reindex(df.index)
                 except Exception as e:
                     logger.error(f"FFT能量比(周期{fft_window}, 列: {source_col})计算失败: {e}")

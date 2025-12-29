@@ -3,8 +3,8 @@ import asyncio
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime, time
-from functools import reduce
-from django.db import transaction
+import numba
+from typing import Tuple
 from asgiref.sync import sync_to_async
 from stock_models.stock_basic import StockInfo
 from stock_models.advanced_metrics import BaseAdvancedStructuralMetrics
@@ -22,6 +22,255 @@ import logging
 
 logger = logging.getLogger("services")
 
+@numba.njit(cache=True)
+def _numba_calculate_trend_metrics(price_arr: np.ndarray) -> Tuple[float, float]:
+    """
+    【Numba优化版】通过线性回归计算价格序列的趋势强度和趋势质量。
+    """
+    cleaned_arr = price_arr[~np.isnan(price_arr)]
+    if len(cleaned_arr) < 2:
+        return 0.0, 0.0
+    
+    if np.unique(cleaned_arr).size == 1: # 如果所有价格都相同
+        return 0.0, 1.0
+        
+    y = cleaned_arr
+    x = np.arange(len(y), dtype=np.float64)
+    
+    N = len(y)
+    sum_x = np.sum(x)
+    sum_y = np.sum(y)
+    sum_xy = np.sum(x * y)
+    sum_x2 = np.sum(x * x)
+    
+    denominator = N * sum_x2 - sum_x * sum_x
+    
+    if denominator == 0:
+        return 0.0, 0.0 # 避免除以零
+        
+    slope = (N * sum_xy - sum_x * sum_y) / denominator
+    intercept = (sum_y - slope * sum_x) / N
+    
+    predicted_y = slope * x + intercept
+    residuals = y - predicted_y
+    ss_res = np.sum(residuals**2)
+    ss_tot = np.sum((y - np.mean(y))**2)
+    
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
+    
+    return slope, r_squared
+
+@numba.njit(cache=True)
+def _numba_calculate_mean_reversion_speed(price_arr: np.ndarray) -> float:
+    """
+    【Numba优化版】估算价格序列的均值回归速度。
+    """
+    cleaned_arr = price_arr[~np.isnan(price_arr)]
+    if len(cleaned_arr) < 2:
+        return 0.0
+    
+    price_changes = np.diff(cleaned_arr)
+    lagged_prices = cleaned_arr[:-1]
+    
+    if len(price_changes) < 2:
+        return 0.0
+        
+    y = price_changes
+    x = lagged_prices
+    
+    N = len(y)
+    sum_x = np.sum(x)
+    sum_y = np.sum(y)
+    sum_xy = np.sum(x * y)
+    sum_x2 = np.sum(x * x)
+    
+    denominator = N * sum_x2 - sum_x * sum_x
+    
+    if denominator == 0:
+        return 0.0
+        
+    slope = (N * sum_xy - sum_x * sum_y) / denominator
+    
+    return -slope
+
+@numba.njit(cache=True)
+def _numba_calculate_tpo_metrics(close_arr: np.ndarray, vol_arr: np.ndarray) -> Tuple[float, float, float]:
+    """
+    【Numba优化版】基于日内分钟数据计算市场轮廓（TPO/Market Profile）的核心指标。
+    """
+    if len(close_arr) == 0 or vol_arr.sum() == 0:
+        return np.nan, np.nan, np.nan
+
+    # 1. 构建成交量分布图 (简化为离散价格点)
+    # Numba 不直接支持 groupby，手动实现
+    unique_prices = np.unique(close_arr)
+    volume_profile = np.zeros(len(unique_prices), dtype=np.float64)
+    
+    for i, price in enumerate(unique_prices):
+        volume_profile[i] = np.sum(vol_arr[close_arr == price])
+        
+    # 2. 确定VPOC
+    if len(volume_profile) == 0:
+        return np.nan, np.nan, np.nan
+        
+    vpoc_idx = np.argmax(volume_profile)
+    vpoc = unique_prices[vpoc_idx]
+    
+    # 3. 计算价值区 (VAH, VAL)
+    total_volume = np.sum(volume_profile)
+    value_area_target_volume = total_volume * 0.7
+    
+    value_area_prices = np.array([vpoc])
+    current_volume_in_area = volume_profile[vpoc_idx]
+    
+    # 获取VPOC上下方的价格索引
+    prices_below_vpoc_indices = np.where(unique_prices < vpoc)[0]
+    prices_above_vpoc_indices = np.where(unique_prices > vpoc)[0]
+    
+    # 双指针，从紧邻VPOC的价格开始
+    below_ptr = len(prices_below_vpoc_indices) - 1
+    above_ptr = 0
+    
+    while current_volume_in_area < value_area_target_volume:
+        vol_below = 0.0
+        if below_ptr >= 0:
+            price_below_idx = prices_below_vpoc_indices[below_ptr]
+            vol_below = volume_profile[price_below_idx]
+            
+        vol_above = 0.0
+        if above_ptr < len(prices_above_vpoc_indices):
+            price_above_idx = prices_above_vpoc_indices[above_ptr]
+            vol_above = volume_profile[price_above_idx]
+            
+        if vol_below == 0 and vol_above == 0:
+            break # 没有更多价格可以添加
+            
+        if vol_above > vol_below:
+            value_area_prices = np.append(value_area_prices, unique_prices[prices_above_vpoc_indices[above_ptr]])
+            current_volume_in_area += vol_above
+            above_ptr += 1
+        else:
+            value_area_prices = np.append(value_area_prices, unique_prices[prices_below_vpoc_indices[below_ptr]])
+            current_volume_in_area += vol_below
+            below_ptr -= 1
+            
+    vah = np.max(value_area_prices)
+    val = np.min(value_area_prices)
+    
+    return vpoc, vah, val
+
+@numba.njit(cache=True)
+def _numba_calculate_continuous_data_metrics(
+    prev_close: float, today_open: float, today_close_arr: np.ndarray
+) -> Tuple[float, float]:
+    """
+    【Numba优化版】计算跳空回报率和缺口后动量。
+    """
+    gap_return = np.nan
+    if prev_close > 0:
+        gap_return = (today_open / prev_close) - 1
+        
+    post_gap_momentum_30min = np.nan
+    if today_open > 0 and len(today_close_arr) > 0:
+        close_after_30_min = today_close_arr[-1]
+        post_gap_momentum_30min = (close_after_30_min / today_open) - 1
+        
+    return gap_return, post_gap_momentum_30min
+
+@numba.njit(cache=True)
+def _numba_calculate_continuous_data_metrics(
+    prev_close: float, today_open: float, today_close_arr: np.ndarray
+) -> Tuple[float, float]:
+    """
+    【Numba优化版】计算跳空回报率和缺口后动量。
+    """
+    gap_return = np.nan
+    if prev_close > 0:
+        gap_return = (today_open / prev_close) - 1
+        
+    post_gap_momentum_30min = np.nan
+    if today_open > 0 and len(today_close_arr) > 0:
+        close_after_30_min = today_close_arr[-1]
+        post_gap_momentum_30min = (close_after_30_min / today_open) - 1
+        
+    return gap_return, post_gap_momentum_30min
+
+@numba.njit(cache=True)
+def _numba_calculate_atr_interaction_metrics(
+    day_high: float, day_low: float, atr_5: float, atr_14: float, atr_50: float,
+    day_close: float, vwap: float
+) -> Tuple[float, float, float]:
+    """
+    【Numba优化版】计算日内价格行为与日线ATR之间的交互指标。
+    """
+    intraday_range_vs_atr14 = np.nan
+    close_vwap_deviation_normalized = np.nan
+    volatility_expansion_ratio = np.nan
+
+    # 1. 日内振幅 vs ATR14
+    intraday_range = day_high - day_low
+    if atr_14 > 0:
+        intraday_range_vs_atr14 = intraday_range / atr_14
+
+    # 2. 收盘价与VWAP的偏离度 (ATR标准化)
+    if atr_14 > 0:
+        close_vwap_deviation_normalized = (day_close - vwap) / atr_14
+
+    # 3. 短期与长期波动率扩张比
+    if atr_50 > 0:
+        volatility_expansion_ratio = atr_5 / atr_50
+        
+    return intraday_range_vs_atr14, close_vwap_deviation_normalized, volatility_expansion_ratio
+
+@numba.njit(cache=True)
+def _numba_calculate_prev_day_interaction_metrics(
+    today_vpoc: float, today_vah: float, today_val: float,
+    day_close: float, day_open: float,
+    prev_vpoc: float, prev_vah: float, prev_val: float, prev_atr: float
+) -> Tuple[float, float, float, float]:
+    """
+    【Numba优化版】计算当日市场行为与前一日关键结构位（如价值区）的交互指标。
+    """
+    value_area_migration = np.nan
+    value_area_overlap_pct = np.nan
+    closing_acceptance_type = np.nan
+    opening_position_vs_prev_va = np.nan
+
+    # 2. 计算价值区迁移 (Value Area Migration)
+    if not np.isnan(today_vpoc) and not np.isnan(prev_vpoc) and not np.isnan(prev_atr) and prev_atr > 0:
+        value_area_migration = (today_vpoc - prev_vpoc) / prev_atr
+
+    # 3. 计算价值区重叠度 (Value Area Overlap)
+    if not np.isnan(today_vah) and not np.isnan(today_val) and not np.isnan(prev_vah) and not np.isnan(prev_val):
+        today_va_height = today_vah - today_val
+        if today_va_height > 0:
+            overlap_width = max(0.0, min(today_vah, prev_vah) - max(today_val, prev_val))
+            value_area_overlap_pct = (overlap_width / today_va_height) * 100
+
+    # 4. 计算收盘接受度类型 (Closing Acceptance Type)
+    if not np.isnan(day_close) and not np.isnan(today_vpoc) and not np.isnan(today_vah) and not np.isnan(today_val):
+        if day_close > today_vah:
+            closing_acceptance_type = 2.0
+        elif day_close > today_vpoc:
+            closing_acceptance_type = 1.0
+        elif day_close < today_val:
+            closing_acceptance_type = -2.0
+        elif day_close < today_vpoc:
+            closing_acceptance_type = -1.0
+        else:
+            closing_acceptance_type = 0.0
+
+    # 5. 计算开盘位置 vs 前日价值区
+    if not np.isnan(day_open) and not np.isnan(prev_vah) and not np.isnan(prev_val):
+        if day_open > prev_vah:
+            opening_position_vs_prev_va = 2.0
+        elif day_open > prev_val:
+            opening_position_vs_prev_va = 1.0
+        else:
+            opening_position_vs_prev_va = -1.0
+            
+    return value_area_migration, value_area_overlap_pct, closing_acceptance_type, opening_position_vs_prev_va
+
 class AdvancedStructuralMetricsService:
     """
     【V1.0 · 结构与行为锻造中心】
@@ -37,6 +286,7 @@ class AdvancedStructuralMetricsService:
         """
         self.max_lookback_days = 300 # 为计算衍生指标所需的最大回溯天数
         self.debug_params = debug_params if debug_params is not None else {} # 接收并存储调试参数
+
     async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame, intraday_data_map: dict):
         """
         【V3.0 · 纯计算引擎版】高级结构与行为指标预计算总指挥
@@ -72,6 +322,7 @@ class AdvancedStructuralMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
+
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
         【V1.0】初始化计算上下文，确定股票实体、目标模型、计算模式和日期范围。
@@ -104,6 +355,7 @@ class AdvancedStructuralMetricsService:
                 fetch_start_date = None
                 
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
         【V2.4 · 范围查询修正版】
@@ -178,6 +430,7 @@ class AdvancedStructuralMetricsService:
                     minute_df_fallback['date'] = minute_df_fallback['trade_time'].dt.date
                     intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
         return intraday_data_map
+
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
         【V46.0 · 潜龙在渊】
@@ -270,6 +523,7 @@ class AdvancedStructuralMetricsService:
         new_metrics_df.set_index('trade_time', inplace=True)
         final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
         return final_metrics_df
+
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame,
                                             tick_df: pd.DataFrame | None, level5_df: pd.DataFrame | None,
                                             realtime_df: pd.DataFrame | None, daily_info: pd.Series,
@@ -335,6 +589,7 @@ class AdvancedStructuralMetricsService:
             **derivative_metrics,
         }
         return all_metrics
+
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1 · 导数净化版】为所有核心结构指标计算斜率和加速度。
@@ -368,6 +623,7 @@ class AdvancedStructuralMetricsService:
         # 将衍生指标合并回原始指标DataFrame
         final_df = metrics_df.join(derivatives_df)
         return final_df
+
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V1.1 · 索引修复版】从数据库加载并净化历史高级结构指标。
@@ -394,6 +650,7 @@ class AdvancedStructuralMetricsService:
                 # 'trade_time' 已成为索引，不再是列，因此无需在循环中进行特殊处理
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V37.10 · 动态因子健壮性修正】
@@ -424,6 +681,7 @@ class AdvancedStructuralMetricsService:
         else:
             df['vpin_roc3'] = np.nan
         return df
+
     def _create_continuous_minute_data(self, group: pd.DataFrame) -> pd.DataFrame:
         """
         【V31.0 · 索引访问模式统一】
@@ -446,6 +704,7 @@ class AdvancedStructuralMetricsService:
         continuous_group['minute_vwap'] = (continuous_group['amount'] / continuous_group['vol']).where(continuous_group['vol'] > 0, np.nan)
         # 移除 reset_index 和 rename，保持 DatetimeIndex
         return continuous_group
+
     def _calculate_trend_metrics(self, price_series: pd.Series) -> tuple[float, float]:
         """
         【V30.8 · 新增辅助函数】
@@ -454,28 +713,15 @@ class AdvancedStructuralMetricsService:
         - 趋势质量: 回归的R平方值。
         :param price_series: 分钟收盘价序列。
         :return: (趋势强度, 趋势质量) 的元组。
+        - 核心优化: 使用Numba优化后的趋势指标计算函数。
         """
         # 检查输入数据是否有效，至少需要两个点才能拟合一条直线
         cleaned_series = price_series.dropna()
         if len(cleaned_series) < 2:
             return 0.0, 0.0
-        # 如果所有价格都相同，则没有趋势，但趋势质量是完美的（一条平线）
-        if cleaned_series.nunique() == 1:
-            return 0.0, 1.0
-        y = cleaned_series.values
-        x = np.arange(len(y))
-        # 使用numpy的polyfit进行1次多项式拟合（即线性回归）
-        slope, intercept = np.polyfit(x, y, 1)
-        # 计算R平方值来评估拟合优度（趋势质量）
-        predicted_y = slope * x + intercept
-        residuals = y - predicted_y
-        ss_res = np.sum(residuals**2)  # 残差平方和
-        ss_tot = np.sum((y - np.mean(y))**2)  #总体平方和
-        if ss_tot == 0:
-            # 避免除以零，这种情况在nunique检查中已处理，但作为双重保险
-            return 0.0, 1.0
-        r_squared = 1 - (ss_res / ss_tot)
-        return slope, r_squared
+        # 调用Numba优化函数
+        return _numba_calculate_trend_metrics(cleaned_series.values)
+
     def _calculate_mean_reversion_speed(self, price_series: pd.Series) -> float:
         """
         【V30.9 · 新增辅助函数】
@@ -483,31 +729,14 @@ class AdvancedStructuralMetricsService:
         基于Ornstein-Uhlenbeck过程的离散化模型，通过回归价格变化与滞后价格来计算。
         :param price_series: 分钟收盘价序列。
         :return: 均值回归速度。正值表示存在均值回归，值越大速度越快。
+        - 核心优化: 使用Numba优化后的均值回归速度计算函数。
         """
-        # 清理数据并确保有足够的数据点进行回归
         cleaned_series = price_series.dropna()
         if len(cleaned_series) < 2:
             return 0.0
-        # 计算价格变化 ΔP(t)
-        price_changes = cleaned_series.diff().dropna()
-        # 获取滞后价格 P(t-1)
-        lagged_prices = cleaned_series.shift(1).dropna()
-        # 确保两者对齐
-        if len(price_changes) != len(lagged_prices):
-            # 在diff和shift之后，长度应该是一样的，但为了健壮性再做一次对齐
-            common_index = price_changes.index.intersection(lagged_prices.index)
-            price_changes = price_changes.loc[common_index]
-            lagged_prices = lagged_prices.loc[common_index]
-        if len(price_changes) < 2:
-            return 0.0
-        # 对 ΔP(t) = α + β * P(t-1) + ε 进行线性回归
-        # y 是价格变化, x 是滞后价格
-        y = price_changes.values
-        x = lagged_prices.values
-        # 使用numpy的polyfit进行线性回归，得到斜率β
-        slope, _ = np.polyfit(x, y, 1)
-        # 均值回归速度定义为 -slope
-        return -slope
+        # 调用Numba优化函数
+        return _numba_calculate_mean_reversion_speed(cleaned_series.values)
+
     def _calculate_tpo_metrics(self, group: pd.DataFrame) -> dict:
         """
         【V30.10 · 新增辅助函数】
@@ -516,6 +745,7 @@ class AdvancedStructuralMetricsService:
         - Value Area (VA): 包含当日70%成交量的价格区域。
         :param group: 包含'close'和'vol'列的日内分钟数据DataFrame。
         :return: 包含VPOC, VAH, VAL的字典。
+        - 核心优化: 使用Numba优化后的TPO指标计算函数。
         """
         if group.empty or 'vol' not in group.columns or group['vol'].sum() == 0:
             return {
@@ -523,55 +753,17 @@ class AdvancedStructuralMetricsService:
                 '_today_vah': np.nan,
                 '_today_val': np.nan,
             }
-        # 1. 构建成交量分布图
-        volume_profile = group.groupby('close')['vol'].sum().sort_index()
-        if volume_profile.empty:
-            return {
-                '_today_vpoc': np.nan,
-                '_today_vah': np.nan,
-                '_today_val': np.nan,
-            }
-        # 2. 确定VPOC
-        vpoc = volume_profile.idxmax()
-        # 3. 计算价值区 (VAH, VAL)
-        total_volume = volume_profile.sum()
-        value_area_target_volume = total_volume * 0.7
-        # 初始化搜索范围
-        value_area_prices = [vpoc]
-        current_volume_in_area = volume_profile.loc[vpoc]
-        # 获取VPOC上下方的价格索引
-        prices_below_vpoc = volume_profile.index[volume_profile.index < vpoc]
-        prices_above_vpoc = volume_profile.index[volume_profile.index > vpoc]
-        # 双指针，从紧邻VPOC的价格开始
-        below_ptr = len(prices_below_vpoc) - 1
-        above_ptr = 0
-        while current_volume_in_area < value_area_target_volume:
-            vol_below = 0
-            if below_ptr >= 0:
-                price_below = prices_below_vpoc[below_ptr]
-                vol_below = volume_profile.loc[price_below]
-            vol_above = 0
-            if above_ptr < len(prices_above_vpoc):
-                price_above = prices_above_vpoc[above_ptr]
-                vol_above = volume_profile.loc[price_above]
-            if vol_below == 0 and vol_above == 0:
-                break # 没有更多价格可以添加
-            # 贪心策略：总是添加下一个成交量更大的价格点
-            if vol_above > vol_below:
-                value_area_prices.append(price_above)
-                current_volume_in_area += vol_above
-                above_ptr += 1
-            else:
-                value_area_prices.append(price_below)
-                current_volume_in_area += vol_below
-                below_ptr -= 1
-        vah = max(value_area_prices)
-        val = min(value_area_prices)
+        # 提取NumPy数组
+        close_arr = group['close'].values
+        vol_arr = group['vol'].values
+        # 调用Numba优化函数
+        vpoc, vah, val = _numba_calculate_tpo_metrics(close_arr, vol_arr)
         return {
             '_today_vpoc': vpoc,
             '_today_vah': vah,
             '_today_val': val,
         }
+
     def _calculate_continuous_data_metrics(self, continuous_group: pd.DataFrame) -> dict:
         """
         【V30.12 · 索引健壮性修复】
@@ -580,6 +772,7 @@ class AdvancedStructuralMetricsService:
                     从'trade_time'列获取日期信息，以避免AttributeError。
         :param continuous_group: 由前一日后半段和当日前半段拼接的分钟数据DataFrame。
         :return: 包含跳空回报率和缺口后动量的字典。
+        - 核心优化: 使用Numba优化后的跳空回报率和缺口后动量计算函数。
         """
         metrics = {
             'gap_return': np.nan,
@@ -588,17 +781,14 @@ class AdvancedStructuralMetricsService:
         if continuous_group is None or continuous_group.empty or len(continuous_group) < 2:
             return metrics
         # 1. 识别两个交易日
-        # 增加索引类型检查，使其更健壮
         if isinstance(continuous_group.index, pd.DatetimeIndex):
             trade_dates = continuous_group.index.date
         elif 'trade_time' in continuous_group.columns:
             trade_dates = pd.to_datetime(continuous_group['trade_time']).dt.date
         else:
-            # 如果既没有时间戳索引，也没有trade_time列，则无法继续
             return metrics
         unique_dates = np.unique(trade_dates)
         if len(unique_dates) != 2:
-            # 数据不符合跨日连续数据的定义
             return metrics
         # 2. 拆分数据并获取关键价格
         prev_day_data = continuous_group[trade_dates == unique_dates[0]]
@@ -607,17 +797,17 @@ class AdvancedStructuralMetricsService:
             return metrics
         prev_close = prev_day_data['close'].iloc[-1]
         today_open = today_data['open'].iloc[0]
-        # 3. 计算跳空回报率
-        if prev_close > 0:
-            metrics['gap_return'] = (today_open / prev_close) - 1
-        # 4. 计算缺口后30分钟动量
-        if today_open > 0:
-            # 截取今日开盘后30分钟的数据
-            first_30_min_data = today_data.head(30)
-            if not first_30_min_data.empty:
-                close_after_30_min = first_30_min_data['close'].iloc[-1]
-                metrics['post_gap_momentum_30min'] = (close_after_30_min / today_open) - 1
+        # 截取今日开盘后30分钟的数据
+        first_30_min_data = today_data.head(30)
+        today_close_arr = first_30_min_data['close'].values if not first_30_min_data.empty else np.array([])
+        # 调用Numba优化函数
+        gap_return, post_gap_momentum_30min = _numba_calculate_continuous_data_metrics(
+            prev_close, today_open, today_close_arr
+        )
+        metrics['gap_return'] = gap_return
+        metrics['post_gap_momentum_30min'] = post_gap_momentum_30min
         return metrics
+
     def _calculate_atr_interaction_metrics(self, group: pd.DataFrame, atr_5: float, atr_14: float, atr_50: float) -> dict:
         """
         【V30.13 · 新增辅助函数】
@@ -627,6 +817,7 @@ class AdvancedStructuralMetricsService:
         :param atr_14: 14日ATR。
         :param atr_50: 50日ATR。
         :return: 包含ATR交互指标的字典。
+        - 核心优化: 使用Numba优化后的ATR交互指标计算函数。
         """
         metrics = {
             'intraday_range_vs_atr14': np.nan,
@@ -635,23 +826,22 @@ class AdvancedStructuralMetricsService:
         }
         if group.empty:
             return metrics
-        # 1. 日内振幅 vs ATR14
         day_high = group['high'].max()
         day_low = group['low'].min()
-        intraday_range = day_high - day_low
-        if pd.notna(atr_14) and atr_14 > 0:
-            metrics['intraday_range_vs_atr14'] = intraday_range / atr_14
-        # 2. 收盘价与VWAP的偏离度 (ATR标准化)
         day_close = group['close'].iloc[-1]
         total_volume = group['vol'].sum()
         total_amount = group['amount'].sum()
         vwap = total_amount / total_volume if total_volume > 0 else day_close
-        if pd.notna(atr_14) and atr_14 > 0:
-            metrics['close_vwap_deviation_normalized'] = (day_close - vwap) / atr_14
-        # 3. 短期与长期波动率扩张比
-        if pd.notna(atr_5) and pd.notna(atr_50) and atr_50 > 0:
-            metrics['volatility_expansion_ratio'] = atr_5 / atr_50
+        # 调用Numba优化函数
+        intraday_range_vs_atr14, close_vwap_deviation_normalized, volatility_expansion_ratio = \
+            _numba_calculate_atr_interaction_metrics(
+                day_high, day_low, atr_5, atr_14, atr_50, day_close, vwap
+            )
+        metrics['intraday_range_vs_atr14'] = intraday_range_vs_atr14
+        metrics['close_vwap_deviation_normalized'] = close_vwap_deviation_normalized
+        metrics['volatility_expansion_ratio'] = volatility_expansion_ratio
         return metrics
+
     def _calculate_prev_day_interaction_metrics(self, group: pd.DataFrame, prev_day_metrics: dict) -> dict:
         """
         【V30.14 · 新增辅助函数】
@@ -659,6 +849,7 @@ class AdvancedStructuralMetricsService:
         :param group: 日内分钟数据DataFrame。
         :param prev_day_metrics: 包含前一日VPOC, VAH, VAL, ATR的字典。
         :return: 包含交互指标的字典。
+        - 核心优化: 使用Numba优化后的前一日交互指标计算函数。
         """
         metrics = {
             'value_area_migration': np.nan,
@@ -679,36 +870,18 @@ class AdvancedStructuralMetricsService:
         prev_vah = prev_day_metrics.get('vah')
         prev_val = prev_day_metrics.get('val')
         prev_atr = prev_day_metrics.get('atr_14d')
-        # 2. 计算价值区迁移 (Value Area Migration)
-        if all(pd.notna(v) for v in [today_vpoc, prev_vpoc, prev_atr]) and prev_atr > 0:
-            metrics['value_area_migration'] = (today_vpoc - prev_vpoc) / prev_atr
-        # 3. 计算价值区重叠度 (Value Area Overlap)
-        if all(pd.notna(v) for v in [today_vah, today_val, prev_vah, prev_val]):
-            today_va_height = today_vah - today_val
-            if today_va_height > 0:
-                overlap_width = max(0, min(today_vah, prev_vah) - max(today_val, prev_val))
-                metrics['value_area_overlap_pct'] = (overlap_width / today_va_height) * 100
-        # 4. 计算收盘接受度类型 (Closing Acceptance Type)
-        if all(pd.notna(v) for v in [day_close, today_vpoc, today_vah, today_val]):
-            if day_close > today_vah:
-                metrics['closing_acceptance_type'] = 2  # 强势接受于价值区之上
-            elif day_close > today_vpoc:
-                metrics['closing_acceptance_type'] = 1  # 接受于价值区上半区
-            elif day_close < today_val:
-                metrics['closing_acceptance_type'] = -2 # 强势拒绝于价值区之下
-            elif day_close < today_vpoc:
-                metrics['closing_acceptance_type'] = -1 # 接受于价值区下半区
-            else:
-                metrics['closing_acceptance_type'] = 0  # 接受于VPOC
-        # 5. 计算开盘位置 vs 前日价值区
-        if all(pd.notna(v) for v in [day_open, prev_vah, prev_val]):
-            if day_open > prev_vah:
-                metrics['opening_position_vs_prev_va'] = 2 # 开在价值区之上
-            elif day_open > prev_val:
-                metrics['opening_position_vs_prev_va'] = 1 # 开在价值区之内
-            else:
-                metrics['opening_position_vs_prev_va'] = -1 # 开在价值区之下
+        # 调用Numba优化函数
+        value_area_migration, value_area_overlap_pct, closing_acceptance_type, opening_position_vs_prev_va = \
+            _numba_calculate_prev_day_interaction_metrics(
+                today_vpoc, today_vah, today_val, day_close, day_open,
+                prev_vpoc, prev_vah, prev_val, prev_atr
+            )
+        metrics['value_area_migration'] = value_area_migration
+        metrics['value_area_overlap_pct'] = value_area_overlap_pct
+        metrics['closing_acceptance_type'] = closing_acceptance_type
+        metrics['opening_position_vs_prev_va'] = opening_position_vs_prev_va
         return metrics
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V30.21 · 持久化类型修复】
