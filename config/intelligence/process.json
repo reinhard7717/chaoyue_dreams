@@ -678,44 +678,43 @@
             }
         ],
         "wash_out_rebound_params": {
-            "description": "【V2.4 · 深度情境感知版】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。",
+            "description": "【V2.5 · 深度情境与多维洗盘反弹版】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。",
             "fusion_weights": {
-            "deception_context": 0.3,
-            "panic_depth": 0.3,
-            "rebound_quality": 0.4
+                "deception_context": 0.3,
+                "panic_depth": 0.3,
+                "rebound_quality": 0.4
             },
             "deception_context_weights": {
-            "wash_trade": 0.2,
-            "active_selling": 0.15,
-            "fused_deception": 0.2,
-            "behavior_deception_index": 0.2,
-            "stealth_ops": 0.15,
-            "wash_trade_slope": 0.05,
-            "active_selling_slope": 0.05
+                "wash_trade": 0.2,
+                "active_selling": 0.15,
+                "deception_lure_short": 0.2,
+                "behavior_deception_index": 0.2,
+                "stealth_ops": 0.15,
+                "wash_trade_slope": 0.05,
+                "active_selling_slope": 0.05
             },
             "panic_depth_weights": {
-            "panic_cascade": 0.2,
-            "retail_surrender": 0.2,
-            "loser_pain": 0.2,
-            "holder_sentiment_inverted": 0.15,
-            "sentiment_pendulum_negative": 0.15,
-            "retail_surrender_slope": 0.05,
-            "loser_pain_slope": 0.05
+                "panic_cascade": 0.2,
+                "retail_surrender": 0.2,
+                "loser_pain": 0.2,
+                "holder_sentiment_inverted": 0.15,
+                "sentiment_pendulum_negative": 0.15,
+                "retail_surrender_slope": 0.075,
+                "loser_pain_slope": 0.075
             },
             "rebound_quality_weights": {
-            "offensive_absorption_intent": 0.2,
-            "closing_strength": 0.15,
-            "upward_purity": 0.15,
-            "absorption_strength": 0.2,
-            "offensive_absorption": 0.15,
-            "mf_buy_execution_alpha": 0.05,
-            "buy_sweep_intensity": 0.1
+                "closing_strength": 0.15,
+                "upward_purity": 0.15,
+                "absorption_strength": 0.3,
+                "offensive_absorption": 0.25,
+                "mf_buy_execution_alpha": 0.05,
+                "buy_sweep_intensity": 0.1
             },
             "context_amplification_weights": {
-            "trend_form": 0.4,
-            "stability": 0.3,
-            "tension": 0.15,
-            "mtf_cohesion": 0.15
+                "trend_form": 0.4,
+                "stability": 0.3,
+                "tension": 0.15,
+                "mtf_cohesion": 0.15
             },
             "max_context_bonus_factor": 0.5
         },
