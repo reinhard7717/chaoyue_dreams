@@ -1490,25 +1490,6 @@ class ProcessIntelligence:
         potential_gate_mask = historical_potential > potential_gate
         potential_modulator = (1 + historical_potential * potential_amplifier)
         final_score = (base_score * potential_modulator).where(potential_gate_mask, 0.0)
-        # --- 调试信息 ---
-        print(f"      [探针] {method_name} @ {df.index[-1].strftime('%Y-%m-%d')}:")
-        print(f"        - mtf_price_trend_norm: {mtf_price_trend_norm.iloc[-1]:.4f}")
-        print(f"        - mtf_concentration_trend_norm: {mtf_concentration_trend_norm.iloc[-1]:.4f}")
-        print(f"        - mtf_peak_solidity_trend_norm: {mtf_peak_solidity_trend_norm.iloc[-1]:.4f}")
-        print(f"        - mtf_cost_advantage_norm: {mtf_cost_advantage_norm.iloc[-1]:.4f}")
-        print(f"        - volume_atrophy_score: {volume_atrophy_score.iloc[-1]:.4f}")
-        print(f"        - power_transfer_score: {power_transfer_score.iloc[-1]:.4f}")
-        print(f"        - split_order_accumulation_score: {split_order_accumulation_score.iloc[-1]:.4f}")
-        print(f"        - stability_score: {stability_score.iloc[-1]:.4f}")
-        print(f"        - upward_purity: {upward_purity.iloc[-1]:.4f}")
-        print(f"        - suppressive_score (raw): {suppressive_score.iloc[-1]:.4f}")
-        print(f"        - consolidative_score (raw): {consolidative_score.iloc[-1]:.4f}")
-        print(f"        - gentle_push_score (raw): {gentle_push_score.iloc[-1]:.4f}")
-        print(f"        - base_score: {base_score.iloc[-1]:.4f}")
-        print(f"        - historical_potential: {historical_potential.iloc[-1]:.4f}")
-        print(f"        - potential_gate_mask: {potential_gate_mask.iloc[-1]}")
-        print(f"        - potential_modulator: {potential_modulator.iloc[-1]:.4f}")
-        print(f"        - final_score: {final_score.iloc[-1]:.4f}")
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
         self.strategy.atomic_states["_DEBUG_accum_gentle_push_score"] = gentle_push_score
@@ -2264,11 +2245,9 @@ class ProcessIntelligence:
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-
         if not self._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index)
-
         df_index = df.index
         # 获取原料
         flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
@@ -2283,20 +2262,16 @@ class ProcessIntelligence:
         prelude_score_base = self._normalize_series(mtf_hidden_accumulation.rolling(5).mean(), df_index, bipolar=False)
         # 确保主力资金净流入趋势为正向才贡献
         prelude_score = (prelude_score_base * mtf_mf_net_flow_slope.clip(lower=0)).pow(0.5)
-
         # --- 2. 重铸“强攻分”，采用加权模型并引入资金流可信度 ---
         mtf_buy_exhaustion = self._get_mtf_slope_accel_score(df, 'buy_quote_exhaustion_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_large_pressure = self._get_mtf_slope_accel_score(df, 'large_order_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_active_buying_support = self._get_mtf_slope_accel_score(df, 'active_buying_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False) # 新增
-
         # 重新定义 pressure_exhaustion_synergy：大单压力与买盘枯竭的协同性，两者都高时应惩罚
         # 当大单压力和买盘枯竭都高时，协同性高，意味着强攻阻力大，应惩罚
         pressure_exhaustion_synergy = (mtf_large_pressure * mtf_buy_exhaustion).pow(0.5)
-
         # 主力资金流向动量：使用MTF融合信号
         mtf_main_force_flow_momentum = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-
         attack_score = (
             (1 - mtf_buy_exhaustion) * 0.2 + # 买盘韧性，枯竭度越低越好
             mtf_main_force_flow_momentum.clip(lower=0) * 0.25 + # 主力资金流入加速
@@ -2305,10 +2280,8 @@ class ProcessIntelligence:
             mtf_active_buying_support * 0.2 + # 主动买盘支持
             (1 - pressure_exhaustion_synergy) * -0.2 # 惩罚大单压力与买盘枯竭的协同性，权重增加
         ).clip(0, 1) # 确保分数在 [0, 1] 之间
-
         # --- 3. 最终审判 ---
         final_score = (prelude_score * attack_score).fillna(0.0)
-
         # --- 调试信息 ---
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
@@ -2331,7 +2304,6 @@ class ProcessIntelligence:
             print("  [最终结果]: ")
             print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
-
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
