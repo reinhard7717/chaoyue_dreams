@@ -144,8 +144,8 @@ def _numba_fft_energy_ratio(x: np.ndarray, low_freq_cutoff_ratio: float, high_fr
     if N < 2:
         return np.nan
     
-    # Numba 0.58+ 支持 np.fft.fft
-    yf = np.fft.fft(x)
+    # 使用直接导入的fft函数
+    yf = fft(x) # <--- 确保这里是 fft(x) 而不是 np.fft.fft(x)
     
     # 取正频率部分
     yf_abs = np.abs(yf[:N//2])
@@ -155,7 +155,7 @@ def _numba_fft_energy_ratio(x: np.ndarray, low_freq_cutoff_ratio: float, high_fr
         return np.nan
         
     low_freq_idx = int(N * low_freq_cutoff_ratio)
-    high_freq_idx = int(N * high_freq_cutoff_ratio)
+    # high_freq_idx = int(N * high_freq_cutoff_ratio) # 此行在当前逻辑中未使用，可以保留或移除
     
     low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
     
