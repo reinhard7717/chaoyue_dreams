@@ -1020,16 +1020,7 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     s_bear = bipolar_score.clip(upper=0).abs()
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
-def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
-    is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
-    if is_debug_enabled and probe_ts:
-        print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-        if probe_ts in series.index:
-            print(f"         - 原始值: {series.loc[probe_ts]:.4f}")
-    if not isinstance(series, pd.Series) or series.empty:
-        if is_debug_enabled and probe_ts:
-            print(f"         - 警告: 原始Series为空，返回0。")
-        return pd.Series(default_value, index=target_index)
+def _parse_tf_weights(tf_weights: dict) -> Tuple[List[int], List[Tuple[int, float]]]:
     valid_windows_weights = []
     windows_list = []
     for window_str, weight in tf_weights.items():
@@ -1041,11 +1032,26 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
         if window > 0 and weight > 0:
             valid_windows_weights.append((window, weight))
             windows_list.append(window)
+    return windows_list, valid_windows_weights
+
+def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None, _parsed_tf_data: Optional[Tuple[List[int], List[Tuple[int, float]]]] = None) -> pd.Series:
+    is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
+    if is_debug_enabled and probe_ts:
+        print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
+        if probe_ts in series.index:
+            print(f"         - 原始值: {series.loc[probe_ts]:.4f}")
+    if not isinstance(series, pd.Series) or series.empty:
+        if is_debug_enabled and probe_ts:
+            print(f"         - 警告: 原始Series为空，返回0。")
+        return pd.Series(default_value, index=target_index)
+    if _parsed_tf_data is None:
+        windows_list, valid_windows_weights = _parse_tf_weights(tf_weights)
+    else:
+        windows_list, valid_windows_weights = _parsed_tf_data
     if not valid_windows_weights:
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 没有有效的窗口权重，返回0。")
         return pd.Series(0.0, index=target_index)
-    # 一次性调用 normalize_score 计算所有窗口的结果
     normalized_scores_df = normalize_score(series, target_index, windows_list, ascending, default_value, debug_info)
     final_scores = pd.Series(0.0, index=target_index, dtype=np.float32)
     for window, weight in valid_windows_weights:
@@ -1060,7 +1066,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
         print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_score 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
     return final_score
 
-def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
+def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, sensitivity: float = 1.0, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None, _parsed_tf_data: Optional[Tuple[List[int], List[Tuple[int, float]]]] = None) -> pd.Series:
     is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if is_debug_enabled and probe_ts:
         print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_bipolar_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
@@ -1070,23 +1076,14 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 原始Series为空，返回0。")
         return pd.Series(default_value, index=target_index)
-    valid_windows_weights = []
-    windows_list = []
-    for window_str, weight in tf_weights.items():
-        try:
-            window = int(window_str)
-        except ValueError:
-            print(f"警告: 无法将MTF权重配置中的周期 '{window_str}' 转换为整数。跳过此项。")
-            continue
-        if window > 0 and weight > 0:
-            valid_windows_weights.append((window, weight))
-            windows_list.append(window)
+    if _parsed_tf_data is None:
+        windows_list, valid_windows_weights = _parse_tf_weights(tf_weights)
+    else:
+        windows_list, valid_windows_weights = _parsed_tf_data
     if not valid_windows_weights:
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 没有有效的窗口权重，返回0。")
         return pd.Series(default_value, index=target_index)
-    # 一次性调用 normalize_to_bipolar 计算所有窗口的结果
-    # 修正：将 default_value 传递给 normalize_to_bipolar
     normalized_scores_df = normalize_to_bipolar(series, target_index, windows_list, sensitivity, default_value, debug_info)
     final_scores = pd.Series(0.0, index=target_index, dtype=np.float32)
     for window, weight in valid_windows_weights:
@@ -1273,8 +1270,6 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     # 如果某个日期所有组件都为0，则结果为0。
     aligned_scores = {name: score.reindex(df_index).fillna(0.0) for name, score in scores_dict.items()}
     score_df = pd.DataFrame(aligned_scores, index=df_index)
-    # 优化: 移除冗余的 pd.to_numeric 和 fillna，因为 aligned_scores 已经确保了数值类型和填充
-    # score_df = score_df.apply(pd.to_numeric, errors='coerce').fillna(0.0) # 移除此行
     # 优化：一次性构建 dynamic_weights_df，避免循环中逐列赋值
     weights_data = {}
     for col_name in score_df.columns:
@@ -1287,15 +1282,12 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
             weights_data[col_name] = pd.Series(weight_val, index=df_index, dtype=np.float32)
     dynamic_weights_df = pd.DataFrame(weights_data)
     is_valid = (score_df > 1e-9)
-    # 计算 sum_valid_weights，现在它将是数值类型
-    weighted_validity_df = is_valid.mul(dynamic_weights_df)
-    sum_valid_weights = weighted_validity_df.sum(axis=1)
+    # 优化：合并计算 sum_valid_weights，避免创建中间 DataFrame weighted_validity_df
+    sum_valid_weights = (is_valid * dynamic_weights_df).sum(axis=1)
     log_scores_df = np.log(score_df.where(is_valid, np.nan))
-    # 使用动态权重 DataFrame 进行加权
-    weighted_log_scores_df = log_scores_df.mul(dynamic_weights_df)
-    sum_weighted_log_scores = weighted_log_scores_df.sum(axis=1)
+    # 优化：合并计算 sum_weighted_log_scores，避免创建中间 DataFrame weighted_log_scores_df
+    sum_weighted_log_scores = (log_scores_df * dynamic_weights_df).sum(axis=1)
     # 确保 sum_valid_weights 是数值类型，并处理接近0的值
-    # np.isclose 应该能正常工作，因为 sum_valid_weights 现在是数值 Series
     sum_valid_weights_safe = sum_valid_weights.mask(np.isclose(sum_valid_weights, 0), np.nan)
     exponent = sum_weighted_log_scores / sum_valid_weights_safe
     result = np.exp(exponent).fillna(0.0)
