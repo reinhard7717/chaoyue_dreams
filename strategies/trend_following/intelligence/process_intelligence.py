@@ -1932,7 +1932,8 @@ class ProcessIntelligence:
         # 获取配置参数
         params = get_param_value(config.get('winner_conviction_params'), {})
         relative_position_weights = get_param_value(params.get('relative_position_weights'), {"winner_stability_high": 0.6, "profit_taking_flow_low": 0.4})
-        context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {"market_sentiment": 0.4, "volatility_inverse": 0.3, "trend_vitality": 0.3})
+        # 修正：更新 context_modulator_weights 的默认值键名
+        context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {"market_sentiment": 0.4, "volatility_stability": 0.3, "trend_vitality": 0.3})
         final_exponent = get_param_value(params.get('final_exponent'), 1.5)
         final_fusion_gm_weights = get_param_value(params.get('final_fusion_gm_weights'), {
             "conviction_magnitude": 0.3,
@@ -2036,9 +2037,21 @@ class ProcessIntelligence:
         # 市场情绪、波动率、趋势活力等对信念的影响
         norm_market_sentiment = self._normalize_series(market_sentiment_raw, df_index, bipolar=True)
         
-        # 修正：将 volatility_instability_raw 视为负向指标，即值越小越好，因此对其进行反向处理后进行正向归一化
-        # 这样，低不稳定性（高稳定性）将得到高分
-        volatility_stability_raw = 1 - normalize_score(volatility_instability_raw, df_index, ascending=True) # 将不稳定性转换为稳定性，并归一化到 [0, 1]
+        # 修正：将 volatility_instability_raw 视为负向指标，即值越小越好，因此对其进行反向处理后进行正向归一化。
+        # 这样，低不稳定性（高稳定性）将得到高分。
+        # 明确提供 windows 参数，使用 21 作为窗口，因为 VOLATILITY_INSTABILITY_INDEX_21d_D 是一个21天的指标。
+        # 同时传递 debug_info。
+        volatility_stability_raw = 1 - normalize_score(
+            volatility_instability_raw, 
+            df_index, 
+            21, # 明确指定 windows 参数
+            ascending=True,
+            debug_info=(is_debug_enabled, probe_ts_for_debug, method_name + "_volatility_stability_raw_norm")
+        ) # 将不稳定性转换为稳定性，并归一化到 [0, 1]
+        
+        # 探针：volatility_stability_raw 的值
+        self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - volatility_stability_raw (after 1-norm)", volatility_stability_raw)
+
         norm_volatility_stability = self._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
         
         norm_trend_vitality = self._normalize_series(trend_vitality_raw, df_index, bipolar=False) # 趋势活力越高越好
