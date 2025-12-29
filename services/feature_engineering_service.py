@@ -44,16 +44,20 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
                     continue
                 Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
                 count += 1
+        
         if count > 0 and Lk_sum > 0:
             L[k_idx] = np.log(Lk_sum / count / k)
         else:
-            L[k_idx] = np.nan            
+            L[k_idx] = np.nan
+            
     valid_L_indices = np.where(~np.isnan(L))[0]
     if len(valid_L_indices) < 2:
         return np.nan
+        
     valid_L = L[valid_L_indices]
     k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))
-    valid_k_range_log = k_range_log[valid_L_indices]    
+    valid_k_range_log = k_range_log[valid_L_indices]
+    
     try:
         # 手动实现线性回归斜率
         N = len(valid_L)
@@ -61,12 +65,21 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
         sum_y = np.sum(valid_L)
         sum_xy = np.sum(valid_k_range_log * valid_L)
         sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
+        
         denominator_reg = N * sum_x2 - sum_x * sum_x
+        
         if denominator_reg == 0:
-            return np.nan            
+            return np.nan
+            
         slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
+        
         fd = np.abs(slope)
-        return np.clip(fd, 1.0, 2.0)
+        # 核心修复：手动实现标量裁剪，避免np.clip对标量参数的Numba TypingError
+        if fd < 1.0:
+            fd = 1.0
+        elif fd > 2.0:
+            fd = 2.0
+        return fd
     except Exception:
         return np.nan
 
