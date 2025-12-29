@@ -6,8 +6,116 @@ import datetime
 from scipy.signal import find_peaks
 from scipy.stats import entropy, percentileofscore, skew
 from decimal import Decimal
+import numba
 import logging
 logger = logging.getLogger(__name__)
+
+@numba.njit(cache=True)
+def _numba_calculate_gini_coefficient(prices_arr: np.ndarray, weights_arr: np.ndarray) -> float:
+    """
+    【Numba优化版】计算加权Gini系数。
+    输入为NumPy数组，避免Pandas开销。
+    """
+    if weights_arr.sum() <= 0:
+        return np.nan
+    sorted_indices = np.argsort(prices_arr)
+    sorted_prices = prices_arr[sorted_indices]
+    sorted_weights = weights_arr[sorted_indices]
+    non_zero_mask = sorted_weights > 0
+    sorted_prices = sorted_prices[non_zero_mask]
+    sorted_weights = sorted_weights[non_zero_mask]
+    n = len(sorted_prices)
+    if n < 2:
+        return np.nan
+    total_weight = sorted_weights.sum()
+    if total_weight <= 0:
+        return np.nan
+    cum_weight_pct = np.cumsum(sorted_weights) / total_weight
+    total_weighted_price = np.sum(sorted_prices * sorted_weights)
+    if total_weighted_price <= 0:
+        return np.nan
+    cum_price_pct = np.cumsum(sorted_prices * sorted_weights) / total_weighted_price
+    x = np.empty(n + 1, dtype=np.float64)
+    y = np.empty(n + 1, dtype=np.float64)
+    x[0] = 0.0
+    y[0] = 0.0
+    x[1:] = cum_weight_pct
+    y[1:] = cum_price_pct
+    area = 0.0
+    for i in range(n):
+        area += (y[i] + y[i+1]) * (x[i+1] - x[i]) / 2.0
+    return 1.0 - 2.0 * area
+
+@numba.njit(cache=True)
+def _numba_calculate_skew_unweighted_sample(prices_arr: np.ndarray, weights_arr: np.ndarray) -> float:
+    """
+    【Numba优化版】计算非加权样本的偏度。
+    输入为NumPy数组，模拟 np.repeat 和 scipy.stats.skew 的行为。
+    """
+    if weights_arr.sum() <= 0:
+        return np.nan
+    non_zero_mask = weights_arr > 0
+    valid_prices = prices_arr[non_zero_mask]
+    valid_weights = weights_arr[non_zero_mask]
+    n_valid = len(valid_prices)
+    if n_valid < 3:
+        return np.nan
+    total_sample_size = np.sum(valid_weights)
+    if total_sample_size == 0:
+        return np.nan
+    unweighted_sample = np.empty(total_sample_size, dtype=np.float64)
+    current_idx = 0
+    for i in range(n_valid):
+        price = valid_prices[i]
+        weight = int(valid_weights[i])
+        for _ in range(weight):
+            if current_idx < total_sample_size:
+                unweighted_sample[current_idx] = price
+                current_idx += 1
+            else:
+                break
+    if current_idx < 3:
+        return np.nan
+    sample = unweighted_sample[:current_idx]
+    mean = np.mean(sample)
+    std = np.std(sample)
+    if std == 0:
+        return 0.0
+    m3 = np.mean((sample - mean)**3)
+    skewness = m3 / (std**3)
+    return skewness
+
+@numba.njit(cache=True)
+def _numba_calculate_sweeps(trade_types: np.ndarray, prices: np.ndarray, volumes: np.ndarray, block_ids: np.ndarray, min_sweep_len: int) -> Tuple[float, float]:
+    """
+    【Numba优化版】计算买入和卖出扫单量。
+    """
+    buy_sweep_vol = 0.0
+    sell_sweep_vol = 0.0
+    unique_blocks = np.unique(block_ids)
+    for block_id in unique_blocks:
+        block_mask = (block_ids == block_id)
+        block_types = trade_types[block_mask]
+        block_prices = prices[block_mask]
+        block_volumes = volumes[block_mask]
+        if len(block_types) >= min_sweep_len:
+            trade_type = block_types[0]
+            is_monotonic = True
+            if trade_type == 'B':
+                for i in range(1, len(block_prices)):
+                    if block_prices[i] < block_prices[i-1]:
+                        is_monotonic = False
+                        break
+                if is_monotonic:
+                    buy_sweep_vol += np.sum(block_volumes)
+            elif trade_type == 'S':
+                for i in range(1, len(block_prices)):
+                    if block_prices[i] > block_prices[i-1]:
+                        is_monotonic = False
+                        break
+                if is_monotonic:
+                    sell_sweep_vol += np.sum(block_volumes)
+    return buy_sweep_vol, sell_sweep_vol
 
 class ChipFeatureCalculator:
     """
@@ -389,6 +497,7 @@ class ChipFeatureCalculator:
           新模型认为，随着亏损加深，投资者的痛苦感（潜在抛压）会先快速上升，但在亏损巨大时
           （如 > 50%）会因“心理麻木”或“彻底投降”而逐渐衰减，更符合A股散户的行为模式。
         - 核心修复: 移除调试打印。
+        - 核心优化: 使用Numba优化后的Gini系数计算函数。
         """
         from scipy.signal import find_peaks
         from scipy.stats import skew
@@ -453,22 +562,8 @@ class ChipFeatureCalculator:
             results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
         if pd.notna(results['dominant_peak_cost']) and results['dominant_peak_cost'] > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
-        def _calculate_gini_final(prices: pd.Series, weights: pd.Series) -> float:
-            if weights.sum() <= 0: return np.nan
-            prices = prices.astype(float)
-            weights = weights.astype(float)
-            df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
-            df['weight_pct'] = df['weight'] / df['weight'].sum()
-            df['cum_weight_pct'] = df['weight_pct'].cumsum()
-            df['cost_x_weight'] = df['price'] * df['weight_pct']
-            total_weighted_cost = df['cost_x_weight'].sum()
-            if total_weighted_cost <= 0: return np.nan
-            df['cum_cost_pct'] = df['cost_x_weight'].cumsum() / total_weighted_cost
-            x = np.insert(df['cum_weight_pct'].values, 0, 0)
-            y = np.insert(df['cum_cost_pct'].values, 0, 0)
-            area = np.trapz(y, x)
-            return 1 - 2 * area
-        results['cost_gini_coefficient'] = _calculate_gini_final(self.df['price'], self.df['percent'])
+        # 使用Numba优化后的Gini系数计算函数
+        results['cost_gini_coefficient'] = _numba_calculate_gini_coefficient(self.df['price'].values, self.df['percent'].values)
         if pd.notna(results['cost_gini_coefficient']) and pd.notna(results['dominant_peak_volume_ratio']):
             results['dominant_peak_solidity'] = results['cost_gini_coefficient'] * (results['dominant_peak_volume_ratio'] / 100) * 100
         winners_df = self.df[self.df['price'] < close_price]
@@ -479,7 +574,8 @@ class ChipFeatureCalculator:
         if not winners_df.empty and winners_df['percent'].sum() > 0:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
             results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
-            gini_w = _calculate_gini_final(winners_df['price'], winners_df['percent'])
+            # 使用Numba优化后的Gini系数计算函数
+            gini_w = _numba_calculate_gini_coefficient(winners_df['price'].values, winners_df['percent'].values)
             if pd.notna(gini_w) and pd.notna(results['winner_profit_margin_avg']):
                 profit_margin = results['winner_profit_margin_avg']
                 mu = 20.0
@@ -489,7 +585,8 @@ class ChipFeatureCalculator:
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
             results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100 if loser_avg_cost > 0 else np.nan
-            gini_l = _calculate_gini_final(losers_df['price'], losers_df['percent'])
+            # 使用Numba优化后的Gini系数计算函数
+            gini_l = _numba_calculate_gini_coefficient(losers_df['price'].values, losers_df['percent'].values)
             if pd.notna(gini_l) and pd.notna(results['loser_loss_margin_avg']):
                 loss_margin = abs(results['loser_loss_margin_avg'])
                 log_pain = np.log1p(loss_margin)
@@ -802,16 +899,16 @@ class ChipFeatureCalculator:
         - 最终实现: 本方法直接返回由 `scipy.stats.skew` 计算出的原始偏度值，该值完美符合上述
                      正确的逻辑，无需任何符号反转。
         - 核心修复: 移除调试打印。
+        - 核心优化: 使用Numba优化后的偏度计算函数。
         """
         skewness = 0.0
         if not self.df.empty and self.df['percent'].sum() >= 1e-6:
             total_percent = self.df['percent'].sum()
-            weights = np.round((self.df['percent'] / total_percent) * 10000).astype(int)
-            valid_weights = weights[weights > 0]
-            if len(valid_weights) >= 3: # 至少需要3个点才能计算偏度
-                valid_prices = self.df['price'][weights > 0]
-                unweighted_sample = np.repeat(valid_prices, valid_weights)
-                skewness = skew(unweighted_sample)
+            # 将 percent 转换为 NumPy 数组，并进行归一化，以便 Numba 函数处理
+            weights_arr = (self.df['percent'].values / total_percent * 10000).astype(np.int64)
+            prices_arr = self.df['price'].values
+            # 调用 Numba 优化后的偏度计算函数
+            skewness = _numba_calculate_skew_unweighted_sample(prices_arr, weights_arr)
         return skewness
 
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
@@ -1196,6 +1293,7 @@ class ChipFeatureCalculator:
         """
         【V1.0 · 微观动力学引擎】
         - 核心职责: 利用Tick和Level5数据，锻造订单流失衡(OFI)、扫单强度和盘口流动性斜率等高频博弈指标。
+        - 核心优化: 使用Numba优化后的扫单量计算函数。
         """
         from scipy.stats import linregress
         results = {
@@ -1224,18 +1322,17 @@ class ChipFeatureCalculator:
             merged_hf_df['ofi'] = buy_pressure - sell_pressure
             results['order_flow_imbalance'] = merged_hf_df['ofi'].sum() / total_volume
         min_sweep_len = 3
+        # 准备Numba函数所需的NumPy数组
+        trade_types_arr = tick_df['type'].values
+        prices_arr = tick_df['price'].values
+        volumes_arr = tick_df['volume'].values
+        # block_ids 的计算需要 Pandas，但其结果可以传递给 Numba
         tick_df['block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
-        tick_df['block_size'] = tick_df.groupby('block')['type'].transform('size')
-        sweep_candidates = tick_df[(tick_df['block_size'] >= min_sweep_len) & (tick_df['type'].isin(['B', 'S']))]
-        buy_sweep_vol, sell_sweep_vol = 0, 0
-        if not sweep_candidates.empty:
-            for _, group_sweep in sweep_candidates.groupby('block'):
-                trade_type = group_sweep['type'].iloc[0]
-                prices = group_sweep['price']
-                if trade_type == 'B' and prices.is_monotonic_increasing:
-                    buy_sweep_vol += group_sweep['volume'].sum()
-                elif trade_type == 'S' and prices.is_monotonic_decreasing:
-                    sell_sweep_vol += group_sweep['volume'].sum()
+        block_ids_arr = tick_df['block'].values
+        
+        # 调用Numba优化后的扫单量计算函数
+        buy_sweep_vol, sell_sweep_vol = _numba_calculate_sweeps(trade_types_arr, prices_arr, volumes_arr, block_ids_arr, min_sweep_len)
+        
         total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
         total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
         if total_buy_vol > 0: results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
@@ -1254,8 +1351,6 @@ class ChipFeatureCalculator:
                         y = np.cumsum(ask_volumes[valid_asks])
                         slope, _, _, _, _ = linregress(x, y)
                         slopes.append(slope)
-            # 核心修复: 避免当用于加权的 `snapshot_volumes` 切片总和为零时，`np.average` 抛出 `ZeroDivisionError`。
-            # 如果权重总和为零，则加权平均无意义，将结果设为 np.nan。
             if slopes:
                 current_weights = snapshot_volumes.iloc[:len(slopes)]
                 if current_weights.sum() > 0:

@@ -1899,28 +1899,6 @@ class ProcessIntelligence:
         final_score = (potential_energy_score * ignition_intent_score).fillna(0.0)
         # --- 调试信息 ---
         probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            last_date_index = -1
-            print(f"\n--- [PROCESS_META_ACCUMULATION_INFLECTION 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
-            print("  [输入原料 (原始值)]: ")
-            print(f"    - PROCESS_META_STEALTH_ACCUMULATION: {stealth_accum.iloc[last_date_index]:.4f}")
-            print(f"    - PROCESS_META_DECEPTIVE_ACCUMULATION: {deceptive_accum.iloc[last_date_index]:.4f}")
-            print(f"    - PROCESS_META_PANIC_WASHOUT_ACCUMULATION: {panic_washout_accum.iloc[last_date_index]:.4f}")
-            print(f"    - PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY: {split_order_accum.iloc[last_date_index]:.4f}")
-            print(f"    - PROCESS_META_POWER_TRANSFER: {power_transfer_accum.iloc[last_date_index]:.4f}")
-            print(f"    - PROCESS_META_MAIN_FORCE_RALLY_INTENT: {rally_intent.iloc[last_date_index]:.4f}")
-            print(f"    - PROCESS_META_PD_DIVERGENCE_CONFIRM: {divergence_confirm.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_CHIP_COHERENT_DRIVE: {coherent_drive.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_FF_AXIOM_CAPITAL_SIGNATURE: {capital_signature.iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency.iloc[last_date_index]:.4f}")
-            print("  [关键计算 (归一化/中间分)]: ")
-            print(f"    - daily_accumulation_strength: {daily_accumulation_strength.iloc[last_date_index]:.4f}")
-            print(f"    - potential_energy_raw: {potential_energy_raw.iloc[last_date_index]:.4f}")
-            print(f"    - potential_energy_score: {potential_energy_score.iloc[last_date_index]:.4f}")
-            print(f"    - ignition_intent_score: {ignition_intent_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]: ")
-            print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_score.clip(0, 1).astype(np.float32)
 
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -2255,64 +2233,105 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.5 · 战术升级与全息资金流验证强化版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        【V2.6 · 战术升级与全息资金流验证强化版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
         - 核心重构: 废除僵化的“AND”门槛，创立“战术评分”模型。最终分 = 前奏吸筹分 * 强攻分。
         - 证据升级: “前奏分”通过归一化消除尺度问题；“强攻分”对核心证据进行加权，更具实战性。
         - 【强化】引入资金流可信度，确保强攻的资金基础是可靠的。
         - 【强化】调整“前奏分”的计算，引入主力资金净流入的趋势，确保前奏吸筹的持续性。
         - 【强化】将 `hidden_accumulation_intensity_D`、`buy_quote_exhaustion_rate_D` 和 `large_order_pressure_D` 升级为 MTF 融合信号。
-        - 【重要修正】提高 `mtf_large_pressure` 的负面影响权重，并引入大单压力与买盘枯竭的背离判断。
+        - 【重要修正】重新定义 `pressure_exhaustion_synergy`，衡量“大单压力与买盘枯竭的协同性”，并增加其惩罚权重。
+        - 【新增】引入 `active_buying_support_D` 的 MTF 融合版本，作为强攻的直接证据。
+        - 【新增】将 `main_force_flow_momentum` 升级为 MTF 融合版本。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.5 · 战术升级与全息资金流验证强化版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.6 · 战术升级与全息资金流验证强化版)...")
         method_name = "_calculate_fund_flow_accumulation_inflection"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
+        
         required_signals = [
             'hidden_accumulation_intensity_D', 'main_force_net_flow_calibrated_D',
             'buy_quote_exhaustion_rate_D', 'large_order_pressure_D',
-            'flow_credibility_index_D', 'SLOPE_5_main_force_net_flow_calibrated_D'
+            'flow_credibility_index_D', 'active_buying_support_D' # 新增 active_buying_support_D
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['hidden_accumulation_intensity_D', 'buy_quote_exhaustion_rate_D', 'large_order_pressure_D', 'main_force_net_flow_calibrated_D']:
+        for base_sig in ['hidden_accumulation_intensity_D', 'buy_quote_exhaustion_rate_D', 
+                         'large_order_pressure_D', 'main_force_net_flow_calibrated_D',
+                         'active_buying_support_D']: # 增加 active_buying_support_D 的MTF
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+
         if not self._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index)
+
         df_index = df.index
         # 获取原料
-        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
         flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
-        mf_net_flow_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
+        
         # --- 归一化处理 ---
         flow_credibility_norm = self._normalize_series(flow_credibility_raw, df_index, bipolar=False)
-        mf_net_flow_slope_norm = self._normalize_series(mf_net_flow_slope_raw.clip(lower=0), df_index, bipolar=False)
+        
         # --- 1. 重铸“前奏分”，消除尺度问题并引入主力资金净流入趋势 ---
         mtf_hidden_accumulation = self._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_mf_net_flow_slope = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        
         prelude_score_base = self._normalize_series(mtf_hidden_accumulation.rolling(5).mean(), df_index, bipolar=False)
-        prelude_score = (prelude_score_base * mf_net_flow_slope_norm).pow(0.5)
+        # 确保主力资金净流入趋势为正向才贡献
+        prelude_score = (prelude_score_base * mtf_mf_net_flow_slope.clip(lower=0)).pow(0.5)
+
         # --- 2. 重铸“强攻分”，采用加权模型并引入资金流可信度 ---
         mtf_buy_exhaustion = self._get_mtf_slope_accel_score(df, 'buy_quote_exhaustion_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_large_pressure = self._get_mtf_slope_accel_score(df, 'large_order_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        main_force_flow_momentum = self._normalize_series(main_force_flow_raw.diff(1).fillna(0), df_index, bipolar=True)
-        # 引入大单压力与买盘枯竭的背离判断
-        pressure_exhaustion_divergence = (mtf_large_pressure - mtf_buy_exhaustion).clip(lower=0) # 压力大但枯竭低，则背离
+        mtf_active_buying_support = self._get_mtf_slope_accel_score(df, 'active_buying_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False) # 新增
+
+        # 重新定义 pressure_exhaustion_synergy：大单压力与买盘枯竭的协同性，两者都高时应惩罚
+        # 当大单压力和买盘枯竭都高时，协同性高，意味着强攻阻力大，应惩罚
+        pressure_exhaustion_synergy = (mtf_large_pressure * mtf_buy_exhaustion).pow(0.5)
+
+        # 主力资金流向动量：使用MTF融合信号
+        mtf_main_force_flow_momentum = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+
         attack_score = (
-            mtf_buy_exhaustion * 0.3 + # 降低买盘枯竭权重，因为其与压力背离
-            main_force_flow_momentum.clip(lower=0) * 0.2 +
-            (1 - mtf_large_pressure) * 0.3 + # 提高压力清除权重
-            flow_credibility_norm * 0.1 +
-            (1 - mtf_main_force_flow.clip(upper=0).abs()) * 0.1 - # 主力资金净流负向部分越小越好
-            pressure_exhaustion_divergence * 0.1 # 惩罚压力与枯竭的背离
-        ).clip(0, 1)
+            (1 - mtf_buy_exhaustion) * 0.2 + # 买盘韧性，枯竭度越低越好
+            mtf_main_force_flow_momentum.clip(lower=0) * 0.25 + # 主力资金流入加速
+            (1 - mtf_large_pressure) * 0.2 + # 压力清除，大单压力越低越好
+            flow_credibility_norm * 0.15 + # 资金流可信度
+            mtf_active_buying_support * 0.2 + # 主动买盘支持
+            (1 - pressure_exhaustion_synergy) * -0.2 # 惩罚大单压力与买盘枯竭的协同性，权重增加
+        ).clip(0, 1) # 确保分数在 [0, 1] 之间
+
         # --- 3. 最终审判 ---
         final_score = (prelude_score * attack_score).fillna(0.0)
+
+        # --- 调试信息 ---
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            last_date_index = -1
+            print(f"\n--- [PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
+            print("  [输入原料 (原始值)]: ")
+            print(f"    - flow_credibility_index_D: {flow_credibility_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算 (归一化/中间分)]: ")
+            print(f"    - mtf_hidden_accumulation: {mtf_hidden_accumulation.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_mf_net_flow_slope: {mtf_mf_net_flow_slope.iloc[last_date_index]:.4f}")
+            print(f"    - prelude_score_base: {prelude_score_base.iloc[last_date_index]:.4f}")
+            print(f"    - prelude_score: {prelude_score.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_buy_exhaustion: {mtf_buy_exhaustion.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_large_pressure: {mtf_large_pressure.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_main_force_flow: {mtf_main_force_flow.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_active_buying_support: {mtf_active_buying_support.iloc[last_date_index]:.4f}")
+            print(f"    - mtf_main_force_flow_momentum: {mtf_main_force_flow_momentum.iloc[last_date_index]:.4f}")
+            print(f"    - pressure_exhaustion_synergy: {pressure_exhaustion_synergy.iloc[last_date_index]:.4f}")
+            print(f"    - attack_score: {attack_score.iloc[last_date_index]:.4f}")
+            print("  [最终结果]: ")
+            print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -2364,28 +2383,6 @@ class ProcessIntelligence:
         final_score = relationship_score.clip(-1, 1)
         # --- 探针输出 ---
         probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            last_date_index = -1
-            print(f"\n--- [PROCESS_META_PROFIT_VS_FLOW 探针: {df.index[last_date_index].strftime('%Y-%m-%d')}] ---")
-            print("  [输入原料 (原始值)]: ")
-            print(f"    - {pressure_signal_name}: {profit_taking_flow_raw.iloc[last_date_index]:.4f}")
-            print(f"    - {drive_signal_name}: {main_force_net_flow_raw.iloc[last_date_index]:.4f}")
-            print(f"    - {winner_profit_margin_name}: {winner_profit_margin_raw.iloc[last_date_index]:.4f}")
-            print(f"    - {distribution_intent_name}: {distribution_intent_score.iloc[last_date_index]:.4f}")
-            print(f"    - {flow_credibility_name}: {flow_credibility_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算 (归一化/中间分)]: ")
-            print(f"    - profit_taking_flow_norm: {profit_taking_flow_norm.iloc[last_date_index]:.4f}")
-            print(f"    - winner_profit_margin_norm: {winner_profit_margin_norm.iloc[last_date_index]:.4f}")
-            print(f"    - distribution_intent_norm: {distribution_intent_norm.iloc[last_date_index]:.4f}")
-            print(f"    - main_force_net_flow_norm: {main_force_net_flow_norm.iloc[last_date_index]:.4f}")
-            print(f"    - flow_credibility_norm: {flow_credibility_norm.iloc[last_date_index]:.4f}")
-            print("  [派发压力分]: ")
-            print(f"    - pressure_score: {pressure_score.iloc[last_date_index]:.4f}")
-            print("  [建仓动力分]: ")
-            print(f"    - drive_score: {drive_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]: ")
-            print(f"    - final_score: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
