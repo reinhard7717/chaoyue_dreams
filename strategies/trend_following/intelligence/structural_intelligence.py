@@ -496,8 +496,8 @@ class StructuralIntelligence:
                 ma_cluster_cohesion_score_std = get_adaptive_mtf_normalized_score(normalized_ma_std, df_index, tf_weights, ascending=False)
                 # 引入 MA_POTENTIAL_COMPRESSION_RATE_D
                 ma_compression_raw = self._get_safe_series(df, 'MA_POTENTIAL_COMPRESSION_RATE_D', 0.0, method_name=method_name)
-                ma_compression_score = get_adaptive_mtf_normalized_score(ma_compression_raw, df_index, tf_weights, ascending=True)
-                ma_cluster_cohesion_score = (ma_cluster_cohesion_score_std * 0.7 + ma_compression_score * 0.3).clip(0,1)
+                ma_compression_score = get_adaptive_mtf_normalized_score(ma_compression_raw, df_index, tf_weights, ascending=True) # 张力越大越好 # 修正此处
+                ma_cluster_cohesion_score = (ma_cluster_cohesion_score_std * 0.6 + ma_compression_score * 0.4).clip(0,1)
         # 维度8: 价格均线乖离 (Price-MA Gap)
         price_ma_gap_score = pd.Series(0.0, index=df_index)
         if price_ma_gap_params.get('enabled', False):
@@ -583,18 +583,30 @@ class StructuralIntelligence:
             print(f"    -> 排列分数 (Alignment): {alignment_score.iloc[-1]:.4f}")
             print(f"    -> 平均斜率分数 (Avg Slope): {avg_slope_score.iloc[-1]:.4f}")
             print(f"    -> 平均加速度分数 (Avg Accel): {avg_accel_score.iloc[-1]:.4f}")
-            print(f"    -> 结构熵变原始值: {structural_entropy_change_raw.iloc[-1]:.4f if pd.notna(structural_entropy_change_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 结构熵变分数: {structural_entropy_change_score.iloc[-1]:.4f if pd.notna(structural_entropy_change_score.iloc[-1]) else 'NaN'}")
+            _val = structural_entropy_change_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构熵变原始值: {_formatted_val}")
+            _val = structural_entropy_change_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构熵变分数: {_formatted_val}")
             print(f"    -> 共振分数 (Resonance): {overall_resonance_score.iloc[-1]:.4f}")
             print(f"    -> 有序度分数 (Orderliness): {corrected_orderliness_score.iloc[-1]:.4f}")
             print(f"    -> 角度分数 (Angle): {angle_score.iloc[-1]:.4f}")
-            print(f"    -> 均线压缩率原始值: {ma_compression_raw.iloc[-1]:.4f if pd.notna(ma_compression_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 均线压缩率分数: {ma_compression_score.iloc[-1]:.4f if pd.notna(ma_compression_score.iloc[-1]) else 'NaN'}")
+            _val = ma_compression_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 均线压缩率原始值: {_formatted_val}")
+            _val = ma_compression_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 均线压缩率分数: {_formatted_val}")
             print(f"    -> 均线粘合度分数 (MA Cluster Cohesion): {ma_cluster_cohesion_score.iloc[-1]:.4f}")
             print(f"    -> 价格均线乖离分数 (Price-MA Gap): {price_ma_gap_score.iloc[-1]:.4f}")
             print(f"    -> 布林带动态分数 (BB Dynamics): {bb_dynamics_score.iloc[-1]:.4f}")
-            print(f"    -> 趋势效率原始值: {trend_efficiency_raw.iloc[-1]:.4f if pd.notna(trend_efficiency_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 脉冲质量原始值: {impulse_quality_raw.iloc[-1]:.4f if pd.notna(impulse_quality_raw.iloc[-1]) else 'NaN'}")
+            _val = trend_efficiency_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 趋势效率原始值: {_formatted_val}")
+            _val = impulse_quality_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 脉冲质量原始值: {_formatted_val}")
             print(f"    -> 趋势效率分数 (Trend Efficiency): {trend_efficiency_score.iloc[-1]:.4f}")
             print(f"    -> 看涨形态分 (Bullish Form): {bullish_form_score.iloc[-1]:.4f}")
             print(f"    -> 看跌形态分 (Bearish Form): {bearish_form_score.iloc[-1]:.4f}")
@@ -829,23 +841,55 @@ class StructuralIntelligence:
             print(f"    -> 结构形态坚固性分数: {structural_form_solidity_score.iloc[-1]:.4f}")
             print(f"    -> 波动率秩序性分数: {volatility_orderliness_score.iloc[-1]:.4f}")
             print(f"    -> 结构运动效率分数: {structural_movement_efficiency_score.iloc[-1]:.4f}")
-            print(f"    -> 突破量比原始值: {breakout_volume_ratio_raw.iloc[-1]:.4f if pd.notna(breakout_volume_ratio_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 突破量比分数: {breakout_volume_ratio_score.iloc[-1]:.4f if pd.notna(breakout_volume_ratio_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 突破区间扩张原始值: {breakout_range_expansion_raw.iloc[-1]:.4f if pd.notna(breakout_range_expansion_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 突破区间扩张分数: {breakout_range_expansion_score.iloc[-1]:.4f if pd.notna(breakout_range_expansion_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 突破回踩成功原始值: {breakout_retest_success_raw.iloc[-1]:.4f if pd.notna(breakout_retest_success_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 突破回踩成功分数: {breakout_retest_success_score.iloc[-1]:.4f if pd.notna(breakout_retest_success_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 突破持续时间原始值: {breakout_duration_raw.iloc[-1]:.4f if pd.notna(breakout_duration_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 突破持续时间分数: {breakout_duration_score.iloc[-1]:.4f if pd.notna(breakout_duration_score.iloc[-1]) else 'NaN'}")
+            _val = breakout_volume_ratio_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破量比原始值: {_formatted_val}")
+            _val = breakout_volume_ratio_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破量比分数: {_formatted_val}")
+            _val = breakout_range_expansion_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破区间扩张原始值: {_formatted_val}")
+            _val = breakout_range_expansion_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破区间扩张分数: {_formatted_val}")
+            _val = breakout_retest_success_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破回踩成功原始值: {_formatted_val}")
+            _val = breakout_retest_success_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破回踩成功分数: {_formatted_val}")
+            _val = breakout_duration_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破持续时间原始值: {_formatted_val}")
+            _val = breakout_duration_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 突破持续时间分数: {_formatted_val}")
             print(f"    -> 结构突破强度分数: {structural_break_strength_score.iloc[-1]:.4f}")
-            print(f"    -> 回撤深度原始值: {retracement_depth_pct_raw.iloc[-1]:.4f if pd.notna(retracement_depth_pct_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 回撤深度分数: {retracement_depth_pct_score.iloc[-1]:.4f if pd.notna(retracement_depth_pct_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 回撤速度原始值: {retracement_speed_ratio_raw.iloc[-1]:.4f if pd.notna(retracement_speed_ratio_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 回撤速度分数: {retracement_speed_ratio_score.iloc[-1]:.4f if pd.notna(retracement_speed_ratio_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 回撤量能衰减原始值: {retracement_volume_decay_raw.iloc[-1]:.4f if pd.notna(retracement_volume_decay_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 回撤量能衰减分数: {retracement_volume_decay_score.iloc[-1]:.4f if pd.notna(retracement_volume_decay_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 回撤均线粘附原始值: {retracement_MA_adherence_raw.iloc[-1]:.4f if pd.notna(retracement_MA_adherence_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 回撤均线粘附分数: {retracement_MA_adherence_score.iloc[-1]:.4f if pd.notna(retracement_MA_adherence_score.iloc[-1]) else 'NaN'}")
+            _val = retracement_depth_pct_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤深度原始值: {_formatted_val}")
+            _val = retracement_depth_pct_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤深度分数: {_formatted_val}")
+            _val = retracement_speed_ratio_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤速度原始值: {_formatted_val}")
+            _val = retracement_speed_ratio_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤速度分数: {_formatted_val}")
+            _val = retracement_volume_decay_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤量能衰减原始值: {_formatted_val}")
+            _val = retracement_volume_decay_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤量能衰减分数: {_formatted_val}")
+            _val = retracement_MA_adherence_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤均线粘附原始值: {_formatted_val}")
+            _val = retracement_MA_adherence_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 回撤均线粘附分数: {_formatted_val}")
             print(f"    -> 结构回撤效率分数: {structural_retracement_efficiency_score.iloc[-1]:.4f}")
             print(f"    -> 最终稳定性分数: {final_score.iloc[-1]:.4f}")
         return final_score
@@ -1296,29 +1340,73 @@ class StructuralIntelligence:
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 价格稳定性原始值 (BBW_21_2.0_D): {bbw_raw.iloc[-1]:.4f if pd.notna(bbw_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 价格稳定性分数: {price_stability_score.iloc[-1]:.4f if pd.notna(price_stability_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 供应枯竭原始值 (VOL_MA_5_D / VOL_MA_55_D): {(vol_ma_5_raw / vol_ma_55_raw).iloc[-1]:.4f if pd.notna((vol_ma_5_raw / vol_ma_55_raw).iloc[-1]) else 'NaN'}")
-            print(f"    -> 供应枯竭分数: {supply_exhaustion_score.iloc[-1]:.4f if pd.notna(supply_exhaustion_score.iloc[-1]) else 'NaN'}")
+            _val = bbw_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 价格稳定性原始值 (BBW_21_2.0_D): {_formatted_val}")
+            _val = price_stability_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 价格稳定性分数: {_formatted_val}")
+            _val = (vol_ma_5_raw / vol_ma_55_raw).iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 供应枯竭原始值 (VOL_MA_5_D / VOL_MA_55_D): {_formatted_val}")
+            _val = supply_exhaustion_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 供应枯竭分数: {_formatted_val}")
             print(f"    -> 是否处于有效平台状态: {is_valid_platform_day.iloc[-1]}")
-            print(f"    -> 结构形态原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {volatility_instability_raw.iloc[-1]:.4f if pd.notna(volatility_instability_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 结构形态原始值 (price_volume_entropy_D): {price_volume_entropy_raw.iloc[-1]:.4f if pd.notna(price_volume_entropy_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 结构品质分: {s_structure.iloc[-1]:.4f if pd.notna(s_structure.iloc[-1]) else 'NaN'}")
-            print(f"    -> 筹码状态原始值 (dominant_peak_solidity_D): {dominant_peak_solidity_raw.iloc[-1]:.4f if pd.notna(dominant_peak_solidity_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 筹码状态原始值 (peak_separation_ratio_D): {peak_separation_ratio_raw.iloc[-1]:.4f if pd.notna(peak_separation_ratio_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 筹码状态原始值 (chip_fatigue_index_D): {chip_fatigue_index_raw.iloc[-1]:.4f if pd.notna(chip_fatigue_index_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 筹码品质分: {s_chips.iloc[-1]:.4f if pd.notna(s_chips.iloc[-1]) else 'NaN'}")
-            print(f"    -> 主力行为原始值 (mf_cost_zone_defense_intent_D): {mf_cost_zone_defense_intent_raw.iloc[-1]:.4f if pd.notna(mf_cost_zone_defense_intent_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 主力行为原始值 (control_solidity_index_D): {control_solidity_index_raw.iloc[-1]:.4f if pd.notna(control_solidity_index_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 主力品质分: {s_main_force.iloc[-1]:.4f if pd.notna(s_main_force.iloc[-1]) else 'NaN'}")
-            print(f"    -> 市场情绪原始值 (counterparty_exhaustion_index_D): {counterparty_exhaustion_index_raw.iloc[-1]:.4f if pd.notna(counterparty_exhaustion_index_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 市场情绪原始值 (retail_panic_surrender_index_D): {retail_panic_surrender_index_raw.iloc[-1]:.4f if pd.notna(retail_panic_surrender_index_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 市场情绪原始值 (turnover_rate_f_D): {turnover_rate_f_raw.iloc[-1]:.4f if pd.notna(turnover_rate_f_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 情绪品质分: {s_sentiment.iloc[-1]:.4f if pd.notna(s_sentiment.iloc[-1]) else 'NaN'}")
-            print(f"    -> 最终平台品质分: {platform_quality.iloc[-1]:.4f if pd.notna(platform_quality.iloc[-1]) else 'NaN'}")
-            print(f"    -> 动态高点: {dynamic_high.iloc[-1]:.4f if pd.notna(dynamic_high.iloc[-1]) else 'NaN'}")
-            print(f"    -> 动态低点: {dynamic_low.iloc[-1]:.4f if pd.notna(dynamic_low.iloc[-1]) else 'NaN'}")
-            print(f"    -> VPOC: {vpoc.iloc[-1]:.4f if pd.notna(vpoc.iloc[-1]) else 'NaN'}")
+            _val = volatility_instability_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构形态原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {_formatted_val}")
+            _val = price_volume_entropy_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构形态原始值 (price_volume_entropy_D): {_formatted_val}")
+            _val = s_structure.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构品质分: {_formatted_val}")
+            _val = dominant_peak_solidity_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 筹码状态原始值 (dominant_peak_solidity_D): {_formatted_val}")
+            _val = peak_separation_ratio_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 筹码状态原始值 (peak_separation_ratio_D): {_formatted_val}")
+            _val = chip_fatigue_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 筹码状态原始值 (chip_fatigue_index_D): {_formatted_val}")
+            _val = s_chips.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 筹码品质分: {_formatted_val}")
+            _val = mf_cost_zone_defense_intent_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力行为原始值 (mf_cost_zone_defense_intent_D): {_formatted_val}")
+            _val = control_solidity_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力行为原始值 (control_solidity_index_D): {_formatted_val}")
+            _val = s_main_force.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力品质分: {_formatted_val}")
+            _val = counterparty_exhaustion_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 市场情绪原始值 (counterparty_exhaustion_index_D): {_formatted_val}")
+            _val = retail_panic_surrender_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 市场情绪原始值 (retail_panic_surrender_index_D): {_formatted_val}")
+            _val = turnover_rate_f_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 市场情绪原始值 (turnover_rate_f_D): {_formatted_val}")
+            _val = s_sentiment.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 情绪品质分: {_formatted_val}")
+            _val = platform_quality.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 最终平台品质分: {_formatted_val}")
+            _val = dynamic_high.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 动态高点: {_formatted_val}")
+            _val = dynamic_low.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 动态低点: {_formatted_val}")
+            _val = vpoc.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> VPOC: {_formatted_val}")
         return platform_quality, dynamic_high, dynamic_low, vpoc
 
     def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
@@ -1412,15 +1500,33 @@ class StructuralIntelligence:
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 对手盘枯竭原始值: {counterparty_exhaustion_raw.iloc[-1]:.4f if pd.notna(counterparty_exhaustion_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 换手率原始值: {turnover_rate_f_raw.iloc[-1]:.4f if pd.notna(turnover_rate_f_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 供应枯竭度分数: {supply_exhaustion_score.iloc[-1]:.4f if pd.notna(supply_exhaustion_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 控盘坚实度原始值: {control_solidity_raw.iloc[-1]:.4f if pd.notna(control_solidity_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 主力成本区防御意图原始值: {mf_cost_zone_defense_intent_raw.iloc[-1]:.4f if pd.notna(mf_cost_zone_defense_intent_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 主力控盘度分数: {main_force_control_score.iloc[-1]:.4f if pd.notna(main_force_control_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 均衡压缩原始值: {equilibrium_compression_raw.iloc[-1]:.4f if pd.notna(equilibrium_compression_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 均衡压缩分数: {equilibrium_compression_score.iloc[-1]:.4f if pd.notna(equilibrium_compression_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {energy_accumulation_score.iloc[-1]:.4f if pd.notna(energy_accumulation_score.iloc[-1]) else 'NaN'}")
+            _val = counterparty_exhaustion_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 对手盘枯竭原始值: {_formatted_val}")
+            _val = turnover_rate_f_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 换手率原始值: {_formatted_val}")
+            _val = supply_exhaustion_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 供应枯竭度分数: {_formatted_val}")
+            _val = control_solidity_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 控盘坚实度原始值: {_formatted_val}")
+            _val = mf_cost_zone_defense_intent_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力成本区防御意图原始值: {_formatted_val}")
+            _val = main_force_control_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力控盘度分数: {_formatted_val}")
+            _val = equilibrium_compression_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 均衡压缩原始值: {_formatted_val}")
+            _val = equilibrium_compression_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 均衡压缩分数: {_formatted_val}")
+            _val = energy_accumulation_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {_formatted_val}")
             print(f"    -> 最终突破准备度分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
