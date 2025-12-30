@@ -239,24 +239,6 @@ class StructuralIntelligence:
             contextual_posture, defense_strength, final_structural_momentum
         )
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"\n  [结构情报探针] -> 总指挥诊断结果 ({current_date}):")
-            print(f"    -> SCORE_STRUCT_AXIOM_TREND_FORM: {axiom_trend_form.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_AXIOM_MTF_COHESION: {axiom_mtf_cohesion.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_AXIOM_STABILITY: {axiom_stability.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_AXIOM_DIVERGENCE: {axiom_divergence.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_BOTTOM_FRACTAL: {bottom_fractal_score.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_AXIOM_TENSION: {axiom_tension.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_AXIOM_ENVIRONMENT: {axiom_environment.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_PLATFORM_FOUNDATION: {platform_quality.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_BREAKOUT_READINESS: {breakout_readiness.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_STRATEGIC_POSTURE: {strategic_posture.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_LEADERSHIP_POTENTIAL: {leadership_potential.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_CONTEXTUAL_POSTURE: {contextual_posture.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_MOMENTUM: {final_structural_momentum.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH: {playbook_secondary_launch.iloc[-1]:.4f}")
-            print(f"    -> SCORE_STRUCT_FINAL_JUDGMENT: {final_judgment.iloc[-1]:.4f}")
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -284,14 +266,6 @@ class StructuralIntelligence:
         # 计算结构动量背离
         divergence_score = (ma_structural_momentum_score - price_structural_momentum_score).clip(-1, 1)
         final_score = divergence_score.astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 价格结构动量原始值 (SLOPE_5_close_D): {price_structural_momentum_raw.iloc[-1]:.4f}")
-            print(f"    -> 价格结构动量分数: {price_structural_momentum_score.iloc[-1]:.4f}")
-            print(f"    -> 均线结构动量原始值 (SLOPE_5_EMA_55_D): {ma_structural_momentum_raw.iloc[-1]:.4f}")
-            print(f"    -> 均线结构动量分数: {ma_structural_momentum_score.iloc[-1]:.4f}")
-            print(f"    -> 最终结构动量背离分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
@@ -585,40 +559,6 @@ class StructuralIntelligence:
         if dynamic_weights_params.get('enabled', False):
             trend_form_score = trend_form_score * volatility_adjustment_factor_series
         final_score = pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 排列分数 (Alignment): {alignment_score.iloc[-1]:.4f}")
-            print(f"    -> 平均斜率分数 (Avg Slope): {avg_slope_score.iloc[-1]:.4f}")
-            print(f"    -> 平均加速度分数 (Avg Accel): {avg_accel_score.iloc[-1]:.4f}")
-            _val = structural_entropy_change_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构熵变原始值: {_formatted_val}")
-            _val = structural_entropy_change_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构熵变分数: {_formatted_val}")
-            print(f"    -> 共振分数 (Resonance): {overall_resonance_score.iloc[-1]:.4f}")
-            print(f"    -> 有序度分数 (Orderliness): {corrected_orderliness_score.iloc[-1]:.4f}")
-            print(f"    -> 角度分数 (Angle): {angle_score.iloc[-1]:.4f}")
-            _val = ma_compression_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 均线压缩率原始值: {_formatted_val}")
-            _val = ma_compression_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 均线压缩率分数: {_formatted_val}")
-            print(f"    -> 均线粘合度分数 (MA Cluster Cohesion): {ma_cluster_cohesion_score.iloc[-1]:.4f}")
-            print(f"    -> 价格均线乖离分数 (Price-MA Gap): {price_ma_gap_score.iloc[-1]:.4f}")
-            print(f"    -> 布林带动态分数 (BB Dynamics): {bb_dynamics_score.iloc[-1]:.4f}")
-            _val = trend_efficiency_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 趋势效率原始值: {_formatted_val}")
-            _val = impulse_quality_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 脉冲质量原始值: {_formatted_val}")
-            print(f"    -> 趋势效率分数 (Trend Efficiency): {trend_efficiency_score.iloc[-1]:.4f}")
-            print(f"    -> 看涨形态分 (Bullish Form): {bullish_form_score.iloc[-1]:.4f}")
-            print(f"    -> 看跌形态分 (Bearish Form): {bearish_form_score.iloc[-1]:.4f}")
-            print(f"    -> 最终趋势形态分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
@@ -842,64 +782,6 @@ class StructuralIntelligence:
             structural_retracement_efficiency_score * stability_fusion_weights.get('structural_retracement_efficiency', 0.075)
         ).clip(0, 1)
         final_score = (stability_score * 2 - 1).astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 结构支撑强度分数: {structural_support_strength_score.iloc[-1]:.4f}")
-            print(f"    -> 结构形态坚固性分数: {structural_form_solidity_score.iloc[-1]:.4f}")
-            print(f"    -> 波动率秩序性分数: {volatility_orderliness_score.iloc[-1]:.4f}")
-            print(f"    -> 结构运动效率分数: {structural_movement_efficiency_score.iloc[-1]:.4f}")
-            _val = breakout_volume_ratio_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破量比原始值: {_formatted_val}")
-            _val = breakout_volume_ratio_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破量比分数: {_formatted_val}")
-            _val = breakout_range_expansion_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破区间扩张原始值: {_formatted_val}")
-            _val = breakout_range_expansion_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破区间扩张分数: {_formatted_val}")
-            _val = breakout_retest_success_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破回踩成功原始值: {_formatted_val}")
-            _val = breakout_retest_success_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破回踩成功分数: {_formatted_val}")
-            _val = breakout_duration_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破持续时间原始值: {_formatted_val}")
-            _val = breakout_duration_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 突破持续时间分数: {_formatted_val}")
-            print(f"    -> 结构突破强度分数: {structural_break_strength_score.iloc[-1]:.4f}")
-            _val = retracement_depth_pct_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤深度原始值: {_formatted_val}")
-            _val = retracement_depth_pct_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤深度分数: {_formatted_val}")
-            _val = retracement_speed_ratio_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤速度原始值: {_formatted_val}")
-            _val = retracement_speed_ratio_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤速度分数: {_formatted_val}")
-            _val = retracement_volume_decay_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤量能衰减原始值: {_formatted_val}")
-            _val = retracement_volume_decay_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤量能衰减分数: {_formatted_val}")
-            _val = retracement_MA_adherence_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤均线粘附原始值: {_formatted_val}")
-            _val = retracement_MA_adherence_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 回撤均线粘附分数: {_formatted_val}")
-            print(f"    -> 结构回撤效率分数: {structural_retracement_efficiency_score.iloc[-1]:.4f}")
-            print(f"    -> 最终稳定性分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
@@ -967,26 +849,6 @@ class StructuralIntelligence:
         bearish_harmony = bearish_macro_health * 0.7 + (1 - micro_intent_score) * 0.3 # 1-micro_intent_score 反映微观意图的弱势
         final_score_raw = bullish_harmony - bearish_harmony
         final_score = final_score_raw.clip(-1, 1).astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 伪多周期排列分数: {alignment_score.iloc[-1]:.4f}")
-            print(f"    -> BBP原始值: {bbp_raw.iloc[-1]:.4f}")
-            print(f"    -> 过热惩罚: {overheat_penalty.iloc[-1]:.4f}")
-            print(f"    -> 超跌缓和: {oversold_mitigation.iloc[-1]:.4f}")
-            print(f"    -> 看涨宏观健康度: {bullish_macro_health.iloc[-1]:.4f}")
-            print(f"    -> 看跌宏观健康度: {bearish_macro_health.iloc[-1]:.4f}")
-            # 探针输出更新为新的微观意图原始值和分数
-            _val_vb = volume_burstiness_raw.iloc[-1]
-            _formatted_val_vb = f"{_val_vb:.4f}" if pd.notna(_val_vb) else 'NaN'
-            print(f"    -> 成交量爆发原始值: {_formatted_val_vb}")
-            _val_vi = volatility_instability_raw.iloc[-1]
-            _formatted_val_vi = f"{_val_vi:.4f}" if pd.notna(_val_vi) else 'NaN'
-            print(f"    -> 波动率不稳定性原始值: {_formatted_val_vi}")
-            print(f"    -> 成交量爆发分数: {volume_burstiness_score.iloc[-1]:.4f}")
-            print(f"    -> 波动率稳定性分数: {volatility_stability_score.iloc[-1]:.4f}")
-            print(f"    -> 微观意图分数: {micro_intent_score.iloc[-1]:.4f}")
-            print(f"    -> 最终多周期协同分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
@@ -1030,11 +892,6 @@ class StructuralIntelligence:
                         is_bottom = False
             if is_bottom:
                 bottom_fractal_score.iloc[i] = 1.0
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 当前低点 (low_D): {low_series.iloc[-1]:.4f}")
-            print(f"    -> 最终底分型分数: {bottom_fractal_score.iloc[-1]:.4f}")
         return bottom_fractal_score
 
     def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series, breakout_readiness: pd.Series) -> Tuple[pd.Series, pd.Series]:
@@ -1132,19 +989,6 @@ class StructuralIntelligence:
             volume_compression_score * 0.2
         ).clip(0, 1)
         final_score = tension_score.astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 价格空间压缩原始值 (BBW_21_2.0_D): {price_compression_raw.iloc[-1]:.4f}")
-            print(f"    -> 价格空间压缩分数: {price_compression_score.iloc[-1]:.4f}")
-            print(f"    -> 均线结构压缩原始值 (Std): {structure_compression_raw_std.iloc[-1]:.4f}")
-            print(f"    -> 均线结构压缩分数 (Std): {structure_compression_score_std.iloc[-1]:.4f}")
-            print(f"    -> 均线势能张力原始值 (MA_POTENTIAL_TENSION_INDEX_D): {ma_tension_raw.iloc[-1]:.4f}")
-            print(f"    -> 均线势能张力分数: {ma_tension_score.iloc[-1]:.4f}")
-            print(f"    -> 融合均线结构压缩分数: {structure_compression_score.iloc[-1]:.4f}")
-            print(f"    -> 量能压缩原始值 (VOL_MA_5_D / VOL_MA_55_D): {volume_compression_raw.iloc[-1]:.4f}")
-            print(f"    -> 量能压缩分数: {volume_compression_score.iloc[-1]:.4f}")
-            print(f"    -> 最终结构张力分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_playbook_secondary_launch(self, df: pd.DataFrame, axiom_stability: pd.Series, strategic_posture: pd.Series, structural_momentum: pd.Series) -> pd.Series:
@@ -1165,11 +1009,6 @@ class StructuralIntelligence:
         # 为了效率，我们只在最近的K天内寻找模式
         lookback_days = 60
         start_index = max(10, len(df) - lookback_days) # 至少需要10天历史数据
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 当前战略态势: {strategic_posture.iloc[-1]:.4f}")
-            print(f"    -> 当前结构动量: {structural_momentum.iloc[-1]:.4f}")
         for i in range(start_index, len(df)):
             # --- 条件3: 当日强势启动 ---
             is_launch_day = strategic_posture.iloc[i] > 0.6 and structural_momentum.iloc[i] > 0.6
@@ -1208,9 +1047,6 @@ class StructuralIntelligence:
                 playbook_score.iloc[i] = 1.0
                 if self.is_probe_date and i == len(df) - 1:
                     print(f"    -> 剧本 '暴力洗盘后二次启动' 激活！")
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"    -> 最终剧本分数: {playbook_score.iloc[-1]:.4f}")
         return playbook_score
 
     def _diagnose_axiom_environment(self, df: pd.DataFrame) -> pd.Series:
@@ -1240,14 +1076,6 @@ class StructuralIntelligence:
             theme_hotness_score * 0.4
         ).clip(0, 1)
         final_score = environment_score.astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 行业强度排名原始值: {sector_rank_raw.iloc[-1]:.4f}")
-            print(f"    -> 板块强度分数: {sector_strength_score.iloc[-1]:.4f}")
-            print(f"    -> 主题热度原始值: {theme_hotness_raw.iloc[-1]:.4f}")
-            print(f"    -> 主题热度分数: {theme_hotness_score.iloc[-1]:.4f}")
-            print(f"    -> 最终环境分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_leadership_potential(self, strategic_posture: pd.Series, axiom_environment: pd.Series, structural_momentum: pd.Series, axiom_tension: pd.Series) -> pd.Series:
@@ -1388,99 +1216,6 @@ class StructuralIntelligence:
         dynamic_high.ffill(inplace=True)
         dynamic_low.ffill(inplace=True)
         vpoc.ffill(inplace=True)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            _val = bbw_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 价格稳定性原始值 (BBW_21_2.0_D): {_formatted_val}")
-            _val = price_stability_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 价格稳定性分数: {_formatted_val}")
-            _val = (vol_ma_5_raw / vol_ma_55_raw).iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 供应枯竭原始值 (VOL_MA_5_D / VOL_MA_55_D): {_formatted_val}")
-            _val = supply_exhaustion_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 供应枯竭分数: {_formatted_val}")
-            print(f"    -> 是否处于有效平台状态: {is_valid_platform_day.iloc[-1]}")
-            _val = volatility_instability_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构形态原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {_formatted_val}")
-            _val = price_volume_entropy_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构形态原始值 (price_volume_entropy_D): {_formatted_val}")
-            _val = s_structure.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构品质分: {_formatted_val}")
-            # 替换后的探针输出
-            _val = volatility_instability_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构稳定性原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {_formatted_val}")
-            _val = price_volume_entropy_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构稳定性原始值 (price_volume_entropy_D): {_formatted_val}")
-            _val = s_stability_quality.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构稳定性品质分: {_formatted_val}")
-            _val = trend_efficiency_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构效率原始值 (trend_efficiency_ratio_D): {_formatted_val}")
-            _val = impulse_quality_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构效率原始值 (impulse_quality_ratio_D): {_formatted_val}")
-            _val = s_efficiency_quality.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构效率品质分: {_formatted_val}")
-            _val = volume_burstiness_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构活跃度原始值 (volume_burstiness_index_D): {_formatted_val}")
-            _val = asymmetric_friction_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构活跃度原始值 (asymmetric_friction_index_D): {_formatted_val}")
-            _val = s_activity_quality.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构活跃度品质分: {_formatted_val}")
-            _val = final_quality_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 最终平台品质分: {_formatted_val}")
-            _val = dynamic_high.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 动态高点: {_formatted_val}")
-            _val = dynamic_low.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 动态低点: {_formatted_val}")
-            _val = vpoc.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构性VPOC: {_formatted_val}")
-            # 额外输出原始非结构类数据，仅供参考
-            _val = main_force_vpoc_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力VPOC原始值 (main_force_vpoc_D): {_formatted_val}")
-            _val = mf_cost_zone_defense_intent_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力行为原始值 (mf_cost_zone_defense_intent_D): {_formatted_val}")
-            _val = control_solidity_index_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力行为原始值 (control_solidity_index_D): {_formatted_val}")
-            _val = dominant_peak_solidity_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 筹码状态原始值 (dominant_peak_solidity_D): {_formatted_val}")
-            _val = peak_separation_ratio_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 筹码状态原始值 (peak_separation_ratio_D): {_formatted_val}")
-            _val = chip_fatigue_index_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 筹码状态原始值 (chip_fatigue_index_D): {_formatted_val}")
-            _val = counterparty_exhaustion_index_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 市场情绪原始值 (counterparty_exhaustion_index_D): {_formatted_val}")
-            _val = retail_panic_surrender_index_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 市场情绪原始值 (retail_panic_surrender_index_D): {_formatted_val}")
-            _val = turnover_rate_f_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 市场情绪原始值 (turnover_rate_f_D): {_formatted_val}")
         return platform_quality, dynamic_high, dynamic_low, vpoc
 
     def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
@@ -1574,40 +1309,6 @@ class StructuralIntelligence:
         ).clip(0, 1)
         # 废除 is_consolidating 开关，直接输出连续性分数
         final_score = readiness_score.astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            # 探针输出更新为新的结构类原始值和分数
-            _val = vol_ma_short_raw.iloc[-1] / vol_ma_long_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 成交量比值原始值 (VOL_MA_5_D / VOL_MA_55_D): {_formatted_val}")
-            _val = bbw_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 布林带宽度原始值 (BBW_21_2.0_D): {_formatted_val}")
-            _val = structural_supply_exhaustion_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构性供应枯竭度分数: {_formatted_val}")
-            _val = ma_orderliness_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 均线有序度原始值 (MA_POTENTIAL_ORDERLINESS_SCORE_D): {_formatted_val}")
-            _val = volatility_instability_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 波动率不稳定性原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {_formatted_val}")
-            _val = structural_control_solidity_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构性控盘度分数: {_formatted_val}")
-            _val = equilibrium_compression_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 均衡压缩原始值: {_formatted_val}")
-            _val = equilibrium_compression_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 均衡压缩分数: {_formatted_val}")
-            _val = energy_accumulation_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {_formatted_val}")
-            _val = final_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 最终突破准备度分数: {_formatted_val}")
         return final_score
 
     def _diagnose_structural_momentum(self, df: pd.DataFrame, input_contextual_posture: pd.Series, axiom_tension: pd.Series, breakout_readiness: pd.Series, axiom_stability: pd.Series, axiom_mtf_cohesion: pd.Series, posture_type: str = "unknown") -> pd.Series:
@@ -1672,21 +1373,6 @@ class StructuralIntelligence:
         ).clip(-1, 1)
         # 应用非线性放大
         final_score = pd.Series(np.sign(fused_momentum) * (np.abs(fused_momentum) ** non_linear_exponent), index=df_index).clip(-1, 1).astype(np.float32)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} (类型: {posture_type}) ({current_date})")
-            print(f"    -> 输入情境态势: {input_contextual_posture.iloc[-1]:.4f}")
-            print(f"    -> 结构速度原始值: {velocity_raw.iloc[-1]:.4f}")
-            print(f"    -> 结构速度分数: {velocity_score.iloc[-1]:.4f}")
-            print(f"    -> 结构加速度原始值: {acceleration_raw.iloc[-1]:.4f}")
-            print(f"    -> 结构加速度分数: {acceleration_score.iloc[-1]:.4f}")
-            print(f"    -> 动量持续性原始值: {persistence_raw.iloc[-1]:.4f}")
-            print(f"    -> 动量持续性分数: {persistence_score.iloc[-1]:.4f}")
-            print(f"    -> 有利情境原始值: {favorable_context_raw.iloc[-1]:.4f}")
-            print(f"    -> 不利情境原始值: {unfavorable_context_raw.iloc[-1]:.4f}")
-            print(f"    -> 动量情境品质分数: {context_quality_score.iloc[-1]:.4f}")
-            print(f"    -> 融合动量 (非线性前): {fused_momentum.iloc[-1]:.4f}")
-            print(f"    -> 最终结构动量分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
 

@@ -1576,6 +1576,62 @@
             "scoring_mode": "unipolar",
             "description": "【V1.0】融合资金流吸筹拐点意图与筹码结构支持，识别主力完成隐蔽吸筹，开始加大吸筹力度，甚至转向抢筹的时间点。旨在先于价格上涨发现趋势起点。"
         },
+        "FUSION_BIPOLAR_MULTI_LAYER_REVERSAL_CONFIRMATION": {
+            "cn_name": "【融合】多层反转共振确认",
+            "category": "融合层-转折",
+            "type": "bipolar",
+            "score": 250,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 万法归宗版】一个高置信度的趋势转折信号，旨在融合各情报层（行为、结构、形态、力学、筹码、资金流、微观行为）的底部/顶部反转证据。通过非线性加权聚合，量化反转信号的广度、深度和强度，从而提供一个更可靠的趋势转折预警。正分代表多层底部反转共振，负分代表多层顶部反转共振。"
+        },
+        "FUSION_BIPOLAR_BREAKOUT_SUSTAINABILITY": {
+            "cn_name": "【融合】突破持续性品质",
+            "category": "融合层-趋势",
+            "type": "bipolar",
+            "score": 200,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 穿透假象版】一个高阶融合信号，旨在评估价格突破的内在品质和后续持续性。它融合了结构层的突破准备度、行为层的新高强度和量能爆发、力学层的结构动量以及形态层的突破公理。旨在区分“昙花一现”的诱多突破和“厚积薄发”的真突破。正分代表高质量的向上突破，负分代表高风险的向下突破或假突破。"
+        },
+        "FUSION_BIPOLAR_INTRADAY_STRATEGIC_ALIGNMENT": {
+            "cn_name": "【融合】日内战略协同度",
+            "category": "融合层-行为",
+            "type": "bipolar",
+            "score": 180,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 战术意图版】一个高阶融合信号，旨在评估日内战术行为与微观战略意图的协同性。它融合了日内行为K线质量、战术弧线、竞价意图等日内信号，并与微观战略意图进行协同评估。高分代表日内战术与微观战略高度一致，主力控盘坚决；低分或负分则可能预示日内行为与战略意图存在冲突，例如尾盘拉升掩盖日内出货。"
+        },
+        "FUSION_BIPOLAR_CAPITAL_DOMINANCE_SHIFT": {
+            "cn_name": "【融合】资本主导力转移",
+            "category": "融合层-资金",
+            "type": "bipolar",
+            "score": 220,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 谁主沉浮版】一个高阶融合信号，旨在量化当前市场由哪种资本（耐心资本 vs 敏捷资本）主导，以及这种主导力是否正在发生转移。它融合了资金流的资本属性、资金流纯度与动能、筹码的战略态势以及市场情绪钟摆。正分代表耐心资本主导且影响力增强，预示趋势的稳健性；负分代表敏捷资本主导或耐心资本影响力减弱，警示市场风格切换或波动加剧。"
+        },
+        "FUSION_OPPORTUNITY_HIDDEN_ACCUMULATION_QUALITY": {
+            "cn_name": "【融合】隐蔽吸筹品质",
+            "category": "融合层-机会",
+            "type": "opportunity",
+            "score": 350,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 暗流涌动版】一个高阶融合机会信号，旨在评估主力隐蔽吸筹行为的真实性、效率和可持续性。它融合了各种隐蔽吸筹的过程信号（如隐蔽吸筹、诡道吸筹、恐慌洗盘吸筹、上冲回落洗盘），并结合成交量萎缩、筹码持仓信念韧性等品质因子。高分代表主力正在进行高质量的隐蔽吸筹，是潜在的底部机会。"
+        },
+        "FUSION_BIPOLAR_MARKET_STRUCTURE_HEALTH": {
+            "cn_name": "【融合】市场结构健康度",
+            "category": "融合层-结构",
+            "type": "bipolar",
+            "score": 150,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 骨架诊断版】一个高阶融合信号，旨在提供对市场“骨架”健康程度的综合评估。它融合了平台基石品质、动态平台高低点、结构稳定性、宏观趋势健康度以及结构张力等信号。正分代表市场结构健康稳固，具备支撑趋势持续的能力；负分代表结构脆弱或存在风险，可能导致趋势反转或加速下跌。"
+        },
+        "FUSION_BIPOLAR_SECTOR_LEADERSHIP_DYNAMICS": {
+            "cn_name": "【融合】板块龙头动态",
+            "category": "融合层-战略",
+            "type": "bipolar",
+            "score": 200,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 谁是真龙版】一个高阶融合信号，旨在评估个股在板块中的地位、板块的整体健康度以及潜在的龙头切换。它融合了个股与板块的协同性、热门板块冷却迹象、结构层的龙头潜力以及基础层的相对强度。正分代表个股具备龙头潜力且板块协同良好，预示着市场热点的形成或延续；负分代表板块冷却或龙头地位动摇，警示潜在的风险或风格切换。"
+        },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
             "cn_name": "【认知剧本】主力打压吸筹",
