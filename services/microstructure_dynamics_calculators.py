@@ -47,23 +47,36 @@ def _numba_calculate_vpin_buckets(
     【Numba优化版】计算VPIN桶内的买卖失衡。
     返回每个桶的失衡值和桶的索引。
     """
+    # 明确定义空数组，以帮助Numba进行类型推断
+    empty_float_array = np.empty(0, dtype=np.float64)
+    empty_int_array = np.empty(0, dtype=np.int64)
+
     if vpin_bucket_size <= 0:
-        # 明确指定空数组的dtype，以帮助Numba进行类型推断
-        return np.array([], dtype=np.float64), np.array([], dtype=np.int64)
+        return empty_float_array, empty_int_array
+    
     n = len(cum_vol_arr)
+    # 防御性检查：如果传入的累计成交量数组为空，直接返回空数组
+    if n == 0:
+        return empty_float_array, empty_int_array
+
     # 预估最大桶数，避免动态列表增长开销
     max_buckets = int(cum_vol_arr[-1] / vpin_bucket_size) + 2
+    
+    # 防御性检查：如果计算出的最大桶数无效，直接返回空数组
+    if max_buckets <= 0:
+        return empty_float_array, empty_int_array
+
     bucket_imbalance = np.zeros(max_buckets, dtype=np.float64)
     bucket_buy_vol = np.zeros(max_buckets, dtype=np.float64)
     bucket_sell_vol = np.zeros(max_buckets, dtype=np.float64)
     current_bucket_idx = 0
+
     for i in range(n):
         bucket_idx = int(cum_vol_arr[i] / vpin_bucket_size)
         # 确保桶索引在范围内
         if bucket_idx >= max_buckets:
-            # 如果超出预估范围，可以动态调整数组大小，但为了Numba效率，这里简单截断或报错
-            # 实际应用中，max_buckets应足够大
-            break 
+            # 如果超出预估范围，跳过此元素，避免索引越界
+            continue 
             
         bucket_buy_vol[bucket_idx] += buy_vol_arr[i]
         bucket_sell_vol[bucket_idx] += sell_vol_arr[i]
@@ -71,6 +84,10 @@ def _numba_calculate_vpin_buckets(
             
     # 截取实际使用的桶
     actual_buckets = current_bucket_idx + 1
+    # 防御性检查：如果实际桶数为0或负数，返回空数组
+    if actual_buckets <= 0:
+        return empty_float_array, empty_int_array
+
     imbalance_values = bucket_buy_vol[:actual_buckets] - bucket_sell_vol[:actual_buckets]
     bucket_indices = np.arange(actual_buckets)
     return imbalance_values, bucket_indices
