@@ -932,21 +932,6 @@ class StructuralIntelligence:
         defense_modifier = (defense_strength - 0.5) * conviction_factor
         strategic_posture = (offense_score * (1 + defense_modifier)).clip(0, 1)
         final_score = strategic_posture.astype(np.float32)
-        if self.is_probe_date and not df_index.empty:
-            current_date = df_index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            # 探针输出更新为结构效率
-            _val = structural_efficiency_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 结构效率原始值 (trend_efficiency_ratio_D): {_formatted_val}")
-            print(f"    -> 结构效率分数: {structural_efficiency_score.iloc[-1]:.4f}")
-            print(f"    -> 基础进攻分数: {base_offense_score.iloc[-1]:.4f}")
-            print(f"    -> 张力催化因子: {tension_amplifier.iloc[-1]:.4f}")
-            print(f"    -> 进攻分数: {offense_score.iloc[-1]:.4f}")
-            print(f"    -> 动态防御分数: {dynamic_defense.iloc[-1]:.4f}")
-            print(f"    -> 静态防御分数 (Max(平台, 突破)): {static_defense.iloc[-1]:.4f}")
-            print(f"    -> 最终防御强度: {defense_strength.iloc[-1]:.4f}")
-            print(f"    -> 最终战略态势分数: {final_score.iloc[-1]:.4f}")
         return final_score, defense_strength
 
     def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -1039,9 +1024,6 @@ class StructuralIntelligence:
                         avg_stability = axiom_stability.iloc[accumulation_period_start:accumulation_period_end].mean()
                         if avg_stability > 0.2: # 稳定性阈值可调
                             washout_found = True
-                            if self.is_probe_date and i == len(df) - 1:
-                                print(f"    -> 发现洗盘日 {df.index[j].strftime('%Y-%m-%d')} (价格跌幅={price_drop_pct:.4f}, 成交量爆发={volume_burstiness_signal.iloc[j]:.4f})")
-                                print(f"    -> 前期蓄势稳定性 ({df.index[accumulation_period_start].strftime('%Y-%m-%d')}~{df.index[accumulation_period_end].strftime('%Y-%m-%d')}): {avg_stability:.4f}")
                             break # 找到符合条件的洗盘日，即可停止内层循环
             if washout_found:
                 playbook_score.iloc[i] = 1.0
@@ -1098,16 +1080,6 @@ class StructuralIntelligence:
         # --- 3. 输出最终裁决 ---
         # 只有在矛盾区域内，才输出龙头潜力的证据分
         final_score = (leadership_evidence_score * is_conflict_zone).astype(np.float32)
-        if self.is_probe_date and not strategic_posture.empty:
-            current_date = strategic_posture.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 战略态势: {strategic_posture.iloc[-1]:.4f} (阈值 > {posture_threshold})")
-            print(f"    -> 环境分数: {axiom_environment.iloc[-1]:.4f} (阈值 < {env_threshold})")
-            print(f"    -> 是否处于冲突区: {is_conflict_zone.iloc[-1]}")
-            print(f"    -> 结构动量: {structural_momentum.iloc[-1]:.4f}")
-            print(f"    -> 结构张力: {axiom_tension.iloc[-1]:.4f}")
-            print(f"    -> 领导力证据分数 (动量*0.6 + 张力*0.4): {leadership_evidence_score.iloc[-1]:.4f}")
-            print(f"    -> 最终龙头潜力分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_platform_foundation(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
@@ -1244,20 +1216,6 @@ class StructuralIntelligence:
         # --- 3. 做出最终裁决 ---
         final_judgment_score = (contextual_posture - final_penalty).clip(-1, 1)
         final_score = final_judgment_score.astype(np.float32)
-        if self.is_probe_date and not contextual_posture.empty:
-            current_date = contextual_posture.index[-1].strftime('%Y-%m-%d')
-            print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 情境态势: {contextual_posture.iloc[-1]:.4f}")
-            print(f"    -> 防御强度: {defense_strength.iloc[-1]:.4f}")
-            print(f"    -> 结构动量: {structural_momentum.iloc[-1]:.4f}")
-            print(f"    -> 是否为陷阱候选 (情境态势 > 0.6): {is_trap_candidate.iloc[-1]}")
-            print(f"    -> 防御是否脆弱 (防御强度 < 0.4): {is_defense_weak.iloc[-1]}")
-            print(f"    -> 动量是否停滞 (结构动量 < 0.1): {is_momentum_stalled.iloc[-1]}")
-            print(f"    -> 是否触发否决 (陷阱候选 & 脆弱防御 & 停滞动量): {is_veto_triggered.iloc[-1]}")
-            print(f"    -> 防御脆弱度: {defense_weakness.iloc[-1]:.4f}")
-            print(f"    -> 动量停滞度: {momentum_weakness.iloc[-1]:.4f}")
-            print(f"    -> 最终惩罚: {final_penalty.iloc[-1]:.4f}")
-            print(f"    -> 最终裁决分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_breakout_readiness(self, df: pd.DataFrame, axiom_tension: pd.Series) -> pd.Series:

@@ -1928,6 +1928,7 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资本主导力转移”...")
         states = {}
         df_index = df.index
+
         # 从 fusion.json 中获取参数
         fusion_params = self.params.get('fusion_capital_dominance_shift_params', {})
         capital_attribute_weight = get_param_value(fusion_params.get('capital_attribute_weight'), 0.4)
@@ -1936,18 +1937,21 @@ class FusionIntelligence:
         sentiment_pendulum_weight = get_param_value(fusion_params.get('sentiment_pendulum_weight'), 0.1)
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 1.5)
         credibility_mod_factor = get_param_value(fusion_params.get('credibility_mod_factor'), 0.5)
+
         # 1. 获取核心输入信号
         capital_attribute = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CAPITAL_SIGNATURE', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         flow_credibility = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0, debug_info).fillna(0.0) # 假设已归一化到 [0, 1]
+
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资本属性: {capital_attribute.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流纯度与动能: {flow_momentum.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 筹码战略态势: {chip_posture.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情绪钟摆: {sentiment_pendulum.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_ts.strftime('%Y-%m-%d')}: 资金流可信度: {flow_credibility.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {probe_ts.strftime('%Y-%m-%d')}: 资金流可信度: {flow_credibility.loc[probe_ts]:.4f}") # 修正此处：method_ts -> probe_ts
+
         # 2. 融合核心维度 (加权平均)
         raw_dominance_score = (
             capital_attribute * capital_attribute_weight +
@@ -1956,12 +1960,15 @@ class FusionIntelligence:
             sentiment_pendulum * sentiment_pendulum_weight
         ) / (capital_attribute_weight + flow_momentum_weight + chip_posture_weight + sentiment_pendulum_weight)
         raw_dominance_score = raw_dominance_score.clip(-1, 1)
+
         # 3. 资金流可信度作为调制器，增强或削弱信号
         # 可信度越高，信号越可靠，调制器越接近1；可信度越低，调制器越接近0，削弱信号
         credibility_modulator = (flow_credibility * credibility_mod_factor + (1 - credibility_mod_factor)).clip(0, 1) # 确保在0到1之间
+
         # 4. 最终分数：原始主导力分数 × 可信度调制器，并进行非线性放大
         final_score = (raw_dominance_score * credibility_modulator)**non_linear_exponent
         final_score = final_score.clip(-1, 1)
+
         states['FUSION_BIPOLAR_CAPITAL_DOMINANCE_SHIFT'] = final_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始主导力分数: {raw_dominance_score.loc[probe_ts]:.4f}")
