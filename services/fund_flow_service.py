@@ -41,7 +41,7 @@ def _numba_calculate_attribution_modifiers(
     for i in range(len(vol_shares_arr)):
         if vol_ma_arr[i] > 1e-9 and range_ma_arr[i] > 1e-9:
             impulse_modifier[i] = (vol_shares_arr[i] / vol_ma_arr[i]) * (price_range_arr[i] / range_ma_arr[i])
-        impulse_modifier[i] = np.clip(impulse_modifier[i], 0, 10)
+    impulse_modifier = np.clip(impulse_modifier, 0, 10)
     # lg_buy_modifier, lg_sell_modifier
     if not np.isnan(daily_vwap):
         for i in range(len(minute_vwap_arr)):
@@ -54,7 +54,6 @@ def _numba_calculate_attribution_modifiers(
         md_buy_modifier[i] = np.exp(momentum_modifier_raw_arr[i] * 50)
         md_sell_modifier[i] = np.exp(-momentum_modifier_raw_arr[i] * 50)
     return impulse_modifier, lg_buy_modifier, lg_sell_modifier, md_buy_modifier, md_sell_modifier
-
 
 class AdvancedFundFlowMetricsService:
     """
