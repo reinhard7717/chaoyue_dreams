@@ -1485,7 +1485,7 @@ class StructuralIntelligence:
             get_adaptive_mtf_normalized_score(mf_cost_zone_defense_intent_raw, df.index, tf_weights, ascending=True) * 0.5
         )
         # 1c. 势能积蓄度 (复用结构张力公理并引入均衡压缩)
-        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.0, method_name=method_name)
+        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.5, method_name=method_name) # 默认值改为0.5
         equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df.index, tf_weights, ascending=True)
         energy_accumulation_score = (axiom_tension * 0.7 + equilibrium_compression_score * 0.3).clip(0,1)
         # --- 2. 融合输出 (无条件执行) ---
@@ -1500,33 +1500,15 @@ class StructuralIntelligence:
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            _val = counterparty_exhaustion_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 对手盘枯竭原始值: {_formatted_val}")
-            _val = turnover_rate_f_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 换手率原始值: {_formatted_val}")
-            _val = supply_exhaustion_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 供应枯竭度分数: {_formatted_val}")
-            _val = control_solidity_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 控盘坚实度原始值: {_formatted_val}")
-            _val = mf_cost_zone_defense_intent_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力成本区防御意图原始值: {_formatted_val}")
-            _val = main_force_control_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力控盘度分数: {_formatted_val}")
-            _val = equilibrium_compression_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 均衡压缩原始值: {_formatted_val}")
-            _val = equilibrium_compression_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 均衡压缩分数: {_formatted_val}")
-            _val = energy_accumulation_score.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {_formatted_val}")
+            print(f"    -> 对手盘枯竭原始值: {f'{counterparty_exhaustion_raw.iloc[-1]:.4f}' if pd.notna(counterparty_exhaustion_raw.iloc[-1]) else 'NaN'}")
+            print(f"    -> 换手率原始值: {f'{turnover_rate_f_raw.iloc[-1]:.4f}' if pd.notna(turnover_rate_f_raw.iloc[-1]) else 'NaN'}")
+            print(f"    -> 供应枯竭度分数: {f'{supply_exhaustion_score.iloc[-1]:.4f}' if pd.notna(supply_exhaustion_score.iloc[-1]) else 'NaN'}")
+            print(f"    -> 控盘坚实度原始值: {f'{control_solidity_raw.iloc[-1]:.4f}' if pd.notna(control_solidity_raw.iloc[-1]) else 'NaN'}")
+            print(f"    -> 主力成本区防御意图原始值: {f'{mf_cost_zone_defense_intent_raw.iloc[-1]:.4f}' if pd.notna(mf_cost_zone_defense_intent_raw.iloc[-1]) else 'NaN'}")
+            print(f"    -> 主力控盘度分数: {f'{main_force_control_score.iloc[-1]:.4f}' if pd.notna(main_force_control_score.iloc[-1]) else 'NaN'}")
+            print(f"    -> 均衡压缩原始值: {f'{equilibrium_compression_raw.iloc[-1]:.4f}' if pd.notna(equilibrium_compression_raw.iloc[-1]) else 'NaN'}")
+            print(f"    -> 均衡压缩分数: {f'{equilibrium_compression_score.iloc[-1]:.4f}' if pd.notna(equilibrium_compression_score.iloc[-1]) else 'NaN'}")
+            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {f'{energy_accumulation_score.iloc[-1]:.4f}' if pd.notna(energy_accumulation_score.iloc[-1]) else 'NaN'}")
             print(f"    -> 最终突破准备度分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
