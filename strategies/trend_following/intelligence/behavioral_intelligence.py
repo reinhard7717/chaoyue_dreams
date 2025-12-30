@@ -432,8 +432,8 @@ class BehavioralIntelligence:
         period_scores_list = []
         debug_info = (is_debug_enabled, probe_ts, method_name)
         # 预取所有斜率和加速度的原始数据
-        slope_raw_data = {p: self._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name, is_debug_enabled=is_debug_enabled, probe_ts=probe_ts) for p in momentum_periods}
-        accel_raw_data = {p: self._get_safe_series(df, f'ACCEL_{p}_close_D', 0.0, method_name=method_name, is_debug_enabled=is_debug_enabled, probe_ts=probe_ts) for p in momentum_periods}
+        slope_raw_data = {p: self._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name, is_debug_enabled=False, probe_ts=probe_ts) for p in momentum_periods}
+        accel_raw_data = {p: self._get_safe_series(df, f'ACCEL_{p}_close_D', 0.0, method_name=method_name, is_debug_enabled=False, probe_ts=probe_ts) for p in momentum_periods}
         for p in momentum_periods:
             norm_window = p * 2 # 归一化窗口通常取周期的两倍
             # 为每个周期单独计算双极归一化分数
@@ -481,9 +481,9 @@ class BehavioralIntelligence:
         """
         method_name = "_calculate_structural_health"
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        liquidity_authenticity_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name=method_name, is_debug_enabled=is_debug_enabled, probe_ts=probe_ts)
-        order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name, is_debug_enabled=is_debug_enabled, probe_ts=probe_ts)
-        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name, is_debug_enabled=is_debug_enabled, probe_ts=probe_ts)
+        liquidity_authenticity_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name=method_name, is_debug_enabled=False, probe_ts=probe_ts)
+        order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name, is_debug_enabled=False, probe_ts=probe_ts)
+        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name, is_debug_enabled=False, probe_ts=probe_ts)
         # 收集所有需要归一化的窗口
         windows_liquidity = [int(p) for p in get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights).keys()]
         windows_flow_credibility = [int(p) for p in get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights).keys()]
@@ -4738,8 +4738,8 @@ class BehavioralIntelligence:
         debug_info = (is_debug_enabled, probe_ts, method_name)
         current_fusion_power_p = get_param_value(liquidity_drain_params.get('fusion_power_p'), 0.0)
         if get_param_value(dynamic_fusion_power_p_params.get('enabled'), False):
-            modulator_signal_1 = self._get_safe_series(df, dynamic_fusion_power_p_params.get('volatility_signal'), 0.0, method_name=method_name, is_debug_enabled=is_debug_enabled, probe_ts=probe_ts)
-            modulator_signal_2 = self._get_safe_series(df, dynamic_fusion_power_p_params.get('sentiment_signal'), 0.0, method_name=method_name, is_debug_enabled=is_debug_enabled, probe_ts=probe_ts)
+            modulator_signal_1 = self._get_safe_series(df, dynamic_fusion_power_p_params.get('volatility_signal'), 0.0, method_name=method_name, is_debug_enabled=False, probe_ts=probe_ts)
+            modulator_signal_2 = self._get_safe_series(df, dynamic_fusion_power_p_params.get('sentiment_signal'), 0.0, method_name=method_name, is_debug_enabled=False, probe_ts=probe_ts)
             p_mtf = self.config_params.get('mtf_normalization_params', {})
             default_tf_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
             # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---

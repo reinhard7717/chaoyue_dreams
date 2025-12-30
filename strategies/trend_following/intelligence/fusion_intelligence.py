@@ -1250,7 +1250,7 @@ class FusionIntelligence:
 
     def _synthesize_liquidity_dynamics(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.5 · 诡道穿透版 - 依赖解耦与强化】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        【V5.6 · 诡道穿透版 - 依赖解耦与强化】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
         - 核心重构: 引入“诡道因子非对称调制”，深化流动性“质量”与“纯度”量化，优化动态激活敏感度，强化维度间协同/冲突裁决。
         - 核心目标: 融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。
         - 诡道哲学: 流动性是市场博弈的血液。健康的流动性动态，是主力主导、价量协同、权力稳固的体现；
@@ -1260,10 +1260,11 @@ class FusionIntelligence:
                       其判断重心与反应速度，应随市场情境（趋势质量、市场政权、波动率、情绪、资金流可信度）
                       动态调整，并能识别维度间的协同与冲突，穿透主力诡道。
         - 融合模型: 最终得分 = tanh( (动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS) * 协同/冲突因子 * 诡道穿透因子)
-        - 【V5.5 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
+        - 【V5.6 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       增强对风险信号的敏感度，确保诡道因子在诱多情境下能有效惩罚。
                       增加 `SCORE_FF_AXIOM_INTENT_PURITY` 和 `SCORE_FOUNDATION_AXIOM_MARKET_FRICTION` 信号，提高流动性博弈动态的准确性。
                       调整 `LS激活敏感度` 的计算，避免输出过于极端的 1.0000 或 0.0000。
+                      **将 `flow_credibility_index_D` 归一化到 0-1 范围，以确保其在计算中的行为符合预期。**
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_liquidity_dynamics"
@@ -1303,6 +1304,7 @@ class FusionIntelligence:
                     deception_reward_factor = get_param_value(deception_mod_params.get('deception_reward_factor'), 0.1)
                     credibility_influence = get_param_value(deception_mod_params.get('credibility_influence'), 0.5)
                     # 资金流可信度对诡道因子的影响
+                    # flow_credibility 已经归一化到 0-1
                     credibility_mod = (1 - flow_credibility * credibility_influence).clip(0, 1)
                     modulated_deception = deception_index * credibility_mod
                     modulated_wash_trade = wash_trade_intensity * credibility_mod
@@ -1380,13 +1382,17 @@ class FusionIntelligence:
         ]
         volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, debug_info).fillna(0.0)
         market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.0, debug_info).fillna(0.0)
-        flow_credibility = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0, debug_info).fillna(0.0)
+        
+        # 修正：将 flow_credibility_index_D 归一化到 0-1 范围
+        flow_credibility_raw = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0, debug_info).fillna(0.0)
+        flow_credibility = (flow_credibility_raw / 100).clip(0, 1) # 假设原始范围是 0-100
         deception_index = self._get_atomic_score(df, 'deception_index_D', 0.0, debug_info).fillna(0.0)
         wash_trade_intensity = self._get_atomic_score(df, 'wash_trade_intensity_D', 0.0, debug_info).fillna(0.0)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
             print(f"        波动不稳定性: {volatility_instability.loc[probe_ts]:.4f}, 市场情绪: {market_sentiment.loc[probe_ts]:.4f}")
-            print(f"        资金流可信度: {flow_credibility.loc[probe_ts]:.4f}, 欺骗指数: {deception_index.loc[probe_ts]:.4f}, 对倒强度: {wash_trade_intensity.loc[probe_ts]:.4f}")
+            print(f"        资金流可信度 (原始): {flow_credibility_raw.loc[probe_ts]:.4f}, 资金流可信度 (归一化): {flow_credibility.loc[probe_ts]:.4f}")
+            print(f"        欺骗指数: {deception_index.loc[probe_ts]:.4f}, 对倒强度: {wash_trade_intensity.loc[probe_ts]:.4f}")
         pve_sens_params = ld_params.get('pve_activation_sensitivity_params', {})
         pve_base_sens = get_param_value(pve_sens_params.get('base_sensitivity'), 2.0)
         pve_mod_factor = get_param_value(pve_sens_params.get('modulator_factor'), 0.5)
