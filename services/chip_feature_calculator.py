@@ -7,6 +7,7 @@ from scipy.signal import find_peaks
 from scipy.stats import entropy, percentileofscore, skew
 from decimal import Decimal
 import numba
+from typing import Tuple
 import logging
 logger = logging.getLogger(__name__)
 
