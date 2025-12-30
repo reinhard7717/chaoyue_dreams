@@ -489,11 +489,11 @@ class BehavioralIntelligence:
         windows_flow_credibility = [int(p) for p in get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights).keys()]
         # 一次性计算所有窗口的归一化分数
         liquidity_authenticity_score = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('liquidity_authenticity'), default_tf_weights), ascending=True, debug_info=False)
-        # 修正：直接传入整数21作为window参数
+        # 直接传入整数21作为window参数
         order_book_imbalance_score_bipolar = get_robust_bipolar_normalized_score(order_book_imbalance_raw, df.index, window=21, sensitivity=2.0, default_value=0.0, debug_info=False)
         flow_credibility_score = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=get_param_value(tf_weights_config.get('flow_credibility'), default_tf_weights), ascending=True, debug_info=False)
         # 从一次性计算的结果中获取对应窗口的分数
-        # 修正：order_book_imbalance_score_bipolar 现在已经是Series，直接使用
+        # order_book_imbalance_score_bipolar 现在已经是Series，直接使用
         order_book_imbalance_score = (order_book_imbalance_score_bipolar + 1) / 2
         # 几何平均融合
         structural_health_score = self._robust_generalized_mean(
@@ -2412,7 +2412,7 @@ class BehavioralIntelligence:
         # 从 self.config_params 获取 atmospheric_pressure_params
         params = get_param_value(self.config_params.get('atmospheric_pressure_params'), {})
         synergy_bonus = get_param_value(params.get('synergy_bonus_factor'), 0.2)
-        # 修正：定义 weights 变量
+        # 定义 weights 变量
         weights = get_param_value(params.get('fusion_weights'), {'motive': 0.2, 'weapon': 0.4, 'fingerprint': 0.4}) # 确保这里获取的是正确的融合权重
         # 从 self.config_params 获取 judgment_day_protocol_params
         env_params = get_param_value(self.config_params.get('judgment_day_protocol_params'), {})
@@ -3480,7 +3480,7 @@ class BehavioralIntelligence:
         debug_info = (is_debug_enabled, probe_ts, method_name)
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         # For purity_factor
-        # 修正：从 params 中获取 mtf_slopes_params
+        # 从 params 中获取 mtf_slopes_params
         mtf_slopes_params_local = params['mtf_slopes_params']
         slope_std_dev_raw = signals_data['robust_close_slope'].rolling(window=mtf_slopes_params_local.get("periods", [5])[0]).std().fillna(0)
         # For inertia_factor
@@ -3616,7 +3616,7 @@ class BehavioralIntelligence:
                                           is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         method_name = "_calculate_single_divergence_type"
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        # 修正：从 params 字典中获取 mtf_slopes_params
+        # 从 params 字典中获取 mtf_slopes_params
         mtf_slopes_params = params['mtf_slopes_params']
         multi_level_resonance_params = params['multi_level_resonance_params']
         persistence_params = params['persistence_params']
@@ -3641,7 +3641,7 @@ class BehavioralIntelligence:
         long_term_period = params['long_term_period']
         # --- 预先计算组合 Series，确保 id() 一致性 ---
         # For purity_factor
-        # 修正：从 params 中获取 mtf_slopes_params
+        # 从 params 中获取 mtf_slopes_params
         mtf_slopes_params_local = params['mtf_slopes_params']
         slope_std_dev_raw = robust_close_slope.rolling(window=mtf_slopes_params_local.get("periods", [5])[0]).std().fillna(0)
         # For inertia_factor

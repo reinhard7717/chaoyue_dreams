@@ -1348,7 +1348,7 @@ class ChipFeatureCalculator:
         min_sweep_len = 3
         
         # 准备Numba函数所需的NumPy数组
-        # 修正：将 trade_types 转换为 Numba 友好的数值类型
+        # 将 trade_types 转换为 Numba 友好的数值类型
         trade_type_map = {'B': 1, 'S': -1, 'M': 0}
         # 创建一个新的Series进行映射，不修改原始tick_df['type']
         trade_types_numeric_series = tick_df['type'].astype(str).map(trade_type_map)

@@ -104,7 +104,7 @@ def _numba_sample_entropy(x: np.ndarray, m: int, r: float) -> float:
             if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
                 A += 1
     
-    # 修正：原始实现中 B 和 A 的计算方式可能导致 B < A
+    # 原始实现中 B 和 A 的计算方式可能导致 B < A
     # 样本熵的定义是 -ln(A/B)
     # B_m(r) 是匹配长度为 m 的模式对的数量
     # A_m(r) 是匹配长度为 m+1 的模式对的数量

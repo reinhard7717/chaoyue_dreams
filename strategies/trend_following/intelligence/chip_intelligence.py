@@ -899,24 +899,14 @@ class ChipIntelligence:
         vacuum_magnitude_raw = signals_data['vacuum_zone_magnitude_D']
         vacuum_trend_raw = signals_data['SLOPE_5_vacuum_zone_magnitude_D']
         vacuum_traversal_raw = signals_data['vacuum_traversal_efficiency_D']
-        # Debugging: Check inputs before static_engine_power definition
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"        [DEBUG] {method_name} - 准备定义 static_engine_power @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"          strategic_posture type: {type(strategic_posture)}, value: {strategic_posture.loc[probe_ts]:.4f}")
-            print(f"          battlefield_geography type: {type(battlefield_geography)}, value: {battlefield_geography.loc[probe_ts]:.4f}")
-            print(f"          holder_sentiment type: {type(holder_sentiment)}, value: {holder_sentiment.loc[probe_ts]:.4f}")
-            print(f"          health_weights: {health_weights}")
         # --- 1. 引擎功率 (Engine Power) ---
         static_engine_power = (
             strategic_posture * health_weights['posture'] +
             battlefield_geography * health_weights['geography'] +
             holder_sentiment * health_weights['sentiment']
         )
-        # Debugging: Confirm static_engine_power is defined
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"        [DEBUG] {method_name} - static_engine_power 已定义。类型: {type(static_engine_power)}, 值: {static_engine_power.loc[probe_ts]:.4f}")
         norm_health_score_slope = utils.get_adaptive_mtf_normalized_bipolar_score(health_score_slope_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        # 修正：当筹码健康度斜率为负时，增加静态权重，降低动态权重
+        # 当筹码健康度斜率为负时，增加静态权重，降低动态权重
         dynamic_weight_mod = (norm_health_score_slope * engine_power_dynamic_weight_sensitivity)
         current_static_weight = (static_engine_power_base_weight - dynamic_weight_mod).clip(0.1, 0.9)
         current_dynamic_weight = (dynamic_engine_power_base_weight + dynamic_weight_mod).clip(0.1, 0.9)
@@ -930,13 +920,6 @@ class ChipIntelligence:
         norm_accel = utils.get_adaptive_mtf_normalized_bipolar_score(accel, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         dynamic_engine_power = ((norm_slope.add(1)/2) * (norm_accel.clip(lower=-1, upper=1).add(1)/2)).pow(0.5) * 2 - 1
         engine_power_score = static_engine_power * current_static_weight + dynamic_engine_power * current_dynamic_weight
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (static_engine_power): {static_engine_power.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (norm_health_score_slope): {norm_health_score_slope.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (dynamic_weight_mod): {dynamic_weight_mod.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (current_static_weight): {current_static_weight.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (current_dynamic_weight): {current_dynamic_weight.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (engine_power_score): {engine_power_score.loc[probe_ts]:.4f}")
         # --- 2. 燃料品质 (Fuel Quality) ---
         conviction_score = utils.get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         purity_score = utils.get_adaptive_mtf_normalized_bipolar_score(impulse_purity_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -947,7 +930,7 @@ class ChipIntelligence:
         norm_chip_fault = utils.get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         deception_penalty = pd.Series(0.0, index=df_index)
         positive_fault_mask = chip_fault_raw > 0 # 筹码故障为正，视为负面影响 (诱多)
-        # 修正：增强对正向筹码故障的惩罚力度
+        # 增强对正向筹码故障的惩罚力度
         deception_penalty.loc[positive_fault_mask] = norm_chip_fault.loc[positive_fault_mask] * fuel_purity_deception_penalty_factor * 4.0 # 惩罚因子进一步加倍
         fuel_quality_score_after_deception = base_fuel_quality - deception_penalty.clip(0, 1) # 直接减去惩罚
         # --- 协同奖励情境感知 ---
@@ -957,19 +940,13 @@ class ChipIntelligence:
         conviction_norm = (conviction_score + 1) / 2
         purity_norm = (purity_score + 1) / 2
         synergy_potential = (conviction_norm * purity_norm).pow(0.5)
-        # 修正：当存在正向筹码故障（诱多）时，取消协同奖励
+        # 当存在正向筹码故障（诱多）时，取消协同奖励
         synergy_bonus = pd.Series(0.0, index=df_index)
         synergy_activation_mask = ~positive_fault_mask # 只有在没有诱多故障时才激活协同奖励
         synergy_activation = (1 / (1 + np.exp(-(synergy_potential.loc[synergy_activation_mask] - synergy_activation_threshold) * 10))).clip(0, 1) # Sigmoid-like activation
         synergy_bonus.loc[synergy_activation_mask] = synergy_activation * dynamic_synergy_bonus_factor.loc[synergy_activation_mask]
         fuel_quality_score = fuel_quality_score_after_deception + synergy_bonus
         fuel_quality_score = fuel_quality_score.clip(-1, 1)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (base_fuel_quality): {base_fuel_quality.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (norm_chip_fault): {norm_chip_fault.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (deception_penalty): {deception_penalty.loc[probe_ts]:.4f}")
-        #     print(f"        - 中间节点 (synergy_bonus): {synergy_bonus.loc[probe_ts]:.4f}") # 新增探针
-        #     print(f"        - 中间节点 (fuel_quality_score): {fuel_quality_score.loc[probe_ts]:.4f}")
         # --- 3. 喷管效率 (Nozzle Efficiency) ---
         norm_vacuum_magnitude = utils.get_adaptive_mtf_normalized_bipolar_score(vacuum_magnitude_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_vacuum_trend = utils.get_adaptive_mtf_normalized_bipolar_score(vacuum_trend_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -979,8 +956,6 @@ class ChipIntelligence:
             norm_vacuum_trend * nozzle_efficiency_weights.get('trend', 0.3) +
             norm_traversal_efficiency * nozzle_efficiency_weights.get('traversal', 0.2)
         ).clip(-1, 1)
-        # if is_debug_enabled and probe_ts and probe_ts in df_index:
-        #     print(f"        - 中间节点 (nozzle_efficiency_score): {nozzle_efficiency_score.loc[probe_ts]:.4f}")
         # --- 4. 最终融合动态权重 (Final Fusion Dynamic Weights) ---
         engine_score_normalized = (engine_power_score + 1) / 2
         fuel_score_normalized = (fuel_quality_score + 1) / 2

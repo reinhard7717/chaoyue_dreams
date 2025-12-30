@@ -1929,7 +1929,7 @@ class ProcessIntelligence:
         # 获取配置参数
         params = get_param_value(config.get('winner_conviction_params'), {})
         relative_position_weights = get_param_value(params.get('relative_position_weights'), {"winner_stability_high": 0.6, "profit_taking_flow_low": 0.4})
-        # 修正：更新 context_modulator_weights 的默认值键名
+        # 更新 context_modulator_weights 的默认值键名
         context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {"market_sentiment": 0.4, "volatility_stability": 0.3, "trend_vitality": 0.3})
         final_exponent = get_param_value(params.get('final_exponent'), 1.5)
         final_fusion_gm_weights = get_param_value(params.get('final_fusion_gm_weights'), {
@@ -2022,7 +2022,7 @@ class ProcessIntelligence:
         # 市场情绪、波动率、趋势活力等对信念的影响
         norm_market_sentiment = self._normalize_series(market_sentiment_raw, df_index, bipolar=True)
         
-        # 修正：将 volatility_instability_raw 视为负向指标，即值越小越好，因此对其进行反向处理后进行正向归一化。
+        # 将 volatility_instability_raw 视为负向指标，即值越小越好，因此对其进行反向处理后进行正向归一化。
         # 这样，低不稳定性（高稳定性）将得到高分。
         # 明确提供 windows 参数，使用 21 作为窗口，因为 VOLATILITY_INSTABILITY_INDEX_21d_D 是一个21天的指标。
         # 同时传递 debug_info。
@@ -2107,7 +2107,7 @@ class ProcessIntelligence:
         """
         调试探针辅助方法，用于在指定日期输出信号的详细值。
         """
-        # 修正：直接访问 self.debug_params
+        # 直接访问 self.debug_params
         if not get_param_value(self.debug_params.get('enabled'), False) or probe_ts is None:
             return
         if probe_ts in index:
@@ -3220,7 +3220,7 @@ class ProcessIntelligence:
         # --- 3. 维度一：洗盘诱空背景 (Wash-out Deception Context) ---
         mtf_wash_trade_score = self._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
         mtf_active_selling_score = self._get_mtf_slope_accel_score(df, 'active_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        # 修正：直接使用 deception_lure_short_intensity_D 的MTF融合版本作为诱空欺诈证据
+        # 直接使用 deception_lure_short_intensity_D 的MTF融合版本作为诱空欺诈证据
         mtf_deception_lure_short_score = self._get_mtf_slope_accel_score(df, 'deception_lure_short_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         behavior_deception_score_negative = behavior_deception_index.clip(upper=0).abs() # 负向欺骗
         stealth_ops_normalized = self._normalize_series(stealth_ops_score, df_index, bipolar=False)
@@ -3372,7 +3372,7 @@ class ProcessIntelligence:
         total_loser_rate_raw = self._get_safe_series(df, 'total_loser_rate_D', 0.0, method_name=method_name)
         # --- 3. 维度一：市场背景 (Market Context) ---
         retail_panic_score = self._normalize_series(retail_panic_raw, df_index, bipolar=False)
-        # 修正：直接奖励价格弱势
+        # 直接奖励价格弱势
         mtf_price_weakness_score = self._get_mtf_slope_accel_score(df, f'close_D', mtf_slope_accel_weights, df_index, method_name, ascending=False, bipolar=False)
         low_volatility_score = self._normalize_series(bbw_raw, df_index, ascending=False)
         sentiment_pendulum_inverted_score = (1 - sentiment_pendulum_score.clip(lower=0)) # 情绪低迷
@@ -3391,7 +3391,7 @@ class ProcessIntelligence:
         # --- 4. 维度二：隐蔽行动 (Covert Action) ---
         mtf_suppressive_accum_score = self._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow_score = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        # 修正：使用 deception_lure_long_intensity_D 的MTF融合版本作为欺诈证据
+        # 使用 deception_lure_long_intensity_D 的MTF融合版本作为欺诈证据
         mtf_deception_lure_long_score = self._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         stealth_ops_normalized = self._normalize_series(stealth_ops_score, df_index, bipolar=False)
         # 使用 hidden_accumulation_intensity_D 的MTF融合版本作为拆单吸筹证据

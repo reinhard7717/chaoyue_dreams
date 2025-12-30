@@ -264,21 +264,17 @@ class FusionIntelligence:
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“市场政权”...")
-
         states = {}
         df_index = df.index
-
         # 获取原始信号，并传递 debug_info
         hurst_memory = self._get_atomic_score(df, 'SCORE_CYCLICAL_HURST_MEMORY', 0.0, debug_info)
         inertia = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_INERTIA', 0.0, debug_info)
         stability = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0, debug_info)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
             print(f"        Hurst记忆性: {hurst_memory.loc[probe_ts]:.4f}")
             print(f"        力学结构化惯性: {inertia.loc[probe_ts]:.4f}")
             print(f"        力学势能稳定性: {stability.loc[probe_ts]:.4f}")
-
         # 趋势证据融合
         trend_evidence_weights = {'hurst': 0.4, 'inertia': 0.4, 'stability': 0.2}
         trend_evidence = (
@@ -286,7 +282,6 @@ class FusionIntelligence:
             inertia * trend_evidence_weights['inertia'] +
             stability * trend_evidence_weights['stability']
         ).clip(-1, 1)
-
         # 均值回归证据融合
         # 均值回归证据：当Hurst记忆性为负（均值回归倾向），且惯性为负（趋势难以维持）时，均值回归证据增强
         reversion_evidence = (hurst_memory.clip(upper=0).abs() * inertia.clip(upper=0).abs()).pow(0.5)
@@ -294,11 +289,9 @@ class FusionIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 趋势证据 (trend_evidence): {trend_evidence.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 均值回归证据 (reversion_evidence): {reversion_evidence.loc[probe_ts]:.4f}")
-
         # 双极性政权分数：趋势证据减去均值回归证据
         bipolar_regime = (trend_evidence - reversion_evidence).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “市场政权”冶炼完成，最终分值: {bipolar_regime.loc[probe_ts]:.4f}")
         else:
@@ -501,15 +494,19 @@ class FusionIntelligence:
             print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_trend_structure_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_trend_structure_score(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 四象共振版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
+        【V2.1 · 四象共振与探针增强版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
         - 核心重构: 废弃V1.x基于底层技术指标的算术模型，引入基于四大情报域顶层信号的
                       “四象共振”非线性融合模型。
         - 诡道哲学: 基于“木桶效应”，采用几何平均融合。一个健康的趋势结构，必须是结构、
                       力学、筹码、资金流四大支柱的共振，任何一环的缺失都将导致整体崩塌。
+        - 【V2.1 增强】修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
-        print("  -- [融合层] 正在冶炼“趋势结构分”...")
+        method_name = "_synthesize_trend_structure_score"
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势结构分”...")
         states = {}
         df_index = df.index
         # 1. 信号升维：定义四大支柱，只引用各情报域的顶层信号
@@ -520,70 +517,106 @@ class FusionIntelligence:
             'fund_flow': 'SCORE_FF_STRATEGIC_POSTURE'      # 资金支柱 (血)
         }
         # 2. 获取各支柱的原子信号分
-        pillar_scores = {
-            pillar: self._get_atomic_score(df, signal_name, 0.0)
-            for pillar, signal_name in four_pillars.items()
-        }
+        pillar_scores = {}
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始支柱信号 ---")
+        for pillar, signal_name in four_pillars.items():
+            score = self._get_atomic_score(df, signal_name, 0.0, debug_info)
+            pillar_scores[pillar] = score
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"        {pillar} ({signal_name}): {score.loc[probe_ts]:.4f}")
         # 3. 核心数学逻辑 - 四象共振 (几何平均)
         # 为避免负数开方，先将所有[-1, 1]的信号映射到[0, 2]区间进行计算
         # (score + 1) 将 [-1, 1] 映射到 [0, 2]
         mapped_scores = [score + 1 for score in pillar_scores.values()]
+        
         # 几何平均，体现“木桶效应”
         # 为防止0值导致结果恒为0，加入一个极小值
-        product_of_scores = pd.Series(1.0, index=df_index)
+        product_of_scores = pd.Series(1.0, index=df_index, dtype=np.float32)
         for score in mapped_scores:
             product_of_scores *= (score.clip(lower=1e-9))
+        
         resonance_score_mapped = product_of_scores.pow(1 / len(four_pillars))
+        
         # 将结果从[0, 2]区间映射回[-1, 1]
         final_score = (resonance_score_mapped - 1).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
-        print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 中间计算 ---")
+            print(f"        映射后的分数 (示例): {[s.loc[probe_ts] for s in mapped_scores]}")
+            print(f"        分数乘积: {product_of_scores.loc[probe_ts]:.4f}")
+            print(f"        映射后的共振分数: {resonance_score_mapped.loc[probe_ts]:.4f}")
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “趋势结构分”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_fund_flow_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_fund_flow_trend(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 君臣共振版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
+        【V3.1 · 君臣共振与探针增强版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
         - 核心重构: 废弃V2.x混合低阶信号的攻防模型，引入基于顶层信号的“君臣共振”模型。
         - 架构戒律: 严格遵守融合层职责，不再消费任何原始数据或低阶公理，只融合最高阶的战略信号。
         - 诡道哲学: 最终趋势 = 战略态势(君) × (1 + 微观信念(臣) × 确认系数)。宏观趋势必须
                       得到微观意图的确认，否则即为陷阱。
+        - 【V3.1 增强】修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
-        print("  -- [融合层] 正在冶炼“资金趋势”...")
+        method_name = "_synthesize_fund_flow_trend"
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资金趋势”...")
         states = {}
         # 1. 信号升维：定义“君”与“臣”
         # 君：资金流情报引擎的最高战略判断
-        strategic_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
+        strategic_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0, debug_info)
         # 臣：盘口最真实的微观意图，作为现实检验器
-        micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0)
+        micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0, debug_info)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
+            print(f"        资金流战略态势 (君): {strategic_posture.loc[probe_ts]:.4f}")
+            print(f"        微观信念 (臣): {micro_conviction.loc[probe_ts]:.4f}")
         # 2. 核心数学逻辑 - 君臣共振模型
         confirmation_factor = 0.5 # 确认系数，控制微观信念的影响力
         # 共振调节器：当微观信念与战略态势同向时 > 1 (放大)，反向时 < 1 (抑制)
         resonance_modulator = (1 + micro_conviction * confirmation_factor).clip(0, 2)
+        
         # 非线性融合
         final_score = (strategic_posture * resonance_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_FUND_FLOW_TREND'] = final_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
-        print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 确认系数: {confirmation_factor}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 共振调节器: {resonance_modulator.loc[probe_ts]:.4f}")
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “资金趋势”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_chip_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_chip_trend(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 神魂根基版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        【V4.1 · 神魂根基与探针增强版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
         - 核心重构: 废弃V3.0晦涩的“静态/动态”模型，引入更符合博弈哲学的“神魂与根基”非线性调制模型。
         - 诡道哲学: 最终趋势 = 根基(客观结构) × (1 + 神魂(主观意愿) × 调制系数)。
                       坚实的筹码结构若无持股信心注入，亦是“死城”一座；反之，强大的信心能为
                       尚在构建的结构注入无穷潜力。此法旨在捕捉“体用合一”与“貌合神离”。
+        - 【V4.1 增强】修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
-        print("  -- [融合层] 正在冶炼“筹码趋势”...")
+        method_name = "_synthesize_chip_trend"
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“筹码趋势”...")
         states = {}
         # 1. 重组信号，划分为“根基”与“神魂”两大阵营
         # --- 根基 (Foundation) - 客观的物理结构与趋势 ---
-        battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
-        strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0, debug_info)
+        strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info)
         # --- 神魂 (Soul) - 主观的持股意愿与战局变数 ---
-        holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
+        holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0, debug_info)
+        divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0, debug_info)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
+            print(f"        筹码战场地形 (根基): {battlefield_geography.loc[probe_ts]:.4f}")
+            print(f"        筹码战略态势 (根基): {strategic_posture.loc[probe_ts]:.4f}")
+            print(f"        筹码持仓信念韧性 (神魂): {holder_sentiment.loc[probe_ts]:.4f}")
+            print(f"        筹码价筹张力 (神魂): {divergence.loc[probe_ts]:.4f}")
         # 2. 核心数学逻辑 - 神魂调制模型
         # 2.1 融合“根基分” (Foundation Score)
         # 地形学(静态)与态势(动态)同等重要
@@ -594,70 +627,117 @@ class FusionIntelligence:
         # 2.3 构建“神魂调制器” (Soul Modulator)
         modulation_factor = 0.5 # 调制系数，控制神魂的影响力
         soul_modulator = (1 + soul_score * modulation_factor).clip(0, 2)
+        
         # 3. 非线性融合: 根基 × 神魂调制器
         final_score = (foundation_score * soul_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_CHIP_TREND'] = final_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
-        print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 根基分: {foundation_score.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂分: {soul_score.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂调制器: {soul_modulator.loc[probe_ts]:.4f}")
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “筹码趋势”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_accumulation_inflection(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_accumulation_inflection(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 厚積薄發版 (終章)】冶炼“吸籌拐點信號” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        【V5.1 · 厚積薄發与探针增强版 (終章)】冶炼“吸籌拐點信號” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
         - 核心升华: “势”的来源从单日的瞬时变化，升华为基于EMA的平滑趋势变化，旨在
                       滤除噪波，洞察“地利”持续改善或恶化的真实“势”之厚度。
         - 终章心法: 真正的拐点，是和谐之态与厚積之勢的共鸣。此法之后，再无增益。
         - 诡道哲学: 终极拐点 = 和谐之态(根基) × 厚積之勢(趨勢)。
+        - 【V5.1 增强】修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
-        # [修改] 清理探针，恢复生产状态
+        method_name = "_synthesize_accumulation_inflection"
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹拐点信号”...")
         states = {}
         fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
         params = fusion_intelligence_params.get('fusion_accumulation_inflection_params', {})
-        tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
-        di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
-        ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
+        tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0, debug_info)
+        di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0, debug_info)
+        ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0, debug_info)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
+            print(f"        资金流吸筹拐点意图 (天时): {tian_shi_raw.loc[probe_ts]:.4f}")
+            print(f"        筹码趋势 (地利): {di_li_raw.loc[probe_ts]:.4f}")
+            print(f"        市场压力 (人和): {ren_he_raw.loc[probe_ts]:.4f}")
         tian_shi_score = tian_shi_raw.clip(0, 1)
-        di_li_score = di_li_raw.clip(lower=0)
-        ren_he_score = (ren_he_raw + 1) / 2
-        harmony_state_score = (tian_shi_score * di_li_score * ren_he_score).pow(1/3).fillna(0.0)
+        di_li_score = di_li_raw.clip(lower=0) # 筹码趋势只取正向，代表地利
+        ren_he_score = (ren_he_raw + 1) / 2 # 市场压力映射到 [0, 1]
+        # 和谐之态：天时、地利、人和的几何平均
+        harmony_state_score = (tian_shi_score.clip(lower=1e-9) * di_li_score.clip(lower=1e-9) * ren_he_score.clip(lower=1e-9)).pow(1/3).fillna(0.0)
+        # 厚積之勢：地利（筹码趋势）的变化率，EMA平滑
         di_li_change_raw = di_li_raw.diff(1).fillna(0.0)
         smoothed_di_li_change = di_li_change_raw.ewm(span=3, adjust=False).mean()
         amplification_factor = 0.5
+        # 势能调节器：当 smoothed_di_li_change 为正时，放大；为负时，抑制
         potential_energy_modulator = (1 + smoothed_di_li_change * amplification_factor).clip(0, 2)
         final_score = (harmony_state_score * potential_energy_modulator).clip(0, 1)
         states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = final_score.astype(np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 中间计算 ---")
+            print(f"        天时分数: {tian_shi_score.loc[probe_ts]:.4f}, 地利分数: {di_li_score.loc[probe_ts]:.4f}, 人和分数: {ren_he_score.loc[probe_ts]:.4f}")
+            print(f"        和谐之态分数: {harmony_state_score.loc[probe_ts]:.4f}")
+            print(f"        地利变化率 (原始): {di_li_change_raw.loc[probe_ts]:.4f}, 平滑变化率: {smoothed_di_li_change.loc[probe_ts]:.4f}")
+            print(f"        势能调节器: {potential_energy_modulator.loc[probe_ts]:.4f}")
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “吸筹拐点信号”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_contested_accumulation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_contested_accumulation(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 吸收裁决版】冶炼“博弈吸筹” (Contested Accumulation)
+        【V2.1 · 吸收裁决与探针增强版】冶炼“博弈吸筹” (Contested Accumulation)
         - 核心重构: 废弃V1.0“盲目相乘”模型，引入“吸收裁决”作为核心裁决维度，
                       构建“战场识别 × 吸收裁决 × 战略背景”的三位一体审判模型。
         - 核心公式: 博弈吸筹分 = 战场识别分 × 吸收裁决分 × 战略背景分
         - 诡道哲学: 真正的权力交接，不仅要看“博弈”的激烈程度，更要看“吸收”的最终战果。
+        - 【V2.1 增强】修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
-        print("  -- [融合层] 正在冶炼“博弈吸筹”...")
+        method_name = "_synthesize_contested_accumulation"
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“博弈吸筹”...")
         states = {}
+        df_index = df.index
         # 1. 信号升维：定义“战场”、“裁决”、“背景”三大支柱
         # 支柱一：战场识别 (识别权力交接的战场)
-        stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0, debug_info)
+        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0, debug_info)
         # 支柱二：吸收裁决 (审判新主力是否成功吸收抛压)
-        downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
-        absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
+        downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0, debug_info)
+        absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0, debug_info)
         # 支柱三：战略背景 (确保战术服务于战略)
-        trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0).clip(lower=0)
+        trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0, debug_info).clip(lower=0)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
+            print(f"        微观隐秘行动: {stealth_ops.loc[probe_ts]:.4f}")
+            print(f"        行为派发意图: {distribution_intent.loc[probe_ts]:.4f}")
+            print(f"        行为下跌抵抗: {downward_resistance.loc[probe_ts]:.4f}")
+            print(f"        行为承接强度: {absorption_strength.loc[probe_ts]:.4f}")
+            print(f"        融合趋势质量 (正向): {trend_quality.loc[probe_ts]:.4f}")
         # 2. 核心数学逻辑 - 三位一体审判
         # 2.1 计算“战场识别分”
-        battlefield_score = (stealth_ops * distribution_intent).pow(0.5).fillna(0.0)
+        # 当隐秘行动和派发意图同时存在时，才认为是博弈战场
+        battlefield_score = (stealth_ops * distribution_intent).pow(0.5).fillna(0.0).clip(0, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 战场识别分 (battlefield_score): {battlefield_score.loc[probe_ts]:.4f}")
         # 2.2 计算“吸收裁决分”
+        # 下跌抵抗和承接强度共同决定吸收品质
         absorption_verdict = (downward_resistance * 0.5 + absorption_strength * 0.5).clip(0, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 吸收裁决分 (absorption_verdict): {absorption_verdict.loc[probe_ts]:.4f}")
         # 2.3 最终融合：三者相乘，体现“缺一不可”的严苛逻辑
         final_score = (battlefield_score * absorption_verdict * trend_quality).clip(0, 1)
         output_name = 'FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION'
         states[output_name] = final_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
-        print(f"  -- [融合层] “博弈吸筹”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “博弈吸筹”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “博弈吸筹”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_micro_conviction(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
@@ -879,38 +959,69 @@ class FusionIntelligence:
             print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {final_pressure.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_accumulation_playbook(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 道法合一版 (終章)】冶炼“吸筹剧本” (FUSION_ACCUMULATION_PLAYBOOK)
+        【V5.1 · 道法合一与探针增强版 (終章)】冶炼“吸筹剧本” (FUSION_ACCUMULATION_PLAYBOOK)
         - 核心升华: 引入“王霸并济”二元法则。根据“点火器”强度，动态切换“王者之道”
                       (薪火相加)与“霸王之道”(状态重置)，以区分“量变积累”与“质变突破”。
         - 终章心法: 王者，积寸功；霸者，定乾坤。此法之后，再无增益。
+        - 【V5.1 增强】修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
-        print("  -- [融合层] 正在冶炼“吸筹剧本”...")
+        method_name = "_synthesize_accumulation_playbook"
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹剧本”...")
         states = {}
         # 1. 信号升维：定义“点火器”与“根基”
-        igniter_signal = self._get_atomic_score(df, 'FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT', 0.0)
-        di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0).clip(lower=0)
-        ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0) + 1) / 2
-        foundation_sustain_factor = (di_li * ren_he).pow(1/2).fillna(0.0)
+        igniter_signal = self._get_atomic_score(df, 'FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT', 0.0, debug_info)
+        di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0, debug_info).clip(lower=0)
+        ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0, debug_info) + 1) / 2
+        foundation_sustain_factor = (di_li.clip(lower=1e-9) * ren_he.clip(lower=1e-9)).pow(1/2).fillna(0.0)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
+            print(f"        吸筹拐点信号 (点火器): {igniter_signal.loc[probe_ts]:.4f}")
+            print(f"        筹码趋势 (地利): {di_li.loc[probe_ts]:.4f}")
+            print(f"        市场压力 (人和): {ren_he.loc[probe_ts]:.4f}")
+            print(f"        根基维持因子: {foundation_sustain_factor.loc[probe_ts]:.4f}")
         # 2. 核心数学逻辑 - 王霸并济，道法合一
         playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         hegemon_threshold = 0.75 # 定义“霸王门槛”，区分“突破”与“胶着”
         for i in range(1, len(df)):
-            previous_score = playbook_score.iloc[i-1]
-            decay_modulator = foundation_sustain_factor.iloc[i]
-            decayed_score = previous_score * decay_modulator
-            current_igniter = igniter_signal.iloc[i]
-            # 道法合一：根据“点火器”强度，选择“王者”或“霸王”之道
-            if current_igniter > hegemon_threshold:
-                # 霸王之道：压倒性信号出现，直接重置战局状态
-                playbook_score.iloc[i] = current_igniter
-            else:
-                # 王者之道：常规信号，薪火相加，积累优势
-                playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
+            # 确保当前日期在 probe_ts 之后才进行调试输出，避免输出过多历史数据
+            if is_debug_enabled and probe_ts and df.index[i] >= probe_ts:
+                current_date = df.index[i].strftime('%Y-%m-%d')
+                previous_score = playbook_score.iloc[i-1]
+                decay_modulator = foundation_sustain_factor.iloc[i]
+                decayed_score = previous_score * decay_modulator
+                current_igniter = igniter_signal.iloc[i]
+                print(f"      [融合层调试] {method_name} @ {current_date}: --- 迭代计算 ---")
+                print(f"        前一日剧本分数: {previous_score:.4f}")
+                print(f"        衰减调节器 (根基维持因子): {decay_modulator:.4f}")
+                print(f"        衰减后的分数: {decayed_score:.4f}")
+                print(f"        当前点火器信号: {current_igniter:.4f}")
+                # 道法合一：根据“点火器”强度，选择“王者”或“霸王”之道
+                if current_igniter > hegemon_threshold:
+                    # 霸王之道：压倒性信号出现，直接重置战局状态
+                    playbook_score.iloc[i] = current_igniter
+                    print(f"        触发霸王之道 (点火器 > {hegemon_threshold}) -> 分数直接设为点火器: {playbook_score.iloc[i]:.4f}")
+                else:
+                    # 王者之道：常规信号，薪火相加，积累优势
+                    playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
+                    print(f"        触发王者之道 (薪火相加) -> 分数: {playbook_score.iloc[i]:.4f}")
+            else: # 非调试模式或非探针日期，正常计算
+                previous_score = playbook_score.iloc[i-1]
+                decay_modulator = foundation_sustain_factor.iloc[i]
+                decayed_score = previous_score * decay_modulator
+                current_igniter = igniter_signal.iloc[i]
+                if current_igniter > hegemon_threshold:
+                    playbook_score.iloc[i] = current_igniter
+                else:
+                    playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
         states['FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
-        print(f"  -- [融合层] “吸筹剧本”冶炼完成，最新分值: {playbook_score.iloc[-1] if not playbook_score.empty else 0.0:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “吸筹剧本”冶炼完成，最终分值: {playbook_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “吸筹剧本”冶炼完成，最新分值: {playbook_score.iloc[-1] if not playbook_score.empty else 0.0:.4f}")
         return states
 
     def _synthesize_trend_exhaustion_syndrome(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
