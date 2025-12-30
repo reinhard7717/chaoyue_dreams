@@ -1174,13 +1174,13 @@ class StructuralIntelligence:
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 步骤一: 识别平台状态 ---
         # 传递 tf_weights 参数
-        price_stability_score = get_adaptive_mtf_normalized_score(df['BBW_21_2.0_D'], df.index, tf_weights, ascending=False)
-        supply_exhaustion_score = get_adaptive_mtf_normalized_score(df['VOL_MA_5_D'] / df['VOL_MA_55_D'], df.index, tf_weights, ascending=False)
+        price_stability_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name=method_name), df.index, tf_weights, ascending=False)
+        supply_exhaustion_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name=method_name) / self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name=method_name), df.index, tf_weights, ascending=False)
         is_in_platform_state = (price_stability_score > 0.6) & (supply_exhaustion_score > 0.6)
         min_duration = 5
         platform_group = is_in_platform_state.ne(is_in_platform_state.shift()).cumsum()
         duration_counts = platform_group.groupby(platform_group).transform('size')
-        is_valid_platform_day = is_in_in_platform_state & (duration_counts >= min_duration)
+        is_valid_platform_day = is_in_platform_state & (duration_counts >= min_duration) # 修正此处
         # --- 步骤二: 对有效平台进行法医级鉴定 ---
         platform_quality = pd.Series(0.0, index=df.index, dtype=np.float32)
         dynamic_high = pd.Series(np.nan, index=df.index, dtype=np.float32)
@@ -1190,22 +1190,22 @@ class StructuralIntelligence:
         # 预计算所有维度的分数
         # 传递 tf_weights 参数
         s_structure = (
-            get_adaptive_mtf_normalized_score(df['VOLATILITY_INSTABILITY_INDEX_21d_D'], df.index, tf_weights, ascending=False) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['price_volume_entropy_D'], df.index, tf_weights, ascending=False) * 0.5
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.5 +
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'price_volume_entropy_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.5
         )
         s_chips = (
-            get_adaptive_mtf_normalized_score(df['dominant_peak_solidity_D'], df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['peak_separation_ratio_D'], df.index, tf_weights, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(df['chip_fatigue_index_D'], df.index, tf_weights, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'dominant_peak_solidity_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'peak_separation_ratio_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
         )
         s_main_force = (
-            get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, tf_weights, ascending=True) * 0.5
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5
         )
         s_sentiment = (
-            get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(df['retail_panic_surrender_index_D'], df.index, tf_weights, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, tf_weights, ascending=False) * 0.2
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.2
         )
         # 最终品质分权重: 主力(0.4), 筹码(0.3), 情绪(0.2), 形态(0.1)
         final_quality_score = (s_main_force * 0.4 + s_chips * 0.3 + s_sentiment * 0.2 + s_structure * 0.1).clip(0, 1)
@@ -1214,9 +1214,9 @@ class StructuralIntelligence:
             platform_indices = platform_group[platform_group == group_id].index
             platform_df = df.loc[platform_indices]
             # 使用最可靠的信号定义边界
-            current_vpoc = platform_df['main_force_vpoc_D'].iloc[-1]
+            current_vpoc = self._get_safe_series(platform_df, 'main_force_vpoc_D', np.nan, method_name=method_name).iloc[-1]
             # 简化的边界，未来可引入更复杂的试探性K线逻辑
-            platform_range = (platform_df['high_D'].max() - platform_df['low_D'].min())
+            platform_range = (self._get_safe_series(platform_df, 'high_D', np.nan, method_name=method_name).max() - self._get_safe_series(platform_df, 'low_D', np.nan, method_name=method_name).min())
             current_dyn_high = current_vpoc + platform_range / 2
             current_dyn_low = current_vpoc - platform_range / 2
             # 将计算结果填充回整个平台期
