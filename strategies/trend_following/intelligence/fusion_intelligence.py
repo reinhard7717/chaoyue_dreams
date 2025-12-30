@@ -429,7 +429,7 @@ class FusionIntelligence:
         - 【V4.1 增强】增强 `overextension_bearish` 对高位诱多行为的敏感度。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
-        method_name = "_synthesize_price_overextension_intent"
+        method_name = "_synthesize_price_overextension_intent" # 确保这里定义了 method_name
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“价格超买意图”...")
@@ -484,7 +484,7 @@ class FusionIntelligence:
         modulation_factor = 0.5 # 冲突调节系数
         contextual_modulator = 1 + (conflict_score * modulation_factor)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_ts} @ {probe_ts.strftime('%Y-%m-%d')}: 情境调节器: {contextual_modulator.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境调节器: {contextual_modulator.loc[probe_ts]:.4f}") # 修正为 method_name
         # 2.4 终审裁决
         final_score = (raw_bipolar_intent * contextual_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_score.astype(np.float32)
