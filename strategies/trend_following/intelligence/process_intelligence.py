@@ -273,7 +273,6 @@ class ProcessIntelligence:
                     all_process_states.update(score_dict)
                     self.strategy.atomic_states.update(score_dict)
                     latest_score = next(iter(score_dict.values())).iloc[-1]
-                    print(f"    -> [过程层] {signal_name} (基石信号) 计算完成，最新分值: {latest_score:.4f}")
                     processed_priority_signals.add(signal_name)
         # 主循环处理剩余的诊断任务
         remaining_diagnostics = [d for d in diagnostics if d.get('name') not in processed_priority_signals]
@@ -682,7 +681,6 @@ class ProcessIntelligence:
                 meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         if meta_score.empty:
             return {}
-        print(f"    -> [过程层] {signal_name} 计算完成，最新分值: {meta_score.iloc[-1]:.4f}")
         return {signal_name: meta_score}
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -1205,7 +1203,6 @@ class ProcessIntelligence:
         if not self._validate_required_signals(df, all_required_signals, "_calculate_winner_conviction_decay"):
             print(f"    -> [过程情报警告] _calculate_winner_conviction_decay 缺少核心信号，返回默认值。")
             return pd.Series(dtype=np.float32)
-        print(f"    -> [DEBUG] _calculate_winner_conviction_decay: 信号校验通过。")
         df_index = df.index
         # 原始输入信号
         belief_signal_raw = self._get_safe_series(df, belief_signal_name, 0.0, method_name="_calculate_winner_conviction_decay")
