@@ -163,17 +163,19 @@
                 "breakout_volume_ratio_D": "volume_burstiness_index_D",
                 "breakout_range_expansion_D": "volatility_expansion_ratio_D",
                 "breakout_retest_success_D": "breakout_quality_score_D",
-                "breakout_duration_D": "thrust_efficiency_score_D",
+                "breakout_duration_D": "duration_D",
                 "retracement_depth_pct_D": "pullback_depth_ratio_D",
                 "retracement_speed_ratio_D": "price_reversion_velocity_D",
-                "retracement_volume_decay_D": "counterparty_exhaustion_index_D",
-                "retracement_MA_adherence_D": "control_solidity_index_D"
+                "retracement_volume_decay_D": "volume_burstiness_index_D",
+                "retracement_MA_adherence_D": "MA_POTENTIAL_ORDERLINESS_SCORE_D"
             },
             "comment_signal_mapping": "【V5.9.2 · 新增】概念信号名称到实际数据层信号名称的映射。",
             "normalization_configs": {
                 "HURST_144d_D": {"method": "quantile", "ascending": true, "clip_range": [0.0, 1.0], "mapping_func": "hurst_mapping"},
                 "asymmetric_friction_index_D": {"method": "quantile", "ascending": false},
-                "FRACTAL_DIMENSION_89d_D": {"method": "quantile", "ascending": false, "clip_range": [1.0, 2.0]}
+                "FRACTAL_DIMENSION_89d_D": {"method": "quantile", "ascending": false, "clip_range": [1.0, 2.0]},
+                "volume_burstiness_index_D": {"method": "mtf_adaptive", "ascending": false},
+                "MA_POTENTIAL_ORDERLINESS_SCORE_D": {"method": "mtf_adaptive", "ascending": false}
             },
             "comment": "结构稳定性维度参数，包含各子维度的融合权重和指标归一化配置。"
         }

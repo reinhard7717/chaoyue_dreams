@@ -245,34 +245,37 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.4 · MTF重构版】结构公理四：诊断“结构背离”
-        - 核心逻辑: 诊断价格行为与均线结构（如均线排列）的背离。
+        【V1.5 · 结构动量背离版】结构公理四：诊断“结构背离”
+        - 核心逻辑: 诊断价格结构动量与均线结构动量之间的背离。
+        - 核心升级: 将价格趋势从 `pct_change_D` 替换为 `SLOPE_5_close_D`，将均线结构趋势从 `EMA_5_D` 和 `EMA_55_D` 的差值变化率替换为 `SLOPE_5_EMA_55_D`。
+                    这使得背离的判断更纯粹地基于结构性动量。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】使用专属的MTF权重配置进行归一化。
         """
         method_name = "_diagnose_axiom_divergence"
-        required_signals = ['pct_change_D', 'EMA_5_D', 'EMA_55_D']
+        required_signals = ['SLOPE_5_close_D', 'SLOPE_5_EMA_55_D'] # 更新依赖信号
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
         p_conf_struct = self.structural_ultimate_params
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        price_trend_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
-        price_trend_score = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, tf_weights)
-        ema_short_long_diff = self._get_safe_series(df, 'EMA_5_D', 0.0, method_name=method_name) - self._get_safe_series(df, 'EMA_55_D', 0.0, method_name=method_name)
-        ma_structure_trend_raw = ema_short_long_diff.diff(1)
-        ma_structure_trend_score = get_adaptive_mtf_normalized_bipolar_score(ma_structure_trend_raw, df.index, tf_weights)
-        divergence_score = (ma_structure_trend_score - price_trend_score).clip(-1, 1)
+        # 价格结构动量
+        price_structural_momentum_raw = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
+        price_structural_momentum_score = get_adaptive_mtf_normalized_bipolar_score(price_structural_momentum_raw, df.index, tf_weights)
+        # 均线结构动量
+        ma_structural_momentum_raw = self._get_safe_series(df, 'SLOPE_5_EMA_55_D', 0.0, method_name=method_name)
+        ma_structural_momentum_score = get_adaptive_mtf_normalized_bipolar_score(ma_structural_momentum_raw, df.index, tf_weights)
+        # 计算结构动量背离
+        divergence_score = (ma_structural_momentum_score - price_structural_momentum_score).clip(-1, 1)
         final_score = divergence_score.astype(np.float32)
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 原始价格趋势 (pct_change_D): {price_trend_raw.iloc[-1]:.4f}")
-            print(f"    -> 价格趋势分数: {price_trend_score.iloc[-1]:.4f}")
-            print(f"    -> 均线短长差 (EMA_5_D - EMA_55_D): {ema_short_long_diff.iloc[-1]:.4f}")
-            print(f"    -> 均线结构趋势原始值: {ma_structure_trend_raw.iloc[-1]:.4f}")
-            print(f"    -> 均线结构趋势分数: {ma_structure_trend_score.iloc[-1]:.4f}")
-            print(f"    -> 最终背离分数: {final_score.iloc[-1]:.4f}")
+            print(f"    -> 价格结构动量原始值 (SLOPE_5_close_D): {price_structural_momentum_raw.iloc[-1]:.4f}")
+            print(f"    -> 价格结构动量分数: {price_structural_momentum_score.iloc[-1]:.4f}")
+            print(f"    -> 均线结构动量原始值 (SLOPE_5_EMA_55_D): {ma_structural_momentum_raw.iloc[-1]:.4f}")
+            print(f"    -> 均线结构动量分数: {ma_structural_momentum_score.iloc[-1]:.4f}")
+            print(f"    -> 最终结构动量背离分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
@@ -337,7 +340,8 @@ class StructuralIntelligence:
             'ATR_14_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'BBW_21_2.0_D', 'BBP_21_2.0_D',
-            'trend_efficiency_ratio_D'
+            'trend_efficiency_ratio_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', # 新增
+            'structural_entropy_change_D', 'impulse_quality_ratio_D' # 新增
         ]
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
         required_signals.extend([f'MA_{p}_D' for p in ma_periods])
@@ -433,6 +437,9 @@ class StructuralIntelligence:
             individual_accel_scores_list.append(normalized_accel_score)
         avg_accel_score = pd.Series(np.mean([s.values for s in individual_accel_scores_list], axis=0) if individual_accel_scores_list else 0.0, index=df_index)
         # 维度4: 共振 (Resonance)
+        # 引入 structural_entropy_change_D
+        structural_entropy_change_raw = self._get_safe_series(df, 'structural_entropy_change_D', 0.0, method_name=method_name)
+        structural_entropy_change_score = get_adaptive_mtf_normalized_score(structural_entropy_change_raw, df_index, tf_weights, ascending=False) # 熵变越小越好
         slope_consistency_score = pd.Series(0.0, index=df_index)
         if len(individual_slope_scores_list) > 1:
             concatenated_slopes = pd.concat(individual_slope_scores_list, axis=1).fillna(0)
@@ -451,7 +458,8 @@ class StructuralIntelligence:
         overall_resonance_score = (
             slope_consistency_score * resonance_params['slope_consistency_weight'] +
             accel_consistency_score * resonance_params['accel_consistency_weight'] +
-            slope_accel_directional_alignment_score * resonance_params['slope_accel_alignment_weight']
+            slope_accel_directional_alignment_score * resonance_params['slope_accel_alignment_weight'] +
+            structural_entropy_change_score * 0.1 # 增加熵变贡献
         ).clip(-1, 1)
         # 维度5: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name=method_name)
@@ -477,7 +485,11 @@ class StructuralIntelligence:
                 ma_std = ma_df_for_std.std(axis=1)
                 atr_series = self._get_safe_series(df, 'ATR_14_D', 1.0, method_name=method_name).replace(0, 1e-9)
                 normalized_ma_std = (ma_std / atr_series).replace([np.inf, -np.inf], np.nan).fillna(0)
-                ma_cluster_cohesion_score = get_adaptive_mtf_normalized_score(normalized_ma_std, df_index, tf_weights, ascending=False)
+                ma_cluster_cohesion_score_std = get_adaptive_mtf_normalized_score(normalized_ma_std, df_index, tf_weights, ascending=False)
+                # 引入 MA_POTENTIAL_COMPRESSION_RATE_D
+                ma_compression_raw = self._get_safe_series(df, 'MA_POTENTIAL_COMPRESSION_RATE_D', 0.0, method_name=method_name)
+                ma_compression_score = get_adaptive_mtf_normalized_score(ma_compression_raw, df_index, tf_weights, ascending=True)
+                ma_cluster_cohesion_score = (ma_cluster_cohesion_score_std * 0.7 + ma_compression_score * 0.3).clip(0,1)
         # 维度8: 价格均线乖离 (Price-MA Gap)
         price_ma_gap_score = pd.Series(0.0, index=df_index)
         if price_ma_gap_params.get('enabled', False):
@@ -504,7 +516,10 @@ class StructuralIntelligence:
         trend_efficiency_score = pd.Series(0.0, index=df_index)
         if trend_efficiency_params.get('enabled', False):
             trend_efficiency_raw = self._get_safe_series(df, 'trend_efficiency_ratio_D', 0.0, method_name=method_name)
-            trend_efficiency_score = get_adaptive_mtf_normalized_score(trend_efficiency_raw, df_index, tf_weights, ascending=True)
+            impulse_quality_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name=method_name)
+            trend_efficiency_score_base = get_adaptive_mtf_normalized_score(trend_efficiency_raw, df_index, tf_weights, ascending=True)
+            impulse_quality_score = get_adaptive_mtf_normalized_score(impulse_quality_raw, df_index, tf_weights, ascending=True)
+            trend_efficiency_score = (trend_efficiency_score_base * 0.7 + impulse_quality_score * 0.3).clip(0,1)
         # --- 融合形态分 ---
         bullish_alignment_contrib = alignment_score * fusion_weights['alignment']
         bullish_slope_contrib = avg_slope_score.clip(lower=0) * fusion_weights['slope']
@@ -560,12 +575,18 @@ class StructuralIntelligence:
             print(f"    -> 排列分数 (Alignment): {alignment_score.iloc[-1]:.4f}")
             print(f"    -> 平均斜率分数 (Avg Slope): {avg_slope_score.iloc[-1]:.4f}")
             print(f"    -> 平均加速度分数 (Avg Accel): {avg_accel_score.iloc[-1]:.4f}")
+            print(f"    -> 结构熵变原始值: {structural_entropy_change_raw.iloc[-1]:.4f}")
+            print(f"    -> 结构熵变分数: {structural_entropy_change_score.iloc[-1]:.4f}")
             print(f"    -> 共振分数 (Resonance): {overall_resonance_score.iloc[-1]:.4f}")
             print(f"    -> 有序度分数 (Orderliness): {corrected_orderliness_score.iloc[-1]:.4f}")
             print(f"    -> 角度分数 (Angle): {angle_score.iloc[-1]:.4f}")
+            print(f"    -> 均线压缩率原始值: {ma_compression_raw.iloc[-1]:.4f}")
+            print(f"    -> 均线压缩率分数: {ma_compression_score.iloc[-1]:.4f}")
             print(f"    -> 均线粘合度分数 (MA Cluster Cohesion): {ma_cluster_cohesion_score.iloc[-1]:.4f}")
             print(f"    -> 价格均线乖离分数 (Price-MA Gap): {price_ma_gap_score.iloc[-1]:.4f}")
             print(f"    -> 布林带动态分数 (BB Dynamics): {bb_dynamics_score.iloc[-1]:.4f}")
+            print(f"    -> 趋势效率原始值: {trend_efficiency_raw.iloc[-1]:.4f}")
+            print(f"    -> 脉冲质量原始值: {impulse_quality_raw.iloc[-1]:.4f}")
             print(f"    -> 趋势效率分数 (Trend Efficiency): {trend_efficiency_score.iloc[-1]:.4f}")
             print(f"    -> 看涨形态分 (Bullish Form): {bullish_form_score.iloc[-1]:.4f}")
             print(f"    -> 看跌形态分 (Bearish Form): {bearish_form_score.iloc[-1]:.4f}")
@@ -753,10 +774,10 @@ class StructuralIntelligence:
             ma_potential_orderliness_score * structural_movement_efficiency_weights.get('MA_POTENTIAL_ORDERLINESS_SCORE', 0.2)
         ).clip(0, 1)
         # --- 5. 结构突破强度 (Structural Break Strength) - 使用代理信号 ---
-        breakout_volume_ratio_raw = self._get_safe_series(df, signal_mapping.get('breakout_volume_ratio_D', 'breakout_volume_ratio_D'), 0.0, method_name=method_name)
-        breakout_range_expansion_raw = self._get_safe_series(df, signal_mapping.get('breakout_range_expansion_D', 'breakout_range_expansion_D'), 0.0, method_name=method_name)
-        breakout_retest_success_raw = self._get_safe_series(df, signal_mapping.get('breakout_retest_success_D', 'breakout_retest_success_D'), 0.0, method_name=method_name)
-        breakout_duration_raw = self._get_safe_series(df, signal_mapping.get('breakout_duration_D', 'breakout_duration_D'), 0.0, method_name=method_name)
+        breakout_volume_ratio_raw = self._get_safe_series(df, signal_mapping.get('breakout_volume_ratio_D', 'volume_burstiness_index_D'), 0.0, method_name=method_name)
+        breakout_range_expansion_raw = self._get_safe_series(df, signal_mapping.get('breakout_range_expansion_D', 'volatility_expansion_ratio_D'), 0.0, method_name=method_name)
+        breakout_retest_success_raw = self._get_safe_series(df, signal_mapping.get('breakout_retest_success_D', 'breakout_quality_score_D'), 0.0, method_name=method_name)
+        breakout_duration_raw = self._get_safe_series(df, signal_mapping.get('breakout_duration_D', 'duration_D'), 0.0, method_name=method_name) # 映射到 duration_D
         breakout_volume_ratio_score = self.get_dynamic_normalized_score(breakout_volume_ratio_raw, df_index, tf_weights, **get_norm_config('breakout_volume_ratio_D', default_ascending=True))
         breakout_range_expansion_score = self.get_dynamic_normalized_score(breakout_range_expansion_raw, df_index, tf_weights, **get_norm_config('breakout_range_expansion_D', default_ascending=True))
         breakout_retest_success_score = self.get_dynamic_normalized_score(breakout_retest_success_raw, df_index, tf_weights, **get_norm_config('breakout_retest_success_D', default_ascending=True))
@@ -768,15 +789,15 @@ class StructuralIntelligence:
             breakout_duration_score * structural_break_strength_weights.get('breakout_duration', 0.2)
         ).clip(0, 1)
         # --- 6. 结构回撤效率 (Structural Retracement Efficiency) - 使用代理信号 ---
-        retracement_depth_pct_raw = self._get_safe_series(df, signal_mapping.get('retracement_depth_pct_D', 'retracement_depth_pct_D'), 0.0, method_name=method_name)
-        retracement_speed_ratio_raw = self._get_safe_series(df, signal_mapping.get('retracement_speed_ratio_D', 'retracement_speed_ratio_D'), 0.0, method_name=method_name)
-        retracement_volume_decay_raw = self._get_safe_series(df, signal_mapping.get('retracement_volume_decay_D', 'retracement_volume_decay_D'), 0.0, method_name=method_name)
-        retracement_MA_adherence_raw = self._get_safe_series(df, signal_mapping.get('retracement_MA_adherence_D', 'retracement_MA_adherence_D'), 0.0, method_name=method_name)
+        retracement_depth_pct_raw = self._get_safe_series(df, signal_mapping.get('retracement_depth_pct_D', 'pullback_depth_ratio_D'), 0.0, method_name=method_name)
+        retracement_speed_ratio_raw = self._get_safe_series(df, signal_mapping.get('retracement_speed_ratio_D', 'price_reversion_velocity_D'), 0.0, method_name=method_name)
+        retracement_volume_decay_raw = self._get_safe_series(df, signal_mapping.get('retracement_volume_decay_D', 'volume_burstiness_index_D'), 0.0, method_name=method_name) # 映射到 volume_burstiness_index_D
+        retracement_MA_adherence_raw = self._get_safe_series(df, signal_mapping.get('retracement_MA_adherence_D', 'MA_POTENTIAL_ORDERLINESS_SCORE_D'), 0.0, method_name=method_name) # 映射到 MA_POTENTIAL_ORDERLINESS_SCORE_D
         # 回撤深度和速度通常是越小越好，对手盘枯竭和控盘坚实度是越大越好
         retracement_depth_pct_score = self.get_dynamic_normalized_score(retracement_depth_pct_raw, df_index, tf_weights, **get_norm_config('retracement_depth_pct_D', default_ascending=False))
         retracement_speed_ratio_score = self.get_dynamic_normalized_score(retracement_speed_ratio_raw, df_index, tf_weights, **get_norm_config('retracement_speed_ratio_D', default_ascending=False))
-        retracement_volume_decay_score = self.get_dynamic_normalized_score(retracement_volume_decay_raw, df_index, tf_weights, **get_norm_config('retracement_volume_decay_D', default_ascending=True))
-        retracement_MA_adherence_score = self.get_dynamic_normalized_score(retracement_MA_adherence_raw, df_index, tf_weights, **get_norm_config('retracement_MA_adherence_D', default_ascending=True))
+        retracement_volume_decay_score = self.get_dynamic_normalized_score(retracement_volume_decay_raw, df_index, tf_weights, **get_norm_config('retracement_volume_decay_D', default_ascending=False)) # 爆发性越低越好
+        retracement_MA_adherence_score = self.get_dynamic_normalized_score(retracement_MA_adherence_raw, df_index, tf_weights, **get_norm_config('retracement_MA_adherence_D', default_ascending=False)) # 有序度越低越好
         structural_retracement_efficiency_score = (
             retracement_depth_pct_score * structural_retracement_efficiency_weights.get('retracement_depth_pct', 0.3) +
             retracement_speed_ratio_score * structural_retracement_efficiency_weights.get('retracement_speed_ratio', 0.3) +
@@ -800,7 +821,23 @@ class StructuralIntelligence:
             print(f"    -> 结构形态坚固性分数: {structural_form_solidity_score.iloc[-1]:.4f}")
             print(f"    -> 波动率秩序性分数: {volatility_orderliness_score.iloc[-1]:.4f}")
             print(f"    -> 结构运动效率分数: {structural_movement_efficiency_score.iloc[-1]:.4f}")
+            print(f"    -> 突破量比原始值: {breakout_volume_ratio_raw.iloc[-1]:.4f}")
+            print(f"    -> 突破量比分数: {breakout_volume_ratio_score.iloc[-1]:.4f}")
+            print(f"    -> 突破区间扩张原始值: {breakout_range_expansion_raw.iloc[-1]:.4f}")
+            print(f"    -> 突破区间扩张分数: {breakout_range_expansion_score.iloc[-1]:.4f}")
+            print(f"    -> 突破回踩成功原始值: {breakout_retest_success_raw.iloc[-1]:.4f}")
+            print(f"    -> 突破回踩成功分数: {breakout_retest_success_score.iloc[-1]:.4f}")
+            print(f"    -> 突破持续时间原始值: {breakout_duration_raw.iloc[-1]:.4f}")
+            print(f"    -> 突破持续时间分数: {breakout_duration_score.iloc[-1]:.4f}")
             print(f"    -> 结构突破强度分数: {structural_break_strength_score.iloc[-1]:.4f}")
+            print(f"    -> 回撤深度原始值: {retracement_depth_pct_raw.iloc[-1]:.4f}")
+            print(f"    -> 回撤深度分数: {retracement_depth_pct_score.iloc[-1]:.4f}")
+            print(f"    -> 回撤速度原始值: {retracement_speed_ratio_raw.iloc[-1]:.4f}")
+            print(f"    -> 回撤速度分数: {retracement_speed_ratio_score.iloc[-1]:.4f}")
+            print(f"    -> 回撤量能衰减原始值: {retracement_volume_decay_raw.iloc[-1]:.4f}")
+            print(f"    -> 回撤量能衰减分数: {retracement_volume_decay_score.iloc[-1]:.4f}")
+            print(f"    -> 回撤均线粘附原始值: {retracement_MA_adherence_raw.iloc[-1]:.4f}")
+            print(f"    -> 回撤均线粘附分数: {retracement_MA_adherence_score.iloc[-1]:.4f}")
             print(f"    -> 结构回撤效率分数: {structural_retracement_efficiency_score.iloc[-1]:.4f}")
             print(f"    -> 最终稳定性分数: {final_score.iloc[-1]:.4f}")
         return final_score
@@ -982,7 +1019,7 @@ class StructuralIntelligence:
         """
         method_name = "_diagnose_axiom_tension"
         ema_periods = [5, 13, 21, 34]
-        required_signals = ['BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D']
+        required_signals = ['BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D', 'MA_POTENTIAL_TENSION_INDEX_D'] # 新增
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -995,8 +1032,12 @@ class StructuralIntelligence:
         price_compression_score = get_adaptive_mtf_normalized_score(price_compression_raw, df_index, ascending=False, tf_weights=tf_weights)
         # --- 2. 均线结构压缩 ---
         ema_cluster = df[[f'EMA_{p}_D' for p in ema_periods]]
-        structure_compression_raw = ema_cluster.std(axis=1) / df['close_D'] # 标准差归一化，避免股价本身大小的影响
-        structure_compression_score = get_adaptive_mtf_normalized_score(structure_compression_raw, df_index, ascending=False, tf_weights=tf_weights)
+        structure_compression_raw_std = ema_cluster.std(axis=1) / df['close_D'] # 标准差归一化，避免股价本身大小的影响
+        structure_compression_score_std = get_adaptive_mtf_normalized_score(structure_compression_raw_std, df_index, ascending=False, tf_weights=tf_weights)
+        # 引入 MA_POTENTIAL_TENSION_INDEX_D
+        ma_tension_raw = self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.0, method_name=method_name)
+        ma_tension_score = get_adaptive_mtf_normalized_score(ma_tension_raw, df_index, ascending=True) # 张力越大越好
+        structure_compression_score = (structure_compression_score_std * 0.6 + ma_tension_score * 0.4).clip(0,1)
         # --- 3. 量能压缩 ---
         vol_ma_short = self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name=method_name)
         vol_ma_long = self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name=method_name)
@@ -1015,8 +1056,11 @@ class StructuralIntelligence:
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
             print(f"    -> 价格空间压缩原始值 (BBW_21_2.0_D): {price_compression_raw.iloc[-1]:.4f}")
             print(f"    -> 价格空间压缩分数: {price_compression_score.iloc[-1]:.4f}")
-            print(f"    -> 均线结构压缩原始值: {structure_compression_raw.iloc[-1]:.4f}")
-            print(f"    -> 均线结构压缩分数: {structure_compression_score.iloc[-1]:.4f}")
+            print(f"    -> 均线结构压缩原始值 (Std): {structure_compression_raw_std.iloc[-1]:.4f}")
+            print(f"    -> 均线结构压缩分数 (Std): {structure_compression_score_std.iloc[-1]:.4f}")
+            print(f"    -> 均线势能张力原始值 (MA_POTENTIAL_TENSION_INDEX_D): {ma_tension_raw.iloc[-1]:.4f}")
+            print(f"    -> 均线势能张力分数: {ma_tension_score.iloc[-1]:.4f}")
+            print(f"    -> 融合均线结构压缩分数: {structure_compression_score.iloc[-1]:.4f}")
             print(f"    -> 量能压缩原始值 (VOL_MA_5_D / VOL_MA_55_D): {volume_compression_raw.iloc[-1]:.4f}")
             print(f"    -> 量能压缩分数: {volume_compression_score.iloc[-1]:.4f}")
             print(f"    -> 最终结构张力分数: {final_score.iloc[-1]:.4f}")
@@ -1174,42 +1218,56 @@ class StructuralIntelligence:
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 步骤一: 识别平台状态 ---
         # 传递 tf_weights 参数
-        price_stability_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name=method_name), df.index, tf_weights, ascending=False)
-        supply_exhaustion_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name=method_name) / self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name=method_name), df.index, tf_weights, ascending=False)
+        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name=method_name)
+        vol_ma_5_raw = self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name=method_name)
+        vol_ma_55_raw = self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name=method_name)
+        price_stability_score = get_adaptive_mtf_normalized_score(bbw_raw, df.index, tf_weights, ascending=False)
+        supply_exhaustion_score = get_adaptive_mtf_normalized_score(vol_ma_5_raw / vol_ma_55_raw, df.index, tf_weights, ascending=False)
         is_in_platform_state = (price_stability_score > 0.6) & (supply_exhaustion_score > 0.6)
         min_duration = 5
         platform_group = is_in_platform_state.ne(is_in_platform_state.shift()).cumsum()
         duration_counts = platform_group.groupby(platform_group).transform('size')
-        is_valid_platform_day = is_in_platform_state & (duration_counts >= min_duration) # 修正此处
+        is_valid_platform_day = is_in_platform_state & (duration_counts >= min_duration)
         # --- 步骤二: 对有效平台进行法医级鉴定 ---
         platform_quality = pd.Series(0.0, index=df.index, dtype=np.float32)
         dynamic_high = pd.Series(np.nan, index=df.index, dtype=np.float32)
         dynamic_low = pd.Series(np.nan, index=df.index, dtype=np.float32)
         vpoc = pd.Series(np.nan, index=df.index, dtype=np.float32)
-        # --- 新增代码开始 ---
         # 预计算所有维度的分数
-        # 传递 tf_weights 参数
+        # 结构形态品质
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name=method_name)
+        price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', 0.0, method_name=method_name)
         s_structure = (
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.5 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'price_volume_entropy_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.5
+            get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, tf_weights, ascending=False) * 0.5 +
+            get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df.index, tf_weights, ascending=False) * 0.5
         )
+        # 筹码状态品质
+        dominant_peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.0, method_name=method_name)
+        peak_separation_ratio_raw = self._get_safe_series(df, 'peak_separation_ratio_D', 0.0, method_name=method_name)
+        chip_fatigue_index_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
         s_chips = (
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'dominant_peak_solidity_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'peak_separation_ratio_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
+            get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(peak_separation_ratio_raw, df.index, tf_weights, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(chip_fatigue_index_raw, df.index, tf_weights, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
         )
+        # 主力行为品质
+        mf_cost_zone_defense_intent_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name)
+        control_solidity_index_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
         s_main_force = (
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5
+            get_adaptive_mtf_normalized_score(mf_cost_zone_defense_intent_raw, df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(control_solidity_index_raw, df.index, tf_weights, ascending=True) * 0.5
         )
+        # 市场情绪品质
+        counterparty_exhaustion_index_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name=method_name)
+        retail_panic_surrender_index_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
+        turnover_rate_f_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name)
         s_sentiment = (
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.2
+            get_adaptive_mtf_normalized_score(counterparty_exhaustion_index_raw, df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(retail_panic_surrender_index_raw, df.index, tf_weights, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(turnover_rate_f_raw, df.index, tf_weights, ascending=False) * 0.2
         )
         # 最终品质分权重: 主力(0.4), 筹码(0.3), 情绪(0.2), 形态(0.1)
         final_quality_score = (s_main_force * 0.4 + s_chips * 0.3 + s_sentiment * 0.2 + s_structure * 0.1).clip(0, 1)
-        # --- 新增代码结束 ---
         for group_id in platform_group[is_valid_platform_day].unique():
             platform_indices = platform_group[platform_group == group_id].index
             platform_df = df.loc[platform_indices]
@@ -1230,12 +1288,24 @@ class StructuralIntelligence:
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
+            print(f"    -> 价格稳定性原始值 (BBW_21_2.0_D): {bbw_raw.iloc[-1]:.4f}")
             print(f"    -> 价格稳定性分数: {price_stability_score.iloc[-1]:.4f}")
+            print(f"    -> 供应枯竭原始值 (VOL_MA_5_D / VOL_MA_55_D): {(vol_ma_5_raw / vol_ma_55_raw).iloc[-1]:.4f}")
             print(f"    -> 供应枯竭分数: {supply_exhaustion_score.iloc[-1]:.4f}")
             print(f"    -> 是否处于有效平台状态: {is_valid_platform_day.iloc[-1]}")
+            print(f"    -> 结构形态原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {volatility_instability_raw.iloc[-1]:.4f}")
+            print(f"    -> 结构形态原始值 (price_volume_entropy_D): {price_volume_entropy_raw.iloc[-1]:.4f}")
             print(f"    -> 结构品质分: {s_structure.iloc[-1]:.4f}")
+            print(f"    -> 筹码状态原始值 (dominant_peak_solidity_D): {dominant_peak_solidity_raw.iloc[-1]:.4f}")
+            print(f"    -> 筹码状态原始值 (peak_separation_ratio_D): {peak_separation_ratio_raw.iloc[-1]:.4f}")
+            print(f"    -> 筹码状态原始值 (chip_fatigue_index_D): {chip_fatigue_index_raw.iloc[-1]:.4f}")
             print(f"    -> 筹码品质分: {s_chips.iloc[-1]:.4f}")
+            print(f"    -> 主力行为原始值 (mf_cost_zone_defense_intent_D): {mf_cost_zone_defense_intent_raw.iloc[-1]:.4f}")
+            print(f"    -> 主力行为原始值 (control_solidity_index_D): {control_solidity_index_raw.iloc[-1]:.4f}")
             print(f"    -> 主力品质分: {s_main_force.iloc[-1]:.4f}")
+            print(f"    -> 市场情绪原始值 (counterparty_exhaustion_index_D): {counterparty_exhaustion_index_raw.iloc[-1]:.4f}")
+            print(f"    -> 市场情绪原始值 (retail_panic_surrender_index_D): {retail_panic_surrender_index_raw.iloc[-1]:.4f}")
+            print(f"    -> 市场情绪原始值 (turnover_rate_f_D): {turnover_rate_f_raw.iloc[-1]:.4f}")
             print(f"    -> 情绪品质分: {s_sentiment.iloc[-1]:.4f}")
             print(f"    -> 最终平台品质分: {platform_quality.iloc[-1]:.4f}")
             print(f"    -> 动态高点: {dynamic_high.iloc[-1]:.4f}")
@@ -1294,7 +1364,8 @@ class StructuralIntelligence:
         method_name = "_diagnose_breakout_readiness"
         required_signals = [
             'counterparty_exhaustion_index_D', 'turnover_rate_f_D',
-            'control_solidity_index_D', 'mf_cost_zone_defense_intent_D'
+            'control_solidity_index_D', 'mf_cost_zone_defense_intent_D',
+            'equilibrium_compression_index_D' # 新增
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1304,18 +1375,23 @@ class StructuralIntelligence:
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 1. 评估三大维度 (无条件执行) ---
         # 1a. 供应枯竭度
-        # 传递 tf_weights 参数
+        counterparty_exhaustion_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name=method_name)
+        turnover_rate_f_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name)
         supply_exhaustion_score = (
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.7 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=False) * 0.3
+            get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df.index, tf_weights, ascending=True) * 0.7 +
+            get_adaptive_mtf_normalized_score(turnover_rate_f_raw, df.index, tf_weights, ascending=False) * 0.3
         )
         # 1b. 主力控盘度
+        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
+        mf_cost_zone_defense_intent_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name)
         main_force_control_score = (
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name), df.index, tf_weights, ascending=True) * 0.5
+            get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(mf_cost_zone_defense_intent_raw, df.index, tf_weights, ascending=True) * 0.5
         )
-        # 1c. 势能积蓄度 (直接复用结构张力公理)
-        energy_accumulation_score = axiom_tension
+        # 1c. 势能积蓄度 (复用结构张力公理并引入均衡压缩)
+        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.0, method_name=method_name)
+        equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df.index, tf_weights, ascending=True)
+        energy_accumulation_score = (axiom_tension * 0.7 + equilibrium_compression_score * 0.3).clip(0,1)
         # --- 2. 融合输出 (无条件执行) ---
         # 权重: 主力(0.4), 供应(0.4), 势能(0.2)
         readiness_score = (
@@ -1328,9 +1404,15 @@ class StructuralIntelligence:
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
+            print(f"    -> 对手盘枯竭原始值: {counterparty_exhaustion_raw.iloc[-1]:.4f}")
+            print(f"    -> 换手率原始值: {turnover_rate_f_raw.iloc[-1]:.4f}")
             print(f"    -> 供应枯竭度分数: {supply_exhaustion_score.iloc[-1]:.4f}")
+            print(f"    -> 控盘坚实度原始值: {control_solidity_raw.iloc[-1]:.4f}")
+            print(f"    -> 主力成本区防御意图原始值: {mf_cost_zone_defense_intent_raw.iloc[-1]:.4f}")
             print(f"    -> 主力控盘度分数: {main_force_control_score.iloc[-1]:.4f}")
-            print(f"    -> 势能积蓄度分数 (来自结构张力): {energy_accumulation_score.iloc[-1]:.4f}")
+            print(f"    -> 均衡压缩原始值: {equilibrium_compression_raw.iloc[-1]:.4f}")
+            print(f"    -> 均衡压缩分数: {equilibrium_compression_score.iloc[-1]:.4f}")
+            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {energy_accumulation_score.iloc[-1]:.4f}")
             print(f"    -> 最终突破准备度分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
