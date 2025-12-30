@@ -1285,14 +1285,8 @@ class FusionIntelligence:
             total_possible_weight = 0.0
             if is_debug_enabled_inner and probe_ts_inner and probe_ts_inner in index:
                 print(f"        [融合层调试] {method_name_inner} @ {probe_ts_inner.strftime('%Y-%m-%d')}: --- {component_type}原始信号 (is_bullish={is_bullish}) ---")
-            for comp_tuple, weight in components_with_weights:
-                # comp_tuple 可以是 (Series, signal_name) 或 (Series)
-                if isinstance(comp_tuple, tuple) and len(comp_tuple) == 2:
-                    comp, signal_name = comp_tuple
-                else:
-                    comp = comp_tuple
-                    signal_name = "未知信号" # 或者从 comp 的 name 属性获取
-                
+            # 修正此处：解包为三个值 (Series, weight, signal_name)
+            for comp, weight, signal_name in components_with_weights:
                 # 确保组件是Series且索引对齐，并填充NaN为0，避免NaN传播
                 comp_aligned = comp.reindex(index).fillna(0.0)
                 raw_sum += comp_aligned * weight
