@@ -264,6 +264,7 @@ class FusionIntelligence:
         - 【V1.3 增强】增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_market_regime"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“市场政权”...")
@@ -391,6 +392,7 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_capital_confrontation"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资本对抗”...")
@@ -448,6 +450,7 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_price_overextension_intent"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“价格超买意图”...")
@@ -534,6 +537,7 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_trend_structure_score"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势结构分”...")
@@ -590,6 +594,7 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_fund_flow_trend"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资金趋势”...")
@@ -629,6 +634,7 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_chip_trend"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“筹码趋势”...")
@@ -650,7 +656,7 @@ class FusionIntelligence:
             print(f"        筹码持仓信念韧性 (神魂): {holder_sentiment.loc[probe_ts]:.4f}")
             print(f"        筹码价筹张力 (神魂): {divergence.loc[probe_ts]:.4f}")
             print(f"        筹码同调驱动力 (新增): {coherent_drive.loc[probe_ts]:.4f}")
-        # 2. 核心数学逻辑 - 神魂调制模型
+        # 2. 核核心数学逻辑 - 神魂调制模型
         # 2.1 融合“根基分” (Foundation Score)
         # 地形学(静态)与态势(动态)同等重要，并引入结构性推力
         foundation_score = (battlefield_geography * 0.4 + strategic_posture * 0.4 + chip_trend_momentum * 0.2).clip(-1, 1) # 调整权重
@@ -684,6 +690,7 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_accumulation_inflection"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹拐点信号”...")
@@ -739,6 +746,7 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_contested_accumulation"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“博弈吸筹”...")
@@ -793,6 +801,7 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_micro_conviction"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“微观信念”...")
@@ -861,6 +870,7 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_trend_quality"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势质量”...")
@@ -954,6 +964,7 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_market_pressure"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“市场压力”...")
@@ -1033,6 +1044,7 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_accumulation_playbook"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹剧本”...")
@@ -1050,7 +1062,8 @@ class FusionIntelligence:
         ren_he = (1 - self._get_atomic_score(df, 'SCORE_RISK_UNRESOLVED_PRESSURE', 0.0, debug_info)) # 市场压力越大，人和分越低
         foundation_sustain_factor = (di_li.clip(lower=1e-9) * ren_he.clip(lower=1e-9)).pow(1/2).fillna(0.0)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
+            # 修正此处：使用 method_name 而不是 method_ts
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
             print(f"        资金流吸筹拐点意图 (点火器): {igniter_signal_base.loc[probe_ts]:.4f}, 吸筹回声 (新增): {absorption_echo.loc[probe_ts]:.4f}")
             print(f"        筹码战略态势 (地利): {di_li_base.loc[probe_ts]:.4f}, 筹码势能 (新增): {chip_potential.loc[probe_ts]:.4f}")
             print(f"        未解决压力风险 (人和): {ren_he.loc[probe_ts]:.4f}")
@@ -1110,6 +1123,7 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_trend_exhaustion_syndrome"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势衰竭综合征”...")
@@ -1185,6 +1199,7 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_liquidity_dynamics"
+        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“流动性博弈动态”...")
