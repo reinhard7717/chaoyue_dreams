@@ -6,6 +6,7 @@ from django.utils import timezone
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime, time
+from typing import Tuple
 import numba
 from asgiref.sync import sync_to_async
 from stock_models.stock_basic import StockInfo

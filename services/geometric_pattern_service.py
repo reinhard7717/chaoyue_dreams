@@ -6,6 +6,7 @@ import pandas_ta as ta
 from itertools import combinations
 import joblib # 用于加载机器学习模型
 from pathlib import Path
+from typing import Tuple
 from django.conf import settings
 from stock_models.models import StockInfo
 from stock_models.index import TradeCalendar
