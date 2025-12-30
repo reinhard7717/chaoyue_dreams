@@ -62,7 +62,7 @@ class StructuralIntelligence:
         series = df[col_name].copy() # 使用copy避免SettingWithCopyWarning
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
-            val = series.iloc[-1] # 使用原始列的值来判断是否为NaN
+            val = series.iloc[-1] # 使用copy后的series的值来判断是否为NaN
             if pd.isna(val):
                 print(f"      [结构情报探针] -> 原始数据 '{col_name}' 在 {current_date} 为 NaN，将填充为 {default_value}。")
         series.fillna(default_value, inplace=True) # 在copy上进行fillna
@@ -729,7 +729,7 @@ class StructuralIntelligence:
             opening_gap_defense_strength_score * structural_support_strength_weights.get('opening_gap_defense_strength', 0.1)
         ).clip(0, 1)
         # --- 2. 结构形态坚固性 (Structural Form Solidity) ---
-        equilibrium_compression_raw = self._get_safe_series(df, signal_mapping.get('equilibrium_compression_index_D', 'equilibrium_compression_index_D'), 0.0, method_name=method_name)
+        equilibrium_compression_raw = self._get_safe_series(df, signal_mapping.get('equilibrium_compression_index_D', 'equilibrium_compression_index_D'), 0.5, method_name=method_name) # 默认值改为0.5
         # platform_conviction_score_D 和 goodness_of_fit_score_D 现在由 _get_safe_series 处理，如果缺失则返回0.0
         platform_conviction_score_raw = self._get_safe_series(df, signal_mapping.get('platform_conviction_score_D', 'platform_conviction_score_D'), 0.0, method_name=method_name)
         value_area_overlap_raw = self._get_safe_series(df, signal_mapping.get('value_area_overlap_pct_D', 'value_area_overlap_pct_D'), 0.0, method_name=method_name)
@@ -797,7 +797,7 @@ class StructuralIntelligence:
         # --- 5. 结构突破强度 (Structural Break Strength) - 使用代理信号 ---
         breakout_volume_ratio_raw = self._get_safe_series(df, signal_mapping.get('breakout_volume_ratio_D', 'volume_burstiness_index_D'), 0.0, method_name=method_name)
         breakout_range_expansion_raw = self._get_safe_series(df, signal_mapping.get('breakout_range_expansion_D', 'volatility_expansion_ratio_D'), 0.0, method_name=method_name)
-        breakout_retest_success_raw = self._get_safe_series(df, signal_mapping.get('breakout_retest_success_D', 'breakout_quality_score_D'), 0.0, method_name=method_name)
+        breakout_retest_success_raw = self._get_safe_series(df, signal_mapping.get('breakout_retest_success_D', 'breakout_quality_score_D'), 0.5, method_name=method_name) # 默认值改为0.5
         breakout_duration_raw = self._get_safe_series(df, signal_mapping.get('breakout_duration_D', 'duration_D'), 0.0, method_name=method_name) # 映射到 duration_D
         breakout_volume_ratio_score = self.get_dynamic_normalized_score(breakout_volume_ratio_raw, df_index, tf_weights, **get_norm_config('breakout_volume_ratio_D', default_ascending=True))
         breakout_range_expansion_score = self.get_dynamic_normalized_score(breakout_range_expansion_raw, df_index, tf_weights, **get_norm_config('breakout_range_expansion_D', default_ascending=True))
