@@ -2,6 +2,7 @@ from datetime import time
 import numpy as np
 import pandas as pd
 import numba # 确保已导入
+from typing import Tuple
 
 @numba.njit(cache=True)
 def _numba_calculate_price_thrust_divergence(

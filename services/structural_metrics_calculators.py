@@ -4,6 +4,7 @@ import numpy as np
 from datetime import time
 import pandas_ta as ta
 import numba # 确保已导入
+from typing import Tuple
 
 @numba.njit(cache=True)
 def _numba_calculate_gini(array: np.ndarray) -> float:

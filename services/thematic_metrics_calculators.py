@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 from datetime import time
+from typing import Tuple
 from scipy.stats import linregress
 
 class ThematicMetricsCalculators:

@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm, linregress
 import numba # 确保已导入
+from typing import Tuple
 
 @numba.njit(cache=True)
 def _numba_calculate_ofi_static_dynamic(
@@ -16,7 +17,6 @@ def _numba_calculate_ofi_static_dynamic(
     """
     n = len(buy_price1_arr)
     ofi_series = np.zeros(n, dtype=np.float64)
-
     for i in range(n):
         if i == 0: # 第一个元素没有前一个状态，OFI为0
             continue
@@ -35,7 +35,6 @@ def _numba_calculate_ofi_static_dynamic(
         elif delta_sell_price < 0:
             ofi_dynamic -= prev_sell_volume1_arr[i] # 卖一价下跌，前一刻的卖一量被吃掉
         ofi_series[i] = ofi_static + ofi_dynamic
-
     return ofi_series
 
 @numba.njit(cache=True)
@@ -50,18 +49,13 @@ def _numba_calculate_vpin_buckets(
     """
     if vpin_bucket_size <= 0:
         return np.array([]), np.array([])
-
     n = len(cum_vol_arr)
-    
     # 预估最大桶数，避免动态列表增长开销
     max_buckets = int(cum_vol_arr[-1] / vpin_bucket_size) + 2
-    
     bucket_imbalance = np.zeros(max_buckets, dtype=np.float64)
     bucket_buy_vol = np.zeros(max_buckets, dtype=np.float64)
     bucket_sell_vol = np.zeros(max_buckets, dtype=np.float64)
-    
     current_bucket_idx = 0
-    
     for i in range(n):
         bucket_idx = int(cum_vol_arr[i] / vpin_bucket_size)
         # 确保桶索引在范围内
@@ -78,7 +72,6 @@ def _numba_calculate_vpin_buckets(
     actual_buckets = current_bucket_idx + 1
     imbalance_values = bucket_buy_vol[:actual_buckets] - bucket_sell_vol[:actual_buckets]
     bucket_indices = np.arange(actual_buckets)
-
     return imbalance_values, bucket_indices
 
 @numba.njit(cache=True)
@@ -91,12 +84,9 @@ def _numba_calculate_active_volume_price_efficiency(
     n = len(price_arr)
     if n < 2:
         return np.nan
-
     cum_thrust = np.zeros(n, dtype=np.float64)
     cum_price_change = np.zeros(n, dtype=np.float64)
-
     first_price = price_arr[0]
-
     for i in range(n):
         # 计算每笔tick的有效推力
         net_thrust_volume = volume_arr[i] * np.sign(price_change_arr[i])
@@ -111,16 +101,12 @@ def _numba_calculate_active_volume_price_efficiency(
     # Numba 0.58+ 支持 np.corrcoef，但为了更广泛的兼容性，手动实现
     mean_cum_thrust = np.mean(cum_thrust)
     mean_cum_price_change = np.mean(cum_price_change)
-
     numerator = np.sum((cum_thrust - mean_cum_thrust) * (cum_price_change - mean_cum_price_change))
     denominator_thrust = np.sqrt(np.sum((cum_thrust - mean_cum_thrust)**2))
     denominator_price = np.sqrt(np.sum((cum_price_change - mean_cum_price_change)**2))
-
     denominator = denominator_thrust * denominator_price
-
     if denominator == 0:
         return 0.0 # 如果其中一个序列没有变化，相关性为0
-    
     return numerator / denominator
 
 @numba.njit(cache=True)
@@ -136,10 +122,8 @@ def _numba_calculate_liquidity_authenticity_score(
     """
     fulfillments = 0
     defaults = 0
-    
     n_level5 = len(buy_price1_arr)
     n_tick = len(tick_prices_arr)
-
     # 识别买方承诺（大额买单出现）
     for i in range(n_level5):
         if buy_volume1_arr[i] > buy_commitment_threshold:
@@ -178,7 +162,6 @@ def _numba_calculate_liquidity_authenticity_score(
                 # 如果在未来20个快照内没有找到压力点，也算作违约（承诺未被测试）
                 if not pressure_found:
                     defaults += 1
-
     # 识别卖方承诺（大额卖单出现）
     for i in range(n_level5):
         if sell_volume1_arr[i] > sell_commitment_threshold:
@@ -222,21 +205,16 @@ def _numba_calculate_vwap_reversion_corr(deviation_arr: np.ndarray) -> float:
     n = len(deviation_arr)
     if n < 2:
         return np.nan
-    
     # 计算自相关系数 (lag=1)
     # corr(X_t, X_{t-1}) = cov(X_t, X_{t-1}) / (std(X_t) * std(X_{t-1}))
-    
     # 移除NaN
     clean_deviation = deviation_arr[~np.isnan(deviation_arr)]
     if len(clean_deviation) < 2:
         return np.nan
-
     x_t = clean_deviation[1:]
     x_t_minus_1 = clean_deviation[:-1]
-
     if np.std(x_t) == 0 or np.std(x_t_minus_1) == 0:
         return 0.0 # 如果序列没有变化，自相关为0
-
     return np.corrcoef(x_t, x_t_minus_1)[0, 1]
 
 class MicrostructureDynamicsCalculators:
