@@ -62,7 +62,7 @@ class StructuralIntelligence:
         series = df[col_name].fillna(default_value)
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
-            val = series.iloc[-1]
+            val = df[col_name].iloc[-1] # 使用原始列的值来判断是否为NaN
             if pd.isna(val):
                 print(f"      [结构情报探针] -> 原始数据 '{col_name}' 在 {current_date} 为 NaN，已填充为 {default_value}。")
         return series
