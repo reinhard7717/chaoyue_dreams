@@ -1912,7 +1912,6 @@ class ProcessIntelligence:
         print("    -> [过程层] 正在计算 PROCESS_META_WINNER_CONVICTION (V4.0 · 韧性博弈与多维时空版)...")
         method_name = "_calculate_winner_conviction_relationship"
         df_index = df.index
-
         # --- 调试信息构建 ---
         is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
         probe_dates_list = self.probe_dates 
@@ -1922,13 +1921,11 @@ class ProcessIntelligence:
             valid_probe_dates_in_df = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates_in_df:
                 probe_ts_for_debug = valid_probe_dates_in_df[-1] # 使用最新的有效探针日期
-
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-
         # 获取配置参数
         params = get_param_value(config.get('winner_conviction_params'), {})
         relative_position_weights = get_param_value(params.get('relative_position_weights'), {"winner_stability_high": 0.6, "profit_taking_flow_low": 0.4})
@@ -1942,11 +1939,9 @@ class ProcessIntelligence:
             "deception_filter": 0.15,
             "context_modulator": 0.15
         })
-
         # 核心信号
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
-
         # 额外依赖信号
         required_signals = [
             belief_signal_name, pressure_signal_name,
@@ -1954,18 +1949,15 @@ class ProcessIntelligence:
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'trend_vitality_index_D'
         ]
-
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in [belief_signal_name, pressure_signal_name, 'deception_index_D', 'wash_trade_intensity_D']:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-
         if not self._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # --- 原始数据获取 ---
         winner_stability_raw = self._get_safe_series(df, belief_signal_name, 0.0, method_name=method_name)
         profit_taking_flow_raw = self._get_safe_series(df, pressure_signal_name, 0.0, method_name=method_name)
@@ -1974,7 +1966,6 @@ class ProcessIntelligence:
         market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
-
         # --- 调试探针：原始数据 ---
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "原始数据 - winner_stability_raw", winner_stability_raw)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "原始数据 - profit_taking_flow_raw", profit_taking_flow_raw)
@@ -1983,7 +1974,6 @@ class ProcessIntelligence:
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "原始数据 - market_sentiment_raw", market_sentiment_raw)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "原始数据 - volatility_instability_raw", volatility_instability_raw)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "原始数据 - trend_vitality_raw", trend_vitality_raw)
-
         # --- 1. 信念强度 (Conviction Strength) ---
         # 使用MTF融合赢家稳定性及其斜率和加速度 (双极性)
         mtf_winner_stability = self._get_mtf_slope_accel_score(df, belief_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -1995,7 +1985,6 @@ class ProcessIntelligence:
         conviction_strength_score = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) + 
                                      (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6))).clip(-1, 1)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - conviction_strength_score", conviction_strength_score)
-
         # --- 2. 压力韧性 (Pressure Resilience) ---
         # 使用MTF融合利润兑现流量及其斜率和加速度 (双极性，负值代表压力大，韧性差)
         # 利润兑现流量是负向指标，所以其MTF分数越低（负值越大）代表压力越大，韧性越差
@@ -2009,7 +1998,6 @@ class ProcessIntelligence:
         pressure_resilience_score = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) + 
                                      (profit_taking_flow_percentile * 2 - 1) * (1 - relative_position_weights.get("profit_taking_flow_low", 0.4))).clip(-1, 1)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - pressure_resilience_score", pressure_resilience_score)
-
         # --- 3. 共振与背离因子 (Synergy Factor) ---
         # 评估赢家稳定性与利润兑现压力之间的共振或背离
         # 当两者同向（信念增强且压力减弱，或信念减弱且压力增强）时，共振因子高
@@ -2018,11 +2006,9 @@ class ProcessIntelligence:
         # 将信念强度和压力韧性映射到 [0, 1]
         norm_conviction = (conviction_strength_score + 1) / 2
         norm_resilience = (pressure_resilience_score + 1) / 2
-
         # 协同因子：当两者都高或都低时，协同性高
         synergy_factor = (norm_conviction * norm_resilience + (1 - norm_conviction) * (1 - norm_resilience)).clip(0, 1)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - synergy_factor", synergy_factor)
-
         # --- 4. 诡道过滤 (Deception Filter) ---
         # 欺骗指数和对倒强度越高，对信念的真实性惩罚越大
         mtf_deception_index = self._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
@@ -2032,7 +2018,6 @@ class ProcessIntelligence:
         deception_filter = (1 - deception_penalty).clip(0, 1) # 惩罚因子，0表示完全过滤，1表示无影响
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - deception_penalty", deception_penalty)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - deception_filter", deception_filter)
-
         # --- 5. 情境调制 (Contextual Modulation) ---
         # 市场情绪、波动率、趋势活力等对信念的影响
         norm_market_sentiment = self._normalize_series(market_sentiment_raw, df_index, bipolar=True)
@@ -2051,11 +2036,9 @@ class ProcessIntelligence:
         
         # 探针：volatility_stability_raw 的值
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - volatility_stability_raw (after 1-norm)", volatility_stability_raw)
-
         norm_volatility_stability = self._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
         
         norm_trend_vitality = self._normalize_series(trend_vitality_raw, df_index, bipolar=False) # 趋势活力越高越好
-
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
             "volatility_stability": norm_volatility_stability, # 使用修正后的稳定性
@@ -2064,7 +2047,6 @@ class ProcessIntelligence:
         # 调试探针：context_modulator_components 的输入
         for k, v in context_modulator_components.items():
             self._debug_probe(df_index, probe_ts_for_debug, method_name, f"GM输入 - context_modulator_components[{k}]", v)
-
         # 使用几何平均融合情境调制器，确保只有当多个情境同时有利时才高
         context_modulator_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()}, # 确保输入为正
@@ -2074,20 +2056,16 @@ class ProcessIntelligence:
         # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
         context_modulator = 0.5 + context_modulator_score # 0.5 + [0,1] -> [0.5, 1.5]
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - context_modulator", context_modulator)
-
         # --- 6. 最终融合 ---
         # 1. 确定整体方向：由信念强度和压力韧性的加权和决定
         # 权重可以从配置中获取，这里使用默认值
         direction_weight_conviction = get_param_value(params.get('direction_weights', {}).get('conviction', 0.6), 0.6)
         direction_weight_pressure = get_param_value(params.get('direction_weights', {}).get('pressure', 0.4), 0.4)
-
         overall_direction_raw = (conviction_strength_score * direction_weight_conviction + pressure_resilience_score * direction_weight_pressure)
         overall_direction = np.sign(overall_direction_raw)
         overall_direction = overall_direction.replace(0, 1) # 如果和为0，则视为正向，让幅度决定
-
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "最终融合 - overall_direction_raw", overall_direction_raw)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "最终融合 - overall_direction", overall_direction)
-
         # 2. 准备所有组件的“强度/幅度”版本，映射到 [0, 1] 或 [0.5, 1.5]
         # conviction_strength_score 和 pressure_resilience_score 是双极性 [-1, 1]
         # 它们的绝对值代表强度，映射到 [0, 1]
@@ -2097,7 +2075,6 @@ class ProcessIntelligence:
         # synergy_factor 是 [0, 1]
         # deception_filter 是 [0, 1]
         # context_modulator 是 [0.5, 1.5]
-
         fusion_components_for_gm = {
             "conviction_magnitude": conviction_magnitude,
             "pressure_magnitude": pressure_magnitude,
@@ -2116,7 +2093,6 @@ class ProcessIntelligence:
             df_index
         )
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "最终融合 - fused_magnitude", fused_magnitude)
-
         # 4. 结合整体方向和融合后的幅度
         final_score = fused_magnitude * overall_direction
         
@@ -2125,7 +2101,6 @@ class ProcessIntelligence:
         
         final_score = final_score.clip(-1, 1).fillna(0.0)
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "最终分 - final_score", final_score)
-
         return final_score.astype(np.float32)
 
     def _debug_probe(self, index: pd.Index, probe_ts: Optional[pd.Timestamp], method_name: str, signal_name: str, series: pd.Series):
@@ -2135,7 +2110,6 @@ class ProcessIntelligence:
         # 修正：直接访问 self.debug_params
         if not get_param_value(self.debug_params.get('enabled'), False) or probe_ts is None:
             return
-
         if probe_ts in index:
             value = series.loc[probe_ts]
             print(f"    -> [探针] 方法 '{method_name}' @ {probe_ts.strftime('%Y-%m-%d')} - '{signal_name}': {value:.4f}")

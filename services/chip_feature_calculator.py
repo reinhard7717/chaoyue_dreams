@@ -908,26 +908,21 @@ class ChipFeatureCalculator:
             # 确保价格和百分比列是数值类型，并处理可能的NaN
             prices_series = pd.to_numeric(self.df['price'], errors='coerce')
             percent_series = pd.to_numeric(self.df['percent'], errors='coerce')
-
             # 过滤掉NaN值，确保Numba接收纯净的数值数组
             valid_mask = prices_series.notna() & percent_series.notna()
             if not valid_mask.any():
                 print(f"调试信息: {context.get('stock_code')} {context.get('trade_date')} - 成本结构偏度计算：过滤NaN后无有效数据。")
                 return np.nan # 如果没有有效数据，返回NaN
-
             prices_arr = prices_series[valid_mask].values.astype(np.float64)
             percent_arr = percent_series[valid_mask].values.astype(np.float64) # 保持为float用于求和计算
-
             total_percent = percent_arr.sum()
             if total_percent <= 0:
                 print(f"调试信息: {context.get('stock_code')} {context.get('trade_date')} - 成本结构偏度计算：有效百分比总和为0。")
                 return np.nan
-
             # 将百分比转换为整数权重，用于模拟非加权样本
             # 乘以一个足够大的因子，然后转换为整数，以保留精度
             # 这里的10000是一个经验值，确保百分比的小数部分能被有效转换为整数
             weights_arr = (percent_arr / total_percent * 10000).astype(np.int64)
-
             # 调用 Numba 优化后的偏度计算函数
             skewness = _numba_calculate_skew_unweighted_sample(prices_arr, weights_arr)
         return skewness
@@ -1358,14 +1353,11 @@ class ChipFeatureCalculator:
         # 创建一个新的Series进行映射，不修改原始tick_df['type']
         trade_types_numeric_series = tick_df['type'].astype(str).map(trade_type_map)
         trade_types_arr = trade_types_numeric_series.fillna(0).values.astype(np.int8) # 使用 int8 提高效率和Numba兼容性
-
         prices_arr = tick_df['price'].values.astype(np.float64) # 确保为 float64
         volumes_arr = tick_df['volume'].values.astype(np.float64) # 确保为 float64
-
         # block_ids 的计算需要 Pandas，但其结果可以传递给 Numba
         tick_df.loc[:, 'block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
         block_ids_arr = tick_df['block'].values.astype(np.int64) # 确保为 int64
-
         # 调用Numba优化后的扫单量计算函数
         buy_sweep_vol, sell_sweep_vol = _numba_calculate_sweeps(trade_types_arr, prices_arr, volumes_arr, block_ids_arr, min_sweep_len)
         
