@@ -1,7 +1,7 @@
 # 文件: strategies/trend_following/intelligence/fusion_intelligence.py
 import pandas as pd
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
 from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, get_adaptive_mtf_normalized_score, normalize_score, normalize_to_bipolar
 
 class FusionIntelligence:
