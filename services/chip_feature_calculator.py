@@ -902,12 +902,31 @@ class ChipFeatureCalculator:
         - 核心修复: 移除调试打印。
         - 核心优化: 使用Numba优化后的偏度计算函数。
         """
-        skewness = 0.0
+        skewness = np.nan # 默认值为NaN
         if not self.df.empty and self.df['percent'].sum() >= 1e-6:
-            total_percent = self.df['percent'].sum()
-            # 将 percent 转换为 NumPy 数组，并进行归一化，以便 Numba 函数处理
-            weights_arr = (self.df['percent'].values / total_percent * 10000).astype(np.int64)
-            prices_arr = self.df['price'].values
+            # 确保价格和百分比列是数值类型，并处理可能的NaN
+            prices_series = pd.to_numeric(self.df['price'], errors='coerce')
+            percent_series = pd.to_numeric(self.df['percent'], errors='coerce')
+
+            # 过滤掉NaN值，确保Numba接收纯净的数值数组
+            valid_mask = prices_series.notna() & percent_series.notna()
+            if not valid_mask.any():
+                print(f"调试信息: {context.get('stock_code')} {context.get('trade_date')} - 成本结构偏度计算：过滤NaN后无有效数据。")
+                return np.nan # 如果没有有效数据，返回NaN
+
+            prices_arr = prices_series[valid_mask].values.astype(np.float64)
+            percent_arr = percent_series[valid_mask].values.astype(np.float64) # 保持为float用于求和计算
+
+            total_percent = percent_arr.sum()
+            if total_percent <= 0:
+                print(f"调试信息: {context.get('stock_code')} {context.get('trade_date')} - 成本结构偏度计算：有效百分比总和为0。")
+                return np.nan
+
+            # 将百分比转换为整数权重，用于模拟非加权样本
+            # 乘以一个足够大的因子，然后转换为整数，以保留精度
+            # 这里的10000是一个经验值，确保百分比的小数部分能被有效转换为整数
+            weights_arr = (percent_arr / total_percent * 10000).astype(np.int64)
+
             # 调用 Numba 优化后的偏度计算函数
             skewness = _numba_calculate_skew_unweighted_sample(prices_arr, weights_arr)
         return skewness
