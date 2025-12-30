@@ -48,7 +48,8 @@ def _numba_calculate_vpin_buckets(
     返回每个桶的失衡值和桶的索引。
     """
     if vpin_bucket_size <= 0:
-        return np.array([]), np.array([])
+        # 明确指定空数组的dtype，以帮助Numba进行类型推断
+        return np.array([], dtype=np.float64), np.array([], dtype=np.int64)
     n = len(cum_vol_arr)
     # 预估最大桶数，避免动态列表增长开销
     max_buckets = int(cum_vol_arr[-1] / vpin_bucket_size) + 2
