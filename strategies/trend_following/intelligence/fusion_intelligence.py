@@ -303,17 +303,17 @@ class FusionIntelligence:
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 内腐外强版 - 依赖解耦与强化】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
+        【V3.4 · 内腐外强版 - 依赖解耦与强化】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
         - 核心重构: 废弃V2.1的“症状清单”模型，引入“内腐外强”背离审判模型。
         - 核心公式: 滞涨风险 = (内部腐化度 × 外部强势幻象)^(1/2)
         - 诡道哲学: 最大的风险，源于内部趋势质量的腐化与外部价格强势的假象之间的
                       致命背离，此乃“温水煮蛙”之局。
-        - 【V3.3 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 和 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM` 和 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
+        - 【V3.4 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 和 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM` 和 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
                       增加 `SCORE_CHIP_RETAIL_VULNERABILITY` 和 `SCORE_RISK_LIQUIDITY_DRAIN` 信号，提高内部腐化度的准确性。
+                      调整 `internal_decay_components` 权重，确保高风险信号能有效贡献，避免被过多零值信号稀释。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_stagnation_risk"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“滞涨风险”...")
@@ -346,17 +346,19 @@ class FusionIntelligence:
             print(f"        散户FOMO溢价: {retail_fomo.loc[probe_ts]:.4f}")
         # --- 2. 核心数学逻辑 - 背离审判 ---
         # 2.1 计算“内部腐化度” (几何平均，体现症状共振)
+        # 调整权重，提高散户筹码脆弱性和流动性枯竭风险的权重
         internal_decay_components = {
-            '趋势质量衰减': (trend_quality_decay, 0.20), # 调整权重
-            '派发意图': (distribution_intent, 0.20),
+            '趋势质量衰减': (trend_quality_decay, 0.15), # 调整权重
+            '派发意图': (distribution_intent, 0.15),
             '资金流出': (fund_flow_bearish, 0.10),
             '筹码分散': (chip_dispersion, 0.10),
             '微观滞涨': (stagnation_evidence, 0.10),
-            '散户筹码脆弱性': (retail_vulnerability, 0.15), # 新增权重
-            '流动性枯竭风险': (liquidity_drain_risk, 0.15), # 新增权重
+            '散户筹码脆弱性': (retail_vulnerability, 0.20), # 提高权重
+            '流动性枯竭风险': (liquidity_drain_risk, 0.20), # 提高权重
         }
         internal_decay_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         for name, (comp, weight) in internal_decay_components.items():
+            # 确保每个组件在参与几何平均前，如果其值非常小，也至少是 1e-9，避免被 0 拖垮
             internal_decay_score *= (comp.clip(lower=1e-9)) ** weight
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '{name}' (值: {comp.loc[probe_ts]:.4f}, 权重: {weight})")
@@ -441,16 +443,16 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V4.3 · 天道裁决版 - 依赖解耦与强化】冶炼“价格超买意图” (Price Overextension Intent)
+        【V4.4 · 天道裁决版 - 依赖解耦与强化】冶炼“价格超买意图” (Price Overextension Intent)
         - 核心升华: 引入“趋势质量”作为天道背景，对“三位一体”的初审判决进行终极裁决。
         - 终章心法: 罪罚需与时势相符。逆势之罪，天道加诛。此法之后，再无增益。
-        - 【V4.3 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM`，以解耦依赖。
+        - 【V4.4 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM`，以解耦依赖。
                       增强 `overextension_bearish` 对高位诱多行为的敏感度。
                       增加 `SCORE_CHIP_RISK_DISTRIBUTION_WHISPER` 和 `SCORE_RISK_BREAKOUT_FAILURE_CASCADE` 信号，提高风险识别的准确性。
+                      调整 `bearish_pressure_sources` 权重，确保风险信号能有效贡献。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_price_overextension_intent"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“价格超买意图”...")
@@ -467,11 +469,12 @@ class FusionIntelligence:
             'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER': 0.3 # 新增筹码派发诡影
         }
         bullish_intent_sources = {'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK': 0.4, 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY': 0.3, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH': 0.3}
-        # 增强 bearish_pressure_sources
+        # 增强 bearish_pressure_sources，调整权重
         bearish_pressure_sources = {
-            'SCORE_FF_AXIOM_CONSENSUS': 0.4, # 调整权重
-            'SCORE_CHIP_STRATEGIC_POSTURE': 0.3, # 调整权重
-            'SCORE_RISK_BREAKOUT_FAILURE_CASCADE': 0.3 # 新增突破失败级联风险
+            'SCORE_FF_AXIOM_CONSENSUS_NEGATIVE': 0.3, # 资金流共识负向
+            'SCORE_CHIP_STRATEGIC_POSTURE_NEGATIVE': 0.3, # 筹码战略态势负向
+            'SCORE_RISK_BREAKOUT_FAILURE_CASCADE': 0.2, # 突破失败级联风险
+            'SCORE_BEHAVIOR_DECEPTION_INDEX_POSITIVE': 0.2 # 欺骗指数正向，作为诱多压力
         }
         bullish_pressure_sources = {'SCORE_OPPORTUNITY_SELLING_EXHAUSTION': 0.6, 'SCORE_FF_AXIOM_CONSENSUS': 0.4}
         # 1.2 计算“天时”分 (状态)
@@ -491,7 +494,18 @@ class FusionIntelligence:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 派发意图 (bearish_intent): {bearish_intent.loc[probe_ts]:.4f}, 吸筹意图 (bullish_intent): {bullish_intent.loc[probe_ts]:.4f}")
         # 1.4 计算“地利”分 (压力)
         # 资金流共识负向和筹码战略态势负向代表熊市压力
-        bearish_pressure = sum(self._get_atomic_score(df, signal, 0.0, debug_info).clip(upper=0).abs() * weight for signal, weight in bearish_pressure_sources.items()).clip(0,1)
+        bearish_pressure = pd.Series(0.0, index=df_index, dtype=np.float32)
+        for signal, weight in bearish_pressure_sources.items():
+            # 对于负向信号，取其绝对值作为风险贡献
+            score = self._get_atomic_score(df, signal, 0.0, debug_info)
+            if signal.endswith('_NEGATIVE'):
+                bearish_pressure += score.clip(upper=0).abs() * weight
+            elif signal.endswith('_POSITIVE'):
+                bearish_pressure += score.clip(lower=0) * weight
+            else:
+                bearish_pressure += score * weight
+        bearish_pressure = bearish_pressure.clip(0,1)
+
         # 卖盘衰竭和资金流共识正向代表牛市压力（即卖压小，买压大）
         bullish_pressure = (self._get_atomic_score(df, 'SCORE_OPPORTUNITY_SELLING_EXHAUSTION', 0.0, debug_info) * bullish_pressure_sources['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] + self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0) * bullish_pressure_sources['SCORE_FF_AXIOM_CONSENSUS']).clip(0,1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
@@ -680,17 +694,17 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_inflection(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 厚積薄發与探针增强版 - 依赖解耦与强化 (終章)】冶炼“吸籌拐點信號” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        【V5.4 · 厚積薄發与探针增强版 - 依赖解耦与强化 (終章)】冶炼“吸籌拐點信號” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
         - 核心升华: “势”的来源从单日的瞬时变化，升华为基于EMA的平滑趋势变化，旨在
                       滤除噪波，洞察“地利”持续改善或恶化的真实“势”之厚度。
         - 终章心法: 真正的拐点，是和谐之态与厚積之勢的共鸣。此法之后，再无增益。
         - 诡道哲学: 终极拐点 = 和谐之态(根基) × 厚積之勢(趨勢)。
-        - 【V5.3 增强】将对融合信号 `FUSION_BIPOLAR_CHIP_TREND` 和 `FUSION_BIPOLAR_MARKET_PRESSURE` 的依赖替换为基础信号 `SCORE_CHIP_STRATEGIC_POSTURE` 和 `SCORE_RISK_UNRESOLVED_PRESSURE`，以解耦依赖。
+        - 【V5.4 增强】将对融合信号 `FUSION_BIPOLAR_CHIP_TREND` 和 `FUSION_BIPOLAR_MARKET_PRESSURE` 的依赖替换为基础信号 `SCORE_CHIP_STRATEGIC_POSTURE` 和 `SCORE_RISK_UNRESOLVED_PRESSURE`，以解耦依赖。
                       增加 `SCORE_CHIP_MAIN_FORCE_COST_INTENT` 和 `SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION` 信号，提高吸筹拐点信号的准确性。
+                      调整 `tian_shi_raw` 和 `di_li_raw` 的融合方式，使其对新增信号的贡献更平滑。
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_accumulation_inflection"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹拐点信号”...")
@@ -699,10 +713,12 @@ class FusionIntelligence:
         params = fusion_intelligence_params.get('fusion_accumulation_inflection_params', {})
         tian_shi_raw_base = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0, debug_info)
         main_force_cost_intent = self._get_atomic_score(df, 'SCORE_CHIP_MAIN_FORCE_COST_INTENT', 0.0, debug_info).clip(lower=0) # 新增主力成本区攻防意图正向
+        # 调整融合方式，使用加权平均，避免 0 值完全抑制
         tian_shi_raw = (tian_shi_raw_base * 0.7 + main_force_cost_intent * 0.3).clip(0,1) # 融合天时
         # 替换 FUSION_BIPOLAR_CHIP_TREND 为 SCORE_CHIP_STRATEGIC_POSTURE
         di_li_raw_base = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info)
         turnover_purity = self._get_atomic_score(df, 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION', 0.0, debug_info).clip(lower=0) # 新增换手纯度与成本优化正向
+        # 调整融合方式，使用加权平均
         di_li_raw = (di_li_raw_base * 0.7 + turnover_purity * 0.3).clip(-1,1) # 融合地利
         # 替换 FUSION_BIPOLAR_MARKET_PRESSURE 为 SCORE_RISK_UNRESOLVED_PRESSURE
         ren_he_raw = self._get_atomic_score(df, 'SCORE_RISK_UNRESOLVED_PRESSURE', 0.0, debug_info)
@@ -1035,16 +1051,16 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 道法合一与探针增强版 - 依赖解耦与强化 (終章)】冶炼“吸筹剧本” (FUSION_ACCUMULATION_PLAYBOOK)
+        【V5.4 · 道法合一与探针增强版 - 依赖解耦与强化 (終章)】冶炼“吸筹剧本” (FUSION_ACCUMULATION_PLAYBOOK)
         - 核心升华: 引入“王霸并济”二元法则。根据“点火器”强度，动态切换“王者之道”
                       (薪火相加)与“霸王之道”(状态重置)，以区分“量变积累”与“质变突破”。
         - 终章心法: 王者，积寸功；霸者，定乾坤。此法之后，再无增益。
-        - 【V5.3 增强】将对融合信号 `FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT`、`FUSION_BIPOLAR_CHIP_TREND` 和 `FUSION_BIPOLAR_MARKET_PRESSURE` 的依赖替换为基础信号，以解耦依赖。
+        - 【V5.4 增强】将对融合信号 `FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT`、`FUSION_BIPOLAR_CHIP_TREND` 和 `FUSION_BIPOLAR_MARKET_PRESSURE` 的依赖替换为基础信号，以解耦依赖。
                       增加 `SCORE_CHIP_OPP_ABSORPTION_ECHO` 和 `SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL` 信号，提高吸筹剧本的准确性。
+                      调整 `igniter_signal` 和 `di_li` 的融合方式，使其对新增信号的贡献更平滑。
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_accumulation_playbook"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹剧本”...")
@@ -1053,16 +1069,17 @@ class FusionIntelligence:
         # 替换 FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT 为 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT
         igniter_signal_base = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0, debug_info)
         absorption_echo = self._get_atomic_score(df, 'SCORE_CHIP_OPP_ABSORPTION_ECHO', 0.0, debug_info) # 新增吸筹回声
+        # 调整融合方式，使用加权平均，避免 0 值完全抑制
         igniter_signal = (igniter_signal_base * 0.6 + absorption_echo * 0.4).clip(0,1) # 融合点火器
         # 替换 FUSION_BIPOLAR_CHIP_TREND 为 SCORE_CHIP_STRATEGIC_POSTURE
         di_li_base = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(lower=0)
         chip_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0, debug_info).clip(lower=0) # 新增筹码势能
+        # 调整融合方式，使用加权平均
         di_li = (di_li_base * 0.6 + chip_potential * 0.4).clip(lower=0) # 融合地利
         # 替换 FUSION_BIPOLAR_MARKET_PRESSURE 为 SCORE_RISK_UNRESOLVED_PRESSURE
         ren_he = (1 - self._get_atomic_score(df, 'SCORE_RISK_UNRESOLVED_PRESSURE', 0.0, debug_info)) # 市场压力越大，人和分越低
         foundation_sustain_factor = (di_li.clip(lower=1e-9) * ren_he.clip(lower=1e-9)).pow(1/2).fillna(0.0)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            # 修正此处：使用 method_name 而不是 method_ts
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
             print(f"        资金流吸筹拐点意图 (点火器): {igniter_signal_base.loc[probe_ts]:.4f}, 吸筹回声 (新增): {absorption_echo.loc[probe_ts]:.4f}")
             print(f"        筹码战略态势 (地利): {di_li_base.loc[probe_ts]:.4f}, 筹码势能 (新增): {chip_potential.loc[probe_ts]:.4f}")
@@ -1112,18 +1129,18 @@ class FusionIntelligence:
 
     def _synthesize_trend_exhaustion_syndrome(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 意志与压力版 - 依赖解耦】冶炼“趋势衰竭综合征”
+        【V2.3 · 意志与压力版 - 依赖解耦与强化】冶炼“趋势衰竭综合征”
         - 核心重构: 废弃V1.0基于陈旧过程信号的“症状叠加”模型，引入基于高阶信号的
                       “意志vs压力”二元博弈模型。
         - 核心公式: 衰竭风险 = (上涨意志衰竭度 × 反转压力增强度)^(1/2)
         - 诡道哲学: 趋势之终结，非无故自崩，乃上涨意志之衰竭，恰逢反转压力之增强，
                       两相博弈，天平倾覆之必然结果。
-        - 【V2.2 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
+        - 【V2.3 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       增强 `weakening_will_score` 和 `intensifying_pressure_score` 对高位风险的敏感度。
+                      调整 `will_components` 权重，确保风险信号能有效贡献。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_trend_exhaustion_syndrome"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势衰竭综合征”...")
@@ -1135,7 +1152,7 @@ class FusionIntelligence:
         # --- 1. 上涨意志衰竭度 (Weakening Will) ---
         # 替换 FUSION_BIPOLAR_TREND_QUALITY 为 SCORE_STRUCT_AXIOM_TREND_FORM
         trend_quality = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0, debug_info)
-        trend_quality_decay = -trend_quality.diff(1).fillna(0.0).clip(upper=0) # 趋势质量衰减
+        trend_quality_decay = -trend_quality.diff(1).fillna(0.0).clip(upper=0) # 核心病根：趋势质量衰减
         distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0, debug_info)
         chip_posture_decay = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(upper=0).abs() # 筹码战略态势恶化
         # 引入价格超买意图风险作为意志衰竭的证据 (替换为基础信号)
@@ -1145,11 +1162,23 @@ class FusionIntelligence:
             print(f"        趋势形态 (基础信号): {trend_quality.loc[probe_ts]:.4f}, 趋势质量衰减: {trend_quality_decay.loc[probe_ts]:.4f}")
             print(f"        派发意图: {distribution_intent.loc[probe_ts]:.4f}, 筹码战略态势负向: {chip_posture_decay.loc[probe_ts]:.4f}")
             print(f"        价格超买意图风险 (基础信号): {price_overextension_risk.loc[probe_ts]:.4f}")
-        will_components = [trend_quality_decay, distribution_intent, chip_posture_decay, price_overextension_risk]
+        
+        # 调整 will_components 的权重，确保即使部分信号为 0，其他非 0 信号也能有效贡献
+        will_components_with_weights = [
+            (trend_quality_decay, 0.25),
+            (distribution_intent, 0.25),
+            (chip_posture_decay, 0.2),
+            (price_overextension_risk, 0.3)
+        ]
+        
         weakening_will_score = pd.Series(1.0, index=df_index, dtype=np.float32)
-        for comp in will_components:
-            weakening_will_score *= comp.clip(lower=1e-9)
-        weakening_will_score = weakening_will_score.pow(1 / len(will_components)).clip(0,1)
+        total_will_weight = sum(w for _, w in will_components_with_weights)
+        if total_will_weight > 0:
+            for comp, weight in will_components_with_weights:
+                weakening_will_score *= (comp.clip(lower=1e-9)) ** (weight / total_will_weight) # 归一化权重
+        else:
+            weakening_will_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 上涨意志衰竭度 (weakening_will_score): {weakening_will_score.loc[probe_ts]:.4f}")
         # --- 2. 反转压力增强度 (Intensifying Pressure) ---
@@ -1164,11 +1193,23 @@ class FusionIntelligence:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 反转压力增强度原始信号 ---")
             print(f"        价格超买意图风险 (基础信号): {overextension_risk.loc[probe_ts]:.4f}, 行为熊市背离品质: {bearish_divergence.loc[probe_ts]:.4f}")
             print(f"        滞涨证据 (基础信号): {stagnation_risk.loc[probe_ts]:.4f}, 派发意图 (基础信号): {distribution_pressure.loc[probe_ts]:.4f}")
-        pressure_components = [overextension_risk, bearish_divergence, stagnation_risk, distribution_pressure]
+        
+        # 调整 pressure_components 的权重
+        pressure_components_with_weights = [
+            (overextension_risk, 0.3),
+            (bearish_divergence, 0.2),
+            (stagnation_risk, 0.25),
+            (distribution_pressure, 0.25)
+        ]
+
         intensifying_pressure_score = pd.Series(1.0, index=df_index, dtype=np.float32)
-        for comp in pressure_components:
-            intensifying_pressure_score *= comp.clip(lower=1e-9)
-        intensifying_pressure_score = intensifying_pressure_score.pow(1 / len(pressure_components)).clip(0,1)
+        total_pressure_weight = sum(w for _, w in pressure_components_with_weights)
+        if total_pressure_weight > 0:
+            for comp, weight in pressure_components_with_weights:
+                intensifying_pressure_score *= (comp.clip(lower=1e-9)) ** (weight / total_pressure_weight) # 归一化权重
+        else:
+            intensifying_pressure_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 反转压力增强度 (intensifying_pressure_score): {intensifying_pressure_score.loc[probe_ts]:.4f}")
         # --- 3. 最终融合 ---
@@ -1183,7 +1224,7 @@ class FusionIntelligence:
 
     def _synthesize_liquidity_dynamics(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 诡道穿透版 - 依赖解耦与强化】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        【V5.4 · 诡道穿透版 - 依赖解耦与强化】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
         - 核心重构: 引入“诡道因子非对称调制”，深化流动性“质量”与“纯度”量化，优化动态激活敏感度，强化维度间协同/冲突裁决。
         - 核心目标: 融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。
         - 诡道哲学: 流动性是市场博弈的血液。健康的流动性动态，是主力主导、价量协同、权力稳固的体现；
@@ -1193,13 +1234,13 @@ class FusionIntelligence:
                       其判断重心与反应速度，应随市场情境（趋势质量、市场政权、波动率、情绪、资金流可信度）
                       动态调整，并能识别维度间的协同与冲突，穿透主力诡道。
         - 融合模型: 最终得分 = tanh( (动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS) * 协同/冲突因子 * 诡道穿透因子)
-        - 【V5.3 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
+        - 【V5.4 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       增强对风险信号的敏感度，确保诡道因子在诱多情境下能有效惩罚。
                       增加 `SCORE_FF_AXIOM_INTENT_PURITY` 和 `SCORE_FOUNDATION_AXIOM_MARKET_FRICTION` 信号，提高流动性博弈动态的准确性。
+                      调整 `LS激活敏感度` 的计算，避免输出过于极端的 1.0000 或 0.0000。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_liquidity_dynamics"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“流动性博弈动态”...")
@@ -1327,7 +1368,8 @@ class FusionIntelligence:
         ls_sens_params = ld_params.get('ls_activation_sensitivity_params', {})
         ls_base_sens = get_param_value(ls_sens_params.get('base_sensitivity'), 2.0)
         ls_mod_factor = get_param_value(ls_sens_params.get('modulator_factor'), 0.5)
-        ls_activation_sensitivity = ls_base_sens * (1 + np.tanh(flow_credibility * ls_mod_factor)).clip(0.5, 1.5)
+        # 调整 LS 激活敏感度，使其在极端情况下不会过高，避免 tanh 迅速饱和
+        ls_activation_sensitivity = ls_base_sens * (1 + np.tanh(flow_credibility * ls_mod_factor * 0.5)).clip(0.5, 1.5) # 增加一个 0.5 的缩放因子
         deception_mod_params = ld_params.get('deception_modulation_params', {})
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: PVE激活敏感度: {pve_activation_sensitivity.loc[probe_ts]:.4f}, PT激活敏感度: {pt_activation_sensitivity.loc[probe_ts]:.4f}, LS激活敏感度: {ls_activation_sensitivity.loc[probe_ts]:.4f}")
@@ -1417,7 +1459,7 @@ class FusionIntelligence:
 
     def _synthesize_distribution_pressure(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 诡道穿透与动态博弈版 - 依赖解耦与强化】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
+        【V1.8 · 诡道穿透与动态博弈版 - 依赖解耦与强化】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
         - 核心重构: 基于“主力派发意图、散户不愿承接度、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
         - 诡道哲学: 派发风险的本质是主力与散户的博弈，以及市场结构对这种博弈的承载能力。
                       当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
@@ -1425,9 +1467,10 @@ class FusionIntelligence:
         - 升级说明: 维度内部子信号聚合方式调整为加权算术平均，三大维度之间聚合保持加权几何平均，以更好地体现风险的“木桶效应”。
                     强化了对原始零值信号的归一化处理。此版本增加了详细探针，用于调试和检查每一步计算。
                     引入动态权重、诡道调制、情境放大器和协同/冲突裁决，以更精准地捕捉派发风险。
-        - 【V1.7 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
+        - 【V1.8 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       修正 `raw_score` (散户承接意愿) 的逻辑，使其在高散户狂热时放大派发风险。
                       增加 `SCORE_BEHAVIOR_DECEPTION_INDEX` (正向) 和 `SCORE_CHIP_HOLLOWING_OUT_RISK` 信号，提高派发压力的准确性。
+                      修正 `RAW恐慌抑制` 逻辑，避免 `raw_score` 被错误归零。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_distribution_pressure"
@@ -1511,8 +1554,9 @@ class FusionIntelligence:
         if get_param_value(raw_panic_dampener_params.get('enabled'), False):
             panic_signal = self._get_atomic_score(df, get_param_value(raw_panic_dampener_params.get('panic_signal')), 0.0, debug_info)
             dampener_factor = get_param_value(raw_panic_dampener_params.get('dampener_factor'), 0.5)
-            threshold = get_param_value(raw_panic_dampener_params.get('threshold'), 0.1)
-            panic_dampener = (panic_signal.clip(lower=threshold) * dampener_factor).clip(0, 1)
+            # 修正恐慌抑制逻辑：使用 tanh 激活函数，使其平滑抑制，而不是直接归零
+            # panic_dampener = (panic_signal.clip(lower=threshold) * dampener_factor).clip(0, 1)
+            panic_dampener = (np.tanh(panic_signal * dampener_factor)).clip(0, 1) # 使用 tanh 平滑抑制
             raw_score = raw_score * (1 - panic_dampener)
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: RAW恐慌抑制 (恐慌信号: {panic_signal.loc[probe_ts]:.4f}) -> 抑制因子: {panic_dampener.loc[probe_ts]:.4f}")
