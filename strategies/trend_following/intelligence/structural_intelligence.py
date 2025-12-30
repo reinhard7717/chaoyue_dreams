@@ -59,12 +59,13 @@ class StructuralIntelligence:
                 current_date = df.index[-1].strftime('%Y-%m-%d')
                 print(f"      [结构情报探针] -> 警告: 方法 {method_name} 缺少列 '{col_name}'，返回默认值 {default_value}。({current_date})")
             return pd.Series(default_value, index=df.index, dtype=np.float32)
-        series = df[col_name].fillna(default_value)
+        series = df[col_name].copy() # 使用copy避免SettingWithCopyWarning
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
-            val = df[col_name].iloc[-1] # 使用原始列的值来判断是否为NaN
+            val = series.iloc[-1] # 使用原始列的值来判断是否为NaN
             if pd.isna(val):
-                print(f"      [结构情报探针] -> 原始数据 '{col_name}' 在 {current_date} 为 NaN，已填充为 {default_value}。")
+                print(f"      [结构情报探针] -> 原始数据 '{col_name}' 在 {current_date} 为 NaN，将填充为 {default_value}。")
+        series.fillna(default_value, inplace=True) # 在copy上进行fillna
         return series
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
@@ -896,18 +897,20 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
         """
-        【V2.7 · 自适应通道风险版】结构公理二：诊断“宏观趋势健康度”
+        【V2.8 · 纯结构微观意图版】结构公理二：诊断“宏观趋势健康度”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 使用布林带百分比(BBP)替代BIAS作为核心风险标尺，解决了BIAS静态、不自适应的根本缺陷。模型现在能更好地区分“健康的趋势”与“高风险的极端行情”。
         - 核心修复: 修复了逻辑上的不对称性。模型现在能同时识别上升趋势中的“过热”风险和下降趋势中的“超跌”状态（趋势衰竭信号），并对两者进行对称的降权处理。
         - 核心融合: 继续采用“和谐度”模型，将经过风险调整后的“宏观健康度分”与“微观意图分”进行加权融合。
+        - 【V2.8 核心修正】将微观意图的原始数据从订单簿和报价耗尽率（非结构类）替换为纯粹的成交量爆发指数和波动率不稳定性指数（结构类）。
         """
         method_name = "_diagnose_axiom_mtf_cohesion"
         short_periods = [5, 13, 21]
         long_periods = [55, 89, 144]
         required_signals = [
-            'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
-            'close_D', 'BBP_21_2.0_D' # 替换 BIAS_55_D
+            # 替换为结构类数据
+            'volume_burstiness_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'close_D', 'BBP_21_2.0_D'
         ]
         required_signals.extend([f'EMA_{p}_D' for p in short_periods])
         required_signals.extend([f'EMA_{p}_D' for p in long_periods])
@@ -932,15 +935,17 @@ class StructuralIntelligence:
         bullish_macro_health = alignment_score * (1 - overheat_penalty)
         bearish_macro_health = (1 - alignment_score) * (1 - oversold_mitigation)
         # --- 2. 微观意图 (Micro Intent) ---
-        ofi_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name)
-        buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
-        sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
-        ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df_index, tf_weights)
-        buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df_index, ascending=True, tf_weights=tf_weights)
-        sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df_index, ascending=True, tf_weights=tf_weights)
-        bullish_intent = (ofi_score.clip(lower=0) * 0.5 + buy_sweep_score * 0.5)
-        bearish_intent = (ofi_score.clip(upper=0).abs() * 0.5 + sell_sweep_score * 0.5)
-        micro_intent_score = (bullish_intent - bearish_intent).clip(-1, 1)
+        # 替换为结构类数据: 成交量爆发指数和波动率不稳定性指数
+        volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
+        # 成交量爆发指数越高，微观意图越强（可能是买也可能是卖）
+        # 波动率不稳定性指数越低，市场微观结构越稳定，越有利于意图的实现
+        volume_burstiness_score = get_adaptive_mtf_normalized_bipolar_score(volume_burstiness_raw, df_index, tf_weights)
+        volatility_stability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, tf_weights, ascending=False) # 不稳定性越低，稳定性越高
+        # 融合微观意图：成交量爆发指数反映强度和方向，波动率稳定性反映环境质量
+        # 假设正向的成交量爆发指数代表买盘意图，负向代表卖盘意图
+        # 波动率稳定性作为调节因子，稳定性越高，微观意图的质量越高
+        micro_intent_score = (volume_burstiness_score * volatility_stability_score).clip(-1, 1)
         # --- 3. 和谐度融合 ---
         # 权重: 宏观(0.7), 微观(0.3)
         bullish_harmony = bullish_macro_health * 0.7 + micro_intent_score.clip(lower=0) * 0.3
@@ -956,9 +961,13 @@ class StructuralIntelligence:
             print(f"    -> 超跌缓和: {oversold_mitigation.iloc[-1]:.4f}")
             print(f"    -> 看涨宏观健康度: {bullish_macro_health.iloc[-1]:.4f}")
             print(f"    -> 看跌宏观健康度: {bearish_macro_health.iloc[-1]:.4f}")
-            print(f"    -> OFI分数: {ofi_score.iloc[-1]:.4f}")
-            print(f"    -> 买盘扫盘分数: {buy_sweep_score.iloc[-1]:.4f}")
-            print(f"    -> 卖盘扫盘分数: {sell_sweep_score.iloc[-1]:.4f}")
+            # 探针输出更新为新的微观意图原始值和分数
+            _val_vb = volume_burstiness_raw.iloc[-1]
+            _formatted_val_vb = f"{_val_vb:.4f}" if pd.notna(_val_vb) else 'NaN'
+            print(f"    -> 成交量爆发原始值: {_formatted_val_vb}")
+            _val_vi = volatility_instability_raw.iloc[-1]
+            _formatted_val_vi = f"{_val_vi:.4f}" if pd.notna(_val_vi) else 'NaN'
+            print(f"    -> 波动率不稳定性原始值: {_formatted_val_vi}")
             print(f"    -> 微观意图分数: {micro_intent_score.iloc[-1]:.4f}")
             print(f"    -> 最终多周期协同分数: {final_score.iloc[-1]:.4f}")
         return final_score
@@ -1013,37 +1022,37 @@ class StructuralIntelligence:
 
     def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series, breakout_readiness: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V3.0 · 双通道防御版】诊断顶层“战略态势”
+        【V3.1 · 纯结构杠杆版】诊断顶层“战略态势”
         - 核心升级: 重铸“静态盾”的定义，使其成为“平台基石品质”与“突破准备度”的双通道最大值。
                       这使得模型能提前感知到正在高质量构筑中的防御工事，解决了“平台基石”的认知延迟问题。
         - 核心逻辑:
-          - 矛 (进攻): (趋势形态 + 宏观健康度 + 结构杠杆) * (1 + 张力催化)
+          - 矛 (进攻): (趋势形态 + 宏观健康度 + 结构效率) * (1 + 张力催化)
           - 盾 (防御): 动态防御 * 0.6 + Max(平台品质, 突破准备度) * 0.4
         - 输出: (战略态势分数, 最终防御强度)
+        - 【V3.1 核心修正】将“结构杠杆”替换为“趋势效率比”（trend_efficiency_ratio_D），使其成为纯粹的结构类数据。
         """
         method_name = "_diagnose_strategic_posture"
-        required_signals = ['structural_leverage_D']
+        # 替换 structural_leverage_D 为 trend_efficiency_ratio_D
+        required_signals = ['trend_efficiency_ratio_D']
         if not self._validate_required_signals(self.strategy.df_indicators, required_signals, method_name):
             return pd.Series(0.0, index=axiom_trend_form.index), pd.Series(0.5, index=axiom_trend_form.index)
         df_index = axiom_trend_form.index
         p_conf_struct = self.structural_ultimate_params
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
-        leverage_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_leverage_D', 0.0, method_name=method_name)
-        leverage_score = get_adaptive_mtf_normalized_score(leverage_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # 使用 trend_efficiency_ratio_D 替代 structural_leverage_D
+        structural_efficiency_raw = self._get_safe_series(self.strategy.df_indicators, 'trend_efficiency_ratio_D', 0.0, method_name=method_name)
+        structural_efficiency_score = get_adaptive_mtf_normalized_score(structural_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights)
         base_offense_score = (
             axiom_trend_form.clip(lower=0) * 0.4 +
             axiom_mtf_cohesion.clip(lower=0) * 0.4 +
-            leverage_score * 0.2
+            structural_efficiency_score * 0.2 # 使用结构效率分数
         ).clip(0, 1)
         tension_catalyst_factor = 0.5
         tension_amplifier = 1 + (axiom_tension * tension_catalyst_factor)
         offense_score = (base_offense_score * tension_amplifier).clip(0, 1)
         dynamic_defense = ((axiom_stability + 1) / 2).clip(0, 1)
-        # --- 修改代码开始 ---
-        # 静态盾现在是“认证工程师”和“首席质量官”报告中的最大值
         static_defense = pd.concat([platform_foundation, breakout_readiness], axis=1).max(axis=1)
-        # --- 修改代码结束 ---
         defense_strength = (dynamic_defense * 0.6 + static_defense * 0.4).clip(0, 1)
         conviction_factor = 0.5
         defense_modifier = (defense_strength - 0.5) * conviction_factor
@@ -1052,8 +1061,11 @@ class StructuralIntelligence:
         if self.is_probe_date and not df_index.empty:
             current_date = df_index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 结构杠杆原始值: {leverage_raw.iloc[-1]:.4f}")
-            print(f"    -> 结构杠杆分数: {leverage_score.iloc[-1]:.4f}")
+            # 探针输出更新为结构效率
+            _val = structural_efficiency_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构效率原始值 (trend_efficiency_ratio_D): {_formatted_val}")
+            print(f"    -> 结构效率分数: {structural_efficiency_score.iloc[-1]:.4f}")
             print(f"    -> 基础进攻分数: {base_offense_score.iloc[-1]:.4f}")
             print(f"    -> 张力催化因子: {tension_amplifier.iloc[-1]:.4f}")
             print(f"    -> 进攻分数: {offense_score.iloc[-1]:.4f}")
@@ -1120,16 +1132,19 @@ class StructuralIntelligence:
 
     def _diagnose_playbook_secondary_launch(self, df: pd.DataFrame, axiom_stability: pd.Series, strategic_posture: pd.Series, structural_momentum: pd.Series) -> pd.Series:
         """
-        【V1.0 · 战术剧本识别】识别“暴力洗盘后二次启动”剧本
+        【V1.1 · 纯结构洗盘版】识别“暴力洗盘后二次启动”剧本
         - 核心逻辑: 在时间序列上匹配一个完整的战术行为模式。
-        - 剧本序列: [前期稳定蓄势] -> [短暂暴力洗盘+主力吸筹] -> [当日强势启动]
+        - 剧本序列: [前期稳定蓄势] -> [短暂暴力洗盘+结构活跃] -> [当日强势启动]
+        - 【V1.1 核心修正】将“投降吸收指数”（capitulation_absorption_index_D）替换为“成交量爆发指数”（volume_burstiness_index_D），使其成为纯粹的结构类数据。
         """
         method_name = "_diagnose_playbook_secondary_launch"
-        required_signals = ['capitulation_absorption_index_D', 'close_D']
+        # 替换 capitulation_absorption_index_D 为 volume_burstiness_index_D
+        required_signals = ['volume_burstiness_index_D', 'close_D']
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
         playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        absorption_signal = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
+        # 使用成交量爆发指数作为洗盘活跃度的代理
+        volume_burstiness_signal = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
         # 为了效率，我们只在最近的K天内寻找模式
         lookback_days = 60
         start_index = max(10, len(df) - lookback_days) # 至少需要10天历史数据
@@ -1152,20 +1167,24 @@ class StructuralIntelligence:
                 # 确保 j-1 索引有效
                 if j - 1 < 0:
                     continue
-                # --- 条件2: 暴力洗盘 + 主力吸筹 ---
-                price_dropped = df['close_D'].iloc[j] < df['close_D'].iloc[j-1]
-                strong_absorption = absorption_signal.iloc[j] > 0.7
-                if price_dropped and strong_absorption:
+                # --- 条件2: 暴力洗盘 + 结构活跃 ---
+                # 价格下跌幅度，例如跌幅超过一定百分比
+                price_drop_pct = (df['close_D'].iloc[j-1] - df['close_D'].iloc[j]) / df['close_D'].iloc[j-1] if df['close_D'].iloc[j-1] > 0 else 0
+                # 成交量爆发指数高，表示洗盘时有大量交易活动
+                high_volume_burstiness = volume_burstiness_signal.iloc[j] > 0.7 # 阈值可调
+                # 暴力洗盘条件：价格显著下跌且成交量爆发
+                is_violent_washout = (price_drop_pct > 0.02) and high_volume_burstiness # 跌幅阈值可调
+                if is_violent_washout:
                     # --- 条件1: 前期稳定蓄势 ---
                     # 蓄势窗口: 洗盘日前5天
                     accumulation_period_end = j - 1
                     accumulation_period_start = max(0, accumulation_period_end - 5)
                     if accumulation_period_start < accumulation_period_end:
                         avg_stability = axiom_stability.iloc[accumulation_period_start:accumulation_period_end].mean()
-                        if avg_stability > 0.2:
+                        if avg_stability > 0.2: # 稳定性阈值可调
                             washout_found = True
                             if self.is_probe_date and i == len(df) - 1:
-                                print(f"    -> 发现洗盘日 {df.index[j].strftime('%Y-%m-%d')} (价格下跌={price_dropped}, 吸收强度={absorption_signal.iloc[j]:.4f})")
+                                print(f"    -> 发现洗盘日 {df.index[j].strftime('%Y-%m-%d')} (价格跌幅={price_drop_pct:.4f}, 成交量爆发={volume_burstiness_signal.iloc[j]:.4f})")
                                 print(f"    -> 前期蓄势稳定性 ({df.index[accumulation_period_start].strftime('%Y-%m-%d')}~{df.index[accumulation_period_end].strftime('%Y-%m-%d')}): {avg_stability:.4f}")
                             break # 找到符合条件的洗盘日，即可停止内层循环
             if washout_found:
@@ -1248,20 +1267,26 @@ class StructuralIntelligence:
 
     def _diagnose_platform_foundation(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
         """
-        【V3.0 · 法医鉴定版】对平台进行法医级鉴定并勘探其战场边界
-        - 核心逻辑: 从“结构形态”、“筹码状态”、“主力行为”、“市场情绪”四大维度，
-                      对平台进行全方位品质鉴定，并输出基于主力意图的动态边界。
-        - 输出: (品质分, 动态高点, 动态低点, VPOC)
+        【V3.1 · 纯结构法医鉴定版】对平台进行法医级鉴定并勘探其战场边界
+        - 核心逻辑: 从“结构形态”、“结构稳定性”、“结构效率”、“结构活跃度”四大维度，
+                      对平台进行全方位品质鉴定，并输出基于纯结构意图的动态边界。
+        - 输出: (品质分, 动态高点, 动态低点, 结构性VPOC)
+        - 【V3.1 核心修正】将“筹码状态”、“主力行为”、“市场情绪”等非结构类维度，替换为纯粹的结构类维度：
+            - 筹码状态品质 -> 结构稳定性品质 (基于波动率不稳定性、价量熵)
+            - 主力行为品质 -> 结构效率品质 (基于趋势效率比、脉冲质量比)
+            - 市场情绪品质 -> 结构活跃度品质 (基于成交量爆发指数、非对称摩擦指数)
         """
         method_name = "_diagnose_platform_foundation"
         required_signals = [
             'BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'open_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'price_volume_entropy_D', # 结构形态
-            'dominant_peak_solidity_D', 'peak_separation_ratio_D', 'chip_fatigue_index_D', # 筹码状态
-            'main_force_vpoc_D', 'mf_cost_zone_defense_intent_D', 'control_solidity_index_D', # 主力行为
-            'counterparty_exhaustion_index_D', 'retail_panic_surrender_index_D', 'turnover_rate_f_D' # 市场情绪
+            # 替换后的结构类信号
+            'trend_efficiency_ratio_D', 'impulse_quality_ratio_D', # 结构效率
+            'volume_burstiness_index_D', 'asymmetric_friction_index_D' # 结构活跃度
         ]
-        if not self._validate_required_signals(df, required_signals, method_name):
+        # 确保所有必需的列都存在，特别是用于计算平台中枢的价格列
+        required_price_cols = ['high_D', 'low_D', 'close_D']
+        if not self._validate_required_signals(df, required_signals + required_price_cols, method_name):
             nan_series = pd.Series(np.nan, index=df.index)
             return pd.Series(0.0, index=df.index), nan_series, nan_series, nan_series
         # 获取 tf_weights
@@ -1284,56 +1309,65 @@ class StructuralIntelligence:
         platform_quality = pd.Series(0.0, index=df.index, dtype=np.float32)
         dynamic_high = pd.Series(np.nan, index=df.index, dtype=np.float32)
         dynamic_low = pd.Series(np.nan, index=df.index, dtype=np.float32)
-        vpoc = pd.Series(np.nan, index=df.index, dtype=np.float32)
+        vpoc = pd.Series(np.nan, index=df.index, dtype=np.float32) # 这里的vpoc将是结构性的
         # 预计算所有维度的分数
-        # 结构形态品质
+        # 结构形态品质 (保持不变)
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 1.0, method_name=method_name)
         price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', 0.0, method_name=method_name)
         s_structure = (
             get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, tf_weights, ascending=False) * 0.5 +
             get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df.index, tf_weights, ascending=False) * 0.5
         )
-        # 筹码状态品质
-        dominant_peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.0, method_name=method_name)
-        peak_separation_ratio_raw = self._get_safe_series(df, 'peak_separation_ratio_D', 0.0, method_name=method_name)
-        chip_fatigue_index_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
-        s_chips = (
-            get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(peak_separation_ratio_raw, df.index, tf_weights, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(chip_fatigue_index_raw, df.index, tf_weights, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
+        # 结构稳定性品质 (替代筹码状态品质)
+        # 低波动率不稳定性 + 高价量熵（表示交易活跃但无序，可能在吸筹）
+        s_stability_quality = (
+            get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, tf_weights, ascending=False) * 0.5 + # 不稳定性越低越好
+            get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df.index, tf_weights, ascending=True) * 0.5 # 价量熵越高越好
         )
-        # 主力行为品质
-        mf_cost_zone_defense_intent_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name)
-        control_solidity_index_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
-        s_main_force = (
-            get_adaptive_mtf_normalized_score(mf_cost_zone_defense_intent_raw, df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(control_solidity_index_raw, df.index, tf_weights, ascending=True) * 0.5
+        # 结构效率品质 (替代主力行为品质)
+        # 高趋势效率 + 高脉冲质量
+        trend_efficiency_raw = self._get_safe_series(df, 'trend_efficiency_ratio_D', 0.0, method_name=method_name)
+        impulse_quality_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name=method_name)
+        s_efficiency_quality = (
+            get_adaptive_mtf_normalized_score(trend_efficiency_raw, df.index, tf_weights, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(impulse_quality_raw, df.index, tf_weights, ascending=True) * 0.5
         )
-        # 市场情绪品质
-        counterparty_exhaustion_index_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name=method_name)
-        retail_panic_surrender_index_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
-        turnover_rate_f_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name)
-        s_sentiment = (
-            get_adaptive_mtf_normalized_score(counterparty_exhaustion_index_raw, df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(retail_panic_surrender_index_raw, df.index, tf_weights, ascending=True) * 0.3 +
-            get_adaptive_mtf_normalized_score(turnover_rate_f_raw, df.index, tf_weights, ascending=False) * 0.2
+        # 结构活跃度品质 (替代市场情绪品质)
+        # 低成交量爆发 + 低非对称摩擦（表示市场平静，情绪稳定）
+        volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
+        asymmetric_friction_raw = self._get_safe_series(df, 'asymmetric_friction_index_D', 0.0, method_name=method_name)
+        s_activity_quality = (
+            get_adaptive_mtf_normalized_score(volume_burstiness_raw, df.index, tf_weights, ascending=False) * 0.5 + # 爆发性越低越好
+            get_adaptive_mtf_normalized_score(asymmetric_friction_raw, df.index, tf_weights, ascending=False) * 0.5 # 摩擦越低越好
         )
-        # 最终品质分权重: 主力(0.4), 筹码(0.3), 情绪(0.2), 形态(0.1)
-        final_quality_score = (s_main_force * 0.4 + s_chips * 0.3 + s_sentiment * 0.2 + s_structure * 0.1).clip(0, 1)
+        # 最终品质分权重: 结构效率(0.4), 结构稳定性(0.3), 结构活跃度(0.2), 结构形态(0.1)
+        final_quality_score = (s_efficiency_quality * 0.4 + s_stability_quality * 0.3 + s_activity_quality * 0.2 + s_structure * 0.1).clip(0, 1)
+        # 仅用于探针输出，不参与核心逻辑
+        main_force_vpoc_raw = self._get_safe_series(df, 'main_force_vpoc_D', np.nan, method_name=method_name)
+        mf_cost_zone_defense_intent_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', np.nan, method_name=method_name)
+        control_solidity_index_raw = self._get_safe_series(df, 'control_solidity_index_D', np.nan, method_name=method_name)
+        dominant_peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', np.nan, method_name=method_name)
+        peak_separation_ratio_raw = self._get_safe_series(df, 'peak_separation_ratio_D', np.nan, method_name=method_name)
+        chip_fatigue_index_raw = self._get_safe_series(df, 'chip_fatigue_index_D', np.nan, method_name=method_name)
+        counterparty_exhaustion_index_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', np.nan, method_name=method_name)
+        retail_panic_surrender_index_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', np.nan, method_name=method_name)
+        turnover_rate_f_raw = self._get_safe_series(df, 'turnover_rate_f_D', np.nan, method_name=method_name)
         for group_id in platform_group[is_valid_platform_day].unique():
             platform_indices = platform_group[platform_group == group_id].index
             platform_df = df.loc[platform_indices]
-            # 使用最可靠的信号定义边界
-            current_vpoc = self._get_safe_series(platform_df, 'main_force_vpoc_D', np.nan, method_name=method_name).iloc[-1]
+            # 使用纯粹的价格结构定义平台中枢 (替代 main_force_vpoc_D)
+            # 计算平台期内的 (高+低+收)/3 的均值作为结构性中枢
+            structural_mid_price = (platform_df['high_D'] + platform_df['low_D'] + platform_df['close_D']) / 3
+            current_structural_vpoc = structural_mid_price.mean() # 使用均值作为平台中枢
             # 简化的边界，未来可引入更复杂的试探性K线逻辑
-            platform_range = (self._get_safe_series(platform_df, 'high_D', np.nan, method_name=method_name).max() - self._get_safe_series(platform_df, 'low_D', np.nan, method_name=method_name).min())
-            current_dyn_high = current_vpoc + platform_range / 2
-            current_dyn_low = current_vpoc - platform_range / 2
+            platform_range = (platform_df['high_D'].max() - platform_df['low_D'].min())
+            current_dyn_high = current_structural_vpoc + platform_range / 2
+            current_dyn_low = current_structural_vpoc - platform_range / 2
             # 将计算结果填充回整个平台期
             platform_quality.loc[platform_indices] = final_quality_score.loc[platform_indices]
             dynamic_high.loc[platform_indices] = current_dyn_high
             dynamic_low.loc[platform_indices] = current_dyn_low
-            vpoc.loc[platform_indices] = current_vpoc
+            vpoc.loc[platform_indices] = current_structural_vpoc # 填充结构性VPOC
         dynamic_high.ffill(inplace=True)
         dynamic_low.ffill(inplace=True)
         vpoc.ffill(inplace=True)
@@ -1362,40 +1396,35 @@ class StructuralIntelligence:
             _val = s_structure.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
             print(f"    -> 结构品质分: {_formatted_val}")
-            _val = dominant_peak_solidity_raw.iloc[-1]
+            # 替换后的探针输出
+            _val = volatility_instability_raw.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 筹码状态原始值 (dominant_peak_solidity_D): {_formatted_val}")
-            _val = peak_separation_ratio_raw.iloc[-1]
+            print(f"    -> 结构稳定性原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {_formatted_val}")
+            _val = price_volume_entropy_raw.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 筹码状态原始值 (peak_separation_ratio_D): {_formatted_val}")
-            _val = chip_fatigue_index_raw.iloc[-1]
+            print(f"    -> 结构稳定性原始值 (price_volume_entropy_D): {_formatted_val}")
+            _val = s_stability_quality.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 筹码状态原始值 (chip_fatigue_index_D): {_formatted_val}")
-            _val = s_chips.iloc[-1]
+            print(f"    -> 结构稳定性品质分: {_formatted_val}")
+            _val = trend_efficiency_raw.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 筹码品质分: {_formatted_val}")
-            _val = mf_cost_zone_defense_intent_raw.iloc[-1]
+            print(f"    -> 结构效率原始值 (trend_efficiency_ratio_D): {_formatted_val}")
+            _val = impulse_quality_raw.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力行为原始值 (mf_cost_zone_defense_intent_D): {_formatted_val}")
-            _val = control_solidity_index_raw.iloc[-1]
+            print(f"    -> 结构效率原始值 (impulse_quality_ratio_D): {_formatted_val}")
+            _val = s_efficiency_quality.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力行为原始值 (control_solidity_index_D): {_formatted_val}")
-            _val = s_main_force.iloc[-1]
+            print(f"    -> 结构效率品质分: {_formatted_val}")
+            _val = volume_burstiness_raw.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 主力品质分: {_formatted_val}")
-            _val = counterparty_exhaustion_index_raw.iloc[-1]
+            print(f"    -> 结构活跃度原始值 (volume_burstiness_index_D): {_formatted_val}")
+            _val = asymmetric_friction_raw.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 市场情绪原始值 (counterparty_exhaustion_index_D): {_formatted_val}")
-            _val = retail_panic_surrender_index_raw.iloc[-1]
+            print(f"    -> 结构活跃度原始值 (asymmetric_friction_index_D): {_formatted_val}")
+            _val = s_activity_quality.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 市场情绪原始值 (retail_panic_surrender_index_D): {_formatted_val}")
-            _val = turnover_rate_f_raw.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 市场情绪原始值 (turnover_rate_f_D): {_formatted_val}")
-            _val = s_sentiment.iloc[-1]
-            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> 情绪品质分: {_formatted_val}")
-            _val = platform_quality.iloc[-1]
+            print(f"    -> 结构活跃度品质分: {_formatted_val}")
+            _val = final_quality_score.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
             print(f"    -> 最终平台品质分: {_formatted_val}")
             _val = dynamic_high.iloc[-1]
@@ -1406,7 +1435,35 @@ class StructuralIntelligence:
             print(f"    -> 动态低点: {_formatted_val}")
             _val = vpoc.iloc[-1]
             _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
-            print(f"    -> VPOC: {_formatted_val}")
+            print(f"    -> 结构性VPOC: {_formatted_val}")
+            # 额外输出原始非结构类数据，仅供参考
+            _val = main_force_vpoc_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力VPOC原始值 (main_force_vpoc_D): {_formatted_val}")
+            _val = mf_cost_zone_defense_intent_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力行为原始值 (mf_cost_zone_defense_intent_D): {_formatted_val}")
+            _val = control_solidity_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 主力行为原始值 (control_solidity_index_D): {_formatted_val}")
+            _val = dominant_peak_solidity_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 筹码状态原始值 (dominant_peak_solidity_D): {_formatted_val}")
+            _val = peak_separation_ratio_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 筹码状态原始值 (peak_separation_ratio_D): {_formatted_val}")
+            _val = chip_fatigue_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 筹码状态原始值 (chip_fatigue_index_D): {_formatted_val}")
+            _val = counterparty_exhaustion_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 市场情绪原始值 (counterparty_exhaustion_index_D): {_formatted_val}")
+            _val = retail_panic_surrender_index_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 市场情绪原始值 (retail_panic_surrender_index_D): {_formatted_val}")
+            _val = turnover_rate_f_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 市场情绪原始值 (turnover_rate_f_D): {_formatted_val}")
         return platform_quality, dynamic_high, dynamic_low, vpoc
 
     def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
@@ -1453,15 +1510,17 @@ class StructuralIntelligence:
 
     def _diagnose_breakout_readiness(self, df: pd.DataFrame, axiom_tension: pd.Series) -> pd.Series:
         """
-        【V2.0 · 无条件监理版】诊断“突破准备度”
+        【V2.1 · 纯结构监理版】诊断“突破准备度”
         - 核心升级: 废除对`is_consolidating_D`的依赖，使其成为一个无条件的、连续性的质量评估信号。
-        - 评估维度: 供应枯竭度 + 主力控盘度 + 势能积蓄度
+        - 评估维度: 结构性供应枯竭度 + 结构性控盘度 + 势能积蓄度
+        - 【V2.1 核心修正】将“供应枯竭度”和“主力控盘度”的原始数据替换为纯粹的结构类数据。
         """
         method_name = "_diagnose_breakout_readiness"
         required_signals = [
-            'counterparty_exhaustion_index_D', 'turnover_rate_f_D',
-            'control_solidity_index_D', 'mf_cost_zone_defense_intent_D',
-            'equilibrium_compression_index_D' # 新增
+            # 替换为结构类数据
+            'VOL_MA_5_D', 'VOL_MA_55_D', 'BBW_21_2.0_D', # 结构性供应枯竭度
+            'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', # 结构性控盘度
+            'equilibrium_compression_index_D' # 势能积蓄度
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1470,29 +1529,30 @@ class StructuralIntelligence:
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 1. 评估三大维度 (无条件执行) ---
-        # 1a. 供应枯竭度
-        counterparty_exhaustion_raw = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0.0, method_name=method_name)
-        turnover_rate_f_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name=method_name)
-        supply_exhaustion_score = (
-            get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df.index, tf_weights, ascending=True) * 0.7 +
-            get_adaptive_mtf_normalized_score(turnover_rate_f_raw, df.index, tf_weights, ascending=False) * 0.3
-        )
-        # 1b. 主力控盘度
-        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
-        mf_cost_zone_defense_intent_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name)
-        main_force_control_score = (
-            get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, tf_weights, ascending=True) * 0.5 +
-            get_adaptive_mtf_normalized_score(mf_cost_zone_defense_intent_raw, df.index, tf_weights, ascending=True) * 0.5
-        )
+        # 1a. 结构性供应枯竭度 (替代原有供应枯竭度)
+        vol_ma_short_raw = self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name=method_name)
+        vol_ma_long_raw = self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name=method_name)
+        bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name=method_name)
+        # 成交量比值越低越好，布林带宽度越低越好
+        volume_ratio_score = get_adaptive_mtf_normalized_score(vol_ma_short_raw / vol_ma_long_raw, df.index, tf_weights, ascending=False)
+        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df.index, tf_weights, ascending=False)
+        structural_supply_exhaustion_score = (volume_ratio_score * 0.6 + bbw_score * 0.4).clip(0,1)
+        # 1b. 结构性控盘度 (替代原有主力控盘度)
+        ma_orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name=method_name)
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
+        # 均线有序度越高越好，波动率不稳定性越低越好
+        ma_orderliness_score = get_adaptive_mtf_normalized_score(ma_orderliness_raw, df.index, tf_weights, ascending=True)
+        volatility_stability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, tf_weights, ascending=False)
+        structural_control_solidity_score = (ma_orderliness_score * 0.6 + volatility_stability_score * 0.4).clip(0,1)
         # 1c. 势能积蓄度 (复用结构张力公理并引入均衡压缩)
-        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.5, method_name=method_name) # 默认值改为0.5
+        equilibrium_compression_raw = self._get_safe_series(df, 'equilibrium_compression_index_D', 0.5, method_name=method_name)
         equilibrium_compression_score = get_adaptive_mtf_normalized_score(equilibrium_compression_raw, df.index, tf_weights, ascending=True)
         energy_accumulation_score = (axiom_tension * 0.7 + equilibrium_compression_score * 0.3).clip(0,1)
         # --- 2. 融合输出 (无条件执行) ---
-        # 权重: 主力(0.4), 供应(0.4), 势能(0.2)
+        # 权重: 结构性控盘(0.4), 结构性供应枯竭(0.4), 势能积蓄(0.2)
         readiness_score = (
-            main_force_control_score * 0.4 +
-            supply_exhaustion_score * 0.4 +
+            structural_control_solidity_score * 0.4 +
+            structural_supply_exhaustion_score * 0.4 +
             energy_accumulation_score * 0.2
         ).clip(0, 1)
         # 废除 is_consolidating 开关，直接输出连续性分数
@@ -1500,16 +1560,37 @@ class StructuralIntelligence:
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
             print(f"  [结构情报探针] -> 方法: {method_name} ({current_date})")
-            print(f"    -> 对手盘枯竭原始值: {f'{counterparty_exhaustion_raw.iloc[-1]:.4f}' if pd.notna(counterparty_exhaustion_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 换手率原始值: {f'{turnover_rate_f_raw.iloc[-1]:.4f}' if pd.notna(turnover_rate_f_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 供应枯竭度分数: {f'{supply_exhaustion_score.iloc[-1]:.4f}' if pd.notna(supply_exhaustion_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 控盘坚实度原始值: {f'{control_solidity_raw.iloc[-1]:.4f}' if pd.notna(control_solidity_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 主力成本区防御意图原始值: {f'{mf_cost_zone_defense_intent_raw.iloc[-1]:.4f}' if pd.notna(mf_cost_zone_defense_intent_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 主力控盘度分数: {f'{main_force_control_score.iloc[-1]:.4f}' if pd.notna(main_force_control_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 均衡压缩原始值: {f'{equilibrium_compression_raw.iloc[-1]:.4f}' if pd.notna(equilibrium_compression_raw.iloc[-1]) else 'NaN'}")
-            print(f"    -> 均衡压缩分数: {f'{equilibrium_compression_score.iloc[-1]:.4f}' if pd.notna(equilibrium_compression_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {f'{energy_accumulation_score.iloc[-1]:.4f}' if pd.notna(energy_accumulation_score.iloc[-1]) else 'NaN'}")
-            print(f"    -> 最终突破准备度分数: {final_score.iloc[-1]:.4f}")
+            # 探针输出更新为新的结构类原始值和分数
+            _val = vol_ma_short_raw.iloc[-1] / vol_ma_long_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 成交量比值原始值 (VOL_MA_5_D / VOL_MA_55_D): {_formatted_val}")
+            _val = bbw_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 布林带宽度原始值 (BBW_21_2.0_D): {_formatted_val}")
+            _val = structural_supply_exhaustion_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构性供应枯竭度分数: {_formatted_val}")
+            _val = ma_orderliness_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 均线有序度原始值 (MA_POTENTIAL_ORDERLINESS_SCORE_D): {_formatted_val}")
+            _val = volatility_instability_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 波动率不稳定性原始值 (VOLATILITY_INSTABILITY_INDEX_21d_D): {_formatted_val}")
+            _val = structural_control_solidity_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 结构性控盘度分数: {_formatted_val}")
+            _val = equilibrium_compression_raw.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 均衡压缩原始值: {_formatted_val}")
+            _val = equilibrium_compression_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 均衡压缩分数: {_formatted_val}")
+            _val = energy_accumulation_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 势能积蓄度分数 (来自结构张力与均衡压缩): {_formatted_val}")
+            _val = final_score.iloc[-1]
+            _formatted_val = f"{_val:.4f}" if pd.notna(_val) else 'NaN'
+            print(f"    -> 最终突破准备度分数: {_formatted_val}")
         return final_score
 
     def _diagnose_structural_momentum(self, df: pd.DataFrame, input_contextual_posture: pd.Series, axiom_tension: pd.Series, breakout_readiness: pd.Series, axiom_stability: pd.Series, axiom_mtf_cohesion: pd.Series, posture_type: str = "unknown") -> pd.Series:
