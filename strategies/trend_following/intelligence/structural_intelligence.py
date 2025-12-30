@@ -60,12 +60,14 @@ class StructuralIntelligence:
                 print(f"      [结构情报探针] -> 警告: 方法 {method_name} 缺少列 '{col_name}'，返回默认值 {default_value}。({current_date})")
             return pd.Series(default_value, index=df.index, dtype=np.float32)
         series = df[col_name].copy() # 使用copy避免SettingWithCopyWarning
+        # 先填充NaN，再检查最后一个值
+        series.fillna(default_value, inplace=True)
         if self.is_probe_date and not df.empty:
             current_date = df.index[-1].strftime('%Y-%m-%d')
-            val = series.iloc[-1] # 使用copy后的series的值来判断是否为NaN
-            if pd.isna(val):
-                print(f"      [结构情报探针] -> 原始数据 '{col_name}' 在 {current_date} 为 NaN，将填充为 {default_value}。")
-        series.fillna(default_value, inplace=True) # 在copy上进行fillna
+            val = series.iloc[-1] # 获取填充后的最后一个值
+            # 只有当原始数据在probe_ts处为NaN时才打印此信息
+            if pd.isna(df[col_name].iloc[-1]): # 检查原始数据是否为NaN
+                print(f"      [结构情报探针] -> 原始数据 '{col_name}' 在 {current_date} 为 NaN，已填充为 {default_value}。")
         return series
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
@@ -940,16 +942,19 @@ class StructuralIntelligence:
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         # 成交量爆发指数越高，微观意图越强（可能是买也可能是卖）
         # 波动率不稳定性指数越低，市场微观结构越稳定，越有利于意图的实现
-        volume_burstiness_score = get_adaptive_mtf_normalized_bipolar_score(volume_burstiness_raw, df_index, tf_weights)
-        volatility_stability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, tf_weights, ascending=False) # 不稳定性越低，稳定性越高
-        # 融合微观意图：成交量爆发指数反映强度和方向，波动率稳定性反映环境质量
-        # 假设正向的成交量爆发指数代表买盘意图，负向代表卖盘意图
-        # 波动率稳定性作为调节因子，稳定性越高，微观意图的质量越高
-        micro_intent_score = (volume_burstiness_score * volatility_stability_score).clip(-1, 1)
+        # 修正：get_adaptive_mtf_normalized_bipolar_score 默认输出 -1到1，get_adaptive_mtf_normalized_score 默认输出0到1
+        # 确保两者都输出0到1，或者在融合时进行适当的裁剪
+        # 假设 volume_burstiness_index_D 原始值是正向的，越大越好
+        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, tf_weights, ascending=True)
+        # 波动率不稳定性越低越好，所以ascending=False，得到的分数越高代表越稳定
+        volatility_stability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, tf_weights, ascending=False)
+        # 融合微观意图：成交量爆发指数反映强度，波动率稳定性反映环境质量
+        # 两个0-1的分数相乘，结果也在0-1之间，代表微观意图的质量
+        micro_intent_score = (volume_burstiness_score * volatility_stability_score).clip(0, 1) # 修正为0-1范围
         # --- 3. 和谐度融合 ---
         # 权重: 宏观(0.7), 微观(0.3)
-        bullish_harmony = bullish_macro_health * 0.7 + micro_intent_score.clip(lower=0) * 0.3
-        bearish_harmony = bearish_macro_health * 0.7 + micro_intent_score.clip(upper=0).abs() * 0.3
+        bullish_harmony = bullish_macro_health * 0.7 + micro_intent_score * 0.3 # micro_intent_score 现在是0-1，直接加权
+        bearish_harmony = bearish_macro_health * 0.7 + (1 - micro_intent_score) * 0.3 # 1-micro_intent_score 反映微观意图的弱势
         final_score_raw = bullish_harmony - bearish_harmony
         final_score = final_score_raw.clip(-1, 1).astype(np.float32)
         if self.is_probe_date and not df.empty:
@@ -968,6 +973,8 @@ class StructuralIntelligence:
             _val_vi = volatility_instability_raw.iloc[-1]
             _formatted_val_vi = f"{_val_vi:.4f}" if pd.notna(_val_vi) else 'NaN'
             print(f"    -> 波动率不稳定性原始值: {_formatted_val_vi}")
+            print(f"    -> 成交量爆发分数: {volume_burstiness_score.iloc[-1]:.4f}")
+            print(f"    -> 波动率稳定性分数: {volatility_stability_score.iloc[-1]:.4f}")
             print(f"    -> 微观意图分数: {micro_intent_score.iloc[-1]:.4f}")
             print(f"    -> 最终多周期协同分数: {final_score.iloc[-1]:.4f}")
         return final_score
