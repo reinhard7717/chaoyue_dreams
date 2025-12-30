@@ -90,6 +90,7 @@ def _numba_calculate_skew_unweighted_sample(prices_arr: np.ndarray, weights_arr:
 def _numba_calculate_sweeps(trade_types: np.ndarray, prices: np.ndarray, volumes: np.ndarray, block_ids: np.ndarray, min_sweep_len: int) -> Tuple[float, float]:
     """
     【Numba优化版】计算买入和卖出扫单量。
+    trade_types: 整数数组，1代表买入(B)，-1代表卖出(S)，0代表中性(M)。
     """
     buy_sweep_vol = 0.0
     sell_sweep_vol = 0.0
@@ -100,16 +101,16 @@ def _numba_calculate_sweeps(trade_types: np.ndarray, prices: np.ndarray, volumes
         block_prices = prices[block_mask]
         block_volumes = volumes[block_mask]
         if len(block_types) >= min_sweep_len:
-            trade_type = block_types[0]
+            trade_type_int = block_types[0] # 现在是整数
             is_monotonic = True
-            if trade_type == 'B':
+            if trade_type_int == 1: # 1 代表 'B'
                 for i in range(1, len(block_prices)):
                     if block_prices[i] < block_prices[i-1]:
                         is_monotonic = False
                         break
                 if is_monotonic:
                     buy_sweep_vol += np.sum(block_volumes)
-            elif trade_type == 'S':
+            elif trade_type_int == -1: # -1 代表 'S'
                 for i in range(1, len(block_prices)):
                     if block_prices[i] > block_prices[i-1]:
                         is_monotonic = False
@@ -1314,6 +1315,7 @@ class ChipFeatureCalculator:
         【V1.0 · 微观动力学引擎】
         - 核心职责: 利用Tick和Level5数据，锻造订单流失衡(OFI)、扫单强度和盘口流动性斜率等高频博弈指标。
         - 核心优化: 使用Numba优化后的扫单量计算函数。
+        - 核心修复: 确保传递给Numba函数的 `trade_types` 数组为数值类型，避免 `pyobject` 错误。
         """
         from scipy.stats import linregress
         results = {
@@ -1328,6 +1330,12 @@ class ChipFeatureCalculator:
         total_volume = context.get('daily_turnover_volume')
         if tick_df is None or tick_df.empty or level5_df is None or level5_df.empty or total_volume == 0:
             return results
+        
+        # 确保 tick_df 列是数值类型，并处理可能的NaN
+        for col in ['price', 'volume']:
+            if col in tick_df.columns:
+                tick_df.loc[:, col] = pd.to_numeric(tick_df[col], errors='coerce')
+        
         merged_hf_df = pd.merge_asof(
             tick_df.sort_index().reset_index(),
             level5_df.sort_index().reset_index(),
@@ -1335,26 +1343,38 @@ class ChipFeatureCalculator:
             direction='backward'
         ).set_index('trade_time')
         if not merged_hf_df.empty and 'buy_price1' in merged_hf_df.columns and 'sell_price1' in merged_hf_df.columns:
-            merged_hf_df['mid_price'] = (merged_hf_df['buy_price1'] + merged_hf_df['sell_price1']) / 2
-            merged_hf_df['prev_mid_price'] = merged_hf_df['mid_price'].shift(1)
+            merged_hf_df.loc[:, 'mid_price'] = (merged_hf_df['buy_price1'] + merged_hf_df['sell_price1']) / 2
+            merged_hf_df.loc[:, 'prev_mid_price'] = merged_hf_df['mid_price'].shift(1)
             buy_pressure = np.where(merged_hf_df['mid_price'] >= merged_hf_df['prev_mid_price'], merged_hf_df['buy_volume1'].shift(1), 0)
             sell_pressure = np.where(merged_hf_df['mid_price'] <= merged_hf_df['prev_mid_price'], merged_hf_df['sell_volume1'].shift(1), 0)
-            merged_hf_df['ofi'] = buy_pressure - sell_pressure
+            merged_hf_df.loc[:, 'ofi'] = buy_pressure - sell_pressure
             results['order_flow_imbalance'] = merged_hf_df['ofi'].sum() / total_volume
+        
         min_sweep_len = 3
+        
         # 准备Numba函数所需的NumPy数组
-        trade_types_arr = tick_df['type'].values
-        prices_arr = tick_df['price'].values
-        volumes_arr = tick_df['volume'].values
+        # 修正：将 trade_types 转换为 Numba 友好的数值类型
+        trade_type_map = {'B': 1, 'S': -1, 'M': 0}
+        # 创建一个新的Series进行映射，不修改原始tick_df['type']
+        trade_types_numeric_series = tick_df['type'].astype(str).map(trade_type_map)
+        trade_types_arr = trade_types_numeric_series.fillna(0).values.astype(np.int8) # 使用 int8 提高效率和Numba兼容性
+
+        prices_arr = tick_df['price'].values.astype(np.float64) # 确保为 float64
+        volumes_arr = tick_df['volume'].values.astype(np.float64) # 确保为 float64
+
         # block_ids 的计算需要 Pandas，但其结果可以传递给 Numba
-        tick_df['block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
-        block_ids_arr = tick_df['block'].values
+        tick_df.loc[:, 'block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
+        block_ids_arr = tick_df['block'].values.astype(np.int64) # 确保为 int64
+
         # 调用Numba优化后的扫单量计算函数
         buy_sweep_vol, sell_sweep_vol = _numba_calculate_sweeps(trade_types_arr, prices_arr, volumes_arr, block_ids_arr, min_sweep_len)
+        
+        # 注意：这里仍然使用原始的tick_df['type']进行过滤，因为我们没有修改它
         total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
         total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
         if total_buy_vol > 0: results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
         if total_sell_vol > 0: results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
+        
         if realtime_df is not None and not realtime_df.empty:
             slopes = []
             snapshot_volumes = realtime_df['volume'].diff().fillna(0).clip(lower=0)
