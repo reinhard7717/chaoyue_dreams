@@ -125,8 +125,8 @@ class FusionIntelligence:
         """
         print("启动【V7.0 · 依赖彻底解耦与探针增强版】融合情报分析...")
         all_fusion_states = {}
-        # 修正：从 self.params 中获取 debug_params
-        debug_params = self.params.get('debug_params', {})
+        # 修正：debug_params 应该从 self.strategy 中获取，而不是 self.params
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         probe_ts = None
@@ -1947,7 +1947,7 @@ class FusionIntelligence:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流纯度与动能: {flow_momentum.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 筹码战略态势: {chip_posture.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情绪钟摆: {sentiment_pendulum.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流可信度: {flow_credibility.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_ts.strftime('%Y-%m-%d')}: 资金流可信度: {flow_credibility.loc[probe_ts]:.4f}")
         # 2. 融合核心维度 (加权平均)
         raw_dominance_score = (
             capital_attribute * capital_attribute_weight +
