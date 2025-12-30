@@ -905,6 +905,7 @@ class StructuralIntelligence:
         - 核心修复: 修复了逻辑上的不对称性。模型现在能同时识别上升趋势中的“过热”风险和下降趋势中的“超跌”状态（趋势衰竭信号），并对两者进行对称的降权处理。
         - 核心融合: 继续采用“和谐度”模型，将经过风险调整后的“宏观健康度分”与“微观意图分”进行加权融合。
         - 【V2.8 核心修正】将微观意图的原始数据从订单簿和报价耗尽率（非结构类）替换为纯粹的成交量爆发指数和波动率不稳定性指数（结构类）。
+        - 【V2.8.1 波动率稳定性分数修正】为波动率不稳定性指数的归一化增加裁剪范围，避免极小值导致归一化分数异常为0。
         """
         method_name = "_diagnose_axiom_mtf_cohesion"
         short_periods = [5, 13, 21]
@@ -945,9 +946,11 @@ class StructuralIntelligence:
         # 修正：get_adaptive_mtf_normalized_bipolar_score 默认输出 -1到1，get_adaptive_mtf_normalized_score 默认输出0到1
         # 确保两者都输出0到1，或者在融合时进行适当的裁剪
         # 假设 volume_burstiness_index_D 原始值是正向的，越大越好
-        volume_burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, tf_weights, ascending=True)
+        volume_burstiness_score = self.get_dynamic_normalized_score(volume_burstiness_raw, df_index, tf_weights, ascending=True)
         # 波动率不稳定性越低越好，所以ascending=False，得到的分数越高代表越稳定
-        volatility_stability_score = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, tf_weights, ascending=False)
+        # 增加clip_range，确保原始值在合理范围内，避免极小值导致归一化问题
+        volatility_stability_score = self.get_dynamic_normalized_score(
+            volatility_instability_raw, df_index, tf_weights, ascending=False, clip_range=[0.001, 1.0]) # 增加裁剪范围
         # 融合微观意图：成交量爆发指数反映强度，波动率稳定性反映环境质量
         # 两个0-1的分数相乘，结果也在0-1之间，代表微观意图的质量
         micro_intent_score = (volume_burstiness_score * volatility_stability_score).clip(0, 1) # 修正为0-1范围
