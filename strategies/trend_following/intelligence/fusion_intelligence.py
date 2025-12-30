@@ -312,7 +312,8 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_stagnation_risk"
-        is_debug_enabled, probe_ts, _ = debug_info if debug_enabled else (False, None, method_name)
+        # 修正此处：检查 debug_info 是否为 None
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“滞涨风险”...")
         states = {}
