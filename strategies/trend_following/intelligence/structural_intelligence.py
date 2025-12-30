@@ -906,6 +906,7 @@ class StructuralIntelligence:
         - 核心融合: 继续采用“和谐度”模型，将经过风险调整后的“宏观健康度分”与“微观意图分”进行加权融合。
         - 【V2.8 核心修正】将微观意图的原始数据从订单簿和报价耗尽率（非结构类）替换为纯粹的成交量爆发指数和波动率不稳定性指数（结构类）。
         - 【V2.8.1 波动率稳定性分数修正】为波动率不稳定性指数的归一化增加裁剪范围，避免极小值导致归一化分数异常为0。
+        - 【V2.8.2 波动率稳定性分数强制归零逻辑修正】在归一化波动率不稳定性分数时，禁用 `force_zero_if_original_zero` 逻辑，确保原始值非零时不会被强制归零。
         """
         method_name = "_diagnose_axiom_mtf_cohesion"
         short_periods = [5, 13, 21]
@@ -949,8 +950,9 @@ class StructuralIntelligence:
         volume_burstiness_score = self.get_dynamic_normalized_score(volume_burstiness_raw, df_index, tf_weights, ascending=True)
         # 波动率不稳定性越低越好，所以ascending=False，得到的分数越高代表越稳定
         # 增加clip_range，确保原始值在合理范围内，避免极小值导致归一化问题
+        # 禁用 force_zero_if_original_zero，确保原始值非零时不会被强制归零
         volatility_stability_score = self.get_dynamic_normalized_score(
-            volatility_instability_raw, df_index, tf_weights, ascending=False, clip_range=[0.001, 1.0]) # 增加裁剪范围
+            volatility_instability_raw, df_index, tf_weights, ascending=False, clip_range=[0.001, 1.0], force_zero_if_original_zero=False)
         # 融合微观意图：成交量爆发指数反映强度，波动率稳定性反映环境质量
         # 两个0-1的分数相乘，结果也在0-1之间，代表微观意图的质量
         micro_intent_score = (volume_burstiness_score * volatility_stability_score).clip(0, 1) # 修正为0-1范围

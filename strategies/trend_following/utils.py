@@ -1035,7 +1035,7 @@ def _parse_tf_weights(tf_weights: dict) -> Tuple[List[int], List[Tuple[int, floa
             windows_list.append(window)
     return windows_list, valid_windows_weights
 
-def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None, _parsed_tf_data: Optional[Tuple[List[int], List[Tuple[int, float]]]] = None) -> pd.Series:
+def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, tf_weights: dict, ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None, _parsed_tf_data: Optional[Tuple[List[int], List[Tuple[int, float]]]] = None, force_zero_if_original_zero: bool = True) -> pd.Series:
     is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if is_debug_enabled and probe_ts:
         print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
@@ -1053,7 +1053,8 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 没有有效的窗口权重，返回0。")
         return pd.Series(0.0, index=target_index)
-    normalized_scores_df = normalize_score(series, target_index, windows_list, ascending, default_value, debug_info)
+    # 将 force_zero_if_original_zero 参数传递给 normalize_score
+    normalized_scores_df = normalize_score(series, target_index, windows_list, ascending, default_value, debug_info, force_zero_if_original_zero=force_zero_if_original_zero)
     final_scores = pd.Series(0.0, index=target_index, dtype=np.float32)
     for window, weight in valid_windows_weights:
         final_scores += normalized_scores_df[window] * weight
@@ -1099,8 +1100,7 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
         print(f"       [探针] {signal_name} - get_adaptive_mtf_normalized_bipolar_score 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
     return final_score
 
-# 文件: strategies/trend_following/utils.py
-def normalize_score(series: pd.Series, target_index: pd.Index, windows: Union[int, List[int]], ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Union[pd.Series, pd.DataFrame]:
+def normalize_score(series: pd.Series, target_index: pd.Index, windows: Union[int, List[int]], ascending: bool = True, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None, force_zero_if_original_zero: bool = True) -> Union[pd.Series, pd.DataFrame]:
     is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if not isinstance(series, pd.Series) or series.empty:
         if isinstance(windows, int):
@@ -1135,7 +1135,9 @@ def normalize_score(series: pd.Series, target_index: pd.Index, windows: Union[in
         else:
             normalized_series_window = ranked_series
         normalized_series_window = normalized_series_window.clip(0, 1)
-        normalized_series_window = normalized_series_window.where(~is_original_zero, 0.0)
+        # 根据 force_zero_if_original_zero 参数决定是否将原始值为零的归一化分数强制设置为零
+        if force_zero_if_original_zero:
+            normalized_series_window = normalized_series_window.where(~is_original_zero, 0.0)
         results_df[window] = normalized_series_window.reindex(target_index).fillna(default_value)
         if is_debug_enabled and probe_ts:
             print(f"           [探针] {signal_name} - normalize_score (window={window}) 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {results_df[window].loc[probe_ts]:.4f}")
