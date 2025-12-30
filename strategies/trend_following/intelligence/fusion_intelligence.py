@@ -94,7 +94,7 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.7 · 依赖重塑与探针增强版】融合情报分析总指挥
+        【V6.8 · 依赖重塑与探针增强版】融合情报分析总指挥
         - 核心重构: 遵循“联合情报部”职责，废弃所有旧方法。不再消费原始指标，
                     只消费各原子情报层输出的“公理级”信号。
         - 核心职责: 将各领域情报“冶炼”成四大客观战场态势：
@@ -103,10 +103,11 @@ class FusionIntelligence:
                     3. 市场压力 (Market Pressure): 衡量向上与向下的反转压力。
                     4. 资本对抗 (Capital Confrontation): 洞察主力与散户的博弈格局。
         - 定位: 连接“感知”与“认知”的关键桥梁，为认知层提供决策依据。
-        - 【V6.7 增强】严格按照信号依赖关系重塑调用顺序，解决 NaN 传播问题。
+        - 【V6.8 增强】严格按照信号依赖关系重塑调用顺序，解决 NaN 传播问题。
                       引入调试探针机制，将调试信息传递给所有内部调用的方法。
+                      解决复杂循环依赖问题，采用分阶段计算策略。
         """
-        print("启动【V6.7 · 依赖重塑与探针增强版】融合情报分析...")
+        print("启动【V6.8 · 依赖重塑与探针增强版】融合情报分析...")
         all_fusion_states = {}
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -118,99 +119,87 @@ class FusionIntelligence:
             if valid_probe_dates:
                 probe_ts = valid_probe_dates[0]
         debug_info = (is_debug_enabled, probe_ts, "run_fusion_diagnostics")
-
-        # --- 核心依赖链条 (严格按依赖顺序) ---
-
-        # 第1层: 基础态势 (无内部依赖)
+        # --- 阶段1: 基础融合信号 (仅依赖原子信号或无依赖) ---
+        # 市场政权 (Market Regime) - 无依赖
         regime_states = self._synthesize_market_regime(df, debug_info)
         all_fusion_states.update(regime_states)
         self.strategy.atomic_states.update(regime_states)
-
-        # 第2层: 依赖第一层信号 (FUSION_BIPOLAR_MARKET_REGIME)
-        quality_states = self._synthesize_trend_quality(df, debug_info)
-        all_fusion_states.update(quality_states)
-        self.strategy.atomic_states.update(quality_states)
-
-        # 第3层: 依赖第二层信号 (FUSION_BIPOLAR_TREND_QUALITY)
-        overextension_intent_states = self._synthesize_price_overextension_intent(df, debug_info)
-        all_fusion_states.update(overextension_intent_states)
-        self.strategy.atomic_states.update(overextension_intent_states)
-
-        # 第4层: 依赖第三层信号 (FUSION_BIPOLAR_TREND_QUALITY, FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT)
-        stagnation_risk_states = self._synthesize_stagnation_risk(df, debug_info)
-        all_fusion_states.update(stagnation_risk_states)
-        self.strategy.atomic_states.update(stagnation_risk_states)
-
-        # 第5层: 依赖第四层信号 (FUSION_BIPOLAR_TREND_QUALITY, FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT, FUSION_RISK_STAGNATION)
-        # 注意：_synthesize_distribution_pressure 依赖 FUSION_BIPOLAR_MARKET_REGIME 和 FUSION_BIPOLAR_TREND_QUALITY
-        # 且其输出 FUSION_RISK_DISTRIBUTION_PRESSURE 被 _synthesize_trend_exhaustion_syndrome 依赖
-        distribution_pressure_states = self._synthesize_distribution_pressure(df, debug_info)
-        all_fusion_states.update(distribution_pressure_states)
-        self.strategy.atomic_states.update(distribution_pressure_states)
-
-        # 第6层: 依赖第五层信号 (FUSION_RISK_STAGNATION, FUSION_RISK_DISTRIBUTION_PRESSURE, FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT, FUSION_BIPOLAR_TREND_QUALITY)
-        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df, debug_info)
-        all_fusion_states.update(trend_exhaustion_states)
-        self.strategy.atomic_states.update(trend_exhaustion_states)
-
-        # 第7层: 依赖第六层信号 (FUSION_BIPOLAR_TREND_QUALITY, PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME, FUSION_RISK_STAGNATION, FUSION_RISK_DISTRIBUTION_PRESSURE)
-        pressure_states = self._synthesize_market_pressure(df, debug_info)
-        all_fusion_states.update(pressure_states)
-        self.strategy.atomic_states.update(pressure_states)
-
-        # --- 其他信号 (确保其依赖已满足) ---
-
-        # _synthesize_micro_conviction 依赖 FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT
-        micro_conviction_states = self._synthesize_micro_conviction(df, debug_info)
-        all_fusion_states.update(micro_conviction_states)
-        self.strategy.atomic_states.update(micro_conviction_states)
-
-        # _synthesize_contested_accumulation 依赖 FUSION_BIPOLAR_TREND_QUALITY
-        contested_accumulation_states = self._synthesize_contested_accumulation(df, debug_info)
-        all_fusion_states.update(contested_accumulation_states)
-        self.strategy.atomic_states.update(contested_accumulation_states)
-
-        # _synthesize_capital_confrontation 依赖 FUSION_BIPOLAR_MICRO_CONVICTION (通过 SCORE_MICRO_STRATEGY_STEALTH_OPS)
+        # 资本对抗 (Capital Confrontation) - 仅依赖原子信号
         confrontation_states = self._synthesize_capital_confrontation(df, debug_info)
         all_fusion_states.update(confrontation_states)
         self.strategy.atomic_states.update(confrontation_states)
-
-        # _synthesize_market_contradiction 依赖 FUSION_BIPOLAR_TREND_QUALITY
-        contradiction_states = self._synthesize_market_contradiction(df, debug_info)
-        all_fusion_states.update(contradiction_states)
-        self.strategy.atomic_states.update(contradiction_states)
-
-        # _synthesize_trend_structure_score 依赖 SCORE_STRUCT_STRATEGIC_POSTURE, SCORE_DYN_GRAND_UNIFICATION, SCORE_CHIP_BATTLEFIELD_GEOGRAPHY, SCORE_FF_STRATEGIC_POSTURE
+        # 趋势结构分 (Trend Structure Score) - 仅依赖原子信号
         trend_structure_states = self._synthesize_trend_structure_score(df, debug_info)
         all_fusion_states.update(trend_structure_states)
         self.strategy.atomic_states.update(trend_structure_states)
-
-        # _synthesize_fund_flow_trend 依赖 SCORE_FF_STRATEGIC_POSTURE, FUSION_BIPOLAR_MICRO_CONVICTION
-        fund_flow_trend_states = self._synthesize_fund_flow_trend(df, debug_info)
-        all_fusion_states.update(fund_flow_trend_states)
-        self.strategy.atomic_states.update(fund_flow_trend_states)
-
-        # _synthesize_chip_trend 依赖 SCORE_CHIP_BATTLEFIELD_GEOGRAPHY, SCORE_CHIP_STRATEGIC_POSTURE, SCORE_CHIP_AXIOM_HOLDER_SENTIMENT, SCORE_CHIP_AXIOM_DIVERGENCE
+        # 筹码趋势 (Chip Trend) - 仅依赖原子信号
         chip_trend_states = self._synthesize_chip_trend(df, debug_info)
         all_fusion_states.update(chip_trend_states)
         self.strategy.atomic_states.update(chip_trend_states)
-
-        # _synthesize_accumulation_inflection 依赖 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT, FUSION_BIPOLAR_CHIP_TREND, FUSION_BIPOLAR_MARKET_PRESSURE
+        # --- 阶段2: 解决循环依赖的第一步 - 计算初步的趋势质量 ---
+        # 趋势质量 (Trend Quality) - 初步计算，此时风险信号可能为NaN，但其自身依赖的市场政权已计算
+        # 内部对风险信号的依赖，如果风险信号尚未计算，将得到NaN，但我们允许其传播以暴露问题
+        quality_states_initial = self._synthesize_trend_quality(df, debug_info)
+        all_fusion_states.update(quality_states_initial)
+        self.strategy.atomic_states.update(quality_states_initial) # 更新初步的趋势质量
+        # --- 阶段3: 依赖初步趋势质量和基础信号的融合信号 ---
+        # 价格超买意图 (Price Overextension Intent) - 依赖初步的趋势质量
+        overextension_intent_states = self._synthesize_price_overextension_intent(df, debug_info)
+        all_fusion_states.update(overextension_intent_states)
+        self.strategy.atomic_states.update(overextension_intent_states)
+        # 微观信念 (Micro Conviction) - 依赖价格超买意图
+        micro_conviction_states = self._synthesize_micro_conviction(df, debug_info)
+        all_fusion_states.update(micro_conviction_states)
+        self.strategy.atomic_states.update(micro_conviction_states)
+        # 资金趋势 (Fund Flow Trend) - 依赖微观信念
+        fund_flow_trend_states = self._synthesize_fund_flow_trend(df, debug_info)
+        all_fusion_states.update(fund_flow_trend_states)
+        self.strategy.atomic_states.update(fund_flow_trend_states)
+        # 市场矛盾 (Market Contradiction) - 依赖初步的趋势质量
+        contradiction_states = self._synthesize_market_contradiction(df, debug_info)
+        all_fusion_states.update(contradiction_states)
+        self.strategy.atomic_states.update(contradiction_states)
+        # --- 阶段4: 依赖价格超买意图和初步趋势质量的风险信号 ---
+        # 滞涨风险 (Stagnation Risk) - 依赖初步趋势质量、价格超买意图
+        stagnation_risk_states = self._synthesize_stagnation_risk(df, debug_info)
+        all_fusion_states.update(stagnation_risk_states)
+        self.strategy.atomic_states.update(stagnation_risk_states)
+        # 派发压力 (Distribution Pressure) - 依赖初步趋势质量、市场政权
+        distribution_pressure_states = self._synthesize_distribution_pressure(df, debug_info)
+        all_fusion_states.update(distribution_pressure_states)
+        self.strategy.atomic_states.update(distribution_pressure_states)
+        # --- 阶段5: 依赖所有风险信号和初步趋势质量的融合信号 ---
+        # 趋势衰竭综合征 (Trend Exhaustion Syndrome) - 依赖初步趋势质量、价格超买意图、滞涨风险、派发压力
+        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df, debug_info)
+        all_fusion_states.update(trend_exhaustion_states)
+        self.strategy.atomic_states.update(trend_exhaustion_states)
+        # 博弈吸筹 (Contested Accumulation) - 依赖初步趋势质量
+        contested_accumulation_states = self._synthesize_contested_accumulation(df, debug_info)
+        all_fusion_states.update(contested_accumulation_states)
+        self.strategy.atomic_states.update(contested_accumulation_states)
+        # 市场压力 (Market Pressure) - 依赖初步趋势质量、趋势衰竭综合征、滞涨风险、派发压力、博弈吸筹
+        pressure_states = self._synthesize_market_pressure(df, debug_info)
+        all_fusion_states.update(pressure_states)
+        self.strategy.atomic_states.update(pressure_states)
+        # 吸筹拐点信号 (Accumulation Inflection) - 依赖筹码趋势、市场压力
         accumulation_inflection_states = self._synthesize_accumulation_inflection(df, debug_info)
         all_fusion_states.update(accumulation_inflection_states)
         self.strategy.atomic_states.update(accumulation_inflection_states)
-
-        # _synthesize_accumulation_playbook 依赖 FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT, FUSION_BIPOLAR_CHIP_TREND, FUSION_BIPOLAR_MARKET_PRESSURE
+        # 吸筹剧本 (Accumulation Playbook) - 依赖吸筹拐点信号、筹码趋势、市场压力
         accumulation_playbook_states = self._synthesize_accumulation_playbook(df, debug_info)
         all_fusion_states.update(accumulation_playbook_states)
         self.strategy.atomic_states.update(accumulation_playbook_states)
-
-        # _synthesize_liquidity_dynamics 依赖 FUSION_BIPOLAR_TREND_QUALITY, FUSION_BIPOLAR_MARKET_REGIME, FUSION_BIPOLAR_CAPITAL_CONFRONTATION, FUSION_RISK_STAGNATION
+        # 流动性博弈动态 (Liquidity Dynamics) - 依赖趋势质量、市场政权、资本对抗、滞涨风险
         liquidity_dynamics_states = self._synthesize_liquidity_dynamics(df, debug_info)
         all_fusion_states.update(liquidity_dynamics_states)
         self.strategy.atomic_states.update(liquidity_dynamics_states)
-
-        print(f"【V6.7 · 依赖重塑与探针增强版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        # --- 阶段6: 重新计算趋势质量 (Trend Quality) ---
+        # 此时所有风险信号都已计算完毕，可以获得更准确的趋势质量
+        # 覆盖掉阶段2的初步计算结果
+        quality_states_final = self._synthesize_trend_quality(df, debug_info)
+        all_fusion_states.update(quality_states_final)
+        self.strategy.atomic_states.update(quality_states_final)
+        print(f"【V6.8 · 依赖重塑与探针增强版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
@@ -681,39 +670,30 @@ class FusionIntelligence:
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹拐点信号”...")
-
         states = {}
         fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
         params = fusion_intelligence_params.get('fusion_accumulation_inflection_params', {})
-
         tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0, debug_info)
         di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0, debug_info)
         ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0, debug_info)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
             print(f"        资金流吸筹拐点意图 (天时): {tian_shi_raw.loc[probe_ts]:.4f}")
             print(f"        筹码趋势 (地利): {di_li_raw.loc[probe_ts]:.4f}")
             print(f"        市场压力 (人和): {ren_he_raw.loc[probe_ts]:.4f}")
-
         tian_shi_score = tian_shi_raw.clip(0, 1)
         di_li_score = di_li_raw.clip(lower=0) # 筹码趋势只取正向，代表地利
         ren_he_score = (ren_he_raw + 1) / 2 # 市场压力映射到 [0, 1]
-
         # 和谐之态：天时、地利、人和的几何平均
         harmony_state_score = (tian_shi_score.clip(lower=1e-9) * di_li_score.clip(lower=1e-9) * ren_he_score.clip(lower=1e-9)).pow(1/3).fillna(0.0)
-
         # 厚積之勢：地利（筹码趋势）的变化率，EMA平滑
         di_li_change_raw = di_li_raw.diff(1).fillna(0.0)
         smoothed_di_li_change = di_li_change_raw.ewm(span=3, adjust=False).mean()
-
         amplification_factor = 0.5
         # 势能调节器：当 smoothed_di_li_change 为正时，放大；为负时，抑制
         potential_energy_modulator = (1 + smoothed_di_li_change * amplification_factor).clip(0, 2)
-
         final_score = (harmony_state_score * potential_energy_modulator).clip(0, 1)
         states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = final_score.astype(np.float32)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 中间计算 ---")
             print(f"        天时分数: {tian_shi_score.loc[probe_ts]:.4f}, 地利分数: {di_li_score.loc[probe_ts]:.4f}, 人和分数: {ren_he_score.loc[probe_ts]:.4f}")
@@ -1008,25 +988,21 @@ class FusionIntelligence:
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹剧本”...")
-
         states = {}
         # 1. 信号升维：定义“点火器”与“根基”
         igniter_signal = self._get_atomic_score(df, 'FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT', 0.0, debug_info)
         di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0, debug_info).clip(lower=0)
         ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0, debug_info) + 1) / 2
         foundation_sustain_factor = (di_li.clip(lower=1e-9) * ren_he.clip(lower=1e-9)).pow(1/2).fillna(0.0)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
             print(f"        吸筹拐点信号 (点火器): {igniter_signal.loc[probe_ts]:.4f}")
             print(f"        筹码趋势 (地利): {di_li.loc[probe_ts]:.4f}")
             print(f"        市场压力 (人和): {ren_he.loc[probe_ts]:.4f}")
             print(f"        根基维持因子: {foundation_sustain_factor.loc[probe_ts]:.4f}")
-
         # 2. 核心数学逻辑 - 王霸并济，道法合一
         playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         hegemon_threshold = 0.75 # 定义“霸王门槛”，区分“突破”与“胶着”
-
         # 确保循环从 df 的第二个元素开始，因为需要 previous_score
         for i in range(1, len(df)):
             # 只有在调试模式且当前日期是探针日期时才打印详细信息
@@ -1036,13 +1012,11 @@ class FusionIntelligence:
                 decay_modulator = foundation_sustain_factor.iloc[i]
                 decayed_score = previous_score * decay_modulator
                 current_igniter = igniter_signal.iloc[i]
-
                 print(f"      [融合层调试] {method_name} @ {current_date}: --- 迭代计算 ---")
                 print(f"        前一日剧本分数: {previous_score:.4f}")
                 print(f"        衰减调节器 (根基维持因子): {decay_modulator:.4f}")
                 print(f"        衰减后的分数: {decayed_score:.4f}")
                 print(f"        当前点火器信号: {current_igniter:.4f}")
-
                 # 道法合一：根据“点火器”强度，选择“王者”或“霸王”之道
                 if current_igniter > hegemon_threshold:
                     # 霸王之道：压倒性信号出现，直接重置战局状态
@@ -1061,9 +1035,7 @@ class FusionIntelligence:
                     playbook_score.iloc[i] = current_igniter
                 else:
                     playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
-
         states['FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “吸筹剧本”冶炼完成，最终分值: {playbook_score.loc[probe_ts]:.4f}")
         else:
