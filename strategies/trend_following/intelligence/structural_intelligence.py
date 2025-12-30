@@ -1029,20 +1029,20 @@ class StructuralIntelligence:
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 1. 价格空间压缩 ---
         price_compression_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name=method_name)
-        price_compression_score = get_adaptive_mtf_normalized_score(price_compression_raw, df_index, ascending=False, tf_weights=tf_weights)
+        price_compression_score = get_adaptive_mtf_normalized_score(price_compression_raw, df_index, tf_weights, ascending=False)
         # --- 2. 均线结构压缩 ---
         ema_cluster = df[[f'EMA_{p}_D' for p in ema_periods]]
         structure_compression_raw_std = ema_cluster.std(axis=1) / df['close_D'] # 标准差归一化，避免股价本身大小的影响
-        structure_compression_score_std = get_adaptive_mtf_normalized_score(structure_compression_raw_std, df_index, ascending=False, tf_weights=tf_weights)
+        structure_compression_score_std = get_adaptive_mtf_normalized_score(structure_compression_raw_std, df_index, tf_weights, ascending=False)
         # 引入 MA_POTENTIAL_TENSION_INDEX_D
         ma_tension_raw = self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.0, method_name=method_name)
-        ma_tension_score = get_adaptive_mtf_normalized_score(ma_tension_raw, df_index, ascending=True) # 张力越大越好
+        ma_tension_score = get_adaptive_mtf_normalized_score(ma_tension_raw, df_index, tf_weights, ascending=True) # 张力越大越好 # 修正此处
         structure_compression_score = (structure_compression_score_std * 0.6 + ma_tension_score * 0.4).clip(0,1)
         # --- 3. 量能压缩 ---
         vol_ma_short = self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name=method_name)
         vol_ma_long = self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name=method_name)
         volume_compression_raw = vol_ma_short / vol_ma_long
-        volume_compression_score = get_adaptive_mtf_normalized_score(volume_compression_raw, df_index, ascending=False, tf_weights=tf_weights)
+        volume_compression_score = get_adaptive_mtf_normalized_score(volume_compression_raw, df_index, tf_weights, ascending=False)
         # --- 4. 融合 ---
         # 权重: 价格(0.4), 结构(0.4), 量能(0.2)
         tension_score = (
