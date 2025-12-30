@@ -303,12 +303,12 @@ class FusionIntelligence:
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 内腐外强版 - 依赖解耦与强化】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
+        【V3.5 · 内腐外强版 - 依赖解耦与强化】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
         - 核心重构: 废弃V2.1的“症状清单”模型，引入“内腐外强”背离审判模型。
         - 核心公式: 滞涨风险 = (内部腐化度 × 外部强势幻象)^(1/2)
         - 诡道哲学: 最大的风险，源于内部趋势质量的腐化与外部价格强势的假象之间的
                       致命背离，此乃“温水煮蛙”之局。
-        - 【V3.4 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 和 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM` 和 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
+        - 【V3.5 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 和 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM` 和 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
                       增加 `SCORE_CHIP_RETAIL_VULNERABILITY` 和 `SCORE_RISK_LIQUIDITY_DRAIN` 信号，提高内部腐化度的准确性。
                       调整 `internal_decay_components` 权重，确保高风险信号能有效贡献，避免被过多零值信号稀释。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
@@ -443,13 +443,14 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V4.4 · 天道裁决版 - 依赖解耦与强化】冶炼“价格超买意图” (Price Overextension Intent)
+        【V4.5 · 天道裁决版 - 依赖解耦与强化】冶炼“价格超买意图” (Price Overextension Intent)
         - 核心升华: 引入“趋势质量”作为天道背景，对“三位一体”的初审判决进行终极裁决。
         - 终章心法: 罪罚需与时势相符。逆势之罪，天道加诛。此法之后，再无增益。
-        - 【V4.4 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM`，以解耦依赖。
+        - 【V4.5 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM`，以解耦依赖。
                       增强 `overextension_bearish` 对高位诱多行为的敏感度。
                       增加 `SCORE_CHIP_RISK_DISTRIBUTION_WHISPER` 和 `SCORE_RISK_BREAKOUT_FAILURE_CASCADE` 信号，提高风险识别的准确性。
                       调整 `bearish_pressure_sources` 权重，确保风险信号能有效贡献。
+                      修正 `bearish_pressure` 计算中 `NaN` 传播问题，将缺失信号贡献视为 0。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_price_overextension_intent"
@@ -488,26 +489,54 @@ class FusionIntelligence:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情绪钟摆: {sentiment_score.loc[probe_ts]:.4f}, MTF协同: {cohesion_score.loc[probe_ts]:.4f}")
             print(f"        超买状态 (overbought_state): {overbought_state.loc[probe_ts]:.4f}, 超卖状态 (oversold_state): {oversold_state.loc[probe_ts]:.4f}")
         # 1.3 计算“人和”分 (意图)
-        bearish_intent = sum(self._get_atomic_score(df, signal, 0.0, debug_info) * weight for signal, weight in bearish_intent_sources.items()).clip(0,1)
-        bullish_intent = sum(self._get_atomic_score(df, signal, 0.0, debug_info) * weight for signal, weight in bullish_intent_sources.items()).clip(0,1)
+        bearish_intent = pd.Series(0.0, index=df_index, dtype=np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 熊市意图原始信号 ---")
+        for signal, weight in bearish_intent_sources.items():
+            score = self._get_atomic_score(df, signal, 0.0, debug_info).fillna(0.0) # 缺失信号贡献为0
+            bearish_intent += score * weight
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"        {signal}: {score.loc[probe_ts]:.4f}")
+        bearish_intent = bearish_intent.clip(0,1)
+        bullish_intent = pd.Series(0.0, index=df_index, dtype=np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 牛市意图原始信号 ---")
+        for signal, weight in bullish_intent_sources.items():
+            score = self._get_atomic_score(df, signal, 0.0, debug_info).fillna(0.0) # 缺失信号贡献为0
+            bullish_intent += score * weight
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"        {signal}: {score.loc[probe_ts]:.4f}")
+        bullish_intent = bullish_intent.clip(0,1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 派发意图 (bearish_intent): {bearish_intent.loc[probe_ts]:.4f}, 吸筹意图 (bullish_intent): {bullish_intent.loc[probe_ts]:.4f}")
         # 1.4 计算“地利”分 (压力)
         # 资金流共识负向和筹码战略态势负向代表熊市压力
         bearish_pressure = pd.Series(0.0, index=df_index, dtype=np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 熊市压力原始信号 ---")
         for signal, weight in bearish_pressure_sources.items():
             # 对于负向信号，取其绝对值作为风险贡献
-            score = self._get_atomic_score(df, signal, 0.0, debug_info)
+            score = self._get_atomic_score(df, signal, 0.0, debug_info).fillna(0.0) # 缺失信号贡献为0
             if signal.endswith('_NEGATIVE'):
                 bearish_pressure += score.clip(upper=0).abs() * weight
             elif signal.endswith('_POSITIVE'):
                 bearish_pressure += score.clip(lower=0) * weight
             else:
                 bearish_pressure += score * weight
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"        {signal}: {score.loc[probe_ts]:.4f}")
         bearish_pressure = bearish_pressure.clip(0,1)
-
         # 卖盘衰竭和资金流共识正向代表牛市压力（即卖压小，买压大）
-        bullish_pressure = (self._get_atomic_score(df, 'SCORE_OPPORTUNITY_SELLING_EXHAUSTION', 0.0, debug_info) * bullish_pressure_sources['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] + self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0) * bullish_pressure_sources['SCORE_FF_AXIOM_CONSENSUS']).clip(0,1)
+        bullish_pressure = pd.Series(0.0, index=df_index, dtype=np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 牛市压力原始信号 ---")
+        # 确保 SCORE_OPPORTUNITY_SELLING_EXHAUSTION 和 SCORE_FF_AXIOM_CONSENSUS 存在且 NaN 填充为 0
+        selling_exhaustion_score = self._get_atomic_score(df, 'SCORE_OPPORTUNITY_SELLING_EXHAUSTION', 0.0, debug_info).fillna(0.0)
+        ff_consensus_score = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).fillna(0.0)
+        bullish_pressure = (selling_exhaustion_score * bullish_pressure_sources['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] + ff_consensus_score.clip(lower=0) * bullish_pressure_sources['SCORE_FF_AXIOM_CONSENSUS']).clip(0,1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"        SCORE_OPPORTUNITY_SELLING_EXHAUSTION: {selling_exhaustion_score.loc[probe_ts]:.4f}")
+            print(f"        SCORE_FF_AXIOM_CONSENSUS: {ff_consensus_score.loc[probe_ts]:.4f}")
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 熊市压力 (bearish_pressure): {bearish_pressure.loc[probe_ts]:.4f}, 牛市压力 (bullish_pressure): {bullish_pressure.loc[probe_ts]:.4f}")
         # 1.5 三位一体融合，得出“初审判决”
@@ -519,7 +548,7 @@ class FusionIntelligence:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 初审判决 - 熊市超买: {overextension_bearish.loc[probe_ts]:.4f}, 牛市超卖: {overextension_bullish.loc[probe_ts]:.4f} -> 原始双极意图: {raw_bipolar_intent.loc[probe_ts]:.4f}")
         # --- 第2步: 天道裁决 ---
         # 2.1 获取天道背景 - 趋势质量 (替换为基础信号)
-        trend_quality = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0, debug_info)
+        trend_quality = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0, debug_info).fillna(0.0) # 缺失信号贡献为0
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 天道背景 - 趋势质量 (基础信号): {trend_quality.loc[probe_ts]:.4f}")
         # 2.2 计算冲突度 (只有当反转意图与趋势大势相反时，才产生冲突)
@@ -1178,7 +1207,6 @@ class FusionIntelligence:
                 weakening_will_score *= (comp.clip(lower=1e-9)) ** (weight / total_will_weight) # 归一化权重
         else:
             weakening_will_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 上涨意志衰竭度 (weakening_will_score): {weakening_will_score.loc[probe_ts]:.4f}")
         # --- 2. 反转压力增强度 (Intensifying Pressure) ---
@@ -1201,7 +1229,6 @@ class FusionIntelligence:
             (stagnation_risk, 0.25),
             (distribution_pressure, 0.25)
         ]
-
         intensifying_pressure_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_pressure_weight = sum(w for _, w in pressure_components_with_weights)
         if total_pressure_weight > 0:
@@ -1209,7 +1236,6 @@ class FusionIntelligence:
                 intensifying_pressure_score *= (comp.clip(lower=1e-9)) ** (weight / total_pressure_weight) # 归一化权重
         else:
             intensifying_pressure_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 反转压力增强度 (intensifying_pressure_score): {intensifying_pressure_score.loc[probe_ts]:.4f}")
         # --- 3. 最终融合 ---
@@ -1224,7 +1250,7 @@ class FusionIntelligence:
 
     def _synthesize_liquidity_dynamics(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 诡道穿透版 - 依赖解耦与强化】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        【V5.5 · 诡道穿透版 - 依赖解耦与强化】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
         - 核心重构: 引入“诡道因子非对称调制”，深化流动性“质量”与“纯度”量化，优化动态激活敏感度，强化维度间协同/冲突裁决。
         - 核心目标: 融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。
         - 诡道哲学: 流动性是市场博弈的血液。健康的流动性动态，是主力主导、价量协同、权力稳固的体现；
@@ -1234,7 +1260,7 @@ class FusionIntelligence:
                       其判断重心与反应速度，应随市场情境（趋势质量、市场政权、波动率、情绪、资金流可信度）
                       动态调整，并能识别维度间的协同与冲突，穿透主力诡道。
         - 融合模型: 最终得分 = tanh( (动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS) * 协同/冲突因子 * 诡道穿透因子)
-        - 【V5.4 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
+        - 【V5.5 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       增强对风险信号的敏感度，确保诡道因子在诱多情境下能有效惩罚。
                       增加 `SCORE_FF_AXIOM_INTENT_PURITY` 和 `SCORE_FOUNDATION_AXIOM_MARKET_FRICTION` 信号，提高流动性博弈动态的准确性。
                       调整 `LS激活敏感度` 的计算，避免输出过于极端的 1.0000 或 0.0000。
@@ -1251,19 +1277,28 @@ class FusionIntelligence:
         ld_params = fusion_playbook_params.get('liquidity_dynamics', {})
         def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0,
                                                 deception_index=None, wash_trade_intensity=None, flow_credibility=None,
-                                                deception_mod_params=None, is_bullish=True, debug_info=None):
+                                                deception_mod_params=None, is_bullish=True, debug_info=None, component_type=""):
             is_debug_enabled_inner, probe_ts_inner, method_name_inner = debug_info if debug_info else (False, None, "未知方法")
             if not components_with_weights:
                 return pd.Series(0.0, index=index, dtype=np.float32)
             raw_sum = pd.Series(0.0, index=index, dtype=np.float32)
             total_possible_weight = 0.0
-            for comp, weight in components_with_weights:
-                # 确保组件是Series且索引对齐
-                comp_aligned = comp.reindex(index).fillna(np.nan)
+            if is_debug_enabled_inner and probe_ts_inner and probe_ts_inner in index:
+                print(f"        [融合层调试] {method_name_inner} @ {probe_ts_inner.strftime('%Y-%m-%d')}: --- {component_type}原始信号 (is_bullish={is_bullish}) ---")
+            for comp_tuple, weight in components_with_weights:
+                # comp_tuple 可以是 (Series, signal_name) 或 (Series)
+                if isinstance(comp_tuple, tuple) and len(comp_tuple) == 2:
+                    comp, signal_name = comp_tuple
+                else:
+                    comp = comp_tuple
+                    signal_name = "未知信号" # 或者从 comp 的 name 属性获取
+                
+                # 确保组件是Series且索引对齐，并填充NaN为0，避免NaN传播
+                comp_aligned = comp.reindex(index).fillna(0.0)
                 raw_sum += comp_aligned * weight
                 total_possible_weight += weight
                 if is_debug_enabled_inner and probe_ts_inner and probe_ts_inner in index:
-                    print(f"          [融合层调试] {method_name_inner} @ {probe_ts_inner.strftime('%Y-%m-%d')}: 组件 (is_bullish={is_bullish}) (值: {comp_aligned.loc[probe_ts_inner]:.4f}, 权重: {weight})")
+                    print(f"          [融合层调试] {method_name_inner} @ {probe_ts_inner.strftime('%Y-%m-%d')}: 组件 '{signal_name}' (值: {comp_aligned.loc[probe_ts_inner]:.4f}, 权重: {weight})")
             if total_possible_weight > 0:
                 normalized_sum = raw_sum / total_possible_weight
                 # 激活函数，将分数映射到 [0, 1]
@@ -1298,61 +1333,62 @@ class FusionIntelligence:
         # --- 原始信号获取 ---
         # PVE (价量效能)
         bullish_pve_components_with_weights = [
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0, debug_info), 0.25),
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0, debug_info), 0.2),
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0, debug_info), 0.2),
-            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0, debug_info).clip(lower=0), 0.2),
-            (1 - self._get_atomic_score(df, 'price_volume_entropy_D', 0.0, debug_info), 0.15)
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0, debug_info), 0.25, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0, debug_info), 0.2, 'SCORE_BEHAVIOR_VOLUME_BURST'),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0, debug_info), 0.2, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY'),
+            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0, debug_info).clip(lower=0), 0.2, 'SCORE_DYN_AXIOM_MOMENTUM_POSITIVE'),
+            (1 - self._get_atomic_score(df, 'price_volume_entropy_D', 0.0, debug_info), 0.15, 'price_volume_entropy_D_INVERSE')
         ]
         bearish_pve_components_with_weights = [
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0, debug_info), 0.3),
-            (self._get_atomic_score(df, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.0, debug_info), 0.3),
-            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0, debug_info).clip(upper=0).abs(), 0.2),
-            (self._get_atomic_score(df, 'price_volume_entropy_D', 0.0, debug_info), 0.2)
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0, debug_info), 0.3, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'),
+            (self._get_atomic_score(df, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.0, debug_info), 0.3, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY'),
+            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0, debug_info).clip(upper=0).abs(), 0.2, 'SCORE_DYN_AXIOM_MOMENTUM_NEGATIVE'),
+            (self._get_atomic_score(df, 'price_volume_entropy_D', 0.0, debug_info), 0.2, 'price_volume_entropy_D')
         ]
         # PT (权势转移)
         # 替换 FUSION_BIPOLAR_CAPITAL_CONFRONTATION 为基础信号组合
         capital_confrontation_proxy_bullish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0) * 0.5 + self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(lower=0) * 0.5)
         capital_confrontation_proxy_bearish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(upper=0).abs() * 0.5 + self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(upper=0).abs() * 0.5)
+        
         bullish_pt_components_with_weights = [
-            (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0, debug_info).clip(lower=0), 0.25), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0, debug_info).clip(lower=0), 0.2), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0), 0.2), # 调整权重
-            (capital_confrontation_proxy_bullish, 0.2), # 使用代理信号
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, debug_info).clip(lower=0), 0.15) # 新增资金流意图纯度
+            (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0, debug_info).clip(lower=0), 0.25, 'PROCESS_META_POWER_TRANSFER_POSITIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0, debug_info).clip(lower=0), 0.2, 'SCORE_CHIP_TACTICAL_EXCHANGE_POSITIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0), 0.2, 'SCORE_FF_AXIOM_CONSENSUS_POSITIVE'), # 调整权重
+            (capital_confrontation_proxy_bullish, 0.2, 'CAPITAL_CONFRONTATION_PROXY_BULLISH'), # 使用代理信号
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, debug_info).clip(lower=0), 0.15, 'SCORE_FF_AXIOM_INTENT_PURITY_POSITIVE') # 新增资金流意图纯度
         ]
         bearish_pt_components_with_weights = [
-            (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0, debug_info).clip(upper=0).abs(), 0.25), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0, debug_info).clip(upper=0).abs(), 0.2), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(upper=0).abs(), 0.2), # 调整权重
-            (capital_confrontation_proxy_bearish, 0.2), # 使用代理信号
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, debug_info).clip(upper=0).abs(), 0.15) # 新增资金流意图纯度
+            (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0, debug_info).clip(upper=0).abs(), 0.25, 'PROCESS_META_POWER_TRANSFER_NEGATIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0, debug_info).clip(upper=0).abs(), 0.2, 'SCORE_CHIP_TACTICAL_EXCHANGE_NEGATIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(upper=0).abs(), 0.2, 'SCORE_FF_AXIOM_CONSENSUS_NEGATIVE'), # 调整权重
+            (capital_confrontation_proxy_bearish, 0.2, 'CAPITAL_CONFRONTATION_PROXY_BEARISH'), # 使用代理信号
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, debug_info).clip(upper=0).abs(), 0.15, 'SCORE_FF_AXIOM_INTENT_PURITY_NEGATIVE') # 新增资金流意图纯度
         ]
         # LS (流动性状态)
         # 替换 FUSION_RISK_STAGNATION 为 INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW
         bullish_ls_components_with_weights = [
-            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0, debug_info).clip(lower=0), 0.2), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).clip(lower=0), 0.15), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0, debug_info).clip(lower=0), 0.15), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0, debug_info), 0.15),
-            (1 - self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0, debug_info), 0.1),
-            (1 - self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0, debug_info), 0.1),
-            (1 - self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_FRICTION', 0.0, debug_info).clip(upper=0).abs(), 0.15) # 新增市场摩擦负向部分
+            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0, debug_info).clip(lower=0), 0.2, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE_POSITIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).clip(lower=0), 0.15, 'SCORE_FF_AXIOM_FLOW_MOMENTUM_POSITIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0, debug_info).clip(lower=0), 0.15, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH_POSITIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0, debug_info), 0.15, 'SCORE_BEHAVIOR_VOLUME_ATROPHY'),
+            (1 - self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0, debug_info), 0.1, 'main_force_flow_gini_D_INVERSE'),
+            (1 - self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0, debug_info), 0.1, 'retail_flow_dominance_index_D_INVERSE'),
+            (1 - self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_FRICTION', 0.0, debug_info).clip(upper=0).abs(), 0.15, 'SCORE_FOUNDATION_AXIOM_MARKET_FRICTION_NEGATIVE') # 新增市场摩擦负向部分
         ]
         bearish_ls_components_with_weights = [
-            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0, debug_info).clip(upper=0).abs(), 0.2), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).clip(upper=0).abs(), 0.15), # 调整权重
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0, debug_info).clip(upper=0).abs(), 0.15), # 调整权重
-            (self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0, debug_info), 0.15), # 使用基础信号
-            (self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0, debug_info), 0.1),
-            (self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0, debug_info), 0.1),
-            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_FRICTION', 0.0, debug_info).clip(lower=0), 0.15) # 新增市场摩擦正向部分
+            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0, debug_info).clip(upper=0).abs(), 0.2, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE_NEGATIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).clip(upper=0).abs(), 0.15, 'SCORE_FF_AXIOM_FLOW_MOMENTUM_NEGATIVE'), # 调整权重
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0, debug_info).clip(upper=0).abs(), 0.15, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH_NEGATIVE'), # 调整权重
+            (self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0, debug_info), 0.15, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'), # 使用基础信号
+            (self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0, debug_info), 0.1, 'main_force_flow_gini_D'),
+            (self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0, debug_info), 0.1, 'retail_flow_dominance_index_D'),
+            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_FRICTION', 0.0, debug_info).clip(lower=0), 0.15, 'SCORE_FOUNDATION_AXIOM_MARKET_FRICTION_POSITIVE') # 新增市场摩擦正向部分
         ]
-        volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, debug_info)
-        market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.0, debug_info)
-        flow_credibility = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0, debug_info)
-        deception_index = self._get_atomic_score(df, 'deception_index_D', 0.0, debug_info)
-        wash_trade_intensity = self._get_atomic_score(df, 'wash_trade_intensity_D', 0.0, debug_info)
+        volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, debug_info).fillna(0.0)
+        market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.0, debug_info).fillna(0.0)
+        flow_credibility = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0, debug_info).fillna(0.0)
+        deception_index = self._get_atomic_score(df, 'deception_index_D', 0.0, debug_info).fillna(0.0)
+        wash_trade_intensity = self._get_atomic_score(df, 'wash_trade_intensity_D', 0.0, debug_info).fillna(0.0)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
             print(f"        波动不稳定性: {volatility_instability.loc[probe_ts]:.4f}, 市场情绪: {market_sentiment.loc[probe_ts]:.4f}")
@@ -1374,30 +1410,30 @@ class FusionIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: PVE激活敏感度: {pve_activation_sensitivity.loc[probe_ts]:.4f}, PT激活敏感度: {pt_activation_sensitivity.loc[probe_ts]:.4f}, LS激活敏感度: {ls_activation_sensitivity.loc[probe_ts]:.4f}")
         bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity,
-                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info)
+                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info, component_type="PVE看涨")
         bearish_pve_fused = weighted_sum_with_activation_series(bearish_pve_components_with_weights, df_index, pve_activation_sensitivity,
-                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False, debug_info=debug_info)
+                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False, debug_info=debug_info, component_type="PVE看跌")
         pve_score = (bullish_pve_fused - bearish_pve_fused).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: PVE看涨融合: {bullish_pve_fused.loc[probe_ts]:.4f}, PVE看跌融合: {bearish_pve_fused.loc[probe_ts]:.4f} -> PVE分数: {pve_score.loc[probe_ts]:.4f}")
         bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity,
-                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info)
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info, component_type="PT看涨")
         bearish_pt_fused = weighted_sum_with_activation_series(bearish_pt_components_with_weights, df_index, pt_activation_sensitivity,
-                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False, debug_info=debug_info)
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False, debug_info=debug_info, component_type="PT看跌")
         pt_score = (bullish_pt_fused - bearish_pt_fused).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: PT看涨融合: {bullish_pt_fused.loc[probe_ts]:.4f}, PT看跌融合: {bearish_pt_fused.loc[probe_ts]:.4f} -> PT分数: {pt_score.loc[probe_ts]:.4f}")
         bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity,
-                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info)
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info, component_type="LS看涨")
         bearish_ls_fused = weighted_sum_with_activation_series(bearish_ls_components_with_weights, df_index, ls_activation_sensitivity,
-                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False, debug_info=debug_info)
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False, debug_info=debug_info, component_type="LS看跌")
         ls_score = (bullish_ls_fused - bearish_ls_fused).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: LS看涨融合: {bullish_ls_fused.loc[probe_ts]:.4f}, LS看跌融合: {bearish_ls_fused.loc[probe_ts]:.4f} -> LS分数: {ls_score.loc[probe_ts]:.4f}")
         # 替换 FUSION_BIPOLAR_TREND_QUALITY 为 SCORE_STRUCT_AXIOM_TREND_FORM
-        trend_quality = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0, debug_info)
+        trend_quality = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0, debug_info).fillna(0.0)
         # 替换 FUSION_BIPOLAR_MARKET_REGIME 为 SCORE_CYCLICAL_HURST_MEMORY
-        market_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_HURST_MEMORY', 0.0, debug_info)
+        market_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_HURST_MEMORY', 0.0, debug_info).fillna(0.0)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 趋势形态 (基础信号): {trend_quality.loc[probe_ts]:.4f}, Hurst记忆性 (基础信号): {market_regime.loc[probe_ts]:.4f}")
         base_weights = ld_params.get('base_weights', {'pve': 0.33, 'pt': 0.34, 'ls': 0.33})
