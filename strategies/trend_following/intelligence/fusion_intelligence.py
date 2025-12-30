@@ -254,24 +254,55 @@ class FusionIntelligence:
             print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_market_regime(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_market_regime(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 上下文修复版】冶炼“市场政权” (Market Regime)
-        - 【V1.2 修复】接收 df 参数并在调用 _get_atomic_score 时传递。
+        【V1.3 · 上下文修复与探针增强版】冶炼“市场政权” (Market Regime)
+        - 【V1.3 修复】修正方法签名以接受 debug_info 参数。
+        - 【V1.3 增强】增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
+        method_name = "_synthesize_market_regime"
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“市场政权”...")
+
         states = {}
-        hurst_memory = self._get_atomic_score(df, 'SCORE_CYCLICAL_HURST_MEMORY', 0.0)
-        inertia = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_INERTIA', 0.0)
-        stability = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
+        df_index = df.index
+
+        # 获取原始信号，并传递 debug_info
+        hurst_memory = self._get_atomic_score(df, 'SCORE_CYCLICAL_HURST_MEMORY', 0.0, debug_info)
+        inertia = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_INERTIA', 0.0, debug_info)
+        stability = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0, debug_info)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
+            print(f"        Hurst记忆性: {hurst_memory.loc[probe_ts]:.4f}")
+            print(f"        力学结构化惯性: {inertia.loc[probe_ts]:.4f}")
+            print(f"        力学势能稳定性: {stability.loc[probe_ts]:.4f}")
+
+        # 趋势证据融合
         trend_evidence_weights = {'hurst': 0.4, 'inertia': 0.4, 'stability': 0.2}
         trend_evidence = (
             hurst_memory * trend_evidence_weights['hurst'] +
             inertia * trend_evidence_weights['inertia'] +
             stability * trend_evidence_weights['stability']
         ).clip(-1, 1)
+
+        # 均值回归证据融合
+        # 均值回归证据：当Hurst记忆性为负（均值回归倾向），且惯性为负（趋势难以维持）时，均值回归证据增强
         reversion_evidence = (hurst_memory.clip(upper=0).abs() * inertia.clip(upper=0).abs()).pow(0.5)
+        
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 趋势证据 (trend_evidence): {trend_evidence.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 均值回归证据 (reversion_evidence): {reversion_evidence.loc[probe_ts]:.4f}")
+
+        # 双极性政权分数：趋势证据减去均值回归证据
         bipolar_regime = (trend_evidence - reversion_evidence).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
+
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “市场政权”冶炼完成，最终分值: {bipolar_regime.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “市场政权”冶炼完成，最新分值: {bipolar_regime.iloc[-1]:.4f}")
         return states
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
