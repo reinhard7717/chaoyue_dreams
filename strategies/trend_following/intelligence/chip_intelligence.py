@@ -92,72 +92,55 @@ class ChipIntelligence:
         # 调用并记录持仓信念韧性信号
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
-        print(f"    -> [筹码情报校验] 计算“持仓信念韧性(SCORE_CHIP_AXIOM_HOLDER_SENTIMENT)” 分数：{holder_sentiment_scores.mean():.4f}")
         # 调用并记录价筹张力信号
         divergence_scores = self._diagnose_axiom_divergence(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_DIVERGENCE'] = divergence_scores
-        print(f"    -> [筹码情报校验] 计算“价筹张力(SCORE_CHIP_AXIOM_DIVERGENCE)” 分数：{divergence_scores.mean():.4f}")
         # 调用并记录战略态势信号
         strategic_posture = self._diagnose_strategic_posture(df)
         all_chip_states['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
-        print(f"    -> [筹码情报校验] 计算“战略态势(SCORE_CHIP_STRATEGIC_POSTURE)” 分数：{strategic_posture.mean():.4f}")
         # 调用并记录战场地形信号
         battlefield_geography = self._diagnose_battlefield_geography(df)
         all_chip_states['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
-        print(f"    -> [筹码情报校验] 计算“战场地形(SCORE_CHIP_BATTLEFIELD_GEOGRAPHY)” 分数：{battlefield_geography.mean():.4f}")
         # 调用并记录筹码趋势动量信号
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods, strategic_posture, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
-        print(f"    -> [筹码情报校验] 计算“筹码趋势动量(SCORE_CHIP_AXIOM_TREND_MOMENTUM)” 分数：{chip_trend_momentum_scores.mean():.4f}")
         # 调用并记录筹码历史潜力信号
         historical_potential = self._diagnose_axiom_historical_potential(df)
         all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
-        print(f"    -> [筹码情报校验] 计算“筹码历史潜力(SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL)” 分数：{historical_potential.mean():.4f}")
         # 调用并记录吸筹回声信号
         absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
         all_chip_states['SCORE_CHIP_OPP_ABSORPTION_ECHO'] = absorption_echo
-        print(f"    -> [筹码情报校验] 计算“吸筹回声(SCORE_CHIP_OPP_ABSORPTION_ECHO)” 分数：{absorption_echo.mean():.4f}")
         # 调用并记录派发诡影信号
         distribution_whisper = self._diagnose_distribution_whisper(df, divergence_scores)
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
-        print(f"    -> [筹码情报校验] 计算“派发诡影(SCORE_CHIP_RISK_DISTRIBUTION_WHISPER)” 分数：{distribution_whisper.mean():.4f}")
         # 调用并记录筹码一致驱动信号
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        print(f"    -> [筹码情报校验] 计算“筹码一致驱动(SCORE_CHIP_COHERENT_DRIVE)” 分数：{coherent_drive.mean():.4f}")
         # 调用并记录战术换手博弈信号
         tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography)
         all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
-        print(f"    -> [筹码情报校验] 计算“战术换手博弈(SCORE_CHIP_TACTICAL_EXCHANGE)” 分数：{tactical_exchange.mean():.4f}")
         # 调用并记录战略战术和谐度信号
         strategic_tactical_harmony = self._diagnose_strategic_tactical_harmony(df, strategic_posture, tactical_exchange, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_STRATEGIC_TACTICAL_HARMONY'] = strategic_tactical_harmony
-        print(f"    -> [筹码情报校验] 计算“战略战术和谐度(SCORE_CHIP_STRATEGIC_TACTICAL_HARMONY)” 分数：{strategic_tactical_harmony.mean():.4f}")
         # 调用并记录和谐拐点信号
         harmony_inflection = self._diagnose_harmony_inflection(df, strategic_tactical_harmony)
         all_chip_states['SCORE_CHIP_HARMONY_INFLECTION'] = harmony_inflection
-        print(f"    -> [筹码情报校验] 计算“和谐拐点(SCORE_CHIP_HARMONY_INFLECTION)” 分数：{harmony_inflection.mean():.4f}")
         # --- 调用新的筹码信号诊断方法 ---
         # 调用并记录散户筹码脆弱性指数信号
         retail_vulnerability = self._diagnose_chip_retail_vulnerability(df)
         all_chip_states['SCORE_CHIP_RETAIL_VULNERABILITY'] = retail_vulnerability
-        print(f"    -> [筹码情报校验] 计算“散户筹码脆弱性指数(SCORE_CHIP_RETAIL_VULNERABILITY)” 分数：{retail_vulnerability.mean():.4f}")
         # 调用并记录主力成本区攻防意图信号
         main_force_cost_intent = self._diagnose_chip_main_force_cost_intent(df)
         all_chip_states['SCORE_CHIP_MAIN_FORCE_COST_INTENT'] = main_force_cost_intent
-        print(f"    -> [筹码情报校验] 计算“主力成本区攻防意图(SCORE_CHIP_MAIN_FORCE_COST_INTENT)” 分数：{main_force_cost_intent.mean():.4f}")
         # 调用并记录筹码空心化风险信号
         hollowing_out_risk = self._diagnose_chip_hollowing_out_risk(df)
         all_chip_states['SCORE_CHIP_HOLLOWING_OUT_RISK'] = hollowing_out_risk
-        print(f"    -> [筹码情报校验] 计算“筹码空心化风险(SCORE_CHIP_HOLLOWING_OUT_RISK)” 分数：{hollowing_out_risk.mean():.4f}")
         # 调用并记录换手纯度与成本优化信号
         turnover_purity_cost_optimization = self._diagnose_chip_turnover_purity_cost_optimization(df)
         all_chip_states['SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION'] = turnover_purity_cost_optimization
-        print(f"    -> [筹码情报校验] 计算“换手纯度与成本优化(SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION)” 分数：{turnover_purity_cost_optimization.mean():.4f}")
         # 调用并记录筹码绝望与诱惑区信号
         despair_temptation_zones = self._diagnose_chip_despair_temptation_zones(df)
         all_chip_states['SCORE_CHIP_DESPAIR_TEMPTATION_ZONES'] = despair_temptation_zones
-        print(f"    -> [筹码情报校验] 计算“筹码绝望与诱惑区(SCORE_CHIP_DESPAIR_TEMPTATION_ZONES)” 分数：{despair_temptation_zones.mean():.4f}")
         # 更新最终生成的筹码原子信号数量
         print(f"【V19.0 · 诡道反吸版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。")
         return all_chip_states

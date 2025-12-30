@@ -1,0 +1,181 @@
+{
+    "structural_ultimate_params": {
+        "enabled": true,
+        "description": "【V5.0 · MTF权重分层版】定义了基于“趋势形态、多周期协同、结构稳定性”三大核心公理的新结构引擎参数。",
+        "axiom_weights": {
+            "trend_form": 0.5,
+            "mtf_cohesion": 0.3,
+            "stability": 0.2
+        },
+        "trend_form_ema_periods": [5, 13, 21, 34, 55],
+        "comment_trend_form_ema_periods": "【趋势形态公理】用于趋势形态判断的EMA周期列表。",
+        "trend_form_ma_periods": [5, 13, 21, 34, 55],
+        "comment_trend_form_ma_periods": "【趋势形态公理】用于趋势形态判断的MA周期列表。",
+        "trend_form_alignment_fusion_weights": {
+            "ema": 0.6,
+            "ma": 0.4
+        },
+        "comment_trend_form_alignment_fusion_weights": "【趋势形态公理】EMA和MA排列分数的融合权重。",
+        "trend_form_angle_fusion_weights": {
+            "ema": 1.0,
+            "ma": 0.0
+        },
+        "comment_trend_form_angle_fusion_weights": "【趋势形态公理】EMA和MA角度分数的融合权重。",
+        "mtf_normalization_weights": {
+            "description": "【V1.0 · 新增】为结构层不同类型的信号定义多时间框架(MTF)归一化权重。",
+            "default": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "long_term_stability": { "13": 0.2, "21": 0.3, "55": 0.4, "89": 0.1 },
+            "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 },
+            "structural_momentum": { "3": 0.4, "5": 0.3, "8": 0.2, "13": 0.1 }
+        },
+        "structural_momentum_params": {
+            "description": "【V6.0 · 结构动量深度进化版 - 势能与惯性融合】结构动量信号的专属参数。",
+            "velocity_window": 5,
+            "comment_velocity_window": "计算结构速度的斜率周期。",
+            "acceleration_window": 3,
+            "comment_acceleration_window": "计算结构加速度的斜率周期。",
+            "persistence_window": 10,
+            "comment_persistence_window": "计算动量持续性的滚动窗口。",
+            "fusion_weights": {
+                "velocity": 0.4,
+                "acceleration": 0.3,
+                "persistence": 0.15,
+                "context_quality": 0.15
+            },
+            "comment_fusion_weights": "融合结构速度、加速度、持续性、情境品质的权重。",
+            "context_weights": {
+                "favorable_tension_inverse": 0.3,
+                "comment_favorable_tension_inverse": "低张力（高张力逆向）对动量品质的权重。",
+                "favorable_breakout_readiness": 0.3,
+                "comment_favorable_breakout_readiness": "高突破准备度对动量品质的权重。",
+                "unfavorable_stability_inverse": 0.2,
+                "comment_unfavorable_stability_inverse": "低稳定性（高稳定性逆向）对动量品质的权重。",
+                "unfavorable_cohesion_inverse": 0.2,
+                "comment_unfavorable_cohesion_inverse": "低协同度（高协同度逆向）对动量品质的权重。"
+            },
+            "non_linear_exponent": 1.5,
+            "comment_non_linear_exponent": "最终融合的非线性指数，用于放大强动量。"
+        },
+        "trend_form_fusion_weights": {
+            "description": "【趋势形态公理】融合排列、斜率、加速度、有序度、角度、共振、均线粘合度、价格均线乖离、布林带动态、趋势效率的权重。",
+            "alignment": 0.15,
+            "slope": 0.1,
+            "acceleration": 0.1,
+            "orderliness": 0.1,
+            "angle": 0.1,
+            "resonance": 0.1,
+            "ma_cluster_cohesion": 0.1,
+            "price_ma_gap": 0.1,
+            "bb_dynamics": 0.1,
+            "trend_efficiency": 0.05
+        },
+        "trend_form_dynamic_weights_params": {
+            "enabled": true,
+            "volatility_source": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "volatility_sensitivity": 2.0,
+            "volatility_threshold": 0.5,
+            "adjustment_factor_range": 0.5,
+            "comment": "根据波动率动态调整趋势形态各维度的融合权重。"
+        },
+        "ma_cluster_cohesion_params": {
+            "enabled": true,
+            "normalization_period": 55,
+            "comment": "均线粘合度维度参数。"
+        },
+        "trend_form_resonance_params": {
+            "enabled": true,
+            "slope_consistency_weight": 0.4,
+            "accel_consistency_weight": 0.4,
+            "slope_accel_alignment_weight": 0.2
+        },
+        "slope_angle_volatility_adjustment_params": {
+            "enabled": true,
+            "volatility_source": "ATR_14_D",
+            "adjustment_strength": 0.5,
+            "comment": "根据波动率调整斜率和角度的敏感度。"
+        },
+        "price_ma_gap_params": {
+            "enabled": true,
+            "ma_periods": [5, 13, 21],
+            "comment": "价格与均线乖离度维度参数，指定用于计算的均线周期。"
+        },
+        "bb_dynamics_params": {
+            "enabled": true,
+            "bbw_weight": 0.5,
+            "bbp_weight": 0.5,
+            "comment": "布林带动态维度参数，BBW和BBP的融合权重。"
+        },
+        "trend_efficiency_params": {
+            "enabled": true,
+            "comment": "趋势效率维度参数。"
+        },
+        "stability_fusion_weights": {
+            "structural_support_strength": 0.25,
+            "structural_form_solidity": 0.25,
+            "volatility_orderliness": 0.2,
+            "structural_movement_efficiency": 0.15,
+            "structural_break_strength": 0.075,
+            "structural_retracement_efficiency": 0.075
+        },
+        "comment_stability_fusion_weights": "【V5.9.2 · 纯结构深度进化版 - 信号映射】融合结构支撑强度、结构形态坚固性、波动率秩序性、结构运动效率、结构突破强度、结构回撤效率的权重。",
+        "stability_params": {
+            "enabled": true,
+            "structural_support_strength_weights": {
+                "support_validation_strength": 0.3,
+                "pressure_rejection_strength": 0.3,
+                "lower_shadow_absorption_strength": 0.2,
+                "defense_solidity_score": 0.1,
+                "opening_gap_defense_strength": 0.1
+            },
+            "structural_form_solidity_weights": {
+                "equilibrium_compression_index": 0.3,
+                "platform_conviction_score": 0.25,
+                "value_area_overlap_pct": 0.2,
+                "goodness_of_fit_score": 0.15,
+                "structural_node_count": 0.1
+            },
+            "volatility_orderliness_weights": {
+                "BBW_21_2.0": 0.3,
+                "VOLATILITY_INSTABILITY_INDEX_21d": 0.3,
+                "FRACTAL_DIMENSION_89d": 0.2,
+                "SAMPLE_ENTROPY_13d": 0.1,
+                "HURST_144d": 0.1
+            },
+            "structural_movement_efficiency_weights": {
+                "trend_efficiency_ratio": 0.3,
+                "asymmetric_friction_index": 0.3,
+                "impulse_quality_ratio": 0.2,
+                "MA_POTENTIAL_ORDERLINESS_SCORE": 0.2
+            },
+            "structural_break_strength_weights": {
+                "breakout_volume_ratio": 0.3,
+                "breakout_range_expansion": 0.3,
+                "breakout_retest_success": 0.2,
+                "breakout_duration": 0.2
+            },
+            "structural_retracement_efficiency_weights": {
+                "retracement_depth_pct": 0.3,
+                "retracement_speed_ratio": 0.3,
+                "retracement_volume_decay": 0.2,
+                "retracement_MA_adherence": 0.2
+            },
+            "signal_mapping": {
+                "breakout_volume_ratio_D": "volume_burstiness_index_D",
+                "breakout_range_expansion_D": "volatility_expansion_ratio_D",
+                "breakout_retest_success_D": "breakout_quality_score_D",
+                "breakout_duration_D": "thrust_efficiency_score_D",
+                "retracement_depth_pct_D": "pullback_depth_ratio_D",
+                "retracement_speed_ratio_D": "price_reversion_velocity_D",
+                "retracement_volume_decay_D": "counterparty_exhaustion_index_D",
+                "retracement_MA_adherence_D": "control_solidity_index_D"
+            },
+            "comment_signal_mapping": "【V5.9.2 · 新增】概念信号名称到实际数据层信号名称的映射。",
+            "normalization_configs": {
+                "HURST_144d_D": {"method": "quantile", "ascending": true, "clip_range": [0.0, 1.0], "mapping_func": "hurst_mapping"},
+                "asymmetric_friction_index_D": {"method": "quantile", "ascending": false},
+                "FRACTAL_DIMENSION_89d_D": {"method": "quantile", "ascending": false, "clip_range": [1.0, 2.0]}
+            },
+            "comment": "结构稳定性维度参数，包含各子维度的融合权重和指标归一化配置。"
+        }
+    }
+}
