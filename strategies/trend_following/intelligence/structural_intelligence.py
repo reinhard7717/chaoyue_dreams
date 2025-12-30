@@ -83,12 +83,14 @@ class StructuralIntelligence:
     def get_dynamic_normalized_score(self, series: pd.Series, df_index: pd.Index, tf_weights: Dict[int, float],
                                      ascending: bool = True, method: str = "mtf_adaptive",
                                      clip_range: Tuple[float, float] = None,
-                                     mapping_func: str = None) -> pd.Series:
+                                     mapping_func: str = None,
+                                     force_zero_if_original_zero: bool = True) -> pd.Series:
         """
         【V1.1 · 动态归一化 - 映射函数支持】根据配置的归一化方法和参数，对Series进行归一化。
         - 支持多种归一化方法，目前主要实现 'mtf_adaptive' (原 get_adaptive_mtf_normalized_score 逻辑) 和 'quantile'。
         - 增加了裁剪功能。
         - 新增 mapping_func 参数，允许对归一化后的分数进行二次映射。
+        - 【V1.2 · 强制归零控制】新增 `force_zero_if_original_zero` 参数，控制是否将原始值为零的归一化分数强制设置为零。
         :param series: 待归一化的Series。
         :param df_index: DataFrame的索引，用于对齐。
         :param tf_weights: 多时间框架权重，用于 'mtf_adaptive' 方法。
@@ -96,6 +98,7 @@ class StructuralIntelligence:
         :param method: 归一化方法，可选 'mtf_adaptive', 'quantile'。
         :param clip_range: (min_val, max_val) 元组，用于裁剪原始Series的值。
         :param mapping_func: 应用于最终分数的映射函数名称（字符串）。
+        :param force_zero_if_original_zero: 是否将原始值为零的归一化分数强制设置为零。
         :return: 归一化后的Series，范围 [0, 1]。
         """
         if series.empty:
@@ -105,7 +108,8 @@ class StructuralIntelligence:
             processed_series = processed_series.clip(lower=clip_range[0], upper=clip_range[1])
         score = pd.Series(0.0, index=df_index)
         if method == "mtf_adaptive":
-            score = get_adaptive_mtf_normalized_score(processed_series, df_index, tf_weights, ascending=ascending)
+            # 将 force_zero_if_original_zero 参数传递给 get_adaptive_mtf_normalized_score
+            score = get_adaptive_mtf_normalized_score(processed_series, df_index, tf_weights, ascending=ascending, force_zero_if_original_zero=force_zero_if_original_zero)
         elif method == "quantile":
             window_sizes = sorted(tf_weights.keys(), reverse=True)
             quantile_scores = pd.Series(0.0, index=df_index)
@@ -130,7 +134,8 @@ class StructuralIntelligence:
             score = score.fillna(0.5) # 填充滚动窗口计算可能产生的NaN
         else:
             print(f"    -> [结构情报警告] 未知归一化方法 '{method}'，回退到 'mtf_adaptive'。")
-            score = get_adaptive_mtf_normalized_score(processed_series, df_index, tf_weights, ascending=ascending)
+            # 将 force_zero_if_original_zero 参数传递给 get_adaptive_mtf_normalized_score
+            score = get_adaptive_mtf_normalized_score(processed_series, df_index, tf_weights, ascending=ascending, force_zero_if_original_zero=force_zero_if_original_zero)
         score = score.clip(0, 1) # 确保分数在 [0, 1] 范围内
         # 应用映射函数
         if mapping_func:
