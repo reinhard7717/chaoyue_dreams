@@ -148,25 +148,47 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
         """
-        【V2.2 · 探针逻辑重构版】微观行为公理四：诊断“微观背离”
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V2.3 · 纯微观意图重构版】微观行为公理四：诊断“微观背离”
+        - 核心重构: 彻底移除了对“SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT”的依赖，
+                    转而直接从原始微观数据（订单簿不平衡、主力订单流、欺骗指数）构建微观意图。
+                    这确保了微观行为引擎的纯粹性，严格遵循“只分析微观类原始数据”的原则。
+        - 逻辑调整: 将订单簿不平衡、主力订单流和欺骗指数进行多时间框架归一化后加权平均，
+                    形成新的“微观意图”信号，再计算其趋势与价格趋势的背离。
         """
         method_name = "_diagnose_axiom_divergence"
-        required_signals = ['SLOPE_5_EMA_5_D']
+        required_signals = ['SLOPE_5_EMA_5_D', 'order_book_imbalance_D', 'main_force_ofi_D', 'deception_index_D']
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
-        # 从 chip_ultimate_params 获取 tf_fusion_weights，而不是 behavioral_dynamics_params
+
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+
         price_trend_raw = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', method_name=method_name)
-        micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
-        micro_intent_trend_raw = micro_intent.ewm(span=5, adjust=False).mean().diff().fillna(0)
-        # Pass debug_info=(False, None, "") to suppress internal printing from utility functions
+
+        # --- 纯微观意图重构：从原始微观数据构建微观意图 ---
+        order_imbalance = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name)
+        main_force_ofi = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name=method_name)
+        deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
+
+        # 将原始微观数据归一化为双极性分数
+        order_imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_imbalance, df.index, tf_weights, debug_info=(False, None, ""))
+        main_force_ofi_score = get_adaptive_mtf_normalized_bipolar_score(main_force_ofi, df.index, tf_weights, debug_info=(False, None, ""))
+        deception_index_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df.index, tf_weights, debug_info=(False, None, ""))
+
+        # 融合微观意图。欺骗指数正分代表压价吸筹（看涨），负分代表拉高出货（看跌），直接参与加权。
+        # 赋予欺骗指数略低的权重，因为它是一种“诡道”，不应完全主导真实意图。
+        micro_intent_fused = (order_imbalance_score * 0.4 + main_force_ofi_score * 0.4 + deception_index_score * 0.2).clip(-1, 1)
+
+        # 计算融合后的微观意图的趋势
+        micro_intent_trend_raw = micro_intent_fused.ewm(span=5, adjust=False).mean().diff().fillna(0)
+
+        # 将价格趋势和微观意图趋势进行多时间框架归一化
         price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, tf_weights, debug_info=(False, None, ""))
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, tf_weights, debug_info=(False, None, ""))
+
+        # 计算背离分数
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
+
         if is_debug_enabled:
             print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
@@ -174,12 +196,24 @@ class MicroBehaviorEngine:
                     print(f"    -> [微观行为情报探针] 方法 '{method_name}' @ {probe_date.strftime('%Y-%m-%d')}:")
                     if probe_date in price_trend_raw.index:
                         print(f"       - 原始价格趋势 (SLOPE_5_EMA_5_D): {price_trend_raw.loc[probe_date]:.4f}")
-                    if probe_date in price_trend.index:
-                        print(f"       - 归一化价格趋势 (price_trend): {price_trend.loc[probe_date]:.4f}")
-                    if probe_date in micro_intent.index:
-                        print(f"       - 微观结构意图 (SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT): {micro_intent.loc[probe_date]:.4f}")
+                    if probe_date in order_imbalance.index:
+                        print(f"       - 原始订单簿不平衡 (order_book_imbalance_D): {order_imbalance.loc[probe_date]:.4f}")
+                    if probe_date in main_force_ofi.index:
+                        print(f"       - 原始主力订单流 (main_force_ofi_D): {main_force_ofi.loc[probe_date]:.4f}")
+                    if probe_date in deception_index.index:
+                        print(f"       - 原始欺骗指数 (deception_index_D): {deception_index.loc[probe_date]:.4f}")
+                    if probe_date in order_imbalance_score.index:
+                        print(f"       - 归一化订单簿不平衡 (order_imbalance_score): {order_imbalance_score.loc[probe_date]:.4f}")
+                    if probe_date in main_force_ofi_score.index:
+                        print(f"       - 归一化主力订单流 (main_force_ofi_score): {main_force_ofi_score.loc[probe_date]:.4f}")
+                    if probe_date in deception_index_score.index:
+                        print(f"       - 归一化欺骗指数 (deception_index_score): {deception_index_score.loc[probe_date]:.4f}")
+                    if probe_date in micro_intent_fused.index:
+                        print(f"       - 融合微观意图 (micro_intent_fused): {micro_intent_fused.loc[probe_date]:.4f}")
                     if probe_date in micro_intent_trend_raw.index:
                         print(f"       - 原始微观意图趋势 (micro_intent_trend_raw): {micro_intent_trend_raw.loc[probe_date]:.4f}")
+                    if probe_date in price_trend.index:
+                        print(f"       - 归一化价格趋势 (price_trend): {price_trend.loc[probe_date]:.4f}")
                     if probe_date in micro_intent_trend.index:
                         print(f"       - 归一化微观意图趋势 (micro_intent_trend): {micro_intent_trend.loc[probe_date]:.4f}")
                     if probe_date in divergence_score.index:

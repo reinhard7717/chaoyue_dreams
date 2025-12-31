@@ -1605,6 +1605,11 @@
         "neutral_zone_threshold": {
           "value": 0.1,
           "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+        },
+        "strategic_intent_fusion_params": {
+          "enabled": true,
+          "deception_penalty_factor": 0.5,
+          "comment_deception_penalty_factor": "当出现涨停且欺骗指数为负（拉高出货）时，对战略意图分数的惩罚因子。"
         }
       },
       "cognitive_intelligence_params": {
