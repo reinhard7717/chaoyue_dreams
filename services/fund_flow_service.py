@@ -861,6 +861,8 @@ class AdvancedFundFlowMetricsService:
             results.update(AdvancedFundFlowMetricsService._calculate_ofi_based_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_order_book_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_micro_dynamics_metrics(context))
+            # 新增：调用 Level 5 订单流指标计算方法
+            results.update(AdvancedFundFlowMetricsService._calculate_level5_order_flow_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_related_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_opening_battle_metrics(context))
@@ -996,6 +998,130 @@ class AdvancedFundFlowMetricsService:
             if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
                 correlation = mf_ofi_series.corr(price_change_series)
                 metrics['microstructure_efficiency_index'] = correlation
+        return metrics
+
+    @staticmethod
+    def _calculate_level5_order_flow_metrics(context: dict) -> dict:
+        """
+        【V72.3 · Level5订单流失衡版】
+        - 核心职责: 基于Level 5盘口数据，计算主力与散户的订单流失衡比率。
+                    主要关注大额挂单所代表的潜在买卖压力。
+        - 核心逻辑:
+            1. 识别主力挂单：设定 Q_threshold，挂单量大于此阈值视为主力挂单。
+            2. 统计主力/散户买卖盘压力：累加各档位的挂单量，并根据是否为主力挂单进行区分。
+            3. 计算主力/散户订单流失衡比率：(买盘压力 - 卖盘压力) / (买盘压力 + 卖盘压力)。
+            4. 结果归一化为 [-1, 1] 的比率。
+        """
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        metrics = {
+            'main_force_level5_ofi': np.nan,
+            'main_force_level5_buy_ofi': np.nan,
+            'main_force_level5_sell_ofi': np.nan,
+            'retail_level5_ofi': np.nan,
+            'retail_level5_buy_ofi': np.nan,
+            'retail_level5_sell_ofi': np.nan,
+            'main_force_level5_ofi_dynamic': np.nan, # 动态变化分析
+            'retail_level5_ofi_dynamic': np.nan,     # 动态变化分析
+        }
+
+        if hf_analysis_df.empty:
+            return metrics
+
+        # 设定主力挂单量阈值 (Q_threshold)
+        # 可以根据 daily_total_volume 或 ATR 动态调整，这里先用一个固定值作为示例
+        # 假设 1000 手（10万股）以上的挂单被认为是主力挂单
+        Q_threshold = 1000 * 100 # 1000手 * 100股/手 = 10万股
+
+        # 权重可以根据档位远近设置，这里简化为等权重
+        weights = [1.0, 0.8, 0.6, 0.4, 0.2] # 越靠近盘口权重越高
+
+        # 存储每个快照的 Level 5 OFI
+        main_force_ofi_snapshots = []
+        retail_ofi_snapshots = []
+        
+        # 遍历每个快照
+        for _, row in hf_analysis_df.iterrows():
+            main_force_bid_pressure = 0.0
+            main_force_ask_pressure = 0.0
+            retail_bid_pressure = 0.0
+            retail_ask_pressure = 0.0
+
+            for i in range(1, 6):
+                buy_vol_col = f'buy_volume{i}'
+                buy_price_col = f'buy_price{i}'
+                sell_vol_col = f'sell_volume{i}'
+                sell_price_col = f'sell_price{i}'
+
+                buy_vol = row.get(buy_vol_col, 0)
+                sell_vol = row.get(sell_vol_col, 0)
+                
+                # 确保价格有效，避免0价格导致的问题
+                buy_price = row.get(buy_price_col, 0)
+                sell_price = row.get(sell_price_col, 0)
+
+                if buy_vol > 0 and buy_price > 0:
+                    if buy_vol >= Q_threshold:
+                        main_force_bid_pressure += buy_vol * weights[i-1]
+                    else:
+                        retail_bid_pressure += buy_vol * weights[i-1]
+                
+                if sell_vol > 0 and sell_price > 0:
+                    if sell_vol >= Q_threshold:
+                        main_force_ask_pressure += sell_vol * weights[i-1]
+                    else:
+                        retail_ask_pressure += sell_vol * weights[i-1]
+
+            # 计算当前快照的主力订单流失衡比率
+            total_mf_pressure = main_force_bid_pressure + main_force_ask_pressure
+            if total_mf_pressure > 0:
+                main_force_ofi_snapshots.append((main_force_bid_pressure - main_force_ask_pressure) / total_mf_pressure)
+            else:
+                main_force_ofi_snapshots.append(0.0) # 无主力挂单时，失衡为0
+
+            # 计算当前快照的散户订单流失衡比率
+            total_retail_pressure = retail_bid_pressure + retail_ask_pressure
+            if total_retail_pressure > 0:
+                retail_ofi_snapshots.append((retail_bid_pressure - retail_ask_pressure) / total_retail_pressure)
+            else:
+                retail_ofi_snapshots.append(0.0) # 无散户挂单时，失衡为0
+
+        # 将快照结果转换为 Series
+        main_force_ofi_series = pd.Series(main_force_ofi_snapshots, index=hf_analysis_df.index)
+        retail_ofi_series = pd.Series(retail_ofi_snapshots, index=hf_analysis_df.index)
+
+        # 对整个交易日的主力/散户 Level 5 OFI 进行加权平均
+        # 可以使用时间差作为权重，或者简单平均
+        time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
+        total_time = time_diffs.sum()
+
+        if total_time > 0:
+            # 主力 Level 5 OFI
+            metrics['main_force_level5_ofi'] = np.average(main_force_ofi_series.dropna(), weights=time_diffs[main_force_ofi_series.notna()])
+            metrics['main_force_level5_buy_ofi'] = np.average(main_force_ofi_series.clip(lower=0).dropna(), weights=time_diffs[main_force_ofi_series.notna()])
+            metrics['main_force_level5_sell_ofi'] = np.average(main_force_ofi_series.clip(upper=0).dropna(), weights=time_diffs[main_force_ofi_series.notna()])
+
+            # 散户 Level 5 OFI
+            metrics['retail_level5_ofi'] = np.average(retail_ofi_series.dropna(), weights=time_diffs[retail_ofi_series.notna()])
+            metrics['retail_level5_buy_ofi'] = np.average(retail_ofi_series.clip(lower=0).dropna(), weights=time_diffs[retail_ofi_series.notna()])
+            metrics['retail_level5_sell_ofi'] = np.average(retail_ofi_series.clip(upper=0).dropna(), weights=time_diffs[retail_ofi_series.notna()])
+
+            # 动态变化分析：计算日内 Level 5 OFI 的平均变化率
+            metrics['main_force_level5_ofi_dynamic'] = main_force_ofi_series.diff().mean()
+            metrics['retail_level5_ofi_dynamic'] = retail_ofi_series.diff().mean()
+        else:
+            # 如果没有有效时间差，则直接取平均值（或保持NaN）
+            metrics['main_force_level5_ofi'] = main_force_ofi_series.mean()
+            metrics['main_force_level5_buy_ofi'] = main_force_ofi_series.clip(lower=0).mean()
+            metrics['main_force_level5_sell_ofi'] = main_force_ofi_series.clip(upper=0).mean()
+
+            metrics['retail_level5_ofi'] = retail_ofi_series.mean()
+            metrics['retail_level5_buy_ofi'] = retail_ofi_series.clip(lower=0).mean()
+            metrics['retail_level5_sell_ofi'] = retail_ofi_series.clip(upper=0).mean()
+
+            metrics['main_force_level5_ofi_dynamic'] = main_force_ofi_series.diff().mean()
+            metrics['retail_level5_ofi_dynamic'] = retail_ofi_series.diff().mean()
+
         return metrics
 
     @staticmethod
