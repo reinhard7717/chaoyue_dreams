@@ -315,14 +315,15 @@ class FusionIntelligence:
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 内腐外强版 - 依赖解耦与强化】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
+        【V3.7 · 内腐外强版 - 依赖解耦与强化】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
         - 核心重构: 废弃V2.1的“症状清单”模型，引入“内腐外强”背离审判模型。
         - 核心公式: 滞涨风险 = (内部腐化度 × 外部强势幻象)^(1/2)
         - 诡道哲学: 最大的风险，源于内部趋势质量的腐化与外部价格强势的假象之间的
                       致命背离，此乃“温水煮蛙”之局。
-        - 【V3.5 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 和 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM` 和 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
+        - 【V3.7 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 和 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM` 和 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
                       增加 `SCORE_CHIP_RETAIL_VULNERABILITY` 和 `SCORE_RISK_LIQUIDITY_DRAIN` 信号，提高内部腐化度的准确性。
                       调整 `internal_decay_components` 权重，确保高风险信号能有效贡献，避免被过多零值信号稀释。
+                      **将 `internal_decay_score` 的计算方式从加权几何平均改为加权算术平均，以更准确地聚合内部腐化信号。**
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_stagnation_risk"
@@ -351,7 +352,7 @@ class FusionIntelligence:
         # 修正：替换 retail_fomo_premium_index_D 为 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM 的正向部分
         retail_fomo = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info).clip(lower=0).clip(0, 1)
         # --- 2. 核心数学逻辑 - 背离审判 ---
-        # 2.1 计算“内部腐化度” (几何平均，体现症状共振)
+        # 2.1 计算“内部腐化度” (加权算术平均，体现症状累加)
         # 调整权重，提高散户筹码脆弱性和流动性枯竭风险的权重
         internal_decay_components = {
             '趋势质量衰减': (trend_quality_decay, 0.15), # 调整权重
@@ -362,13 +363,23 @@ class FusionIntelligence:
             '散户筹码脆弱性': (retail_vulnerability, 0.20), # 提高权重
             '流动性枯竭风险': (liquidity_drain_risk, 0.20), # 提高权重
         }
-        internal_decay_score = pd.Series(1.0, index=df_index, dtype=np.float32)
+        internal_decay_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        total_weight_sum = 0.0
         for name, (comp, weight) in internal_decay_components.items():
-            # 确保每个组件在参与几何平均前，如果其值非常小，也至少是 1e-9，避免被 0 拖垮
-            internal_decay_score *= (comp.clip(lower=1e-9)) ** weight
+            # 确保每个组件在参与算术平均前，填充NaN为0，并裁剪到 [0, 1] 范围
+            comp_processed = comp.fillna(0.0).clip(0, 1)
+            internal_decay_score += comp_processed * weight
+            total_weight_sum += weight
             if is_debug_enabled and probe_ts and probe_ts in df.index:
-                print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '{name}' (值: {comp.loc[probe_ts]:.4f}, 权重: {weight})")
-        internal_decay_score = internal_decay_score.pow(1 / sum(w for _, w in internal_decay_components.values())) # 修正为几何平均
+                print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '{name}' (值: {comp_processed.loc[probe_ts]:.4f}, 权重: {weight})")
+        
+        if total_weight_sum > 0:
+            internal_decay_score /= total_weight_sum
+        else:
+            internal_decay_score = pd.Series(0.0, index=df_index, dtype=np.float32) # 避免除以零
+        
+        internal_decay_score = internal_decay_score.clip(0, 1) # 确保最终分数在 [0, 1] 范围内
+
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化度 (internal_decay_score): {internal_decay_score.loc[probe_ts]:.4f}")
         # 2.2 计算“外部强势幻象” (加权平均)
@@ -401,8 +412,8 @@ class FusionIntelligence:
         method_name = "_synthesize_capital_confrontation"
         # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资本对抗”...")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资本对抗”...")
         states = {}
         df_index = df.index
         # 1. 信号升维：定义“内因”与“外缘”
@@ -432,18 +443,18 @@ class FusionIntelligence:
         # 应用欺骗惩罚和奖励到战役意志
         # 惩罚是乘法削弱，奖励是加法增强
         campaign_will_modulated = (campaign_will * (1 - deception_penalty) + deception_reward).clip(-1, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力意图 (main_force_intent): {main_force_intent.loc[probe_ts]:.4f}, 战役意志 (campaign_will): {campaign_will.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 欺骗指数 (deception_index): {deception_index.loc[probe_ts]:.4f}, 欺骗惩罚 (deception_penalty): {deception_penalty.loc[probe_ts]:.4f}, 欺骗奖励 (deception_reward): {deception_reward.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 调制后战役意志 (campaign_will_modulated): {campaign_will_modulated.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力意图 (main_force_intent): {main_force_intent.loc[probe_ts]:.4f}, 战役意志 (campaign_will): {campaign_will.loc[probe_ts]:.4f}")
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 欺骗指数 (deception_index): {deception_index.loc[probe_ts]:.4f}, 欺骗惩罚 (deception_penalty): {deception_penalty.loc[probe_ts]:.4f}, 欺骗奖励 (deception_reward): {deception_reward.loc[probe_ts]:.4f}")
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 调制后战役意志 (campaign_will_modulated): {campaign_will_modulated.loc[probe_ts]:.4f}")
         # 2.2 构建“环境调节器”
         # 进一步提高环境调节器的敏感度，使散户贪婪的惩罚更显著
         modulation_factor = 1.8 # 再次提高环境调节系数，从1.5提高到1.8
         # 当散户情绪狂热（sentiment_pendulum > 0），counterparty_state < 0，modulator < 1，惩罚
         # 当散户情绪恐慌（sentiment_pendulum < 0），counterparty_state > 0，modulator > 1，奖励
         environment_modulator = (1 + counterparty_state * modulation_factor).clip(0, 2)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 对手盘状态 (counterparty_state): {counterparty_state.loc[probe_ts]:.4f}, 环境调节器 (environment_modulator): {environment_modulator.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 对手盘状态 (counterparty_state): {counterparty_state.loc[probe_ts]:.4f}, 环境调节器 (environment_modulator): {environment_modulator.loc[probe_ts]:.4f}")
         # 2.3 最终决断: 战役意志(我) × 环境调节器(天)
         final_score = (campaign_will_modulated * environment_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = final_score.astype(np.float32)
@@ -1063,19 +1074,22 @@ class FusionIntelligence:
 
     def _synthesize_trend_exhaustion_syndrome(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 意志与压力版 - 依赖解耦与强化】冶炼“趋势衰竭综合征”
+        【V2.4 · 意志与压力版 - 依赖解耦与强化】冶炼“趋势衰竭综合征”
         - 核心重构: 废弃V1.0基于陈旧过程信号的“症状叠加”模型，引入基于高阶信号的
                       “意志vs压力”二元博弈模型。
         - 核心公式: 衰竭风险 = (上涨意志衰竭度 × 反转压力增强度)^(1/2)
         - 诡道哲学: 趋势之终结，非无故自崩，乃上涨意志之衰竭，恰逢反转压力之增强，
                       两相博弈，天平倾覆之必然结果。
-        - 【V2.3 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
+        - 【V2.4 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       增强 `weakening_will_score` 和 `intensifying_pressure_score` 对高位风险的敏感度。
                       调整 `will_components` 权重，确保风险信号能有效贡献。
+                      **将 `weakening_will_score` 和 `intensifying_pressure_score` 的计算方式从加权几何平均改为加权算术平均，以更准确地聚合内部风险信号。**
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_trend_exhaustion_syndrome"
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势衰竭综合征”...")
         states = {}
         df_index = df.index
         fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
@@ -1096,13 +1110,16 @@ class FusionIntelligence:
             (chip_posture_decay, 0.2),
             (price_overextension_risk, 0.3)
         ]
-        weakening_will_score = pd.Series(1.0, index=df_index, dtype=np.float32)
+        weakening_will_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_will_weight = sum(w for _, w in will_components_with_weights)
         if total_will_weight > 0:
             for comp, weight in will_components_with_weights:
-                weakening_will_score *= (comp.clip(lower=1e-9)) ** (weight / total_will_weight) # 归一化权重
+                comp_processed = comp.fillna(0.0).clip(0, 1)
+                weakening_will_score += comp_processed * weight
+            weakening_will_score /= total_will_weight
         else:
             weakening_will_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        weakening_will_score = weakening_will_score.clip(0, 1)
         # --- 2. 反转压力增强度 (Intensifying Pressure) ---
         # 替换 FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT 为 INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW
         overextension_risk = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0, debug_info).clip(lower=0) # 价格超买意图正向部分
@@ -1118,13 +1135,16 @@ class FusionIntelligence:
             (stagnation_risk, 0.25),
             (distribution_pressure, 0.25)
         ]
-        intensifying_pressure_score = pd.Series(1.0, index=df_index, dtype=np.float32)
+        intensifying_pressure_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_pressure_weight = sum(w for _, w in pressure_components_with_weights)
         if total_pressure_weight > 0:
             for comp, weight in pressure_components_with_weights:
-                intensifying_pressure_score *= (comp.clip(lower=1e-9)) ** (weight / total_pressure_weight) # 归一化权重
+                comp_processed = comp.fillna(0.0).clip(0, 1)
+                intensifying_pressure_score += comp_processed * weight
+            intensifying_pressure_score /= total_pressure_weight
         else:
             intensifying_pressure_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        intensifying_pressure_score = intensifying_pressure_score.clip(0, 1)
         # --- 3. 最终融合 ---
         syndrome_score = (weakening_will_score * intensifying_pressure_score).pow(0.5).fillna(0.0).clip(0, 1)
         output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'

@@ -55,19 +55,10 @@ class StructuralIntelligence:
         如果列不存在，返回一个填充了default_value的Series。
         """
         if col_name not in df.columns:
-            if self.is_probe_date and not df.empty:
-                current_date = df.index[-1].strftime('%Y-%m-%d')
-                print(f"      [结构情报探针] -> 警告: 方法 {method_name} 缺少列 '{col_name}'，返回默认值 {default_value}。({current_date})")
             return pd.Series(default_value, index=df.index, dtype=np.float32)
         series = df[col_name].copy() # 使用copy避免SettingWithCopyWarning
         # 先填充NaN，再检查最后一个值
         series.fillna(default_value, inplace=True)
-        if self.is_probe_date and not df.empty:
-            current_date = df.index[-1].strftime('%Y-%m-%d')
-            val = series.iloc[-1] # 获取填充后的最后一个值
-            # 只有当原始数据在probe_ts处为NaN时才打印此信息
-            if pd.isna(df[col_name].iloc[-1]): # 检查原始数据是否为NaN
-                print(f"      [结构情报探针] -> 原始数据 '{col_name}' 在 {current_date} 为 NaN，已填充为 {default_value}。")
         return series
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
