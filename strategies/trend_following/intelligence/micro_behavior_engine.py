@@ -72,10 +72,17 @@ class MicroBehaviorEngine:
         probe_dates: List[pd.Timestamp] = []
         if is_debug_enabled and probe_dates_str:
             try:
-                probe_dates = [pd.Timestamp(d) for d in probe_dates_str]
+                # 确保 probe_dates 都是时区无关的
+                probe_dates = [pd.Timestamp(d).tz_localize(None) if pd.Timestamp(d).tz is not None else pd.Timestamp(d) for d in probe_dates_str]
             except Exception as e:
                 print(f"    -> [微观行为情报警告] 调试日期解析失败: {e}。禁用调试。")
                 is_debug_enabled = False
+
+        # --- 关键修复：确保 df.index 是时区无关的，以便与 probe_dates 进行一致性比较 ---
+        if df.index.tz is not None:
+            print(f"    -> [微观行为情报警告] DataFrame索引包含时区信息 ({df.index.tz})，将其转换为时区无关。")
+            df.index = df.index.tz_localize(None)
+
         all_states = {}
         # 借用行为层的MTF权重配置
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -117,11 +124,13 @@ class MicroBehaviorEngine:
         if is_debug_enabled:
             print(f"\n-> [微观行为情报] 微观行为诊断引擎完成。")
             for probe_date in probe_dates:
-                if probe_date in df.index:
+                if probe_date in df.index: # 再次检查，因为 df.index 可能在某些情况下被修改
                     print(f"   --- 探针日期: {probe_date.strftime('%Y-%m-%d')} ---")
                     for signal_name, series in all_states.items():
                         if probe_date in series.index:
                             print(f"     - {signal_name}: {series.loc[probe_date]:.4f}")
+                else:
+                    print(f"   --- 探针日期: {probe_date.strftime('%Y-%m-%d')} 不在最终DataFrame索引中，无法输出最终信号。 ---")
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
