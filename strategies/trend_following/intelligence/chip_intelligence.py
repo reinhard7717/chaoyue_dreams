@@ -330,8 +330,10 @@ class ChipIntelligence:
             print(f"        战场控制得分 (battlefield_control_score): {battlefield_control_score.loc[probe_ts]:.4f}")
         # 4. 基础战略态势 (Base Strategic Posture)
         norm_covert_distribution_signal = utils.get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        # 修正：在进行几何平均之前，对 commanders_resolve_score 进行裁剪，确保其在 [-1, 1] 范围内
+        commanders_resolve_score_clipped = commanders_resolve_score.clip(-1, 1)
         base_strategic_posture_score = (
-            (commanders_resolve_score.add(1)/2).pow(0.5) *
+            (commanders_resolve_score_clipped.add(1)/2).pow(0.5) *
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ).pow(1/(0.5+0.3+0.2)) * 2 - 1
@@ -339,6 +341,7 @@ class ChipIntelligence:
         base_strategic_posture_score = base_strategic_posture_score.clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础战略态势计算 ---")
+            print(f"        裁剪后指挥官决心得分 (commanders_resolve_score_clipped): {commanders_resolve_score_clipped.loc[probe_ts]:.4f}")
             print(f"        隐蔽派发信号归一化 (norm_covert_distribution_signal): {norm_covert_distribution_signal.loc[probe_ts]:.4f}")
             print(f"        基础战略态势得分 (base_strategic_posture_score): {base_strategic_posture_score.loc[probe_ts]:.4f}")
         # 5. 维度间非线性互动增强
@@ -355,6 +358,7 @@ class ChipIntelligence:
                             ((formation_deployment_score > 0) & (battlefield_control_score < 0)) | \
                             ((formation_deployment_score < 0) & (battlefield_control_score > 0))
             synergy_factor.loc[conflict_mask] = -conflict_penalty_factor
+            # 注意：这里对 base_strategic_posture_score 进行 tanh 激活，它应该在 [-1, 1] 范围内
             base_strategic_posture_score = np.tanh(base_strategic_posture_score + synergy_factor)
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 维度互动增强 ---")
@@ -399,8 +403,11 @@ class ChipIntelligence:
             print(f"        动态速度权重 (dynamic_velocity_weight): {dynamic_velocity_weight.loc[probe_ts]:.4f}")
             print(f"        动态加速度权重 (dynamic_acceleration_weight): {dynamic_acceleration_weight.loc[probe_ts]:.4f}")
         # 8. 最终融合 (Final Fusion)
+        # 修正：在进行几何平均之前，对 base_strategic_posture_score 进行裁剪，确保其在 [-1, 1] 范围内
+        # 这里的 base_strategic_posture_score 已经是经过维度互动增强后的结果，也可能超出 [-1, 1]
+        base_strategic_posture_score_for_fusion = base_strategic_posture_score.clip(-1, 1)
         final_score_unmodulated = (
-            (base_strategic_posture_score.add(1)/2).pow(dynamic_base_weight) *
+            (base_strategic_posture_score_for_fusion.add(1)/2).pow(dynamic_base_weight) *
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
