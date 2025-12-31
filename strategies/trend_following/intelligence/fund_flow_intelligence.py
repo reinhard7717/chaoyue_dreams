@@ -144,7 +144,6 @@ class FundFlowIntelligence:
         # 新增：意图纯度公理
         axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window)
         # --- 2. 战略态势的向量合成 (V3.1 · 脆弱性感知版) ---
-        print("    -> [资金流层] 正在计算“资金流战略态势 (V3.1 · 脆弱性感知版)”...")
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
         attack_group = fusion_weights.get('attack_group', {})
         defense_group = fusion_weights.get('defense_group', {})
@@ -237,7 +236,6 @@ class FundFlowIntelligence:
         【V5.1 · 效率优化版】资金流公理四：诊断“资金流内部分歧与意图张力”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`，减少重复数据查找。
         """
-        print("    -> [资金流层] 正在诊断“资金流内部分歧与意图张力 (V5.1 · 效率优化版)”公理...")
         df_index = df.index
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
@@ -477,7 +475,6 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        print(f"    -> [资金流层] 资金流内部分歧与意图张力 (final_score): {final_score.iloc[-1]:.4f}")
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -491,7 +488,6 @@ class FundFlowIntelligence:
         - 核心升级6: 详细探针输出：增加print语句，方便调试和理解计算过程。
         - 核心升级7: 引入多时间框架共振因子：评估关键资金流信号在不同时间框架下的协同或背离，作为重要的调制器。
         """
-        print(f"    -> [资金流层] 正在诊断“战场控制权 (V6.1 · 意图推断与情境预测版 & MTF共振强化版)”公理...")
         df_index = df.index
         p_conf_ff = self.p_conf_ff
         ac_params = get_param_value(p_conf_ff.get('axiom_consensus_params'), {})
@@ -908,7 +904,6 @@ class FundFlowIntelligence:
         - 核心升级: 引入多时间框架共振因子，评估关键信念信号在不同时间框架下的协同或背离，作为重要的调制器。
         - 核心细化: 将资金流效率从 `flow_efficiency_index_D` 细化为 `buy_flow_efficiency_index_D` 和 `sell_flow_efficiency_index_D`。
         """
-        print(f"    -> [资金流层] 正在诊断 资金流公理二：诊断“信念韧性”")
         df_index = df.index
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
@@ -1250,7 +1245,6 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        print(f"    -> [资金流层] 信念韧性 (final_score): {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1259,7 +1253,6 @@ class FundFlowIntelligence:
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         """
-        print(f"    -> [资金流层] 正在诊断 资金流公理三：诊断“资金流纯度与动能”")
         df_index = df.index
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
@@ -1578,7 +1571,6 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        print(f"    -> [资金流层] 资金流纯度与动能 (final_score): {final_score.iloc[-1]:.4f}")
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1589,7 +1581,6 @@ class FundFlowIntelligence:
         - 错误修复: 修正了 `SLOPE_5_SLOPE_5_net_lg_amount_calibrated_D` 命名错误，统一使用 `NMFNF_D` 及其衍生信号。
                     修复了 `retail_fomo_premium_index_D` 和 `retail_panic_surrender_index_D` 信号未被正确缓存导致的 KeyError。
         """
-        print(f"    -> [资金流层] 正在诊断 资金流公理五：诊断“资本属性”")
         df_index = df.index
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
@@ -1887,7 +1878,6 @@ class FundFlowIntelligence:
         patient_modulated_score = patient_capital_score * dynamic_patient_weight * liquidity_mod * volatility_mod * sentiment_mod * (1 + inter_capital_game_score.clip(lower=0))
         agile_modulated_score = agile_capital_score * dynamic_agile_weight * liquidity_mod * volatility_mod * sentiment_mod * (1 + inter_capital_game_score.clip(upper=0).abs())
         capital_signature_score = np.tanh(patient_modulated_score - agile_modulated_score).pow(fusion_exponent).clip(-1, 1)
-        print(f"    -> [资金流层] 资本属性 (capital_signature_score): {capital_signature_score.iloc[-1]:.4f}")
         return capital_signature_score.astype(np.float32)
 
     def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -1902,7 +1892,6 @@ class FundFlowIntelligence:
             6. 修正了流量平稳度，使其同时考虑波动性和资金流向。
             7. 修正了资金流集中度风险的逻辑，高基尼系数现在正确地表示低健康度。
         """
-        print(f"    -> [资金流层] 正在诊断 资金流公理六：诊断“资金流结构健康度 (V1.3 · 资金流向与风险校准版)”...")
         df_index = df.index
         p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -2075,7 +2064,6 @@ class FundFlowIntelligence:
         # if probe_enabled and current_probe_date: # 移除探针相关逻辑
         #     print(f"        [探针] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.loc[current_probe_date]:.4f}")
         #     print(f"        [探针] 资金流结构健康度诊断完成。")
-        print(f"    -> [资金流层] 最终资金流结构健康度 (flow_structure_health_score): {flow_structure_health_score.iloc[-1]:.4f}")
         return flow_structure_health_score.astype(np.float32)
 
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
@@ -2184,7 +2172,6 @@ class FundFlowIntelligence:
             5. 引入“散户狂热”反向指标：当散户情绪过于狂热时，惩罚看涨信号。
             6. 新增“意图纯度”和“资金流结构健康度”的负面反馈，使其能更有效地抑制看涨信号。
         """
-        print(f"    -> [资金流层] 正在诊断 资金流公理四：诊断“资金流看涨/看跌背离”")
         method_name = "_diagnose_fund_flow_divergence_signals"
         df_index = df.index
         # 调试信息构建
@@ -2590,7 +2577,6 @@ class FundFlowIntelligence:
         df_index = df.index
         p_conf_ff = self.p_conf_ff
         aip_params = get_param_value(p_conf_ff.get('axiom_intent_purity_params'), {})
-        print(f"    -> [资金流层] 正在诊断 资金流公理：意图纯度 (V3.0 · 意图韧性与适应性版)...")
         tf_weights_ff = self.tf_weights_ff
         flow_clarity_weights = get_param_value(aip_params.get('flow_clarity_weights'), {})
         execution_quality_weights = get_param_value(aip_params.get('execution_quality_weights'), {})
@@ -2859,7 +2845,6 @@ class FundFlowIntelligence:
         }
         final_score_unipolar = _robust_geometric_mean(final_score_components, final_score_weights, df_index)
         final_score = (final_score_unipolar * 2 - 1).clip(-1, 1)
-        print(f"    -> [资金流层] 意图纯度: {final_score_unipolar.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
 

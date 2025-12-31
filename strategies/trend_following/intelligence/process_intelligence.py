@@ -322,7 +322,6 @@ class ProcessIntelligence:
         - 核心逻辑: 融合“主力信念”、“战场清晰度”（由对倒和欺骗构成）来计算资金转移的真实性，
                       并对最终结果进行非线性放大，以捕捉市场的极端博弈。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER...")
         required_signals = [
             'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
             'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
@@ -366,7 +365,6 @@ class ProcessIntelligence:
                       而是检查更长的周期，判断是否处于“上升波浪结束后开始下跌”的趋势中，
                       以正确分辨超跌反弹和下跌中继。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V5.8 · 全息趋势与深度情境风险审判版)...")
         method_name = "_calculate_main_force_rally_intent"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -540,7 +538,6 @@ class ProcessIntelligence:
         - 【重要修改】修正 `control_leverage` 逻辑，当控盘不强时，对资金流入进行更强的惩罚。
         - 【新增】引入 MTF 控盘信号和 MTF 主力资金净流，增强信号鲁棒性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (V2.3 · 控盘杠杆与全息资金流验证强化版)...")
         method_name = "_calculate_main_force_control_relationship"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -799,7 +796,6 @@ class ProcessIntelligence:
         return {signal_name: decay_score.astype(np.float32)}
 
     def _calculate_price_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE (V4.1 · 深度情境与动态权重版)...")
         df_index = df.index
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         # --- 1. 获取配置参数 ---
@@ -1102,7 +1098,6 @@ class ProcessIntelligence:
         - 核心优化: 引入“动态融合指数”，根据市场波动率和情绪动态调整最终融合的非线性指数。
         - 核心逻辑: 最终衰减分 = (核心衰减分 * (1 + 情境调制器))^动态非线性指数。
         """
-        print(f"    -> [过程层] 正在计算 {config.get('name')} (V4.1 · 全息动态审判版)...")
         signal_name = config.get('name')
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
@@ -1412,7 +1407,6 @@ class ProcessIntelligence:
                       增强信号的鲁棒性和趋势感知能力。
         - 【调整】优化 `suppressive_score` 和 `consolidative_score` 的构成，使其更精准地捕捉隐蔽吸筹的特征。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V5.2 · 全息融合与多维趋势感知版)...")
         method_name = "_calculate_stealth_accumulation"
         df_index = df.index
         # 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
@@ -1519,7 +1513,6 @@ class ProcessIntelligence:
         - 【新增】引入整体 MTF 价格趋势作为上下文，区分“超跌反弹”和“下跌中继”中的洗盘吸筹。
         - 【新增】增加“价格企稳”的判断，确保洗盘后有筑底迹象。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V4.7 · 战果审判与全息资金流验证强化版)...")
         method_name = "_calculate_panic_washout_accumulation"
         df_index = df.index
         historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
@@ -1654,7 +1647,6 @@ class ProcessIntelligence:
         - 【新增】重新定义 `disguise_score`，使其能捕捉“价格下跌但主力资金流入”和“价格下跌但整体权力转移为正”
                       这两种更广泛的“诡道”矛盾，从而更全面地识别诡道吸筹。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V3.8 · 价格筹码背离与多维诡道融合版)...")
         method_name = "_calculate_deceptive_accumulation"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -1736,7 +1728,6 @@ class ProcessIntelligence:
         - 【新增】严格限制 K 线形态，只有当 K 线为“上冲回落”形态时才激活信号。
         - 【新增】引入主力资金净流向作为判断洗盘真实性的关键证据。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V2.1 · 强证优先与形态门控版)...")
         method_name = "_calculate_upthrust_washout"
         required_signals = [
             'SCORE_STRUCT_AXIOM_TREND_FORM', 'BIAS_21_D', 'pct_change_D',
@@ -1821,7 +1812,6 @@ class ProcessIntelligence:
                       更精细地评估综合吸筹强度。
         - 【增强】增强 `ignition_intent_score`，引入更多维度信号来判断“质变”的意图。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V2.4 · 势能衰减与多维融合版)...")
         method_name = "_calculate_accumulation_inflection"
         required_signals = [
             'PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION',
@@ -1906,7 +1896,6 @@ class ProcessIntelligence:
             6.  **非线性融合：** 使用 _robust_geometric_mean 对所有强度/幅度组件进行融合，并结合整体方向。
         - 目标: 提供一个双极性分数，正值代表赢家信念坚定，负值代表信念动摇或面临风险。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_WINNER_CONVICTION (V4.0 · 韧性博弈与多维时空版)...")
         method_name = "_calculate_winner_conviction_relationship"
         df_index = df.index
         # --- 调试信息构建 ---
@@ -2104,7 +2093,6 @@ class ProcessIntelligence:
         - 核心重构: 扩展“战场”定义。战场不再仅限于收盘下跌日，而是扩展为“收盘下跌 或 出现强力下影线吸收”，
                       旨在捕捉经典的“金针探底”反转形态。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_LOSER_CAPITULATION (V3.1 · 战场扩展版)...")
         required_signals = [
             'pct_change_D', 'capitulation_flow_ratio_D', 'active_buying_support_D',
             'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'
@@ -2139,7 +2127,6 @@ class ProcessIntelligence:
         - 【新增】将价格变化、成本优势变化升级为多时间维度（MTF）斜率/加速度融合。
         - 【新增】增强 Q1、Q3、Q4 的确认，引入更多 MTF 融合信号。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (V4.4 · 象限审判与全息资金流验证版)...")
         method_name = "_calculate_cost_advantage_trend_relationship"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -2227,7 +2214,6 @@ class ProcessIntelligence:
                       先对“全息验证综合分”进行校准。这使得任何低于基准线的战果（即使为正）
                       都会被视为负向贡献，从而受到惩罚性抑制，为模型注入了赏罚分明的“主帅”逻辑。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V3.2 · 质效校准版)...")
         required_signals = [
             'hidden_accumulation_intensity_D', 'SLOPE_5_close_D', 'deception_index_D',
             'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER',
@@ -2276,7 +2262,6 @@ class ProcessIntelligence:
         - 核心逻辑: 基于价量四象限博弈模型，并引入“共振催化剂”（由形态、流向、心理、主动承接构成）
                       作为关键场景的乘法确认项，核心权重倾向于体现“主力意志”的主动承接行为。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN...")
         required_signals = [
             'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
@@ -2348,7 +2333,6 @@ class ProcessIntelligence:
         - 【强化】引入主力资金净流入和资金流可信度作为共振分和相对强度调节器的重要组成部分。
         - 【重要修改】强化“突破”的门控作用，当形态层没有确认突破时，大幅惩罚共振分。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V3.3 · 共振审判与突破门控版)...")
         method_name = "_calculate_breakout_acceleration"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -2414,7 +2398,6 @@ class ProcessIntelligence:
         - 【新增】将 `main_force_flow_momentum` 升级为 MTF 融合版本。
         - 【修正】调整 `attack_score` 中 `pressure_exhaustion_synergy` 的惩罚项，使其更符合逻辑。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.7 · 战术升级与全息资金流验证强化版)...")
         method_name = "_calculate_fund_flow_accumulation_inflection"
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -2478,7 +2461,6 @@ class ProcessIntelligence:
         - 【新增】增强“派发压力”的判断，引入赢家平均利润率和行为派发意图。
         - 【新增】调整“建仓动力”的判断，引入资金流可信度。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PROFIT_VS_FLOW (V4.3 · 战场态势与多维压力版)...")
         method_name = "_calculate_profit_vs_flow_relationship"
         pressure_signal_name = 'profit_taking_flow_ratio_D'
         drive_signal_name = 'main_force_net_flow_calibrated_D'
@@ -2531,7 +2513,6 @@ class ProcessIntelligence:
         - 【重要修改】强化板块动量的门控作用，只有当板块动量为正时，才允许个股的看涨协同被放大。
         - 【新增】引入 MTF 板块动量和 MTF 行业强度排名，增强信号鲁棒性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STOCK_SECTOR_SYNC (V3.3 · 协同共振与全息资金流验证强化版)...")
         method_name = "_calculate_stock_sector_sync"
         stock_signal_name = 'pct_change_D'
         sector_rank_name = 'industry_strength_rank_D'
@@ -2631,7 +2612,6 @@ class ProcessIntelligence:
         【V1.1 · 调用修正版】计算“价资关系”的专属方法。
         - 核心修复: 修正了对 `_perform_meta_analysis_on_score` 的调用，确保传递了完整的 `df` 和 `df.index`。
         """
-        print(f"    -> [过程层] 正在计算 {config.get('name')} (V3.0 · 信念驱动版)...")
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -2644,7 +2624,6 @@ class ProcessIntelligence:
         【V1.1 · 调用修正版】计算“价筹关系”的专属方法。
         - 核心修复: 修正了对 `_perform_meta_analysis_on_score` 的调用，确保传递了完整的 `df` 和 `df.index`。
         """
-        print(f"    -> [过程层] 正在计算 {config.get('name')} (V3.0 · 结构验证版)...")
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -2653,7 +2632,6 @@ class ProcessIntelligence:
         return meta_score
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print("    -> [过程层] 正在计算 PROCESS_META_STORM_EYE_CALM (V10.1 · 情绪与主力意图精细化感知版)...")
         method_name = "_calculate_storm_eye_calm"
         df_index = df.index
         params = get_param_value(config.get('storm_eye_calm_params'), {})
@@ -3134,7 +3112,6 @@ class ProcessIntelligence:
         - 【强化】调整 `panic_depth_weights` 中恐慌加速的权重，以更强调恐慌加速的重要性。
         - 【调整】优化 `rebound_quality_weights` 中的吸收信号，避免重复并更清晰地表达吸收意图和强度。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V2.5 · 深度情境与多维洗盘反弹版)...")
         method_name = "_calculate_process_wash_out_rebound"
         df_index = df.index
         # 直接使用 self.params，因为它已在 __init__ 中加载了 process_intelligence_params
@@ -3281,7 +3258,6 @@ class ProcessIntelligence:
         - 【强化】优化 `covert_action_score` 中的欺诈信号融合，更侧重于正向的诱多欺诈。
         - 【调整】调整 `covert_action_weights` 中拆单吸筹的权重，使用原始指标的MTF融合版本。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V2.5 · 深度情境与多维隐蔽行动版)...")
         method_name = "_calculate_process_covert_accumulation"
         # 直接使用 self.params，因为它已在 __init__ 中加载了 process_intelligence_params
         p_conf = self.params

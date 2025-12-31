@@ -834,7 +834,7 @@
             "cn_name": "【力学公理】动量品质",
             "category": "力学层-原子",
             "type": "context",
-            "score": 100,
+            "score": 0,
             "scoring_mode": "bipolar",
             "description": "【V3.2 · MTF校准版】力学公理一。通过“先融合，后归一”原则，将上涨纯度、主力信念（负值为惩罚）和趋势活力融合成“综合品质原始分”，再通过“多时间框架Z-Score”和tanh函数进行平滑映射，最终对原始动量进行调制。旨在识别出在全息统计意义上显著的、具备高“含金量”的趋势动能。"
         },
@@ -842,7 +842,7 @@
             "cn_name": "【力学公理】结构化惯性",
             "category": "力学层-原子",
             "type": "context",
-            "score": 100,
+            "score": 0,
             "scoring_mode": "bipolar",
             "description": "【V3.2 · MTF校准版】力学公理二。将均线排列与结构杠杆融合成“综合结构加固分”，并通过“多时间框架Z-Score”和tanh函数进行平滑映射后，对基础惯性进行增强。旨在评估趋势的自我维持能力是否得到了全息统计意义上显著的结构性支撑。"
         },
@@ -850,7 +850,7 @@
             "cn_name": "【力学公理】势能稳定性",
             "category": "力学层-原子",
             "type": "context",
-            "score": 100,
+            "score": 0,
             "scoring_mode": "bipolar",
             "description": "【V3.2 · MTF校准版】力学公理三。将均线张力、结构张力与突破准备度融合成“综合势能原始分”，并通过“多时间框架Z-Score”和tanh函数进行平滑映射后，对基础稳定性（波动率的倒数）进行调制。旨在识别出在全息统计意义上显著的、能量高度压缩的“势能稳定”状态。"
         },
@@ -858,7 +858,7 @@
             "cn_name": "【力学公理】能量真实性",
             "category": "力学层-原子",
             "type": "context",
-            "score": 100,
+            "score": 0,
             "scoring_mode": "bipolar",
             "description": "【V3.2 · MTF校准版】力学公理四。将资金可信度与主力流向性融合成“综合能量品质分”，并通过“多时间框架Z-Score”和tanh函数进行平滑映射后，再结合对倒强度惩罚，对原始能量进行调制。旨在识别出在全息统计意义上显著的、由主力主导的“真实能量”。"
         },
@@ -866,7 +866,7 @@
             "cn_name": "【力学公理】均线动态",
             "category": "力学层-原子",
             "type": "context",
-            "score": 100,
+            "score": 0,
             "scoring_mode": "bipolar",
             "description": "【力学公理六】诊断均线的速度和加速度，评估趋势的内在变化。正分代表均线加速向上，负分代表均线加速向下。"
         },
@@ -874,7 +874,7 @@
             "cn_name": "【力学公理】力学背离",
             "category": "力学层-原子",
             "type": "context",
-            "score": 100,
+            "score": 0,
             "scoring_mode": "bipolar",
             "description": "【力学公理五】诊断价格动量与惯性之间的背离。正分代表看涨背离（如价跌动量减弱但惯性增强），负分代表看跌背离（如价涨动量增强但惯性减弱）。"
         },
@@ -882,7 +882,7 @@
             "cn_name": "【力学】看涨背离",
             "category": "内部计分-力学",
             "type": "dynamic",
-            "score": 200,
+            "score": 0,
             "scoring_mode": "unipolar",
             "description": "【V1.0】基于力学公理，诊断价格动量与惯性之间的看涨背离。"
         },
@@ -890,7 +890,7 @@
             "cn_name": "【力学】看跌背离",
             "category": "内部计分-力学",
             "type": "risk",
-            "penalty_weight": -200,
+            "penalty_weight": 0,
             "scoring_mode": "unipolar",
             "description": "【V1.0】基于力学公理，诊断价格动量与惯性之间的看跌背离。"
         },
@@ -904,7 +904,7 @@
             "cn_name": "【力学】大统一力场",
             "category": "力学层-超级原子",
             "type": "context",
-            "score": 150,
+            "score": 0,
             "scoring_mode": "bipolar",
             "description": "【V1.0 · 矛与盾】力学引擎的顶层裁决信号。基于“矛与盾”博弈模型，将动量与能量融合成进攻力量“矛”，将惯性与稳定性融合成结构完整性“盾”，再通过 `sign(矛) * sqrt(abs(矛 * 盾))` 进行非线性融合。旨在识别“矛坚盾固”的强趋势，并惩罚“有勇无谋”或“固步自封”的弱趋势，输出对系统当前总合力的最终战略判断。"
         },

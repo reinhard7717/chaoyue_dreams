@@ -80,7 +80,6 @@ class FoundationIntelligence:
         - 核心升级: 引入“突破质量分”和“趋势活力指数”重新定义趋势健康度，使其能够
                       真正识别并奖励强势突破，而非惩罚。
         """
-        print("    -> [基础层] 正在诊断“趋势确认”上下文...")
         # 更新依赖信号，用突破质量和趋势活力替换BIAS
         required_signals = [
             'ADX_14_D', 'PDI_14_D', 'NDI_14_D', 'SLOPE_5_PDI_14_D',
@@ -108,7 +107,6 @@ class FoundationIntelligence:
         # 4. 最终融合
         trend_confirmed = (adx_score * direction_score * trend_health_score).pow(1/3).fillna(0.0)
         trend_confirmed = trend_confirmed.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '趋势确认' 分数: {trend_confirmed.iloc[-1]}")
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed}
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -122,7 +120,6 @@ class FoundationIntelligence:
                     以及高质量的价格行为和健康的筹码分布。此升级旨在识别这种“抗揍”、有“内生动力”、
                     “行为纯粹”且“筹码稳固”的健康体质。
         """
-        print("    -> [基础层] 正在诊断“市场体质”公理 (V5.1 · 数据鲁棒性强化版)...")
         # 获取市场体质公理的专属参数
         p_conf_mc = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('market_constitution_params', {})
         # 获取行为动态参数中的MTF归一化默认权重
@@ -360,7 +357,6 @@ class FoundationIntelligence:
         constitution_score = raw_constitution_score * short_board_penalty * (1 + synergy_bonus)
         # 确保最终分数在 [-1, 1] 范围内
         constitution_score = constitution_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '市场体质' 分数: {constitution_score.iloc[-1]}")
         return constitution_score
 
     def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
@@ -375,7 +371,6 @@ class FoundationIntelligence:
         - A股特性: 情绪常常是陷阱。此升级旨在利用更精细的诡道甄别和情境感知，过滤主力诱多或诱空行为，
                       并捕捉情绪在不同市场环境下的真实价值。
         """
-        print("    -> [基础层] 正在诊断“情绪钟摆”公理 (V5.0 · 情绪结构与诡道共振版)...")
         # 获取情绪钟摆公理的专属参数
         p_conf_sp = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('sentiment_pendulum_params', {})
         probe_enabled = get_param_value(p_conf_sp.get('enable_probe'), True)
@@ -534,7 +529,6 @@ class FoundationIntelligence:
         # --- 5. 最终情绪钟摆分数 ---
         sentiment_pendulum_score = (sentiment_core * deception_modulator * context_multiplier).clip(-1, 1)
         sentiment_pendulum_score = sentiment_pendulum_score.astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '情绪钟摆' 分数: {sentiment_pendulum_score.iloc[-1]}")
         return sentiment_pendulum_score
 
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
@@ -551,7 +545,6 @@ class FoundationIntelligence:
             6) 动态权重融合：引入波动不稳定性与市场情绪作为情境调制器，动态调整四大核心维度的融合权重。
         - A股特性: 市场的流动性是多变的，主力行为复杂。此升级旨在提供一个更具前瞻性和鲁棒性的流动性潮汐信号。
         """
-        print("    -> [基础层] 正在诊断“流动性潮汐”公理 (V5.0 · 多尺度结构与微观博弈版)...")
         # 获取流动性潮汐公理的专属参数
         p_conf_lt = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('liquidity_tide_params', {})
         probe_enabled = get_param_value(p_conf_lt.get('enable_probe'), True)
@@ -727,7 +720,6 @@ class FoundationIntelligence:
         # --- 8. 最终流动性潮汐分数 ---
         tide_score = (base_tide_score * deception_modulator).clip(-1, 1)
         tide_score = tide_score.astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '流动性潮汐' 分数: {tide_score.iloc[-1]}")
         return tide_score
 
     def _diagnose_axiom_market_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -744,7 +736,6 @@ class FoundationIntelligence:
             4) 最终风险过滤：引入筹码健康度和欺骗指数作为最终风险过滤器，对不健康的张力进行惩罚。
         - A股特性: 盘整末端的方向选择，关键看主力意图。此升级旨在为“张力”赋予方向，预判突破概率。
         """
-        print("    -> [基础层] 正在诊断“市场张力”公理 (V4.0 · 结构化张力与博弈意图版)...")
         # 获取市场张力公理的专属参数
         p_conf_mt = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('market_tension_params', {})
         probe_enabled = get_param_value(p_conf_mt.get('enable_probe'), True)
@@ -888,7 +879,6 @@ class FoundationIntelligence:
         else:
             tension_final_score = base_tension_score
         tension_final_score = tension_final_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '市场张力' 分数: {tension_final_score.iloc[-1]}")
         return tension_final_score
 
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
@@ -899,7 +889,6 @@ class FoundationIntelligence:
                       新增对行业领导力质量的“激活门控”，避免因原始数据长期为零而产生虚假信号。
         - A股特性: 市场的焦点是动态变化的。此升级旨在捕捉从强到更强的“领涨龙头”，而非仅仅是静态的“强者”。
         """
-        print("    -> [基础层] 正在诊断“相对强度”公理 (V4.1 · 数据鲁棒性与调节器精细化版)...")
         # 获取相对强度公理的专属参数
         p_conf_rs = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('relative_strength_params', {})
         # 获取行为动态参数中的MTF归一化默认权重
@@ -1036,7 +1025,6 @@ class FoundationIntelligence:
         )
         # 确保最终分数在 [-1, 1] 范围内
         relative_strength_score = relative_strength_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '相对强度' 分数: {relative_strength_score.iloc[-1]}")
         return relative_strength_score
 
     def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 接收调节器
@@ -1044,7 +1032,6 @@ class FoundationIntelligence:
         【V2.0 · 环境共振版】诊断“和谐拐点”
         - 核心逻辑: 对“战略态势”进行二阶求导，并应用环境共振调节器。
         """
-        print("    -> [基础层] 正在诊断“和谐拐点”机会信号...")
         p_conf = params.get('harmony_inflection_params', {})
         velocity_period = p_conf.get('velocity_period', 3)
         acceleration_period = p_conf.get('acceleration_period', 2)
@@ -1061,7 +1048,6 @@ class FoundationIntelligence:
         # 新增: 应用环境调节器
         inflection_score = raw_inflection_score * modulator
         inflection_score = inflection_score.clip(0, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '和谐拐点' 分数: {inflection_score.iloc[-1]}")
         return inflection_score
 
     def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 增加df参数
@@ -1069,7 +1055,6 @@ class FoundationIntelligence:
         【V1.0 · 新增】计算“环境共振调节器”
         - 核心逻辑: 融合市场趋势代理、板块强度、主题热度，生成一个[0.75, 1.25]区间的调节器。
         """
-        print("    -> [基础层] 正在计算“环境共振调节器”...")
         p_conf = params.get('environmental_modulator_params', {})
         if not p_conf.get('enabled', True):
             return pd.Series(1.0, index=df.index)
@@ -1094,10 +1079,7 @@ class FoundationIntelligence:
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
         modulator = 1.0 + (env_score * bonus_factor)
         modulator = modulator.astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '环境共振调节器' 分数: {modulator.iloc[-1]}")
         return modulator
-
-
 
     def _synthesize_strategic_posture(
         self,
@@ -1114,7 +1096,6 @@ class FoundationIntelligence:
         【V2.1 · 市场摩擦增强版】顶层融合：合成“基础层战略态势”
         - 核心逻辑: 对六大公理进行加权融合，并应用环境共振调节器。
         """
-        print("    -> [基础层] 正在合成“战略态势”顶层信号...")
         weights = params.get('strategic_posture_weights', {
             "constitution": 0.25, "relative_strength": 0.20, "liquidity": 0.15,
             "sentiment": 0.15, "tension": 0.15, "friction": 0.10
@@ -1135,7 +1116,6 @@ class FoundationIntelligence:
         )
         strategic_posture = raw_strategic_posture * modulator
         strategic_posture = strategic_posture.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '战略态势' 分数: {strategic_posture.iloc[-1]}")
         return strategic_posture
 
     def _diagnose_axiom_market_friction(self, df: pd.DataFrame) -> pd.Series:
@@ -1152,7 +1132,6 @@ class FoundationIntelligence:
             5) 情境动态权重 (Contextual Dynamic Weighting - CDW): 根据市场情绪和波动不稳定性动态调整各维度权重。
         - A股特性: 市场中存在大量非对称博弈和隐性成本，此公理旨在穿透表象，揭示真实的市场阻力动态。
         """
-        print("    -> [基础层] 正在诊断“市场摩擦”公理 (V2.0 · 动态演化与微观结构版)...")
         # 获取市场摩擦公理的专属参数
         p_conf_mf = get_params_block(self.strategy, 'foundation_ultimate_params', {}).get('market_friction_params', {})
         probe_enabled = get_param_value(p_conf_mf.get('enable_probe'), True)
@@ -1368,7 +1347,6 @@ class FoundationIntelligence:
             market_friction_score = market_friction_score * (1 - total_penalty)
         # 最终分数裁剪并转换为float32类型
         market_friction_score = market_friction_score.clip(-1, 1).astype(np.float32)
-        print(f"    -> [基础层] 计算完成 '市场摩擦' 分数: {market_friction_score.iloc[-1]}")   
         return market_friction_score
 
 

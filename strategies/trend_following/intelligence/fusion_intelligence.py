@@ -1732,6 +1732,9 @@ class FusionIntelligence:
             print(f"  -- [融合层] “派发压力”冶炼完成，最新分值: {final_distribution_pressure.iloc[-1]:.4f}")
         return states
 
+
+
+
     def _synthesize_multi_layer_reversal_confirmation(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
         【V1.0 · 万法归宗版】冶炼“多层反转共振确认” (FUSION_BIPOLAR_MULTI_LAYER_REVERSAL_CONFIRMATION)

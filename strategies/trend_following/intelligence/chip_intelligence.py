@@ -816,7 +816,6 @@ class ChipIntelligence:
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_axiom_trend_momentum"
-        print(f"    -> [筹码层] 正在诊断“{method_name}” (V7.7 · 战略推力引擎强化与燃料品质深度修正版)”...")
         df_index = df.index
         required_signals = [
             'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D',
@@ -984,7 +983,6 @@ class ChipIntelligence:
         ).pow(1 / (final_engine_weight + final_fuel_weight + final_nozzle_weight)) # 几何平均
         final_score = (final_score_unipolar * 2 - 1).clip(-1, 1)
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '{method_name}' 分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
@@ -1375,7 +1373,6 @@ class ChipIntelligence:
         else:
             dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * dynamic_final_score_sensitivity_multiplier))
-        print(f"    -> [筹码层] 计算完成 '筹码同调驱动力' 分数: {final_score.iloc[-1]}")
         return final_score.astype(np.float32)
 
     def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
@@ -1865,7 +1862,6 @@ class ChipIntelligence:
         ).pow(1 / (3 * final_fusion_exponent))
         final_score = (base_score * deception_modulator) * is_fomo_context
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '“派发诡影”信号' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
@@ -2126,7 +2122,6 @@ class ChipIntelligence:
         bull_trap_penalty = self._calculate_bull_trap_context_penalty(df)
         final_score = final_potential_score * bull_trap_penalty
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '“筹码势能”' 分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
@@ -2440,7 +2435,6 @@ class ChipIntelligence:
             context_score * normalized_dynamic_weights.get('environment', 0.2) +
             rhythm_and_persistence_score * normalized_dynamic_weights.get('rhythm_persistence', 0.1)
         ).clip(-1, 1)
-        print(f"    -> [筹码层] 计算完成 '战术换手博弈的质量与意图' 分数: {final_score.iloc[-1]}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
@@ -2536,7 +2530,6 @@ class ChipIntelligence:
         alignment_bonus.loc[bearish_alignment_mask] = -calibrated_bonus_factor.loc[bearish_alignment_mask]
         final_score = base_intent_score * harmony_factor * conflict_penalty_factor_adjusted + alignment_bonus
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
@@ -2671,7 +2664,6 @@ class ChipIntelligence:
         bull_trap_penalty = self._calculate_bull_trap_context_penalty(df)
         final_score = final_score * bull_trap_penalty
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '战略与战术的和谐度' 分数: {final_score.loc[probe_ts] if probe_ts and probe_ts in df_index else final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_chip_retail_vulnerability(self, df: pd.DataFrame) -> pd.Series:
@@ -2796,7 +2788,6 @@ class ChipIntelligence:
             final_score = final_score * modulator
         final_score = np.tanh(final_score * final_exponent)
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '散户筹码脆弱性指数' 分数: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_chip_main_force_cost_intent(self, df: pd.DataFrame) -> pd.Series:
@@ -2975,7 +2966,6 @@ class ChipIntelligence:
         main_force_cost_intent_raw.loc[mask_in_vpoc] = intent_in_vpoc
         final_score = main_force_cost_intent_raw * deception_modulator * global_context_modulator
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '主力成本区攻防意图' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_hollowing_out_risk(self, df: pd.DataFrame) -> pd.Series:
@@ -3168,7 +3158,6 @@ class ChipIntelligence:
         deception_amplifier = 1 + main_force_deception_score * deception_amplification_factor
         hollowing_out_risk_score = hollowing_out_risk_score * deception_amplifier
         final_score = np.tanh(hollowing_out_risk_score.clip(0, 1) ** non_linear_exponent).clip(0, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码空心化风险' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_turnover_purity_cost_optimization(self, df: pd.DataFrame) -> pd.Series:
@@ -3214,7 +3203,6 @@ class ChipIntelligence:
         turnover_quality_factor = purity_factor * cost_optimization_factor * norm_net_conviction_flow
         turnover_purity_cost_optimization = turnover_quality_factor * (1 + norm_turnover_rate * 0.5)
         final_score = turnover_purity_cost_optimization.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '换手纯度与成本优化' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _diagnose_chip_despair_temptation_zones(self, df: pd.DataFrame) -> pd.Series:
@@ -3267,7 +3255,6 @@ class ChipIntelligence:
         despair_temptation_score = temptation_strength - despair_strength
         final_score = np.tanh(despair_temptation_score * 2)
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        print(f"    -> [筹码层] 计算完成 '筹码绝望与诱惑区' 分数: {final_score.iloc[-1]}")
         return final_score
 
     def _calculate_bull_trap_context_penalty(self, df: pd.DataFrame) -> pd.Series:
