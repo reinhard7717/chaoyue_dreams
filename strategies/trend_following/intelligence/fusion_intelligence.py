@@ -379,7 +379,6 @@ class FusionIntelligence:
             internal_decay_score = pd.Series(0.0, index=df_index, dtype=np.float32) # 避免除以零
         
         internal_decay_score = internal_decay_score.clip(0, 1) # 确保最终分数在 [0, 1] 范围内
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化度 (internal_decay_score): {internal_decay_score.loc[probe_ts]:.4f}")
         # 2.2 计算“外部强势幻象” (加权平均)
@@ -604,8 +603,8 @@ class FusionIntelligence:
         method_name = "_synthesize_trend_structure_score"
         # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势结构分”...")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势结构分”...")
         states = {}
         df_index = df.index
         # 1. 信号升维：定义五大支柱，引用各情报域的顶层信号
@@ -618,13 +617,13 @@ class FusionIntelligence:
         }
         # 2. 获取各支柱的原子信号分
         pillar_scores = {}
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始支柱信号 ---")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始支柱信号 ---")
         for pillar, signal_name in five_pillars.items():
             score = self._get_atomic_score(df, signal_name, 0.0, debug_info)
             pillar_scores[pillar] = score
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
-                print(f"        {pillar} ({signal_name}): {score.loc[probe_ts]:.4f}")
+            # if is_debug_enabled and probe_ts and probe_ts in df.index:
+                # print(f"        {pillar} ({signal_name}): {score.loc[probe_ts]:.4f}")
         # 3. 核心数学逻辑 - 五象共振 (几何平均)
         # 为避免负数开方，先将所有[-1, 1]的信号映射到[0, 2]区间进行计算
         # (score + 1) 将 [-1, 1] 映射到 [0, 2]
@@ -683,8 +682,8 @@ class FusionIntelligence:
         method_name = "_synthesize_chip_trend"
         # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“筹码趋势”...")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“筹码趋势”...")
         states = {}
         df_index = df.index
         # 1. 重组信号，划分为“根基”与“神魂”两大阵营
@@ -714,12 +713,12 @@ class FusionIntelligence:
         # 将 foundation_score 映射到 [0, 2] 区间，应用惩罚，再映射回 [-1, 1]
         final_score_base = (foundation_score * soul_modulator).clip(-1, 1)
         final_score = (final_score_base * (1 - distribution_penalty)).clip(-1, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 根基分 (foundation_score): {foundation_score.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂分 (soul_score): {soul_score.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂调制器 (soul_modulator): {soul_modulator.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 派发诡影 (distribution_whisper): {distribution_whisper.loc[probe_ts]:.4f}, 派发惩罚 (distribution_penalty): {distribution_penalty.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终分数 (final_score): {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 根基分 (foundation_score): {foundation_score.loc[probe_ts]:.4f}")
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂分 (soul_score): {soul_score.loc[probe_ts]:.4f}")
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂调制器 (soul_modulator): {soul_modulator.loc[probe_ts]:.4f}")
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 派发诡影 (distribution_whisper): {distribution_whisper.loc[probe_ts]:.4f}, 派发惩罚 (distribution_penalty): {distribution_penalty.loc[probe_ts]:.4f}")
+        #     print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终分数 (final_score): {final_score.loc[probe_ts]:.4f}")
         states['FUSION_BIPOLAR_CHIP_TREND'] = final_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
@@ -1440,7 +1439,7 @@ class FusionIntelligence:
 
     def _synthesize_distribution_pressure(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V1.8 · 诡道穿透与动态博弈版 - 依赖解耦与强化】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
+        【V1.9 · 诡道穿透与动态博弈版 - 依赖解耦与强化】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
         - 核心重构: 基于“主力派发意图、散户不愿承接度、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
         - 诡道哲学: 派发风险的本质是主力与散户的博弈，以及市场结构对这种博弈的承载能力。
                       当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
@@ -1448,11 +1447,11 @@ class FusionIntelligence:
         - 升级说明: 维度内部子信号聚合方式调整为加权算术平均，三大维度之间聚合保持加权几何平均，以更好地体现风险的“木桶效应”。
                     强化了对原始零值信号的归一化处理。此版本增加了详细探针，用于调试和检查每一步计算。
                     引入动态权重、诡道调制、情境放大器和协同/冲突裁决，以更精准地捕捉派发风险。
-        - 【V1.8 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
+        - 【V1.9 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       修正 `raw_score` (散户承接意愿) 的逻辑，使其在高散户狂热时放大派发风险。
                       增加 `SCORE_BEHAVIOR_DECEPTION_INDEX` (正向) 和 `SCORE_CHIP_HOLLOWING_OUT_RISK` 信号，提高派发压力的准确性。
                       修正 `RAW恐慌抑制` 逻辑，避免 `raw_score` 被错误归零。
-                      增加详细探针，输出所有原料数据、关键计算节点和结果的值。
+                      **增加详细调试打印，输出 `mfdi_score`, `raw_score`, `msf_score`, `geometric_mean_score`, `dynamic_non_linear_sensitivity`, `synergy_modulator`, `tanh_input` 等中间值，以便诊断最终分值。**
         """
         method_name = "_synthesize_distribution_pressure"
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
@@ -1499,6 +1498,8 @@ class FusionIntelligence:
             threshold = get_param_value(mfdi_deception_modulation_params.get('threshold'), 0.1)
             deception_amplifier = (deception_signal.clip(lower=threshold) * amplifier_factor).clip(0, 1)
             mfdi_score = mfdi_score * (1 + deception_amplifier)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力派发意图 (mfdi_score): {mfdi_score.loc[probe_ts]:.4f}")
         # --- 2. RAW (散户承接意愿) ---
         raw_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         raw_total_weight = sum(raw_signal_weights.values())
@@ -1527,6 +1528,8 @@ class FusionIntelligence:
             # panic_dampener = (panic_signal.clip(lower=threshold) * dampener_factor).clip(0, 1)
             panic_dampener = (np.tanh(panic_signal * dampener_factor)).clip(0, 1) # 使用 tanh 平滑抑制
             raw_score = raw_score * (1 - panic_dampener)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 散户承接意愿 (raw_score): {raw_score.loc[probe_ts]:.4f}")
         # --- 3. MSF (市场结构脆弱性) ---
         # 新增筹码空心化风险，作为市场结构脆弱性的证据
         msf_signal_weights['SCORE_CHIP_HOLLOWING_OUT_RISK'] = msf_signal_weights.get('SCORE_CHIP_HOLLOWING_OUT_RISK', 0.05) # 假设权重为0.05
@@ -1558,6 +1561,8 @@ class FusionIntelligence:
             threshold = get_param_value(msf_liquidity_trap_amplifier_params.get('threshold'), 0.3)
             liquidity_trap_amplifier = (1 - efficiency_signal.clip(upper=threshold)) * amplifier_factor
             msf_score = msf_score * (1 + liquidity_trap_amplifier)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 市场结构脆弱性 (msf_score): {msf_score.loc[probe_ts]:.4f}")
         # --- 4. 融合三体分数 (加权几何平均) ---
         # 【V1.5 变更】修正 `retail_unwillingness_score` 的逻辑，使其在高散户狂热时放大派发风险
         retail_unwillingness_score = raw_score # 直接使用 raw_score，高分代表散户承接意愿强，即派发风险高
@@ -1574,6 +1579,8 @@ class FusionIntelligence:
             geometric_mean_score = np.exp(final_log_sum)
         else:
             geometric_mean_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 几何平均分 (geometric_mean_score): {geometric_mean_score.loc[probe_ts]:.4f}")
         # 动态非线性敏感度
         final_fusion_dynamic_exponent_params = get_param_value(params.get('final_fusion_dynamic_exponent'), {})
         dynamic_non_linear_sensitivity = pd.Series(non_linear_sensitivity, index=df_index, dtype=np.float32)
@@ -1588,6 +1595,8 @@ class FusionIntelligence:
             max_exponent = get_param_value(final_fusion_dynamic_exponent_params.get('max_exponent'), 3.0)
             dynamic_exponent_mod = (1 - trend_quality_signal * tq_sensitivity - market_regime_signal * mr_sensitivity).clip(-1, 1)
             dynamic_non_linear_sensitivity = (base_exponent * (1 + dynamic_exponent_mod)).clip(min_exponent, max_exponent)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性敏感度 (dynamic_non_linear_sensitivity): {dynamic_non_linear_sensitivity.loc[probe_ts]:.4f}")
         # 协同/冲突调制
         synergy_conflict_params = get_param_value(params.get('final_fusion_synergy_conflict'), {})
         synergy_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
@@ -1601,7 +1610,11 @@ class FusionIntelligence:
             conflict_mask = (mfdi_score > synergy_threshold) & ((retail_unwillingness_score < conflict_threshold) | (msf_score < conflict_threshold))
             synergy_modulator.loc[conflict_mask] -= conflict_penalty_factor
             synergy_modulator = synergy_modulator.clip(0.5, 1.5)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 协同/冲突调制器 (synergy_modulator): {synergy_modulator.loc[probe_ts]:.4f}")
         tanh_input = geometric_mean_score * dynamic_non_linear_sensitivity * synergy_modulator
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: Tanh函数输入 (tanh_input): {tanh_input.loc[probe_ts]:.4f}")
         final_distribution_pressure = (np.tanh(tanh_input) + 1) / 2
         final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
         states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure

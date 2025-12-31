@@ -203,7 +203,6 @@ class FundFlowIntelligence:
         # axiom_divergence 已经在上面存储，这里不再重复
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
-        print(f"    -> [资金流情报校验] 计算“资金流内部分歧与意图张力(SCORE_FF_AXIOM_CONVICTION)” 分数：{axiom_conviction.iloc[-1]:.4f}")
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
         self.strategy.atomic_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
