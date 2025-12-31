@@ -389,11 +389,13 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 意志与环境版 - 风险强化与强化】冶炼“资本对抗” (Capital Confrontation)
+        【V5.3 · 意志与环境版 - 风险强化与强化】冶炼“资本对抗” (Capital Confrontation)
         - 核心升华: 彻底分离“内因”(主力意志)与“外缘”(对手盘环境)，构建“战役意志 ×
                       环境调节器”的“天人合一”终极模型。
         - 终章心法: 以我心，应天时。内因驱动，外缘催化，方为博弈大道。此法之后，再无增益。
-        - 【V5.2 增强】增加 `SCORE_CHIP_MAIN_FORCE_COST_INTENT` 和 `SCORE_INTRADAY_DOMINANCE_CONSENSUS` 信号，提高资本对抗的准确性。
+        - 【V5.3 增强】增加 `SCORE_CHIP_MAIN_FORCE_COST_INTENT` 和 `SCORE_INTRADAY_DOMINANCE_CONSENSUS` 信号，提高资本对抗的准确性。
+                      引入 `SCORE_BEHAVIOR_DECEPTION_INDEX` 作为对主力意志的直接惩罚，以应对“拉高诱多”情境。
+                      增加 `environment_modulator` 对散户贪婪的惩罚力度。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_capital_confrontation"
@@ -411,6 +413,10 @@ class FusionIntelligence:
         main_force_intent = (ff_posture * 0.4 + chip_posture * 0.4 + main_force_cost_intent * 0.2).clip(-1, 1) # 调整权重
         tactical_execution = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0, debug_info)
         intraday_dominance = self._get_atomic_score(df, 'SCORE_INTRADAY_DOMINANCE_CONSENSUS', 0.0, debug_info).clip(lower=0) # 新增日内支配共识正向
+        # 引入欺骗指数作为对主力意志的直接惩罚
+        deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0, debug_info)
+        # 当欺骗指数为正（拉高出货）时，惩罚主力意图
+        deception_penalty = deception_index.clip(lower=0) * 0.8 # 惩罚系数0.8，可调
         # --- 外缘 (External Condition): 对手盘的“环境” ---
         sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info)
         counterparty_state = -sentiment_pendulum # 散户情绪越狂热（sentiment_pendulum为正），对手盘状态越负面（风险越高）
@@ -420,17 +426,22 @@ class FusionIntelligence:
         mapped_execution = (tactical_execution * 0.7 + intraday_dominance * 0.3) + 1 # 融合日内支配共识，映射到 [0, 2]
         will_mapped = (mapped_intent.clip(lower=1e-9) * mapped_execution.clip(lower=1e-9)).pow(1/2)
         campaign_will = (will_mapped - 1).clip(-1, 1)
+        # 应用欺骗惩罚到战役意志
+        campaign_will_modulated = (campaign_will * (1 - deception_penalty)).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力意图 (main_force_intent): {main_force_intent.loc[probe_ts]:.4f}, 战役意志 (campaign_will): {campaign_will.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 欺骗指数 (deception_index): {deception_index.loc[probe_ts]:.4f}, 欺骗惩罚 (deception_penalty): {deception_penalty.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 调制后战役意志 (campaign_will_modulated): {campaign_will_modulated.loc[probe_ts]:.4f}")
         # 2.2 构建“环境调节器”
-        modulation_factor = 0.5 # 环境调节系数
+        # 提高环境调节器的敏感度，使散户贪婪的惩罚更显著
+        modulation_factor = 0.8 # 提高环境调节系数，从0.5提高到0.8
         # 当散户情绪狂热（sentiment_pendulum > 0），counterparty_state < 0，modulator < 1，惩罚
         # 当散户情绪恐慌（sentiment_pendulum < 0），counterparty_state > 0，modulator > 1，奖励
         environment_modulator = (1 + counterparty_state * modulation_factor).clip(0, 2)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 对手盘状态 (counterparty_state): {counterparty_state.loc[probe_ts]:.4f}, 环境调节器 (environment_modulator): {environment_modulator.loc[probe_ts]:.4f}")
         # 2.3 最终决断: 战役意志(我) × 环境调节器(天)
-        final_score = (campaign_will * environment_modulator).clip(-1, 1)
+        final_score = (campaign_will_modulated * environment_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = final_score.astype(np.float32)
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
@@ -645,12 +656,13 @@ class FusionIntelligence:
 
     def _synthesize_chip_trend(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V4.2 · 神魂根基与探针增强版 - 强化】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        【V4.3 · 神魂根基与探针增强版 - 强化】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
         - 核心重构: 废弃V3.0晦涩的“静态/动态”模型，引入更符合博弈哲学的“神魂与根基”非线性调制模型。
         - 诡道哲学: 最终趋势 = 根基(客观结构) × (1 + 神魂(主观意愿) × 调制系数)。
                       坚实的筹码结构若无持股信心注入，亦是“死城”一座；反之，强大的信心能为
                       尚在构建的结构注入无穷潜力。此法旨在捕捉“体用合一”与“貌合神离”。
-        - 【V4.2 增强】增加 `SCORE_CHIP_COHERENT_DRIVE` 和 `SCORE_CHIP_AXIOM_TREND_MOMENTUM` 信号，提高筹码趋势的准确性。
+        - 【V4.3 增强】增加 `SCORE_CHIP_COHERENT_DRIVE` 和 `SCORE_CHIP_AXIOM_TREND_MOMENTUM` 信号，提高筹码趋势的准确性。
+                      引入 `SCORE_CHIP_RISK_DISTRIBUTION_WHISPER` 作为对筹码趋势的直接惩罚，以应对“拉高诱多”情境。
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_chip_trend"
@@ -659,6 +671,7 @@ class FusionIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“筹码趋势”...")
         states = {}
+        df_index = df.index
         # 1. 重组信号，划分为“根基”与“神魂”两大阵营
         # --- 根基 (Foundation) - 客观的物理结构与趋势 ---
         battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0, debug_info)
@@ -668,7 +681,11 @@ class FusionIntelligence:
         holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0, debug_info)
         divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0, debug_info)
         coherent_drive = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0, debug_info) # 新增筹码同调驱动力
-        # 2. 核核心数学逻辑 - 神魂调制模型
+        # 引入派发诡影作为对筹码趋势的直接惩罚
+        distribution_whisper = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0, debug_info)
+        # 当派发诡影为正时，惩罚筹码趋势
+        distribution_penalty = distribution_whisper.clip(lower=0) * 1.0 # 惩罚系数1.0，可调
+        # 2. 核心数学逻辑 - 神魂调制模型
         # 2.1 融合“根基分” (Foundation Score)
         # 地形学(静态)与态势(动态)同等重要，并引入结构性推力
         foundation_score = (battlefield_geography * 0.4 + strategic_posture * 0.4 + chip_trend_momentum * 0.2).clip(-1, 1) # 调整权重
@@ -678,8 +695,16 @@ class FusionIntelligence:
         # 2.3 构建“神魂调制器” (Soul Modulator)
         modulation_factor = 0.5 # 调制系数，控制神魂的影响力
         soul_modulator = (1 + soul_score * modulation_factor).clip(0, 2)
-        # 3. 非线性融合: 根基 × 神魂调制器
-        final_score = (foundation_score * soul_modulator).clip(-1, 1)
+        # 2.4 应用派发惩罚到最终分数
+        # 将 foundation_score 映射到 [0, 2] 区间，应用惩罚，再映射回 [-1, 1]
+        final_score_base = (foundation_score * soul_modulator).clip(-1, 1)
+        final_score = (final_score_base * (1 - distribution_penalty)).clip(-1, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 根基分 (foundation_score): {foundation_score.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂分 (soul_score): {soul_score.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 神魂调制器 (soul_modulator): {soul_modulator.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 派发诡影 (distribution_whisper): {distribution_whisper.loc[probe_ts]:.4f}, 派发惩罚 (distribution_penalty): {distribution_penalty.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终分数 (final_score): {final_score.loc[probe_ts]:.4f}")
         states['FUSION_BIPOLAR_CHIP_TREND'] = final_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
@@ -934,7 +959,6 @@ class FusionIntelligence:
             'SCORE_FF_AXIOM_CONSENSUS': {'weight': 0.05, 'part': 'negative'}, # 资金流共识负向
             'SCORE_CHIP_STRATEGIC_POSTURE': {'weight': 0.05, 'part': 'negative'} # 筹码战略态势负向
         }
-
         tactical_upward_pressure = pd.Series(0.0, index=df_index, dtype=np.float32)
         for signal, weight in opportunity_signals.items():
             score = self._get_atomic_score(df, signal, 0.0, debug_info)
@@ -942,7 +966,6 @@ class FusionIntelligence:
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 机会信号 '{signal}' (值: {score.loc[probe_ts]:.4f}, 权重: {weight})")
         tactical_upward_pressure = tactical_upward_pressure.clip(0,1)
-
         tactical_downward_pressure = pd.Series(0.0, index=df_index, dtype=np.float32)
         for signal_name, config in risk_signals_config.items(): # 修正：遍历新的字典结构
             weight = config['weight']
@@ -957,7 +980,6 @@ class FusionIntelligence:
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 风险信号 '{signal_name}' ({part} part) (值: {score.loc[probe_ts]:.4f}, 权重: {weight})")
         tactical_downward_pressure = tactical_downward_pressure.clip(0,1)
-
         net_tactical_pressure = (tactical_upward_pressure - tactical_downward_pressure).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 战术向上压力: {tactical_upward_pressure.loc[probe_ts]:.4f}, 战术向下压力: {tactical_downward_pressure.loc[probe_ts]:.4f} -> 净战术压力: {net_tactical_pressure.loc[probe_ts]:.4f}")
@@ -1134,7 +1156,6 @@ class FusionIntelligence:
         fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
         fusion_playbook_params = fusion_intelligence_params.get('fusion_playbook_params', {})
         ld_params = fusion_playbook_params.get('liquidity_dynamics', {})
-
         def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0,
                                                 deception_index=None, wash_trade_intensity=None, flow_credibility=None,
                                                 deception_mod_params=None, is_bullish=True, debug_info=None, component_type=""):
@@ -1207,29 +1228,24 @@ class FusionIntelligence:
                 return activated_score
             else:
                 return pd.Series(0.0, index=index, dtype=np.float32)
-        
         # --- 预计算缺失或需要特殊处理的信号 ---
         # price_volume_entropy_D_INVERSE
         # 修正：替换 price_volume_entropy_D 为 SCORE_BEHAVIOR_VOLUME_BURST
         price_volume_entropy_D_proxy = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0, debug_info).fillna(0.0).clip(0, 1)
         price_volume_entropy_D_INVERSE = (1 - price_volume_entropy_D_proxy).rename('price_volume_entropy_D_INVERSE')
-
         # CAPITAL_CONFRONTATION_PROXY_BULLISH 和 CAPITAL_CONFRONTATION_PROXY_BEARISH
         capital_confrontation_proxy_bullish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0) * 0.5 + 
                                                self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(lower=0) * 0.5).rename('CAPITAL_CONFRONTATION_PROXY_BULLISH')
         capital_confrontation_proxy_bearish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(upper=0).abs() * 0.5 + 
                                                self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(upper=0).abs() * 0.5).rename('CAPITAL_CONFRONTATION_PROXY_BEARISH')
-
         # main_force_flow_gini_D_INVERSE
         # 修正：替换 main_force_flow_gini_D 为 SCORE_FF_AXIOM_FLOW_MOMENTUM 的正向部分
         main_force_flow_gini_D_proxy = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).clip(lower=0).fillna(0.0).clip(0, 1)
         main_force_flow_gini_D_INVERSE = (1 - main_force_flow_gini_D_proxy).rename('main_force_flow_gini_D_INVERSE')
-
         # retail_flow_dominance_index_D_INVERSE
         # 修正：替换 retail_flow_dominance_index_D 为 SCORE_CHIP_RETAIL_VULNERABILITY
         retail_flow_dominance_index_D_proxy = self._get_atomic_score(df, 'SCORE_CHIP_RETAIL_VULNERABILITY', 0.0, debug_info).fillna(0.0).clip(0, 1)
         retail_flow_dominance_index_D_INVERSE = (1 - retail_flow_dominance_index_D_proxy).rename('retail_flow_dominance_index_D_INVERSE')
-
 
         # --- 原始信号获取 ---
         # PVE (价量效能)
@@ -1284,7 +1300,6 @@ class FusionIntelligence:
         volatility_instability = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0, debug_info).fillna(0.0).clip(0, 1)
         # 修正：替换 market_sentiment_score_D 为 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM
         market_sentiment = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info).fillna(0.0).clip(-1, 1)
-        
         # 修正：替换 flow_credibility_index_D 为 SCORE_FF_AXIOM_INTENT_PURITY 的正向部分
         flow_credibility_raw = self._get_atomic_score(df, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, debug_info).clip(lower=0).fillna(0.0)
         flow_credibility = flow_credibility_raw.clip(0, 1) # 已经是归一化信号，直接裁剪
@@ -1313,7 +1328,6 @@ class FusionIntelligence:
         deception_mod_params = ld_params.get('deception_modulation_params', {})
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: PVE激活敏感度: {pve_activation_sensitivity.loc[probe_ts]:.4f}, PT激活敏感度: {pt_activation_sensitivity.loc[probe_ts]:.4f}, LS激活敏感度: {ls_activation_sensitivity.loc[probe_ts]:.4f}")
-        
         # 修正：调用 weighted_sum_with_activation_series 时，传递正确的 components_with_weights 结构
         bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity,
                                                                 deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info, component_type="PVE看涨")
@@ -1322,7 +1336,6 @@ class FusionIntelligence:
         pve_score = (bullish_pve_fused - bearish_pve_fused).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: PVE看涨融合: {bullish_pve_fused.loc[probe_ts]:.4f}, PVE看跌融合: {bearish_pve_fused.loc[probe_ts]:.4f} -> PVE分数: {pve_score.loc[probe_ts]:.4f}")
-        
         # 修正：调用 weighted_sum_with_activation_series 时，传递正确的 components_with_weights 结构
         bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity,
                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info, component_type="PT看涨")
@@ -1331,7 +1344,6 @@ class FusionIntelligence:
         pt_score = (bullish_pt_fused - bearish_pt_fused).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: PT看涨融合: {bullish_pt_fused.loc[probe_ts]:.4f}, PT看跌融合: {bearish_pt_fused.loc[probe_ts]:.4f} -> PT分数: {pt_score.loc[probe_ts]:.4f}")
-        
         # 修正：调用 weighted_sum_with_activation_series 时，传递正确的 components_with_weights 结构
         bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity,
                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True, debug_info=debug_info, component_type="LS看涨")

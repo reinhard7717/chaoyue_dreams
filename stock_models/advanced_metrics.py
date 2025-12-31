@@ -125,7 +125,7 @@ class BaseAdvancedChipMetrics(models.Model):
         **CROSS_DAY_FLOW_METRICS,
         **GAME_THEORY_METRICS,
         **VITAL_SIGNS_METRICS,
-        **CONTEXTUAL_ACTION_METRICS, # 整合新指标
+        **CONTEXTUAL_ACTION_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume']
@@ -178,7 +178,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'floating_chip_cleansing_efficiency',
         'suppressive_accumulation_intensity',
         'supportive_distribution_intensity',
-        # [新增的代码块] 将新指标添加到排除列表
         'distribution_at_peak_intensity',
         'absorption_at_peak_intensity',
         'breakthrough_of_peak_quality',
@@ -416,7 +415,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_ofi': '散户订单流失衡',
         'retail_buy_ofi': '散户买入订单流失衡',
         'retail_sell_ofi': '散户卖出订单流失衡',
-        
         'microstructure_efficiency_index': '微观结构效率指数',
         'hidden_accumulation_intensity': '隐蔽吸筹强度',
         'wash_trade_intensity': '主力对倒强度',

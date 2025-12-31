@@ -309,15 +309,12 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
         hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # 确保 mid_price_delta 存在
-
         # --- 保留原始的基于挂单量的OFI，用于需要盘口压力的指标 ---
         buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote # 这是基于挂单量的OFI
-
         is_main_force_trade = hf_analysis_df['amount'] > 200000
         is_retail_trade = hf_analysis_df['amount'] < 50000
-
         # --- 计算净主动成交量 (实际执行的买卖成交量) ---
         active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
         active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
@@ -325,11 +322,9 @@ class AdvancedFundFlowMetricsService:
         net_active_volume_series.loc[active_buy_mask] = hf_analysis_df.loc[active_buy_mask, 'volume']
         net_active_volume_series.loc[active_sell_mask] = -hf_analysis_df.loc[active_sell_mask, 'volume']
         hf_analysis_df['net_active_volume'] = net_active_volume_series
-
         # --- 修复：将基于实际执行的净主动成交量赋值给 'main_force_ofi' 和 'retail_ofi' 列 ---
         hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['net_active_volume'], 0)
         hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['net_active_volume'], 0)
-
         hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff()
         if 'volume_realtime' in hf_analysis_df.columns and 'snapshot_time' in hf_analysis_df.columns:
             snapshot_changed_mask = hf_analysis_df['snapshot_time'] != hf_analysis_df['snapshot_time'].shift(1)
@@ -339,7 +334,6 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
         hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
         hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
-
         try:
             weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index); weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
             total_buy_value = pd.Series(0, index=hf_analysis_df.index); total_sell_value = pd.Series(0, index=hf_analysis_df.index)
@@ -354,7 +348,6 @@ class AdvancedFundFlowMetricsService:
         except Exception:
             hf_analysis_df['imbalance'] = np.nan
             hf_analysis_df['liquidity_supply_ratio'] = np.nan
-
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
             return hf_analysis_df, features
@@ -1024,42 +1017,34 @@ class AdvancedFundFlowMetricsService:
             'main_force_level5_ofi_dynamic': np.nan, # 动态变化分析
             'retail_level5_ofi_dynamic': np.nan,     # 动态变化分析
         }
-
         if hf_analysis_df.empty:
             return metrics
-
         # 设定主力挂单量阈值 (Q_threshold)
         # 可以根据 daily_total_volume 或 ATR 动态调整，这里先用一个固定值作为示例
         # 假设 1000 手（10万股）以上的挂单被认为是主力挂单
         Q_threshold = 1000 * 100 # 1000手 * 100股/手 = 10万股
-
         # 权重可以根据档位远近设置，这里简化为等权重
         weights = [1.0, 0.8, 0.6, 0.4, 0.2] # 越靠近盘口权重越高
-
         # 存储每个快照的 Level 5 OFI
         main_force_ofi_snapshots = []
         retail_ofi_snapshots = []
-        
         # 遍历每个快照
         for _, row in hf_analysis_df.iterrows():
             main_force_bid_pressure = 0.0
             main_force_ask_pressure = 0.0
             retail_bid_pressure = 0.0
             retail_ask_pressure = 0.0
-
             for i in range(1, 6):
                 buy_vol_col = f'buy_volume{i}'
                 buy_price_col = f'buy_price{i}'
                 sell_vol_col = f'sell_volume{i}'
                 sell_price_col = f'sell_price{i}'
-
                 buy_vol = row.get(buy_vol_col, 0)
                 sell_vol = row.get(sell_vol_col, 0)
                 
                 # 确保价格有效，避免0价格导致的问题
                 buy_price = row.get(buy_price_col, 0)
                 sell_price = row.get(sell_price_col, 0)
-
                 if buy_vol > 0 and buy_price > 0:
                     if buy_vol >= Q_threshold:
                         main_force_bid_pressure += buy_vol * weights[i-1]
@@ -1071,41 +1056,34 @@ class AdvancedFundFlowMetricsService:
                         main_force_ask_pressure += sell_vol * weights[i-1]
                     else:
                         retail_ask_pressure += sell_vol * weights[i-1]
-
             # 计算当前快照的主力订单流失衡比率
             total_mf_pressure = main_force_bid_pressure + main_force_ask_pressure
             if total_mf_pressure > 0:
                 main_force_ofi_snapshots.append((main_force_bid_pressure - main_force_ask_pressure) / total_mf_pressure)
             else:
                 main_force_ofi_snapshots.append(0.0) # 无主力挂单时，失衡为0
-
             # 计算当前快照的散户订单流失衡比率
             total_retail_pressure = retail_bid_pressure + retail_ask_pressure
             if total_retail_pressure > 0:
                 retail_ofi_snapshots.append((retail_bid_pressure - retail_ask_pressure) / total_retail_pressure)
             else:
                 retail_ofi_snapshots.append(0.0) # 无散户挂单时，失衡为0
-
         # 将快照结果转换为 Series
         main_force_ofi_series = pd.Series(main_force_ofi_snapshots, index=hf_analysis_df.index)
         retail_ofi_series = pd.Series(retail_ofi_snapshots, index=hf_analysis_df.index)
-
         # 对整个交易日的主力/散户 Level 5 OFI 进行加权平均
         # 可以使用时间差作为权重，或者简单平均
         time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
         total_time = time_diffs.sum()
-
         if total_time > 0:
             # 主力 Level 5 OFI
             metrics['main_force_level5_ofi'] = np.average(main_force_ofi_series.dropna(), weights=time_diffs[main_force_ofi_series.notna()])
             metrics['main_force_level5_buy_ofi'] = np.average(main_force_ofi_series.clip(lower=0).dropna(), weights=time_diffs[main_force_ofi_series.notna()])
             metrics['main_force_level5_sell_ofi'] = np.average(main_force_ofi_series.clip(upper=0).dropna(), weights=time_diffs[main_force_ofi_series.notna()])
-
             # 散户 Level 5 OFI
             metrics['retail_level5_ofi'] = np.average(retail_ofi_series.dropna(), weights=time_diffs[retail_ofi_series.notna()])
             metrics['retail_level5_buy_ofi'] = np.average(retail_ofi_series.clip(lower=0).dropna(), weights=time_diffs[retail_ofi_series.notna()])
             metrics['retail_level5_sell_ofi'] = np.average(retail_ofi_series.clip(upper=0).dropna(), weights=time_diffs[retail_ofi_series.notna()])
-
             # 动态变化分析：计算日内 Level 5 OFI 的平均变化率
             metrics['main_force_level5_ofi_dynamic'] = main_force_ofi_series.diff().mean()
             metrics['retail_level5_ofi_dynamic'] = retail_ofi_series.diff().mean()
@@ -1114,14 +1092,11 @@ class AdvancedFundFlowMetricsService:
             metrics['main_force_level5_ofi'] = main_force_ofi_series.mean()
             metrics['main_force_level5_buy_ofi'] = main_force_ofi_series.clip(lower=0).mean()
             metrics['main_force_level5_sell_ofi'] = main_force_ofi_series.clip(upper=0).mean()
-
             metrics['retail_level5_ofi'] = retail_ofi_series.mean()
             metrics['retail_level5_buy_ofi'] = retail_ofi_series.clip(lower=0).mean()
             metrics['retail_level5_sell_ofi'] = retail_ofi_series.clip(upper=0).mean()
-
             metrics['main_force_level5_ofi_dynamic'] = main_force_ofi_series.diff().mean()
             metrics['retail_level5_ofi_dynamic'] = retail_ofi_series.diff().mean()
-
         return metrics
 
     @staticmethod

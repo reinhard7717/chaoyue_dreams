@@ -160,37 +160,28 @@ class MicroBehaviorEngine:
         required_signals = ['SLOPE_5_EMA_5_D', 'order_book_imbalance_D', 'main_force_ofi_D', 'deception_index_D']
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
-
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-
         price_trend_raw = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', method_name=method_name)
-
         # --- 纯微观意图重构：从原始微观数据构建微观意图 ---
         order_imbalance = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name)
         main_force_ofi = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name=method_name)
         deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-
         # 将原始微观数据归一化为双极性分数
         order_imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_imbalance, df.index, tf_weights, debug_info=(False, None, ""))
         main_force_ofi_score = get_adaptive_mtf_normalized_bipolar_score(main_force_ofi, df.index, tf_weights, debug_info=(False, None, ""))
         deception_index_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df.index, tf_weights, debug_info=(False, None, ""))
-
         # 融合微观意图。根据用户反馈，deception_index_D正值代表诱多出货（看跌），负值代表压价吸筹（看涨）。
         # 因此，在构建看涨微观意图时，deception_index_score应以负向权重参与融合。
         # 即：正向的deception_index_score（诱多）会降低看涨意图，负向的deception_index_score（诱空）会提高看涨意图。
         micro_intent_fused = (order_imbalance_score * 0.4 + main_force_ofi_score * 0.4 - deception_index_score * 0.2).clip(-1, 1) # 修改点
-
         # 计算融合后的微观意图的趋势
         micro_intent_trend_raw = micro_intent_fused.ewm(span=5, adjust=False).mean().diff().fillna(0)
-
         # 将价格趋势和微观意图趋势进行多时间框架归一化
         price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, tf_weights, debug_info=(False, None, ""))
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, tf_weights, debug_info=(False, None, ""))
-
         # 计算背离分数
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
-
         if is_debug_enabled:
             print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
@@ -234,7 +225,6 @@ class MicroBehaviorEngine:
         required_signals = ['large_order_pressure_D', 'hidden_accumulation_intensity_D', 'wash_trade_intensity_D', 'deception_index_D']
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
-
         # --- 获取战术证据 ---
         pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name=method_name)
         accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
@@ -242,29 +232,23 @@ class MicroBehaviorEngine:
         wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
         # --- 获取欺骗证据 ---
         deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-
         # --- 归一化证据 ---
         pressure_score = get_adaptive_mtf_normalized_score(pressure_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, ""))
         accumulation_score = get_adaptive_mtf_normalized_score(accumulation_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, ""))
-        
         # 归一化纯度调节器 (对倒强度越高，得分越低，因此ascending=False)
         wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_raw, df.index, ascending=False, tf_weights=tf_weights, debug_info=(False, None, ""))
         purity_modulator = wash_trade_score
-
         # 归一化欺骗惩罚因子：只取deception_index_D的正向部分（拉高出货）作为惩罚
         # 使用一个固定的norm_window，例如55，或者从配置中获取
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         deception_penalty_score = normalize_score(deception_raw.clip(lower=0), df.index, norm_window, ascending=True, debug_info=(False, None, ""))
-        
         # 欺骗惩罚调节器：1 - deception_penalty_score，欺骗越高，调节器越低
         deception_modulator = (1 - deception_penalty_score).clip(0, 1)
-
         # --- 战术合成 ---
         base_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
         # 最终得分 = 基础得分 * 纯度调节器 * 欺骗调节器
         stealth_ops_score = (base_score * purity_modulator * deception_modulator).fillna(0.0)
-
         if is_debug_enabled:
             print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
@@ -309,31 +293,25 @@ class MicroBehaviorEngine:
         required_signals = ['microstructure_efficiency_index_D', 'order_book_clearing_rate_D', 'closing_strength_index_D', 'volume_ratio_D']
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
-
         impact_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name)
         clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name=method_name)
         outcome_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name=method_name)
         volume_ratio_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
-
         # 数据净化步骤
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         outcome_normalized = normalize_score(outcome_raw, df.index, norm_window, debug_info=(False, None, ""))
         impact_score = get_adaptive_mtf_normalized_score(impact_raw.abs(), df.index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, ""))
         clearing_score = get_adaptive_mtf_normalized_score(clearing_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, ""))
-        
         # 归一化量能放大器
         volume_ratio_score = get_adaptive_mtf_normalized_score(volume_ratio_raw, df.index, ascending=True, tf_weights=tf_weights, debug_info=(False, None, ""))
         awe_amplifier = (1 + 0.5 * volume_ratio_score).fillna(1.0)
-
         # 核心计算：将 outcome_intent 与 impact_score 融合
         # 只有当微观结构效率高时，收盘强度意图才被认为是有效的
         outcome_intent = ((outcome_normalized * 2 - 1) * impact_score).clip(-1, 1) # 修改点
-        
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
         base_score = (shock_magnitude * outcome_intent) # 保持乘法，因为outcome_intent已经包含了效率
         shock_and_awe_score = (base_score * awe_amplifier).clip(-1, 1)
-
         if is_debug_enabled:
             print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
@@ -380,20 +358,16 @@ class MicroBehaviorEngine:
         required_signals = ['main_force_vwap_guidance_D', 'mf_cost_zone_defense_intent_D', 'control_solidity_index_D']
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
-
         guidance_raw = self._get_safe_series(df, 'main_force_vwap_guidance_D', 0.0, method_name=method_name)
         defense_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name=method_name)
         solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
-
         # --- 归一化所有输入为[-1, 1]的双极性分数 ---
         guidance_score = get_adaptive_mtf_normalized_bipolar_score(guidance_raw, df.index, tf_weights, debug_info=(False, None, ""))
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_raw, df.index, tf_weights, debug_info=(False, None, ""))
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(solidity_raw, df.index, tf_weights, debug_info=(False, None, ""))
-        
         # --- 逻辑重构：从加权平均升级为简单平均，强化负向稳固度的影响 ---
         base_intent_score = (guidance_score * 0.6 + defense_score * 0.4).clip(-1, 1)
         cost_control_score = ((base_intent_score + solidity_score) / 2).clip(-1, 1) # 修改点
-
         if is_debug_enabled:
             print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
@@ -480,7 +454,6 @@ class MicroBehaviorEngine:
         gated_offensive_force = offensive_force * control_gate
         # 4. 风险因子（背离）
         risk_factor = divergence
-
         # 获取欺骗指数作为全局惩罚因子
         deception_raw = self._get_safe_series(self.strategy.df_indicators, 'deception_index_D', 0.0, method_name=method_name)
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
@@ -489,14 +462,12 @@ class MicroBehaviorEngine:
         deception_penalty_score = normalize_score(deception_raw.clip(lower=0), self.strategy.df_indicators.index, norm_window, ascending=True, debug_info=(False, None, ""))
         # 欺骗惩罚调节器：1 - deception_penalty_score，欺骗越高，调节器越低
         deception_modulator = (1 - deception_penalty_score).clip(0, 1)
-
         # 5. 最终博弈：将门控后的进攻力量与风险因子（背离）进行加权融合，并应用欺骗惩罚
         strategic_intent_score = (
             gated_offensive_force * 0.7 +
             risk_factor * 0.3
         ) * deception_modulator.clip(0, 1) # 修改点：应用全局欺骗惩罚
         strategic_intent_score = strategic_intent_score.clip(-1, 1)
-
         if is_debug_enabled:
             print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
