@@ -313,7 +313,6 @@
             "cn_name": "【微观】看涨背离",
             "category": "微观行为-机会",
             "type": "opportunity",
-            "score": 200,
             "scoring_mode": "unipolar",
             "description": "微观行为层面的看涨背离信号。"
         },
@@ -321,7 +320,6 @@
             "cn_name": "【微观】看跌背离",
             "category": "微观行为-风险",
             "type": "risk",
-            "penalty_weight": -200,
             "scoring_mode": "unipolar",
             "description": "微观行为层面的看跌背离信号。"
         },
