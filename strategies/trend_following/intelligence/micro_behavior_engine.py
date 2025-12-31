@@ -148,12 +148,13 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
         """
-        【V2.3 · 纯微观意图重构版】微观行为公理四：诊断“微观背离”
-        - 核心重构: 彻底移除了对“SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT”的依赖，
-                    转而直接从原始微观数据（订单簿不平衡、主力订单流、欺骗指数）构建微观意图。
-                    这确保了微观行为引擎的纯粹性，严格遵循“只分析微观类原始数据”的原则。
-        - 逻辑调整: 将订单簿不平衡、主力订单流和欺骗指数进行多时间框架归一化后加权平均，
-                    形成新的“微观意图”信号，再计算其趋势与价格趋势的背离。
+        【V2.4 · 欺骗意图反转修正版】微观行为公理四：诊断“微观背离”
+        - 核心修正: 鉴于探针日志中`deception_index_D`在“诱多出货日”显示正值，
+                    且其在`_synthesize_strategic_intent`中作为惩罚因子使用，
+                    我们调整`micro_intent_fused`中`deception_index_score`的贡献方式。
+                    现在，`deception_index_score`（其正值代表诱多/拉高出货，负值代表诱空/压价吸筹）
+                    将以负向权重参与融合，即正向欺骗（诱多）会降低微观意图的看涨分数，
+                    负向欺骗（诱空）会提高微观意图的看涨分数，从而更准确地反映主力真实意图。
         """
         method_name = "_diagnose_axiom_divergence"
         required_signals = ['SLOPE_5_EMA_5_D', 'order_book_imbalance_D', 'main_force_ofi_D', 'deception_index_D']
@@ -175,9 +176,10 @@ class MicroBehaviorEngine:
         main_force_ofi_score = get_adaptive_mtf_normalized_bipolar_score(main_force_ofi, df.index, tf_weights, debug_info=(False, None, ""))
         deception_index_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df.index, tf_weights, debug_info=(False, None, ""))
 
-        # 融合微观意图。欺骗指数正分代表压价吸筹（看涨），负分代表拉高出货（看跌），直接参与加权。
-        # 赋予欺骗指数略低的权重，因为它是一种“诡道”，不应完全主导真实意图。
-        micro_intent_fused = (order_imbalance_score * 0.4 + main_force_ofi_score * 0.4 + deception_index_score * 0.2).clip(-1, 1)
+        # 融合微观意图。根据用户反馈，deception_index_D正值代表诱多出货（看跌），负值代表压价吸筹（看涨）。
+        # 因此，在构建看涨微观意图时，deception_index_score应以负向权重参与融合。
+        # 即：正向的deception_index_score（诱多）会降低看涨意图，负向的deception_index_score（诱空）会提高看涨意图。
+        micro_intent_fused = (order_imbalance_score * 0.4 + main_force_ofi_score * 0.4 - deception_index_score * 0.2).clip(-1, 1) # 修改点
 
         # 计算融合后的微观意图的趋势
         micro_intent_trend_raw = micro_intent_fused.ewm(span=5, adjust=False).mean().diff().fillna(0)
