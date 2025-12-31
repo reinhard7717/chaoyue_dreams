@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Optional, List
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, bipolar_to_exclusive_unipolar, 
     get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
