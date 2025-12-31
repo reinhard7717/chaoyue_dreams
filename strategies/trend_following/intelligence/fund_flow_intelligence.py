@@ -487,18 +487,23 @@ class FundFlowIntelligence:
         p_conf_ff = self.p_conf_ff
         ac_params = get_param_value(p_conf_ff.get('axiom_consensus_params'), {})
 
-        # 修正探针控制逻辑：使用 self.debug_params 和 self.probe_dates
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get(method_name, {}).get('enabled'), False)
+        # 修正探针控制逻辑：使用 self.debug_params 中的 'should_probe'
+        is_debug_enabled_for_method = self.debug_params.get('should_probe', False)
         probe_ts = None
         if is_debug_enabled_for_method and self.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            # 查找当前df中是否存在探针日期
             for date in reversed(df_index):
                 if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
                     probe_ts = date
                     break
         
+        # 如果没有找到探针日期，则禁用当前方法的调试输出
+        if probe_ts is None:
+            is_debug_enabled_for_method = False
+
         # 传递给子函数的 debug_info
-        debug_info_tuple = (is_debug_enabled_for_method, probe_ts, method_name) if probe_ts else (False, None, method_name)
+        debug_info_tuple = (is_debug_enabled_for_method, probe_ts, method_name)
 
         if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
             print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流共识...")
@@ -591,8 +596,8 @@ class FundFlowIntelligence:
         ]
         for signal_base in signal_bases_for_mtf_cohesion:
             for p in all_mtf_periods:
-                all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name=method_name)
-                all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name)
+                all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name=method_name, debug_info=debug_info_tuple)
+                all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name, debug_info=debug_info_tuple)
         
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
@@ -606,7 +611,7 @@ class FundFlowIntelligence:
             if signal_name in all_pre_fetched_slopes_accels:
                 raw_data_cache[signal_name] = all_pre_fetched_slopes_accels[signal_name]
             else:
-                raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name)
+                raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name, debug_info=debug_info_tuple)
         
         # 提取常用信号到局部变量
         main_force_flow_raw = raw_data_cache['main_force_net_flow_calibrated_D']
@@ -653,12 +658,12 @@ class FundFlowIntelligence:
         deception_cohesion = pd.Series(1.0, index=df_index)
         wash_trade_cohesion = pd.Series(1.0, index=df_index)
         if mtf_cohesion_enabled:
-            macro_flow_directionality_cohesion = self._calculate_mtf_cohesion_divergence(df, 'main_force_flow_directionality_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            nmfnf_cohesion = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            micro_imbalance_cohesion = self._calculate_mtf_cohesion_divergence(df, 'order_book_imbalance_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            micro_efficiency_cohesion = self._calculate_mtf_cohesion_divergence(df, 'microstructure_efficiency_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            deception_cohesion = self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            wash_trade_cohesion = self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
+            macro_flow_directionality_cohesion = self._calculate_mtf_cohesion_divergence(df, 'main_force_flow_directionality_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels, debug_info=debug_info_tuple)
+            nmfnf_cohesion = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels, debug_info=debug_info_tuple)
+            micro_imbalance_cohesion = self._calculate_mtf_cohesion_divergence(df, 'order_book_imbalance_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels, debug_info=debug_info_tuple)
+            micro_efficiency_cohesion = self._calculate_mtf_cohesion_divergence(df, 'microstructure_efficiency_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels, debug_info=debug_info_tuple)
+            deception_cohesion = self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels, debug_info=debug_info_tuple)
+            wash_trade_cohesion = self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels, debug_info=debug_info_tuple)
             if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
                 print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振因子计算 ---")
                 print(f"        macro_flow_directionality_cohesion: {macro_flow_directionality_cohesion.loc[probe_ts]:.4f}")
