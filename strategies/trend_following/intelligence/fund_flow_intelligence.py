@@ -156,7 +156,6 @@ class FundFlowIntelligence:
         attack_dissonance_penalty_sensitivity = get_param_value(attack_group.get('dissonance_penalty_sensitivity'), 0.5)
         attack_dissonance_penalty = np.tanh(attack_dissonance * attack_dissonance_penalty_sensitivity)
         attack_score = attack_base * (1 - attack_dissonance_penalty)
-        print(f"        [探针] 攻击力量 (矛) 原始分: {attack_base.iloc[-1]:.4f}, 不谐和惩罚: {attack_dissonance_penalty.iloc[-1]:.4f}, 最终攻击分: {attack_score.iloc[-1]:.4f}")
         # 2.2 防御力量 (盾)
         defense_base = (axiom_consensus * defense_group.get('consensus', 0.6) +
                         axiom_flow_structure_health * defense_group.get('flow_health', 0.4))
@@ -164,12 +163,10 @@ class FundFlowIntelligence:
         defense_dissonance_penalty_sensitivity = get_param_value(defense_group.get('dissonance_penalty_sensitivity'), 0.5)
         defense_dissonance_penalty = np.tanh(defense_dissonance * defense_dissonance_penalty_sensitivity)
         defense_score = defense_base * (1 - defense_dissonance_penalty)
-        print(f"        [探针] 防御力量 (盾) 原始分: {defense_base.iloc[-1]:.4f}, 不谐和惩罚: {defense_dissonance_penalty.iloc[-1]:.4f}, 最终防御分: {defense_score.iloc[-1]:.4f}")
         # 2.3 内部协同度调制器 (Internal Harmony Modulator)
         imbalance = abs(attack_score - defense_score)
         imbalance_penalty_sensitivity = get_param_value(harmony_group.get('imbalance_penalty_sensitivity'), 0.8)
         internal_harmony_modulator = 1 - np.tanh(imbalance * imbalance_penalty_sensitivity)
-        print(f"        [探针] 矛盾不平衡度: {imbalance.iloc[-1]:.4f}, 内部协同度调制器: {internal_harmony_modulator.iloc[-1]:.4f}")
         # 2.4 情境调节器 (Context Modulator)
         # 确保 flow_credibility_index_D 和 VOLATILITY_INSTABILITY_INDEX_21d_D 存在
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="diagnose_fund_flow_states")
@@ -184,7 +181,6 @@ class FundFlowIntelligence:
                         norm_volatility_instability_inverse * context_group.get('volatility_instability_inverse', 0.3))
         amplification_sensitivity = get_param_value(context_group.get('amplification_sensitivity'), 1.0)
         context_modulator_final = 1 + np.tanh(context_base * amplification_sensitivity)
-        print(f"        [探针] 情境调节器基础分: {context_base.iloc[-1]:.4f}, 最终情境调节器: {context_modulator_final.iloc[-1]:.4f}")
         # 2.5 脆弱性放大机制 (Vulnerability Amplification)
         extreme_negative_defense_threshold = get_param_value(defense_group.get('extreme_negative_defense_threshold'), -0.7)
         vulnerability_amplification_sensitivity = get_param_value(defense_group.get('vulnerability_amplification_sensitivity'), 1.5)
@@ -192,11 +188,9 @@ class FundFlowIntelligence:
         defense_vulnerability = (extreme_negative_defense_threshold - defense_score).clip(lower=0)
         # 使用 tanh 函数将脆弱性程度映射为 [0, 1) 的惩罚因子
         vulnerability_penalty = np.tanh(defense_vulnerability * vulnerability_amplification_sensitivity)
-        print(f"        [探针] 防御脆弱性原始值: {defense_vulnerability.iloc[-1]:.4f}, 脆弱性惩罚因子: {vulnerability_penalty.iloc[-1]:.4f}")
         # 2.6 最终战略态势融合
         posture_core = attack_score * (1 + defense_score) / 2
         strategic_posture_score = (posture_core * internal_harmony_modulator * context_modulator_final * (1 - vulnerability_penalty)).clip(-1, 1)
-        print(f"        [探针] 矛盾核心分: {posture_core.iloc[-1]:.4f}, 最终战略态势分: {strategic_posture_score.iloc[-1]:.4f}")
         # --- 3. 和谐拐点计算 ---
         posture_velocity = strategic_posture_score.diff().fillna(0)
         posture_acceleration = posture_velocity.diff().fillna(0)
@@ -500,10 +494,6 @@ class FundFlowIntelligence:
                     if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
                         current_probe_date = date
                         break
-            if current_probe_date:
-                print(f"        [探针] 战场控制权诊断启动。探针日期: {current_probe_date.strftime('%Y-%m-%d')}")
-            else:
-                print(f"        [探针] 战场控制权诊断启动。probe_enabled为True，但当前DataFrame不包含任何指定探针日期。")
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         deception_mod_enabled = get_param_value(ac_params.get('deception_mod_enabled'), True)
         deception_penalty_sensitivity = get_param_value(ac_params.get('deception_penalty_sensitivity'), 0.6)
@@ -634,15 +624,15 @@ class FundFlowIntelligence:
         order_flow_imbalance_score_raw = raw_data_cache['order_flow_imbalance_score_D']
         deception_lure_long_raw = raw_data_cache['deception_lure_long_intensity_D']
         deception_lure_short_raw = raw_data_cache['deception_lure_short_intensity_D']
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 原始数据获取完成。")
-            print(f"          - main_force_flow_directionality_D: {main_force_flow_directionality_raw.loc[current_probe_date]:.4f}")
-            print(f"          - main_force_flow_gini_D: {main_force_flow_gini_raw.loc[current_probe_date]:.4f}")
-            print(f"          - NMFNF_D: {nmfnf_raw.loc[current_probe_date]:.4f}")
-            print(f"          - market_impact_cost_D: {market_impact_cost_raw.loc[current_probe_date]:.4f}")
-            print(f"          - liquidity_slope_D: {liquidity_slope_raw.loc[current_probe_date]:.4f}")
-            print(f"          - buy_sweep_intensity_D: {buy_sweep_intensity_raw.loc[current_probe_date]:.4f}")
-            print(f"          - deception_lure_long_intensity_D: {deception_lure_long_raw.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date:
+        #     print(f"        [探针] 原始数据获取完成。")
+        #     print(f"          - main_force_flow_directionality_D: {main_force_flow_directionality_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - main_force_flow_gini_D: {main_force_flow_gini_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - NMFNF_D: {nmfnf_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - market_impact_cost_D: {market_impact_cost_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - liquidity_slope_D: {liquidity_slope_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - buy_sweep_intensity_D: {buy_sweep_intensity_raw.loc[current_probe_date]:.4f}")
+        #     print(f"          - deception_lure_long_intensity_D: {deception_lure_long_raw.loc[current_probe_date]:.4f}")
         # --- MTF共振因子计算 ---
         macro_flow_directionality_cohesion = pd.Series(1.0, index=df_index)
         nmfnf_cohesion = pd.Series(1.0, index=df_index)
@@ -657,12 +647,12 @@ class FundFlowIntelligence:
             micro_efficiency_cohesion = self._calculate_mtf_cohesion_divergence(df, 'microstructure_efficiency_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             deception_cohesion = self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             wash_trade_cohesion = self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            if probe_enabled and current_probe_date:
-                print(f"        [探针] MTF共振因子计算完成。")
-                print(f"          - macro_flow_directionality_cohesion: {macro_flow_directionality_cohesion.loc[current_probe_date]:.4f}")
-                print(f"          - nmfnf_cohesion: {nmfnf_cohesion.loc[current_probe_date]:.4f}")
-                print(f"          - micro_imbalance_cohesion: {micro_imbalance_cohesion.loc[current_probe_date]:.4f}")
-                print(f"          - deception_cohesion: {deception_cohesion.loc[current_probe_date]:.4f}")
+            # if probe_enabled and current_probe_date:
+            #     print(f"        [探针] MTF共振因子计算完成。")
+            #     print(f"          - macro_flow_directionality_cohesion: {macro_flow_directionality_cohesion.loc[current_probe_date]:.4f}")
+            #     print(f"          - nmfnf_cohesion: {nmfnf_cohesion.loc[current_probe_date]:.4f}")
+            #     print(f"          - micro_imbalance_cohesion: {micro_imbalance_cohesion.loc[current_probe_date]:.4f}")
+            #     print(f"          - deception_cohesion: {deception_cohesion.loc[current_probe_date]:.4f}")
         # --- 1. 宏观资金流质量 (Enhanced Macro Fund Flow Quality) ---
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights_ff)
         norm_main_force_flow_gini_inverted = 1 - get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 基尼系数越低越好，所以反向归一化
@@ -672,8 +662,8 @@ class FundFlowIntelligence:
             norm_main_force_flow_gini_inverted * macro_flow_quality_weights.get('main_force_flow_gini_inverted', 0.2) +
             norm_nmfnf_net_flow * macro_flow_quality_weights.get('nmfnf_net_flow', 0.5) * (1 + nmfnf_cohesion * mtf_cohesion_macro_flow_weights.get('nmfnf', 0.5) * mtf_cohesion_modulator_sensitivity)
         ).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 宏观资金流质量分数: {macro_flow_quality_score.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date:
+        #     print(f"        [探针] 宏观资金流质量分数: {macro_flow_quality_score.loc[current_probe_date]:.4f}")
         # --- 2. 微观盘口意图推断 (Enhanced Micro Order Book Intent Inference) ---
         imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights_ff)
         impact_score = get_adaptive_mtf_normalized_bipolar_score(ofi_impact_raw, df_index, tf_weights_ff)
@@ -776,10 +766,10 @@ class FundFlowIntelligence:
             micro_control_modulator.loc[penalty_mask] = 1 - (norm_buy_exhaustion.loc[penalty_mask] * norm_sell_exhaustion.loc[penalty_mask]) * exhaustion_penalty_factor
             micro_control_modulator = micro_control_modulator.clip(0.5, 1.5)
         micro_control_score = micro_intent_score * micro_control_modulator
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 微观控制质量分数: {micro_control_quality_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 微观盘口意图分数 (融合后): {micro_intent_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 微观控制分数 (调制后): {micro_control_score.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date:
+        #     print(f"        [探针] 微观控制质量分数: {micro_control_quality_score.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 微观盘口意图分数 (融合后): {micro_intent_score.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 微观控制分数 (调制后): {micro_control_score.loc[current_probe_date]:.4f}")
         # --- 3. 诡道博弈深度情境感知与调制 (Enhanced Deceptive Game Integration & Contextual Modulation) ---
         deception_modulator = pd.Series(1.0, index=df_index)
         if deception_mod_enabled:
@@ -808,8 +798,8 @@ class FundFlowIntelligence:
             low_credibility_mask = (norm_flow_credibility < flow_credibility_threshold)
             deception_modulator.loc[low_credibility_mask] = deception_modulator.loc[low_credibility_mask] * (norm_flow_credibility.loc[low_credibility_mask] / flow_credibility_threshold).clip(0.1, 1.0)
             deception_modulator = deception_modulator.clip(0.01, 2.0)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 诡道调制器: {deception_modulator.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date:
+        #     print(f"        [探针] 诡道调制器: {deception_modulator.loc[current_probe_date]:.4f}")
         # --- 4. 多维度情境自适应权重 (Enhanced Adaptive Macro-Micro Weighting) ---
         dynamic_macro_weight = pd.Series(macro_flow_base_weight, index=df_index)
         dynamic_micro_weight = pd.Series(micro_control_base_weight, index=df_index)
@@ -831,9 +821,9 @@ class FundFlowIntelligence:
             dynamic_micro_weight = dynamic_micro_weight / sum_dynamic_weights
             dynamic_macro_weight = dynamic_macro_weight.clip(0.1, 0.9)
             dynamic_micro_weight = dynamic_micro_weight.clip(0.1, 0.9)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 动态宏观权重: {dynamic_macro_weight.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 动态微观权重: {dynamic_micro_weight.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date:
+        #     print(f"        [探针] 动态宏观权重: {dynamic_macro_weight.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 动态微观权重: {dynamic_micro_weight.loc[current_probe_date]:.4f}")
         # --- 5. 融合基础战场控制权 (V6.0 非线性微观-宏观交互) ---
         # 将宏观流向分数和微观控制分数转换为 [0, 1] 范围，以便进行几何平均
         macro_score_unipolar = (macro_flow_quality_score + 1) / 2
@@ -858,12 +848,12 @@ class FundFlowIntelligence:
         base_battlefield_control_score = base_battlefield_control_score * deception_modulator
         # 应用非线性交互指数
         base_battlefield_control_score = np.tanh(base_battlefield_control_score * micro_macro_interaction_exponent)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 宏观流向质量分数: {macro_flow_quality_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 微观控制分数: {micro_control_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 基础战场控制分数 (融合前): {base_battlefield_control_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 诡道调制器: {deception_modulator.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 基础战场控制分数 (调制后): {base_battlefield_control_score.loc[current_probe_date]:.4f}")
+        # if probe_enabled and current_probe_date:
+        #     print(f"        [探针] 宏观流向质量分数: {macro_flow_quality_score.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 微观控制分数: {micro_control_score.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 基础战场控制分数 (融合前): {base_battlefield_control_score.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 诡道调制器: {deception_modulator.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 基础战场控制分数 (调制后): {base_battlefield_control_score.loc[current_probe_date]:.4f}")
         # --- 6. 战场控制权动态演化与前瞻性增强 (Dynamic Evolution & Foresight Enhancement) ---
         smoothed_base_score = base_battlefield_control_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
@@ -891,9 +881,9 @@ class FundFlowIntelligence:
         }
         final_score = _robust_geometric_mean(final_score_components, final_score_weights, df_index)
         final_score = (final_score * 2 - 1).clip(-1, 1)
-        if probe_enabled and current_probe_date:
-            print(f"        [探针] 最终战场控制分数: {final_score.loc[current_probe_date]:.4f}")
-            print(f"        [探针] 战场控制权诊断完成。")
+        # if probe_enabled and current_probe_date:
+        #     print(f"        [探针] 最终战场控制分数: {final_score.loc[current_probe_date]:.4f}")
+        #     print(f"        [探针] 战场控制权诊断完成。")
         return final_score.astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

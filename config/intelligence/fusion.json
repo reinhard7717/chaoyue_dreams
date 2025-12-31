@@ -457,7 +457,6 @@
             },
             "non_linear_exponent": 2.0
         },
-
         "fusion_breakout_sustainability_params": {
             "description": "【V1.0 · 穿透假象版】突破持续性品质信号参数。",
             "bullish_weights": {

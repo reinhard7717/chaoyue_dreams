@@ -1391,7 +1391,6 @@ class ChipIntelligence:
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_absorption_echo"
-        print(f"    -> [筹码情报校验] 正在诊断“{method_name}” (V5.3 · 诡道反吸强化与恐慌动态修正版 & 牛市陷阱惩罚版)...")
         df_index = df.index
         required_signals = [
             'retail_panic_surrender_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
