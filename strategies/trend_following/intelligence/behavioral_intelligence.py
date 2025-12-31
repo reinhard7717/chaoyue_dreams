@@ -1526,7 +1526,7 @@ class BehavioralIntelligence:
 
     def _diagnose_deception_index(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V2.6 · 欺骗情境感知与价格上涨中的主力意图背离 - 强化版】诊断博弈欺骗指数
+        【V2.7 · 欺骗情境感知与价格上涨中的主力意图背离 - 强化版】诊断博弈欺骗指数
         - 核心重构: 废弃V1.2“结果导向”模型，引入“认知失调 × 欺骗工具强度 × 情境调制”的全新诊断模型。
         - 核心逻辑: 欺骗分 = (主力真实意图向量 - K线表象剧本向量) * 欺骗工具强度 * 情境放大器
                       直接量化“意图”与“表象”的背离程度，并结合欺骗工具的活跃度和市场情境，能识别更高明的欺骗形态。
@@ -1537,7 +1537,7 @@ class BehavioralIntelligence:
         - 【新增】情境调制器：根据散户狂热和市场波动性，动态调整欺骗指数。
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
-        - **【第四次修改】进一步强化欺骗工具权重，在欺骗强度基础分中直接引入散户狂热，并调整欺骗工具强度的计算逻辑。**
+        - **【第五次修改】修正 `deception_tool_strength` 中 `lure_long` 和 `lure_short` 与 `cognitive_dissonance_vector` 方向的逻辑关联。**
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_deception_index"
@@ -1589,19 +1589,28 @@ class BehavioralIntelligence:
         norm_wash_trade = normalized_scores['wash_trade_intensity_D']
         norm_lure_short = normalized_scores['deception_lure_short_intensity_D']
         deception_tool_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 如果是正向认知失调（意图 > 表象），则关注诱多和对倒
+
+        # 修正逻辑：
+        # 如果是正向认知失调（意图 > 表象），则关注诱空和对倒 (隐藏看涨意图，通过诱空洗盘)
+        bullish_deception_tools_sum = (norm_lure_short * deception_tool_weights.get('lure_short', 0.3) +
+                                       norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3))
+        bullish_deception_tools_total_weight = deception_tool_weights.get('lure_short', 0.3) + deception_tool_weights.get('wash_trade', 0.3)
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector > 0,
-            (norm_lure_long * deception_tool_weights.get('lure_long', 0.4) +
-             norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3)) / (deception_tool_weights.get('lure_long', 0.4) + deception_tool_weights.get('wash_trade', 0.3))
+            bullish_deception_tools_sum / (bullish_deception_tools_total_weight if bullish_deception_tools_total_weight > 0 else 1.0)
         )
-        # 如果是负向认知失调（意图 < 表象），则关注诱空和对倒
+
+        # 如果是负向认知失调（意图 < 表象），则关注诱多和对倒 (隐藏看跌意图，通过诱多出货)
+        bearish_deception_tools_sum = (norm_lure_long * deception_tool_weights.get('lure_long', 0.4) +
+                                       norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3))
+        bearish_deception_tools_total_weight = deception_tool_weights.get('lure_long', 0.4) + deception_tool_weights.get('wash_trade', 0.3)
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector < 0,
-            (norm_lure_short * deception_tool_weights.get('lure_short', 0.3) +
-             norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3)) / (deception_tool_weights.get('lure_short', 0.3) + deception_tool_weights.get('wash_trade', 0.3))
+            bearish_deception_tools_sum / (bearish_deception_tools_total_weight if bearish_deception_tools_total_weight > 0 else 1.0)
         )
+        
         # 如果认知失调接近0，则只考虑对倒，并给予更高的权重，因为对倒本身就是欺骗
-        deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector.abs() < 1e-9, norm_wash_trade * 0.8) # 提高对倒在无明显失调时的权重
+        deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector.abs() < 1e-9, norm_wash_trade * 0.8)
         deception_tool_strength = deception_tool_strength.clip(0, 1)
+
         # 情境调制器：散户狂热和波动性
         context_modulator_factor = pd.Series(context_modulator_params.get('base_modulator', 1.0), index=df.index, dtype=np.float32)
         if context_modulator_params.get('enabled', False):
@@ -1622,7 +1631,7 @@ class BehavioralIntelligence:
             cognitive_dissonance_vector.abs() * (1 + norm_wash_trade) # 放大对倒强度
         ).clip(0, 1)
         # --- 5. 最终合成：认知失调的绝对值 * 欺骗工具强度 * 情境调制器，并保留方向 ---
-        # 欺骗强度基础分：认知失调的绝对值和欺骗工具强度进行加权平均，并加入价格上涨中的主力意图背离和散户狂热
+        # 欺骗强度基础分：认知失调的绝对值 * 欺骗工具强度 * 情境调制器，并加入价格上涨中的主力意图背离和散户狂热
         deception_magnitude_score = (
             cognitive_dissonance_vector.abs() * 0.3 + # 降低认知失调的直接权重
             deception_tool_strength * 0.4 + # 提高欺骗工具的权重
