@@ -1451,7 +1451,8 @@ class FusionIntelligence:
                       修正 `raw_score` (散户承接意愿) 的逻辑，使其在高散户狂热时放大派发风险。
                       增加 `SCORE_BEHAVIOR_DECEPTION_INDEX` (正向) 和 `SCORE_CHIP_HOLLOWING_OUT_RISK` 信号，提高派发压力的准确性。
                       修正 `RAW恐慌抑制` 逻辑，避免 `raw_score` 被错误归零。
-                      **增加详细调试打印，输出 `mfdi_score`, `raw_score`, `msf_score`, `geometric_mean_score`, `dynamic_non_linear_sensitivity`, `synergy_modulator`, `tanh_input` 等中间值，以便诊断最终分值。**
+                      增加详细调试打印，输出 `mfdi_score`, `raw_score`, `msf_score`, `geometric_mean_score`, `dynamic_non_linear_sensitivity`, `synergy_modulator`, `tanh_input` 等中间值，以便诊断最终分值。
+                      **增加 `mfdi_score` 和 `raw_score` 各个组件的归一化分数打印。**
         """
         method_name = "_synthesize_distribution_pressure"
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
@@ -1469,21 +1470,23 @@ class FusionIntelligence:
         norm_window = get_param_value(params.get('norm_window'), 55)
         mtf_norm_weights = get_param_value(params.get('mtf_norm_weights'), {})
         # --- 1. MFDI (主力派发意图) ---
-        # 新增博弈欺骗指数正向部分，作为主力派发意图的证据
-        mfdi_signal_weights['SCORE_BEHAVIOR_DECEPTION_INDEX_POSITIVE'] = mfdi_signal_weights.get('SCORE_BEHAVIOR_DECEPTION_INDEX_POSITIVE', 0.05) # 假设权重为0.05
+        # 注意：此处配置应在 fusion.json 中确保 SCORE_BEHAVIOR_DECEPTION_INDEX_NEGATIVE 存在且权重合理
         mfdi_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MFDI组件原始信号 ---")
         if mfdi_total_weight > 0:
             for signal, weight in mfdi_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
                 mfdi_weighted_sum += score * weight
+                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                    print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MFDI组件 '{signal}' (归一化: {score.loc[probe_ts]:.4f}, 权重: {weight})")
             mfdi_score = mfdi_weighted_sum / mfdi_total_weight
         else:
             mfdi_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         # MFDI 动态权重与诡道调制
         mfdi_dynamic_weights_params = get_param_value(params.get('mfdi_dynamic_weights'), {})
         if get_param_value(mfdi_dynamic_weights_params.get('enabled'), False):
-            # 替换 conviction_signal 的来源为基础信号
             conviction_signal = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0, debug_info)
             credibility_signal = self._get_atomic_score(df, get_param_value(mfdi_dynamic_weights_params.get('credibility_signal')), 0.0, debug_info)
             conviction_sensitivity = get_param_value(mfdi_dynamic_weights_params.get('conviction_sensitivity'), 0.5)
@@ -1500,13 +1503,18 @@ class FusionIntelligence:
             mfdi_score = mfdi_score * (1 + deception_amplifier)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力派发意图 (mfdi_score): {mfdi_score.loc[probe_ts]:.4f}")
+
         # --- 2. RAW (散户承接意愿) ---
         raw_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         raw_total_weight = sum(raw_signal_weights.values())
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- RAW组件原始信号 ---")
         if raw_total_weight > 0:
             for signal, weight in raw_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
                 raw_weighted_sum += score * weight
+                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                    print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: RAW组件 '{signal}' (归一化: {score.loc[probe_ts]:.4f}, 权重: {weight})")
             raw_score = raw_weighted_sum / raw_total_weight
         else:
             raw_score = pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -1530,11 +1538,14 @@ class FusionIntelligence:
             raw_score = raw_score * (1 - panic_dampener)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 散户承接意愿 (raw_score): {raw_score.loc[probe_ts]:.4f}")
+
         # --- 3. MSF (市场结构脆弱性) ---
         # 新增筹码空心化风险，作为市场结构脆弱性的证据
         msf_signal_weights['SCORE_CHIP_HOLLOWING_OUT_RISK'] = msf_signal_weights.get('SCORE_CHIP_HOLLOWING_OUT_RISK', 0.05) # 假设权重为0.05
         msf_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         msf_total_weight = sum(msf_signal_weights.values())
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MSF组件原始信号 ---")
         if msf_total_weight > 0:
             for signal, weight in msf_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
@@ -1563,6 +1574,7 @@ class FusionIntelligence:
             msf_score = msf_score * (1 + liquidity_trap_amplifier)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 市场结构脆弱性 (msf_score): {msf_score.loc[probe_ts]:.4f}")
+
         # --- 4. 融合三体分数 (加权几何平均) ---
         # 【V1.5 变更】修正 `retail_unwillingness_score` 的逻辑，使其在高散户狂热时放大派发风险
         retail_unwillingness_score = raw_score # 直接使用 raw_score，高分代表散户承接意愿强，即派发风险高
@@ -1581,11 +1593,11 @@ class FusionIntelligence:
             geometric_mean_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 几何平均分 (geometric_mean_score): {geometric_mean_score.loc[probe_ts]:.4f}")
+
         # 动态非线性敏感度
         final_fusion_dynamic_exponent_params = get_param_value(params.get('final_fusion_dynamic_exponent'), {})
         dynamic_non_linear_sensitivity = pd.Series(non_linear_sensitivity, index=df_index, dtype=np.float32)
         if get_param_value(final_fusion_dynamic_exponent_params.get('enabled'), False):
-            # 替换 trend_quality_signal 和 market_regime_signal 的来源为基础信号
             trend_quality_signal = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0, debug_info)
             market_regime_signal = self._get_atomic_score(df, 'SCORE_CYCLICAL_HURST_MEMORY', 0.0, debug_info)
             tq_sensitivity = get_param_value(final_fusion_dynamic_exponent_params.get('tq_sensitivity'), 0.5)
@@ -1597,6 +1609,7 @@ class FusionIntelligence:
             dynamic_non_linear_sensitivity = (base_exponent * (1 + dynamic_exponent_mod)).clip(min_exponent, max_exponent)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性敏感度 (dynamic_non_linear_sensitivity): {dynamic_non_linear_sensitivity.loc[probe_ts]:.4f}")
+
         # 协同/冲突调制
         synergy_conflict_params = get_param_value(params.get('final_fusion_synergy_conflict'), {})
         synergy_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
@@ -1612,9 +1625,11 @@ class FusionIntelligence:
             synergy_modulator = synergy_modulator.clip(0.5, 1.5)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 协同/冲突调制器 (synergy_modulator): {synergy_modulator.loc[probe_ts]:.4f}")
+
         tanh_input = geometric_mean_score * dynamic_non_linear_sensitivity * synergy_modulator
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: Tanh函数输入 (tanh_input): {tanh_input.loc[probe_ts]:.4f}")
+
         final_distribution_pressure = (np.tanh(tanh_input) + 1) / 2
         final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
         states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure
