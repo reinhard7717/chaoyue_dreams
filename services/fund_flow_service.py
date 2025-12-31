@@ -288,10 +288,15 @@ class AdvancedFundFlowMetricsService:
 
     def _engineer_hf_features(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
         """
-        【V64.1 · 主动流修复版】
-        - 核心修正: 补全了计算 `net_active_volume` (净主动成交量) 的关键逻辑。通过对比逐笔成交价与盘口买一卖一价，
-                     精确识别并计算了主动买入和主动卖出成交量，从而生成了下游微观动力学指标
-                     (`micro_impact_elasticity` 等) 所必需的核心输入数据，根除了导致这些指标为空的“原料缺失”问题。
+        【V64.2 · 主力订单流失衡重构版】
+        - 核心重构: 重新定义 `main_force_ofi` 和 `retail_ofi` 的底层数据源。
+                    现在，它们基于 `net_active_volume` (实际执行的买卖成交量) 进行计算，
+                    而非之前的 `buy_volume1`/`sell_volume1` (挂单量)。
+                    这确保了“订单流失衡”指标真正反映了主力/散户的实际成交行为，
+                    而非盘口挂单的静态压力。
+        - 核心新增: 引入 `main_force_net_executed_ofi` 和 `retail_net_executed_ofi`
+                    作为逐笔的主力/散户净主动成交量，为下游计算提供更精确的原始数据。
+        - 核心保留: 原始的 `ofi` (基于挂单量和中价变动) 仍然保留，用于需要盘口压力的指标。
         """
         import numpy as np
         features = {
@@ -306,13 +311,27 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
         hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # 确保 mid_price_delta 存在
-        buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
-        sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
-        hf_analysis_df['ofi'] = buy_pressure - sell_pressure
+
+        # --- 保留原始的基于挂单量的OFI，用于需要盘口压力的指标 ---
+        buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
+        sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
+        hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote # 这是基于挂单量的OFI
+
         is_main_force_trade = hf_analysis_df['amount'] > 200000
         is_retail_trade = hf_analysis_df['amount'] < 50000
-        hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['ofi'], 0)
-        hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['ofi'], 0)
+
+        # --- 计算净主动成交量 (实际执行的买卖成交量) ---
+        active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
+        active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
+        net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
+        net_active_volume_series.loc[active_buy_mask] = hf_analysis_df.loc[active_buy_mask, 'volume']
+        net_active_volume_series.loc[active_sell_mask] = -hf_analysis_df.loc[active_sell_mask, 'volume']
+        hf_analysis_df['net_active_volume'] = net_active_volume_series
+
+        # --- 新增：基于实际执行的净主动成交量的主力/散户订单流失衡 ---
+        hf_analysis_df['main_force_net_executed_ofi'] = np.where(is_main_force_trade, hf_analysis_df['net_active_volume'], 0)
+        hf_analysis_df['retail_net_executed_ofi'] = np.where(is_retail_trade, hf_analysis_df['net_active_volume'], 0)
+
         hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff()
         if 'volume_realtime' in hf_analysis_df.columns and 'snapshot_time' in hf_analysis_df.columns:
             snapshot_changed_mask = hf_analysis_df['snapshot_time'] != hf_analysis_df['snapshot_time'].shift(1)
@@ -322,16 +341,7 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
         hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
         hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
-        # [核心修正] 新增计算 `net_active_volume` 的逻辑模块
-        active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
-        active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
-        active_buy_volume = hf_analysis_df.loc[active_buy_mask, 'volume']
-        active_sell_volume = hf_analysis_df.loc[active_sell_mask, 'volume']
-        # 创建一个与索引对齐的0序列，然后填充主动成交量
-        net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
-        net_active_volume_series.loc[active_buy_mask] = active_buy_volume
-        net_active_volume_series.loc[active_sell_mask] = -active_sell_volume
-        hf_analysis_df['net_active_volume'] = net_active_volume_series
+
         try:
             weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index); weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
             total_buy_value = pd.Series(0, index=hf_analysis_df.index); total_sell_value = pd.Series(0, index=hf_analysis_df.index)
@@ -346,6 +356,7 @@ class AdvancedFundFlowMetricsService:
         except Exception:
             hf_analysis_df['imbalance'] = np.nan
             hf_analysis_df['liquidity_supply_ratio'] = np.nan
+
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
             return hf_analysis_df, features
@@ -936,29 +947,55 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_ofi_based_metrics(context: dict) -> dict:
         """
-        【V71.0 · 终极生产版】(生产环境清洁版)
-        【V72.0 · 资金流拆分版】
-        - 核心增强: 拆分 `main_force_ofi` 和 `retail_ofi` 为买卖双方订单流失衡。
+        【V72.1 · 主力订单流失衡重构版】
+        - 核心重构: `main_force_ofi` 和 `retail_ofi` 现在基于 `main_force_net_executed_ofi`
+                    和 `retail_net_executed_ofi` (实际执行的净主动成交量) 进行计算，
+                    并归一化为 [-1, 1] 的比率。
+                    这确保了“订单流失衡”指标真正反映了主力/散户的实际成交行为，
+                    而非盘口挂单的静态压力。
+        - 核心增强: 拆分 `main_force_ofi` 和 `retail_ofi` 为买卖双方订单流失衡比率。
+        - 核心修复: `microstructure_efficiency_index` 现在使用新的 `main_force_net_executed_ofi`
+                    与 `mid_price_change` 进行相关性计算，以反映执行效率。
         """
         hf_analysis_df = context['hf_analysis_df']
         metrics = {
             'main_force_ofi': np.nan,
             'retail_ofi': np.nan,
-            'main_force_buy_ofi': np.nan, # 新增行
-            'main_force_sell_ofi': np.nan, # 新增行
-            'retail_buy_ofi': np.nan, # 新增行
-            'retail_sell_ofi': np.nan, # 新增行
+            'main_force_buy_ofi': np.nan,
+            'main_force_sell_ofi': np.nan,
+            'retail_buy_ofi': np.nan,
+            'retail_sell_ofi': np.nan,
             'microstructure_efficiency_index': np.nan,
         }
         if not hf_analysis_df.empty:
-            metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
-            metrics['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
-            # 新增拆分指标
-            metrics['main_force_buy_ofi'] = hf_analysis_df['main_force_ofi'].clip(lower=0).sum() # 新增行
-            metrics['main_force_sell_ofi'] = hf_analysis_df['main_force_ofi'].clip(upper=0).sum() # 新增行
-            metrics['retail_buy_ofi'] = hf_analysis_df['retail_ofi'].clip(lower=0).sum() # 新增行
-            metrics['retail_sell_ofi'] = hf_analysis_df['retail_ofi'].clip(upper=0).sum() # 新增行
-            mf_ofi_series = hf_analysis_df['main_force_ofi']
+            # --- 计算主力订单流失衡比率 (基于实际执行成交量) ---
+            mf_net_executed_ofi_sum = hf_analysis_df['main_force_net_executed_ofi'].sum()
+            mf_abs_executed_ofi_sum = hf_analysis_df['main_force_net_executed_ofi'].abs().sum()
+            mf_buy_executed_sum = hf_analysis_df['main_force_net_executed_ofi'].clip(lower=0).sum()
+            mf_sell_executed_sum = hf_analysis_df['main_force_net_executed_ofi'].clip(upper=0).abs().sum() # 卖出量取绝对值
+            if mf_abs_executed_ofi_sum > 0:
+                metrics['main_force_ofi'] = mf_net_executed_ofi_sum / mf_abs_executed_ofi_sum
+                metrics['main_force_buy_ofi'] = mf_buy_executed_sum / mf_abs_executed_ofi_sum
+                metrics['main_force_sell_ofi'] = mf_sell_executed_sum / mf_abs_executed_ofi_sum
+            else:
+                metrics['main_force_ofi'] = 0.0
+                metrics['main_force_buy_ofi'] = 0.0
+                metrics['main_force_sell_ofi'] = 0.0
+            # --- 计算散户订单流失衡比率 (基于实际执行成交量) ---
+            retail_net_executed_ofi_sum = hf_analysis_df['retail_net_executed_ofi'].sum()
+            retail_abs_executed_ofi_sum = hf_analysis_df['retail_net_executed_ofi'].abs().sum()
+            retail_buy_executed_sum = hf_analysis_df['retail_net_executed_ofi'].clip(lower=0).sum()
+            retail_sell_executed_sum = hf_analysis_df['retail_net_executed_ofi'].clip(upper=0).abs().sum()
+            if retail_abs_executed_ofi_sum > 0:
+                metrics['retail_ofi'] = retail_net_executed_ofi_sum / retail_abs_executed_ofi_sum
+                metrics['retail_buy_ofi'] = retail_buy_executed_sum / retail_abs_executed_ofi_sum
+                metrics['retail_sell_ofi'] = retail_sell_executed_ofi_sum / retail_abs_executed_ofi_sum
+            else:
+                metrics['retail_ofi'] = 0.0
+                metrics['retail_buy_ofi'] = 0.0
+                metrics['retail_sell_ofi'] = 0.0
+            # --- 更新 microstructure_efficiency_index 使用新的执行订单流 ---
+            mf_ofi_series = hf_analysis_df['main_force_net_executed_ofi'] # 使用新的执行订单流
             price_change_series = hf_analysis_df['mid_price_change']
             if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
                 correlation = mf_ofi_series.corr(price_change_series)

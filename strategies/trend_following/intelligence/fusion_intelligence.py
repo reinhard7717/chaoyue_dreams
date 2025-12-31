@@ -1157,7 +1157,6 @@ class FusionIntelligence:
                     signal_name = comp_raw.name if comp_raw.name else "Unnamed_Series" # 用于调试输出
                 else:
                     raise ValueError(f"Invalid component type in components_with_weights: {type(comp_info[0])}")
-
                 # 根据 part 提取正向或负向部分
                 if part == 'positive':
                     comp = comp_raw.clip(lower=0)
