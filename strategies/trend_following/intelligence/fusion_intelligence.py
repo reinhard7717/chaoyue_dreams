@@ -72,10 +72,11 @@ class FusionIntelligence:
 
     def _get_normalized_risk_score(self, df: pd.DataFrame, signal_name: str, norm_window: int, default_value: float = 0.0, mtf_norm_weights: Dict = None, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
         """
-        【V1.3 · NaN传播与MTF归一化版】获取并归一化风险信号。处理双极性信号的正负部分。
+        【V1.4 · NaN传播与MTF归一化版】获取并归一化风险信号。处理双极性信号的正负部分。
         - 【V1.3 变更】当原始信号为NaN时，归一化后也为NaN，以暴露问题。
+        - 【V1.4 增强】增加详细调试打印，输出原始信号、处理后的信号以及归一化后的分数。
         """
-        is_debug_enabled, probe_ts, method_name = debug_info if debug_info else (False, None, "未知方法")
+        is_debug_enabled, probe_ts, method_name_caller = debug_info if debug_info else (False, None, "未知方法") # 更改变量名避免冲突
         is_positive_part = False
         is_negative_part = False
         base_signal_name = signal_name
@@ -104,7 +105,11 @@ class FusionIntelligence:
         zero_processed_mask = (processed_signal.abs() < 1e-6)
         normalized_score.loc[zero_processed_mask] = 0.0
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"        [融合层-风险归一化调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 信号 '{signal_name}' (原始: {original_signal.loc[probe_ts]:.4f}, 处理后: {processed_signal.loc[probe_ts]:.4f}) -> 归一化分数: {normalized_score.loc[probe_ts]:.4f}")
+            # 增加更详细的打印，包括原始信号的原始值
+            original_val = original_signal.loc[probe_ts] if probe_ts in original_signal.index else np.nan
+            processed_val = processed_signal.loc[probe_ts] if probe_ts in processed_signal.index else np.nan
+            normalized_val = normalized_score.loc[probe_ts] if probe_ts in normalized_score.index else np.nan
+            print(f"        [融合层-风险归一化调试] {method_name_caller} @ {probe_ts.strftime('%Y-%m-%d')}: 信号 '{signal_name}' (原始值: {original_val:.4f}, 处理后值: {processed_val:.4f}) -> 归一化分数: {normalized_val:.4f}")
         return normalized_score.astype(np.float32)
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -372,12 +377,10 @@ class FusionIntelligence:
             total_weight_sum += weight
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '{name}' (值: {comp_processed.loc[probe_ts]:.4f}, 权重: {weight})")
-        
         if total_weight_sum > 0:
             internal_decay_score /= total_weight_sum
         else:
             internal_decay_score = pd.Series(0.0, index=df_index, dtype=np.float32) # 避免除以零
-        
         internal_decay_score = internal_decay_score.clip(0, 1) # 确保最终分数在 [0, 1] 范围内
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化度 (internal_decay_score): {internal_decay_score.loc[probe_ts]:.4f}")
@@ -1452,12 +1455,13 @@ class FusionIntelligence:
                       增加 `SCORE_BEHAVIOR_DECEPTION_INDEX` (正向) 和 `SCORE_CHIP_HOLLOWING_OUT_RISK` 信号，提高派发压力的准确性。
                       修正 `RAW恐慌抑制` 逻辑，避免 `raw_score` 被错误归零。
                       增加详细调试打印，输出 `mfdi_score`, `raw_score`, `msf_score`, `geometric_mean_score`, `dynamic_non_linear_sensitivity`, `synergy_modulator`, `tanh_input` 等中间值，以便诊断最终分值。
-                      **增加 `mfdi_score` 和 `raw_score` 各个组件的归一化分数打印。**
+                      **增加 `mfdi_score` 和 `raw_score` 各个组件的归一化分数打印，并增加 `debug_info` 和总权重的诊断打印。**
         """
         method_name = "_synthesize_distribution_pressure"
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“派发压力”...")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: debug_info: {debug_info}") # 诊断 debug_info
         states = {}
         df_index = df.index
         fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
@@ -1470,17 +1474,17 @@ class FusionIntelligence:
         norm_window = get_param_value(params.get('norm_window'), 55)
         mtf_norm_weights = get_param_value(params.get('mtf_norm_weights'), {})
         # --- 1. MFDI (主力派发意图) ---
-        # 注意：此处配置应在 fusion.json 中确保 SCORE_BEHAVIOR_DECEPTION_INDEX_NEGATIVE 存在且权重合理
         mfdi_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MFDI组件原始信号 ---")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MFDI总权重: {mfdi_total_weight:.4f}") # 诊断总权重
+            print(f"      [融合层调试] {method_ts.strftime('%Y-%m-%d')}: --- MFDI组件原始信号 ---") # 确保打印
         if mfdi_total_weight > 0:
             for signal, weight in mfdi_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
-                mfdi_weighted_sum += score * weight
-                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                if is_debug_enabled and probe_ts and probe_ts in df.index: # 确保在循环内打印
                     print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MFDI组件 '{signal}' (归一化: {score.loc[probe_ts]:.4f}, 权重: {weight})")
+                mfdi_weighted_sum += score * weight
             mfdi_score = mfdi_weighted_sum / mfdi_total_weight
         else:
             mfdi_score = pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -1503,18 +1507,18 @@ class FusionIntelligence:
             mfdi_score = mfdi_score * (1 + deception_amplifier)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力派发意图 (mfdi_score): {mfdi_score.loc[probe_ts]:.4f}")
-
         # --- 2. RAW (散户承接意愿) ---
         raw_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         raw_total_weight = sum(raw_signal_weights.values())
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- RAW组件原始信号 ---")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: RAW总权重: {raw_total_weight:.4f}") # 诊断总权重
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- RAW组件原始信号 ---") # 确保打印
         if raw_total_weight > 0:
             for signal, weight in raw_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
-                raw_weighted_sum += score * weight
-                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                if is_debug_enabled and probe_ts and probe_ts in df.index: # 确保在循环内打印
                     print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: RAW组件 '{signal}' (归一化: {score.loc[probe_ts]:.4f}, 权重: {weight})")
+                raw_weighted_sum += score * weight
             raw_score = raw_weighted_sum / raw_total_weight
         else:
             raw_score = pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -1532,26 +1536,23 @@ class FusionIntelligence:
         if get_param_value(raw_panic_dampener_params.get('enabled'), False):
             panic_signal = self._get_atomic_score(df, get_param_value(raw_panic_dampener_params.get('panic_signal')), 0.0, debug_info)
             dampener_factor = get_param_value(raw_panic_dampener_params.get('dampener_factor'), 0.5)
-            # 修正恐慌抑制逻辑：使用 tanh 激活函数，使其平滑抑制，而不是直接归零
-            # panic_dampener = (panic_signal.clip(lower=threshold) * dampener_factor).clip(0, 1)
-            panic_dampener = (np.tanh(panic_signal * dampener_factor)).clip(0, 1) # 使用 tanh 平滑抑制
+            panic_dampener = (np.tanh(panic_signal * dampener_factor)).clip(0, 1)
             raw_score = raw_score * (1 - panic_dampener)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 散户承接意愿 (raw_score): {raw_score.loc[probe_ts]:.4f}")
-
         # --- 3. MSF (市场结构脆弱性) ---
-        # 新增筹码空心化风险，作为市场结构脆弱性的证据
-        msf_signal_weights['SCORE_CHIP_HOLLOWING_OUT_RISK'] = msf_signal_weights.get('SCORE_CHIP_HOLLOWING_OUT_RISK', 0.05) # 假设权重为0.05
+        msf_signal_weights['SCORE_CHIP_HOLLOWING_OUT_RISK'] = msf_signal_weights.get('SCORE_CHIP_HOLLOWING_OUT_RISK', 0.05)
         msf_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         msf_total_weight = sum(msf_signal_weights.values())
         if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MSF总权重: {msf_total_weight:.4f}") # 诊断总权重
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MSF组件原始信号 ---")
         if msf_total_weight > 0:
             for signal, weight in msf_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
-                msf_weighted_sum += score * weight
-                if is_debug_enabled and probe_ts and probe_ts in df.index:
+                if is_debug_enabled and probe_ts and probe_ts in df.index: # 确保在循环内打印
                     print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MSF组件 '{signal}' (归一化: {score.loc[probe_ts]:.4f}, 权重: {weight})")
+                msf_weighted_sum += score * weight
             msf_score = msf_weighted_sum / msf_total_weight
         else:
             msf_score = pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -1574,10 +1575,8 @@ class FusionIntelligence:
             msf_score = msf_score * (1 + liquidity_trap_amplifier)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 市场结构脆弱性 (msf_score): {msf_score.loc[probe_ts]:.4f}")
-
         # --- 4. 融合三体分数 (加权几何平均) ---
-        # 【V1.5 变更】修正 `retail_unwillingness_score` 的逻辑，使其在高散户狂热时放大派发风险
-        retail_unwillingness_score = raw_score # 直接使用 raw_score，高分代表散户承接意愿强，即派发风险高
+        retail_unwillingness_score = raw_score
         final_log_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_body_weight = sum(body_weights.values())
         if total_body_weight > 0:
@@ -1593,7 +1592,6 @@ class FusionIntelligence:
             geometric_mean_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 几何平均分 (geometric_mean_score): {geometric_mean_score.loc[probe_ts]:.4f}")
-
         # 动态非线性敏感度
         final_fusion_dynamic_exponent_params = get_param_value(params.get('final_fusion_dynamic_exponent'), {})
         dynamic_non_linear_sensitivity = pd.Series(non_linear_sensitivity, index=df_index, dtype=np.float32)
@@ -1609,7 +1607,6 @@ class FusionIntelligence:
             dynamic_non_linear_sensitivity = (base_exponent * (1 + dynamic_exponent_mod)).clip(min_exponent, max_exponent)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性敏感度 (dynamic_non_linear_sensitivity): {dynamic_non_linear_sensitivity.loc[probe_ts]:.4f}")
-
         # 协同/冲突调制
         synergy_conflict_params = get_param_value(params.get('final_fusion_synergy_conflict'), {})
         synergy_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
@@ -1625,17 +1622,14 @@ class FusionIntelligence:
             synergy_modulator = synergy_modulator.clip(0.5, 1.5)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 协同/冲突调制器 (synergy_modulator): {synergy_modulator.loc[probe_ts]:.4f}")
-
         tanh_input = geometric_mean_score * dynamic_non_linear_sensitivity * synergy_modulator
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: Tanh函数输入 (tanh_input): {tanh_input.loc[probe_ts]:.4f}")
-
         final_distribution_pressure = (np.tanh(tanh_input) + 1) / 2
         final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
         states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure
         print(f"  -- [融合层] “派发压力”冶炼完成，最新分值: {final_distribution_pressure.iloc[-1]:.4f}")
         return states
-
 
 
 
