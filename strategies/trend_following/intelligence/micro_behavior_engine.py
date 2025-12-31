@@ -72,17 +72,10 @@ class MicroBehaviorEngine:
         probe_dates: List[pd.Timestamp] = []
         if is_debug_enabled and probe_dates_str:
             try:
-                # 确保 probe_dates 都是时区无关的
-                probe_dates = [pd.Timestamp(d).tz_localize(None) if pd.Timestamp(d).tz is not None else pd.Timestamp(d) for d in probe_dates_str]
+                probe_dates = [pd.Timestamp(d) for d in probe_dates_str]
             except Exception as e:
                 print(f"    -> [微观行为情报警告] 调试日期解析失败: {e}。禁用调试。")
                 is_debug_enabled = False
-
-        # --- 关键修复：确保 df.index 是时区无关的，以便与 probe_dates 进行一致性比较 ---
-        if df.index.tz is not None:
-            print(f"    -> [微观行为情报警告] DataFrame索引包含时区信息 ({df.index.tz})，将其转换为时区无关。")
-            df.index = df.index.tz_localize(None)
-
         all_states = {}
         # 借用行为层的MTF权重配置
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -93,6 +86,24 @@ class MicroBehaviorEngine:
             print(f"\n-> [微观行为情报] 启动微观行为诊断引擎，调试模式 {'启用' if is_debug_enabled else '禁用'}。")
             if probe_dates:
                 print(f"   - 探针日期: {[d.strftime('%Y-%m-%d') for d in probe_dates]}")
+            # --- 新增诊断信息 ---
+            print(f"   - 传入DataFrame是否为空: {df.empty}")
+            if not df.empty:
+                print(f"   - 传入DataFrame索引类型: {df.index.dtype}")
+                # 打印索引中元素的实际类型，以防dtype误导
+                print(f"   - 传入DataFrame索引元素类型: {df.index.map(type).unique()}")
+                print(f"   - 传入DataFrame索引范围: {df.index.min().strftime('%Y-%m-%d')} to {df.index.max().strftime('%Y-%m-%d')}")
+                for p_date in probe_dates:
+                    if p_date not in df.index:
+                        print(f"   - 警告: 探针日期 {p_date.strftime('%Y-%m-%d')} (类型: {type(p_date)}) 不在传入DataFrame的索引中。")
+                        # 尝试检查字符串形式的日期是否存在，以诊断索引类型不匹配问题
+                        if str(p_date.date()) in df.index:
+                            print(f"     - 注意: 字符串形式的日期 '{str(p_date.date())}' 存在于DataFrame索引中。可能存在索引类型不匹配问题。")
+                    else:
+                        print(f"   - 确认: 探针日期 {p_date.strftime('%Y-%m-%d')} (类型: {type(p_date)}) 在传入DataFrame的索引中。")
+            else:
+                print(f"   - 警告: 传入DataFrame为空，无法进行详细探针。")
+            # --- 诊断信息结束 ---
         # --- 调用“诡道三策”和“背离”公理 ---
         strategy_stealth_ops = self._diagnose_strategy_stealth_ops(df, default_weights, is_debug_enabled, probe_dates)
         strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights, is_debug_enabled, probe_dates)
@@ -124,13 +135,13 @@ class MicroBehaviorEngine:
         if is_debug_enabled:
             print(f"\n-> [微观行为情报] 微观行为诊断引擎完成。")
             for probe_date in probe_dates:
-                if probe_date in df.index: # 再次检查，因为 df.index 可能在某些情况下被修改
+                if probe_date in df.index: # 再次确认，因为这里是最终输出
                     print(f"   --- 探针日期: {probe_date.strftime('%Y-%m-%d')} ---")
                     for signal_name, series in all_states.items():
                         if probe_date in series.index:
                             print(f"     - {signal_name}: {series.loc[probe_date]:.4f}")
                 else:
-                    print(f"   --- 探针日期: {probe_date.strftime('%Y-%m-%d')} 不在最终DataFrame索引中，无法输出最终信号。 ---")
+                    print(f"   - 警告: 探针日期 {probe_date.strftime('%Y-%m-%d')} 不在传入DataFrame的索引中，无法输出最终信号。")
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
