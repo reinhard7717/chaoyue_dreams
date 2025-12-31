@@ -209,11 +209,11 @@ class ChipIntelligence:
                 if date.date() in self.probe_dates_set:
                     probe_ts = date
                     break
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断主力战略态势...")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断主力战略态势...")
         if not self._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
-                print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
+            # if is_debug_enabled and probe_ts and probe_ts in df.index:
+            #     print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, method_name)
         # 提取原始信号
@@ -237,11 +237,11 @@ class ChipIntelligence:
         mf_cost_zone_buy_intent_raw = signals_data['mf_cost_zone_buy_intent_D']
         mf_cost_zone_sell_intent_raw = signals_data['mf_cost_zone_sell_intent_D']
         covert_distribution_signal_raw = signals_data['covert_distribution_signal_D']
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
-            for sig_name in required_signals:
-                val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
-                print(f"        '{sig_name}': {val:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+        #     for sig_name in required_signals:
+        #         val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
+        #         print(f"        '{sig_name}': {val:.4f}")
         # 1. 阵型部署 (Formation Deployment)
         concentration_level = 1 - cost_gini_coefficient_raw
         level_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_level, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -252,13 +252,13 @@ class ChipIntelligence:
             (norm_peak_exchange_purity.add(1)/2)
         ).pow(0.5) * 2 - 1
         formation_deployment_score = ((level_score.add(1)/2) * (efficiency_score.add(1)/2)).pow(0.5) * 2 - 1
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 阵型部署计算 ---")
-            print(f"        集中度水平 (level_score): {level_score.loc[probe_ts]:.4f}")
-            print(f"        隐蔽吸筹归一化 (norm_covert_accumulation): {norm_covert_accumulation.loc[probe_ts]:.4f}")
-            print(f"        峰值换手纯度归一化 (norm_peak_exchange_purity): {norm_peak_exchange_purity.loc[probe_ts]:.4f}")
-            print(f"        效率得分 (efficiency_score): {efficiency_score.loc[probe_ts]:.4f}")
-            print(f"        阵型部署得分 (formation_deployment_score): {formation_deployment_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 阵型部署计算 ---")
+        #     print(f"        集中度水平 (level_score): {level_score.loc[probe_ts]:.4f}")
+        #     print(f"        隐蔽吸筹归一化 (norm_covert_accumulation): {norm_covert_accumulation.loc[probe_ts]:.4f}")
+        #     print(f"        峰值换手纯度归一化 (norm_peak_exchange_purity): {norm_peak_exchange_purity.loc[probe_ts]:.4f}")
+        #     print(f"        效率得分 (efficiency_score): {efficiency_score.loc[probe_ts]:.4f}")
+        #     print(f"        阵型部署得分 (formation_deployment_score): {formation_deployment_score.loc[probe_ts]:.4f}")
         # 2. 指挥官决心 (Commanders Resolve)
         advantage_score = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         solidity_score = utils.get_adaptive_mtf_normalized_bipolar_score(control_solidity_index_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -273,14 +273,14 @@ class ChipIntelligence:
                                    (norm_mf_cost_zone_buy_intent * mf_cost_zone_buy_intent_weight) - \
                                    (norm_mf_cost_zone_sell_intent * mf_cost_zone_sell_intent_weight)
         commanders_resolve_score = commanders_resolve_score.clip(-1, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 指挥官决心计算 ---")
-            print(f"        成本优势得分 (advantage_score): {advantage_score.loc[probe_ts]:.4f}")
-            print(f"        控制坚实度得分 (solidity_score): {solidity_score.loc[probe_ts]:.4f}")
-            print(f"        信念斜率得分 (intent_score): {intent_score.loc[probe_ts]:.4f}")
-            print(f"        主力成本区买入意图归一化 (norm_mf_cost_zone_buy_intent): {norm_mf_cost_zone_buy_intent.loc[probe_ts]:.4f}")
-            print(f"        主力成本区卖出意图归一化 (norm_mf_cost_zone_sell_intent): {norm_mf_cost_zone_sell_intent.loc[probe_ts]:.4f}")
-            print(f"        指挥官决心得分 (commanders_resolve_score): {commanders_resolve_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 指挥官决心计算 ---")
+        #     print(f"        成本优势得分 (advantage_score): {advantage_score.loc[probe_ts]:.4f}")
+        #     print(f"        控制坚实度得分 (solidity_score): {solidity_score.loc[probe_ts]:.4f}")
+        #     print(f"        信念斜率得分 (intent_score): {intent_score.loc[probe_ts]:.4f}")
+        #     print(f"        主力成本区买入意图归一化 (norm_mf_cost_zone_buy_intent): {norm_mf_cost_zone_buy_intent.loc[probe_ts]:.4f}")
+        #     print(f"        主力成本区卖出意图归一化 (norm_mf_cost_zone_sell_intent): {norm_mf_cost_zone_sell_intent.loc[probe_ts]:.4f}")
+        #     print(f"        指挥官决心得分 (commanders_resolve_score): {commanders_resolve_score.loc[probe_ts]:.4f}")
         # 2.1 诡道博弈深度融合与情境调制
         norm_deception_index = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -309,25 +309,25 @@ class ChipIntelligence:
                 deception_modulator.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)] * (1 - wash_trade_penalty_mod.loc[~(strong_conviction_healthy_chip_mask | weak_conviction_unhealthy_chip_mask)])
             deception_modulator = deception_modulator.clip(0.1, 2.0)
         commanders_resolve_score = commanders_resolve_score * deception_modulator.pow(np.sign(commanders_resolve_score))
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道调制计算 ---")
-            print(f"        欺骗指数归一化 (norm_deception_index): {norm_deception_index.loc[probe_ts]:.4f}")
-            print(f"        对倒强度归一化 (norm_wash_trade_intensity): {norm_wash_trade_intensity.loc[probe_ts]:.4f}")
-            print(f"        主力信念归一化 (norm_main_force_conviction): {norm_main_force_conviction.loc[probe_ts]:.4f}")
-            print(f"        筹码健康度归一化 (norm_chip_health): {norm_chip_health.loc[probe_ts]:.4f}")
-            print(f"        诱多强度归一化 (norm_deception_lure_long): {norm_deception_lure_long.loc[probe_ts]:.4f}")
-            print(f"        诱空强度归一化 (norm_deception_lure_short): {norm_deception_lure_short.loc[probe_ts]:.4f}")
-            print(f"        欺骗调制器 (deception_modulator): {deception_modulator.loc[probe_ts]:.4f}")
-            print(f"        调制后指挥官决心得分 (commanders_resolve_score): {commanders_resolve_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道调制计算 ---")
+        #     print(f"        欺骗指数归一化 (norm_deception_index): {norm_deception_index.loc[probe_ts]:.4f}")
+        #     print(f"        对倒强度归一化 (norm_wash_trade_intensity): {norm_wash_trade_intensity.loc[probe_ts]:.4f}")
+        #     print(f"        主力信念归一化 (norm_main_force_conviction): {norm_main_force_conviction.loc[probe_ts]:.4f}")
+        #     print(f"        筹码健康度归一化 (norm_chip_health): {norm_chip_health.loc[probe_ts]:.4f}")
+        #     print(f"        诱多强度归一化 (norm_deception_lure_long): {norm_deception_lure_long.loc[probe_ts]:.4f}")
+        #     print(f"        诱空强度归一化 (norm_deception_lure_short): {norm_deception_lure_short.loc[probe_ts]:.4f}")
+        #     print(f"        欺骗调制器 (deception_modulator): {deception_modulator.loc[probe_ts]:.4f}")
+        #     print(f"        调制后指挥官决心得分 (commanders_resolve_score): {commanders_resolve_score.loc[probe_ts]:.4f}")
         # 3. 战场控制 (Battlefield Control)
         cleansing_score = utils.get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         peak_solidity_score = utils.get_adaptive_mtf_normalized_bipolar_score(dominant_peak_solidity_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         battlefield_control_score = ((cleansing_score.add(1)/2) * (peak_solidity_score.add(1)/2)).pow(0.5) * 2 - 1
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 战场控制计算 ---")
-            print(f"        清洗效率得分 (cleansing_score): {cleansing_score.loc[probe_ts]:.4f}")
-            print(f"        峰值坚实度得分 (peak_solidity_score): {peak_solidity_score.loc[probe_ts]:.4f}")
-            print(f"        战场控制得分 (battlefield_control_score): {battlefield_control_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 战场控制计算 ---")
+        #     print(f"        清洗效率得分 (cleansing_score): {cleansing_score.loc[probe_ts]:.4f}")
+        #     print(f"        峰值坚实度得分 (peak_solidity_score): {peak_solidity_score.loc[probe_ts]:.4f}")
+        #     print(f"        战场控制得分 (battlefield_control_score): {battlefield_control_score.loc[probe_ts]:.4f}")
         # 4. 基础战略态势 (Base Strategic Posture)
         norm_covert_distribution_signal = utils.get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         # 修正：在进行几何平均之前，对 commanders_resolve_score 进行裁剪，确保其在 [-1, 1] 范围内
@@ -339,11 +339,11 @@ class ChipIntelligence:
         ).pow(1/(0.5+0.3+0.2)) * 2 - 1
         base_strategic_posture_score = base_strategic_posture_score * (1 - norm_covert_distribution_signal * covert_distribution_penalty_factor)
         base_strategic_posture_score = base_strategic_posture_score.clip(-1, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础战略态势计算 ---")
-            print(f"        裁剪后指挥官决心得分 (commanders_resolve_score_clipped): {commanders_resolve_score_clipped.loc[probe_ts]:.4f}")
-            print(f"        隐蔽派发信号归一化 (norm_covert_distribution_signal): {norm_covert_distribution_signal.loc[probe_ts]:.4f}")
-            print(f"        基础战略态势得分 (base_strategic_posture_score): {base_strategic_posture_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础战略态势计算 ---")
+        #     print(f"        裁剪后指挥官决心得分 (commanders_resolve_score_clipped): {commanders_resolve_score_clipped.loc[probe_ts]:.4f}")
+        #     print(f"        隐蔽派发信号归一化 (norm_covert_distribution_signal): {norm_covert_distribution_signal.loc[probe_ts]:.4f}")
+        #     print(f"        基础战略态势得分 (base_strategic_posture_score): {base_strategic_posture_score.loc[probe_ts]:.4f}")
         # 5. 维度间非线性互动增强
         if inter_dimension_interaction_enabled:
             synergy_factor = pd.Series(0.0, index=df_index)
@@ -360,23 +360,23 @@ class ChipIntelligence:
             synergy_factor.loc[conflict_mask] = -conflict_penalty_factor
             # 注意：这里对 base_strategic_posture_score 进行 tanh 激活，它应该在 [-1, 1] 范围内
             base_strategic_posture_score = np.tanh(base_strategic_posture_score + synergy_factor)
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
-                print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 维度互动增强 ---")
-                print(f"        协同因子 (synergy_factor): {synergy_factor.loc[probe_ts]:.4f}")
-                print(f"        互动增强后基础战略态势得分 (base_strategic_posture_score): {base_strategic_posture_score.loc[probe_ts]:.4f}")
+            # if is_debug_enabled and probe_ts and probe_ts in df.index:
+            #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 维度互动增强 ---")
+            #     print(f"        协同因子 (synergy_factor): {synergy_factor.loc[probe_ts]:.4f}")
+            #     print(f"        互动增强后基础战略态势得分 (base_strategic_posture_score): {base_strategic_posture_score.loc[probe_ts]:.4f}")
         # 6. 速度与加速度融合
         smoothed_base_score = base_strategic_posture_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
         acceleration = velocity.diff(1).fillna(0)
         norm_velocity = utils.get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_acceleration = utils.get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 速度与加速度融合 ---")
-            print(f"        平滑基础得分 (smoothed_base_score): {smoothed_base_score.loc[probe_ts]:.4f}")
-            print(f"        速度 (velocity): {velocity.loc[probe_ts]:.4f}")
-            print(f"        加速度 (acceleration): {acceleration.loc[probe_ts]:.4f}")
-            print(f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}")
-            print(f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 速度与加速度融合 ---")
+        #     print(f"        平滑基础得分 (smoothed_base_score): {smoothed_base_score.loc[probe_ts]:.4f}")
+        #     print(f"        速度 (velocity): {velocity.loc[probe_ts]:.4f}")
+        #     print(f"        加速度 (acceleration): {acceleration.loc[probe_ts]:.4f}")
+        #     print(f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}")
+        #     print(f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}")
         # 7. 动态权重自适应
         dynamic_base_weight = pd.Series(dynamic_fusion_weights_base.get('base_score', 0.6), index=df_index)
         dynamic_velocity_weight = pd.Series(dynamic_fusion_weights_base.get('velocity', 0.2), index=df_index)
@@ -394,14 +394,14 @@ class ChipIntelligence:
         dynamic_base_weight = dynamic_base_weight / sum_dynamic_weights
         dynamic_velocity_weight = dynamic_velocity_weight / sum_dynamic_weights
         dynamic_acceleration_weight = dynamic_acceleration_weight / sum_dynamic_weights
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重自适应 ---")
-            print(f"        波动不稳定性归一化 (norm_volatility_instability): {norm_volatility_instability.loc[probe_ts]:.4f}")
-            print(f"        筹码健康度斜率归一化 (norm_chip_health_slope): {norm_chip_health_slope.loc[probe_ts]:.4f}")
-            print(f"        调制因子 (mod_factor): {mod_factor.loc[probe_ts]:.4f}")
-            print(f"        动态基础权重 (dynamic_base_weight): {dynamic_base_weight.loc[probe_ts]:.4f}")
-            print(f"        动态速度权重 (dynamic_velocity_weight): {dynamic_velocity_weight.loc[probe_ts]:.4f}")
-            print(f"        动态加速度权重 (dynamic_acceleration_weight): {dynamic_acceleration_weight.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重自适应 ---")
+        #     print(f"        波动不稳定性归一化 (norm_volatility_instability): {norm_volatility_instability.loc[probe_ts]:.4f}")
+        #     print(f"        筹码健康度斜率归一化 (norm_chip_health_slope): {norm_chip_health_slope.loc[probe_ts]:.4f}")
+        #     print(f"        调制因子 (mod_factor): {mod_factor.loc[probe_ts]:.4f}")
+        #     print(f"        动态基础权重 (dynamic_base_weight): {dynamic_base_weight.loc[probe_ts]:.4f}")
+        #     print(f"        动态速度权重 (dynamic_velocity_weight): {dynamic_velocity_weight.loc[probe_ts]:.4f}")
+        #     print(f"        动态加速度权重 (dynamic_acceleration_weight): {dynamic_acceleration_weight.loc[probe_ts]:.4f}")
         # 8. 最终融合 (Final Fusion)
         # 修正：在进行几何平均之前，对 base_strategic_posture_score 进行裁剪，确保其在 [-1, 1] 范围内
         # 这里的 base_strategic_posture_score 已经是经过维度互动增强后的结果，也可能超出 [-1, 1]
@@ -423,15 +423,15 @@ class ChipIntelligence:
                 (1 + norm_market_sentiment * global_context_sensitivity_sentiment)
             ).clip(0.5, 1.5)
             final_score = final_score * global_modulator_effect
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
-                print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 全局情境调制 ---")
-                print(f"        全局筹码健康度归一化 (norm_global_chip_health): {norm_global_chip_health.loc[probe_ts]:.4f}")
-                print(f"        市场情绪归一化 (norm_market_sentiment): {norm_market_sentiment.loc[probe_ts]:.4f}")
-                print(f"        全局调制器效果 (global_modulator_effect): {global_modulator_effect.loc[probe_ts]:.4f}")
-                print(f"        调制后最终得分 (final_score): {final_score.loc[probe_ts]:.4f}")
+            # if is_debug_enabled and probe_ts and probe_ts in df.index:
+            #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 全局情境调制 ---")
+            #     print(f"        全局筹码健康度归一化 (norm_global_chip_health): {norm_global_chip_health.loc[probe_ts]:.4f}")
+            #     print(f"        市场情绪归一化 (norm_market_sentiment): {norm_market_sentiment.loc[probe_ts]:.4f}")
+            #     print(f"        全局调制器效果 (global_modulator_effect): {global_modulator_effect.loc[probe_ts]:.4f}")
+            #     print(f"        调制后最终得分 (final_score): {final_score.loc[probe_ts]:.4f}")
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力战略态势诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力战略态势诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
