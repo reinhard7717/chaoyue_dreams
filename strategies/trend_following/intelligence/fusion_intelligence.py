@@ -346,8 +346,10 @@ class FusionIntelligence:
         # 阵营二：外部强势幻象 (External Strength Illusion) - 迷惑性的表象
         # 替换 FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT 为 INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW
         price_overextension = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0, debug_info).clip(lower=0) # 仅取正向超买部分
-        profit_taking_supply = normalize_score(self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name=method_name), df_index, windows=55, ascending=True).clip(0, 1)
-        retail_fomo = normalize_score(self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name), df_index, windows=55, ascending=True).clip(0, 1)
+        # 修正：替换 rally_distribution_pressure_D 为 SCORE_BEHAVIOR_DISTRIBUTION_INTENT
+        profit_taking_supply = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0, debug_info).clip(0, 1)
+        # 修正：替换 retail_fomo_premium_index_D 为 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM 的正向部分
+        retail_fomo = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info).clip(lower=0).clip(0, 1)
         # --- 2. 核心数学逻辑 - 背离审判 ---
         # 2.1 计算“内部腐化度” (几何平均，体现症状共振)
         # 调整权重，提高散户筹码脆弱性和流动性枯竭风险的权重
@@ -1114,7 +1116,7 @@ class FusionIntelligence:
                       其判断重心与反应速度，应随市场情境（趋势质量、市场政权、波动率、情绪、资金流可信度）
                       动态调整，并能识别维度间的协同与冲突，穿透主力诡道。
                       其判断重心与反应速度，应随市场情境（趋势质量、市场政权、波动率、情绪、资金流可信度）
-                      动态调整，并能识别维度间的协同与冲突，穿透主力诡道。
+                      动态调整，并能识别维度间协同与冲突，穿透主力诡道。
         - 融合模型: 最终得分 = tanh( (动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS) * 协同/冲突因子 * 诡道穿透因子)
         - 【V5.6 增强】将对融合信号的依赖替换为基础信号，以解耦依赖。
                       增强对风险信号的敏感度，确保诡道因子在诱多情境下能有效惩罚。
@@ -1164,6 +1166,9 @@ class FusionIntelligence:
                 else: # 默认情况，直接使用
                     comp = comp_raw
                 
+                # 修正：确保所有组件在贡献给加权和之前都被裁剪到 [0, 1] 范围
+                comp = comp.clip(0, 1) # 添加此行
+                
                 # 确保组件是Series且索引对齐，并填充NaN为0，避免NaN传播
                 comp_aligned = comp.reindex(index).fillna(0.0)
                 raw_sum += comp_aligned * weight
@@ -1206,8 +1211,9 @@ class FusionIntelligence:
         
         # --- 预计算缺失或需要特殊处理的信号 ---
         # price_volume_entropy_D_INVERSE
-        price_volume_entropy_D = self._get_atomic_score(df, 'price_volume_entropy_D', 0.0, debug_info).fillna(0.0)
-        price_volume_entropy_D_INVERSE = (1 - price_volume_entropy_D).rename('price_volume_entropy_D_INVERSE')
+        # 修正：替换 price_volume_entropy_D 为 SCORE_BEHAVIOR_VOLUME_BURST
+        price_volume_entropy_D_proxy = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0, debug_info).fillna(0.0).clip(0, 1)
+        price_volume_entropy_D_INVERSE = (1 - price_volume_entropy_D_proxy).rename('price_volume_entropy_D_INVERSE')
 
         # CAPITAL_CONFRONTATION_PROXY_BULLISH 和 CAPITAL_CONFRONTATION_PROXY_BEARISH
         capital_confrontation_proxy_bullish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0) * 0.5 + 
@@ -1216,17 +1222,18 @@ class FusionIntelligence:
                                                self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(upper=0).abs() * 0.5).rename('CAPITAL_CONFRONTATION_PROXY_BEARISH')
 
         # main_force_flow_gini_D_INVERSE
-        main_force_flow_gini_D = self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0, debug_info).fillna(0.0)
-        main_force_flow_gini_D_INVERSE = (1 - main_force_flow_gini_D).rename('main_force_flow_gini_D_INVERSE')
+        # 修正：替换 main_force_flow_gini_D 为 SCORE_FF_AXIOM_FLOW_MOMENTUM 的正向部分
+        main_force_flow_gini_D_proxy = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).clip(lower=0).fillna(0.0).clip(0, 1)
+        main_force_flow_gini_D_INVERSE = (1 - main_force_flow_gini_D_proxy).rename('main_force_flow_gini_D_INVERSE')
 
         # retail_flow_dominance_index_D_INVERSE
-        retail_flow_dominance_index_D = self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0, debug_info).fillna(0.0)
-        retail_flow_dominance_index_D_INVERSE = (1 - retail_flow_dominance_index_D).rename('retail_flow_dominance_index_D_INVERSE')
+        # 修正：替换 retail_flow_dominance_index_D 为 SCORE_CHIP_RETAIL_VULNERABILITY
+        retail_flow_dominance_index_D_proxy = self._get_atomic_score(df, 'SCORE_CHIP_RETAIL_VULNERABILITY', 0.0, debug_info).fillna(0.0).clip(0, 1)
+        retail_flow_dominance_index_D_INVERSE = (1 - retail_flow_dominance_index_D_proxy).rename('retail_flow_dominance_index_D_INVERSE')
 
 
         # --- 原始信号获取 ---
         # PVE (价量效能)
-        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bullish_pve_components_with_weights = [
             ('SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.25, 'positive'),
             ('SCORE_BEHAVIOR_VOLUME_BURST', 0.2, 'positive'),
@@ -1238,10 +1245,9 @@ class FusionIntelligence:
             ('SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.3, 'positive'),
             ('PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.3, 'positive'),
             ('SCORE_DYN_AXIOM_MOMENTUM', 0.2, 'negative'), # 从双极性信号中取负向绝对值
-            ('price_volume_entropy_D', 0.2, 'positive') # 假设这个信号本身就是正向的
+            (price_volume_entropy_D_proxy.rename('price_volume_entropy_D'), 0.2, 'positive') # 使用预计算的 Series
         ]
         # PT (权势转移)
-        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bullish_pt_components_with_weights = [
             ('PROCESS_META_POWER_TRANSFER', 0.25, 'positive'),
             ('SCORE_CHIP_TACTICAL_EXCHANGE', 0.2, 'positive'),
@@ -1249,7 +1255,6 @@ class FusionIntelligence:
             (capital_confrontation_proxy_bullish, 0.2, 'positive'), # 使用预计算的 Series
             ('SCORE_FF_AXIOM_INTENT_PURITY', 0.15, 'positive')
         ]
-        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bearish_pt_components_with_weights = [
             ('PROCESS_META_POWER_TRANSFER', 0.25, 'negative'),
             ('SCORE_CHIP_TACTICAL_EXCHANGE', 0.2, 'negative'),
@@ -1258,7 +1263,6 @@ class FusionIntelligence:
             ('SCORE_FF_AXIOM_INTENT_PURITY', 0.15, 'negative')
         ]
         # LS (流动性状态)
-        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bullish_ls_components_with_weights = [
             ('SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.2, 'positive'),
             ('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.15, 'positive'),
@@ -1268,29 +1272,32 @@ class FusionIntelligence:
             (retail_flow_dominance_index_D_INVERSE, 0.1, 'positive'), # 使用预计算的 Series
             ('SCORE_FOUNDATION_AXIOM_MARKET_FRICTION', 0.15, 'negative') # 从双极性信号中取负向绝对值
         ]
-        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bearish_ls_components_with_weights = [
             ('SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.2, 'negative'),
             ('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.15, 'negative'),
             ('SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.15, 'negative'),
             ('INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.15, 'positive'), # 使用基础信号，本身是风险，取正向
-            ('main_force_flow_gini_D', 0.1, 'positive'), # 假设这个信号本身就是正向的
-            ('retail_flow_dominance_index_D', 0.1, 'positive'), # 假设这个信号本身就是正向的
+            (main_force_flow_gini_D_proxy.rename('main_force_flow_gini_D'), 0.1, 'positive'), # 使用预计算的 Series
+            (retail_flow_dominance_index_D_proxy.rename('retail_flow_dominance_index_D'), 0.1, 'positive'), # 使用预计算的 Series
             ('SCORE_FOUNDATION_AXIOM_MARKET_FRICTION', 0.15, 'positive') # 从双极性信号中取正向
         ]
-        volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, debug_info).fillna(0.0)
-        market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.0, debug_info).fillna(0.0)
+        # 修正：替换 VOLATILITY_INSTABILITY_INDEX_21d_D 为 SCORE_STRUCT_AXIOM_TENSION
+        volatility_instability = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0, debug_info).fillna(0.0).clip(0, 1)
+        # 修正：替换 market_sentiment_score_D 为 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM
+        market_sentiment = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         
-        # 修正：将 flow_credibility_index_D 归一化到 0-1 范围
-        flow_credibility_raw = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0, debug_info).fillna(0.0)
-        flow_credibility = (flow_credibility_raw / 100).clip(0, 1) # 假设原始范围是 0-100
-        deception_index = self._get_atomic_score(df, 'deception_index_D', 0.0, debug_info).fillna(0.0)
-        wash_trade_intensity = self._get_atomic_score(df, 'wash_trade_intensity_D', 0.0, debug_info).fillna(0.0)
+        # 修正：替换 flow_credibility_index_D 为 SCORE_FF_AXIOM_INTENT_PURITY 的正向部分
+        flow_credibility_raw = self._get_atomic_score(df, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, debug_info).clip(lower=0).fillna(0.0)
+        flow_credibility = flow_credibility_raw.clip(0, 1) # 已经是归一化信号，直接裁剪
+        # 修正：替换 deception_index_D 为 SCORE_BEHAVIOR_DECEPTION_INDEX
+        deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0, debug_info).fillna(0.0).clip(-1, 1)
+        # 修正：替换 wash_trade_intensity_D 为 SCORE_BEHAVIOR_DECEPTION_INDEX 的绝对值作为代理
+        wash_trade_intensity = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0, debug_info).abs().fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号 ---")
-            print(f"        波动不稳定性: {volatility_instability.loc[probe_ts]:.4f}, 市场情绪: {market_sentiment.loc[probe_ts]:.4f}")
-            print(f"        资金流可信度 (原始): {flow_credibility_raw.loc[probe_ts]:.4f}, 资金流可信度 (归一化): {flow_credibility.loc[probe_ts]:.4f}")
-            print(f"        欺骗指数: {deception_index.loc[probe_ts]:.4f}, 对倒强度: {wash_trade_intensity.loc[probe_ts]:.4f}")
+            print(f"        波动不稳定性 (SCORE_STRUCT_AXIOM_TENSION): {volatility_instability.loc[probe_ts]:.4f}, 市场情绪 (SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM): {market_sentiment.loc[probe_ts]:.4f}")
+            print(f"        资金流可信度 (SCORE_FF_AXIOM_INTENT_PURITY): {flow_credibility.loc[probe_ts]:.4f}")
+            print(f"        欺骗指数 (SCORE_BEHAVIOR_DECEPTION_INDEX): {deception_index.loc[probe_ts]:.4f}, 对倒强度 (SCORE_BEHAVIOR_DECEPTION_INDEX.abs()): {wash_trade_intensity.loc[probe_ts]:.4f}")
         pve_sens_params = ld_params.get('pve_activation_sensitivity_params', {})
         pve_base_sens = get_param_value(pve_sens_params.get('base_sensitivity'), 2.0)
         pve_mod_factor = get_param_value(pve_sens_params.get('modulator_factor'), 0.5)
