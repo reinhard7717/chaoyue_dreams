@@ -146,6 +146,7 @@ class MicroBehaviorEngine:
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, tf_weights, debug_info=(False, None, ""))
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
         if is_debug_enabled:
+            print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
                 if probe_date in df.index:
                     print(f"    -> [微观行为情报探针] 方法 '{method_name}' @ {probe_date.strftime('%Y-%m-%d')}:")
@@ -161,6 +162,8 @@ class MicroBehaviorEngine:
                         print(f"       - 归一化微观意图趋势 (micro_intent_trend): {micro_intent_trend.loc[probe_date]:.4f}")
                     if probe_date in divergence_score.index:
                         print(f"       - 最终微观背离分数 (SCORE_MICRO_AXIOM_DIVERGENCE): {divergence_score.loc[probe_date]:.4f}")
+                else:
+                    print(f"    -> [微观行为情报探针] 方法 '{method_name}' - 探针日期 {probe_date.strftime('%Y-%m-%d')} 不在当前DataFrame索引中。")
         return divergence_score.astype(np.float32)
 
     def _diagnose_strategy_stealth_ops(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
@@ -188,6 +191,7 @@ class MicroBehaviorEngine:
         base_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
         stealth_ops_score = (base_score * purity_modulator).fillna(0.0)
         if is_debug_enabled:
+            print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
                 if probe_date in df.index:
                     print(f"    -> [微观行为情报探针] 方法 '{method_name}' @ {probe_date.strftime('%Y-%m-%d')}:")
@@ -209,6 +213,8 @@ class MicroBehaviorEngine:
                         print(f"       - 基础得分 (base_score): {base_score.loc[probe_date]:.4f}")
                     if probe_date in stealth_ops_score.index:
                         print(f"       - 最终隐秘行动分数 (SCORE_MICRO_STRATEGY_STEALTH_OPS): {stealth_ops_score.loc[probe_date]:.4f}")
+                else:
+                    print(f"    -> [微观行为情报探针] 方法 '{method_name}' - 探针日期 {probe_date.strftime('%Y-%m-%d')} 不在当前DataFrame索引中。")
         return stealth_ops_score.astype(np.float32)
 
     def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
@@ -241,6 +247,7 @@ class MicroBehaviorEngine:
         base_score = (shock_magnitude * outcome_intent)
         shock_and_awe_score = (base_score * awe_amplifier).clip(-1, 1)
         if is_debug_enabled:
+            print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
                 if probe_date in df.index:
                     print(f"    -> [微观行为情报探针] 方法 '{method_name}' @ {probe_date.strftime('%Y-%m-%d')}:")
@@ -270,6 +277,8 @@ class MicroBehaviorEngine:
                         print(f"       - 基础得分 (base_score): {base_score.loc[probe_date]:.4f}")
                     if probe_date in shock_and_awe_score.index:
                         print(f"       - 最终震慑突袭分数 (SCORE_MICRO_STRATEGY_SHOCK_AND_AWE): {shock_and_awe_score.loc[probe_date]:.4f}")
+                else:
+                    print(f"    -> [微观行为情报探针] 方法 '{method_name}' - 探针日期 {probe_date.strftime('%Y-%m-%d')} 不在当前DataFrame索引中。")
         return shock_and_awe_score.astype(np.float32)
 
     def _diagnose_strategy_cost_control(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
@@ -296,6 +305,7 @@ class MicroBehaviorEngine:
         # 修改代码: 核心融合逻辑变更
         cost_control_score = (base_intent_score * 0.7 + solidity_score * 0.3).clip(-1, 1)
         if is_debug_enabled:
+            print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
                 if probe_date in df.index:
                     print(f"    -> [微观行为情报探针] 方法 '{method_name}' @ {probe_date.strftime('%Y-%m-%d')}:")
@@ -315,6 +325,8 @@ class MicroBehaviorEngine:
                         print(f"       - 基础意图得分 (base_intent_score): {base_intent_score.loc[probe_date]:.4f}")
                     if probe_date in cost_control_score.index:
                         print(f"       - 最终成本控制分数 (SCORE_MICRO_STRATEGY_COST_CONTROL): {cost_control_score.loc[probe_date]:.4f}")
+                else:
+                    print(f"    -> [微观行为情报探针] 方法 '{method_name}' - 探针日期 {probe_date.strftime('%Y-%m-%d')} 不在当前DataFrame索引中。")
         return cost_control_score.astype(np.float32)
 
     def _diagnose_harmony_inflection(self, strategic_intent: pd.Series, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
@@ -340,6 +352,7 @@ class MicroBehaviorEngine:
         # 修正 normalize_score 的调用参数，添加 harmony_inflection_score.index
         final_score = normalize_score(harmony_inflection_score, harmony_inflection_score.index, 55, debug_info=(False, None, ""))
         if is_debug_enabled:
+            print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
                 if probe_date in strategic_intent.index:
                     print(f"    -> [微观行为情报探针] 方法 '{method_name}' @ {probe_date.strftime('%Y-%m-%d')}:")
@@ -357,6 +370,8 @@ class MicroBehaviorEngine:
                             print(f"         - 和谐拐点原始分数 (harmony_inflection_score): {harmony_inflection_score.loc[date_to_print]:.4f}")
                             if date_to_print == probe_date:
                                 print(f"       - 最终和谐拐点分数 (SCORE_MICRO_HARMONY_INFLECTION): {final_score.loc[probe_date]:.4f}")
+                else:
+                    print(f"    -> [微观行为情报探针] 方法 '{method_name}' - 探针日期 {probe_date.strftime('%Y-%m-%d')} 不在当前DataFrame索引中。")
         return final_score.astype(np.float32)
 
     def _synthesize_strategic_intent(self, stealth_ops: pd.Series, shock_awe: pd.Series, cost_control: pd.Series, divergence: pd.Series, is_debug_enabled: bool, probe_dates: List[pd.Timestamp]) -> pd.Series:
@@ -384,7 +399,10 @@ class MicroBehaviorEngine:
             risk_factor * 0.3             # 修改代码
         ).clip(-1, 1)
         if is_debug_enabled:
+            print(f"    -> [微观行为情报探针] 方法 '{method_name}' 调试启动。")
             for probe_date in probe_dates:
+                # 注意：这里假设 stealth_ops, shock_awe, cost_control, divergence 的索引与 df.index 相同
+                # 实际应用中，这些 Series 应该已经与 df.index 对齐
                 if probe_date in stealth_ops.index:
                     print(f"    -> [微观行为情报探针] 方法 '{method_name}' @ {probe_date.strftime('%Y-%m-%d')}:")
                     if probe_date in stealth_ops.index:
@@ -405,6 +423,8 @@ class MicroBehaviorEngine:
                         print(f"       - 风险因子 (risk_factor): {risk_factor.loc[probe_date]:.4f}")
                     if probe_date in strategic_intent_score.index:
                         print(f"       - 最终战略意图分数 (SCORE_MICRO_STRATEGIC_INTENT): {strategic_intent_score.loc[probe_date]:.4f}")
+                else:
+                    print(f"    -> [微观行为情报探针] 方法 '{method_name}' - 探针日期 {probe_date.strftime('%Y-%m-%d')} 不在当前DataFrame索引中。")
         return strategic_intent_score.astype(np.float32)
 
 
