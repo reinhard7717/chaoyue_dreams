@@ -1246,7 +1246,6 @@ class FusionIntelligence:
         # 修正：替换 retail_flow_dominance_index_D 为 SCORE_CHIP_RETAIL_VULNERABILITY
         retail_flow_dominance_index_D_proxy = self._get_atomic_score(df, 'SCORE_CHIP_RETAIL_VULNERABILITY', 0.0, debug_info).fillna(0.0).clip(0, 1)
         retail_flow_dominance_index_D_INVERSE = (1 - retail_flow_dominance_index_D_proxy).rename('retail_flow_dominance_index_D_INVERSE')
-
         # --- 原始信号获取 ---
         # PVE (价量效能)
         bullish_pve_components_with_weights = [

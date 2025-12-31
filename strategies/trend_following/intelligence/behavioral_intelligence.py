@@ -1526,7 +1526,7 @@ class BehavioralIntelligence:
 
     def _diagnose_deception_index(self, df: pd.DataFrame, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V2.7 · 欺骗情境感知与价格上涨中的主力意图背离 - 强化版】诊断博弈欺骗指数
+        【V2.8 · 欺骗情境感知与价格上涨中的主力意图背离 - 强化版】诊断博弈欺骗指数
         - 核心重构: 废弃V1.2“结果导向”模型，引入“认知失调 × 欺骗工具强度 × 情境调制”的全新诊断模型。
         - 核心逻辑: 欺骗分 = (主力真实意图向量 - K线表象剧本向量) * 欺骗工具强度 * 情境放大器
                       直接量化“意图”与“表象”的背离程度，并结合欺骗工具的活跃度和市场情境，能识别更高明的欺骗形态。
@@ -1537,7 +1537,7 @@ class BehavioralIntelligence:
         - 【新增】情境调制器：根据散户狂热和市场波动性，动态调整欺骗指数。
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
         - 核心修复: 修正了 `normalize_to_bipolar` 函数的调用方式，使其符合新的参数签名。
-        - **【第五次修改】修正 `deception_tool_strength` 中 `lure_long` 和 `lure_short` 与 `cognitive_dissonance_vector` 方向的逻辑关联。**
+        - **【第六次修改】修正 `deception_tool_strength` 中 `lure_long` 和 `lure_short` 与 `cognitive_dissonance_vector` 方向的逻辑关联。在方法末尾添加最终的 `clip(-1, 1)`，确保输出在有效双极性范围内。**
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_deception_index"
@@ -1589,7 +1589,6 @@ class BehavioralIntelligence:
         norm_wash_trade = normalized_scores['wash_trade_intensity_D']
         norm_lure_short = normalized_scores['deception_lure_short_intensity_D']
         deception_tool_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # 修正逻辑：
         # 如果是正向认知失调（意图 > 表象），则关注诱空和对倒 (隐藏看涨意图，通过诱空洗盘)
         bullish_deception_tools_sum = (norm_lure_short * deception_tool_weights.get('lure_short', 0.3) +
@@ -1598,7 +1597,6 @@ class BehavioralIntelligence:
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector > 0,
             bullish_deception_tools_sum / (bullish_deception_tools_total_weight if bullish_deception_tools_total_weight > 0 else 1.0)
         )
-
         # 如果是负向认知失调（意图 < 表象），则关注诱多和对倒 (隐藏看跌意图，通过诱多出货)
         bearish_deception_tools_sum = (norm_lure_long * deception_tool_weights.get('lure_long', 0.4) +
                                        norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3))
@@ -1610,7 +1608,6 @@ class BehavioralIntelligence:
         # 如果认知失调接近0，则只考虑对倒，并给予更高的权重，因为对倒本身就是欺骗
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector.abs() < 1e-9, norm_wash_trade * 0.8)
         deception_tool_strength = deception_tool_strength.clip(0, 1)
-
         # 情境调制器：散户狂热和波动性
         context_modulator_factor = pd.Series(context_modulator_params.get('base_modulator', 1.0), index=df.index, dtype=np.float32)
         if context_modulator_params.get('enabled', False):
@@ -1631,7 +1628,7 @@ class BehavioralIntelligence:
             cognitive_dissonance_vector.abs() * (1 + norm_wash_trade) # 放大对倒强度
         ).clip(0, 1)
         # --- 5. 最终合成：认知失调的绝对值 * 欺骗工具强度 * 情境调制器，并保留方向 ---
-        # 欺骗强度基础分：认知失调的绝对值 * 欺骗工具强度 * 情境调制器，并加入价格上涨中的主力意图背离和散户狂热
+        # 欺骗强度基础分：认知失调的绝对值和欺骗工具强度进行加权平均，并加入价格上涨中的主力意图背离和散户狂热
         deception_magnitude_score = (
             cognitive_dissonance_vector.abs() * 0.3 + # 降低认知失调的直接权重
             deception_tool_strength * 0.4 + # 提高欺骗工具的权重
@@ -1639,36 +1636,40 @@ class BehavioralIntelligence:
             normalized_scores['retail_fomo_premium_index_D'] * 0.1 # 直接引入散户狂热作为欺骗证据
         ).clip(0, 1)
         # 最终欺骗指数 = 欺骗强度基础分 * 情境调制器 * 认知失调的方向
-        final_deception_index = (deception_magnitude_score * context_modulator_factor * np.sign(cognitive_dissonance_vector)).clip(-1, 1)
+        # 这一步已经包含了方向性，并进行了初步裁剪
+        final_deception_index_pre_amplify = (deception_magnitude_score * context_modulator_factor * np.sign(cognitive_dissonance_vector)).clip(-1, 1)
         # 确保在价格上涨时，如果认知失调为负（主力意图低于K线），则视为派发欺骗
         # 这一步在上面的融合中已经通过 np.sign(cognitive_dissonance_vector) 实现了方向性
         # 但为了强调“诱多”的风险，可以进一步强化负向欺骗的绝对值
-        final_deception_index = pd.Series(np.where(
+        final_deception_index_amplified = pd.Series(np.where(
             (is_price_rising > 0.5) & (cognitive_dissonance_vector < 0),
-            final_deception_index.abs() * -1 * (1 + normalized_scores['retail_fomo_premium_index_D'] * 0.5), # 价格上涨且主力意图背离，放大负向欺骗，尤其在散户狂热时
-            final_deception_index
+            final_deception_index_pre_amplify.abs() * -1 * (1 + normalized_scores['retail_fomo_premium_index_D'] * 0.5), # 价格上涨且主力意图背离，放大负向欺骗，尤其在散户狂热时
+            final_deception_index_pre_amplify
         ), index=df.index).astype(np.float32)
-        final_score = final_deception_index.astype(np.float32)
-        # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-        #     print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
-        #     print(f"        - closing_strength_index_D: {signals_data['closing_strength_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - main_force_ofi_D: {signals_data['main_force_ofi_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - deception_lure_long_intensity_D: {signals_data['deception_lure_long_intensity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - deception_lure_short_intensity_D: {signals_data['deception_lure_short_intensity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - wash_trade_intensity_D: {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - VOLATILITY_INSTABILITY_INDEX_21d_D: {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
-        #     print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
-        #     print(f"      [探针 - {method_name}] 中间计算 @ 2025-12-10:")
-        #     print(f"        - 归一化收盘强度 (Narrative Vector): {narrative_vector.loc[probe_ts]:.4f}")
-        #     print(f"        - 归一化主力OFII (Intent Vector): {intent_vector.loc[probe_ts]:.4f}")
-        #     print(f"        - 认知失调向量: {cognitive_dissonance_vector.loc[probe_ts]:.4f}")
-        #     print(f"        - 欺骗工具强度: {deception_tool_strength.loc[probe_ts]:.4f}")
-        #     print(f"        - 情境调制因子: {context_modulator_factor.loc[probe_ts]:.4f}")
-        #     print(f"        - 价格上涨中的欺骗证据: {price_rising_deception_evidence.loc[probe_ts]:.4f}")
-        #     print(f"        - 欺骗强度基础分: {deception_magnitude_score.loc[probe_ts]:.4f}")
-        #     print(f"        - 是否上涨: {is_price_rising.loc[probe_ts]:.4f}")
-        #     print(f"      [探针 - {method_name}] 最终 '博弈欺骗指数'分数 @ 2025-12-10: {final_score.loc[probe_ts]:.4f}")
+        # 最终分数，确保裁剪到 [-1, 1] 范围
+        final_score = final_deception_index_amplified.clip(-1, 1).astype(np.float32)
+        if is_debug_enabled and probe_ts and not df.empty and probe_ts in df.index:
+            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - closing_strength_index_D: {signals_data['closing_strength_index_D'].loc[probe_ts]:.4f}")
+            print(f"        - main_force_ofi_D: {signals_data['main_force_ofi_D'].loc[probe_ts]:.4f}")
+            print(f"        - deception_lure_long_intensity_D: {signals_data['deception_lure_long_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - deception_lure_short_intensity_D: {signals_data['deception_lure_short_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - wash_trade_intensity_D: {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - retail_fomo_premium_index_D: {signals_data['retail_fomo_premium_index_D'].loc[probe_ts]:.4f}")
+            print(f"        - VOLATILITY_INSTABILITY_INDEX_21d_D: {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
+            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - 归一化收盘强度 (Narrative Vector): {narrative_vector.loc[probe_ts]:.4f}")
+            print(f"        - 归一化主力OFII (Intent Vector): {intent_vector.loc[probe_ts]:.4f}")
+            print(f"        - 认知失调向量: {cognitive_dissonance_vector.loc[probe_ts]:.4f}")
+            print(f"        - 欺骗工具强度: {deception_tool_strength.loc[probe_ts]:.4f}")
+            print(f"        - 情境调制因子: {context_modulator_factor.loc[probe_ts]:.4f}")
+            print(f"        - 价格上涨中的欺骗证据: {price_rising_deception_evidence.loc[probe_ts]:.4f}")
+            print(f"        - 欺骗强度基础分: {deception_magnitude_score.loc[probe_ts]:.4f}")
+            print(f"        - 是否上涨: {is_price_rising.loc[probe_ts]:.4f}")
+            print(f"        - 最终欺骗指数 (np.where前): {final_deception_index_pre_amplify.loc[probe_ts]:.4f}")
+            print(f"        - 最终欺骗指数 (np.where后, 裁剪前): {final_deception_index_amplified.loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 最终 '博弈欺骗指数'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, states: Dict[str, pd.Series], is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, pd.Series]:
