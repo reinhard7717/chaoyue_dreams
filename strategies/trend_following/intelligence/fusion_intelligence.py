@@ -377,10 +377,12 @@ class FusionIntelligence:
             total_weight_sum += weight
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '{name}' (值: {comp_processed.loc[probe_ts]:.4f}, 权重: {weight})")
+        
         if total_weight_sum > 0:
             internal_decay_score /= total_weight_sum
         else:
             internal_decay_score = pd.Series(0.0, index=df_index, dtype=np.float32) # 避免除以零
+        
         internal_decay_score = internal_decay_score.clip(0, 1) # 确保最终分数在 [0, 1] 范围内
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化度 (internal_decay_score): {internal_decay_score.loc[probe_ts]:.4f}")
@@ -662,7 +664,7 @@ class FusionIntelligence:
         # 臣：盘口最真实的微观意图，作为现实检验器 (替换为基础信号)
         micro_conviction = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0, debug_info)
         # 2. 核心数学逻辑 - 君臣共振模型
-        confirmation_factor = 0.5 # 确认系数，控制微观信念的影响力
+        confirmation_factor = 0.5 # 确认系数
         # 共振调节器：当微观信念与战略态势同向时 > 1 (放大)，反向时 < 1 (抑制)
         resonance_modulator = (1 + micro_conviction * confirmation_factor).clip(0, 2)
         # 非线性融合
@@ -743,8 +745,8 @@ class FusionIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹拐点信号”...")
         states = {}
-        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
-        params = fusion_intelligence_params.get('fusion_accumulation_inflection_params', {})
+        # 修正参数加载逻辑：直接从 self.params 获取
+        params = self.params.get('fusion_accumulation_inflection_params', {})
         tian_shi_raw_base = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0, debug_info)
         main_force_cost_intent = self._get_atomic_score(df, 'SCORE_CHIP_MAIN_FORCE_COST_INTENT', 0.0, debug_info).clip(lower=0) # 新增主力成本区攻防意图正向
         # 调整融合方式，使用加权平均，避免 0 值完全抑制
@@ -1043,6 +1045,8 @@ class FusionIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“吸筹剧本”...")
         states = {}
+        # 修正参数加载逻辑：直接从 self.params 获取
+        params = self.params.get('fusion_accumulation_playbook_params', {})
         # 1. 信号升维：定义“点火器”与“根基”
         # 替换 FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT 为 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT
         igniter_signal_base = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0, debug_info)
@@ -1094,8 +1098,8 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势衰竭综合征”...")
         states = {}
         df_index = df.index
-        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
-        fusion_playbook_params = fusion_intelligence_params.get('fusion_playbook_params', {})
+        # 修正参数加载逻辑：直接从 self.params 获取
+        fusion_playbook_params = self.params.get('fusion_playbook_params', {})
         tes_params = fusion_playbook_params.get('trend_exhaustion_syndrome', {})
         # --- 1. 上涨意志衰竭度 (Weakening Will) ---
         # 替换 FUSION_BIPOLAR_TREND_QUALITY 为 SCORE_STRUCT_AXIOM_TREND_FORM
@@ -1179,8 +1183,8 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“流动性博弈动态”...")
         states = {}
         df_index = df.index
-        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
-        fusion_playbook_params = fusion_intelligence_params.get('fusion_playbook_params', {})
+        # 修正参数加载逻辑：直接从 self.params 获取
+        fusion_playbook_params = self.params.get('fusion_playbook_params', {})
         ld_params = fusion_playbook_params.get('liquidity_dynamics', {})
         def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0,
                                                 deception_index=None, wash_trade_intensity=None, flow_credibility=None,
@@ -1456,16 +1460,23 @@ class FusionIntelligence:
                       修正 `RAW恐慌抑制` 逻辑，避免 `raw_score` 被错误归零。
                       增加详细调试打印，输出 `mfdi_score`, `raw_score`, `msf_score`, `geometric_mean_score`, `dynamic_non_linear_sensitivity`, `synergy_modulator`, `tanh_input` 等中间值，以便诊断最终分值。
                       **增加 `mfdi_score` 和 `raw_score` 各个组件的归一化分数打印，并增加 `debug_info` 和总权重的诊断打印。**
+                      **修正参数加载逻辑，直接从 `self.params` 获取 `fusion_risk_distribution_pressure_params`。**
         """
         method_name = "_synthesize_distribution_pressure"
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“派发压力”...")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: debug_info: {debug_info}") # 诊断 debug_info
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: self.params keys: {list(self.params.keys())}") # 诊断 self.params
+
         states = {}
         df_index = df.index
-        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
-        params = fusion_intelligence_params.get('fusion_risk_distribution_pressure_params', {})
+        
+        # 修正参数加载逻辑：直接从 self.params 获取
+        params = self.params.get('fusion_risk_distribution_pressure_params', {})
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: params keys (fusion_risk_distribution_pressure_params): {list(params.keys())}")
+
         body_weights = get_param_value(params.get('body_weights'), {})
         mfdi_signal_weights = get_param_value(params.get('mfdi_signal_weights'), {})
         raw_signal_weights = get_param_value(params.get('raw_signal_weights'), {})
@@ -1473,12 +1484,15 @@ class FusionIntelligence:
         non_linear_sensitivity = get_param_value(params.get('non_linear_sensitivity'), 2.0)
         norm_window = get_param_value(params.get('norm_window'), 55)
         mtf_norm_weights = get_param_value(params.get('mtf_norm_weights'), {})
+
         # --- 1. MFDI (主力派发意图) ---
         mfdi_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MFDI总权重: {mfdi_total_weight:.4f}") # 诊断总权重
-            print(f"      [融合层调试] {method_ts.strftime('%Y-%m-%d')}: --- MFDI组件原始信号 ---") # 确保打印
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: mfdi_signal_weights: {mfdi_signal_weights}") # NEW DEBUG PRINT
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MFDI总权重: {mfdi_total_weight:.4f}")
+            print(f"      [融合层调试] {probe_ts.strftime('%Y-%m-%d')}: --- MFDI组件原始信号 ---") # Corrected method_ts to probe_ts
+
         if mfdi_total_weight > 0:
             for signal, weight in mfdi_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
@@ -1507,12 +1521,13 @@ class FusionIntelligence:
             mfdi_score = mfdi_score * (1 + deception_amplifier)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力派发意图 (mfdi_score): {mfdi_score.loc[probe_ts]:.4f}")
+
         # --- 2. RAW (散户承接意愿) ---
         raw_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         raw_total_weight = sum(raw_signal_weights.values())
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: RAW总权重: {raw_total_weight:.4f}") # 诊断总权重
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- RAW组件原始信号 ---") # 确保打印
+            print(f"      [融合层调试] {probe_ts.strftime('%Y-%m-%d')}: --- RAW组件原始信号 ---") # 确保打印
         if raw_total_weight > 0:
             for signal, weight in raw_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
@@ -1540,13 +1555,14 @@ class FusionIntelligence:
             raw_score = raw_score * (1 - panic_dampener)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 散户承接意愿 (raw_score): {raw_score.loc[probe_ts]:.4f}")
+
         # --- 3. MSF (市场结构脆弱性) ---
         msf_signal_weights['SCORE_CHIP_HOLLOWING_OUT_RISK'] = msf_signal_weights.get('SCORE_CHIP_HOLLOWING_OUT_RISK', 0.05)
         msf_weighted_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
         msf_total_weight = sum(msf_signal_weights.values())
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MSF总权重: {msf_total_weight:.4f}") # 诊断总权重
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MSF组件原始信号 ---")
+            print(f"      [融合层调试] {probe_ts.strftime('%Y-%m-%d')}: --- MSF组件原始信号 ---")
         if msf_total_weight > 0:
             for signal, weight in msf_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
@@ -1575,6 +1591,7 @@ class FusionIntelligence:
             msf_score = msf_score * (1 + liquidity_trap_amplifier)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 市场结构脆弱性 (msf_score): {msf_score.loc[probe_ts]:.4f}")
+
         # --- 4. 融合三体分数 (加权几何平均) ---
         retail_unwillingness_score = raw_score
         final_log_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -1592,6 +1609,7 @@ class FusionIntelligence:
             geometric_mean_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 几何平均分 (geometric_mean_score): {geometric_mean_score.loc[probe_ts]:.4f}")
+
         # 动态非线性敏感度
         final_fusion_dynamic_exponent_params = get_param_value(params.get('final_fusion_dynamic_exponent'), {})
         dynamic_non_linear_sensitivity = pd.Series(non_linear_sensitivity, index=df_index, dtype=np.float32)
@@ -1607,6 +1625,7 @@ class FusionIntelligence:
             dynamic_non_linear_sensitivity = (base_exponent * (1 + dynamic_exponent_mod)).clip(min_exponent, max_exponent)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性敏感度 (dynamic_non_linear_sensitivity): {dynamic_non_linear_sensitivity.loc[probe_ts]:.4f}")
+
         # 协同/冲突调制
         synergy_conflict_params = get_param_value(params.get('final_fusion_synergy_conflict'), {})
         synergy_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
@@ -1622,9 +1641,11 @@ class FusionIntelligence:
             synergy_modulator = synergy_modulator.clip(0.5, 1.5)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 协同/冲突调制器 (synergy_modulator): {synergy_modulator.loc[probe_ts]:.4f}")
+
         tanh_input = geometric_mean_score * dynamic_non_linear_sensitivity * synergy_modulator
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: Tanh函数输入 (tanh_input): {tanh_input.loc[probe_ts]:.4f}")
+
         final_distribution_pressure = (np.tanh(tanh_input) + 1) / 2
         final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
         states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure
@@ -1646,7 +1667,7 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“多层反转共振确认”...")
         states = {}
         df_index = df.index
-        # 从 fusion.json 中获取参数
+        # 修正参数加载逻辑：直接从 self.params 获取
         fusion_params = self.params.get('fusion_multi_layer_reversal_confirmation_params', {})
         bullish_weights_config = get_param_value(fusion_params.get('bullish_weights'), {})
         bearish_weights_config = get_param_value(fusion_params.get('bearish_weights'), {})
@@ -1733,7 +1754,7 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“突破持续性品质”...")
         states = {}
         df_index = df.index
-        # 从 fusion.json 中获取参数
+        # 修正参数加载逻辑：直接从 self.params 获取
         fusion_params = self.params.get('fusion_breakout_sustainability_params', {})
         bullish_weights_config = get_param_value(fusion_params.get('bullish_weights'), {})
         bearish_weights_config = get_param_value(fusion_params.get('bearish_weights'), {})
@@ -1813,7 +1834,7 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“日内战略协同度”...")
         states = {}
         df_index = df.index
-        # 从 fusion.json 中获取参数
+        # 修正参数加载逻辑：直接从 self.params 获取
         fusion_params = self.params.get('fusion_intraday_strategic_alignment_params', {})
         intraday_weights_config = get_param_value(fusion_params.get('intraday_weights'), {})
         micro_strategic_intent_weight = get_param_value(fusion_params.get('micro_strategic_intent_weight'), 0.5)
@@ -1878,7 +1899,7 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资本主导力转移”...")
         states = {}
         df_index = df.index
-        # 从 fusion.json 中获取参数
+        # 修正参数加载逻辑：直接从 self.params 获取
         fusion_params = self.params.get('fusion_capital_dominance_shift_params', {})
         capital_attribute_weight = get_param_value(fusion_params.get('capital_attribute_weight'), 0.4)
         flow_momentum_weight = get_param_value(fusion_params.get('flow_momentum_weight'), 0.3)
@@ -1935,7 +1956,7 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“隐蔽吸筹品质”...")
         states = {}
         df_index = df.index
-        # 从 fusion.json 中获取参数
+        # 修正参数加载逻辑：直接从 self.params 获取
         fusion_params = self.params.get('fusion_hidden_accumulation_quality_params', {})
         accumulation_process_weights_config = get_param_value(fusion_params.get('accumulation_process_weights'), {})
         quality_factor_weights_config = get_param_value(fusion_params.get('quality_factor_weights'), {})
@@ -2005,7 +2026,7 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“市场结构健康度”...")
         states = {}
         df_index = df.index
-        # 从 fusion.json 中获取参数
+        # 修正参数加载逻辑：直接从 self.params 获取
         fusion_params = self.params.get('fusion_market_structure_health_params', {})
         health_components_weights_config = get_param_value(fusion_params.get('health_components_weights'), {})
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 1.5)
@@ -2068,7 +2089,7 @@ class FusionIntelligence:
         # 修正：将 positive_score 和 negative_score 的初始化提前，确保它们始终被定义
         positive_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         negative_score = pd.Series(1.0, index=df_index, dtype=np.float32)
-        # 从 fusion.json 中获取参数
+        # 修正参数加载逻辑：直接从 self.params 获取
         fusion_params = self.params.get('fusion_sector_leadership_dynamics_params', {})
         positive_weights_config = get_param_value(fusion_params.get('positive_weights'), {})
         negative_weights_config = get_param_value(fusion_params.get('negative_weights'), {})
