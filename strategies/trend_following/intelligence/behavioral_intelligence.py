@@ -1604,7 +1604,6 @@ class BehavioralIntelligence:
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector < 0,
             bearish_deception_tools_sum / (bearish_deception_tools_total_weight if bearish_deception_tools_total_weight > 0 else 1.0)
         )
-        
         # 如果认知失调接近0，则只考虑对倒，并给予更高的权重，因为对倒本身就是欺骗
         deception_tool_strength = deception_tool_strength.mask(cognitive_dissonance_vector.abs() < 1e-9, norm_wash_trade * 0.8)
         deception_tool_strength = deception_tool_strength.clip(0, 1)

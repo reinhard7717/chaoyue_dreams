@@ -389,13 +389,13 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 意志与环境版 - 风险强化与强化】冶炼“资本对抗” (Capital Confrontation)
+        【V5.6 · 意志与环境版 - 风险强化与强化】冶炼“资本对抗” (Capital Confrontation)
         - 核心升华: 彻底分离“内因”(主力意志)与“外缘”(对手盘环境)，构建“战役意志 ×
                       环境调节器”的“天人合一”终极模型。
         - 终章心法: 以我心，应天时。内因驱动，外缘催化，方为博弈大道。此法之后，再无增益。
-        - 【V5.3 增强】增加 `SCORE_CHIP_MAIN_FORCE_COST_INTENT` 和 `SCORE_INTRADAY_DOMINANCE_CONSENSUS` 信号，提高资本对抗的准确性。
-                      引入 `SCORE_BEHAVIOR_DECEPTION_INDEX` 作为对主力意志的直接惩罚，以应对“拉高诱多”情境。
-                      增加 `environment_modulator` 对散户贪婪的惩罚力度。
+        - 【V5.6 增强】增加 `SCORE_CHIP_MAIN_FORCE_COST_INTENT` 和 `SCORE_INTRADAY_DOMINANCE_CONSENSUS` 信号，提高资本对抗的准确性。
+                      **根据 `SCORE_BEHAVIOR_DECEPTION_INDEX` 的正负值（诱空/诱多）明确应用奖励或惩罚，以更精准地反映主力意图。**
+                      进一步增强 `environment_modulator` 对散户贪婪的惩罚力度。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_capital_confrontation"
@@ -413,10 +413,13 @@ class FusionIntelligence:
         main_force_intent = (ff_posture * 0.4 + chip_posture * 0.4 + main_force_cost_intent * 0.2).clip(-1, 1) # 调整权重
         tactical_execution = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0, debug_info)
         intraday_dominance = self._get_atomic_score(df, 'SCORE_INTRADAY_DOMINANCE_CONSENSUS', 0.0, debug_info).clip(lower=0) # 新增日内支配共识正向
-        # 引入欺骗指数作为对主力意志的直接惩罚
+        # 引入欺骗指数作为对主力意志的直接惩罚或奖励
         deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0, debug_info)
-        # 当欺骗指数为正（拉高出货）时，惩罚主力意图
-        deception_penalty = deception_index.clip(lower=0) * 0.8 # 惩罚系数0.8，可调
+        # 根据用户明确的定义：
+        # deception_index 负值是诱多，代表主力出货 -> 惩罚
+        # deception_index 正值是诱空，代表主力意图拉升 -> 奖励
+        deception_penalty = deception_index.clip(upper=0).abs() * 1.5 # 诱多（负值）时产生惩罚，系数1.5，可调
+        deception_reward = deception_index.clip(lower=0) * 0.5 # 诱空（正值）时产生奖励，系数0.5，可调
         # --- 外缘 (External Condition): 对手盘的“环境” ---
         sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info)
         counterparty_state = -sentiment_pendulum # 散户情绪越狂热（sentiment_pendulum为正），对手盘状态越负面（风险越高）
@@ -426,15 +429,16 @@ class FusionIntelligence:
         mapped_execution = (tactical_execution * 0.7 + intraday_dominance * 0.3) + 1 # 融合日内支配共识，映射到 [0, 2]
         will_mapped = (mapped_intent.clip(lower=1e-9) * mapped_execution.clip(lower=1e-9)).pow(1/2)
         campaign_will = (will_mapped - 1).clip(-1, 1)
-        # 应用欺骗惩罚到战役意志
-        campaign_will_modulated = (campaign_will * (1 - deception_penalty)).clip(-1, 1)
+        # 应用欺骗惩罚和奖励到战役意志
+        # 惩罚是乘法削弱，奖励是加法增强
+        campaign_will_modulated = (campaign_will * (1 - deception_penalty) + deception_reward).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力意图 (main_force_intent): {main_force_intent.loc[probe_ts]:.4f}, 战役意志 (campaign_will): {campaign_will.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 欺骗指数 (deception_index): {deception_index.loc[probe_ts]:.4f}, 欺骗惩罚 (deception_penalty): {deception_penalty.loc[probe_ts]:.4f}")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 欺骗指数 (deception_index): {deception_index.loc[probe_ts]:.4f}, 欺骗惩罚 (deception_penalty): {deception_penalty.loc[probe_ts]:.4f}, 欺骗奖励 (deception_reward): {deception_reward.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 调制后战役意志 (campaign_will_modulated): {campaign_will_modulated.loc[probe_ts]:.4f}")
         # 2.2 构建“环境调节器”
-        # 提高环境调节器的敏感度，使散户贪婪的惩罚更显著
-        modulation_factor = 0.8 # 提高环境调节系数，从0.5提高到0.8
+        # 进一步提高环境调节器的敏感度，使散户贪婪的惩罚更显著
+        modulation_factor = 1.8 # 再次提高环境调节系数，从1.5提高到1.8
         # 当散户情绪狂热（sentiment_pendulum > 0），counterparty_state < 0，modulator < 1，惩罚
         # 当散户情绪恐慌（sentiment_pendulum < 0），counterparty_state > 0，modulator > 1，奖励
         environment_modulator = (1 + counterparty_state * modulation_factor).clip(0, 2)
