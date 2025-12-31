@@ -1194,7 +1194,6 @@ class FusionIntelligence:
             total_possible_weight = 0.0
             if is_debug_enabled_inner and probe_ts_inner and probe_ts_inner in index:
                 print(f"        [融合层调试] {method_name_inner} @ {probe_ts_inner.strftime('%Y-%m-%d')}: --- {component_type}原始信号 (is_bullish={is_bullish}) ---")
-            
             for comp_info in components_with_weights:
                 # comp_info 可以是 (signal_name_str, weight, part) 或 (pd.Series_obj, weight, part)
                 if isinstance(comp_info[0], str):
@@ -1223,7 +1222,6 @@ class FusionIntelligence:
                 total_possible_weight += weight
                 if is_debug_enabled_inner and probe_ts_inner and probe_ts_inner in index:
                     print(f"          [融合层调试] {method_name_inner} @ {probe_ts_inner.strftime('%Y-%m-%d')}: 组件 '{signal_name}' ({part} part) (值: {comp_aligned.loc[probe_ts_inner]:.4f}, 权重: {weight})")
-            
             if total_possible_weight > 0:
                 normalized_sum = raw_sum / total_possible_weight
                 # 激活函数，将分数映射到 [0, 1]
@@ -1545,7 +1543,6 @@ class FusionIntelligence:
             # 修正：此处应调用 _get_normalized_risk_score 来处理 _NEGATIVE 后缀
             panic_signal_name = get_param_value(raw_panic_dampener_params.get('panic_signal'))
             panic_signal = self._get_normalized_risk_score(df, panic_signal_name, norm_window, mtf_norm_weights=mtf_norm_weights, debug_info=debug_info)
-            
             dampener_factor = get_param_value(raw_panic_dampener_params.get('dampener_factor'), 0.5)
             panic_dampener = (np.tanh(panic_signal * dampener_factor)).clip(0, 1)
             raw_score = raw_score * (1 - panic_dampener)
