@@ -1444,13 +1444,11 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“多层反转共振确认”...")
         states = {}
         df_index = df.index
-
         # 从 fusion.json 中获取参数
         fusion_params = self.params.get('fusion_multi_layer_reversal_confirmation_params', {})
         bullish_weights_config = get_param_value(fusion_params.get('bullish_weights'), {})
         bearish_weights_config = get_param_value(fusion_params.get('bearish_weights'), {})
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 2.0)
-
         # 1. 收集看涨反转信号
         bullish_reversal_components = []
         for signal_name, weight in bullish_weights_config.items():
@@ -1469,7 +1467,6 @@ class FusionIntelligence:
             bullish_reversal_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 看涨信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 2. 收集看跌反转信号
         bearish_reversal_components = []
         for signal_name, weight in bearish_weights_config.items():
@@ -1488,7 +1485,6 @@ class FusionIntelligence:
             bearish_reversal_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 看跌信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 3. 融合看涨反转信号 (加权几何平均)
         bullish_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_bullish_weight = sum(w for _, w, _ in bullish_reversal_components)
@@ -1499,7 +1495,6 @@ class FusionIntelligence:
         else:
             bullish_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         bullish_score = bullish_score.fillna(0.0).clip(0, 1)
-
         # 4. 融合看跌反转信号 (加权几何平均)
         bearish_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_bearish_weight = sum(w for _, w, _ in bearish_reversal_components)
@@ -1510,15 +1505,12 @@ class FusionIntelligence:
         else:
             bearish_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         bearish_score = bearish_score.fillna(0.0).clip(0, 1)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合看涨分数: {bullish_score.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合看跌分数: {bearish_score.loc[probe_ts]:.4f}")
-
         # 5. 计算最终双极性分数
         # 使用非线性指数放大，增强极端情况下的信号强度
         final_score = (bullish_score**non_linear_exponent - bearish_score**non_linear_exponent).clip(-1, 1)
-
         states['FUSION_BIPOLAR_MULTI_LAYER_REVERSAL_CONFIRMATION'] = final_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “多层反转共振确认”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
@@ -1539,13 +1531,11 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“突破持续性品质”...")
         states = {}
         df_index = df.index
-
         # 从 fusion.json 中获取参数
         fusion_params = self.params.get('fusion_breakout_sustainability_params', {})
         bullish_weights_config = get_param_value(fusion_params.get('bullish_weights'), {})
         bearish_weights_config = get_param_value(fusion_params.get('bearish_weights'), {})
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 2.0)
-
         # 1. 收集看涨突破信号
         bullish_breakout_components = []
         for signal_name, weight in bullish_weights_config.items():
@@ -1561,7 +1551,6 @@ class FusionIntelligence:
             bullish_breakout_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 看涨突破信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 2. 收集看跌突破信号
         bearish_breakout_components = []
         for signal_name, weight in bearish_weights_config.items():
@@ -1577,7 +1566,6 @@ class FusionIntelligence:
             bearish_breakout_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 看跌突破信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 3. 融合看涨突破信号 (加权几何平均)
         bullish_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_bullish_weight = sum(w for _, w, _ in bullish_breakout_components)
@@ -1588,7 +1576,6 @@ class FusionIntelligence:
         else:
             bullish_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         bullish_score = bullish_score.fillna(0.0).clip(0, 1)
-
         # 4. 融合看跌突破信号 (加权几何平均)
         bearish_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_bearish_weight = sum(w for _, w, _ in bearish_breakout_components)
@@ -1599,14 +1586,11 @@ class FusionIntelligence:
         else:
             bearish_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         bearish_score = bearish_score.fillna(0.0).clip(0, 1)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合看涨分数: {bullish_score.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合看跌分数: {bearish_score.loc[probe_ts]:.4f}")
-
         # 5. 计算最终双极性分数
         final_score = (bullish_score**non_linear_exponent - bearish_score**non_linear_exponent).clip(-1, 1)
-
         states['FUSION_BIPOLAR_BREAKOUT_SUSTAINABILITY'] = final_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “突破持续性品质”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
@@ -1627,14 +1611,12 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“日内战略协同度”...")
         states = {}
         df_index = df.index
-
         # 从 fusion.json 中获取参数
         fusion_params = self.params.get('fusion_intraday_strategic_alignment_params', {})
         intraday_weights_config = get_param_value(fusion_params.get('intraday_weights'), {})
         micro_strategic_intent_weight = get_param_value(fusion_params.get('micro_strategic_intent_weight'), 0.5)
         synergy_factor = get_param_value(fusion_params.get('synergy_factor'), 0.5)
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 1.5)
-
         # 1. 收集日内行为信号
         intraday_components = []
         for signal_name, weight in intraday_weights_config.items():
@@ -1649,7 +1631,6 @@ class FusionIntelligence:
             intraday_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 日内信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 2. 融合日内行为信号 (加权平均)
         intraday_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_intraday_weight = sum(w for _, w, _ in intraday_components)
@@ -1659,16 +1640,13 @@ class FusionIntelligence:
                 intraday_score += comp.fillna(0.0) * weight
             intraday_score /= total_intraday_weight
         intraday_score = intraday_score.fillna(0.0).clip(-1, 1)
-
         # 3. 获取微观战略意图
         micro_strategic_intent = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGIC_INTENT', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观战略意图: {micro_strategic_intent.loc[probe_ts]:.4f}")
-
         # 4. 计算协同度
         # 当日内行为和微观战略意图方向一致时，协同度高；方向相反时，协同度低
         synergy_score = (intraday_score * micro_strategic_intent).clip(-1, 1)
-
         # 5. 最终融合：日内行为与微观战略意图的加权平均，并由协同度进行非线性调制
         # 协同度越高，最终分数越接近两者平均值；协同度越低，分数越被拉向0
         # 使用 tanh 激活函数将协同度映射到 [0, 1] 范围，作为调制因子
@@ -1676,7 +1654,6 @@ class FusionIntelligence:
         # 最终分数 = (日内行为分数 * (1 - micro_strategic_intent_weight) + 微观战略意图 * micro_strategic_intent_weight) * 协同调制器
         final_score_base = (intraday_score * (1 - micro_strategic_intent_weight) + micro_strategic_intent * micro_strategic_intent_weight).clip(-1, 1)
         final_score = (final_score_base * synergy_modulator**non_linear_exponent).clip(-1, 1)
-
         states['FUSION_BIPOLAR_INTRADAY_STRATEGIC_ALIGNMENT'] = final_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 日内融合分数: {intraday_score.loc[probe_ts]:.4f}")
@@ -1741,6 +1718,7 @@ class FusionIntelligence:
         else:
             print(f"  -- [融合层] “资本主导力转移”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
+
     def _synthesize_hidden_accumulation_quality(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
         【V1.0 · 暗流涌动版】冶炼“隐蔽吸筹品质” (FUSION_OPPORTUNITY_HIDDEN_ACCUMULATION_QUALITY)
@@ -1754,13 +1732,11 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“隐蔽吸筹品质”...")
         states = {}
         df_index = df.index
-
         # 从 fusion.json 中获取参数
         fusion_params = self.params.get('fusion_hidden_accumulation_quality_params', {})
         accumulation_process_weights_config = get_param_value(fusion_params.get('accumulation_process_weights'), {})
         quality_factor_weights_config = get_param_value(fusion_params.get('quality_factor_weights'), {})
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 1.5)
-
         # 1. 收集吸筹过程信号
         process_components = []
         for signal_name, weight in accumulation_process_weights_config.items():
@@ -1768,7 +1744,6 @@ class FusionIntelligence:
             process_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 吸筹过程信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 2. 收集品质因子信号
         quality_components = []
         for signal_name, weight in quality_factor_weights_config.items():
@@ -1781,7 +1756,6 @@ class FusionIntelligence:
             quality_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 品质因子信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 3. 融合吸筹过程信号 (加权几何平均)
         process_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_process_weight = sum(w for _, w, _ in process_components)
@@ -1792,7 +1766,6 @@ class FusionIntelligence:
         else:
             process_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         process_score = process_score.fillna(0.0).clip(0, 1)
-
         # 4. 融合品质因子信号 (加权几何平均)
         quality_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_quality_weight = sum(w for _, w, _ in quality_components)
@@ -1803,15 +1776,12 @@ class FusionIntelligence:
         else:
             quality_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         quality_score = quality_score.fillna(0.0).clip(0, 1)
-
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合过程分数: {process_score.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合品质分数: {quality_score.loc[probe_ts]:.4f}")
-
         # 5. 最终融合：过程分数与品质分数的几何平均，并进行非线性放大
         final_score = (process_score.clip(lower=1e-9) * quality_score.clip(lower=1e-9)).pow(0.5)**non_linear_exponent
         final_score = final_score.clip(0, 1)
-
         states['FUSION_OPPORTUNITY_HIDDEN_ACCUMULATION_QUALITY'] = final_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “隐蔽吸筹品质”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
@@ -1832,12 +1802,10 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“市场结构健康度”...")
         states = {}
         df_index = df.index
-
         # 从 fusion.json 中获取参数
         fusion_params = self.params.get('fusion_market_structure_health_params', {})
         health_components_weights_config = get_param_value(fusion_params.get('health_components_weights'), {})
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 1.5)
-
         # 1. 收集结构健康度相关信号
         health_components = []
         for signal_name, weight in health_components_weights_config.items():
@@ -1862,7 +1830,6 @@ class FusionIntelligence:
             health_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构健康组件 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 2. 融合结构健康度信号 (加权平均)
         raw_health_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_weight = sum(w for _, w, _ in health_components)
@@ -1872,10 +1839,8 @@ class FusionIntelligence:
                 raw_health_score += comp.fillna(0.0) * weight
             raw_health_score /= total_weight
         raw_health_score = raw_health_score.fillna(0.0).clip(-1, 1)
-
         # 3. 最终分数：非线性放大
         final_score = (np.sign(raw_health_score) * (raw_health_score.abs()**non_linear_exponent)).clip(-1, 1)
-
         states['FUSION_BIPOLAR_MARKET_STRUCTURE_HEALTH'] = final_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始健康分数: {raw_health_score.loc[probe_ts]:.4f}")
@@ -1897,13 +1862,14 @@ class FusionIntelligence:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“板块龙头动态”...")
         states = {}
         df_index = df.index
-
+        # 修正：将 positive_score 和 negative_score 的初始化提前，确保它们始终被定义
+        positive_score = pd.Series(1.0, index=df_index, dtype=np.float32)
+        negative_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         # 从 fusion.json 中获取参数
         fusion_params = self.params.get('fusion_sector_leadership_dynamics_params', {})
         positive_weights_config = get_param_value(fusion_params.get('positive_weights'), {})
         negative_weights_config = get_param_value(fusion_params.get('negative_weights'), {})
         non_linear_exponent = get_param_value(fusion_params.get('non_linear_exponent'), 1.5)
-
         # 1. 收集正向（看涨）信号
         positive_components = []
         for signal_name, weight in positive_weights_config.items():
@@ -1922,7 +1888,6 @@ class FusionIntelligence:
             positive_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正向信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 2. 收集负向（看跌）信号
         negative_components = []
         for signal_name, weight in negative_weights_config.items():
@@ -1941,36 +1906,27 @@ class FusionIntelligence:
             negative_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 负向信号 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
-
         # 3. 融合正向信号 (加权几何平均)
-        positive_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_positive_weight = sum(w for _, w, _ in positive_components)
         if total_positive_weight > 0:
             for comp, weight, _ in positive_components:
-                # 修正：先fillna(0.0)再clip，确保NaN和0都贡献0
                 positive_score *= (comp.fillna(0.0).clip(lower=1e-9)) ** (weight / total_positive_weight)
         else:
             positive_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         positive_score = positive_score.fillna(0.0).clip(0, 1)
-
         # 4. 融合负向信号 (加权几何平均)
-        bearish_score = pd.Series(1.0, index=df_index, dtype=np.float32)
         total_negative_weight = sum(w for _, w, _ in negative_components)
         if total_negative_weight > 0:
             for comp, weight, _ in negative_components:
-                # 修正：先fillna(0.0)再clip，确保NaN和0都贡献0
-                bearish_score *= (comp.fillna(0.0).clip(lower=1e-9)) ** (weight / total_negative_weight)
+                negative_score *= (comp.fillna(0.0).clip(lower=1e-9)) ** (weight / total_negative_weight)
         else:
-            bearish_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        bearish_score = bearish_score.fillna(0.0).clip(0, 1)
-
+            negative_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        negative_score = negative_score.fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合正向分数: {positive_score.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合负向分数: {negative_score.loc[probe_ts]:.4f}")
-
-        # 5. 最终分数：正向分数减去负向分数，并进行非线性放大
+        # 5. 计算最终双极性分数
         final_score = (positive_score**non_linear_exponent - negative_score**non_linear_exponent).clip(-1, 1)
-
         states['FUSION_BIPOLAR_SECTOR_LEADERSHIP_DYNAMICS'] = final_score.astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “板块龙头动态”冶炼完成，最终分值: {final_score.loc[probe_ts]:.4f}")
