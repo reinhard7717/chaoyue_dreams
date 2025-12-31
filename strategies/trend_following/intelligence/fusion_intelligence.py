@@ -1143,10 +1143,19 @@ class FusionIntelligence:
             total_possible_weight = 0.0
             if is_debug_enabled_inner and probe_ts_inner and probe_ts_inner in index:
                 print(f"        [融合层调试] {method_name_inner} @ {probe_ts_inner.strftime('%Y-%m-%d')}: --- {component_type}原始信号 (is_bullish={is_bullish}) ---")
-            # 修正此处：解包为三个值 (signal_name, weight, part)
-            for signal_name, weight, part in components_with_weights:
-                # 获取原始信号
-                comp_raw = self._get_atomic_score(df, signal_name, 0.0, debug_info)
+            
+            for comp_info in components_with_weights:
+                # comp_info 可以是 (signal_name_str, weight, part) 或 (pd.Series_obj, weight, part)
+                if isinstance(comp_info[0], str):
+                    signal_name, weight, part = comp_info
+                    # 获取原始信号
+                    comp_raw = self._get_atomic_score(df, signal_name, 0.0, debug_info)
+                elif isinstance(comp_info[0], pd.Series):
+                    comp_raw, weight, part = comp_info
+                    signal_name = comp_raw.name if comp_raw.name else "Unnamed_Series" # 用于调试输出
+                else:
+                    raise ValueError(f"Invalid component type in components_with_weights: {type(comp_info[0])}")
+
                 # 根据 part 提取正向或负向部分
                 if part == 'positive':
                     comp = comp_raw.clip(lower=0)
@@ -1194,15 +1203,36 @@ class FusionIntelligence:
                 return activated_score
             else:
                 return pd.Series(0.0, index=index, dtype=np.float32)
+        
+        # --- 预计算缺失或需要特殊处理的信号 ---
+        # price_volume_entropy_D_INVERSE
+        price_volume_entropy_D = self._get_atomic_score(df, 'price_volume_entropy_D', 0.0, debug_info).fillna(0.0)
+        price_volume_entropy_D_INVERSE = (1 - price_volume_entropy_D).rename('price_volume_entropy_D_INVERSE')
+
+        # CAPITAL_CONFRONTATION_PROXY_BULLISH 和 CAPITAL_CONFRONTATION_PROXY_BEARISH
+        capital_confrontation_proxy_bullish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0) * 0.5 + 
+                                               self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(lower=0) * 0.5).rename('CAPITAL_CONFRONTATION_PROXY_BULLISH')
+        capital_confrontation_proxy_bearish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(upper=0).abs() * 0.5 + 
+                                               self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(upper=0).abs() * 0.5).rename('CAPITAL_CONFRONTATION_PROXY_BEARISH')
+
+        # main_force_flow_gini_D_INVERSE
+        main_force_flow_gini_D = self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0, debug_info).fillna(0.0)
+        main_force_flow_gini_D_INVERSE = (1 - main_force_flow_gini_D).rename('main_force_flow_gini_D_INVERSE')
+
+        # retail_flow_dominance_index_D_INVERSE
+        retail_flow_dominance_index_D = self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0, debug_info).fillna(0.0)
+        retail_flow_dominance_index_D_INVERSE = (1 - retail_flow_dominance_index_D).rename('retail_flow_dominance_index_D_INVERSE')
+
+
         # --- 原始信号获取 ---
         # PVE (价量效能)
-        # 修正：将信号名称改为原始名称，并添加 part 信息
+        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bullish_pve_components_with_weights = [
             ('SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.25, 'positive'),
             ('SCORE_BEHAVIOR_VOLUME_BURST', 0.2, 'positive'),
             ('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.2, 'positive'),
             ('SCORE_DYN_AXIOM_MOMENTUM', 0.2, 'positive'), # 从双极性信号中取正向
-            ('price_volume_entropy_D_INVERSE', 0.15, 'positive') # 假设这个信号本身就是正向的
+            (price_volume_entropy_D_INVERSE, 0.15, 'positive') # 使用预计算的 Series
         ]
         bearish_pve_components_with_weights = [
             ('SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.3, 'positive'),
@@ -1211,39 +1241,34 @@ class FusionIntelligence:
             ('price_volume_entropy_D', 0.2, 'positive') # 假设这个信号本身就是正向的
         ]
         # PT (权势转移)
-        # 替换 FUSION_BIPOLAR_CAPITAL_CONFRONTATION 为基础信号组合
-        capital_confrontation_proxy_bullish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(lower=0) * 0.5 + self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(lower=0) * 0.5)
-        capital_confrontation_proxy_bearish = (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(upper=0).abs() * 0.5 + self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(upper=0).abs() * 0.5)
-        
-        # 修正：将信号名称改为原始名称，并添加 part 信息
+        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bullish_pt_components_with_weights = [
             ('PROCESS_META_POWER_TRANSFER', 0.25, 'positive'),
             ('SCORE_CHIP_TACTICAL_EXCHANGE', 0.2, 'positive'),
             ('SCORE_FF_AXIOM_CONSENSUS', 0.2, 'positive'),
-            ('CAPITAL_CONFRONTATION_PROXY_BULLISH', 0.2, 'positive'), # 代理信号，本身已处理为正向
+            (capital_confrontation_proxy_bullish, 0.2, 'positive'), # 使用预计算的 Series
             ('SCORE_FF_AXIOM_INTENT_PURITY', 0.15, 'positive')
         ]
-        # 修正：将信号名称改为原始名称，并添加 part 信息
+        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bearish_pt_components_with_weights = [
             ('PROCESS_META_POWER_TRANSFER', 0.25, 'negative'),
             ('SCORE_CHIP_TACTICAL_EXCHANGE', 0.2, 'negative'),
             ('SCORE_FF_AXIOM_CONSENSUS', 0.2, 'negative'),
-            ('CAPITAL_CONFRONTATION_PROXY_BEARISH', 0.2, 'positive'), # 代理信号，本身已处理为正向
+            (capital_confrontation_proxy_bearish, 0.2, 'positive'), # 使用预计算的 Series
             ('SCORE_FF_AXIOM_INTENT_PURITY', 0.15, 'negative')
         ]
         # LS (流动性状态)
-        # 替换 FUSION_RISK_STAGNATION 为 INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW
-        # 修正：将信号名称改为原始名称，并添加 part 信息
+        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bullish_ls_components_with_weights = [
             ('SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.2, 'positive'),
             ('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.15, 'positive'),
             ('SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.15, 'positive'),
             ('SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.15, 'positive'),
-            ('main_force_flow_gini_D_INVERSE', 0.1, 'positive'), # 假设这个信号本身就是正向的
-            ('retail_flow_dominance_index_D_INVERSE', 0.1, 'positive'), # 假设这个信号本身就是正向的
+            (main_force_flow_gini_D_INVERSE, 0.1, 'positive'), # 使用预计算的 Series
+            (retail_flow_dominance_index_D_INVERSE, 0.1, 'positive'), # 使用预计算的 Series
             ('SCORE_FOUNDATION_AXIOM_MARKET_FRICTION', 0.15, 'negative') # 从双极性信号中取负向绝对值
         ]
-        # 修正：将信号名称改为原始名称，并添加 part 信息
+        # 修正：将信号名称改为原始名称，并添加 part 信息，对于已计算的 Series 直接传递 Series 对象
         bearish_ls_components_with_weights = [
             ('SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.2, 'negative'),
             ('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.15, 'negative'),
