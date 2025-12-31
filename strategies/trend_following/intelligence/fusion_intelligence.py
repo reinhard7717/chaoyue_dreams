@@ -1835,13 +1835,14 @@ class FusionIntelligence:
         flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).fillna(0.0).clip(-1, 1)
         sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info).fillna(0.0).clip(-1, 1)
-        flow_credibility = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0, debug_info).fillna(0.0) # 假设已归一化到 [0, 1]
+        # 修正：替换 flow_credibility_index_D 为 SCORE_FF_AXIOM_INTENT_PURITY 的正向部分
+        flow_credibility = self._get_atomic_score(df, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, debug_info).clip(lower=0).fillna(0.0).clip(0, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资本属性: {capital_attribute.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流纯度与动能: {flow_momentum.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 筹码战略态势: {chip_posture.loc[probe_ts]:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情绪钟摆: {sentiment_pendulum.loc[probe_ts]:.4f}")
-            print(f"      [融合层调试] {probe_ts.strftime('%Y-%m-%d')}: 资金流可信度: {flow_credibility.loc[probe_ts]:.4f}") # 修正此处：method_ts -> probe_ts
+            print(f"      [融合层调试] {probe_ts.strftime('%Y-%m-%d')}: 资金流可信度 (SCORE_FF_AXIOM_INTENT_PURITY): {flow_credibility.loc[probe_ts]:.4f}")
         # 2. 融合核心维度 (加权平均)
         raw_dominance_score = (
             capital_attribute * capital_attribute_weight +
