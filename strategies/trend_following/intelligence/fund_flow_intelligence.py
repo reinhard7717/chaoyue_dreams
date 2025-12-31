@@ -485,18 +485,19 @@ class FundFlowIntelligence:
         df_index = df.index
         p_conf_ff = self.p_conf_ff
         ac_params = get_param_value(p_conf_ff.get('axiom_consensus_params'), {})
-        probe_enabled = get_param_value(ac_params.get('probe_enabled'), False)
-        current_probe_date = None
-        if probe_enabled: # 只有当probe_enabled为True时才打印
-            if self.probe_dates:
-                probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-                for date in reversed(df_index):
-                    if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                        current_probe_date = date
-                        break
+
+        # 使用类级别的调试标志
+        is_debug_enabled = self.should_probe
+        probe_ts = None
+        if is_debug_enabled and self.probe_dates_set:
+            # 从df_index中找到与probe_dates_set中的日期匹配的时间戳
+            for date in reversed(df_index):
+                if date.date() in self.probe_dates_set:
+                    probe_ts = date
+                    break
         
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"  -- [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: 正在诊断“战场控制权”...")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“战场控制权”...")
 
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         deception_mod_enabled = get_param_value(ac_params.get('deception_mod_enabled'), True)
@@ -590,8 +591,8 @@ class FundFlowIntelligence:
                 all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name)
         
         if not self._validate_required_signals(df, required_signals, method_name):
-            if probe_enabled and current_probe_date and current_probe_date in df.index:
-                print(f"  -- [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
             return pd.Series(0.0, index=df.index)
         
         # 集中所有原始数据获取
@@ -634,10 +635,10 @@ class FundFlowIntelligence:
         deception_lure_long_raw = raw_data_cache['deception_lure_long_intensity_D']
         deception_lure_short_raw = raw_data_cache['deception_lure_short_intensity_D']
         
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
             for sig_name in required_signals:
-                val = raw_data_cache[sig_name].loc[current_probe_date] if current_probe_date in raw_data_cache[sig_name].index else np.nan
+                val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
                 print(f"        '{sig_name}': {val:.4f}")
 
         # --- MTF共振因子计算 ---
@@ -654,14 +655,14 @@ class FundFlowIntelligence:
             micro_efficiency_cohesion = self._calculate_mtf_cohesion_divergence(df, 'microstructure_efficiency_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             deception_cohesion = self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             wash_trade_cohesion = self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', mtf_cohesion_short_periods, mtf_cohesion_long_periods, False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            if probe_enabled and current_probe_date and current_probe_date in df.index:
-                print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- MTF共振因子计算 ---")
-                print(f"        宏观流向方向性共振 (macro_flow_directionality_cohesion): {macro_flow_directionality_cohesion.loc[current_probe_date]:.4f}")
-                print(f"        NMFNF共振 (nmfnf_cohesion): {nmfnf_cohesion.loc[current_probe_date]:.4f}")
-                print(f"        微观不平衡共振 (micro_imbalance_cohesion): {micro_imbalance_cohesion.loc[current_probe_date]:.4f}")
-                print(f"        微观效率共振 (micro_efficiency_cohesion): {micro_efficiency_cohesion.loc[current_probe_date]:.4f}")
-                print(f"        欺骗共振 (deception_cohesion): {deception_cohesion.loc[current_probe_date]:.4f}")
-                print(f"        对倒共振 (wash_trade_cohesion): {wash_trade_cohesion.loc[current_probe_date]:.4f}")
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振因子计算 ---")
+                print(f"        宏观流向方向性共振 (macro_flow_directionality_cohesion): {macro_flow_directionality_cohesion.loc[probe_ts]:.4f}")
+                print(f"        NMFNF共振 (nmfnf_cohesion): {nmfnf_cohesion.loc[probe_ts]:.4f}")
+                print(f"        微观不平衡共振 (micro_imbalance_cohesion): {micro_imbalance_cohesion.loc[probe_ts]:.4f}")
+                print(f"        微观效率共振 (micro_efficiency_cohesion): {micro_efficiency_cohesion.loc[probe_ts]:.4f}")
+                print(f"        欺骗共振 (deception_cohesion): {deception_cohesion.loc[probe_ts]:.4f}")
+                print(f"        对倒共振 (wash_trade_cohesion): {wash_trade_cohesion.loc[probe_ts]:.4f}")
 
         # --- 1. 宏观资金流质量 (Enhanced Macro Fund Flow Quality) ---
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights_ff)
@@ -674,12 +675,12 @@ class FundFlowIntelligence:
             norm_nmfnf_net_flow * macro_flow_quality_weights.get('nmfnf_net_flow', 0.5) * (1 + nmfnf_cohesion * mtf_cohesion_macro_flow_weights.get('nmfnf', 0.5) * mtf_cohesion_modulator_sensitivity)
         ).clip(-1, 1)
 
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 宏观资金流质量计算 ---")
-            print(f"        主力资金流方向性归一化 (norm_main_force_flow_directionality): {norm_main_force_flow_directionality.loc[current_probe_date]:.4f}")
-            print(f"        主力资金流基尼系数反向归一化 (norm_main_force_flow_gini_inverted): {norm_main_force_flow_gini_inverted.loc[current_probe_date]:.4f}")
-            print(f"        NMFNF净流归一化 (norm_nmfnf_net_flow): {norm_nmfnf_net_flow.loc[current_probe_date]:.4f}")
-            print(f"        宏观资金流质量分数 (macro_flow_quality_score): {macro_flow_quality_score.loc[current_probe_date]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 宏观资金流质量计算 ---")
+            print(f"        主力资金流方向性归一化 (norm_main_force_flow_directionality): {norm_main_force_flow_directionality.loc[probe_ts]:.4f}")
+            print(f"        主力资金流基尼系数反向归一化 (norm_main_force_flow_gini_inverted): {norm_main_force_flow_gini_inverted.loc[probe_ts]:.4f}")
+            print(f"        NMFNF净流归一化 (norm_nmfnf_net_flow): {norm_nmfnf_net_flow.loc[probe_ts]:.4f}")
+            print(f"        宏观资金流质量分数 (macro_flow_quality_score): {macro_flow_quality_score.loc[probe_ts]:.4f}")
 
         # --- 2. 微观盘口意图推断 (Enhanced Micro Order Book Intent Inference) ---
         imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights_ff)
@@ -774,11 +775,11 @@ class FundFlowIntelligence:
         
         micro_control_score_v5_1 = (total_buy_power - total_sell_power).clip(-1, 1)
         
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 微观买卖力量计算 ---")
-            print(f"        总买入力量 (total_buy_power): {total_buy_power.loc[current_probe_date]:.4f}")
-            print(f"        总卖出力量 (total_sell_power): {total_sell_power.loc[current_probe_date]:.4f}")
-            print(f"        微观控制分数V5.1 (micro_control_score_v5_1): {micro_control_score_v5_1.loc[current_probe_date]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 微观买卖力量计算 ---")
+            print(f"        总买入力量 (total_buy_power): {total_buy_power.loc[probe_ts]:.4f}")
+            print(f"        总卖出力量 (total_sell_power): {total_sell_power.loc[probe_ts]:.4f}")
+            print(f"        微观控制分数V5.1 (micro_control_score_v5_1): {micro_control_score_v5_1.loc[probe_ts]:.4f}")
 
         # 融合微观意图和微观控制质量分数
         micro_intent_score = (
@@ -799,15 +800,15 @@ class FundFlowIntelligence:
         
         micro_control_score = micro_intent_score * micro_control_modulator
 
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 微观盘口意图推断计算 ---")
-            print(f"        不平衡分数 (imbalance_score): {imbalance_score.loc[current_probe_date]:.4f}")
-            print(f"        冲击分数 (impact_score): {impact_score.loc[current_probe_date]:.4f}")
-            print(f"        衰竭分数 (exhaustion_score): {exhaustion_score.loc[current_probe_date]:.4f}")
-            print(f"        微观控制质量分数 (micro_control_quality_score): {micro_control_quality_score.loc[current_probe_date]:.4f}")
-            print(f"        微观意图分数 (micro_intent_score): {micro_intent_score.loc[current_probe_date]:.4f}")
-            print(f"        微观控制调制器 (micro_control_modulator): {micro_control_modulator.loc[current_probe_date]:.4f}")
-            print(f"        微观控制分数 (micro_control_score): {micro_control_score.loc[current_probe_date]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 微观盘口意图推断计算 ---")
+            print(f"        不平衡分数 (imbalance_score): {imbalance_score.loc[probe_ts]:.4f}")
+            print(f"        冲击分数 (impact_score): {impact_score.loc[probe_ts]:.4f}")
+            print(f"        衰竭分数 (exhaustion_score): {exhaustion_score.loc[probe_ts]:.4f}")
+            print(f"        微观控制质量分数 (micro_control_quality_score): {micro_control_quality_score.loc[probe_ts]:.4f}")
+            print(f"        微观意图分数 (micro_intent_score): {micro_intent_score.loc[probe_ts]:.4f}")
+            print(f"        微观控制调制器 (micro_control_modulator): {micro_control_modulator.loc[probe_ts]:.4f}")
+            print(f"        微观控制分数 (micro_control_score): {micro_control_score.loc[probe_ts]:.4f}")
 
         # --- 3. 诡道博弈深度情境感知与调制 (Enhanced Deceptive Game Integration & Contextual Modulation) ---
         deception_modulator = pd.Series(1.0, index=df_index)
@@ -844,19 +845,19 @@ class FundFlowIntelligence:
             deception_modulator.loc[low_credibility_mask] = deception_modulator.loc[low_credibility_mask] * (norm_flow_credibility.loc[low_credibility_mask] / flow_credibility_threshold).clip(0.1, 1.0)
             deception_modulator = deception_modulator.clip(0.01, 2.0)
 
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 诡道博弈调制计算 ---")
-            print(f"        对倒归一化 (norm_wash_trade): {norm_wash_trade.loc[current_probe_date]:.4f}")
-            print(f"        欺骗归一化 (norm_deception): {norm_deception.loc[current_probe_date]:.4f}")
-            print(f"        信念归一化 (norm_conviction): {norm_conviction.loc[current_probe_date]:.4f}")
-            print(f"        资金流可信度归一化 (norm_flow_credibility): {norm_flow_credibility.loc[current_probe_date]:.4f}")
-            print(f"        市场情绪归一化 (norm_market_sentiment): {norm_market_sentiment.loc[current_probe_date]:.4f}")
-            print(f"        诱多归一化 (norm_deception_lure_long): {norm_deception_lure_long.loc[current_probe_date]:.4f}")
-            print(f"        诱空归一化 (norm_deception_lure_short): {norm_deception_lure_short.loc[current_probe_date]:.4f}")
-            print(f"        情绪调制因子 (sentiment_mod_factor): {sentiment_mod_factor.loc[current_probe_date]:.4f}")
-            print(f"        欺骗共振调制 (deception_cohesion_mod): {deception_cohesion_mod.loc[current_probe_date]:.4f}")
-            print(f"        对倒共振调制 (wash_trade_cohesion_mod): {wash_trade_cohesion_mod.loc[current_probe_date]:.4f}")
-            print(f"        诡道调制器 (deception_modulator): {deception_modulator.loc[current_probe_date]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道博弈调制计算 ---")
+            print(f"        对倒归一化 (norm_wash_trade): {norm_wash_trade.loc[probe_ts]:.4f}")
+            print(f"        欺骗归一化 (norm_deception): {norm_deception.loc[probe_ts]:.4f}")
+            print(f"        信念归一化 (norm_conviction): {norm_conviction.loc[probe_ts]:.4f}")
+            print(f"        资金流可信度归一化 (norm_flow_credibility): {norm_flow_credibility.loc[probe_ts]:.4f}")
+            print(f"        市场情绪归一化 (norm_market_sentiment): {norm_market_sentiment.loc[probe_ts]:.4f}")
+            print(f"        诱多归一化 (norm_deception_lure_long): {norm_deception_lure_long.loc[probe_ts]:.4f}")
+            print(f"        诱空归一化 (norm_deception_lure_short): {norm_deception_lure_short.loc[probe_ts]:.4f}")
+            print(f"        情绪调制因子 (sentiment_mod_factor): {sentiment_mod_factor.loc[probe_ts]:.4f}")
+            print(f"        欺骗共振调制 (deception_cohesion_mod): {deception_cohesion_mod.loc[probe_ts]:.4f}")
+            print(f"        对倒共振调制 (wash_trade_cohesion_mod): {wash_trade_cohesion_mod.loc[probe_ts]:.4f}")
+            print(f"        诡道调制器 (deception_modulator): {deception_modulator.loc[probe_ts]:.4f}")
 
         # --- 4. 多维度情境自适应权重 (Enhanced Adaptive Macro-Micro Weighting) ---
         dynamic_macro_weight = pd.Series(macro_flow_base_weight, index=df_index)
@@ -882,16 +883,16 @@ class FundFlowIntelligence:
             dynamic_macro_weight = dynamic_macro_weight.clip(0.1, 0.9)
             dynamic_micro_weight = dynamic_micro_weight.clip(0.1, 0.9)
 
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 动态权重自适应计算 ---")
-            print(f"        波动不稳定性归一化 (norm_volatility_instability): {norm_volatility_instability.loc[current_probe_date]:.4f}")
-            print(f"        资金流斜率归一化 (norm_flow_slope): {norm_flow_slope.loc[current_probe_date]:.4f}")
-            print(f"        市场情绪归一化 (norm_market_sentiment_dw): {norm_market_sentiment_dw.loc[current_probe_date]:.4f}")
-            print(f"        趋势活力归一化 (norm_trend_vitality): {norm_trend_vitality.loc[current_probe_date]:.4f}")
-            print(f"        结构张力归一化 (norm_structural_tension): {norm_structural_tension.loc[current_probe_date]:.4f}")
-            print(f"        调制因子 (mod_factor): {mod_factor.loc[current_probe_date]:.4f}")
-            print(f"        动态宏观权重 (dynamic_macro_weight): {dynamic_macro_weight.loc[current_probe_date]:.4f}")
-            print(f"        动态微观权重 (dynamic_micro_weight): {dynamic_micro_weight.loc[current_probe_date]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重自适应计算 ---")
+            print(f"        波动不稳定性归一化 (norm_volatility_instability): {norm_volatility_instability.loc[probe_ts]:.4f}")
+            print(f"        资金流斜率归一化 (norm_flow_slope): {norm_flow_slope.loc[probe_ts]:.4f}")
+            print(f"        市场情绪归一化 (norm_market_sentiment_dw): {norm_market_sentiment_dw.loc[probe_ts]:.4f}")
+            print(f"        趋势活力归一化 (norm_trend_vitality): {norm_trend_vitality.loc[probe_ts]:.4f}")
+            print(f"        结构张力归一化 (norm_structural_tension): {norm_structural_tension.loc[probe_ts]:.4f}")
+            print(f"        调制因子 (mod_factor): {mod_factor.loc[probe_ts]:.4f}")
+            print(f"        动态宏观权重 (dynamic_macro_weight): {dynamic_macro_weight.loc[probe_ts]:.4f}")
+            print(f"        动态微观权重 (dynamic_micro_weight): {dynamic_micro_weight.loc[probe_ts]:.4f}")
 
         # --- 5. 融合基础战场控制权 (V6.0 非线性微观-宏观交互) ---
         # 将宏观流向分数和微观控制分数转换为 [0, 1] 范围，以便进行几何平均
@@ -923,17 +924,17 @@ class FundFlowIntelligence:
         # 应用非线性交互指数
         base_battlefield_control_score = np.tanh(base_battlefield_control_score * micro_macro_interaction_exponent)
 
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 融合基础战场控制权计算 ---")
-            print(f"        宏观流向质量分数 (macro_flow_quality_score): {macro_flow_quality_score.loc[current_probe_date]:.4f}")
-            print(f"        微观控制分数 (micro_control_score): {micro_control_score.loc[current_probe_date]:.4f}")
-            print(f"        宏观分数单极化 (macro_score_unipolar): {macro_score_unipolar.loc[current_probe_date]:.4f}")
-            print(f"        微观分数单极化 (micro_score_unipolar): {micro_score_unipolar.loc[current_probe_date]:.4f}")
-            print(f"        几何平均单极化 (geometric_mean_unipolar): {geometric_mean_unipolar.loc[current_probe_date]:.4f}")
-            print(f"        基础战场控制分数 (base_battlefield_control_score): {base_battlefield_control_score.loc[current_probe_date]:.4f}")
-            print(f"        诡道调制器 (deception_modulator): {deception_modulator.loc[current_probe_date]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 融合基础战场控制权计算 ---")
+            print(f"        宏观流向质量分数 (macro_flow_quality_score): {macro_flow_quality_score.loc[probe_ts]:.4f}")
+            print(f"        微观控制分数 (micro_control_score): {micro_control_score.loc[probe_ts]:.4f}")
+            print(f"        宏观分数单极化 (macro_score_unipolar): {macro_score_unipolar.loc[probe_ts]:.4f}")
+            print(f"        微观分数单极化 (micro_score_unipolar): {micro_score_unipolar.loc[probe_ts]:.4f}")
+            print(f"        几何平均单极化 (geometric_mean_unipolar): {geometric_mean_unipolar.loc[probe_ts]:.4f}")
+            print(f"        基础战场控制分数 (base_battlefield_control_score): {base_battlefield_control_score.loc[probe_ts]:.4f}")
+            print(f"        诡道调制器 (deception_modulator): {deception_modulator.loc[probe_ts]:.4f}")
             print(f"        非线性交互指数 (micro_macro_interaction_exponent): {micro_macro_interaction_exponent:.4f}")
-            print(f"        最终基础战场控制分数 (base_battlefield_control_score after modulation): {base_battlefield_control_score.loc[current_probe_date]:.4f}")
+            print(f"        最终基础战场控制分数 (base_battlefield_control_score after modulation): {base_battlefield_control_score.loc[probe_ts]:.4f}")
 
         # --- 6. 战场控制权动态演化与前瞻性增强 (Dynamic Evolution & Foresight Enhancement) ---
         smoothed_base_score = base_battlefield_control_score.ewm(span=smoothing_ema_span, adjust=False).mean()
@@ -970,19 +971,19 @@ class FundFlowIntelligence:
         final_score = _robust_geometric_mean(final_score_components, final_score_weights, df_index)
         final_score = (final_score * 2 - 1).clip(-1, 1)
 
-        if probe_enabled and current_probe_date and current_probe_date in df.index:
-            print(f"      [资金流层调试] {method_name} @ {current_probe_date.strftime('%Y-%m-%d')}: --- 战场控制权动态演化计算 ---")
-            print(f"        平滑基础分数 (smoothed_base_score): {smoothed_base_score.loc[current_probe_date]:.4f}")
-            print(f"        速度 (velocity): {velocity.loc[current_probe_date]:.4f}")
-            print(f"        加速度 (acceleration): {acceleration.loc[current_probe_date]:.4f}")
-            print(f"        归一化速度 (norm_velocity): {norm_velocity.loc[current_probe_date]:.4f}")
-            print(f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[current_probe_date]:.4f}")
-            print(f"        动态演化上下文归一化 (norm_dynamic_evolution_context): {norm_dynamic_evolution_context.loc[current_probe_date]:.4f}")
-            print(f"        动态基础权重 (dynamic_base_weight): {dynamic_base_weight.loc[current_probe_date]:.4f}")
-            print(f"        动态速度权重 (dynamic_velocity_weight): {dynamic_velocity_weight.loc[current_probe_date]:.4f}")
-            print(f"        动态加速度权重 (dynamic_acceleration_weight): {dynamic_acceleration_weight.loc[current_probe_date]:.4f}")
-            print(f"        最终战场控制分数 (final_score): {final_score.loc[current_probe_date]:.4f}")
-            print(f"  -- [资金流层] “战场控制权”诊断完成，最终分值: {final_score.loc[current_probe_date]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 战场控制权动态演化计算 ---")
+            print(f"        平滑基础分数 (smoothed_base_score): {smoothed_base_score.loc[probe_ts]:.4f}")
+            print(f"        速度 (velocity): {velocity.loc[probe_ts]:.4f}")
+            print(f"        加速度 (acceleration): {acceleration.loc[probe_ts]:.4f}")
+            print(f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}")
+            print(f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}")
+            print(f"        动态演化上下文归一化 (norm_dynamic_evolution_context): {norm_dynamic_evolution_context.loc[probe_ts]:.4f}")
+            print(f"        动态基础权重 (dynamic_base_weight): {dynamic_base_weight.loc[probe_ts]:.4f}")
+            print(f"        动态速度权重 (dynamic_velocity_weight): {dynamic_velocity_weight.loc[probe_ts]:.4f}")
+            print(f"        动态加速度权重 (dynamic_acceleration_weight): {dynamic_acceleration_weight.loc[probe_ts]:.4f}")
+            print(f"        最终战场控制分数 (final_score): {final_score.loc[probe_ts]:.4f}")
+            print(f"  -- [资金流层] “战场控制权”诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}")
 
         return final_score.astype(np.float32)
 

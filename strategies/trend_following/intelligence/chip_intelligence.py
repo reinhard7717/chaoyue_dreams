@@ -411,8 +411,8 @@ class ChipIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 未调制最终得分 (final_score_unmodulated): {final_score_unmodulated.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 未调制最终得分 (final_score_unmodulated): {final_score_unmodulated.loc[probe_ts]:.4f}")
         # 9. 全局情境调制器
         final_score = final_score_unmodulated
         if global_context_modulator_enabled:
