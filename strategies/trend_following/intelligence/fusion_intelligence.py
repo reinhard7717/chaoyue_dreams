@@ -327,11 +327,10 @@ class FusionIntelligence:
         """
         method_name = "_synthesize_stagnation_risk"
         df_index = df.index
-        p_conf = self.fusion_ultimate_params
+        p_conf = self.params
         s_params = get_param_value(p_conf.get('stagnation_risk_params'), {})
         # 直接使用传入的 debug_info
         is_debug_enabled_for_method, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
-        
         # 确保 debug_info_tuple 的 method_name 是当前的 method_name
         debug_info_tuple = (is_debug_enabled_for_method, probe_ts, method_name)
         if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
@@ -347,7 +346,6 @@ class FusionIntelligence:
             'SCORE_RISK_LIQUIDITY_DRAIN': get_param_value(s_params.get('liquidity_drain_weight'), 0.2),
             'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW': get_param_value(s_params.get('micro_stagnation_weight'), 0.1)
         }
-        
         # 外部强势幻象组件
         illusion_components = {
             'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW': get_param_value(s_params.get('price_overextension_weight'), 0.4),
