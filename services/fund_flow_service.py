@@ -854,7 +854,7 @@ class AdvancedFundFlowMetricsService:
             results.update(AdvancedFundFlowMetricsService._calculate_ofi_based_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_order_book_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_micro_dynamics_metrics(context))
-            # 新增：调用 Level 5 订单流指标计算方法
+            # 调用 Level 5 订单流指标计算方法
             results.update(AdvancedFundFlowMetricsService._calculate_level5_order_flow_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_related_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))

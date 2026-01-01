@@ -671,7 +671,7 @@ class FundFlowIntelligence:
         dynamic_evolution_base_weights = get_param_value(ac_params.get('dynamic_evolution_base_weights'), {'base_score': 0.6, 'velocity': 0.2, 'acceleration': 0.2})
         dynamic_evolution_context_modulator_signal_name = get_param_value(ac_params.get('dynamic_evolution_context_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         dynamic_evolution_context_sensitivity = get_param_value(ac_params.get('dynamic_evolution_context_sensitivity'), 0.2)
-        # 新增：MTF共振因子参数
+        # MTF共振因子参数
         mtf_cohesion_params = get_param_value(ac_params.get('mtf_cohesion_params'), {})
         mtf_cohesion_enabled = get_param_value(mtf_cohesion_params.get('enabled'), True)
         mtf_cohesion_short_periods = get_param_value(mtf_cohesion_params.get('short_periods'), [5, 13])
@@ -1086,7 +1086,7 @@ class FundFlowIntelligence:
             'retail_buy_ofi': -0.05, 'retail_sell_ofi': 0.05,
             'wash_trade_buy_volume': -0.05, 'wash_trade_sell_volume': -0.05
         })
-        # 新增：MTF共振因子参数
+        # MTF共振因子参数
         mtf_cohesion_params = get_param_value(ac_params.get('mtf_cohesion_params'), {})
         mtf_cohesion_enabled = get_param_value(mtf_cohesion_params.get('enabled'), True)
         mtf_cohesion_short_periods = get_param_value(mtf_cohesion_params.get('short_periods'), [5, 13])
@@ -2317,8 +2317,8 @@ class FundFlowIntelligence:
                     probe_ts = date
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流看涨/看跌背离信号...")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流看涨/看跌背离信号...")
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
         self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -2339,27 +2339,27 @@ class FundFlowIntelligence:
         purity_context_mod_factors = get_param_value(ffd_params.get('purity_context_mod_factors'), {"market_sentiment": 0.5, "flow_credibility": 0.5})
         micro_buy_power_weights = get_param_value(ffd_params.get('micro_buy_power_weights'), {})
         micro_sell_power_weights = get_param_value(ffd_params.get('micro_sell_power_weights'), {})
-        # 新增：资金流前期疲软惩罚参数 (资金流版本)
+        # 资金流前期疲软惩罚参数 (资金流版本)
         fund_flow_weakness_penalty_params = get_param_value(ffd_params.get('fund_flow_weakness_penalty_params'), {})
         fund_flow_weakness_enabled = get_param_value(fund_flow_weakness_penalty_params.get('enabled'), False)
         long_term_nmfnf_accel_period = get_param_value(fund_flow_weakness_penalty_params.get('long_term_nmfnf_accel_period'), 21)
         sell_exhaustion_weight = get_param_value(fund_flow_weakness_penalty_params.get('sell_exhaustion_weight'), 0.4)
         nmfnf_accel_weight = get_param_value(fund_flow_weakness_penalty_params.get('nmfnf_accel_weight'), 0.3) # 调整权重
-        price_weakness_threshold = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_threshold'), -0.03) # 新增：价格弱势阈值
-        price_weakness_sensitivity = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_sensitivity'), 10.0) # 新增：价格弱势敏感度
-        price_weakness_weight = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_weight'), 0.3) # 新增：价格弱势权重
+        price_weakness_threshold = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_threshold'), -0.03) # 价格弱势阈值
+        price_weakness_sensitivity = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_sensitivity'), 10.0) # 价格弱势敏感度
+        price_weakness_weight = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_weight'), 0.3) # 价格弱势权重
         fund_flow_weakness_penalty_factor = get_param_value(fund_flow_weakness_penalty_params.get('penalty_factor'), 0.8) # 调整惩罚因子
-        # 新增：资金流趋势一致性调制参数 (资金流版本)
+        # 资金流趋势一致性调制参数 (资金流版本)
         fund_flow_trend_consistency_params = get_param_value(ffd_params.get('fund_flow_trend_consistency_params'), {})
         fund_flow_trend_consistency_enabled = get_param_value(fund_flow_trend_consistency_params.get('enabled'), False)
         long_term_nmfnf_slope_period = get_param_value(fund_flow_trend_consistency_params.get('long_term_nmfnf_slope_period'), 55)
         flow_credibility_weight_consistency = get_param_value(fund_flow_trend_consistency_params.get('flow_credibility_weight'), 0.5)
         nmfnf_slope_weight_consistency = get_param_value(fund_flow_trend_consistency_params.get('nmfnf_slope_weight'), 0.5)
         fund_flow_trend_modulator_factor = get_param_value(fund_flow_trend_consistency_params.get('modulator_factor'), 0.8)
-        # 新增：诱多欺骗惩罚因子
+        # 诱多欺骗惩罚因子
         deception_lure_long_penalty_factor = get_param_value(ffd_params.get('deception_lure_long_penalty_factor'), 0.8) # 调整惩罚因子
-        # 新增：散户狂热惩罚因子
-        retail_fomo_penalty_factor = get_param_value(ffd_params.get('retail_fomo_penalty_factor'), 0.8) # 新增：散户狂热惩罚因子
+        # 散户狂热惩罚因子
+        retail_fomo_penalty_factor = get_param_value(ffd_params.get('retail_fomo_penalty_factor'), 0.8) # 散户狂热惩罚因子
         required_signals = [
             'SCORE_FF_AXIOM_CONVICTION', 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 'SCORE_FF_STRATEGIC_POSTURE',
             'flow_credibility_index_D', 'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D',
@@ -2389,12 +2389,12 @@ class FundFlowIntelligence:
             'deception_lure_long_intensity_D', # 用于诱多欺骗敏感度
             f'ACCEL_{long_term_nmfnf_accel_period}_NMFNF_D', # 用于资金流前期疲软惩罚
             f'SLOPE_{long_term_nmfnf_slope_period}_NMFNF_D', # 用于资金流趋势一致性调制
-            'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', # 新增：资金流结构健康度
-            'SCORE_FF_AXIOM_INTENT_PURITY' # 新增：意图纯度
+            'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', # 资金流结构健康度
+            'SCORE_FF_AXIOM_INTENT_PURITY' # 意图纯度
         ]
         if not self._validate_required_signals(df, required_signals, method_name, atomic_states=self.strategy.atomic_states):
-            if is_debug_enabled and probe_ts and probe_ts in df_index:
-                print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
+            # if is_debug_enabled and probe_ts and probe_ts in df_index:
+            #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
@@ -2416,8 +2416,8 @@ class FundFlowIntelligence:
                 raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name)
         # 基础背离
         bullish_base_divergence, bearish_base_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 基础背离 - 看涨: {bullish_base_divergence.loc[probe_ts]:.4f}, 看跌: {bearish_base_divergence.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 基础背离 - 看涨: {bullish_base_divergence.loc[probe_ts]:.4f}, 看跌: {bearish_base_divergence.loc[probe_ts]:.4f}")
         # 确认信号
         axiom_conviction = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONVICTION', 0.0, method_name=method_name)
         axiom_flow_momentum = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name=method_name)
@@ -2469,7 +2469,7 @@ class FundFlowIntelligence:
         ask_side_liquidity_raw = raw_data_cache['ask_side_liquidity_D']
         pct_change_raw = raw_data_cache['pct_change_D'] # 价格变化率，用于前期弱势惩罚
         deception_lure_long_raw = raw_data_cache['deception_lure_long_intensity_D'] # 用于诱多欺骗敏感度
-        # 新增：从 atomic_states 获取资金流结构健康度和意图纯度
+        # 从 atomic_states 获取资金流结构健康度和意图纯度
         axiom_flow_structure_health = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0, method_name=method_name)
         axiom_intent_purity = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_INTENT_PURITY', 0.0, method_name=method_name)
         # --- 1. 纯度过滤 (Purity Filter) ---
@@ -2497,7 +2497,7 @@ class FundFlowIntelligence:
         ).clip(0.5, 1.5)
         # 增强诱多欺骗敏感度：将 deception_lure_long_intensity_D 整合到看涨背离的纯度调制器中
         norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-        # 新增：意图纯度负反馈
+        # 意图纯度负反馈
         # 将 axiom_intent_purity 从 [-1, 1] 转换为 [0, 1]
         norm_axiom_intent_purity = (axiom_intent_purity + 1) / 2
         # 如果意图纯度低于0.5（即偏负），则施加惩罚
@@ -2505,17 +2505,17 @@ class FundFlowIntelligence:
         bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * \
                                    (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod) * \
                                    (1 - norm_deception_lure_long * deception_lure_long_penalty_factor) * \
-                                   (1 - intent_purity_penalty) # 新增：意图纯度惩罚
+                                   (1 - intent_purity_penalty) # 意图纯度惩罚
         bearish_purity_modulator = (1 + norm_deception_multi_tf.clip(lower=0) * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * \
                                    (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_deception_multi_tf: {norm_deception_multi_tf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_wash_trade_multi_tf: {norm_wash_trade_multi_tf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - purity_context_mod: {purity_context_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_deception_lure_long: {norm_deception_lure_long.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - intent_purity_penalty: {intent_purity_penalty.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - bullish_purity_modulator: {bullish_purity_modulator.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - bearish_purity_modulator: {bearish_purity_modulator.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_deception_multi_tf: {norm_deception_multi_tf.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_wash_trade_multi_tf: {norm_wash_trade_multi_tf.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - purity_context_mod: {purity_context_mod.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_deception_lure_long: {norm_deception_lure_long.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - intent_purity_penalty: {intent_purity_penalty.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - bullish_purity_modulator: {bullish_purity_modulator.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - bearish_purity_modulator: {bearish_purity_modulator.loc[probe_ts]:.4f}")
         # --- 2. 意图确认 (Intent Confirmation) ---
         axiom_conviction = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONVICTION', 0.0, method_name=method_name)
         axiom_flow_momentum = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name=method_name)
@@ -2525,13 +2525,13 @@ class FundFlowIntelligence:
         bearish_flow_momentum_confirm = axiom_flow_momentum.clip(upper=0).abs() * confirmation_weights.get('flow_momentum_positive', 0.5)
         bullish_confirmation_score = (bullish_conviction_confirm + bullish_flow_momentum_confirm).clip(0, 1)
         bearish_confirmation_score = (bearish_conviction_confirm + bearish_flow_momentum_confirm).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bullish_conviction_confirm: {bullish_conviction_confirm.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bearish_conviction_confirm: {bearish_conviction_confirm.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bullish_flow_momentum_confirm: {bullish_flow_momentum_confirm.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bearish_flow_momentum_confirm: {bearish_flow_momentum_confirm.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bullish_confirmation_score: {bullish_confirmation_score.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bearish_confirmation_score: {bearish_confirmation_score.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bullish_conviction_confirm: {bullish_conviction_confirm.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bearish_conviction_confirm: {bearish_conviction_confirm.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bullish_flow_momentum_confirm: {bullish_flow_momentum_confirm.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bearish_flow_momentum_confirm: {bearish_flow_momentum_confirm.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bullish_confirmation_score: {bullish_confirmation_score.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 意图确认 - bearish_confirmation_score: {bearish_confirmation_score.loc[probe_ts]:.4f}")
         # --- 3. 情境校准 (Contextual Calibration) ---
         norm_strategic_posture = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_STRATEGIC_POSTURE', 0.0, method_name=method_name)
         bullish_posture_mod = norm_strategic_posture.clip(lower=0) * context_modulator_weights.get('strategic_posture', 0.4)
@@ -2542,7 +2542,7 @@ class FundFlowIntelligence:
         norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         bullish_retail_context_mod = norm_retail_panic * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
         bearish_retail_context_mod = norm_retail_fomo * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
-        # 新增：资金流前期疲软惩罚 (资金流版本，并纳入价格弱势)
+        # 资金流前期疲软惩罚 (资金流版本，并纳入价格弱势)
         fund_flow_weakness_penalty = pd.Series(0.0, index=df_index)
         if fund_flow_weakness_enabled:
             # 资金流中长期加速度为负，表示资金流持续疲软
@@ -2550,7 +2550,7 @@ class FundFlowIntelligence:
             norm_long_term_nmfnf_accel = get_adaptive_mtf_normalized_bipolar_score(long_term_nmfnf_accel_raw, df_index, self.tf_weights_ff)
             # 卖盘枯竭率高，表示卖压沉重
             norm_sell_exhaustion_penalty = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-            # 新增：价格弱势惩罚
+            # 价格弱势惩罚
             # 价格变化率越负，价格弱势分数越高 (0到1)
             price_weakness_score = (price_weakness_threshold - pct_change_raw).clip(lower=0) * price_weakness_sensitivity
             price_weakness_score = price_weakness_score.clip(0, 1)
@@ -2561,7 +2561,7 @@ class FundFlowIntelligence:
                                       ).clip(0, 1)
             fund_flow_weakness_penalty = fund_flow_weakness_base * fund_flow_weakness_penalty_factor
             fund_flow_weakness_penalty = fund_flow_weakness_penalty.clip(0, 1) # 确保惩罚因子在0-1之间
-        # 新增：资金流趋势一致性调制 (资金流版本)
+        # 资金流趋势一致性调制 (资金流版本)
         fund_flow_trend_consistency_modulator = pd.Series(1.0, index=df_index)
         if fund_flow_trend_consistency_enabled:
             # 中长期资金流斜率
@@ -2574,9 +2574,9 @@ class FundFlowIntelligence:
             fund_flow_trend_consistency_base = (norm_long_term_nmfnf_slope.clip(lower=0) * nmfnf_slope_weight_consistency + 
                                                 norm_flow_credibility_consistency * flow_credibility_weight_consistency).clip(0, 1)
             fund_flow_trend_consistency_modulator = (0.1 + fund_flow_trend_consistency_base * fund_flow_trend_modulator_factor).clip(0.1, 1.0) # 确保最低为0.1，最高为1.0
-        # 新增：散户狂热反向指标
+        # 散户狂热反向指标
         retail_fomo_penalty = norm_retail_fomo * retail_fomo_penalty_factor # 散户狂热时，惩罚看涨信号
-        # 新增：资金流结构健康度负反馈
+        # 资金流结构健康度负反馈
         # 将 axiom_flow_structure_health 从 [-1, 1] 转换为 [0, 1]
         norm_axiom_flow_structure_health = (axiom_flow_structure_health + 1) / 2
         # 如果结构健康度低于0.5（即偏负），则施加惩罚
@@ -2584,18 +2584,18 @@ class FundFlowIntelligence:
         bullish_context_modulator = (1 + bullish_posture_mod + credibility_mod + bullish_retail_context_mod - fund_flow_weakness_penalty - retail_fomo_penalty - flow_health_penalty) * fund_flow_trend_consistency_modulator
         bullish_context_modulator = bullish_context_modulator.clip(0.1, 2.0) # 确保在合理范围内
         bearish_context_modulator = (1 + bearish_posture_mod + credibility_mod + bearish_retail_context_mod).clip(0.1, 2.0)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_posture_mod: {bullish_posture_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_posture_mod: {bearish_posture_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - credibility_mod: {credibility_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_retail_context_mod: {bullish_retail_context_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_retail_context_mod: {bearish_retail_context_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - fund_flow_weakness_penalty: {fund_flow_weakness_penalty.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - fund_flow_trend_consistency_modulator: {fund_flow_trend_consistency_modulator.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - retail_fomo_penalty: {retail_fomo_penalty.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - flow_health_penalty: {flow_health_penalty.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_context_modulator: {bullish_context_modulator.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_context_modulator: {bearish_context_modulator.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_posture_mod: {bullish_posture_mod.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_posture_mod: {bearish_posture_mod.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - credibility_mod: {credibility_mod.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_retail_context_mod: {bullish_retail_context_mod.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_retail_context_mod: {bearish_retail_context_mod.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - fund_flow_weakness_penalty: {fund_flow_weakness_penalty.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - fund_flow_trend_consistency_modulator: {fund_flow_trend_consistency_modulator.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - retail_fomo_penalty: {retail_fomo_penalty.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - flow_health_penalty: {flow_health_penalty.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_context_modulator: {bullish_context_modulator.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_context_modulator: {bearish_context_modulator.loc[probe_ts]:.4f}")
         # --- V4.0 升级: 双极性多时间框架共振/背离因子 (Bipolar MTF Resonance/Divergence Factor) ---
         short_periods = [5, 13]
         long_periods = [21, 55]
@@ -2606,10 +2606,10 @@ class FundFlowIntelligence:
             nmfnf_bipolar_resonance_factor * mtf_resonance_factor_weights.get('nmfnf_cohesion', 0.6) +
             conviction_bipolar_resonance_factor * mtf_resonance_factor_weights.get('conviction_cohesion', 0.4)
         ).clip(-1, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振 - nmfnf_bipolar_resonance_factor: {nmfnf_bipolar_resonance_factor.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振 - conviction_bipolar_resonance_factor: {conviction_bipolar_resonance_factor.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振 - mtf_bipolar_resonance_factor: {mtf_bipolar_resonance_factor.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振 - nmfnf_bipolar_resonance_factor: {nmfnf_bipolar_resonance_factor.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振 - conviction_bipolar_resonance_factor: {conviction_bipolar_resonance_factor.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振 - mtf_bipolar_resonance_factor: {mtf_bipolar_resonance_factor.loc[probe_ts]:.4f}")
         # --- V4.0 升级: 更全面的微观意图强度 (Comprehensive Micro-Intent Strength) ---
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, self.tf_weights_ff)
         norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
@@ -2684,14 +2684,14 @@ class FundFlowIntelligence:
         ).clip(-1, 1)
         bullish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(lower=0))
         bearish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(upper=0).abs())
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - norm_order_book_imbalance: {norm_order_book_imbalance.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - norm_buy_exhaustion: {norm_buy_exhaustion.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - norm_sell_exhaustion: {norm_sell_exhaustion.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - micro_intent_strength: {micro_intent_strength.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - micro_macro_divergence_factor: {micro_macro_divergence_factor.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - bullish_micro_macro_mod: {bullish_micro_macro_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - bearish_micro_macro_mod: {bearish_micro_macro_mod.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - norm_order_book_imbalance: {norm_order_book_imbalance.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - norm_buy_exhaustion: {norm_buy_exhaustion.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - norm_sell_exhaustion: {norm_sell_exhaustion.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - micro_intent_strength: {micro_intent_strength.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - micro_macro_divergence_factor: {micro_macro_divergence_factor.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - bullish_micro_macro_mod: {bullish_micro_macro_mod.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 微观意图强度 - bearish_micro_macro_mod: {bearish_micro_macro_mod.loc[probe_ts]:.4f}")
         # --- V4.0 升级: 看涨/看跌专属动态非线性指数 (Bullish/Bearish Adaptive Non-linear Exponents) ---
         norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_flow_credibility_exp = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -2704,13 +2704,13 @@ class FundFlowIntelligence:
             (1 - norm_flow_credibility_exp) * bearish_exponent_context_factors.get('flow_credibility_inverse', 0.4)
         ).clip(0, 1)
         bearish_dynamic_non_linear_exponent = non_linear_exponent_base * (1 + bearish_exponent_mod_factor * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - norm_volatility_instability: {norm_volatility_instability.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - norm_flow_credibility_exp: {norm_flow_credibility_exp.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bullish_exponent_mod_factor: {bullish_exponent_mod_factor.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bullish_dynamic_non_linear_exponent: {bullish_dynamic_non_linear_exponent.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bearish_exponent_mod_factor: {bearish_exponent_mod_factor.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bearish_dynamic_non_linear_exponent: {bearish_dynamic_non_linear_exponent.loc[probe_ts]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - norm_volatility_instability: {norm_volatility_instability.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - norm_flow_credibility_exp: {norm_flow_credibility_exp.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bullish_exponent_mod_factor: {bullish_exponent_mod_factor.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bullish_dynamic_non_linear_exponent: {bullish_dynamic_non_linear_exponent.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bearish_exponent_mod_factor: {bearish_exponent_mod_factor.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 动态非线性指数 - bearish_dynamic_non_linear_exponent: {bearish_dynamic_non_linear_exponent.loc[probe_ts]:.4f}")
         # --- 4. 非线性融合 (Non-linear Fusion) ---
         # 计算产品前，确保所有 Series 都已填充 NaN
         bullish_product_components = [
@@ -2748,14 +2748,14 @@ class FundFlowIntelligence:
         bearish_divergence_score_raw = bearish_product_before_pow.clip(lower=1e-9).pow(bearish_dynamic_non_linear_exponent.astype(np.float64)).astype(np.float32).clip(0, 1)
         final_bearish_score = bearish_divergence_score_raw.where(bearish_base_divergence > 1e-9, 0.0) # 同样对看跌信号进行门控
         final_bearish_score = final_bearish_score.where(final_bearish_score > bearish_divergence_threshold, 0.0) # 确保阈值应用正确
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bullish_product_before_pow: {bullish_product_before_pow.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bearish_product_before_pow: {bearish_product_before_pow.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bullish_divergence_score_raw: {bullish_divergence_score_raw.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bearish_divergence_score_raw: {bearish_divergence_score_raw.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bullish_divergence_threshold: {bullish_divergence_threshold:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bearish_divergence_threshold: {bearish_divergence_threshold:.4f}")
-            print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流看涨/看跌背离信号诊断完成。")
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bullish_product_before_pow: {bullish_product_before_pow.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bearish_product_before_pow: {bearish_product_before_pow.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bullish_divergence_score_raw: {bullish_divergence_score_raw.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bearish_divergence_score_raw: {bearish_divergence_score_raw.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bullish_divergence_threshold: {bullish_divergence_threshold:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 融合 - bearish_divergence_threshold: {bearish_divergence_threshold:.4f}")
+        #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流看涨/看跌背离信号诊断完成。")
         return final_bullish_score.astype(np.float32), final_bearish_score.astype(np.float32)
 
     def _diagnose_axiom_intent_purity(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
