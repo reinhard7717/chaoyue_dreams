@@ -516,8 +516,8 @@ class FundFlowIntelligence:
         if probe_ts is None:
             is_debug_enabled_for_method = False
         debug_info_tuple = (is_debug_enabled_for_method, probe_ts, method_name)
-        if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-            print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流共识...")
+        # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+        #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流共识...")
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 移除 deception_mod_enabled 等参数，因为诡道调制已分离
         dynamic_weight_mod_enabled = get_param_value(ac_params.get('dynamic_weight_mod_enabled'), True)
@@ -600,8 +600,8 @@ class FundFlowIntelligence:
                 all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name=method_name)
                 all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name)
         if not self._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-                print(f"  -- [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
+            # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+            #     print(f"  -- [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
             return pd.Series(0.0, index=df.index)
         # 集中所有原始数据获取
         raw_data_cache = {}
@@ -2893,8 +2893,8 @@ class FundFlowIntelligence:
         ]
         required_signals = list(set(required_signals))
         if not self._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-                print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
+            # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+            #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
             return pd.Series(0.0, index=df.index)
         raw_data_cache = {}
         for signal_name in required_signals:
@@ -2920,10 +2920,10 @@ class FundFlowIntelligence:
         if mtf_cohesion_enabled:
             deception_cohesion = self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', all_mtf_periods[:2], all_mtf_periods[2:], True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             wash_trade_cohesion = self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', all_mtf_periods[:2], all_mtf_periods[2:], False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-                print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振因子计算 (诡道) ---")
-                print(f"        deception_cohesion: {deception_cohesion.loc[probe_ts]:.4f}")
-                print(f"        wash_trade_cohesion: {wash_trade_cohesion.loc[probe_ts]:.4f}")
+            # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+            #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振因子计算 (诡道) ---")
+            #     print(f"        deception_cohesion: {deception_cohesion.loc[probe_ts]:.4f}")
+            #     print(f"        wash_trade_cohesion: {wash_trade_cohesion.loc[probe_ts]:.4f}")
         # 诡道博弈风险计算
         deception_risk_score = pd.Series(0.0, index=df_index)
         if deception_mod_enabled:
@@ -2959,21 +2959,21 @@ class FundFlowIntelligence:
                 risk_from_bear_trap_weak_conviction +
                 risk_from_low_credibility
             ).clip(0, 1) # 确保风险分数在 [0, 1] 范围内
-            if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-                print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道博弈风险计算 ---")
-                print(f"        对倒归一化: {norm_wash_trade.loc[probe_ts]:.4f}")
-                print(f"        欺骗归一化: {norm_deception.loc[probe_ts]:.4f}")
-                print(f"        信念归一化: {norm_conviction.loc[probe_ts]:.4f}")
-                print(f"        资金流可信度归一化: {norm_flow_credibility.loc[probe_ts]:.4f}")
-                print(f"        市场情绪归一化 (诡道上下文): {norm_market_sentiment.loc[probe_ts]:.4f}")
-                print(f"        诱多归一化: {norm_deception_lure_long.loc[probe_ts]:.4f}")
-                print(f"        诱空归一化: {norm_deception_lure_short.loc[probe_ts]:.4f}")
-                print(f"        对倒风险贡献: {risk_from_wash_trade.loc[probe_ts]:.4f}")
-                print(f"        诱多欺骗风险贡献: {risk_from_bull_trap.loc[probe_ts]:.4f}")
-                print(f"        诱多强度风险贡献: {risk_from_lure_long.loc[probe_ts]:.4f}")
-                print(f"        弱信念诱空风险贡献: {risk_from_bear_trap_weak_conviction.loc[probe_ts]:.4f}")
-                print(f"        低可信度风险贡献: {risk_from_low_credibility.loc[probe_ts]:.4f}")
-                print(f"        资金流诡道风险 (SCORE_FF_DECEPTION_RISK): {deception_risk_score.loc[probe_ts]:.4f}")
+            # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+            #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道博弈风险计算 ---")
+            #     print(f"        对倒归一化: {norm_wash_trade.loc[probe_ts]:.4f}")
+            #     print(f"        欺骗归一化: {norm_deception.loc[probe_ts]:.4f}")
+            #     print(f"        信念归一化: {norm_conviction.loc[probe_ts]:.4f}")
+            #     print(f"        资金流可信度归一化: {norm_flow_credibility.loc[probe_ts]:.4f}")
+            #     print(f"        市场情绪归一化 (诡道上下文): {norm_market_sentiment.loc[probe_ts]:.4f}")
+            #     print(f"        诱多归一化: {norm_deception_lure_long.loc[probe_ts]:.4f}")
+            #     print(f"        诱空归一化: {norm_deception_lure_short.loc[probe_ts]:.4f}")
+            #     print(f"        对倒风险贡献: {risk_from_wash_trade.loc[probe_ts]:.4f}")
+            #     print(f"        诱多欺骗风险贡献: {risk_from_bull_trap.loc[probe_ts]:.4f}")
+            #     print(f"        诱多强度风险贡献: {risk_from_lure_long.loc[probe_ts]:.4f}")
+            #     print(f"        弱信念诱空风险贡献: {risk_from_bear_trap_weak_conviction.loc[probe_ts]:.4f}")
+            #     print(f"        低可信度风险贡献: {risk_from_low_credibility.loc[probe_ts]:.4f}")
+            #     print(f"        资金流诡道风险 (SCORE_FF_DECEPTION_RISK): {deception_risk_score.loc[probe_ts]:.4f}")
         return deception_risk_score.astype(np.float32)
 
 
