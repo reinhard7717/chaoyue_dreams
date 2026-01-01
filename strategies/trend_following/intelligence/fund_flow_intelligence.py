@@ -247,6 +247,7 @@ class FundFlowIntelligence:
         """
         【V5.1 · 效率优化版】资金流公理四：诊断“资金流内部分歧与意图张力”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`，减少重复数据查找。
+        - 核心修正: 调整 `core_divergence_score` 计算逻辑，以更准确地捕捉资金流与主力信念之间的看涨/看跌背离。
         """
         method_name = "_diagnose_axiom_divergence"
         df_index = df.index
@@ -268,6 +269,7 @@ class FundFlowIntelligence:
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
         ad_params = get_param_value(p_conf_ff.get('axiom_divergence_params'), {})
+        core_divergence_logic = get_param_value(ad_params.get('core_divergence_logic'), 'flow_minus_conviction') # 新增参数
         divergence_slope_periods = get_param_value(ad_params.get('divergence_slope_periods'), [5, 13, 21, 34, 55])
         raw_divergence_slope_weights = get_param_value(ad_params.get('divergence_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05})
         divergence_slope_weights = {k: v for k, v in raw_divergence_slope_weights.items() if isinstance(v, (int, float))}
@@ -288,7 +290,7 @@ class FundFlowIntelligence:
         non_linear_fusion_exponent = get_param_value(ad_params.get('non_linear_fusion_exponent'), 0.8)
         adaptive_weight_modulator_signal_1_name = get_param_value(ad_params.get('adaptive_weight_modulator_signal_1'), 'flow_credibility_index_D')
         adaptive_weight_modulator_signal_2_name = get_param_value(ad_params.get('adaptive_weight_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
-        adaptive_weight_modulator_signal_3_name = get_param_value(ad_params.get('adaptive_weight_modulator_3'), 'market_sentiment_score_D')
+        adaptive_weight_modulator_signal_3_name = get_param_value(ad_params.get('adaptive_weight_modulator_signal_3'), 'market_sentiment_score_D')
         adaptive_weight_sensitivity_credibility = get_param_value(ad_params.get('adaptive_weight_sensitivity_credibility'), 0.2)
         adaptive_weight_sensitivity_volatility = get_param_value(ad_params.get('adaptive_weight_sensitivity_volatility'), 0.1)
         adaptive_weight_sensitivity_sentiment = get_param_value(ad_params.get('adaptive_weight_sensitivity_sentiment'), 0.1)
@@ -355,14 +357,11 @@ class FundFlowIntelligence:
         for signal_base in signal_bases_to_prefetch:
             for p in divergence_slope_periods:
                 col_name = f'SLOPE_{p}_{signal_base}'
-                # 修正 _get_safe_series 调用
                 all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
             for p in divergence_accel_periods:
                 col_name = f'ACCEL_{p}_{signal_base}'
-                # 修正 _get_safe_series 调用
                 all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
         # --- 原始数据获取 (用于探针和计算) ---
-        # 修正所有 _get_safe_series 调用，将 df 作为 data_source 参数
         retail_fomo_premium_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
         retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name=method_name)
@@ -405,16 +404,31 @@ class FundFlowIntelligence:
         norm_mf_conviction_accel_mtf = self._get_mtf_dynamic_score(df, 'main_force_conviction_index_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
         nmfnf_dynamic_score = (norm_nmfnf_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_nmfnf_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         mf_conviction_dynamic_score = (norm_mf_conviction_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_mf_conviction_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
-        core_divergence_score = (nmfnf_dynamic_score - mf_conviction_dynamic_score).clip(-1, 1)
+        
+        if core_divergence_logic == 'flow_conviction_tension':
+            conditions = [
+                (nmfnf_dynamic_score > 0) & (mf_conviction_dynamic_score > 0), # Bullish alignment
+                (nmfnf_dynamic_score < 0) & (mf_conviction_dynamic_score < 0), # Bearish alignment
+                (nmfnf_dynamic_score < 0) & (mf_conviction_dynamic_score > 0), # Bullish divergence (flow down, conviction up)
+                (nmfnf_dynamic_score > 0) & (mf_conviction_dynamic_score < 0)  # Bearish divergence (flow up, conviction down)
+            ]
+            choices = [
+                (nmfnf_dynamic_score + mf_conviction_dynamic_score) / 2, # Bullish alignment: average of both positive scores
+                (nmfnf_dynamic_score + mf_conviction_dynamic_score) / 2, # Bearish alignment: average of both negative scores
+                (mf_conviction_dynamic_score - nmfnf_dynamic_score) / 2, # Bullish divergence: positive score (e.g., 0.5 - (-0.5) = 1)
+                (mf_conviction_dynamic_score - nmfnf_dynamic_score) / 2  # Bearish divergence: negative score (e.g., -0.5 - 0.5 = -1)
+            ]
+            # Default for cases not explicitly covered (e.g., one or both are zero)
+            default_choice = (nmfnf_dynamic_score + mf_conviction_dynamic_score) / 2
+            core_divergence_score = np.select(conditions, choices, default=default_choice)
+            core_divergence_score = pd.Series(core_divergence_score, index=df_index).clip(-1, 1)
+        else: # Original logic: flow_minus_conviction
+            core_divergence_score = (nmfnf_dynamic_score - mf_conviction_dynamic_score).clip(-1, 1)
 
         if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - norm_nmfnf_slope_mtf: {norm_nmfnf_slope_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - norm_nmfnf_accel_mtf: {norm_nmfnf_accel_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - norm_mf_conviction_slope_mtf: {norm_mf_conviction_slope_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - norm_mf_conviction_accel_mtf: {norm_mf_conviction_accel_mtf.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - nmfnf_dynamic_score: {nmfnf_dynamic_score.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - mf_conviction_dynamic_score: {mf_conviction_dynamic_score.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - core_divergence_score: {core_divergence_score.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - core_divergence_score ({core_divergence_logic}): {core_divergence_score.loc[probe_ts]:.4f}")
 
         # --- 2. 结构性张力 (Structural Tension) ---
         norm_lg_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
