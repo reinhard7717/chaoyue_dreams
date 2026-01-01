@@ -122,6 +122,7 @@ class FundFlowIntelligence:
         - 核心升级: 新增终极机会信号 SCORE_FF_HARMONY_INFLECTION (资金流和谐拐点)。
         - 信号原理: 基于微积分思想，对顶层“战略态势”信号进行二阶求导。只有当态势的“速度”与“加速度”
                       同时为正时，才确认为一次高置信度的V型反转拐点。旨在捕捉趋势“破晓”的关键瞬间。
+        - 【新增】计算并存储 SCORE_FF_DECEPTION_RISK 信号。
         """
         # 直接使用在 __init__ 中加载的配置
         p_conf = self.p_conf_ff
@@ -132,6 +133,17 @@ class FundFlowIntelligence:
         print("启动【V29.0 · 拐点洞察版】资金流情报分析...")
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
+
+        is_debug_enabled = self.debug_params.get('should_probe', False)
+        probe_ts = None
+        if is_debug_enabled and self.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            for date in reversed(df.index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        debug_info_tuple = (is_debug_enabled, probe_ts, "diagnose_fund_flow_states")
+
         # --- 1. 计算所有原子公理 ---
         axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
         axiom_flow_structure_health = self._diagnose_axiom_flow_structure_health(df, norm_window)
@@ -143,6 +155,9 @@ class FundFlowIntelligence:
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         # 新增：意图纯度公理
         axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window)
+        # 新增：诡道风险信号
+        score_ff_deception_risk = self._diagnose_deception_risk(df, debug_info_tuple) # 调用新的诡道风险方法
+
         # --- 2. 战略态势的向量合成 (V3.1 · 脆弱性感知版) ---
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
         attack_group = fusion_weights.get('attack_group', {})
@@ -169,8 +184,8 @@ class FundFlowIntelligence:
         internal_harmony_modulator = 1 - np.tanh(imbalance * imbalance_penalty_sensitivity)
         # 2.4 情境调节器 (Context Modulator)
         # 确保 flow_credibility_index_D 和 VOLATILITY_INSTABILITY_INDEX_21d_D 存在
-        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="diagnose_fund_flow_states")
-        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="diagnose_fund_flow_states")
+        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name="diagnose_fund_flow_states")
+        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="diagnose_fund_flow_states")
         norm_capital_signature = (axiom_capital_signature + 1) / 2
         norm_divergence = (axiom_divergence + 1) / 2
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, self.tf_weights_ff)
@@ -209,6 +224,7 @@ class FundFlowIntelligence:
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
         self.strategy.atomic_states['SCORE_FF_AXIOM_INTENT_PURITY'] = axiom_intent_purity # 新增意图纯度公理
         self.strategy.atomic_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score
+        self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk # 存储诡道风险信号
         bullish_divergence, bearish_divergence = self._diagnose_fund_flow_divergence_signals(df, norm_window, axiom_divergence)
         # --- 5. 状态赋值 ---
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
@@ -222,6 +238,7 @@ class FundFlowIntelligence:
         all_states['SCORE_FF_HARMONY_INFLECTION'] = harmony_inflection_score.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
+        all_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk.astype(np.float32) # 存储诡道风险信号
         print(f"【V29.0 · 拐点洞察版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。")
         return all_states
 
@@ -616,11 +633,11 @@ class FundFlowIntelligence:
         buy_sweep_intensity_raw = raw_data_cache['buy_sweep_intensity_D']
         sell_sweep_intensity_raw = raw_data_cache['sell_sweep_intensity_D']
         order_flow_imbalance_score_raw = raw_data_cache['order_flow_imbalance_score_D']
-        if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
-            for sig_name in required_signals:
-                val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
-                print(f"        '{sig_name}': {val:.4f}")
+        # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+        #     for sig_name in required_signals:
+        #         val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
+        #         print(f"        '{sig_name}': {val:.4f}")
         # --- MTF共振因子计算 ---
         macro_flow_directionality_cohesion = pd.Series(1.0, index=df_index)
         nmfnf_cohesion = pd.Series(1.0, index=df_index)
@@ -777,9 +794,9 @@ class FundFlowIntelligence:
         # --- 3. 诡道博弈深度情境感知与调制 (已分离为独立信号 SCORE_FF_DECEPTION_RISK) ---
         # 调用新的方法获取诡道风险信号
         score_ff_deception_risk = self._diagnose_deception_risk(df, debug_info_tuple)
-        if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道风险信号获取 ---")
-            print(f"        资金流诡道风险 (SCORE_FF_DECEPTION_RISK): {score_ff_deception_risk.loc[probe_ts]:.4f}")
+        # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道风险信号获取 ---")
+        #     print(f"        资金流诡道风险 (SCORE_FF_DECEPTION_RISK): {score_ff_deception_risk.loc[probe_ts]:.4f}")
         # --- 4. 多维度情境自适应权重 (Enhanced Adaptive Macro-Micro Weighting) ---
         dynamic_macro_weight = pd.Series(macro_flow_base_weight, index=df_index)
         dynamic_micro_weight = pd.Series(micro_control_base_weight, index=df_index)
