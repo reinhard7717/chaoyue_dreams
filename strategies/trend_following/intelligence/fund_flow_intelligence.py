@@ -288,7 +288,7 @@ class FundFlowIntelligence:
         non_linear_fusion_exponent = get_param_value(ad_params.get('non_linear_fusion_exponent'), 0.8)
         adaptive_weight_modulator_signal_1_name = get_param_value(ad_params.get('adaptive_weight_modulator_signal_1'), 'flow_credibility_index_D')
         adaptive_weight_modulator_signal_2_name = get_param_value(ad_params.get('adaptive_weight_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
-        adaptive_weight_modulator_signal_3_name = get_param_value(ad_params.get('adaptive_weight_modulator_signal_3'), 'market_sentiment_score_D')
+        adaptive_weight_modulator_signal_3_name = get_param_value(ad_params.get('adaptive_weight_modulator_3'), 'market_sentiment_score_D')
         adaptive_weight_sensitivity_credibility = get_param_value(ad_params.get('adaptive_weight_sensitivity_credibility'), 0.2)
         adaptive_weight_sensitivity_volatility = get_param_value(ad_params.get('adaptive_weight_sensitivity_volatility'), 0.1)
         adaptive_weight_sensitivity_sentiment = get_param_value(ad_params.get('adaptive_weight_sensitivity_sentiment'), 0.1)
@@ -356,29 +356,30 @@ class FundFlowIntelligence:
             for p in divergence_slope_periods:
                 col_name = f'SLOPE_{p}_{signal_base}'
                 # 修正 _get_safe_series 调用
-                all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, col_name, 0.0, method_name=method_name)
+                all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
             for p in divergence_accel_periods:
                 col_name = f'ACCEL_{p}_{signal_base}'
                 # 修正 _get_safe_series 调用
-                all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, col_name, 0.0, method_name=method_name)
+                all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
         # --- 原始数据获取 (用于探针和计算) ---
-        retail_fomo_premium_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
-        retail_panic_surrender_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
-        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
-        order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name)
-        buy_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
-        sell_exhaustion_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
-        mf_activity_ratio_raw = self._get_safe_series(df, 'main_force_activity_ratio_D', 0.0, method_name=method_name)
-        mf_ofi_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name=method_name)
-        micro_impact_elasticity_raw = self._get_safe_series(df, 'micro_impact_elasticity_D', 0.0, method_name=method_name)
+        # 修正所有 _get_safe_series 调用，将 df 作为 data_source 参数
+        retail_fomo_premium_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
+        retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
+        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name=method_name)
+        order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name=method_name)
+        buy_exhaustion_raw = self._get_safe_series(df, df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
+        sell_exhaustion_raw = self._get_safe_series(df, df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
+        mf_activity_ratio_raw = self._get_safe_series(df, df, 'main_force_activity_ratio_D', 0.0, method_name=method_name)
+        mf_ofi_raw = self._get_safe_series(df, df, 'main_force_ofi_D', 0.0, method_name=method_name)
+        micro_impact_elasticity_raw = self._get_safe_series(df, df, 'micro_impact_elasticity_D', 0.0, method_name=method_name)
         energy_modulator_signals = {}
         for mod_name, mod_params in energy_injection_context_modulators.items():
             if isinstance(mod_params, dict) and 'signal' in mod_params:
-                energy_modulator_signals[mod_name] = self._get_safe_series(df, mod_params['signal'], 0.0, method_name=method_name)
-        adaptive_weight_modulator_1_raw = self._get_safe_series(df, adaptive_weight_modulator_signal_1_name, 0.0, method_name=method_name)
-        adaptive_weight_modulator_2_raw = self._get_safe_series(df, adaptive_weight_modulator_signal_2_name, 0.0, method_name=method_name)
-        adaptive_weight_modulator_3_raw = self._get_safe_series(df, adaptive_weight_modulator_signal_3_name, 0.0, method_name=method_name)
-        dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, dynamic_evolution_context_modulator_1_name, 0.0, method_name=method_name)
+                energy_modulator_signals[mod_name] = self._get_safe_series(df, df, mod_params['signal'], 0.0, method_name=method_name)
+        adaptive_weight_modulator_1_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_1_name, 0.0, method_name=method_name)
+        adaptive_weight_modulator_2_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_2_name, 0.0, method_name=method_name)
+        adaptive_weight_modulator_3_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_3_name, 0.0, method_name=method_name)
+        dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_1_name, 0.0, method_name=method_name)
 
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始数据 - retail_fomo_premium_raw: {retail_fomo_premium_raw.loc[probe_ts]:.4f}")
