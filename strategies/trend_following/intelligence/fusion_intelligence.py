@@ -160,6 +160,11 @@ class FusionIntelligence:
         all_fusion_states.update(market_contradiction_states)
         self.strategy.atomic_states.update(market_contradiction_states)
         # 风险类融合信号
+        # 调整顺序：先计算 trend_exhaustion_states，因为它被 stagnation_risk_states 依赖
+        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df, debug_info)
+        all_fusion_states.update(trend_exhaustion_states)
+        self.strategy.atomic_states.update(trend_exhaustion_states)
+        
         stagnation_risk_states = self._synthesize_stagnation_risk(df, debug_info)
         all_fusion_states.update(stagnation_risk_states)
         self.strategy.atomic_states.update(stagnation_risk_states)
@@ -169,9 +174,7 @@ class FusionIntelligence:
         price_overextension_intent_states = self._synthesize_price_overextension_intent(df, debug_info)
         all_fusion_states.update(price_overextension_intent_states)
         self.strategy.atomic_states.update(price_overextension_intent_states)
-        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df, debug_info)
-        all_fusion_states.update(trend_exhaustion_states)
-        self.strategy.atomic_states.update(trend_exhaustion_states)
+        
         # 机会类融合信号
         micro_conviction_states = self._synthesize_micro_conviction(df, debug_info)
         all_fusion_states.update(micro_conviction_states)
