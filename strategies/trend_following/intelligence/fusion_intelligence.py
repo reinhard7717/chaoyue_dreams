@@ -318,87 +318,98 @@ class FusionIntelligence:
         print(f"  -- [融合层] “市场政权”冶炼完成，最新分值: {bipolar_regime.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_stagnation_risk(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
+    def _synthesize_stagnation_risk(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.7 · 内腐外强版 - 依赖解耦与强化】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
-        - 核心重构: 废弃V2.1的“症状清单”模型，引入“内腐外强”背离审判模型。
-        - 核心公式: 滞涨风险 = (内部腐化度 × 外部强势幻象)^(1/2)
-        - 诡道哲学: 最大的风险，源于内部趋势质量的腐化与外部价格强势的假象之间的
-                      致命背离，此乃“温水煮蛙”之局。
-        - 【V3.7 增强】将对融合信号 `FUSION_BIPOLAR_TREND_QUALITY` 和 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `SCORE_STRUCT_AXIOM_TREND_FORM` 和 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
-                      增加 `SCORE_CHIP_RETAIL_VULNERABILITY` 和 `SCORE_RISK_LIQUIDITY_DRAIN` 信号，提高内部腐化度的准确性。
-                      调整 `internal_decay_components` 权重，确保高风险信号能有效贡献，避免被过多零值信号稀释。
-                      **将 `internal_decay_score` 的计算方式从加权几何平均改为加权算术平均，以更准确地聚合内部腐化信号。**
-                      增加详细探针，输出所有原料数据、关键计算节点和结果的值。
+        【V3.1 · 诡道风险感知版】冶炼“滞涨风险”。
+        - 核心升级1: 引入资金流诡道风险：将 `SCORE_FF_DECEPTION_RISK` 作为独立的内部腐化组件，更直接地反映资金流层面的诡道博弈风险。
+        - 核心升级2: 内部腐化度与外部强势幻象的致命背离：将滞涨风险的本质定义为“内部腐化度”与“外部强势幻象”的致命背离。
+        - 核心升级3: 动态权重与情境调制：引入动态权重和情境调制器，使模型在不同市场环境下自适应地调整对风险因素的关注重点。
         """
         method_name = "_synthesize_stagnation_risk"
-        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“滞涨风险”...")
-        states = {}
         df_index = df.index
-        # --- 1. 信号升维：定义“内腐”与“外强”两大阵营 ---
-        # 阵营一：内部腐化度 (Internal Decay) - 趋势的内在病根
-        # 替换 FUSION_BIPOLAR_TREND_QUALITY 为 SCORE_STRUCT_AXIOM_TREND_FORM
-        trend_quality_base = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0, debug_info)
-        trend_quality_decay = -trend_quality_base.diff(1).fillna(0.0).clip(upper=0) # 核心病根：趋势质量衰减
-        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0, debug_info)
-        fund_flow_bearish = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).clip(upper=0).abs()
-        chip_dispersion = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info).clip(upper=0).abs()
-        stagnation_evidence = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0, debug_info)
-        # 新增信号：散户筹码脆弱性和流动性枯竭风险
-        retail_vulnerability = self._get_atomic_score(df, 'SCORE_CHIP_RETAIL_VULNERABILITY', 0.0, debug_info)
-        liquidity_drain_risk = self._get_atomic_score(df, 'SCORE_RISK_LIQUIDITY_DRAIN', 0.0, debug_info)
-        # 阵营二：外部强势幻象 (External Strength Illusion) - 迷惑性的表象
-        # 替换 FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT 为 INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW
-        price_overextension = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0, debug_info).clip(lower=0) # 仅取正向超买部分
-        # 修正：替换 rally_distribution_pressure_D 为 SCORE_BEHAVIOR_DISTRIBUTION_INTENT
-        profit_taking_supply = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0, debug_info).clip(0, 1)
-        # 修正：替换 retail_fomo_premium_index_D 为 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM 的正向部分
-        retail_fomo = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info).clip(lower=0).clip(0, 1)
-        # --- 2. 核心数学逻辑 - 背离审判 ---
-        # 2.1 计算“内部腐化度” (加权算术平均，体现症状累加)
-        # 调整权重，提高散户筹码脆弱性和流动性枯竭风险的权重
-        internal_decay_components = {
-            '趋势质量衰减': (trend_quality_decay, 0.15), # 调整权重
-            '派发意图': (distribution_intent, 0.15),
-            '资金流出': (fund_flow_bearish, 0.10),
-            '筹码分散': (chip_dispersion, 0.10),
-            '微观滞涨': (stagnation_evidence, 0.10),
-            '散户筹码脆弱性': (retail_vulnerability, 0.20), # 提高权重
-            '流动性枯竭风险': (liquidity_drain_risk, 0.20), # 提高权重
+        p_conf = self.fusion_ultimate_params
+        s_params = get_param_value(p_conf.get('stagnation_risk_params'), {})
+        is_debug_enabled_for_method = self.debug_params.get('should_probe', False)
+        probe_ts = None
+        if is_debug_enabled_for_method and self.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            for date in reversed(df_index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        if probe_ts is None:
+            is_debug_enabled_for_method = False
+        debug_info_tuple = (is_debug_enabled_for_method, probe_ts, method_name)
+        if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+            print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“滞涨风险”...")
+        # 内部腐化组件
+        decay_components = {
+            'SCORE_FF_DECEPTION_RISK': get_param_value(s_params.get('deception_risk_weight'), 0.1), # 新增诡道风险组件
+            'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME': get_param_value(s_params.get('trend_decay_weight'), 0.15),
+            'SCORE_BEHAVIOR_DISTRIBUTION_INTENT': get_param_value(s_params.get('distribution_intent_weight'), 0.15),
+            'fund_outflow': get_param_value(s_params.get('fund_outflow_weight'), 0.1),
+            'SCORE_CHIP_RETAIL_VULNERABILITY': get_param_value(s_params.get('retail_vulnerability_weight'), 0.2),
+            'SCORE_CHIP_STRATEGIC_POSTURE': get_param_value(s_params.get('chip_dispersion_weight'), 0.1), # 筹码分散
+            'SCORE_RISK_LIQUIDITY_DRAIN': get_param_value(s_params.get('liquidity_drain_weight'), 0.2),
+            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW': get_param_value(s_params.get('micro_stagnation_weight'), 0.1)
         }
-        internal_decay_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        total_weight_sum = 0.0
-        for name, (comp, weight) in internal_decay_components.items():
-            # 确保每个组件在参与算术平均前，填充NaN为0，并裁剪到 [0, 1] 范围
-            comp_processed = comp.fillna(0.0).clip(0, 1)
-            internal_decay_score += comp_processed * weight
-            total_weight_sum += weight
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
-                print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '{name}' (值: {comp_processed.loc[probe_ts]:.4f}, 权重: {weight})")
-        if total_weight_sum > 0:
-            internal_decay_score /= total_weight_sum
-        else:
-            internal_decay_score = pd.Series(0.0, index=df_index, dtype=np.float32) # 避免除以零
-        internal_decay_score = internal_decay_score.clip(0, 1) # 确保最终分数在 [0, 1] 范围内
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化度 (internal_decay_score): {internal_decay_score.loc[probe_ts]:.4f}")
-        # 2.2 计算“外部强势幻象” (加权平均)
-        external_illusion_score = (
-            price_overextension * 0.4 +
-            retail_fomo * 0.4 +
-            profit_taking_supply * 0.2
+        # 外部强势幻象组件
+        illusion_components = {
+            'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW': get_param_value(s_params.get('price_overextension_weight'), 0.4),
+            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM': get_param_value(s_params.get('sentiment_fomo_weight'), 0.3),
+            'SCORE_BEHAVIOR_VOLUME_BURST': get_param_value(s_params.get('volume_burst_weight'), 0.3)
+        }
+        # 获取原子信号
+        trend_decay = self._get_atomic_score(df, 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME', 0.0, debug_info_tuple)
+        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0, debug_info_tuple)
+        # 资金流出：只有当资金流共识为负时才计入流出风险
+        fund_outflow = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info_tuple).clip(upper=0).abs()
+        # 筹码分散：当筹码战略态势为负时，表示筹码分散或主力撤退
+        chip_dispersion = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0, debug_info_tuple).clip(upper=0).abs()
+        micro_stagnation = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0, debug_info_tuple)
+        retail_vulnerability = self._get_atomic_score(df, 'SCORE_CHIP_RETAIL_VULNERABILITY', 0.0, debug_info_tuple)
+        liquidity_drain = self._get_atomic_score(df, 'SCORE_RISK_LIQUIDITY_DRAIN', 0.0, debug_info_tuple)
+        # 获取新的诡道风险信号
+        deception_risk = self._get_atomic_score(df, 'SCORE_FF_DECEPTION_RISK', 0.0, debug_info_tuple)
+        price_overextension = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0, debug_info_tuple)
+        sentiment_fomo = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0, debug_info_tuple).clip(lower=0) # 只取正向FOMO
+        volume_burst = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0, debug_info_tuple)
+        # 内部腐化度 (Internal Decay Score)
+        internal_decay_score = (
+            deception_risk * decay_components.get('SCORE_FF_DECEPTION_RISK', 0.1) + # 新增诡道风险
+            trend_decay * decay_components.get('PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME', 0.15) +
+            distribution_intent * decay_components.get('SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.15) +
+            fund_outflow * decay_components.get('fund_outflow', 0.1) +
+            chip_dispersion * decay_components.get('SCORE_CHIP_STRATEGIC_POSTURE', 0.1) +
+            micro_stagnation * decay_components.get('INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.1) +
+            retail_vulnerability * decay_components.get('SCORE_CHIP_RETAIL_VULNERABILITY', 0.2) +
+            liquidity_drain * decay_components.get('SCORE_RISK_LIQUIDITY_DRAIN', 0.2)
         ).clip(0, 1)
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
+        # 外部强势幻象 (External Illusion Score)
+        external_illusion_score = (
+            price_overextension * illusion_components.get('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.4) +
+            sentiment_fomo * illusion_components.get('SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.3) +
+            volume_burst * illusion_components.get('SCORE_BEHAVIOR_VOLUME_BURST', 0.3)
+        ).clip(0, 1)
+        # 最终滞涨风险 = 内部腐化度 * (1 + 外部强势幻象)
+        # 外部强势幻象越高，滞涨风险被放大的倍数越大
+        stagnation_risk = (internal_decay_score * (1 + external_illusion_score)).clip(0, 1)
+        if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '资金流诡道风险' (值: {deception_risk.loc[probe_ts]:.4f}, 权重: {decay_components.get('SCORE_FF_DECEPTION_RISK', 0.1):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '趋势质量衰减' (值: {trend_decay.loc[probe_ts]:.4f}, 权重: {decay_components.get('PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME', 0.15):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '派发意图' (值: {distribution_intent.loc[probe_ts]:.4f}, 权重: {decay_components.get('SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.15):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '资金流出' (值: {fund_outflow.loc[probe_ts]:.4f}, 权重: {decay_components.get('fund_outflow', 0.1):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '筹码分散' (值: {chip_dispersion.loc[probe_ts]:.4f}, 权重: {decay_components.get('SCORE_CHIP_STRATEGIC_POSTURE', 0.1):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '微观滞涨' (值: {micro_stagnation.loc[probe_ts]:.4f}, 权重: {decay_components.get('INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.1):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '散户筹码脆弱性' (值: {retail_vulnerability.loc[probe_ts]:.4f}, 权重: {decay_components.get('SCORE_CHIP_RETAIL_VULNERABILITY', 0.2):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化组件 '流动性枯竭风险' (值: {liquidity_drain.loc[probe_ts]:.4f}, 权重: {decay_components.get('SCORE_RISK_LIQUIDITY_DRAIN', 0.2):.2f})")
+            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 内部腐化度 (internal_decay_score): {internal_decay_score.loc[probe_ts]:.4f}")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 外部强势幻象 '价格超买亢奋' (值: {price_overextension.loc[probe_ts]:.4f}, 权重: {illusion_components.get('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.4):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 外部强势幻象 '情绪钟摆 (FOMO)' (值: {sentiment_fomo.loc[probe_ts]:.4f}, 权重: {illusion_components.get('SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.3):.2f})")
+            print(f"        [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 外部强势幻象 '看涨量能爆发' (值: {volume_burst.loc[probe_ts]:.4f}, 权重: {illusion_components.get('SCORE_BEHAVIOR_VOLUME_BURST', 0.3):.2f})")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 外部强势幻象 (external_illusion_score): {external_illusion_score.loc[probe_ts]:.4f}")
-        # 2.3 最终融合：内腐 × 外强
-        raw_stagnation_risk = (internal_decay_score * external_illusion_score).pow(0.5).fillna(0.0)
-        # 【V3.1 变更】移除 is_price_stagnant_or_rising 过滤器
-        final_stagnation_risk = raw_stagnation_risk.clip(0, 1)
-        states['FUSION_RISK_STAGNATION'] = final_stagnation_risk.astype(np.float32)
-        print(f"  -- [融合层] “滞涨风险”冶炼完成，最新分值: {final_stagnation_risk.iloc[-1]:.4f}")
-        return states
+            print(f"  -- [融合层] “滞涨风险”冶炼完成，最新分值: {stagnation_risk.loc[probe_ts]:.4f}")
+        return stagnation_risk.astype(np.float32)
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
