@@ -145,20 +145,23 @@ class FundFlowIntelligence:
         debug_info_tuple = (is_debug_enabled, probe_ts, "diagnose_fund_flow_states")
 
         # --- 1. 计算所有原子公理 ---
-        # 调整调用顺序：先计算 SCORE_FF_DECEPTION_RISK，以便 axiom_divergence 可以使用它
-        score_ff_deception_risk = self._diagnose_deception_risk(df, debug_info_tuple) # 调用新的诡道风险方法
+        # 调整调用顺序：
+        # 1. 先计算 SCORE_FF_DECEPTION_RISK，因为它被 axiom_divergence 使用。
+        # 2. 接着计算 axiom_divergence，因为它被 axiom_intent_purity 和 _diagnose_fund_flow_divergence_signals 使用。
+        # 3. 然后计算其他原子公理。
+
+        score_ff_deception_risk = self._diagnose_deception_risk(df, debug_info_tuple)
         self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk # 存储诡道风险信号
+
+        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence # 存储分歧公理，供后续使用
 
         axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
         axiom_flow_structure_health = self._diagnose_axiom_flow_structure_health(df, norm_window)
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
-        axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window) # 新增：意图纯度公理
-
-        # 现在可以安全地调用 _diagnose_axiom_divergence，因为它依赖的 SCORE_FF_DECEPTION_RISK 已经计算并存储
-        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence # 在调用依赖它的方法之前，将 axiom_divergence 存储到 atomic_states
+        axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window) # 现在可以安全调用，因为 axiom_divergence 已存储
 
         # --- 2. 战略态势的向量合成 (V3.1 · 脆弱性感知版) ---
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
@@ -640,6 +643,7 @@ class FundFlowIntelligence:
             print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流内部分歧与意图张力诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}")
 
         return final_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V6.2 · 诡道风险分离版】资金流公理一：诊断“战场控制权”
