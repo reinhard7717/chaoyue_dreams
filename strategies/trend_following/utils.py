@@ -140,7 +140,7 @@ def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
                 else:
                     df[col_label] = series_data.astype(np.float64)
     end_mem = df.memory_usage().sum() / 1024**2
-    print(f'    -> [内存优化] DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
+    print(f'    -> [内存优化] (ensure_numeric_types) DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
     return df
 
 def get_unified_score(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str) -> pd.Series:
@@ -230,7 +230,7 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
                     df[col] = df[col].astype(np.float64)
     end_mem = df.memory_usage().sum() / 1024**2
     if verbose:
-        print(f'    -> [内存优化] DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
+        print(f'    -> [内存优化] (optimize_df_memory) DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
     return df
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict, strategy_instance) -> Tuple[pd.Series, pd.Series]:

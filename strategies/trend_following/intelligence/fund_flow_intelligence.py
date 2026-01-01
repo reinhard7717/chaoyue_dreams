@@ -843,7 +843,7 @@ class FundFlowIntelligence:
             
             # 诱多惩罚
             bull_trap_mask = (norm_deception > 0)
-            deception_modulator.loc[bull_trap_mask] = deception_modulator.loc[bull_trap_mask] * (1 - norm_deception.loc[bull_trap_mask] * deception_penalty_sensitivity * sentiment_mod_factor.loc[bull_trap_mask].clip(0.5, 1.5) * deception_cohesion_mod.loc[bull_trap_mask])
+            deception_modulator.loc[bull_trap_mask] = deception_modulator.loc[bull_trap_mask] * (1 - norm_deception.loc[bull_trap_mask] * deception_penalty_sensitivity * sentiment_mod_factor.loc[bull_trap_mask].clip(0.5, 3.5) * deception_cohesion_mod.loc[bull_trap_mask])
             deception_modulator = deception_modulator * (1 - norm_deception_lure_long * deception_lure_long_penalty_sensitivity)
             
             # 诱空奖励 (如果主力信念也强，则视为洗盘吸筹)
