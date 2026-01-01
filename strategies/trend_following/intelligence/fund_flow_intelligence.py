@@ -596,8 +596,8 @@ class FundFlowIntelligence:
         ]
         for signal_base in signal_bases_for_mtf_cohesion:
             for p in all_mtf_periods:
-                all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name=method_name, debug_info=debug_info_tuple)
-                all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name, debug_info=debug_info_tuple)
+                all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name=method_name)
+                all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name)
         
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
@@ -611,7 +611,7 @@ class FundFlowIntelligence:
             if signal_name in all_pre_fetched_slopes_accels:
                 raw_data_cache[signal_name] = all_pre_fetched_slopes_accels[signal_name]
             else:
-                raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name, debug_info=debug_info_tuple)
+                raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name)
         
         # 提取常用信号到局部变量
         main_force_flow_raw = raw_data_cache['main_force_net_flow_calibrated_D']
