@@ -184,8 +184,9 @@ class FundFlowIntelligence:
         internal_harmony_modulator = 1 - np.tanh(imbalance * imbalance_penalty_sensitivity)
         # 2.4 情境调节器 (Context Modulator)
         # 确保 flow_credibility_index_D 和 VOLATILITY_INSTABILITY_INDEX_21d_D 存在
-        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name="diagnose_fund_flow_states")
-        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="diagnose_fund_flow_states")
+        # 修正：将 df 作为 data_source 参数传递
+        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="diagnose_fund_flow_states")
+        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="diagnose_fund_flow_states")
         norm_capital_signature = (axiom_capital_signature + 1) / 2
         norm_divergence = (axiom_divergence + 1) / 2
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, self.tf_weights_ff)
