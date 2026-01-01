@@ -336,6 +336,8 @@
             "description": "【V5.0 · 动态共振与微观脉冲版】资金流内部分歧与意图张力公理的专属参数。",
             "core_divergence_logic": "flow_conviction_tension",
             "comment_core_divergence_logic": "核心分歧计算逻辑：'flow_minus_conviction' (NMFNF - MF_Conviction) 或 'flow_conviction_tension' (捕捉正流负信念为看跌背离)。",
+            "structural_tension_deception_impact_factor": 0.8,
+            "comment_structural_tension_deception_impact_factor": "诡道意图张力对结构性张力的影响因子。正值表示欺骗越强，结构性张力越受抑制。",
             "divergence_slope_periods": [5, 13, 21, 34, 55],
             "comment_divergence_slope_periods": "用于计算各张力维度斜率的多时间框架周期列表。",
             "divergence_slope_weights": {

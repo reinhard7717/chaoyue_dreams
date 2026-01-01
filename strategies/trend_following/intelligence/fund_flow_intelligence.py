@@ -245,9 +245,10 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V5.1 · 效率优化版】资金流公理四：诊断“资金流内部分歧与意图张力”
+        【V5.2 · 诱多陷阱感知版】资金流公理四：诊断“资金流内部分歧与意图张力”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`，减少重复数据查找。
         - 核心修正: 调整 `core_divergence_score` 计算逻辑，以更准确地捕捉资金流与主力信念之间的看涨/看跌背离。
+        - 核心增强: 引入诡道意图张力对结构性张力的调制，使其能更有效识别“诱多陷阱”。
         """
         method_name = "_diagnose_axiom_divergence"
         df_index = df.index
@@ -270,6 +271,7 @@ class FundFlowIntelligence:
         p_conf_ff = self.p_conf_ff
         ad_params = get_param_value(p_conf_ff.get('axiom_divergence_params'), {})
         core_divergence_logic = get_param_value(ad_params.get('core_divergence_logic'), 'flow_minus_conviction') # 新增参数
+        structural_tension_deception_impact_factor = get_param_value(ad_params.get('structural_tension_deception_impact_factor'), 0.8) # 新增参数
         divergence_slope_periods = get_param_value(ad_params.get('divergence_slope_periods'), [5, 13, 21, 34, 55])
         raw_divergence_slope_weights = get_param_value(ad_params.get('divergence_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05})
         divergence_slope_weights = {k: v for k, v in raw_divergence_slope_weights.items() if isinstance(v, (int, float))}
@@ -430,33 +432,7 @@ class FundFlowIntelligence:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - mf_conviction_dynamic_score: {mf_conviction_dynamic_score.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - core_divergence_score ({core_divergence_logic}): {core_divergence_score.loc[probe_ts]:.4f}")
 
-        # --- 2. 结构性张力 (Structural Tension) ---
-        norm_lg_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_lg_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_retail_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_retail_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        lg_flow_dynamic_score = (norm_lg_flow_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_lg_flow_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
-        retail_flow_dynamic_score = (norm_retail_flow_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_retail_flow_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
-        norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-        structural_divergence_base = (lg_flow_dynamic_score - retail_flow_dynamic_score)
-        retail_modulator = (1 - norm_retail_fomo * retail_sentiment_mod_sensitivity) + (norm_retail_panic * retail_sentiment_mod_sensitivity)
-        structural_tension_score = (structural_divergence_base * retail_modulator).clip(-1, 1)
-
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_lg_flow_slope_mtf: {norm_lg_flow_slope_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_lg_flow_accel_mtf: {norm_lg_flow_accel_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_flow_slope_mtf: {norm_retail_flow_slope_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_flow_accel_mtf: {norm_retail_flow_accel_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - lg_flow_dynamic_score: {lg_flow_dynamic_score.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - retail_flow_dynamic_score: {retail_flow_dynamic_score.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_fomo: {norm_retail_fomo.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_panic: {norm_retail_panic.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - structural_divergence_base: {structural_divergence_base.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - retail_modulator: {retail_modulator.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - structural_tension_score: {structural_tension_score.loc[probe_ts]:.4f}")
-
-        # --- 3. 诡道意图张力 (Deceptive Intent Tension) ---
+        # --- 2. 诡道意图张力 (Deceptive Intent Tension) --- (Moved from section 3)
         norm_deception_slope_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_deception_accel_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_wash_trade_slope_mtf = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', divergence_slope_periods, divergence_slope_weights, False, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -480,7 +456,42 @@ class FundFlowIntelligence:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - wash_trade_modulator: {wash_trade_modulator.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - deceptive_tension_score: {deceptive_tension_score.loc[probe_ts]:.4f}")
 
-        # --- 4. 微观意图张力 (Micro-Flow Intent Tension) ---
+        # --- 3. 结构性张力 (Structural Tension) --- (Moved from section 2, now uses deceptive_tension_score)
+        norm_lg_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_lg_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_retail_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
+        norm_retail_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
+        lg_flow_dynamic_score = (norm_lg_flow_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_lg_flow_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
+        retail_flow_dynamic_score = (norm_retail_flow_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_retail_flow_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
+        norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        structural_divergence_base = (lg_flow_dynamic_score - retail_flow_dynamic_score)
+        retail_modulator = (1 - norm_retail_fomo * retail_sentiment_mod_sensitivity) + (norm_retail_panic * retail_sentiment_mod_sensitivity)
+        
+        # NEW: Apply deceptive_tension_score as a modulator to structural_tension_score
+        # If deceptive_tension_score is negative (high deception/low credibility), it should reduce the structural_tension_score.
+        # If structural_divergence_base is positive (bullish), and deceptive_tension_score is negative, this is a trap.
+        # The modulator should be (1 + deceptive_tension_score * structural_tension_deception_impact_factor)
+        # Example: if deceptive_tension_score = -1, impact_factor = 0.8, then modulator = 1 - 0.8 = 0.2 (strong penalty)
+        # Example: if deceptive_tension_score = 0.5, impact_factor = 0.8, then modulator = 1 + 0.4 = 1.4 (slight boost, less deception)
+        deception_modulator_for_structural_tension = (1 + deceptive_tension_score * structural_tension_deception_impact_factor).clip(0.1, 2.0) # Clip to prevent extreme values
+        structural_tension_score = (structural_divergence_base * retail_modulator * deception_modulator_for_structural_tension).clip(-1, 1)
+
+        if is_debug_enabled and probe_ts and probe_ts in df_index:
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_lg_flow_slope_mtf: {norm_lg_flow_slope_mtf.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_lg_flow_accel_mtf: {norm_lg_flow_accel_mtf.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_flow_slope_mtf: {norm_retail_flow_slope_mtf.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_flow_accel_mtf: {norm_retail_flow_accel_mtf.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - lg_flow_dynamic_score: {lg_flow_dynamic_score.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - retail_flow_dynamic_score: {retail_flow_dynamic_score.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_fomo: {norm_retail_fomo.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_panic: {norm_retail_panic.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - structural_divergence_base: {structural_divergence_base.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - retail_modulator: {retail_modulator.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - deception_modulator_for_structural_tension: {deception_modulator_for_structural_tension.loc[probe_ts]:.4f}") # 新增调试输出
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - structural_tension_score: {structural_tension_score.loc[probe_ts]:.4f}")
+
+        # --- 4. 微观意图张力 (Micro-Flow Intent Tension) --- (Moved from section 4 to 3)
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights=self.tf_weights_ff)
         norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
         norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
