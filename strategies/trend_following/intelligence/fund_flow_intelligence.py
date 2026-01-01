@@ -118,8 +118,8 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V29.0 · 拐点洞察版】资金流情报分析总指挥
-        - 核心升级: 新增终极机会信号 SCORE_FF_HARMONY_INFLECTION (资金流和谐拐点)。
+        【V29.1 · 诱多陷阱感知版】资金流情报分析总指挥
+        - 核心升级: 优化了 `axiom_divergence` 的计算，使其能更有效识别“诱多陷阱”。
         - 信号原理: 基于微积分思想，对顶层“战略态势”信号进行二阶求导。只有当态势的“速度”与“加速度”
                       同时为正时，才确认为一次高置信度的V型反转拐点。旨在捕捉趋势“破晓”的关键瞬间。
         - 【新增】计算并存储 SCORE_FF_DECEPTION_RISK 信号。
@@ -130,7 +130,7 @@ class FundFlowIntelligence:
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
-        print("启动【V29.0 · 拐点洞察版】资金流情报分析...")
+        print("启动【V29.1 · 诱多陷阱感知版】资金流情报分析...") # 更新版本号
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
 
@@ -145,18 +145,20 @@ class FundFlowIntelligence:
         debug_info_tuple = (is_debug_enabled, probe_ts, "diagnose_fund_flow_states")
 
         # --- 1. 计算所有原子公理 ---
+        # 调整调用顺序：先计算 SCORE_FF_DECEPTION_RISK，以便 axiom_divergence 可以使用它
+        score_ff_deception_risk = self._diagnose_deception_risk(df, debug_info_tuple) # 调用新的诡道风险方法
+        self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk # 存储诡道风险信号
+
         axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
         axiom_flow_structure_health = self._diagnose_axiom_flow_structure_health(df, norm_window)
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
-        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        # 在调用依赖它的方法之前，将 axiom_divergence 存储到 atomic_states
-        self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
-        # 新增：意图纯度公理
-        axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window)
-        # 新增：诡道风险信号
-        score_ff_deception_risk = self._diagnose_deception_risk(df, debug_info_tuple) # 调用新的诡道风险方法
+        axiom_intent_purity = self._diagnose_axiom_intent_purity(df, norm_window) # 新增：意图纯度公理
+
+        # 现在可以安全地调用 _diagnose_axiom_divergence，因为它依赖的 SCORE_FF_DECEPTION_RISK 已经计算并存储
+        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence # 在调用依赖它的方法之前，将 axiom_divergence 存储到 atomic_states
 
         # --- 2. 战略态势的向量合成 (V3.1 · 脆弱性感知版) ---
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
@@ -184,7 +186,6 @@ class FundFlowIntelligence:
         internal_harmony_modulator = 1 - np.tanh(imbalance * imbalance_penalty_sensitivity)
         # 2.4 情境调节器 (Context Modulator)
         # 确保 flow_credibility_index_D 和 VOLATILITY_INSTABILITY_INDEX_21d_D 存在
-        # 修正：将 df 作为 data_source 参数传递
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="diagnose_fund_flow_states")
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="diagnose_fund_flow_states")
         norm_capital_signature = (axiom_capital_signature + 1) / 2
@@ -225,7 +226,7 @@ class FundFlowIntelligence:
         self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
         self.strategy.atomic_states['SCORE_FF_AXIOM_INTENT_PURITY'] = axiom_intent_purity # 新增意图纯度公理
         self.strategy.atomic_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score
-        self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk # 存储诡道风险信号
+        # score_ff_deception_risk 已经在前面计算并存储
         bullish_divergence, bearish_divergence = self._diagnose_fund_flow_divergence_signals(df, norm_window, axiom_divergence)
         # --- 5. 状态赋值 ---
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
@@ -240,7 +241,7 @@ class FundFlowIntelligence:
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk.astype(np.float32) # 存储诡道风险信号
-        print(f"【V29.0 · 拐点洞察版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。")
+        print(f"【V29.1 · 诱多陷阱感知版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。")
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -249,6 +250,7 @@ class FundFlowIntelligence:
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`，减少重复数据查找。
         - 核心修正: 调整 `core_divergence_score` 计算逻辑，以更准确地捕捉资金流与主力信念之间的看涨/看跌背离。
         - 核心增强: 引入诡道意图张力对结构性张力的调制，使其能更有效识别“诱多陷阱”。
+        - 核心增强: 诡道意图张力直接整合 SCORE_FF_DECEPTION_RISK，更全面量化欺骗风险。
         """
         method_name = "_diagnose_axiom_divergence"
         df_index = df.index
@@ -270,8 +272,9 @@ class FundFlowIntelligence:
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
         ad_params = get_param_value(p_conf_ff.get('axiom_divergence_params'), {})
-        core_divergence_logic = get_param_value(ad_params.get('core_divergence_logic'), 'flow_minus_conviction') # 新增参数
-        structural_tension_deception_impact_factor = get_param_value(ad_params.get('structural_tension_deception_impact_factor'), 0.8) # 新增参数
+        core_divergence_logic = get_param_value(ad_params.get('core_divergence_logic'), 'flow_minus_conviction')
+        structural_tension_deception_impact_factor = get_param_value(ad_params.get('structural_tension_deception_impact_factor'), 0.8)
+        deception_risk_weight_in_tension = get_param_value(ad_params.get('deception_risk_weight_in_tension'), 1.0)
         divergence_slope_periods = get_param_value(ad_params.get('divergence_slope_periods'), [5, 13, 21, 34, 55])
         raw_divergence_slope_weights = get_param_value(ad_params.get('divergence_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05})
         divergence_slope_weights = {k: v for k, v in raw_divergence_slope_weights.items() if isinstance(v, (int, float))}
@@ -337,14 +340,17 @@ class FundFlowIntelligence:
             'buy_quote_exhaustion_rate_D',
             'sell_quote_exhaustion_rate_D',
             adaptive_weight_modulator_signal_1_name,
-            adaptive_weight_modulator_signal_2_name,
-            adaptive_weight_modulator_signal_3_name,
+            adaptive_weight_modulator_2_name,
+            adaptive_weight_modulator_3_name,
             dynamic_evolution_context_modulator_1_name
         ])
         for mod_name, mod_params in energy_injection_context_modulators.items():
             if isinstance(mod_params, dict) and 'signal' in mod_params:
                 required_signals.append(mod_params['signal'])
-        if not self._validate_required_signals(df, required_signals, method_name):
+        # 确保 SCORE_FF_DECEPTION_RISK 存在于 atomic_states
+        required_signals.append('SCORE_FF_DECEPTION_RISK')
+
+        if not self._validate_required_signals(df, required_signals, method_name, atomic_states=self.strategy.atomic_states):
             if is_debug_enabled and probe_ts and probe_ts in df_index:
                 print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
             return pd.Series(0.0, index=df.index)
@@ -381,6 +387,9 @@ class FundFlowIntelligence:
         adaptive_weight_modulator_2_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_2_name, 0.0, method_name=method_name)
         adaptive_weight_modulator_3_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_3_name, 0.0, method_name=method_name)
         dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_1_name, 0.0, method_name=method_name)
+        
+        # 获取 SCORE_FF_DECEPTION_RISK
+        score_ff_deception_risk = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_DECEPTION_RISK', 0.0, method_name=method_name)
 
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始数据 - retail_fomo_premium_raw: {retail_fomo_premium_raw.loc[probe_ts]:.4f}")
@@ -398,6 +407,7 @@ class FundFlowIntelligence:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始数据 - adaptive_weight_modulator_2_raw: {adaptive_weight_modulator_2_raw.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始数据 - adaptive_weight_modulator_3_raw: {adaptive_weight_modulator_3_raw.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始数据 - dynamic_evolution_context_modulator_1_raw: {dynamic_evolution_context_modulator_1_raw.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 原始数据 - SCORE_FF_DECEPTION_RISK: {score_ff_deception_risk.loc[probe_ts]:.4f}")
 
         # --- 1. 核心分歧向量 (Core Divergence Vector) ---
         norm_nmfnf_slope_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -432,31 +442,19 @@ class FundFlowIntelligence:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - mf_conviction_dynamic_score: {mf_conviction_dynamic_score.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 核心分歧 - core_divergence_score ({core_divergence_logic}): {core_divergence_score.loc[probe_ts]:.4f}")
 
-        # --- 2. 诡道意图张力 (Deceptive Intent Tension) --- (Moved from section 3)
-        norm_deception_slope_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_deception_accel_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_wash_trade_slope_mtf = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', divergence_slope_periods, divergence_slope_weights, False, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        norm_wash_trade_accel_mtf = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', divergence_accel_periods, divergence_accel_weights, False, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
-        deception_dynamic_score = (norm_deception_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_deception_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
-        wash_trade_dynamic_score = (norm_wash_trade_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_wash_trade_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(0, 1)
+        # --- 2. 诡道意图张力 (Deceptive Intent Tension) ---
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-        deceptive_divergence_base = (norm_flow_credibility - deception_dynamic_score.abs() * np.sign(deception_dynamic_score))
-        wash_trade_modulator = (1 - wash_trade_dynamic_score * deception_mod_sensitivity)
-        deceptive_tension_score = (deceptive_divergence_base * wash_trade_modulator).clip(-1, 1)
+        
+        # NEW: 诡道意图张力直接整合 SCORE_FF_DECEPTION_RISK
+        deceptive_tension_score = (norm_flow_credibility - score_ff_deception_risk * deception_risk_weight_in_tension).clip(-1, 1)
 
         if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - norm_deception_slope_mtf: {norm_deception_slope_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - norm_deception_accel_mtf: {norm_deception_accel_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - norm_wash_trade_slope_mtf: {norm_wash_trade_slope_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - norm_wash_trade_accel_mtf: {norm_wash_trade_accel_mtf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - deception_dynamic_score: {deception_dynamic_score.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - wash_trade_dynamic_score: {wash_trade_dynamic_score.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - norm_flow_credibility: {norm_flow_credibility.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - deceptive_divergence_base: {deceptive_divergence_base.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - wash_trade_modulator: {wash_trade_modulator.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - SCORE_FF_DECEPTION_RISK: {score_ff_deception_risk.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - deception_risk_weight_in_tension: {deception_risk_weight_in_tension:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道意图张力 - deceptive_tension_score: {deceptive_tension_score.loc[probe_ts]:.4f}")
 
-        # --- 3. 结构性张力 (Structural Tension) --- (Moved from section 2, now uses deceptive_tension_score)
+        # --- 3. 结构性张力 (Structural Tension) ---
         norm_lg_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_lg_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
         norm_retail_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name=method_name, pre_fetched_data=all_pre_fetched_slopes_accels)
@@ -468,12 +466,7 @@ class FundFlowIntelligence:
         structural_divergence_base = (lg_flow_dynamic_score - retail_flow_dynamic_score)
         retail_modulator = (1 - norm_retail_fomo * retail_sentiment_mod_sensitivity) + (norm_retail_panic * retail_sentiment_mod_sensitivity)
         
-        # NEW: Apply deceptive_tension_score as a modulator to structural_tension_score
-        # If deceptive_tension_score is negative (high deception/low credibility), it should reduce the structural_tension_score.
-        # If structural_divergence_base is positive (bullish), and deceptive_tension_score is negative, this is a trap.
-        # The modulator should be (1 + deceptive_tension_score * structural_tension_deception_impact_factor)
-        # Example: if deceptive_tension_score = -1, impact_factor = 0.8, then modulator = 1 - 0.8 = 0.2 (strong penalty)
-        # Example: if deceptive_tension_score = 0.5, impact_factor = 0.8, then modulator = 1 + 0.4 = 1.4 (slight boost, less deception)
+        # Apply deceptive_tension_score as a modulator to structural_tension_score
         deception_modulator_for_structural_tension = (1 + deceptive_tension_score * structural_tension_deception_impact_factor).clip(0.1, 2.0) # Clip to prevent extreme values
         structural_tension_score = (structural_divergence_base * retail_modulator * deception_modulator_for_structural_tension).clip(-1, 1)
 
@@ -488,10 +481,10 @@ class FundFlowIntelligence:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - norm_retail_panic: {norm_retail_panic.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - structural_divergence_base: {structural_divergence_base.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - retail_modulator: {retail_modulator.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - deception_modulator_for_structural_tension: {deception_modulator_for_structural_tension.loc[probe_ts]:.4f}") # 新增调试输出
+            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - deception_modulator_for_structural_tension: {deception_modulator_for_structural_tension.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构性张力 - structural_tension_score: {structural_tension_score.loc[probe_ts]:.4f}")
 
-        # --- 4. 微观意图张力 (Micro-Flow Intent Tension) --- (Moved from section 4 to 3)
+        # --- 4. 微观意图张力 (Micro-Flow Intent Tension) ---
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights=self.tf_weights_ff)
         norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
         norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
