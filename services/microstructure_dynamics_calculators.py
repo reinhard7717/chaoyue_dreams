@@ -77,7 +77,6 @@ def _numba_calculate_vpin_buckets(
         if bucket_idx >= max_buckets:
             # 如果超出预估范围，跳过此元素，避免索引越界
             continue 
-            
         bucket_buy_vol[bucket_idx] += buy_vol_arr[i]
         bucket_sell_vol[bucket_idx] += sell_vol_arr[i]
         current_bucket_idx = max(current_bucket_idx, bucket_idx)

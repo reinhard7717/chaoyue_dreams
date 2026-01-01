@@ -136,15 +136,12 @@ def _numba_calculate_tpo_metrics(close_arr: np.ndarray, vol_arr: np.ndarray) -> 
         if below_ptr >= 0:
             price_below_idx = prices_below_vpoc_indices[below_ptr]
             vol_below = volume_profile[price_below_idx]
-            
         vol_above = 0.0
         if above_ptr < len(prices_above_vpoc_indices):
             price_above_idx = prices_above_vpoc_indices[above_ptr]
             vol_above = volume_profile[price_above_idx]
-            
         if vol_below == 0 and vol_above == 0:
             break # 没有更多价格可以添加
-            
         if vol_above > vol_below:
             value_area_prices = np.append(value_area_prices, unique_prices[prices_above_vpoc_indices[above_ptr]])
             current_volume_in_area += vol_above

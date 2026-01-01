@@ -65,7 +65,6 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
         denominator_reg = N * sum_x2 - sum_x * sum_x
         if denominator_reg == 0:
             return np.nan
-            
         slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
         fd = np.abs(slope)
         # 核心修复：手动实现标量裁剪，避免np.clip对标量参数的Numba TypingError
@@ -494,7 +493,6 @@ class FeatureEngineeringService:
         atr_col = f'ATR_14{suffix}'
         if atr_col in df.columns and vi_col not in df.columns:
             df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
-            
         all_dfs[timeframe] = df
         return all_dfs
 
