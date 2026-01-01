@@ -601,7 +601,7 @@ class FundFlowIntelligence:
                 all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name)
         if not self._validate_required_signals(df, required_signals, method_name):
             # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-            #     print(f"  -- [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
+            #     print(f"  -- [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
             return pd.Series(0.0, index=df.index)
         # 集中所有原始数据获取
         raw_data_cache = {}
@@ -2385,7 +2385,7 @@ class FundFlowIntelligence:
                                    (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod)
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_deception_multi_tf: {norm_deception_multi_tf.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_wash_trade_multi_tf: {norm_wash_trade_multi_tf.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_wash_trade_multi_tf: {norm_wash_trade_multi_tf.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - purity_context_mod: {purity_context_mod.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - norm_deception_lure_long: {norm_deception_lure_long.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 纯度过滤 - intent_purity_penalty: {intent_purity_penalty.loc[probe_ts]:.4f}")
@@ -2462,7 +2462,7 @@ class FundFlowIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_posture_mod: {bullish_posture_mod.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_posture_mod: {bearish_posture_mod.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: 情境校准 - credibility_mod: {credibility_mod.loc[probe_ts]:.4f}")
+            print(f"      [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - credibility_mod: {credibility_mod.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bullish_retail_context_mod: {bullish_retail_context_mod.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - bearish_retail_context_mod: {bearish_retail_context_mod.loc[probe_ts]:.4f}")
             print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 情境校准 - fund_flow_weakness_penalty: {fund_flow_weakness_penalty.loc[probe_ts]:.4f}")
