@@ -104,12 +104,12 @@ class FusionIntelligence:
         # 只有当原始信号非常接近0时，才强制归零，避免浮点数误差导致微小值被放大
         zero_processed_mask = (processed_signal.abs() < 1e-6)
         normalized_score.loc[zero_processed_mask] = 0.0
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            # 增加更详细的打印，包括原始信号的原始值
-            original_val = original_signal.loc[probe_ts] if probe_ts in original_signal.index else np.nan
-            processed_val = processed_signal.loc[probe_ts] if probe_ts in processed_signal.index else np.nan
-            normalized_val = normalized_score.loc[probe_ts] if probe_ts in normalized_score.index else np.nan
-            print(f"        [融合层-风险归一化调试] {method_name_caller} @ {probe_ts.strftime('%Y-%m-%d')}: 信号 '{signal_name}' (原始值: {original_val:.4f}, 处理后值: {processed_val:.4f}) -> 归一化分数: {normalized_val:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     # 增加更详细的打印，包括原始信号的原始值
+        #     original_val = original_signal.loc[probe_ts] if probe_ts in original_signal.index else np.nan
+        #     processed_val = processed_signal.loc[probe_ts] if probe_ts in processed_signal.index else np.nan
+        #     normalized_val = normalized_score.loc[probe_ts] if probe_ts in normalized_score.index else np.nan
+        #     print(f"        [融合层-风险归一化调试] {method_name_caller} @ {probe_ts.strftime('%Y-%m-%d')}: 信号 '{signal_name}' (原始值: {original_val:.4f}, 处理后值: {processed_val:.4f}) -> 归一化分数: {normalized_val:.4f}")
         return normalized_score.astype(np.float32)
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
