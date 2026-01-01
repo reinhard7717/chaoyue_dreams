@@ -340,8 +340,8 @@ class FundFlowIntelligence:
             'buy_quote_exhaustion_rate_D',
             'sell_quote_exhaustion_rate_D',
             adaptive_weight_modulator_signal_1_name,
-            adaptive_weight_modulator_2_name,
-            adaptive_weight_modulator_3_name,
+            adaptive_weight_modulator_signal_2_name,
+            adaptive_weight_modulator_signal_3_name,
             dynamic_evolution_context_modulator_1_name
         ])
         for mod_name, mod_params in energy_injection_context_modulators.items():
@@ -384,6 +384,7 @@ class FundFlowIntelligence:
             if isinstance(mod_params, dict) and 'signal' in mod_params:
                 energy_modulator_signals[mod_name] = self._get_safe_series(df, df, mod_params['signal'], 0.0, method_name=method_name)
         adaptive_weight_modulator_1_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_1_name, 0.0, method_name=method_name)
+        # 修正：将 self._get_safe_safe_series 改为 self._get_safe_series
         adaptive_weight_modulator_2_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_2_name, 0.0, method_name=method_name)
         adaptive_weight_modulator_3_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_3_name, 0.0, method_name=method_name)
         dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_1_name, 0.0, method_name=method_name)
@@ -639,7 +640,6 @@ class FundFlowIntelligence:
             print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流内部分歧与意图张力诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}")
 
         return final_score.clip(-1, 1).astype(np.float32)
-
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V6.2 · 诡道风险分离版】资金流公理一：诊断“战场控制权”
