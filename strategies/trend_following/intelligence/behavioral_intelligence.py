@@ -904,6 +904,7 @@ class BehavioralIntelligence:
                 robust_slopes[indicator] = weighted_slope / total_weight
             else:
                 robust_slopes[indicator] = raw_df_signals.get(f'SLOPE_{mtf_periods[0]}_{indicator}_D', pd.Series(0.0, index=df.index, dtype=np.float32)) if mtf_periods else pd.Series(0.0, index=df.index, dtype=np.float32)
+            # 修正：确保这里添加的列名与 required_signals 中的一致
             df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
         long_term_period = multi_level_resonance_params.get('long_term_period', 21)
@@ -962,6 +963,7 @@ class BehavioralIntelligence:
         # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
         #     print(f"      [探针 - {method_name}] 发布 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW' @ {probe_ts.strftime('%Y-%m-%d')}: {final_overextension_score.loc[probe_ts]:.4f}")
         df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
+        # 修正：确保这里传入的 robust_macd_slope 是正确的
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
         # if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
@@ -3257,6 +3259,7 @@ class BehavioralIntelligence:
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 信号未启用，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+        
         fusion_weights = get_param_value(stagnation_params.get('fusion_weights'), {
             "price_weakness": 0.2, "momentum_divergence": 0.2, "volume_anomaly": 0.2,
             "intraday_control_weakness": 0.2, "unsustainable_rally_evidence": 0.2
@@ -3266,6 +3269,7 @@ class BehavioralIntelligence:
             "deception_lure_long_intensity": 0.2, "wash_trade_intensity": 0.15,
             "main_force_execution_alpha_inverse": 0.15, "upward_impulse_purity_inverse": 0.1
         })
+
         required_signals = [
             'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D',
             'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
@@ -3281,8 +3285,10 @@ class BehavioralIntelligence:
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 缺少核心信号，返回0分。")
             return pd.Series(0.0, index=df.index)
+        
         signals_data = {sig: df[sig] for sig in required_signals}
         debug_info = (is_debug_enabled, probe_ts, method_name)
+
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
         low_price = signals_data['low_D']
@@ -3293,18 +3299,21 @@ class BehavioralIntelligence:
         atr_val = signals_data['ATR_14_D']
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
-        robust_macd_slope = signals_data['robust_MACDh_13_34_8_D']
+        robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope']
         accel_rsi = signals_data['ACCEL_5_RSI_13_D']
         accel_macd = signals_data['ACCEL_5_MACDh_13_34_8_D']
         upward_efficiency = signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']
         intraday_bull_control = signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']
+
         total_range = high_price - low_price
         total_range_safe = total_range.replace(0, 1e-9)
         body_range = (close_price - open_price).abs()
         upper_shadow = high_price - np.maximum(open_price, close_price)
         lower_shadow = np.minimum(open_price, close_price) - low_price
+
         upper_shadow_ratio = (upper_shadow / total_range_safe).clip(0, 1)
         body_ratio = (body_range / total_range_safe).clip(0, 1)
+
         upper_shadow_ratio_threshold = stagnation_params.get('upper_shadow_ratio_threshold', 0.4)
         body_ratio_threshold = stagnation_params.get('body_ratio_threshold', 0.3)
         volume_stagnation_multiplier = stagnation_params.get('volume_stagnation_multiplier', 1.2)
@@ -3312,9 +3321,12 @@ class BehavioralIntelligence:
         dynamic_kline_atr_multiplier = stagnation_params.get('dynamic_kline_atr_multiplier', 0.005)
         momentum_deceleration_bonus = stagnation_params.get('momentum_deceleration_bonus', 0.1)
         volume_drying_up_multiplier = stagnation_params.get('volume_drying_up_multiplier', 0.8)
+
         dynamic_upper_shadow_threshold = upper_shadow_ratio_threshold + atr_val * dynamic_kline_atr_multiplier
         dynamic_body_ratio_threshold = body_ratio_threshold - atr_val * dynamic_kline_atr_multiplier
+
         pct_change_abs_raw = signals_data['pct_change_D'].abs()
+
         series_for_mtf_norm_config = {
             'pct_change_abs_raw': (pct_change_abs_raw, tf_weights, True),
             'upward_efficiency': (upward_efficiency, tf_weights, True),
@@ -3327,9 +3339,11 @@ class BehavioralIntelligence:
             'main_force_execution_alpha_D_inverse': (signals_data['main_force_execution_alpha_D'].clip(upper=0).abs(), tf_weights, True), # 负向Alpha的绝对值
             'upward_impulse_purity_D_inverse': ((1 - signals_data['upward_impulse_purity_D']).clip(0,1), tf_weights, True) # 上涨纯度的逆向
         }
+        
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
             normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
+
         # 1. 价格行为疲软 (Price Action Weakness)
         is_long_upper_shadow = (upper_shadow_ratio > dynamic_upper_shadow_threshold)
         is_small_body = (body_ratio < dynamic_body_ratio_threshold)
@@ -3337,6 +3351,7 @@ class BehavioralIntelligence:
         price_weakness_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         price_weakness_score = price_weakness_score.mask(is_long_upper_shadow & is_small_body, 0.3)
         price_weakness_score = price_weakness_score.mask(is_high_open_low_close, price_weakness_score + 0.4)
+
         # 2. 动量背离 (Momentum Divergence)
         is_price_rising = (robust_close_slope > 0)
         is_rsi_momentum_decay = (robust_rsi_slope < 0)
@@ -3350,6 +3365,7 @@ class BehavioralIntelligence:
             rsi_deceleration_bonus + macd_deceleration_bonus
         )
         momentum_divergence_score = momentum_divergence_score.clip(0, 0.3)
+
         # 3. 成交量异常 (Volume Anomaly)
         norm_pct_change_abs = normalized_mtf_scores['pct_change_abs_raw']
         is_volume_stagnation = (norm_pct_change_abs < 0.01) & (current_volume > volume_avg * volume_stagnation_multiplier) & (robust_close_slope > 0)
@@ -3357,10 +3373,12 @@ class BehavioralIntelligence:
         is_volume_drying_up = (pct_change_val > 0) & (current_volume < volume_avg * volume_drying_up_multiplier) & (robust_close_slope > 0)
         volume_drying_up_score = is_volume_drying_up.astype(float) * (1 - (current_volume / volume_avg)).clip(0, 1)
         volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1)
+
         # 4. 日内控制力减弱 (Intraday Control Weakness)
         norm_upward_efficiency_decay = (1 - normalized_mtf_scores['upward_efficiency']).clip(0, 1) * stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
         norm_intraday_control_decay = (1 - normalized_mtf_scores['intraday_bull_control']).clip(0, 1) * stagnation_params.get('intraday_control_decay_bonus', 0.1)
         intraday_control_weakness_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
+
         # 5. 新增：不可持续拉升证据 (Unsustainable Rally Evidence)
         norm_rally_distribution_pressure = normalized_mtf_scores['rally_distribution_pressure_D']
         norm_profit_taking_flow_ratio = normalized_mtf_scores['profit_taking_flow_ratio_D']
@@ -3368,6 +3386,7 @@ class BehavioralIntelligence:
         norm_wash_trade_intensity = normalized_mtf_scores['wash_trade_intensity_D']
         norm_main_force_execution_alpha_inverse = normalized_mtf_scores['main_force_execution_alpha_D_inverse']
         norm_upward_impulse_purity_inverse = normalized_mtf_scores['upward_impulse_purity_D_inverse']
+
         unsustainable_rally_evidence_score = (
             norm_rally_distribution_pressure * unsustainable_rally_weights.get('rally_distribution_pressure', 0.2) +
             norm_profit_taking_flow_ratio * unsustainable_rally_weights.get('profit_taking_flow_ratio', 0.2) +
@@ -3376,6 +3395,7 @@ class BehavioralIntelligence:
             norm_main_force_execution_alpha_inverse * unsustainable_rally_weights.get('main_force_execution_alpha_inverse', 0.15) +
             norm_upward_impulse_purity_inverse * unsustainable_rally_weights.get('upward_impulse_purity_inverse', 0.1)
         ).clip(0, 1)
+
         # 最终融合 (加权几何平均)
         stagnation_score = self._robust_generalized_mean(
             {
@@ -3392,9 +3412,11 @@ class BehavioralIntelligence:
             probe_ts=probe_ts,
             fusion_level_name=f"{method_name}_stagnation_score_fusion"
         ).fillna(0.0).clip(0, 1)
+
         is_rising_or_flat = (pct_change_val >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_score * is_rising_or_flat).clip(0, 1)
         final_score = final_stagnation_evidence.astype(np.float32)
+
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"      [探针 - {method_name} - INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
