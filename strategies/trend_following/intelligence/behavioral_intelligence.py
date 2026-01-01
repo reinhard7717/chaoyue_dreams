@@ -1589,7 +1589,6 @@ class BehavioralIntelligence:
         norm_wash_trade = normalized_scores['wash_trade_intensity_D']
         norm_lure_short = normalized_scores['deception_lure_short_intensity_D']
         deception_tool_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 修正逻辑：
         # 如果是正向认知失调（意图 > 表象），则关注诱空和对倒 (隐藏看涨意图，通过诱空洗盘)
         bullish_deception_tools_sum = (norm_lure_short * deception_tool_weights.get('lure_short', 0.3) +
                                        norm_wash_trade * deception_tool_weights.get('wash_trade', 0.3))
@@ -1673,27 +1672,33 @@ class BehavioralIntelligence:
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series, states: Dict[str, pd.Series], is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, pd.Series]:
         """
-        【V5.2 · Production Ready版 - 背离品质鲁棒融合】诊断高品质价量/价资背离
+        【V5.3 · Production Ready版 - 背离品质鲁棒融合与牛市欺骗惩罚】诊断高品质价量/价资背离
         - 核心重构: 废弃V4.0“宏观趋势分析”模型，引入“背离深度与广度 × 战略位置 × 双重确认 × 欺骗叙事确认”的全新四维诊断框架。
         - 诊断四维度:
           1. 背离深度与广度 (Divergence Depth & Breadth): 使用斜率更鲁棒地检测价格趋势和主力信念趋势。
           2. 战略位置 (Strategic Location): 评估背离是否发生在绝望区或获利盘不稳定区。
           3. 双重确认 (Dual Confirmation): 由“主力承接/派发”和“微观意图”进行双重印证。
           4. 欺骗叙事确认 (Deceptive Narrative Confirmation): 引入欺骗指数的负向部分，捕捉诱多本质。
+        - **【新增】牛市背离欺骗惩罚**：即使在看涨背离发生时，如果伴随着诱多、派发压力、获利了结等欺骗性行为，则应降低其品质。
         - 【调优】原始指标deception_index被拆分为deception_lure_long_intensity、deception_lure_short_intensity，本方法已更新以利用这两个更精细的指标。
-        - **【修正】直接使用 `SCORE_BEHAVIOR_BULLISH_DIVERGENCE` 和 `SCORE_BEHAVIOR_BEARISH_DIVERGENCE` 作为背离深度与广度的输入，避免重复计算和逻辑错误。**
+        - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_diagnose_divergence_quality"
         params = get_param_value(self.config_params.get('deceptive_divergence_protocol_params'), {})
-        # bullish_magnitude_params = get_param_value(params.get('bullish_magnitude_params'), {"price_downtrend_slope_window": 5, "conviction_uptrend_slope_window": 5}) # 废弃
-        # bearish_magnitude_params = get_param_value(params.get('bearish_magnitude_params'), {"price_slope_window": 5, "conviction_downtrend_slope_window": 5}) # 废弃
         fusion_weights = get_param_value(params.get('fusion_weights'), {"magnitude": 0.4, "location": 0.3, "bullish_absorption_confirmation": 0.2, "bearish_distribution_confirmation": 0.2, "micro_intent_confirmation": 0.1, "deceptive_narrative_confirmation": 0.1})
+        bullish_deception_penalty_weights = get_param_value(params.get('bullish_deception_penalty_weights'), {
+            "deception_index_lure_long": 0.4, "rally_distribution_pressure": 0.2,
+            "profit_taking_flow_ratio": 0.2, "upward_impulse_purity_inverse": 0.2
+        })
         p_mtf = get_param_value(self.config_params.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
         required_signals = [
             'close_D', 'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D',
-            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 'SCORE_BEHAVIOR_DECEPTION_INDEX'
+            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 'SCORE_BEHAVIOR_DECEPTION_INDEX',
+            # 新增牛市欺骗惩罚信号
+            'deception_lure_long_intensity_D', 'rally_distribution_pressure_D',
+            'profit_taking_flow_ratio_D', 'upward_impulse_purity_D'
         ]
         required_state_signals = [ # 新增对纯行为背离信号的依赖
             'SCORE_BEHAVIOR_BULLISH_DIVERGENCE', 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE'
@@ -1722,13 +1727,23 @@ class BehavioralIntelligence:
         micro_intent_raw_clip_lower_0 = micro_intent_raw.clip(lower=0)
         micro_intent_raw_clip_upper_0_abs = micro_intent_raw.clip(upper=0).abs()
         deception_raw_clip_upper_0_abs = deception_raw.clip(upper=0).abs() # 只有负向欺骗才作为欺骗叙事确认
+        # 新增牛市欺骗惩罚信号的原始数据
+        deception_lure_long_raw = signals_data['deception_lure_long_intensity_D']
+        rally_distribution_pressure_raw = signals_data['rally_distribution_pressure_D']
+        profit_taking_flow_ratio_raw = signals_data['profit_taking_flow_ratio_D']
+        upward_impulse_purity_raw = signals_data['upward_impulse_purity_D']
         # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         series_for_mtf_norm_config = {
             'loser_pain_index_D': (loser_pain_raw, default_weights, True),
-            'winner_instability_raw': (winner_instability_raw, default_weights, True), # winner_instability_raw
-            'micro_intent_raw_clip_lower_0': (micro_intent_raw_clip_lower_0, default_weights, True), # bullish_micro_intent_confirmation_score
-            'micro_intent_raw_clip_upper_0_abs': (micro_intent_raw_clip_upper_0_abs, default_weights, True), # bearish_micro_intent_confirmation_score
-            'deception_raw_clip_upper_0_abs': (deception_raw_clip_upper_0_abs, default_weights, True) # deceptive_narrative_confirmation_score
+            'winner_instability_raw': (winner_instability_raw, default_weights, True),
+            'micro_intent_raw_clip_lower_0': (micro_intent_raw_clip_lower_0, default_weights, True),
+            'micro_intent_raw_clip_upper_0_abs': (micro_intent_raw_clip_upper_0_abs, default_weights, True),
+            'deception_raw_clip_upper_0_abs': (deception_raw_clip_upper_0_abs, default_weights, True),
+            # 新增牛市欺骗惩罚信号的归一化配置
+            'deception_lure_long_intensity_D': (deception_lure_long_raw, default_weights, True),
+            'rally_distribution_pressure_D': (rally_distribution_pressure_raw, default_weights, True),
+            'profit_taking_flow_ratio_D': (profit_taking_flow_ratio_raw, default_weights, True),
+            'upward_impulse_purity_D_inverse': ((1 - upward_impulse_purity_raw).clip(0,1), default_weights, True)
         }
         # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
@@ -1740,18 +1755,31 @@ class BehavioralIntelligence:
         bullish_location_score = normalized_mtf_scores['loser_pain_index_D']
         bullish_absorption_confirmation_score = absorption_strength
         bullish_micro_intent_confirmation_score = normalized_mtf_scores['micro_intent_raw_clip_lower_0']
+        # 计算牛市欺骗惩罚
+        norm_deception_lure_long = normalized_mtf_scores['deception_lure_long_intensity_D']
+        norm_rally_distribution_pressure = normalized_mtf_scores['rally_distribution_pressure_D']
+        norm_profit_taking_flow_ratio = normalized_mtf_scores['profit_taking_flow_ratio_D']
+        norm_upward_impulse_purity_inverse = normalized_mtf_scores['upward_impulse_purity_D_inverse']
+        bullish_deception_penalty_score = (
+            norm_deception_lure_long * bullish_deception_penalty_weights.get('deception_index_lure_long', 0.4) +
+            norm_rally_distribution_pressure * bullish_deception_penalty_weights.get('rally_distribution_pressure', 0.2) +
+            norm_profit_taking_flow_ratio * bullish_deception_penalty_weights.get('profit_taking_flow_ratio', 0.2) +
+            norm_upward_impulse_purity_inverse * bullish_deception_penalty_weights.get('upward_impulse_purity_inverse', 0.2)
+        ).clip(0, 1)
         bullish_divergence_quality = self._robust_generalized_mean(
             {
                 "magnitude": bullish_magnitude_score,
                 "location": bullish_location_score,
                 "absorption_confirmation": bullish_absorption_confirmation_score,
-                "micro_intent_confirmation": bullish_micro_intent_confirmation_score
+                "micro_intent_confirmation": bullish_micro_intent_confirmation_score,
+                "deception_penalty": (1 - bullish_deception_penalty_score) # 惩罚因子，1-惩罚分数
             },
             {
                 "magnitude": fusion_weights.get('magnitude', 0.4),
                 "location": fusion_weights.get('location', 0.3),
                 "absorption_confirmation": fusion_weights.get('bullish_absorption_confirmation', 0.2),
-                "micro_intent_confirmation": fusion_weights.get('micro_intent_confirmation', 0.1)
+                "micro_intent_confirmation": fusion_weights.get('micro_intent_confirmation', 0.1),
+                "deception_penalty": 0.1 # 欺骗惩罚的权重
             },
             df.index,
             power_p=0.0, # 几何平均
@@ -1801,11 +1829,16 @@ class BehavioralIntelligence:
             print(f"        - distribution_intent (来自外部): {distribution_intent.loc[probe_ts]:.4f}")
             print(f"        - SCORE_BEHAVIOR_BULLISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'].loc[probe_ts]:.4f}")
             print(f"        - SCORE_BEHAVIOR_BEARISH_DIVERGENCE (from states): {state_signals_data['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'].loc[probe_ts]:.4f}")
+            print(f"        - deception_lure_long_intensity_D: {signals_data['deception_lure_long_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - rally_distribution_pressure_D: {signals_data['rally_distribution_pressure_D'].loc[probe_ts]:.4f}")
+            print(f"        - profit_taking_flow_ratio_D: {signals_data['profit_taking_flow_ratio_D'].loc[probe_ts]:.4f}")
+            print(f"        - upward_impulse_purity_D: {signals_data['upward_impulse_purity_D'].loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - 牛市背离幅度分数: {bullish_magnitude_score.loc[probe_ts]:.4f}")
             print(f"        - 牛市背离位置分数: {bullish_location_score.loc[probe_ts]:.4f}")
             print(f"        - 牛市吸收确认分数: {bullish_absorption_confirmation_score.loc[probe_ts]:.4f}")
             print(f"        - 牛市微观意图确认分数: {bullish_micro_intent_confirmation_score.loc[probe_ts]:.4f}")
+            print(f"        - 牛市欺骗惩罚分数: {bullish_deception_penalty_score.loc[probe_ts]:.4f}")
             print(f"        - 熊市背离幅度分数: {bearish_magnitude_score.loc[probe_ts]:.4f}")
             print(f"        - 熊市背离位置分数: {bearish_location_score.loc[probe_ts]:.4f}")
             print(f"        - 熊市派发确认分数: {bearish_distribution_confirmation_score.loc[probe_ts]:.4f}")
@@ -3200,14 +3233,15 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V4.0 · 行为纯化版】计算纯粹基于行为类原始数据的滞涨证据原始分。
-        - 核心升级: 引入“行为惯性”和“动态阈值”概念，使滞涨诊断更具情境感知和前瞻性。
+        【V4.1 · 行为纯化版 - 增强】计算纯粹基于行为类原始数据的滞涨证据原始分。
+        - 核心升级: 引入“不可持续拉升证据”维度，即使在上涨行情中，也能捕捉到主力暗中派发、诱多欺骗、上涨质量不佳等迹象。
         - 优化点:
           1. 行为惯性: 考虑价格和成交量斜率的减速或负向加速度，作为滞涨的补充证据。
           2. 动态阈值: 根据市场波动率（ATR）动态调整K线形态（长上影线、小实体）的阈值。
           3. 动量背离细化: 价格上涨但动量指标下降，且下降速度加快，则滞涨证据更强。
           4. 成交量异常细化: 区分放量滞涨和缩量上涨，后者在某些情境下也可能是滞涨证据。
-          5. 融合函数优化: 调整融合权重，并引入一个“滞涨加速度”因子。
+          5. **新增“不可持续拉升证据”维度**：融合拉升派发压力、获利了结、诱多、对倒、主力执行Alpha逆向、上涨脉冲纯度逆向等信号。
+          6. **融合函数优化**：使用配置中定义的 `fusion_weights` 进行加权几何平均。
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
@@ -3223,21 +3257,32 @@ class BehavioralIntelligence:
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 信号未启用，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+        fusion_weights = get_param_value(stagnation_params.get('fusion_weights'), {
+            "price_weakness": 0.2, "momentum_divergence": 0.2, "volume_anomaly": 0.2,
+            "intraday_control_weakness": 0.2, "unsustainable_rally_evidence": 0.2
+        })
+        unsustainable_rally_weights = get_param_value(stagnation_params.get('unsustainable_rally_weights'), {
+            "rally_distribution_pressure": 0.2, "profit_taking_flow_ratio": 0.2,
+            "deception_lure_long_intensity": 0.2, "wash_trade_intensity": 0.15,
+            "main_force_execution_alpha_inverse": 0.15, "upward_impulse_purity_inverse": 0.1
+        })
         required_signals = [
             'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D',
-            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope', # 修正此处
+            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
-            'pct_change_D'
+            'pct_change_D',
+            # 新增不可持续拉升证据的信号
+            'rally_distribution_pressure_D', 'profit_taking_flow_ratio_D',
+            'deception_lure_long_intensity_D', 'wash_trade_intensity_D',
+            'main_force_execution_alpha_D', 'upward_impulse_purity_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name, is_debug_enabled, probe_ts):
             if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
                 print(f"      [探针 - {method_name}] 缺少核心信号，返回0分。")
             return pd.Series(0.0, index=df.index)
-        # 集中提取所有必需的原始信号
         signals_data = {sig: df[sig] for sig in required_signals}
         debug_info = (is_debug_enabled, probe_ts, method_name)
-        # --- K线形态分析 ---
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
         low_price = signals_data['low_D']
@@ -3248,7 +3293,7 @@ class BehavioralIntelligence:
         atr_val = signals_data['ATR_14_D']
         robust_close_slope = signals_data['robust_close_slope']
         robust_rsi_slope = signals_data['robust_RSI_13_slope']
-        robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope'] # 修正此处
+        robust_macd_slope = signals_data['robust_MACDh_13_34_8_D']
         accel_rsi = signals_data['ACCEL_5_RSI_13_D']
         accel_macd = signals_data['ACCEL_5_MACDh_13_34_8_D']
         upward_efficiency = signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']
@@ -3269,15 +3314,19 @@ class BehavioralIntelligence:
         volume_drying_up_multiplier = stagnation_params.get('volume_drying_up_multiplier', 0.8)
         dynamic_upper_shadow_threshold = upper_shadow_ratio_threshold + atr_val * dynamic_kline_atr_multiplier
         dynamic_body_ratio_threshold = body_ratio_threshold - atr_val * dynamic_kline_atr_multiplier
-        # --- 预先计算组合 Series，确保 id() 一致性 ---
         pct_change_abs_raw = signals_data['pct_change_D'].abs()
-        # --- 收集所有需要进行多时间框架归一化的 Series 的配置 ---
         series_for_mtf_norm_config = {
-            'pct_change_abs_raw': (pct_change_abs_raw, tf_weights, True), # For volume_anomaly_score
-            'upward_efficiency': (upward_efficiency, tf_weights, True), # For norm_upward_efficiency_decay
-            'intraday_bull_control': (intraday_bull_control, tf_weights, True) # For norm_intraday_control_decay
+            'pct_change_abs_raw': (pct_change_abs_raw, tf_weights, True),
+            'upward_efficiency': (upward_efficiency, tf_weights, True),
+            'intraday_bull_control': (intraday_bull_control, tf_weights, True),
+            # 新增不可持续拉升证据的归一化配置
+            'rally_distribution_pressure_D': (signals_data['rally_distribution_pressure_D'], tf_weights, True),
+            'profit_taking_flow_ratio_D': (signals_data['profit_taking_flow_ratio_D'], tf_weights, True),
+            'deception_lure_long_intensity_D': (signals_data['deception_lure_long_intensity_D'], tf_weights, True),
+            'wash_trade_intensity_D': (signals_data['wash_trade_intensity_D'], tf_weights, True),
+            'main_force_execution_alpha_D_inverse': (signals_data['main_force_execution_alpha_D'].clip(upper=0).abs(), tf_weights, True), # 负向Alpha的绝对值
+            'upward_impulse_purity_D_inverse': ((1 - signals_data['upward_impulse_purity_D']).clip(0,1), tf_weights, True) # 上涨纯度的逆向
         }
-        # 批量计算所有多时间框架归一化分数
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
             normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
@@ -3312,13 +3361,40 @@ class BehavioralIntelligence:
         norm_upward_efficiency_decay = (1 - normalized_mtf_scores['upward_efficiency']).clip(0, 1) * stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
         norm_intraday_control_decay = (1 - normalized_mtf_scores['intraday_bull_control']).clip(0, 1) * stagnation_params.get('intraday_control_decay_bonus', 0.1)
         intraday_control_weakness_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
-        stagnation_score = (
-            (price_weakness_score + 1e-9).pow(0.3) *
-            (momentum_divergence_score + 1e-9).pow(0.3) *
-            (volume_anomaly_score + 1e-9).pow(0.2) *
-            (intraday_control_weakness_score + 1e-9).pow(0.2)
-        ).pow(1/1.0).fillna(0.0).clip(0, 1)
-        final_score = stagnation_score.astype(np.float32)
+        # 5. 新增：不可持续拉升证据 (Unsustainable Rally Evidence)
+        norm_rally_distribution_pressure = normalized_mtf_scores['rally_distribution_pressure_D']
+        norm_profit_taking_flow_ratio = normalized_mtf_scores['profit_taking_flow_ratio_D']
+        norm_deception_lure_long_intensity = normalized_mtf_scores['deception_lure_long_intensity_D']
+        norm_wash_trade_intensity = normalized_mtf_scores['wash_trade_intensity_D']
+        norm_main_force_execution_alpha_inverse = normalized_mtf_scores['main_force_execution_alpha_D_inverse']
+        norm_upward_impulse_purity_inverse = normalized_mtf_scores['upward_impulse_purity_D_inverse']
+        unsustainable_rally_evidence_score = (
+            norm_rally_distribution_pressure * unsustainable_rally_weights.get('rally_distribution_pressure', 0.2) +
+            norm_profit_taking_flow_ratio * unsustainable_rally_weights.get('profit_taking_flow_ratio', 0.2) +
+            norm_deception_lure_long_intensity * unsustainable_rally_weights.get('deception_lure_long_intensity', 0.2) +
+            norm_wash_trade_intensity * unsustainable_rally_weights.get('wash_trade_intensity', 0.15) +
+            norm_main_force_execution_alpha_inverse * unsustainable_rally_weights.get('main_force_execution_alpha_inverse', 0.15) +
+            norm_upward_impulse_purity_inverse * unsustainable_rally_weights.get('upward_impulse_purity_inverse', 0.1)
+        ).clip(0, 1)
+        # 最终融合 (加权几何平均)
+        stagnation_score = self._robust_generalized_mean(
+            {
+                "price_weakness": price_weakness_score,
+                "momentum_divergence": momentum_divergence_score,
+                "volume_anomaly": volume_anomaly_score,
+                "intraday_control_weakness": intraday_control_weakness_score,
+                "unsustainable_rally_evidence": unsustainable_rally_evidence_score
+            },
+            fusion_weights,
+            df.index,
+            power_p=0.0, # 几何平均
+            is_debug_enabled=is_debug_enabled,
+            probe_ts=probe_ts,
+            fusion_level_name=f"{method_name}_stagnation_score_fusion"
+        ).fillna(0.0).clip(0, 1)
+        is_rising_or_flat = (pct_change_val >= -0.005).astype(float)
+        final_stagnation_evidence = (stagnation_score * is_rising_or_flat).clip(0, 1)
+        final_score = final_stagnation_evidence.astype(np.float32)
         if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
             print(f"      [探针 - {method_name} - INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
@@ -3336,11 +3412,18 @@ class BehavioralIntelligence:
             print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
             print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
             print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+            print(f"        - rally_distribution_pressure_D: {signals_data['rally_distribution_pressure_D'].loc[probe_ts]:.4f}")
+            print(f"        - profit_taking_flow_ratio_D: {signals_data['profit_taking_flow_ratio_D'].loc[probe_ts]:.4f}")
+            print(f"        - deception_lure_long_intensity_D: {signals_data['deception_lure_long_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - wash_trade_intensity_D: {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - main_force_execution_alpha_D: {signals_data['main_force_execution_alpha_D'].loc[probe_ts]:.4f}")
+            print(f"        - upward_impulse_purity_D: {signals_data['upward_impulse_purity_D'].loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
             print(f"        - 价格行为疲软分数: {price_weakness_score.loc[probe_ts]:.4f}")
             print(f"        - 动量背离分数: {momentum_divergence_score.loc[probe_ts]:.4f}")
             print(f"        - 成交量异常分数: {volume_anomaly_score.loc[probe_ts]:.4f}")
             print(f"        - 日内控制力减弱分数: {intraday_control_weakness_score.loc[probe_ts]:.4f}")
+            print(f"        - 不可持续拉升证据分数: {unsustainable_rally_evidence_score.loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '滞涨证据'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 

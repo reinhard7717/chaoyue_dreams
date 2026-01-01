@@ -479,6 +479,13 @@
             "bullish_magnitude_params": {"price_downtrend_slope_window": 5, "conviction_uptrend_slope_window": 5},
             "bearish_magnitude_params": {"price_slope_window": 5, "conviction_downtrend_slope_window": 5},
             "fusion_weights": {"magnitude": 0.4, "location": 0.3, "bullish_absorption_confirmation": 0.2, "bearish_distribution_confirmation": 0.2, "micro_intent_confirmation": 0.1, "deceptive_narrative_confirmation": 0.1},
+            "bullish_deception_penalty_weights": {
+                "deception_index_lure_long": 0.4,
+                "rally_distribution_pressure": 0.2,
+                "profit_taking_flow_ratio": 0.2,
+                "upward_impulse_purity_inverse": 0.2
+            },
+            "comment_bullish_deception_penalty_weights": "用于计算牛市背离品质的欺骗惩罚因子组成信号权重。",
             "comment": "高品质价量/价资背离诊断参数。"
         },
         "beachhead_protocol_params": {
@@ -505,6 +512,23 @@
             "dynamic_kline_atr_multiplier": 0.005,
             "momentum_deceleration_bonus": 0.1,
             "volume_drying_up_multiplier": 0.8,
+            "unsustainable_rally_weights": {
+                "rally_distribution_pressure": 0.2,
+                "profit_taking_flow_ratio": 0.2,
+                "deception_lure_long_intensity": 0.2,
+                "wash_trade_intensity": 0.15,
+                "main_force_execution_alpha_inverse": 0.15,
+                "upward_impulse_purity_inverse": 0.1
+            },
+            "comment_unsustainable_rally_weights": "用于计算'不可持续拉升证据'的组成信号权重。",
+            "fusion_weights": {
+                "price_weakness": 0.2,
+                "momentum_divergence": 0.2,
+                "volume_anomaly": 0.2,
+                "intraday_control_weakness": 0.2,
+                "unsustainable_rally_evidence": 0.2
+            },
+            "comment_fusion_weights": "滞涨证据最终融合的权重。",
             "comment": "滞涨证据原始分计算参数。"
         },
         "grandmasters_protocol_params": {
