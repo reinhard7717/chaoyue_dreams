@@ -3255,7 +3255,7 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
         """
-        【V4.2 · 行为纯化版 - 增强与算术平均融合】计算纯粹基于行为类原始数据的滞涨证据原始分。
+        【V4.3 · 行为纯化版 - 增强与动态权重融合】计算纯粹基于行为类原始数据的滞涨证据原始分。
         - 核心升级: 引入“不可持续拉升证据”维度，即使在上涨行情中，也能捕捉到主力暗中派发、诱多欺骗、上涨质量不佳等迹象。
         - 优化点:
           1. 行为惯性: 考虑价格和成交量斜率的减速或负向加速度，作为滞涨的补充证据。
@@ -3264,6 +3264,7 @@ class BehavioralIntelligence:
           4. 成交量异常细化: 区分放量滞涨和缩量上涨，后者在某些情境下也可能是滞涨证据。
           5. **新增“不可持续拉升证据”维度**：融合拉升派发压力、获利了结、诱多、对倒、主力执行Alpha逆向、上涨脉冲纯度逆向等信号。
           6. **融合函数优化**：将最终融合从几何平均改为加权算术平均，避免零值对整体分数的过度影响。
+          7. **【新增】动态融合权重**：根据价格变化幅度动态调整各滞涨证据子维度的融合权重，使其在强劲上涨情境下更侧重于“不可持续拉升”和“动量背离”等风险。
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
@@ -3280,7 +3281,7 @@ class BehavioralIntelligence:
                 print(f"      [探针 - {method_name}] 信号未启用，返回0分。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         
-        fusion_weights = get_param_value(stagnation_params.get('fusion_weights'), {
+        base_fusion_weights = get_param_value(stagnation_params.get('fusion_weights'), {
             "price_weakness": 0.2, "momentum_divergence": 0.2, "volume_anomaly": 0.2,
             "intraday_control_weakness": 0.2, "unsustainable_rally_evidence": 0.2
         })
@@ -3288,6 +3289,11 @@ class BehavioralIntelligence:
             "rally_distribution_pressure": 0.2, "profit_taking_flow_ratio": 0.2,
             "deception_lure_long_intensity": 0.2, "wash_trade_intensity": 0.15,
             "main_force_execution_alpha_inverse": 0.15, "upward_impulse_purity_inverse": 0.1
+        })
+        dynamic_fusion_params = get_param_value(stagnation_params.get('dynamic_fusion_weights_params'), {
+            "enabled": False, "price_change_threshold": 0.05,
+            "momentum_divergence_boost": 0.3, "unsustainable_rally_boost": 0.4,
+            "price_weakness_decay": 0.1, "volume_anomaly_decay": 0.1, "intraday_control_weakness_decay": 0.1
         })
 
         required_signals = [
@@ -3416,8 +3422,64 @@ class BehavioralIntelligence:
             norm_upward_impulse_purity_inverse * unsustainable_rally_weights.get('upward_impulse_purity_inverse', 0.1)
         ).clip(0, 1)
 
-        # 最终融合 (改为加权算术平均)
-        # 收集所有子分数和对应的权重
+        # 动态调整融合权重
+        current_fusion_weights = base_fusion_weights.copy()
+        if dynamic_fusion_params.get('enabled', False):
+            # 识别强劲上涨情境
+            is_strong_price_increase = (pct_change_val > dynamic_fusion_params.get('price_change_threshold', 0.05))
+            
+            if is_strong_price_increase.any(): # 只有在有强劲上涨的日子才应用动态调整
+                # 创建一个与df.index相同长度的Series，用于存储动态权重
+                dynamic_weights_series = pd.DataFrame(index=df.index, columns=current_fusion_weights.keys(), dtype=np.float32)
+                for key, weight in current_fusion_weights.items():
+                    dynamic_weights_series[key] = weight # 初始化为基础权重
+
+                # 应用动态调整
+                dynamic_weights_series['momentum_divergence'] = dynamic_weights_series['momentum_divergence'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['momentum_divergence'] + dynamic_fusion_params.get('momentum_divergence_boost', 0.3)
+                )
+                dynamic_weights_series['unsustainable_rally_evidence'] = dynamic_weights_series['unsustainable_rally_evidence'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['unsustainable_rally_evidence'] + dynamic_fusion_params.get('unsustainable_rally_boost', 0.4)
+                )
+                dynamic_weights_series['price_weakness'] = dynamic_weights_series['price_weakness'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['price_weakness'] - dynamic_fusion_params.get('price_weakness_decay', 0.1)
+                ).clip(lower=0) # 权重不能为负
+                dynamic_weights_series['volume_anomaly'] = dynamic_weights_series['volume_anomaly'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['volume_anomaly'] - dynamic_fusion_params.get('volume_anomaly_decay', 0.1)
+                ).clip(lower=0)
+                dynamic_weights_series['intraday_control_weakness'] = dynamic_weights_series['intraday_control_weakness'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['intraday_control_weakness'] - dynamic_fusion_params.get('intraday_control_weakness_decay', 0.1)
+                ).clip(lower=0)
+                
+                # 归一化动态权重，确保总和为1
+                sum_dynamic_weights = dynamic_weights_series.sum(axis=1)
+                # 避免除以零，对于 sum_dynamic_weights 为 0 的情况，保持原始权重或设为 0
+                sum_dynamic_weights_safe = sum_dynamic_weights.replace(0, 1e-9)
+                normalized_dynamic_weights = dynamic_weights_series.div(sum_dynamic_weights_safe, axis=0)
+                
+                # 将 Series 形式的权重转换为字典形式，以便后续使用
+                # 注意：这里需要为每个时间点应用不同的权重，所以不能直接用一个字典
+                # 而是需要根据 is_strong_price_increase 来选择使用哪组权重
+                # 简化处理：对于非强劲上涨的日子，使用 base_fusion_weights
+                # 对于强劲上涨的日子，使用 normalized_dynamic_weights
+                fusion_weights_applied = {}
+                for key in current_fusion_weights.keys():
+                    fusion_weights_applied[key] = pd.Series(base_fusion_weights[key], index=df.index, dtype=np.float32)
+                    fusion_weights_applied[key].mask(is_strong_price_increase, normalized_dynamic_weights[key], inplace=True)
+            else:
+                # 如果没有强劲上涨的日子，则全部使用基础权重
+                fusion_weights_applied = {key: pd.Series(weight, index=df.index, dtype=np.float32) for key, weight in base_fusion_weights.items()}
+        else:
+            # 如果动态权重未启用，则全部使用基础权重
+            fusion_weights_applied = {key: pd.Series(weight, index=df.index, dtype=np.float32) for key, weight in base_fusion_weights.items()}
+
+
+        # 最终融合 (加权算术平均)
         scores_dict = {
             "price_weakness": price_weakness_score,
             "momentum_divergence": momentum_divergence_score,
@@ -3427,17 +3489,16 @@ class BehavioralIntelligence:
         }
         
         weighted_sum = pd.Series(0.0, index=df.index, dtype=np.float32)
-        total_weight = 0.0
+        total_weight_sum = pd.Series(0.0, index=df.index, dtype=np.float32)
+
         for key, score_series in scores_dict.items():
-            weight = fusion_weights.get(key, 0.0)
-            if weight > 0:
-                weighted_sum += score_series * weight
-                total_weight += weight
+            weight_series = fusion_weights_applied[key] # 使用动态或静态权重Series
+            weighted_sum += score_series * weight_series
+            total_weight_sum += weight_series
         
-        if total_weight > 0:
-            stagnation_score = (weighted_sum / total_weight).clip(0, 1)
-        else:
-            stagnation_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 避免除以零
+        total_weight_sum_safe = total_weight_sum.replace(0, 1e-9)
+        stagnation_score = (weighted_sum / total_weight_sum_safe).clip(0, 1)
 
         is_rising_or_flat = (pct_change_val >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_score * is_rising_or_flat).clip(0, 1)
@@ -3472,6 +3533,13 @@ class BehavioralIntelligence:
             print(f"        - 成交量异常分数: {volume_anomaly_score.loc[probe_ts]:.4f}")
             print(f"        - 日内控制力减弱分数: {intraday_control_weakness_score.loc[probe_ts]:.4f}")
             print(f"        - 不可持续拉升证据分数: {unsustainable_rally_evidence_score.loc[probe_ts]:.4f}")
+            print(f"        - 动态权重应用于强劲上涨情境: {is_strong_price_increase.loc[probe_ts]}")
+            if is_strong_price_increase.loc[probe_ts]:
+                print(f"        - 调整后权重 (price_weakness): {normalized_dynamic_weights['price_weakness'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (momentum_divergence): {normalized_dynamic_weights['momentum_divergence'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (volume_anomaly): {normalized_dynamic_weights['volume_anomaly'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (intraday_control_weakness): {normalized_dynamic_weights['intraday_control_weakness'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (unsustainable_rally_evidence): {normalized_dynamic_weights['unsustainable_rally_evidence'].loc[probe_ts]:.4f}")
             print(f"      [探针 - {method_name}] 最终 '滞涨证据'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
         return final_score
 

@@ -529,6 +529,16 @@
                 "unsustainable_rally_evidence": 0.2
             },
             "comment_fusion_weights": "滞涨证据最终融合的权重。",
+            "dynamic_fusion_weights_params": {
+                "enabled": true,
+                "price_change_threshold": 0.05,
+                "momentum_divergence_boost": 0.3,
+                "unsustainable_rally_boost": 0.4,
+                "price_weakness_decay": 0.1,
+                "volume_anomaly_decay": 0.1,
+                "intraday_control_weakness_decay": 0.1,
+                "comment": "根据价格变化动态调整滞涨证据融合权重。"
+            },
             "comment": "滞涨证据原始分计算参数。"
         },
         "grandmasters_protocol_params": {
