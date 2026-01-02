@@ -644,11 +644,14 @@ def _numba_calculate_bull_trap_penalty_core(
     """
     n = len(has_recent_sharp_drop)
     penalty_factor = np.ones(n, dtype=np.float32)
+
     for i in range(n):
         bull_trap_condition = has_recent_sharp_drop[i] and has_positive_deception[i]
         if bull_trap_condition:
             penalty_strength = composite_positive_deception_score[i] * deception_penalty_multiplier * dynamic_penalty_sensitivity[i]
-            penalty_factor[i] = 1 - np.clip(penalty_strength, 0.0, 1.0)
+            # 修复：使用min/max组合进行标量裁剪
+            penalty_factor[i] = 1 - max(0.0, min(penalty_strength, 1.0))
+            
     return penalty_factor
 
 class ChipIntelligence:
