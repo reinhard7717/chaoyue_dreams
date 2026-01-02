@@ -1394,7 +1394,10 @@ class ChipIntelligence:
         norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_main_force_conviction_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        
         # --- Numba优化区域：conviction_base_unipolar的欺骗调制 ---
+        # 从 deception_modulator_params 中获取 conviction_threshold
+        conviction_threshold = get_param_value(deception_modulator_params.get('conviction_threshold'), 0.2) # 修复：确保conviction_threshold已定义
         conviction_base_unipolar_values = _numba_calculate_impurity_deception_modulator_core(
             conviction_base_unipolar.values,
             norm_deception_index_bipolar.values,
@@ -1403,10 +1406,11 @@ class ChipIntelligence:
             deception_modulator_weights.get('deception_index_boost', 0.5),
             deception_modulator_weights.get('deception_index_penalty', 0.5),
             deception_modulator_weights.get('wash_trade_penalty', 0.3),
-            conviction_threshold
+            conviction_threshold # 修复：传递已定义的conviction_threshold
         )
         conviction_base_unipolar = pd.Series(conviction_base_unipolar_values, index=df_index, dtype=np.float32)
         # --- Numba优化区域结束 ---
+
         norm_fomo_deviation = utils.get_adaptive_mtf_normalized_score((fomo_index_raw - fomo_concentration_optimal_target).abs(), df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         profit_taking_quality_thresholded = (profit_taking_quality_raw - profit_taking_threshold).clip(lower=0)
         norm_profit_taking_quality = utils.get_adaptive_mtf_normalized_score(profit_taking_quality_thresholded, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
