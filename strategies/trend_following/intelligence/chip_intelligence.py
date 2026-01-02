@@ -161,20 +161,27 @@ def _numba_calculate_fuel_quality_modulators_core(
     deception_penalty = np.zeros(n, dtype=np.float32)
     synergy_bonus = np.zeros(n, dtype=np.float32)
     fuel_quality_score_after_deception = np.zeros(n, dtype=np.float32)
+
     for i in range(n):
         positive_fault_mask = chip_fault_raw[i] > 0 # 筹码故障为正，视为负面影响 (诱多)
+        
         # Deception Penalty
         if positive_fault_mask:
             deception_penalty[i] = norm_chip_fault[i] * fuel_purity_deception_penalty_factor * 4.0
-        fuel_quality_score_after_deception[i] = base_fuel_quality[i] - np.clip(deception_penalty[i], 0.0, 1.0)
+        # 修复：使用min/max组合进行标量裁剪
+        fuel_quality_score_after_deception[i] = base_fuel_quality[i] - max(0.0, min(deception_penalty[i], 1.0))
+
         # Synergy Bonus
         dynamic_synergy_bonus_factor = synergy_bonus_base * (1 + norm_synergy_context[i] * synergy_bonus_context_sensitivity)
-        dynamic_synergy_bonus_factor = np.clip(dynamic_synergy_bonus_factor, 0.1, 0.5)
+        # 修复：使用min/max组合进行标量裁剪
+        dynamic_synergy_bonus_factor = max(0.1, min(dynamic_synergy_bonus_factor, 0.5))
+        
         # 当存在正向筹码故障（诱多）时，取消协同奖励
         if not positive_fault_mask: # 只有在没有诱多故障时才激活协同奖励
             synergy_potential = (base_fuel_quality[i] + 1) / 2 # 映射到 [0,1]
             synergy_activation = 1 / (1 + np.exp(-(synergy_potential - synergy_activation_threshold) * 10))
             synergy_bonus[i] = synergy_activation * dynamic_synergy_bonus_factor
+            
     return fuel_quality_score_after_deception, synergy_bonus
 
 @nb.njit(cache=True)
