@@ -2,12 +2,100 @@
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+import numba as nb
 from typing import Dict, Tuple, Optional, List, Any, final
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_energy_score,
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score, get_robust_bipolar_normalized_score,
     normalize_score,  load_external_json_config, normalize_to_bipolar
 )
+
+@nb.njit(cache=True)
+def _numba_calculate_series_dynamics_core(series_values: np.ndarray, periods: List[int]) -> Tuple[Dict[int, np.ndarray], Dict[int, np.ndarray]]:
+    """
+    Numba优化后的核心函数，用于计算Series的斜率和加速度。
+    直接操作NumPy数组，避免Pandas Series的开销。
+    """
+    slopes_np = nb.typed.Dict.empty(
+        key_type=nb.int64,
+        value_type=nb.float32[:]
+    )
+    accels_np = nb.typed.Dict.empty(
+        key_type=nb.int64,
+        value_type=nb.float32[:]
+    )
+    n = len(series_values)
+    max_period = 0
+    if len(periods) > 0:
+        max_period = max(periods)
+    if n < max_period + 1:
+        for p in periods:
+            slopes_np[p] = np.full(n, 0.0, dtype=np.float32)
+            if p <= 34: # 假设34是加速度计算的合理最大周期
+                accels_np[p] = np.full(n, 0.0, dtype=np.float32)
+        return slopes_np, accels_np
+    for p in periods:
+        # 计算斜率 (diff)
+        slope_arr = np.full(n, 0.0, dtype=np.float32)
+        for i in range(p, n):
+            slope_arr[i] = series_values[i] - series_values[i - p]
+        slopes_np[p] = slope_arr
+        if p <= 34: # 仅对较短周期计算加速度
+            # 计算加速度 (斜率的diff)
+            accel_arr = np.full(n, 0.0, dtype=np.float32)
+            if n > 1: # 确保有足够的数据计算diff(1)
+                for i in range(1, n):
+                    accel_arr[i] = slope_arr[i] - slope_arr[i - 1]
+            accels_np[p] = accel_arr
+    return slopes_np, accels_np
+
+@nb.njit(cache=True)
+def _numba_robust_generalized_mean_core(
+    scores_values: np.ndarray, # 2D array: rows are dates, columns are scores
+    weights_values: np.ndarray, # 2D array: rows are dates, columns are weights
+    power_p_values: np.ndarray, # 1D array: power_p for each date
+    epsilon: float = 1e-9
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算加权广义平均。
+    直接操作NumPy数组，避免Pandas DataFrame/Series的内部开销。
+    """
+    num_dates, num_scores = scores_values.shape
+    result_values = np.zeros(num_dates, dtype=np.float32)
+    for i in range(num_dates):
+        current_scores = scores_values[i, :]
+        current_weights = weights_values[i, :]
+        current_power_p = power_p_values[i]
+        # 过滤掉零或负数的权重
+        valid_weight_mask = current_weights > epsilon
+        # 如果当前日期没有有效权重，结果为0
+        if not np.any(valid_weight_mask):
+            result_values[i] = 0.0
+            continue
+        filtered_scores = current_scores[valid_weight_mask]
+        filtered_weights = current_weights[valid_weight_mask]
+        total_weight = np.sum(filtered_weights)
+        # 如果总权重为零，结果为0
+        if np.abs(total_weight) < epsilon:
+            result_values[i] = 0.0
+            continue
+        normalized_weights = filtered_weights / total_weight
+        # 确保分数略大于零，以避免对数和幂运算中的数学错误
+        safe_scores = np.maximum(filtered_scores, epsilon)
+        if np.abs(current_power_p) < epsilon: # 几何平均部分 (power_p 接近 0)
+            weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights)
+            result_values[i] = np.exp(weighted_log_sum)
+        else: # 广义平均部分 (power_p 不接近 0)
+            # 避免 power_p 恰好为 0 导致 0**0 或 1/0 错误
+            if np.abs(current_power_p) < epsilon:
+                current_power_p = epsilon * np.sign(current_power_p) if current_power_p != 0 else epsilon
+            weighted_power_sum = np.sum(np.power(safe_scores, current_power_p) * normalized_weights)
+            # 处理 weighted_power_sum 接近 0 的情况，避免 0 的负数幂或 0 的 1/0 幂
+            if weighted_power_sum < epsilon:
+                result_values[i] = 0.0
+            else:
+                result_values[i] = weighted_power_sum**(1/current_power_p)
+    return np.clip(result_values, 0, 1)
 
 class BehavioralIntelligence:
     """
@@ -212,21 +300,18 @@ class BehavioralIntelligence:
         return fused_score.astype(np.float32)
 
     def _calculate_series_dynamics(self, series: pd.Series, periods: List[int], df_index: pd.Index, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp], base_name: str) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series]]:
-        slopes = {}
-        accels = {}
-        series = series.astype(np.float32)
-        if len(series) < max(periods) + 1:
-            for p in periods:
-                slopes[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
-                if p <= 34:
-                    accels[p] = pd.Series(0.0, index=df_index, dtype=np.float32)
-            return slopes, accels
-        for p in periods:
-            slope_series = series.diff(p).fillna(0.0).astype(np.float32)
-            slopes[p] = slope_series
-            if p <= 34:
-                accel_series = slope_series.diff(1).fillna(0.0).astype(np.float32)
-                accels[p] = accel_series
+        """
+        【V1.1 · Numba优化版】计算Series的斜率和加速度。
+        - 核心优化: 将核心数值计算逻辑迁移至Numba加速的辅助函数 `_numba_calculate_series_dynamics_core`。
+        - 职责分离: Pandas Series的创建和索引管理在Python层完成，纯数值计算在Numba层高效执行。
+        """
+        # 确保输入Series为float32类型，并提取其NumPy数组值
+        series_values = series.astype(np.float32).values
+        # 调用Numba优化后的核心函数进行计算
+        slopes_np, accels_np = _numba_calculate_series_dynamics_core(series_values, periods)
+        # 将Numba函数返回的NumPy数组转换回Pandas Series，并赋予正确的索引
+        slopes = {p: pd.Series(arr, index=df_index, dtype=np.float32) for p, arr in slopes_np.items()}
+        accels = {p: pd.Series(arr, index=df_index, dtype=np.float32) for p, arr in accels_np.items()}
         return slopes, accels
 
     def _calculate_mtf_dynamic_score(self, df: pd.DataFrame, base_indicator_name: str, mtf_periods: List[int], mtf_weights: Dict[str, float], dynamic_type: str, is_positive_trend: bool, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
@@ -338,10 +423,10 @@ class BehavioralIntelligence:
 
     def _robust_generalized_mean(self, scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, Any], df_index: pd.Index, power_p: Any = 0.0, is_debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None, fusion_level_name: str = "未知融合层") -> pd.Series:
         """
-        【V5.1 · 广义平均融合器 - 动态幂参数版】
+        【V5.2 · Numba优化版】
         计算给定分数序列的加权广义平均 (Weighted Generalized Mean / Power Mean)。
-        - 当 power_p 接近 0 时，行为类似于加权几何平均。
-        - 当 power_p 为 1 时，行为类似于加权算术平均。
+        - 核心优化: 将核心数值计算逻辑迁移至Numba加速的辅助函数 `_numba_robust_generalized_mean_core`。
+        - 职责分离: Pandas Series/DataFrame的创建、对齐和索引管理在Python层完成，纯数值计算在Numba层高效执行。
         - 确保输入分数在 [0, 1] 范围内，并处理零值以避免数学错误。
         - 新增: power_p 参数现在可以是标量或 pd.Series，以支持动态调整融合幂。
         - 修复: 兼容 weights_dict 中的权重可以是标量或 pd.Series。
@@ -351,75 +436,43 @@ class BehavioralIntelligence:
             if is_debug_enabled and probe_ts and not df_index.empty and probe_ts == df_index[-1]:
                 print(f"      [探针 - _robust_generalized_mean] {fusion_level_name}：scores_dict 为空，返回0分。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 准备分数 DataFrame，确保所有分数都与 df_index 对齐，填充 NaN，并裁剪到 [0, 1]
-        scores_df = pd.DataFrame(index=df_index)
-        for name, score_series in scores_dict.items():
-            scores_df[name] = score_series.reindex(df_index).fillna(0.0).clip(0, 1).astype(np.float32)
-        # 准备权重 DataFrame，处理标量和 Series 权重，并确保与 df_index 对齐
-        dynamic_weights_df = pd.DataFrame(index=df_index)
-        for name in scores_df.columns:
+        # 1. 准备分数 NumPy 数组
+        score_names = list(scores_dict.keys())
+        scores_list = []
+        for name in score_names:
+            # 确保分数与 df_index 对齐，填充 NaN，并裁剪到 [0, 1]
+            scores_list.append(scores_dict[name].reindex(df_index).fillna(0.0).clip(0, 1).astype(np.float32).values)
+        scores_values = np.stack(scores_list, axis=1) # 转换为 2D NumPy 数组
+        # 2. 准备权重 NumPy 数组
+        weights_list = []
+        for name in score_names:
             weight_val = weights_dict.get(name, 0.0)
             if isinstance(weight_val, pd.Series):
-                dynamic_weights_df[name] = weight_val.reindex(df_index).fillna(0.0).astype(np.float32)
+                weights_list.append(weight_val.reindex(df_index).fillna(0.0).astype(np.float32).values)
             else:
-                dynamic_weights_df[name] = pd.Series(weight_val, index=df_index, dtype=np.float32)
-        # 过滤掉权重为零或负数的项（向量化操作）
-        # 使用一个小的 epsilon 来判断权重是否有效，避免浮点数比较问题
-        valid_weight_mask = (dynamic_weights_df > 1e-9)
-        # 将无效权重的分数和权重本身设为0，使其不参与后续计算
-        filtered_scores_df = scores_df.where(valid_weight_mask, 0.0)
-        filtered_weights_df = dynamic_weights_df.where(valid_weight_mask, 0.0)
-        # 计算每个时间点的总权重
-        total_weight = filtered_weights_df.sum(axis=1)
-        # 处理总权重为零的情况：这些时间点的最终分数应为0
-        zero_total_weight_mask = (total_weight.abs() < 1e-9)
-        # 归一化权重：对于总权重为零的行，归一化权重设为0，避免除以零
-        normalized_weights_df = filtered_weights_df.div(total_weight.where(~zero_total_weight_mask, 1.0), axis=0)
-        normalized_weights_df = normalized_weights_df.where(~zero_total_weight_mask, 0.0) # 确保总权重为0的行，归一化权重也为0
-        # 确保分数略大于零，以避免对数和幂运算中的数学错误
-        safe_scores_df = filtered_scores_df.replace(0.0, 1e-9)
-        # 初始化结果 Series
-        result_values = np.zeros(len(df_index), dtype=np.float32)
-        # 确保 power_p 是一个与 df_index 对齐的 Series
+                weights_list.append(np.full(len(df_index), weight_val, dtype=np.float32))
+        weights_values = np.stack(weights_list, axis=1) # 转换为 2D NumPy 数组
+        # 3. 准备幂参数 power_p NumPy 数组
         if isinstance(power_p, pd.Series):
-            power_p_aligned = power_p.reindex(df_index).fillna(0.0).astype(np.float32)
+            power_p_values = power_p.reindex(df_index).fillna(0.0).astype(np.float32).values
         else:
-            power_p_aligned = pd.Series(power_p, index=df_index, dtype=np.float32)
-        epsilon = 1e-9 # 用于判断 power_p 是否接近0
-        # 几何平均部分 (power_p 接近 0)
-        # 仅对总权重不为零且 power_p 接近 0 的行进行计算
-        geometric_mean_mask = (power_p_aligned.abs() < epsilon) & (~zero_total_weight_mask)
-        if geometric_mean_mask.any():
-            # 元素级乘法：log(safe_scores_df) * normalized_weights_df，然后按行求和
-            weighted_log_sum = (np.log(safe_scores_df) * normalized_weights_df).sum(axis=1)
-            result_values[geometric_mean_mask.values] = np.exp(weighted_log_sum[geometric_mean_mask].values)
-        # 广义平均部分 (power_p 不接近 0)
-        # 仅对总权重不为零且 power_p 不接近 0 的行进行计算
-        power_mean_mask = (~geometric_mean_mask) & (~zero_total_weight_mask)
-        if power_mean_mask.any():
-            # 避免 power_p 恰好为 0 导致 0**0 或 1/0 错误
-            power_p_for_power_mean = power_p_aligned.copy()
-            power_p_for_power_mean[power_mean_mask & (power_p_for_power_mean.abs() < epsilon)] = epsilon * np.sign(power_p_for_power_mean[power_mean_mask & (power_p_for_power_mean.abs() < epsilon)])
-            # 元素级乘法：safe_scores_df.pow(power_p_for_power_mean, axis=0) * normalized_weights_df，然后按行求和
-            # axis=0 确保 Series power_p_for_power_mean 与 DataFrame safe_scores_df 的行对齐
-            weighted_power_sum = (safe_scores_df.pow(power_p_for_power_mean, axis=0) * normalized_weights_df).sum(axis=1)
-            # 处理 weighted_power_sum 接近 0 的情况，避免 0 的负数幂或 0 的 1/0 幂
-            temp_result = np.where(
-                weighted_power_sum[power_mean_mask].values < epsilon,
-                0.0,
-                weighted_power_sum[power_mean_mask].values**(1/power_p_for_power_mean[power_mean_mask].values)
-            )
-            result_values[power_mean_mask.values] = temp_result
-        # 对于总权重为零的行，最终结果应为 0.0
-        result_values[zero_total_weight_mask.values] = 0.0
-        final_fused_score = pd.Series(result_values, index=df_index, dtype=np.float32).clip(0, 1)
+            power_p_values = np.full(len(df_index), power_p, dtype=np.float32)
+        # 4. 调用 Numba 优化后的核心函数
+        final_fused_score_values = _numba_robust_generalized_mean_core(
+            scores_values,
+            weights_values,
+            power_p_values
+        )
+        # 5. 将结果转换回 Pandas Series
+        final_fused_score = pd.Series(final_fused_score_values, index=df_index, dtype=np.float32)
         # if is_debug_enabled and probe_ts and not df_index.empty and probe_ts == df_index[-1]:
         #     print(f"        [探针 - _robust_generalized_mean] {fusion_level_name} 融合详情 @ {probe_ts.strftime('%Y-%m-%d')}:")
-        #     for name in scores_dict.keys():
-        #         if name in filtered_scores_df.columns:
-        #             print(f"          - {name}: 原始分数={scores_df[name].loc[probe_ts]:.4f}, 归一化权重={normalized_weights_df[name].loc[probe_ts]:.4f}")
-        #     print(f"          - 动态幂参数 (power_p): {power_p_aligned.loc[probe_ts]:.4f}")
-        #     print(f"          - 最终融合分数: {final_fused_score.loc[probe_ts]:.4f}")
+        #     for idx, name in enumerate(score_names):
+        #         if probe_ts in df_index:
+        #             print(f"          - {name}: 原始分数={scores_dict[name].loc[probe_ts]:.4f}, 权重={weights_dict.get(name, 0.0) if not isinstance(weights_dict.get(name), pd.Series) else weights_dict[name].loc[probe_ts]:.4f}")
+        #     if probe_ts in df_index:
+        #         print(f"          - 动态幂参数 (power_p): {power_p_values[df_index.get_loc(probe_ts)]:.4f}")
+        #         print(f"          - 最终融合分数: {final_fused_score.loc[probe_ts]:.4f}")
         return final_fused_score
 
     def _calculate_price_momentum_resonance(self, df: pd.DataFrame, tf_weights_config: Dict, default_tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
