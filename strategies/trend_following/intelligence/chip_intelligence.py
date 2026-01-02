@@ -105,13 +105,15 @@ def _numba_calculate_deception_filter_factor_core(
            ((norm_deception[i] > 0) or (norm_chip_fault[i] > 0)):
             penalty_val = (np.maximum(0.0, norm_deception[i]) * deception_penalty_sensitivity + \
                            np.maximum(0.0, norm_chip_fault[i]) * chip_fault_penalty_sensitivity)
-            deception_filter_factor[i] = 1 - np.clip(penalty_val, 0.0, 1.0)
+            # 修复：使用min/max组合进行标量裁剪
+            deception_filter_factor[i] = 1 - max(0.0, min(penalty_val, 1.0))
         # 熊市陷阱缓解 (不利地形伴随诱空洗盘或虚假阻力时缓解)
         elif base_terrain_advantage_score[i] < 0 and \
              ((norm_deception[i] < 0) or (norm_chip_fault[i] < 0)):
             mitigation_val = (np.abs(np.minimum(0.0, norm_deception[i])) * deception_mitigation_sensitivity + \
                               np.abs(np.minimum(0.0, norm_chip_fault[i])) * deception_mitigation_sensitivity)
-            deception_filter_factor[i] = 1 + np.clip(mitigation_val, 0.0, 0.5) # 缓解上限0.5
+            # 修复：使用min/max组合进行标量裁剪
+            deception_filter_factor[i] = 1 + max(0.0, min(mitigation_val, 0.5)) # 缓解上限0.5
     return np.clip(deception_filter_factor, 0.1, 2.0) # 限制范围
 
 @nb.njit(cache=True)
