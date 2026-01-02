@@ -256,13 +256,13 @@ class ProcessIntelligence:
         # 直接使用 self.params，因为它已在 __init__ 中加载了 process_intelligence_params
         p_conf = self.params
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
-        # [修改] 定义需要优先计算的“基石信号”清单，新增 PROCESS_META_COVERT_ACCUMULATION
+        # 定义需要优先计算的“基石信号”清单，新增 PROCESS_META_COVERT_ACCUMULATION
         priority_signals = [
             'PROCESS_META_POWER_TRANSFER',
             'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
             'PROCESS_META_COVERT_ACCUMULATION'
         ]
-        # [修改] 依赖前置处理逻辑，遍历基石信号清单
+        # 依赖前置处理逻辑，遍历基石信号清单
         processed_priority_signals = set()
         for signal_name in priority_signals:
             config = next((d for d in diagnostics if d.get('name') == signal_name), None)
@@ -1356,19 +1356,19 @@ class ProcessIntelligence:
         for axiom_config in axiom_configs:
             axiom_name = axiom_config.get('name')
             axiom_weight = axiom_config.get('weight', 0.0)
-            # [修改] 增加对公理信号是否存在的防御性检查
+            # 增加对公理信号是否存在的防御性检查
             if axiom_name not in self.strategy.atomic_states:
                 print(f"    -> [过程情报警告] 领域 '{domain_name}' 依赖的公理信号 '{axiom_name}' 不存在，跳过此公理。")
                 continue
             axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=df_index))
             domain_health_components.append(axiom_score * axiom_weight)
-            total_weight += abs(axiom_weight) # [修改] 使用绝对值权重总和，以正确处理负权重
+            total_weight += abs(axiom_weight) # 使用绝对值权重总和，以正确处理负权重
         if total_weight == 0:
             print(f"        -> [领域反转诊断] 警告: 领域 '{domain_name}' 的公理权重总和为0，无法计算健康度。")
             return {}
         # 计算该领域的双极性健康度
         bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1)
-        # [修改] 将健康度呈送给新的“神谕审判”方法进行最终裁决
+        # 将健康度呈送给新的“神谕审判”方法进行最终裁决
         return self._judge_domain_reversal(bipolar_domain_health, config)
 
     def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict) -> Dict[str, pd.Series]:
@@ -2010,7 +2010,7 @@ class ProcessIntelligence:
             df_index, 
             21, # 明确指定 windows 参数
             ascending=True,
-            debug_info=(is_debug_enabled, probe_ts_for_debug, method_name + "_volatility_stability_raw_norm")
+            debug_info=False
         ) # 将不稳定性转换为稳定性，并归一化到 [0, 1]
         # 探针：volatility_stability_raw 的值
         self._debug_probe(df_index, probe_ts_for_debug, method_name, "中间分 - volatility_stability_raw (after 1-norm)", volatility_stability_raw)
@@ -2615,7 +2615,7 @@ class ProcessIntelligence:
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # [修改] 修正调用参数，同时传递 df 和 df.index
+        # 修正调用参数，同时传递 df 和 df.index
         meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
         return meta_score
 
@@ -2627,7 +2627,7 @@ class ProcessIntelligence:
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # [修改] 修正调用参数，同时传递 df 和 df.index
+        # 修正调用参数，同时传递 df 和 df.index
         meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
         return meta_score
 

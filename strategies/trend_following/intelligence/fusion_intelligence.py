@@ -295,7 +295,6 @@ class FusionIntelligence:
         - 【V1.3 增强】增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_market_regime"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         states = {}
         df_index = df.index
@@ -417,7 +416,6 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_capital_confrontation"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         # if is_debug_enabled and probe_ts and probe_ts in df.index:
         #     print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“资本对抗”...")
@@ -622,7 +620,6 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_trend_structure_score"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         # if is_debug_enabled and probe_ts and probe_ts in df.index:
         #     print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势结构分”...")
@@ -701,7 +698,6 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_chip_trend"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         # if is_debug_enabled and probe_ts and probe_ts in df.index:
         #     print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“筹码趋势”...")
@@ -801,7 +797,6 @@ class FusionIntelligence:
                       修正方法签名以接受 debug_info 参数，并增加详细探针。
         """
         method_name = "_synthesize_contested_accumulation"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“博弈吸筹”...")
@@ -832,17 +827,16 @@ class FusionIntelligence:
 
     def _synthesize_micro_conviction(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 战术品质版 - 依赖解耦与强化】冶炼“微观信念” (Micro Conviction)
+        【V3.4 · 战术品质版 - 依赖解耦与强化】冶炼“微观信念” (Micro Conviction)
         - 核心重构: 在V2.0“意图-确认”模型基础上，引入“战术品质”作为第三裁决维度。
         - 核心公式: 最终信念 = (瞬时意图 × 确认调节器) × 品质调节器
         - 诡道哲学: 信念的含金量，不仅在于意图的强度与持续性，更在于其执行的战术
                       品质。此法旨在区分“匹夫之勇”与“运筹帷幄”。
-        - 【V3.3 增强】将对融合信号 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
+        - 【V3.4 增强】将对融合信号 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的依赖替换为基础信号 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，以解耦依赖。
                       增加 `SCORE_BEHAVIOR_DISTRIBUTION_INTENT` 和 `SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL` 信号，提高战术品质的准确性。
-                      增加详细探针，输出所有原料数据、关键计算节点和结果的值。
+                      **【新增】增加完整全面的探针，输出所有原始输入信号、中间计算结果、调节器、以及最终裁决的每一步。**
         """
         method_name = "_synthesize_micro_conviction"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“微观信念”...")
@@ -861,28 +855,60 @@ class FusionIntelligence:
         # 新增信号：派发意图和日内多头控制
         distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0, debug_info)
         intraday_bull_control = self._get_atomic_score(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.0, debug_info)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针 - {method_name}] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT: {micro_intent.loc[probe_ts]:.4f}")
+            print(f"        - SCORE_MICRO_AXIOM_DIVERGENCE: {micro_divergence.loc[probe_ts]:.4f}")
+            print(f"        - SCORE_MICRO_STRATEGY_COST_CONTROL: {cost_control.loc[probe_ts]:.4f}")
+            print(f"        - SCORE_INTRADAY_OFFENSIVE_PURITY: {offensive_purity.loc[probe_ts]:.4f}")
+            print(f"        - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {price_overextension_risk.loc[probe_ts]:.4f}")
+            print(f"        - SCORE_BEHAVIOR_DISTRIBUTION_INTENT: {distribution_intent.loc[probe_ts]:.4f}")
+            print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control.loc[probe_ts]:.4f}")
         # 2. 核心数学逻辑 - “意图-趋势-品质”三位一体裁决
         # 2.1 计算“确认后的意图” (V2.0核心保留)
         confirmation_factor = 0.5 # 确认系数
         confirmation_modulator = (1 + micro_divergence * confirmation_factor)
         confirmed_intent = (micro_intent * confirmation_modulator).clip(-1, 1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 确认调节器: {confirmation_modulator.loc[probe_ts]:.4f}, 确认后的意图: {confirmed_intent.loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 中间计算 - 确认后的意图 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - 确认系数 (confirmation_factor): {confirmation_factor:.4f}")
+            print(f"        - 确认调节器 (confirmation_modulator): {confirmation_modulator.loc[probe_ts]:.4f}")
+            print(f"        - 确认后的意图 (confirmed_intent): {confirmed_intent.loc[probe_ts]:.4f}")
         # 2.2 计算“战术品质”
         # 成本控制(防守)与进攻纯度(进攻)同等重要，并引入派发意图和日内多头控制进行调节
         tactical_quality_base = (cost_control * 0.5 + offensive_purity * 0.5).clip(-1, 1)
         # 派发意图作为负向调节，日内多头控制作为正向调节
+        # 派发意图越大，战术品质越差，所以用 (1 - distribution_intent * 0.5) 来惩罚
+        # 日内多头控制越大，战术品质越好，所以用 (+ intraday_bull_control * 0.2) 来奖励
         tactical_quality = (tactical_quality_base * (1 - distribution_intent * 0.5) + intraday_bull_control * 0.2).clip(-1, 1)
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针 - {method_name}] 中间计算 - 战术品质 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - 战术品质基础分 (tactical_quality_base): {tactical_quality_base.loc[probe_ts]:.4f}")
+            print(f"        - 派发意图惩罚因子 (1 - distribution_intent * 0.5): {(1 - distribution_intent.loc[probe_ts] * 0.5):.4f}")
+            print(f"        - 日内多头控制奖励因子 (intraday_bull_control * 0.2): {(intraday_bull_control.loc[probe_ts] * 0.2):.4f}")
+            print(f"        - 战术品质 (tactical_quality): {tactical_quality.loc[probe_ts]:.4f}")
         # 2.3 构建“品质调节器”
         quality_factor = 0.3 # 品质影响系数
-        quality_modulator = (1 + tactical_quality * quality_factor).clip(0.7, 1.3)
+        quality_modulator_base = (1 + tactical_quality * quality_factor).clip(0.7, 1.3)
         # 【V3.1 增强】引入价格超买意图风险作为负向调节器
-        quality_modulator = (quality_modulator * (1 - price_overextension_risk * 0.5)).clip(0.5, 1.3) # 0.5为惩罚系数
+        # 价格超买意图风险越大，品质调节器越小，惩罚越重
+        quality_modulator = (quality_modulator_base * (1 - price_overextension_risk * 0.5)).clip(0.5, 1.3) # 0.5为惩罚系数
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针 - {method_name}] 中间计算 - 品质调节器 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - 品质影响系数 (quality_factor): {quality_factor:.4f}")
+            print(f"        - 品质调节器基础分 (quality_modulator_base): {quality_modulator_base.loc[probe_ts]:.4f}")
+            print(f"        - 价格超买风险惩罚因子 (1 - price_overextension_risk * 0.5): {(1 - price_overextension_risk.loc[probe_ts] * 0.5):.4f}")
+            print(f"        - 品质调节器 (quality_modulator): {quality_modulator.loc[probe_ts]:.4f}")
         # 2.4 最终裁决：(确认后的意图) × 品质调节器
         final_conviction_score = (confirmed_intent * quality_modulator).clip(-1, 1)
         output_name = 'FUSION_BIPOLAR_MICRO_CONVICTION'
         states[output_name] = final_conviction_score.astype(np.float32)
-        print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {final_conviction_score.iloc[-1]:.4f}")
+        if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"      [探针 - {method_name}] 最终裁决 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - 最终微观信念分数 (final_conviction_score): {final_conviction_score.loc[probe_ts]:.4f}")
+            print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {final_conviction_score.loc[probe_ts]:.4f}")
+        else:
+            print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {final_conviction_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_trend_quality(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:
@@ -898,7 +924,6 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_trend_quality"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“趋势质量”...")
@@ -967,13 +992,12 @@ class FusionIntelligence:
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
         """
         method_name = "_synthesize_market_pressure"
-        # 修正此处：检查 debug_info 是否为 None
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在冶炼“市场压力”...")
         states = {}
         df_index = df.index
-        # --- 1. [修改] 信号升维并计算“战术净压力” (臣) ---
+        # --- 1. 信号升维并计算“战术净压力” (臣) ---
         opportunity_signals = {
             'SCORE_CHIP_HARMONY_INFLECTION': 0.3,
             'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK': 0.25,
