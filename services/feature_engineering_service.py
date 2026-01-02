@@ -46,7 +46,6 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
             L[k_idx] = np.log(Lk_sum / count / k)
         else:
             L[k_idx] = np.nan
-            
     valid_L_indices = np.where(~np.isnan(L))[0]
     if len(valid_L_indices) < 2:
         return np.nan

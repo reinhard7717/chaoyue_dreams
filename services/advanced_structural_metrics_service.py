@@ -150,7 +150,6 @@ def _numba_calculate_tpo_metrics(close_arr: np.ndarray, vol_arr: np.ndarray) -> 
             value_area_prices = np.append(value_area_prices, unique_prices[prices_below_vpoc_indices[below_ptr]])
             current_volume_in_area += vol_below
             below_ptr -= 1
-            
     vah = np.max(value_area_prices)
     val = np.min(value_area_prices)
     
@@ -265,7 +264,6 @@ def _numba_calculate_prev_day_interaction_metrics(
             opening_position_vs_prev_va = 1.0
         else:
             opening_position_vs_prev_va = -1.0
-            
     return value_area_migration, value_area_overlap_pct, closing_acceptance_type, opening_position_vs_prev_va
 
 class AdvancedStructuralMetricsService:

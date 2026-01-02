@@ -28,7 +28,6 @@ def _numba_calculate_price_thrust_divergence(
         thrust_change_pct = (pm_thrust - am_thrust) / abs(am_thrust) if am_thrust != 0 else 1.0
         if thrust_change_pct > 0:
             bottom_divergence_score = price_change_pct / abs(thrust_change_pct)
-            
     return top_divergence_score + bottom_divergence_score
 
 class DerivativeMetricsCalculator:

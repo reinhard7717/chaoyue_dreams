@@ -80,7 +80,6 @@ def _numba_calculate_vpin_buckets(
         bucket_buy_vol[bucket_idx] += buy_vol_arr[i]
         bucket_sell_vol[bucket_idx] += sell_vol_arr[i]
         current_bucket_idx = max(current_bucket_idx, bucket_idx)
-            
     # 截取实际使用的桶
     actual_buckets = current_bucket_idx + 1
     # 防御性检查：如果实际桶数为0或负数，返回空数组
@@ -113,7 +112,6 @@ def _numba_calculate_active_volume_price_efficiency(
         else:
             cum_thrust[i] = cum_thrust[i-1] + net_thrust_volume
             cum_price_change[i] = price_arr[i] - first_price
-            
     # 计算相关性
     # Numba 0.58+ 支持 np.corrcoef，但为了更广泛的兼容性，手动实现
     mean_cum_thrust = np.mean(cum_thrust)
