@@ -330,7 +330,7 @@ class ChipIntelligence:
         #     print(f"        战场控制得分 (battlefield_control_score): {battlefield_control_score.loc[probe_ts]:.4f}")
         # 4. 基础战略态势 (Base Strategic Posture)
         norm_covert_distribution_signal = utils.get_adaptive_mtf_normalized_score(covert_distribution_signal_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        # 修正：在进行几何平均之前，对 commanders_resolve_score 进行裁剪，确保其在 [-1, 1] 范围内
+        # 在进行几何平均之前，对 commanders_resolve_score 进行裁剪，确保其在 [-1, 1] 范围内
         commanders_resolve_score_clipped = commanders_resolve_score.clip(-1, 1)
         base_strategic_posture_score = (
             (commanders_resolve_score_clipped.add(1)/2).pow(0.5) *
@@ -403,7 +403,7 @@ class ChipIntelligence:
         #     print(f"        动态速度权重 (dynamic_velocity_weight): {dynamic_velocity_weight.loc[probe_ts]:.4f}")
         #     print(f"        动态加速度权重 (dynamic_acceleration_weight): {dynamic_acceleration_weight.loc[probe_ts]:.4f}")
         # 8. 最终融合 (Final Fusion)
-        # 修正：在进行几何平均之前，对 base_strategic_posture_score 进行裁剪，确保其在 [-1, 1] 范围内
+        # 在进行几何平均之前，对 base_strategic_posture_score 进行裁剪，确保其在 [-1, 1] 范围内
         # 这里的 base_strategic_posture_score 已经是经过维度互动增强后的结果，也可能超出 [-1, 1]
         base_strategic_posture_score_for_fusion = base_strategic_posture_score.clip(-1, 1)
         final_score_unmodulated = (

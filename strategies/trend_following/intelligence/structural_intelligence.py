@@ -822,7 +822,7 @@ class StructuralIntelligence:
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         # 成交量爆发指数越高，微观意图越强（可能是买也可能是卖）
         # 波动率不稳定性指数越低，市场微观结构越稳定，越有利于意图的实现
-        # 修正：get_adaptive_mtf_normalized_bipolar_score 默认输出 -1到1，get_adaptive_mtf_normalized_score 默认输出0到1
+        # get_adaptive_mtf_normalized_bipolar_score 默认输出 -1到1，get_adaptive_mtf_normalized_score 默认输出0到1
         # 确保两者都输出0到1，或者在融合时进行适当的裁剪
         # 假设 volume_burstiness_index_D 原始值是正向的，越大越好
         volume_burstiness_score = self.get_dynamic_normalized_score(volume_burstiness_raw, df_index, tf_weights, ascending=True)

@@ -377,7 +377,7 @@ class FundFlowIntelligence:
             if isinstance(mod_params, dict) and 'signal' in mod_params:
                 energy_modulator_signals[mod_name] = self._get_safe_series(df, df, mod_params['signal'], 0.0, method_name=method_name)
         adaptive_weight_modulator_1_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_1_name, 0.0, method_name=method_name)
-        # 修正：将 self._get_safe_safe_series 改为 self._get_safe_series
+        # 将 self._get_safe_safe_series 改为 self._get_safe_series
         adaptive_weight_modulator_2_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_2_name, 0.0, method_name=method_name)
         adaptive_weight_modulator_3_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_3_name, 0.0, method_name=method_name)
         dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_1_name, 0.0, method_name=method_name)
@@ -2344,7 +2344,7 @@ class FundFlowIntelligence:
         fund_flow_weakness_enabled = get_param_value(fund_flow_weakness_penalty_params.get('enabled'), False)
         long_term_nmfnf_accel_period = get_param_value(fund_flow_weakness_penalty_params.get('long_term_nmfnf_accel_period'), 21)
         sell_exhaustion_weight = get_param_value(fund_flow_weakness_penalty_params.get('sell_exhaustion_weight'), 0.4)
-        nmfnf_accel_weight = get_param_value(fund_flow_weakness_penalty_params.get('nmfnf_accel_weight'), 0.3) # 调整权重
+        nmfnf_accel_weight = get_param_value(fund_flow_weakness_penalty_params.get('nmfnf_accel_weight'), 0.3)
         price_weakness_threshold = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_threshold'), -0.03) # 价格弱势阈值
         price_weakness_sensitivity = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_sensitivity'), 10.0) # 价格弱势敏感度
         price_weakness_weight = get_param_value(fund_flow_weakness_penalty_params.get('price_weakness_weight'), 0.3) # 价格弱势权重

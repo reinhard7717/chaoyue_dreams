@@ -3121,7 +3121,7 @@ class ProcessIntelligence:
         # 修改代码：新增更多权重配置
         deception_context_weights = get_param_value(params.get('deception_context_weights'), {"wash_trade": 0.2, "active_selling": 0.15, "deception_lure_short": 0.2, "behavior_deception_index": 0.2, "stealth_ops": 0.15, "wash_trade_slope": 0.05, "active_selling_slope": 0.05})
         panic_depth_weights = get_param_value(params.get('panic_depth_weights'), {"panic_cascade": 0.2, "retail_surrender": 0.2, "loser_pain": 0.2, "holder_sentiment_inverted": 0.15, "sentiment_pendulum_negative": 0.15, "retail_surrender_slope": 0.075, "loser_pain_slope": 0.075}) # 提高权重
-        rebound_quality_weights = get_param_value(params.get('rebound_quality_weights'), {"closing_strength": 0.15, "upward_purity": 0.15, "absorption_strength": 0.3, "offensive_absorption": 0.25, "mf_buy_execution_alpha": 0.05, "buy_sweep_intensity": 0.1}) # 调整权重
+        rebound_quality_weights = get_param_value(params.get('rebound_quality_weights'), {"closing_strength": 0.15, "upward_purity": 0.15, "absorption_strength": 0.3, "offensive_absorption": 0.25, "mf_buy_execution_alpha": 0.05, "buy_sweep_intensity": 0.1})
         context_amplification_weights = get_param_value(params.get('context_amplification_weights'), {"trend_form": 0.4, "stability": 0.3, "tension": 0.15, "mtf_cohesion": 0.15})
         max_context_bonus_factor = get_param_value(params.get('max_context_bonus_factor'), 0.5)
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -3224,8 +3224,8 @@ class ProcessIntelligence:
         rebound_quality_score = (
             (closing_strength_score).pow(rebound_quality_weights.get('closing_strength', 0.15)) *
             (upward_purity_score).pow(rebound_quality_weights.get('upward_purity', 0.15)) *
-            (absorption_strength_normalized).pow(rebound_quality_weights.get('absorption_strength', 0.3)) * # 调整权重
-            (offensive_absorption_normalized).pow(rebound_quality_weights.get('offensive_absorption', 0.25)) * # 调整权重
+            (absorption_strength_normalized).pow(rebound_quality_weights.get('absorption_strength', 0.3)) *
+            (offensive_absorption_normalized).pow(rebound_quality_weights.get('offensive_absorption', 0.25)) *
             (mf_buy_execution_alpha_score).pow(rebound_quality_weights.get('mf_buy_execution_alpha', 0.05)) *
             (buy_sweep_intensity_score).pow(rebound_quality_weights.get('buy_sweep_intensity', 0.1))
         ).pow(1/sum(rebound_quality_weights.values())).fillna(0.0)
