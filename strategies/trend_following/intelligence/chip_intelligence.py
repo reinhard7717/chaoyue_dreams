@@ -390,12 +390,10 @@ def _numba_calculate_harmony_conflict_penalty_core(
         strong_bullish_strategic_bearish_tactical = (strategic_posture[i] > conflict_threshold) and (tactical_exchange[i] < -conflict_threshold)
         strong_bearish_strategic_bullish_tactical = (strategic_posture[i] < -conflict_threshold) and (tactical_exchange[i] > conflict_threshold)
         conflict_mask = strong_bullish_strategic_bearish_tactical or strong_bearish_strategic_bullish_tactical
-
         if conflict_mask:
             deception_impact = 0.0
             if norm_deception[i] > 0: # 伴随欺骗的冲突
                 deception_impact = norm_deception[i] * deception_penalty_sensitivity
-            
             penalty_val = conflict_penalty_factor + deception_impact
             # 修复：使用min/max组合进行标量裁剪
             conflict_penalty_factor_adjusted[i] = 1 - max(0.0, min(penalty_val, 1.0))
@@ -453,10 +451,14 @@ def _numba_calculate_harmony_inflection_deception_modulator_core(
             deception_modulator[i] *= (1 + np.abs(norm_deception[i]) * deception_boost_factor_negative * 1.5)
         # 正向拐点且诱多惩罚
         elif inflection_strength[i] > 0 and norm_deception[i] > 0:
-            deception_modulator[i] *= (1 - np.clip(norm_deception[i] * deception_penalty_sensitivity, 0.0, 1.0))
+            penalty_val = norm_deception[i] * deception_penalty_sensitivity
+            # 修复：使用min/max组合进行标量裁剪
+            deception_modulator[i] *= (1 - max(0.0, min(penalty_val, 1.0)))
         # 负向拐点且对倒缓解
         elif inflection_strength[i] < 0 and norm_wash_trade[i] > 0:
-            deception_modulator[i] *= (1 + np.clip(norm_wash_trade[i] * wash_trade_mitigation_sensitivity, 0.0, 0.5))
+            mitigation_val = norm_wash_trade[i] * wash_trade_mitigation_sensitivity
+            # 修复：使用min/max组合进行标量裁剪
+            deception_modulator[i] *= (1 + max(0.0, min(mitigation_val, 0.5)))
     return np.clip(deception_modulator, 0.1, 2.0)
 
 @nb.njit(cache=True)
@@ -545,9 +547,11 @@ def _numba_calculate_main_force_cost_intent_core(
                                    dynamic_weight_above_vpoc[i])
             main_force_cost_intent_raw[i] = intent_above_vpoc
         elif close_raw[i] >= lower_bound[i] and close_raw[i] <= upper_bound[i]: # 价格在成本区内
+            # 修复：使用min/max组合进行标量裁剪
+            clipped_in_zone_modulator = max(-0.5, min(in_zone_intent_modulator[i], 0.5))
             intent_in_vpoc = net_conviction_flow_quality[i] * \
                              norm_main_force_conviction[i] * \
-                             (in_zone_intent_base_multiplier + np.clip(in_zone_intent_modulator[i], -0.5, 0.5) * in_zone_health_slope_sensitivity) * \
+                             (in_zone_intent_base_multiplier + clipped_in_zone_modulator * in_zone_health_slope_sensitivity) * \
                              dynamic_weight_in_vpoc[i]
             main_force_cost_intent_raw[i] = intent_in_vpoc
     return main_force_cost_intent_raw
@@ -579,7 +583,8 @@ def _numba_calculate_hollowing_out_risk_core(
         )
         deception_amplifier = 1 + main_force_deception_score[i] * deception_amplification_factor
         hollowing_out_risk_score *= deception_amplifier
-        final_score_values[i] = np.tanh(np.clip(hollowing_out_risk_score, 0.0, 1.0)**non_linear_exponent)
+        # 修复：使用min/max组合进行标量裁剪
+        final_score_values[i] = np.tanh(max(0.0, min(hollowing_out_risk_score, 1.0))**non_linear_exponent)
     return np.clip(final_score_values, 0.0, 1.0)
 
 @nb.njit(cache=True)
