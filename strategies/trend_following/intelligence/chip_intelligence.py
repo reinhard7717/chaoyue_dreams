@@ -345,7 +345,7 @@ def _numba_calculate_tactical_exchange_deception_core(
     deception_outcome_weights_cost: float
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Numba优化后的核心函数，用于计算_diagnose_tactical_exchange中的deception_quality_modulator和chip_deception_score_refined。
+    Numba优化后的核心函数，用于计算_diagnose_tactical_exchange中的deception_modulator和chip_deception_score_refined。
     """
     n = len(chip_deception_direction)
     deception_effectiveness_score = np.zeros(n, dtype=np.float32)
@@ -354,24 +354,27 @@ def _numba_calculate_tactical_exchange_deception_core(
     chip_deception_score_refined = np.zeros(n, dtype=np.float32)
 
     for i in range(n):
-        # Deception Effectiveness and Cost Score
+        # 诱空反吸增强
         if chip_deception_direction[i] > 0: # 诱空
             deception_effectiveness_score[i] = (norm_retail_panic_surrender[i] + norm_loser_pain[i]) / 2
             deception_cost_score[i] = norm_suppressive_accum[i]
         elif chip_deception_direction[i] < 0: # 诱多
             deception_effectiveness_score[i] = norm_winner_profit_margin_avg[i]
             deception_cost_score[i] = norm_profit_realization_quality_inverse[i]
+
         # Deception Quality Modulator
         deception_quality_modulator[i] = (
-            deception_outcome_weights_effectiveness * np.clip(deception_effectiveness_score[i], 0.0, 1.0) +
-            deception_outcome_weights_cost * np.clip(deception_cost_score[i], 0.0, 1.0)
+            deception_outcome_weights_effectiveness * max(0.0, min(deception_effectiveness_score[i], 1.0)) + # 修复
+            deception_outcome_weights_cost * max(0.0, min(deception_cost_score[i], 1.0)) # 修复
         )
+        
         high_quality_deception_mask = (deception_effectiveness_score[i] > deception_outcome_effectiveness_threshold) and \
                                       (deception_cost_score[i] > deception_outcome_cost_threshold)
         if not high_quality_deception_mask:
             deception_quality_modulator[i] *= 0.5 # 低质量欺骗减半调制效果
+
         # Refined Chip Deception Score
-        chip_deception_score_refined[i] = norm_chip_fault[i] * chip_deception_direction[i] * (1 + np.clip(deception_quality_modulator[i], 0.0, 1.0))
+        chip_deception_score_refined[i] = norm_chip_fault[i] * chip_deception_direction[i] * (1 + max(0.0, min(deception_quality_modulator[i], 1.0))) # 修复
         
     return np.clip(chip_deception_score_refined, -1.0, 1.0), np.clip(deception_quality_modulator, 0.0, 1.0)
 
