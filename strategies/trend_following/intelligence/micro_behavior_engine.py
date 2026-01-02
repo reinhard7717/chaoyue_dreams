@@ -157,6 +157,7 @@ class MicroBehaviorEngine:
                     现在，`deception_index_score`（其正值代表诱多/拉高出货，负值代表诱空/压价吸筹）
                     将以负向权重参与融合，即正向欺骗（诱多）会降低微观意图的看涨分数，
                     负向欺骗（诱空）会提高微观意图的看涨分数，从而更准确地反映主力真实意图。
+        - **【修复】修正 `ewm(span=period)` 中 `period` 类型错误的问题，将其转换为整数。**
         """
         method_name = "_diagnose_axiom_divergence"
         # 更新 required_signals，包含多时间框架的价格斜率
@@ -191,8 +192,8 @@ class MicroBehaviorEngine:
         price_trend_mtf_raw = pd.Series(0.0, index=df.index, dtype=np.float32)
         total_price_slope_weight = sum(slope_fusion_weights.values())
         if total_price_slope_weight > 0:
-            for period, weight in slope_fusion_weights.items():
-                slope_signal_name = f'SLOPE_{period}_EMA_{period}_D'
+            for period_str, weight in slope_fusion_weights.items(): # 迭代键值对
+                slope_signal_name = f'SLOPE_{period_str}_EMA_{period_str}_D'
                 if slope_signal_name in df.columns:
                     price_trend_mtf_raw += self._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name) * weight
                 else:
@@ -206,7 +207,8 @@ class MicroBehaviorEngine:
         micro_intent_trend_mtf_raw = pd.Series(0.0, index=df.index, dtype=np.float32)
         total_micro_intent_slope_weight = sum(slope_fusion_weights.values()) # 沿用相同的权重结构
         if total_micro_intent_slope_weight > 0:
-            for period, weight in slope_fusion_weights.items():
+            for period_str, weight in slope_fusion_weights.items(): # 迭代键值对
+                period = int(period_str) # 将字符串键转换为整数
                 # 计算 micro_intent_fused 的 EMA 斜率
                 ema_series = micro_intent_fused.ewm(span=period, adjust=False).mean()
                 # 使用 diff() 来近似斜率，或者更精确地计算斜率
