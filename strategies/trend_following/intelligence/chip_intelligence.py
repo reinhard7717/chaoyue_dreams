@@ -164,18 +164,15 @@ def _numba_calculate_fuel_quality_modulators_core(
 
     for i in range(n):
         positive_fault_mask = chip_fault_raw[i] > 0 # 筹码故障为正，视为负面影响 (诱多)
-        
         # Deception Penalty
         if positive_fault_mask:
             deception_penalty[i] = norm_chip_fault[i] * fuel_purity_deception_penalty_factor * 4.0
         # 修复：使用min/max组合进行标量裁剪
         fuel_quality_score_after_deception[i] = base_fuel_quality[i] - max(0.0, min(deception_penalty[i], 1.0))
-
         # Synergy Bonus
         dynamic_synergy_bonus_factor = synergy_bonus_base * (1 + norm_synergy_context[i] * synergy_bonus_context_sensitivity)
         # 修复：使用min/max组合进行标量裁剪
         dynamic_synergy_bonus_factor = max(0.1, min(dynamic_synergy_bonus_factor, 0.5))
-        
         # 当存在正向筹码故障（诱多）时，取消协同奖励
         if not positive_fault_mask: # 只有在没有诱多故障时才激活协同奖励
             synergy_potential = (base_fuel_quality[i] + 1) / 2 # 映射到 [0,1]
@@ -361,21 +358,17 @@ def _numba_calculate_tactical_exchange_deception_core(
         elif chip_deception_direction[i] < 0: # 诱多
             deception_effectiveness_score[i] = norm_winner_profit_margin_avg[i]
             deception_cost_score[i] = norm_profit_realization_quality_inverse[i]
-
         # Deception Quality Modulator
         deception_quality_modulator[i] = (
             deception_outcome_weights_effectiveness * max(0.0, min(deception_effectiveness_score[i], 1.0)) + # 修复
             deception_outcome_weights_cost * max(0.0, min(deception_cost_score[i], 1.0)) # 修复
         )
-        
         high_quality_deception_mask = (deception_effectiveness_score[i] > deception_outcome_effectiveness_threshold) and \
                                       (deception_cost_score[i] > deception_outcome_cost_threshold)
         if not high_quality_deception_mask:
             deception_quality_modulator[i] *= 0.5 # 低质量欺骗减半调制效果
-
         # Refined Chip Deception Score
         chip_deception_score_refined[i] = norm_chip_fault[i] * chip_deception_direction[i] * (1 + max(0.0, min(deception_quality_modulator[i], 1.0))) # 修复
-        
     return np.clip(chip_deception_score_refined, -1.0, 1.0), np.clip(deception_quality_modulator, 0.0, 1.0)
 
 @nb.njit(cache=True)
@@ -397,12 +390,16 @@ def _numba_calculate_harmony_conflict_penalty_core(
         strong_bullish_strategic_bearish_tactical = (strategic_posture[i] > conflict_threshold) and (tactical_exchange[i] < -conflict_threshold)
         strong_bearish_strategic_bullish_tactical = (strategic_posture[i] < -conflict_threshold) and (tactical_exchange[i] > conflict_threshold)
         conflict_mask = strong_bullish_strategic_bearish_tactical or strong_bearish_strategic_bullish_tactical
+
         if conflict_mask:
             deception_impact = 0.0
             if norm_deception[i] > 0: # 伴随欺骗的冲突
                 deception_impact = norm_deception[i] * deception_penalty_sensitivity
+            
             penalty_val = conflict_penalty_factor + deception_impact
-            conflict_penalty_factor_adjusted[i] = 1 - np.clip(penalty_val, 0.0, 1.0)
+            # 修复：使用min/max组合进行标量裁剪
+            conflict_penalty_factor_adjusted[i] = 1 - max(0.0, min(penalty_val, 1.0))
+            
     return np.clip(conflict_penalty_factor_adjusted, 0.0, 1.0)
 
 @nb.njit(cache=True)
@@ -739,7 +736,6 @@ class ChipIntelligence:
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-
         # 调用并记录持仓信念韧性信号
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
         # 确保 holder_sentiment_scores 是 Series
@@ -747,7 +743,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_axiom_holder_sentiment 返回无效类型，使用默认值。")
             holder_sentiment_scores = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
-
         # 调用并记录价筹张力信号
         divergence_scores = self._diagnose_axiom_divergence(df, periods)
         # 确保 divergence_scores 是 Series
@@ -755,7 +750,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_axiom_divergence 返回无效类型，使用默认值。")
             divergence_scores = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_AXIOM_DIVERGENCE'] = divergence_scores
-
         # 调用并记录战略态势信号
         strategic_posture = self._diagnose_strategic_posture(df)
         # 确保 strategic_posture 是 Series
@@ -763,7 +757,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_strategic_posture 返回无效类型，使用默认值。")
             strategic_posture = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
-
         # 调用并记录战场地形信号
         battlefield_geography = self._diagnose_battlefield_geography(df)
         # 确保 battlefield_geography 是 Series
@@ -771,7 +764,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_battlefield_geography 返回无效类型，使用默认值。")
             battlefield_geography = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
-
         # 调用并记录筹码趋势动量信号
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods, strategic_posture, battlefield_geography, holder_sentiment_scores)
         # 确保 chip_trend_momentum_scores 是 Series
@@ -779,7 +771,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_axiom_trend_momentum 返回无效类型，使用默认值。")
             chip_trend_momentum_scores = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
-
         # 调用并记录筹码历史潜力信号
         historical_potential = self._diagnose_axiom_historical_potential(df)
         # 确保 historical_potential 是 Series
@@ -787,7 +778,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_axiom_historical_potential 返回无效类型，使用默认值。")
             historical_potential = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
-
         # 调用并记录吸筹回声信号
         absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
         # 确保 absorption_echo 是 Series
@@ -795,7 +785,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_absorption_echo 返回无效类型，使用默认值。")
             absorption_echo = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_OPP_ABSORPTION_ECHO'] = absorption_echo
-
         # 调用并记录派发诡影信号
         distribution_whisper = self._diagnose_distribution_whisper(df, divergence_scores)
         # 确保 distribution_whisper 是 Series
@@ -803,7 +792,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_distribution_whisper 返回无效类型，使用默认值。")
             distribution_whisper = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
-
         # 调用并记录筹码一致驱动信号
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         # 确保 coherent_drive 是 Series
@@ -811,7 +799,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_structural_consensus 返回无效类型，使用默认值。")
             coherent_drive = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-
         # 调用并记录战术换手博弈信号
         tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography)
         # 确保 tactical_exchange 是 Series
@@ -819,7 +806,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_tactical_exchange 返回无效类型，使用默认值。")
             tactical_exchange = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
-
         # 调用并记录战略战术和谐度信号
         strategic_tactical_harmony = self._diagnose_strategic_tactical_harmony(df, strategic_posture, tactical_exchange, holder_sentiment_scores)
         # 确保 strategic_tactical_harmony 是 Series
@@ -827,7 +813,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_strategic_tactical_harmony 返回无效类型，使用默认值。")
             strategic_tactical_harmony = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_STRATEGIC_TACTICAL_HARMONY'] = strategic_tactical_harmony
-
         # 调用并记录和谐拐点信号
         harmony_inflection = self._diagnose_harmony_inflection(df, strategic_tactical_harmony)
         # 确保 harmony_inflection 是 Series
@@ -835,7 +820,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_harmony_inflection 返回无效类型，使用默认值。")
             harmony_inflection = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_HARMONY_INFLECTION'] = harmony_inflection
-
         # --- 调用新的筹码信号诊断方法 ---
         # 调用并记录散户筹码脆弱性指数信号
         retail_vulnerability = self._diagnose_chip_retail_vulnerability(df)
@@ -844,7 +828,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_chip_retail_vulnerability 返回无效类型，使用默认值。")
             retail_vulnerability = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_RETAIL_VULNERABILITY'] = retail_vulnerability
-
         # 调用并记录主力成本区攻防意图信号
         main_force_cost_intent = self._diagnose_chip_main_force_cost_intent(df)
         # 确保 main_force_cost_intent 是 Series
@@ -852,7 +835,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_chip_main_force_cost_intent 返回无效类型，使用默认值。")
             main_force_cost_intent = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_MAIN_FORCE_COST_INTENT'] = main_force_cost_intent
-
         # 调用并记录筹码空心化风险信号
         hollowing_out_risk = self._diagnose_chip_hollowing_out_risk(df)
         # 确保 hollowing_out_risk 是 Series
@@ -860,7 +842,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_chip_hollowing_out_risk 返回无效类型，使用默认值。")
             hollowing_out_risk = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_HOLLOWING_OUT_RISK'] = hollowing_out_risk
-
         # 调用并记录换手纯度与成本优化信号
         turnover_purity_cost_optimization = self._diagnose_chip_turnover_purity_cost_optimization(df)
         # 确保 turnover_purity_cost_optimization 是 Series
@@ -868,7 +849,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_chip_turnover_purity_cost_optimization 返回无效类型，使用默认值。")
             turnover_purity_cost_optimization = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION'] = turnover_purity_cost_optimization
-
         # 调用并记录筹码绝望与诱惑区信号
         despair_temptation_zones = self._diagnose_chip_despair_temptation_zones(df)
         # 确保 despair_temptation_zones 是 Series
@@ -876,7 +856,6 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] _diagnose_chip_despair_temptation_zones 返回无效类型，使用默认值。")
             despair_temptation_zones = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_DESPAIR_TEMPTATION_ZONES'] = despair_temptation_zones
-
         # 更新最终生成的筹码原子信号数量
         print(f"【V19.0 · 诡道反吸版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。")
         return all_chip_states
@@ -1495,7 +1474,6 @@ class ChipIntelligence:
         norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_main_force_conviction_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        
         # --- Numba优化区域：conviction_base_unipolar的欺骗调制 ---
         # 从 deception_modulator_params 中获取 conviction_threshold
         conviction_threshold = get_param_value(deception_modulator_params.get('conviction_threshold'), 0.2) # 修复：确保conviction_threshold已定义
@@ -1511,7 +1489,6 @@ class ChipIntelligence:
         )
         conviction_base_unipolar = pd.Series(conviction_base_unipolar_values, index=df_index, dtype=np.float32)
         # --- Numba优化区域结束 ---
-
         norm_fomo_deviation = utils.get_adaptive_mtf_normalized_score((fomo_index_raw - fomo_concentration_optimal_target).abs(), df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         profit_taking_quality_thresholded = (profit_taking_quality_raw - profit_taking_threshold).clip(lower=0)
         norm_profit_taking_quality = utils.get_adaptive_mtf_normalized_score(profit_taking_quality_thresholded, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)

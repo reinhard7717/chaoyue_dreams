@@ -33,7 +33,6 @@ def _numba_calculate_trend_metrics(price_arr: np.ndarray) -> Tuple[float, float]
     
     if np.unique(cleaned_arr).size == 1: # 如果所有价格都相同
         return 0.0, 1.0
-        
     y = cleaned_arr
     x = np.arange(len(y), dtype=np.float64)
     
@@ -47,7 +46,6 @@ def _numba_calculate_trend_metrics(price_arr: np.ndarray) -> Tuple[float, float]
     
     if denominator == 0:
         return 0.0, 0.0 # 避免除以零
-        
     slope = (N * sum_xy - sum_x * sum_y) / denominator
     intercept = (sum_y - slope * sum_x) / N
     
@@ -74,7 +72,6 @@ def _numba_calculate_mean_reversion_speed(price_arr: np.ndarray) -> float:
     
     if len(price_changes) < 2:
         return 0.0
-        
     y = price_changes
     x = lagged_prices
     
@@ -88,7 +85,6 @@ def _numba_calculate_mean_reversion_speed(price_arr: np.ndarray) -> float:
     
     if denominator == 0:
         return 0.0
-        
     slope = (N * sum_xy - sum_x * sum_y) / denominator
     
     return -slope
@@ -108,11 +104,9 @@ def _numba_calculate_tpo_metrics(close_arr: np.ndarray, vol_arr: np.ndarray) -> 
     
     for i, price in enumerate(unique_prices):
         volume_profile[i] = np.sum(vol_arr[close_arr == price])
-        
     # 2. 确定VPOC
     if len(volume_profile) == 0:
         return np.nan, np.nan, np.nan
-        
     vpoc_idx = np.argmax(volume_profile)
     vpoc = unique_prices[vpoc_idx]
     
@@ -165,12 +159,10 @@ def _numba_calculate_continuous_data_metrics(
     gap_return = np.nan
     if prev_close > 0:
         gap_return = (today_open / prev_close) - 1
-        
     post_gap_momentum_30min = np.nan
     if today_open > 0 and len(today_close_arr) > 0:
         close_after_30_min = today_close_arr[-1]
         post_gap_momentum_30min = (close_after_30_min / today_open) - 1
-        
     return gap_return, post_gap_momentum_30min
 
 @numba.njit(cache=True)
@@ -183,12 +175,10 @@ def _numba_calculate_continuous_data_metrics(
     gap_return = np.nan
     if prev_close > 0:
         gap_return = (today_open / prev_close) - 1
-        
     post_gap_momentum_30min = np.nan
     if today_open > 0 and len(today_close_arr) > 0:
         close_after_30_min = today_close_arr[-1]
         post_gap_momentum_30min = (close_after_30_min / today_open) - 1
-        
     return gap_return, post_gap_momentum_30min
 
 @numba.njit(cache=True)
@@ -215,7 +205,6 @@ def _numba_calculate_atr_interaction_metrics(
     # 3. 短期与长期波动率扩张比
     if atr_50 > 0:
         volatility_expansion_ratio = atr_5 / atr_50
-        
     return intraday_range_vs_atr14, close_vwap_deviation_normalized, volatility_expansion_ratio
 
 @numba.njit(cache=True)

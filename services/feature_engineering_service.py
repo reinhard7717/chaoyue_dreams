@@ -49,7 +49,6 @@ def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
     valid_L_indices = np.where(~np.isnan(L))[0]
     if len(valid_L_indices) < 2:
         return np.nan
-        
     valid_L = L[valid_L_indices]
     k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))
     valid_k_range_log = k_range_log[valid_L_indices]
