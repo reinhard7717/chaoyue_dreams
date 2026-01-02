@@ -479,7 +479,8 @@ class FusionIntelligence:
                       调整 `bearish_pressure_sources` 权重，确保风险信号能有效贡献。
                       修正 `bearish_pressure` 计算中 `NaN` 传播问题，将缺失信号贡献视为 0。
                       增加详细探针，输出所有原料数据、关键计算节点和结果的值。
-                      **【新增】增加更细粒度的调试打印，以诊断 `bearish_intent` 和 `bearish_pressure` 计算中的差异。**
+                      【新增】增加更细粒度的调试打印，以诊断 `bearish_intent` 和 `bearish_pressure` 计算中的差异。
+                      **【修复】修正调试打印中对标量值调用 `.clip()` 导致 `ValueError` 的问题。**
         """
         method_name = "_synthesize_price_overextension_intent"
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
@@ -573,10 +574,15 @@ class FusionIntelligence:
         # 确保 SCORE_OPPORTUNITY_SELLING_EXHAUSTION 和 SCORE_FF_AXIOM_CONSENSUS 存在且 NaN 填充为 0
         selling_exhaustion_score = self._get_atomic_score(df, 'SCORE_OPPORTUNITY_SELLING_EXHAUSTION', 0.0, debug_info).fillna(0.0)
         ff_consensus_score = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, debug_info).fillna(0.0)
-        bullish_pressure = (selling_exhaustion_score * bullish_pressure_sources['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] + ff_consensus_score.clip(lower=0) * bullish_pressure_sources['SCORE_FF_AXIOM_CONSENSUS']).clip(0,1)
+        
+        # --- 修复点：对 Series 进行 clip 操作，然后取 probe_ts 对应的值 ---
+        ff_consensus_score_positive_clipped = ff_consensus_score.clip(lower=0)
+        
+        bullish_pressure = (selling_exhaustion_score * bullish_pressure_sources['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] + ff_consensus_score_positive_clipped * bullish_pressure_sources['SCORE_FF_AXIOM_CONSENSUS']).clip(0,1)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"        SCORE_OPPORTUNITY_SELLING_EXHAUSTION: 原始值={selling_exhaustion_score.loc[probe_ts]:.4f}, 贡献={selling_exhaustion_score.loc[probe_ts] * bullish_pressure_sources['SCORE_OPPORTUNITY_SELLING_EXHAUSTION']:.4f}")
-            print(f"        SCORE_FF_AXIOM_CONSENSUS (positive): 原始值={ff_consensus_score.loc[probe_ts]:.4f}, 处理后值={ff_consensus_score.loc[probe_ts].clip(lower=0):.4f}, 贡献={ff_consensus_score.loc[probe_ts].clip(lower=0) * bullish_pressure_sources['SCORE_FF_AXIOM_CONSENSUS']:.4f}")
+            # --- 修复点：打印处理后的值时，使用已经 clip 过的 Series 的 loc ---
+            print(f"        SCORE_FF_AXIOM_CONSENSUS (positive): 原始值={ff_consensus_score.loc[probe_ts]:.4f}, 处理后值={ff_consensus_score_positive_clipped.loc[probe_ts]:.4f}, 贡献={ff_consensus_score_positive_clipped.loc[probe_ts] * bullish_pressure_sources['SCORE_FF_AXIOM_CONSENSUS']:.4f}")
             print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 熊市压力 (bearish_pressure): {bearish_pressure.loc[probe_ts]:.4f}, 牛市压力 (bullish_pressure): {bullish_pressure.loc[probe_ts]:.4f}")
         # 1.5 三位一体融合，得出“初审判决”
         # 增强 overextension_bearish 对高位诱多行为的敏感度
