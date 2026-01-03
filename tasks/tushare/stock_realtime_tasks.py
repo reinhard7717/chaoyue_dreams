@@ -261,8 +261,8 @@ def dispatch_stocks_real_tick_task(cache_manager=None): # 移除不再需要的 
     【修改-调度器】
     此任务由 Celery Beat 调度，统一分发“真实逐笔(Tick)”数据获取任务。
     """
-    # if not is_trading_time():
-    #     return
+    if not is_trading_time():
+        return
     # 1. 获取需要处理的股票列表
     stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
     # 2. 分派“真实逐笔(Tick)”单票任务

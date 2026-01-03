@@ -773,7 +773,7 @@ class FundFlowIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-            debug_output[f"      [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: --- 诡道意图张力 ---"] = ""
+            debug_output[f"      [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: --- 诡道意图张力 ---"] = ""
             for key, series in _temp_debug_values["诡道意图张力"].items():
                 if isinstance(series, pd.Series):
                     val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -2975,7 +2975,7 @@ class FundFlowIntelligence:
         # 将Numba函数返回的NumPy数组转换回Pandas Series
         deception_risk_score = pd.Series(deception_risk_score_values, index=df_index, dtype=np.float32)
         # if is_debug_enabled_for_method and probe_ts and probe_ts in df_index:
-        #     print(f"  -- [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: 资金流诡道风险诊断完成，最终分值: {deception_risk_score.loc[probe_ts]:.4f}")
+        #     print(f"  -- [资金流层调试] {probe_ts.strftime('%Y-%m-%d')}: 资金流诡道风险诊断完成，最终分值: {deception_risk_score.loc[probe_ts]:.4f}")
         return deception_risk_score.astype(np.float32)
 
 
