@@ -392,13 +392,14 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V5.5 · 诱多陷阱感知版 & 调试信息统一输出重构版 & 诡道风险获取优化版】资金流公理四：诊断“资金流内部分歧与意图张力”
+        【V5.6 · 诡道风险强化版】资金流公理四：诊断“资金流内部分歧与意图张力”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`，减少重复数据查找。
         - 核心修正: 调整 `core_divergence_score` 计算逻辑，以更准确地捕捉资金流与主力信念之间的看涨/看跌背离。
         - 核心增强: 引入诡道意图张力对结构性张力的调制，使其能更有效识别“诱多陷阱”。
         - 核心增强: 诡道意图张力直接整合 SCORE_FF_DECEPTION_RISK，更全面量化欺骗风险。
         - 【优化】修复 `raw_data_cache` 构建逻辑，并直接从 `atomic_states` 获取 `SCORE_FF_DECEPTION_RISK`。
         - 【重构】调试信息收集逻辑：所有中间调试值无条件收集到临时字典，最终统一格式化并输出。
+        - 【增强】增强 SCORE_FF_DECEPTION_RISK 对结构性张力的直接惩罚作用，以更准确识别诱多陷阱。
         """
         method_name = "_diagnose_axiom_divergence"
         df_index = df.index
@@ -425,7 +426,8 @@ class FundFlowIntelligence:
         p_conf_ff = self.p_conf_ff
         ad_params = get_param_value(p_conf_ff.get('axiom_divergence_params'), {})
         core_divergence_logic = get_param_value(ad_params.get('core_divergence_logic'), 'flow_minus_conviction')
-        structural_tension_deception_impact_factor = get_param_value(ad_params.get('structural_tension_deception_impact_factor'), 0.8)
+        structural_tension_deception_mod_sensitivity = get_param_value(ad_params.get('structural_tension_deception_mod_sensitivity'), 0.8) # 重命名后的参数
+        structural_tension_deception_risk_penalty_factor = get_param_value(ad_params.get('structural_tension_deception_risk_penalty_factor'), 0.8) # 新增参数
         deception_risk_weight_in_tension = get_param_value(ad_params.get('deception_risk_weight_in_tension'), 1.0)
         divergence_slope_periods = get_param_value(ad_params.get('divergence_slope_periods'), [5, 13, 21, 34, 55])
         raw_divergence_slope_weights = get_param_value(ad_params.get('divergence_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05})
@@ -600,8 +602,13 @@ class FundFlowIntelligence:
         norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         structural_divergence_base = (lg_flow_dynamic_score - retail_flow_dynamic_score)
         retail_modulator = (1 - norm_retail_fomo * retail_sentiment_mod_sensitivity) + (norm_retail_panic * retail_sentiment_mod_sensitivity)
-        deception_modulator_for_structural_tension = (1 + deceptive_tension_score * structural_tension_deception_impact_factor).clip(0.1, 2.0)
-        structural_tension_score = (structural_divergence_base * retail_modulator * deception_modulator_for_structural_tension).clip(-1, 1)
+        
+        # V5.6 诡道风险强化版：增强 SCORE_FF_DECEPTION_RISK 对结构性张力的直接惩罚作用
+        deception_modulator_for_structural_tension = (1 + deceptive_tension_score * structural_tension_deception_mod_sensitivity).clip(0.1, 2.0)
+        # 新增直接惩罚因子，当 SCORE_FF_DECEPTION_RISK 高时，直接削弱结构性张力
+        direct_deception_risk_penalty = (1 - score_ff_deception_risk * structural_tension_deception_risk_penalty_factor).clip(0.0, 1.0)
+        
+        structural_tension_score = (structural_divergence_base * retail_modulator * deception_modulator_for_structural_tension * direct_deception_risk_penalty).clip(-1, 1)
         _temp_debug_values["结构性张力"] = {
             "norm_lg_flow_slope_mtf": norm_lg_flow_slope_mtf,
             "norm_lg_flow_accel_mtf": norm_lg_flow_accel_mtf,
@@ -614,6 +621,7 @@ class FundFlowIntelligence:
             "structural_divergence_base": structural_divergence_base,
             "retail_modulator": retail_modulator,
             "deception_modulator_for_structural_tension": deception_modulator_for_structural_tension,
+            "direct_deception_risk_penalty": direct_deception_risk_penalty, # 新增调试输出
             "structural_tension_score": structural_tension_score
         }
         # --- 4. 微观意图张力 (Micro-Flow Intent Tension) ---
@@ -766,7 +774,7 @@ class FundFlowIntelligence:
             for sig_name, series in _temp_debug_values["原始信号值"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 核心分歧向量 ---"] = ""
+            debug_output[f"      [资金流层调试] {method_ts} @ {probe_ts.strftime('%Y-%m-%d')}: --- 核心分歧向量 ---"] = ""
             for key, series in _temp_debug_values["核心分歧向量"].items():
                 if isinstance(series, pd.Series):
                     val = series.loc[probe_ts] if probe_ts in series.index else np.nan
