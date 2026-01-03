@@ -1710,12 +1710,10 @@ class FusionIntelligence:
         method_name = "_calculate_behavioral_stagnation_evidence"
         # 统一从 debug_info 中获取调试状态
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
-
         # 获取 tf_weights，与 MicroBehaviorEngine 保持一致
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
         tf_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
-
         # 修正此处：使用 self.params
         stagnation_params = get_param_value(self.params.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
@@ -1756,10 +1754,8 @@ class FusionIntelligence:
         ]
         # 修正此处：统一使用 _get_atomic_score 获取所有信号
         signals_data = {sig: self._get_atomic_score(df, sig, 0.0, debug_info) for sig in required_signals}
-
         # debug_info 传递给内部函数时，确保 method_name 是当前的 method_name
         current_debug_info = (is_debug_enabled, probe_ts, method_name)
-
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
         low_price = signals_data['low_D']
@@ -1854,16 +1850,13 @@ class FusionIntelligence:
             norm_main_force_execution_alpha_inverse * unsustainable_rally_weights.get('main_force_execution_alpha_inverse', 0.15) +
             norm_upward_impulse_purity_inverse * unsustainable_rally_weights.get('upward_impulse_purity_inverse', 0.1)
         ).clip(0, 1)
-        
         # 【修复】初始化 is_strong_price_increase 变量
         is_strong_price_increase = pd.Series(False, index=df.index, dtype=bool)
-
         # 动态调整融合权重
         current_fusion_weights = base_fusion_weights.copy()
         if dynamic_fusion_params.get('enabled', False):
             # 识别强劲上涨情境
             is_strong_price_increase = (pct_change_val > dynamic_fusion_params.get('price_change_threshold', 0.05))
-            
             if is_strong_price_increase.any(): # 只有在有强劲上涨的日子才应用动态调整
                 # 创建一个与df.index相同长度的Series，用于存储动态权重
                 dynamic_weights_series = pd.DataFrame(index=df.index, columns=current_fusion_weights.keys(), dtype=np.float32)
@@ -1912,7 +1905,6 @@ class FusionIntelligence:
         else:
             # 如果动态权重未启用，则全部使用基础权重
             fusion_weights_applied = {key: pd.Series(weight, index=df.index, dtype=np.float32) for key, weight in base_fusion_weights.items()}
-
         # 最终融合 (加权算术平均)
         scores_dict = {
             "price_weakness": price_weakness_score,
