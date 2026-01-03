@@ -1632,7 +1632,6 @@ class FundFlowIntelligence:
         """
         method_name = "_diagnose_axiom_flow_momentum"
         df_index = df.index
-        
         # 调试信息构建
         is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
         probe_ts = None
@@ -1645,13 +1644,11 @@ class FundFlowIntelligence:
         if probe_ts is None:
             is_debug_enabled = False
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
-
         # 调试信息收集字典
         debug_output = {}
         if is_debug_enabled and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流纯度与动能..."] = ""
-
         # 直接使用在 __init__ 中加载的配置
         p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -1703,7 +1700,6 @@ class FundFlowIntelligence:
         dynamic_evolution_context_sensitivity_3 = get_param_value(fm_params.get('dynamic_evolution_context_sensitivity_3'), 0.1)
         dynamic_evolution_context_modulator_signal_4_name = get_param_value(fm_params.get('dynamic_evolution_context_modulator_signal_4'), 'flow_credibility_index_D')
         dynamic_evolution_context_sensitivity_4 = get_param_value(fm_params.get('dynamic_evolution_context_sensitivity_4'), 0.05)
-        
         required_signals = [
             'SLOPE_5_NMFNF_D', 'SLOPE_13_NMFNF_D', 'SLOPE_21_NMFNF_D', 'SLOPE_55_NMFNF_D',
             'ACCEL_5_NMFNF_D', 'ACCEL_13_NMFNF_D', 'ACCEL_21_NMFNF_D', 'ACCEL_55_NMFNF_D',
@@ -1732,7 +1728,6 @@ class FundFlowIntelligence:
                 debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。"] = ""
                 self._print_debug_output(debug_output)
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        
         # 预取所有斜率和加速度数据到单个字典
         all_pre_fetched_slopes_accels = {}
         slope_periods_all = list(set([5, 13, 21, 55]))
@@ -1754,14 +1749,12 @@ class FundFlowIntelligence:
             for p in accel_periods_all:
                 col_name = f'ACCEL_{p}_{signal_base}'
                 all_pre_fetched_slopes_accels[col_name] = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
-        
         # --- 原始数据获取 (用于探针和计算) ---
         # 修复：确保 raw_data_cache 包含所有 required_signals，包括预取的斜率和加速度
         raw_data_cache = all_pre_fetched_slopes_accels.copy() # 从预取数据开始
         for signal_name in required_signals:
             if signal_name not in raw_data_cache: # 如果信号不在预取数据中，则按需获取
                 raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name)
-        
         nmfnf_slope_5_raw = raw_data_cache['SLOPE_5_NMFNF_D'] # 现在可以直接访问，因为已确保存在
         nmfnf_slope_13_raw = raw_data_cache['SLOPE_13_NMFNF_D']
         nmfnf_slope_21_raw = raw_data_cache['SLOPE_21_NMFNF_D']
@@ -1811,13 +1804,11 @@ class FundFlowIntelligence:
         retail_sell_ofi_raw = raw_data_cache['retail_sell_ofi_D']
         wash_trade_buy_volume_raw = raw_data_cache['wash_trade_buy_volume_D']
         wash_trade_sell_volume_raw = raw_data_cache['wash_trade_sell_volume_D']
-
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
             for sig_name in required_signals:
                 val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-
         # --- 1. 基础动能深化 (Enhanced Base Momentum) ---
         norm_nmfnf_slope_5 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_5_raw, df_index, tf_weights_ff)
         norm_nmfnf_slope_13 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_13_raw, df_index, tf_weights_ff)
@@ -1829,7 +1820,6 @@ class FundFlowIntelligence:
         norm_nmfnf_accel_55 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_55_raw, df_index, tf_weights_ff)
         norm_sm_net_buy_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_5_raw, df_index, tf_weights_ff)
         norm_sm_net_buy_accel_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_accel_5_raw, df_index, tf_weights_ff)
-        
         base_momentum_score = (
             norm_nmfnf_slope_5 * base_momentum_weights.get('nmfnf_slope_5', 0.2) +
             norm_nmfnf_slope_13 * base_momentum_weights.get('nmfnf_slope_13', 0.15) +
@@ -1842,7 +1832,6 @@ class FundFlowIntelligence:
             norm_sm_net_buy_slope_5 * smart_money_momentum_weights.get('sm_net_buy_slope_5', 0.6) +
             norm_sm_net_buy_accel_5 * smart_money_momentum_weights.get('sm_net_buy_accel_5', 0.4)
         ).clip(-1, 1)
-
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础动能深化 ---"] = ""
             debug_output[f"        norm_nmfnf_slope_5: {norm_nmfnf_slope_5.loc[probe_ts]:.4f}"] = ""
@@ -1856,7 +1845,6 @@ class FundFlowIntelligence:
             debug_output[f"        norm_sm_net_buy_slope_5: {norm_sm_net_buy_slope_5.loc[probe_ts]:.4f}"] = ""
             debug_output[f"        norm_sm_net_buy_accel_5: {norm_sm_net_buy_accel_5.loc[probe_ts]:.4f}"] = ""
             debug_output[f"        基础动能分数 (base_momentum_score): {base_momentum_score.loc[probe_ts]:.4f}"] = ""
-
         # --- 2. 诡道纯度精修 (Deceptive Purity Refinement) ---
         purity_modulator = pd.Series(1.0, index=df_index)
         if purity_filter_enabled:
@@ -1892,7 +1880,6 @@ class FundFlowIntelligence:
                 norm_deception_multi_tf.abs() * purity_penalty_factor_deception
             ) * (1 - context_mod_factor)
             purity_modulator = (1 - purity_penalty + norm_purity_auxiliary * purity_mitigation_factor).clip(0.01, 1.5)
-
             if is_debug_enabled and probe_ts:
                 debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道纯度精修 ---"] = ""
                 debug_output[f"        norm_wash_trade_multi_tf: {norm_wash_trade_multi_tf.loc[probe_ts]:.4f}"] = ""
@@ -1905,7 +1892,6 @@ class FundFlowIntelligence:
                 debug_output[f"        context_mod_factor: {context_mod_factor.loc[probe_ts]:.4f}"] = ""
                 debug_output[f"        purity_penalty: {purity_penalty.loc[probe_ts]:.4f}"] = ""
                 debug_output[f"        纯度调制器 (purity_modulator): {purity_modulator.loc[probe_ts]:.4f}"] = ""
-
         # --- 3. 环境感知增强 (Environmental Awareness Enhancement) ---
         environment_modulator = pd.Series(1.0, index=df_index)
         if contextual_modulator_enabled:
@@ -1931,7 +1917,6 @@ class FundFlowIntelligence:
                 norm_price_volume_entropy * environment_mod_sensitivity_entropy
             ).clip(0, 1)
             environment_modulator = (1 + liquidity_mod * environment_mod).clip(0.5, 1.5)
-
             if is_debug_enabled and probe_ts:
                 debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 环境感知增强 ---"] = ""
                 debug_output[f"        norm_liquidity_supply: {norm_liquidity_supply.loc[probe_ts]:.4f}"] = ""
@@ -1943,7 +1928,6 @@ class FundFlowIntelligence:
                 debug_output[f"        norm_price_volume_entropy: {norm_price_volume_entropy.loc[probe_ts]:.4f}"] = ""
                 debug_output[f"        environment_mod: {environment_mod.loc[probe_ts]:.4f}"] = ""
                 debug_output[f"        环境调制器 (environment_modulator): {environment_modulator.loc[probe_ts]:.4f}"] = ""
-
         # --- 4. 结构洞察升级 (Structural Insight Upgrade) ---
         norm_lg_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_slope_5_raw, df_index, tf_weights_ff)
         norm_lg_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_accel_5_raw, df_index, tf_weights_ff)
@@ -1954,7 +1938,6 @@ class FundFlowIntelligence:
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights=tf_weights_ff)
         norm_flow_quality = get_adaptive_mtf_normalized_score(flow_quality_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_dominance = get_adaptive_mtf_normalized_score(retail_dominance_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        
         structural_momentum_score = (
             norm_lg_flow_slope_5 * structural_momentum_weights.get('large_order_flow_slope_5', 0.2) +
             norm_lg_flow_accel_5 * structural_momentum_weights.get('large_order_flow_accel_5', 0.15) +
@@ -1966,7 +1949,6 @@ class FundFlowIntelligence:
             norm_retail_flow_accel_5 * structural_momentum_weights.get('retail_flow_accel_5', -0.05) +
             (1 - norm_retail_dominance) * structural_momentum_weights.get('retail_flow_dominance', -0.15) # 零售主导越低，结构动能越好
         ).clip(-1, 1)
-        
         norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(raw_data_cache['rally_sell_distribution_intensity_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(raw_data_cache['rally_buy_support_weakness_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_main_force_buy_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['main_force_buy_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1975,7 +1957,6 @@ class FundFlowIntelligence:
         norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['retail_sell_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_buy_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_sell_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
-        
         structural_momentum_score = structural_momentum_score + \
                                     (norm_main_force_buy_ofi * structural_momentum_weights_v6_1.get('main_force_buy_ofi', 0.1)) + \
                                     (norm_retail_sell_ofi * structural_momentum_weights_v6_1.get('retail_sell_ofi', 0.05)) - \
@@ -1986,7 +1967,6 @@ class FundFlowIntelligence:
                                     (norm_wash_trade_buy_volume * structural_momentum_weights_v6_1.get('wash_trade_buy_volume', -0.05)) - \
                                     (norm_wash_trade_sell_volume * structural_momentum_weights_v6_1.get('wash_trade_sell_volume', -0.05))
         structural_momentum_score = structural_momentum_score.clip(-1, 1)
-
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 结构洞察升级 ---"] = ""
             debug_output[f"        norm_lg_flow_slope_5: {norm_lg_flow_slope_5.loc[probe_ts]:.4f}"] = ""
@@ -2007,47 +1987,37 @@ class FundFlowIntelligence:
             debug_output[f"        norm_wash_trade_buy_volume: {norm_wash_trade_buy_volume.loc[probe_ts]:.4f}"] = ""
             debug_output[f"        norm_wash_trade_sell_volume: {norm_wash_trade_sell_volume.loc[probe_ts]:.4f}"] = ""
             debug_output[f"        结构动能分数 (structural_momentum_score): {structural_momentum_score.loc[probe_ts]:.4f}"] = ""
-
         # --- 5. 最终融合与演化趋势 (Final Fusion & Evolution Trend) ---
         # 融合基础动能、纯度调制和结构洞察
         fused_momentum_score = (base_momentum_score * purity_modulator * environment_modulator + structural_momentum_score).clip(-1, 1)
-        
         smoothed_fused_momentum = fused_momentum_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_fused_momentum.diff(1).fillna(0)
         acceleration = velocity.diff(1).fillna(0)
-        
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights=tf_weights_ff)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights=tf_weights_ff)
-        
         norm_dynamic_evolution_context_1 = get_adaptive_mtf_normalized_score(raw_data_cache[dynamic_evolution_context_modulator_signal_1_name], df_index, ascending=False, tf_weights=tf_weights_ff)
         norm_dynamic_evolution_context_2 = get_adaptive_mtf_normalized_score(raw_data_cache[dynamic_evolution_context_modulator_signal_2_name], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_dynamic_evolution_context_3 = get_adaptive_mtf_normalized_bipolar_score(raw_data_cache[dynamic_evolution_context_modulator_signal_3_name], df_index, tf_weights=tf_weights_ff)
         norm_dynamic_evolution_context_4 = get_adaptive_mtf_normalized_score(raw_data_cache[dynamic_evolution_context_modulator_signal_4_name], df_index, ascending=True, tf_weights=tf_weights_ff)
-        
         combined_evolution_context_mod = (
             norm_dynamic_evolution_context_1 * dynamic_evolution_context_sensitivity_1 +
             norm_dynamic_evolution_context_2 * dynamic_evolution_context_sensitivity_2 +
             norm_dynamic_evolution_context_3.abs() * dynamic_evolution_context_sensitivity_3 +
             norm_dynamic_evolution_context_4 * dynamic_evolution_context_sensitivity_4
         )
-        
         dynamic_velocity_weight = dynamic_evolution_base_weights.get('velocity', 0.3) * (1 + combined_evolution_context_mod)
         dynamic_acceleration_weight = dynamic_evolution_base_weights.get('acceleration', 0.2) * (1 + combined_evolution_context_mod)
         dynamic_base_score_weight = dynamic_evolution_base_weights.get('base_score', 0.5) * (1 - combined_evolution_context_mod)
-        
         total_dynamic_weights = dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight
         total_dynamic_weights = total_dynamic_weights.replace(0, 1e-9)
-        
         dynamic_base_score_weight /= total_dynamic_weights
         dynamic_velocity_weight /= total_dynamic_weights
         dynamic_acceleration_weight /= total_dynamic_weights
-        
         final_score = (
             (fused_momentum_score.add(1)/2).pow(dynamic_base_score_weight) *
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合与演化趋势 ---"] = ""
             debug_output[f"        融合动能分数 (fused_momentum_score): {fused_momentum_score.loc[probe_ts]:.4f}"] = ""
@@ -2062,14 +2032,14 @@ class FundFlowIntelligence:
             debug_output[f"        动态加速度权重: {dynamic_acceleration_weight.loc[probe_ts]:.4f}"] = ""
             debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流纯度与动能诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
             self._print_debug_output(debug_output)
-
         return final_score.astype(np.float32)
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V5.2 · 效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
+        【V5.3 · 信号替换与效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
+        - 【修复】将缺失的 `main_force_vwap_deviation_D` 替换为 `intraday_vwap_div_index_D`。
         - 【新增】所有调试信息统一在方法末尾输出。
         """
         method_name = "_diagnose_axiom_capital_signature"
@@ -2095,7 +2065,8 @@ class FundFlowIntelligence:
         p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         cs_params = get_param_value(p_conf_ff.get('axiom_capital_signature_params'), {})
-        cost_advantage_weights = get_param_value(cs_params.get('cost_advantage_weights'), {'main_force_cost_advantage': 0.6, 'main_force_vwap_deviation': 0.4})
+        # 替换 main_force_vwap_deviation 为 intraday_vwap_div_index
+        cost_advantage_weights = get_param_value(cs_params.get('cost_advantage_weights'), {'main_force_cost_advantage': 0.6, 'intraday_vwap_div_index_D': 0.4})
         execution_efficiency_weights = get_param_value(cs_params.get('execution_efficiency_weights'), {'main_force_execution_alpha': 0.5, 'main_force_t0_efficiency': 0.5})
         capital_flow_quality_weights = get_param_value(cs_params.get('capital_flow_quality_weights'), {'main_force_flow_gini_inverted': 0.5, 'flow_credibility': 0.5})
         contextual_modulator_enabled = get_param_value(cs_params.get('contextual_modulator_enabled'), True)
@@ -2112,7 +2083,7 @@ class FundFlowIntelligence:
         dynamic_evolution_context_modulator_signal_2_name = get_param_value(cs_params.get('dynamic_evolution_context_modulator_signal_2'), 'trend_vitality_index_D')
         dynamic_evolution_context_sensitivity_2 = get_param_value(cs_params.get('dynamic_evolution_context_sensitivity_2'), 0.1)
         required_signals = [
-            'main_force_cost_advantage_D', 'main_force_vwap_deviation_D',
+            'main_force_cost_advantage_D', 'intraday_vwap_div_index_D', # 替换为 intraday_vwap_div_index_D
             'main_force_execution_alpha_D', 'main_force_t0_efficiency_D',
             'main_force_flow_gini_D', 'flow_credibility_index_D',
             context_modulator_signal_1_name, context_modulator_signal_2_name, context_modulator_signal_3_name,
@@ -2129,7 +2100,7 @@ class FundFlowIntelligence:
         for signal_name in required_signals:
             raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name)
         main_force_cost_advantage_raw = raw_data_cache['main_force_cost_advantage_D']
-        main_force_vwap_deviation_raw = raw_data_cache['main_force_vwap_deviation_D']
+        main_force_vwap_deviation_raw = raw_data_cache['intraday_vwap_div_index_D'] # 使用替换后的信号
         main_force_execution_alpha_raw = raw_data_cache['main_force_execution_alpha_D']
         main_force_t0_efficiency_raw = raw_data_cache['main_force_t0_efficiency_D']
         main_force_flow_gini_raw = raw_data_cache['main_force_flow_gini_D']
@@ -2146,15 +2117,16 @@ class FundFlowIntelligence:
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
         # --- 1. 成本优势 (Cost Advantage) ---
         norm_main_force_cost_advantage = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights=tf_weights_ff)
+        # 使用 intraday_vwap_div_index_D，它通常是双极性的
         norm_main_force_vwap_deviation = get_adaptive_mtf_normalized_bipolar_score(main_force_vwap_deviation_raw, df_index, tf_weights=tf_weights_ff)
         cost_advantage_score = (
             norm_main_force_cost_advantage * cost_advantage_weights.get('main_force_cost_advantage', 0.6) +
-            norm_main_force_vwap_deviation * cost_advantage_weights.get('main_force_vwap_deviation', 0.4)
+            norm_main_force_vwap_deviation * cost_advantage_weights.get('intraday_vwap_div_index_D', 0.4) # 更新权重键名
         ).clip(-1, 1)
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 成本优势 ---"] = ""
             debug_output[f"        norm_main_force_cost_advantage: {norm_main_force_cost_advantage.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_main_force_vwap_deviation: {norm_main_force_vwap_deviation.loc[probe_ts]:.4f}"] = ""
+            debug_output[f"        norm_main_force_vwap_deviation (intraday_vwap_div_index_D): {norm_main_force_vwap_deviation.loc[probe_ts]:.4f}"] = ""
             debug_output[f"        成本优势分数 (cost_advantage_score): {cost_advantage_score.loc[probe_ts]:.4f}"] = ""
         # --- 2. 执行效率 (Execution Efficiency) ---
         norm_main_force_execution_alpha = get_adaptive_mtf_normalized_bipolar_score(main_force_execution_alpha_raw, df_index, tf_weights=tf_weights_ff)
@@ -2186,9 +2158,11 @@ class FundFlowIntelligence:
             norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights=tf_weights_ff)
             norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_liquidity_supply = get_adaptive_mtf_normalized_score(liquidity_supply_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+            
             sentiment_mod = (1 + norm_market_sentiment.abs() * context_sensitivity_sentiment * np.sign(norm_market_sentiment))
             volatility_mod = (1 - norm_volatility_instability * context_sensitivity_volatility)
             liquidity_mod = (1 + norm_liquidity_supply * context_sensitivity_liquidity)
+            
             context_modulator = (sentiment_mod * volatility_mod * liquidity_mod).clip(0.5, 1.5)
             if is_debug_enabled and probe_ts:
                 debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 情境调制器 ---"] = ""
@@ -2215,7 +2189,7 @@ class FundFlowIntelligence:
         acceleration = velocity.diff(1).fillna(0)
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights=tf_weights_ff)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights=tf_weights_ff)
-        norm_dynamic_evolution_context_1 = get_adaptive_mtf_normalized_score(raw_data_cache[dynamic_evolution_context_modulator_signal_1_name], df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_dynamic_evolution_context_1 = get_adaptive_mtf_normalized_bipolar_score(raw_data_cache[dynamic_evolution_context_modulator_signal_1_name], df_index, tf_weights=tf_weights_ff) # main_force_conviction_index_D 是双极性
         norm_dynamic_evolution_context_2 = get_adaptive_mtf_normalized_score(raw_data_cache[dynamic_evolution_context_modulator_signal_2_name], df_index, ascending=True, tf_weights=tf_weights_ff)
         combined_evolution_context_mod = (
             norm_dynamic_evolution_context_1 * dynamic_evolution_context_sensitivity_1 +
