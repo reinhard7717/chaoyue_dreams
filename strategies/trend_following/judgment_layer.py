@@ -144,8 +144,8 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.13 · 诡道风险纳入版】风险裁决者 (Risk Adjudicator)
-        - 核心升级: 将资金流层面的诡道风险信号 `SCORE_FF_DECEPTION_RISK` 纳入最高优先级风险类别。
+        【V2.14 · 筹码派发诡影纳入版】风险裁决者 (Risk Adjudicator)
+        - 核心升级: 将筹码层面的派发诡影风险信号 `SCORE_CHIP_RISK_DISTRIBUTION_WHISPER` 纳入最高优先级风险类别。
         - 核心逻辑: 严格遵循指令，现在只检查由 FusionIntelligence 和 CognitiveIntelligence
                       生成的风险信号，移除了所有其他原子层和过程层信号。
         - 核心逻辑: 根据信号的性质和重要性，将其归类到不同的警报等级（3级红色、2级橙色、1级黄色）。
@@ -169,7 +169,8 @@ class JudgmentLayer:
                 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME', # 由 FusionIntelligence 生成的趋势衰竭综合征
                 'FUSION_RISK_STAGNATION', # 融合层滞涨风险
                 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', # 由 FusionIntelligence 生成的内部行为滞涨证据
-                'SCORE_FF_DECEPTION_RISK' # 新增：资金流诡道风险
+                'SCORE_FF_DECEPTION_RISK', # 资金流诡道风险
+                'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER' # 新增：筹码派发诡影
             ],
             # 2级橙色警报：显著风险，需要高度关注
             'COGNITIVE_CYCLICAL_RISK': [ # 认知层周期顶部风险
@@ -196,7 +197,9 @@ class JudgmentLayer:
         # 调整阈值名称以匹配新的风险类别
         cognitive_systemic_threshold = get_param_value(p_judge.get('cognitive_systemic_alert_threshold'), 0.7)
         cognitive_cyclical_threshold = get_param_value(p_judge.get('cognitive_cyclical_alert_threshold'), 0.6) # 使用原 liquidity_drain_threshold 的值
-        cognitive_early_warning_threshold = get_param_value(p_judge.get('cognitive_early_warning_alert_threshold'), 0.5) # 使用原 early_warning_threshold 的值
+        cognitive_early_warning_threshold = get_param_value(p_judge.get('cognitive_early_warning_alert_threshold'), 0.5) # 使用原 early_warning_alert_threshold 的值
+        # 移除未使用的 is_uptrend_context
+        # is_uptrend_context = df.get('close_D', 0) > df.get('EMA_5_D', 0)
         conditions = [
             fused_risks_df['COGNITIVE_SYSTEMIC_RISK'] > cognitive_systemic_threshold,
             fused_risks_df['COGNITIVE_CYCLICAL_RISK'] > cognitive_cyclical_threshold,
