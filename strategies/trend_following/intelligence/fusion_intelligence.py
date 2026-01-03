@@ -1704,6 +1704,8 @@ class FusionIntelligence:
         - **【修复】修正内部配置参数 `self.config_params` 为 `self.params`。**
         - **【修复】修正信号获取方式，统一使用 `_get_atomic_score`。**
         - **【修复】修正 `get_adaptive_mtf_normalized_score` 的 `debug_info` 参数类型。**
+        - **【修复】修正调试打印中 `robust_MACDh_13_34_8_slope` 的键名错误。**
+        - **【修复】修正 `is_strong_price_increase` 变量未绑定导致的 `UnboundLocalError`。**
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
         # 统一从 debug_info 中获取调试状态
@@ -1852,6 +1854,10 @@ class FusionIntelligence:
             norm_main_force_execution_alpha_inverse * unsustainable_rally_weights.get('main_force_execution_alpha_inverse', 0.15) +
             norm_upward_impulse_purity_inverse * unsustainable_rally_weights.get('upward_impulse_purity_inverse', 0.1)
         ).clip(0, 1)
+        
+        # 【修复】初始化 is_strong_price_increase 变量
+        is_strong_price_increase = pd.Series(False, index=df.index, dtype=bool)
+
         # 动态调整融合权重
         current_fusion_weights = base_fusion_weights.copy()
         if dynamic_fusion_params.get('enabled', False):
@@ -1938,6 +1944,7 @@ class FusionIntelligence:
             print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
             print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
             print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
+            # 修正此处：将 'robust_MACDh_13_34_8_D' 改为 'robust_MACDh_13_34_8_slope'
             print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
             print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
             print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
@@ -1958,6 +1965,10 @@ class FusionIntelligence:
             print(f"        - 不可持续拉升证据分数: {unsustainable_rally_evidence_score.loc[probe_ts]:.4f}")
             print(f"        - 动态权重应用于强劲上涨情境: {is_strong_price_increase.loc[probe_ts]}")
             if is_strong_price_increase.loc[probe_ts]:
+                # 只有当 is_strong_price_increase 为 True 时，normalized_dynamic_weights 才会被定义
+                # 并且只有在 is_strong_price_increase.any() 为 True 时，normalized_dynamic_weights 才会被计算
+                # 这里的打印逻辑是安全的，因为外层 if 已经确保了 is_strong_price_increase.loc[probe_ts] 为 True
+                # 且内层 if 确保了 normalized_dynamic_weights 已经被计算
                 print(f"        - 调整后权重 (price_weakness): {normalized_dynamic_weights['price_weakness'].loc[probe_ts]:.4f}")
                 print(f"        - 调整后权重 (momentum_divergence): {normalized_dynamic_weights['momentum_divergence'].loc[probe_ts]:.4f}")
                 print(f"        - 调整后权重 (volume_anomaly): {normalized_dynamic_weights['volume_anomaly'].loc[probe_ts]:.4f}")
