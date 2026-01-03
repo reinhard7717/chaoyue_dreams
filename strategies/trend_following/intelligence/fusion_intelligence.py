@@ -1687,9 +1687,9 @@ class FusionIntelligence:
         print(f"  -- [融合层] “派发压力”冶炼完成，最新分值: {final_distribution_pressure.iloc[-1]:.4f}")
         return states
 
-    def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+    def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> pd.Series:
         """
-        【V4.3 · 行为纯化版 - 增强与动态权重融合】计算纯粹基于行为类原始数据的滞涨证据原始分。
+        【V4.4 · 行为纯化版 - 增强与动态权重融合】计算纯粹基于行为类原始数据的滞涨证据原始分。
         - 核心升级: 引入“不可持续拉升证据”维度，即使在上涨行情中，也能捕捉到主力暗中派发、诱多欺骗、上涨质量不佳等迹象。
         - 优化点:
           1. 行为惯性: 考虑价格和成交量斜率的减速或负向加速度，作为滞涨的补充证据。
@@ -1700,9 +1700,22 @@ class FusionIntelligence:
           6. **融合函数优化**：将最终融合从几何平均改为加权算术平均，避免零值对整体分数的过度影响。
           7. **【新增】动态融合权重**：根据价格变化幅度动态调整各滞涨证据子维度的融合权重，使其在强劲上涨情境下更侧重于“不可持续拉升”和“动量背离”等风险。
         - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
+        - **【修复】修正方法签名，使其与 `run_fusion_diagnostics` 的调用匹配。**
+        - **【修复】修正内部配置参数 `self.config_params` 为 `self.params`。**
+        - **【修复】修正信号获取方式，统一使用 `_get_atomic_score`。**
+        - **【修复】修正 `get_adaptive_mtf_normalized_score` 的 `debug_info` 参数类型。**
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
-        stagnation_params = get_param_value(self.config_params.get('stagnation_evidence_params'), {
+        # 统一从 debug_info 中获取调试状态
+        is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
+
+        # 获取 tf_weights，与 MicroBehaviorEngine 保持一致
+        p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
+        tf_weights = get_param_value(p_mtf.get('default'), {'5': 0.4, '13': 0.3, '21': 0.2, '55': 0.1})
+
+        # 修正此处：使用 self.params
+        stagnation_params = get_param_value(self.params.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
             "volume_stagnation_multiplier": 1.2, "momentum_divergence_penalty": 0.15,
             "upward_efficiency_decay_bonus": 0.1, "intraday_control_decay_bonus": 0.1,
@@ -1739,12 +1752,12 @@ class FusionIntelligence:
             'deception_lure_long_intensity_D', 'wash_trade_intensity_D',
             'main_force_execution_alpha_D', 'upward_impulse_purity_D'
         ]
-        if not self._validate_required_signals(df, required_signals, method_name, is_debug_enabled, probe_ts):
-            if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
-                print(f"      [探针 - {method_name}] 缺少核心信号，返回0分。")
-            return pd.Series(0.0, index=df.index)
-        signals_data = {sig: df[sig] for sig in required_signals}
-        debug_info = (is_debug_enabled, probe_ts, method_name)
+        # 修正此处：统一使用 _get_atomic_score 获取所有信号
+        signals_data = {sig: self._get_atomic_score(df, sig, 0.0, debug_info) for sig in required_signals}
+
+        # debug_info 传递给内部函数时，确保 method_name 是当前的 method_name
+        current_debug_info = (is_debug_enabled, probe_ts, method_name)
+
         open_price = signals_data['open_D']
         high_price = signals_data['high_D']
         low_price = signals_data['low_D']
@@ -1791,7 +1804,8 @@ class FusionIntelligence:
         }
         normalized_mtf_scores = {}
         for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
-            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
+            # 修正此处：debug_info 参数应为元组 (False, None, "")
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=(False, None, ""))
         # 1. 价格行为疲软 (Price Action Weakness)
         is_long_upper_shadow = (upper_shadow_ratio > dynamic_upper_shadow_threshold)
         is_small_body = (body_ratio < dynamic_body_ratio_threshold)
@@ -1924,7 +1938,7 @@ class FusionIntelligence:
             print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
             print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
             print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
-            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
+            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
             print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
             print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
             print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
