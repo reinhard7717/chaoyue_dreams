@@ -774,7 +774,7 @@ class FundFlowIntelligence:
             for sig_name, series in _temp_debug_values["原始信号值"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_ts} @ {probe_ts.strftime('%Y-%m-%d')}: --- 核心分歧向量 ---"] = ""
+            debug_output[f"      [资金流层调试] {probe_ts} @ {probe_ts.strftime('%Y-%m-%d')}: --- 核心分歧向量 ---"] = ""
             for key, series in _temp_debug_values["核心分歧向量"].items():
                 if isinstance(series, pd.Series):
                     val = series.loc[probe_ts] if probe_ts in series.index else np.nan
