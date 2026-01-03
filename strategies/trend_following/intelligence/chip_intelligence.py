@@ -2639,8 +2639,7 @@ class ChipIntelligence:
                 'dominant_peak_solidity_slope_negative': norm_slope_5_dominant_peak_solidity_negative,
                 'pressure_rejection_strength_slope_negative': norm_slope_5_pressure_rejection_strength_negative
             },
-            divergence_shadow_numeric_weights, df_index, debug_info=debug_info_tuple
-        )
+            divergence_shadow_numeric_weights, df_index)
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 背离诡影得分 (divergence_shadow_score): {divergence_shadow_score.loc[probe_ts]:.4f}")
         # 3. 主力抽离多维度验证 (Main Force Retreat)
@@ -2690,8 +2689,7 @@ class ChipIntelligence:
                 'main_force_net_flow_slope_negative': norm_slope_5_main_force_net_flow_calibrated_negative,
                 'main_force_slippage_accel': norm_accel_5_main_force_slippage
             },
-            main_force_retreat_numeric_weights, df_index, debug_info=debug_info_tuple
-        )
+            main_force_retreat_numeric_weights, df_index)
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力抽离得分 (main_force_retreat_score): {main_force_retreat_score.loc[probe_ts]:.4f}")
         # 4. 诡道背景调制强化 (Deception Modulator)
