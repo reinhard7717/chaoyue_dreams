@@ -2591,8 +2591,11 @@ class ChipIntelligence:
         )
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 狂热背景得分 (fomo_backdrop_score): {fomo_backdrop_score.loc[probe_ts]:.4f}")
-            print(f"        是否处于FOMO情境 (is_fomo_context): {is_fomo_context.loc[probe_ts]}")
+        # 初始化 is_fomo_context，确保它总是有值
+        is_fomo_context = pd.Series(False, index=df_index, dtype=bool)
         is_fomo_context = fomo_backdrop_score > fomo_context_threshold
+        if is_debug_enabled and probe_ts and probe_ts in df_index:
+            print(f"        是否处于FOMO情境 (is_fomo_context): {is_fomo_context.loc[probe_ts]}")
         # 2. 背离诡影精细化 (Divergence Shadow)
         norm_divergence_bearish = divergence_score.clip(-1, 0).abs() # 仅取负向部分（看跌背离）的绝对值
         norm_dispersal_by_distribution = utils.get_adaptive_mtf_normalized_score(dispersal_by_distribution_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
