@@ -615,13 +615,20 @@
       },
       "judgment_day_params": {
         "enabled": true,
-        "description": "【V2.1 · 终极风险版】审判日引擎参数，增加了对终极顶部反转信号的阈值定义。",
+        "description": "【V2.11 · 全面风险感知与分级警报版】审判日引擎参数，增加了对终极顶部反转信号的阈值定义。",
         "prophet_alert_threshold": 0.7,
         "ultimate_top_reversal_alert_threshold": 0.7,
         "top_reversal_alert_threshold": 0.8,
         "bearish_resonance_alert_threshold": 0.7,
         "euphoria_alert_threshold": 0.75,
-        "micro_risk_alert_threshold": 0.6
+        "micro_risk_alert_threshold": 0.6,
+        "deception_risk_alert_threshold": 0.7,
+        "cognitive_systemic_alert_threshold": 0.7,
+        "bearish_divergence_alert_threshold": 0.6,
+        "liquidity_drain_alert_threshold": 0.6,
+        "top_reversal_process_alert_threshold": 0.6,
+        "micro_structural_alert_threshold": 0.5,
+        "early_warning_alert_threshold": 0.5
       },
       "ultimate_signal_synthesis_params": {
         "enabled": true,
