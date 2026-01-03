@@ -144,16 +144,17 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.11 · 全面风险感知与分级警报版】风险裁决者 (Risk Adjudicator)
-        - 核心升级: 扩展风险类别，将更多高优先级、高影响力的风险信号纳入警报裁决体系。
+        【V2.13 · 诡道风险纳入版】风险裁决者 (Risk Adjudicator)
+        - 核心升级: 将资金流层面的诡道风险信号 `SCORE_FF_DECEPTION_RISK` 纳入最高优先级风险类别。
+        - 核心逻辑: 严格遵循指令，现在只检查由 FusionIntelligence 和 CognitiveIntelligence
+                      生成的风险信号，移除了所有其他原子层和过程层信号。
         - 核心逻辑: 根据信号的性质和重要性，将其归类到不同的警报等级（3级红色、2级橙色、1级黄色）。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        # 扩展风险类别，将更多关键风险信号纳入警报裁决体系
+        # 扩展风险类别，现在只包含 FusionIntelligence 和 CognitiveIntelligence 生成的风险信号
         risk_categories = {
             # 3级红色警报：最高优先级，系统性风险或明确顶部信号
-            'ARCHANGEL_RISK': ['SCORE_ARCHANGEL_TOP_REVERSAL'], # 假设此信号存在且为终极顶部反转
             'COGNITIVE_SYSTEMIC_RISK': [ # 认知层面的系统性风险或重大派发陷阱
                 'COGNITIVE_RISK_KEY_SUPPORT_BREAK',
                 'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE',
@@ -163,102 +164,49 @@ class JudgmentLayer:
                 'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION',
                 'COGNITIVE_RISK_LIQUIDITY_TRAP',
                 'COGNITIVE_RISK_TREND_EXHAUSTION',
-                'FUSION_RISK_DISTRIBUTION_PRESSURE',
-                'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW',
-                'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME',
-                'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER',
-                'SCORE_RISK_BREAKOUT_FAILURE_CASCADE'
+                'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', # 认知层高位派发风险
+                'FUSION_RISK_DISTRIBUTION_PRESSURE', # 融合层派发压力
+                'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME', # 由 FusionIntelligence 生成的趋势衰竭综合征
+                'FUSION_RISK_STAGNATION', # 融合层滞涨风险
+                'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', # 由 FusionIntelligence 生成的内部行为滞涨证据
+                'SCORE_FF_DECEPTION_RISK' # 新增：资金流诡道风险
             ],
             # 2级橙色警报：显著风险，需要高度关注
-            'EUPHORIA_RISK': ['COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION'], # 假设此信号存在
-            'DECEPTION_RISK': ['SCORE_FF_DECEPTION_RISK'], # 资金流诡道风险
-            'BEARISH_DIVERGENCE_RISK': [ # 各层面的看跌背离
-                'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY',
-                'SCORE_BEHAVIOR_BEARISH_DIVERGENCE',
-                'SCORE_FUND_FLOW_BEARISH_DIVERGENCE',
-                'SCORE_STRUCTURE_BEARISH_DIVERGENCE',
-                'SCORE_PATTERN_BEARISH_DIVERGENCE',
-                'SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE',
-                'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE' # 负向部分代表风险
-            ],
-            'LIQUIDITY_DRAIN_RISK': [ # 流动性枯竭或结构空心化
-                'SCORE_RISK_LIQUIDITY_DRAIN',
-                'SCORE_CHIP_HOLLOWING_OUT_RISK',
-                'PROCESS_RISK_VPA_EFFICIENCY_DECAY', # VPA效率衰减可能导致流动性问题
-                'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY', # 力学筹码共振看跌
-                'COGNITIVE_RISK_CYCLICAL_TOP' # 周期顶部可能伴随流动性问题
-            ],
-            'TOP_REVERSAL_PROCESS_RISK': [ # 过程层面的顶部反转信号
-                'PROCESS_META_FOUNDATION_TOP_REVERSAL',
-                'PROCESS_META_STRUCTURE_TOP_REVERSAL',
-                'PROCESS_META_PATTERN_TOP_REVERSAL',
-                'PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL',
-                'PROCESS_META_CHIP_TOP_REVERSAL',
-                'PROCESS_META_FUND_FLOW_TOP_REVERSAL',
-                'PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL',
-                'PROCESS_META_BEHAVIOR_TOP_REVERSAL'
+            'COGNITIVE_CYCLICAL_RISK': [ # 认知层周期顶部风险
+                'COGNITIVE_RISK_CYCLICAL_TOP'
             ],
             # 1级黄色警报：早期预警或一般性风险
-            'MICRO_STRUCTURAL_RISK': [ # 微观或结构层面的早期风险
-                'COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', # 假设此信号存在
-                'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING' # 假设此信号存在
-            ],
-            'EARLY_WARNING_RISK': [ # 其他早期或一般性风险
-                'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
-                'SCORE_RISK_UNRESOLVED_PRESSURE',
-                'SCORE_CHIP_RETAIL_VULNERABILITY',
+            'COGNITIVE_EARLY_WARNING_RISK': [ # 认知层早期预警
                 'COGNITIVE_RISK_MARKET_UNCERTAINTY',
-                'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE',
-                'PROCESS_META_HOT_SECTOR_COOLING',
-                'PROCESS_META_WINNER_CONVICTION_DECAY',
-                'SCORE_BEHAVIOR_DISTRIBUTION_INTENT' # 派发意图
+                'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE'
             ]
         }
         fused_risks = {}
         for category, signals in risk_categories.items():
-            signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0) for s in signals]
-            # 对于 PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE 这样的双极信号，我们只关心其负向风险部分
-            if category == 'BEARISH_DIVERGENCE_RISK' and 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE' in signals:
-                # 确保只取负值（代表风险）的绝对值
-                processed_signal_scores = [s.clip(upper=0).abs() if s.name == 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE' else s for s in signal_scores]
-                fused_risks[category] = np.maximum.reduce(processed_signal_scores) if processed_signal_scores else pd.Series(0.0, index=df.index)
-            else:
-                fused_risks[category] = np.maximum.reduce(signal_scores) if signal_scores else pd.Series(0.0, index=df.index)
+            signal_scores = []
+            for s in signals:
+                score_series = atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0)
+                # 这些信号在 signal_dictionary.json 中都是 type: risk, scoring_mode: unipolar，
+                # 值越高风险越大，已归一化到 [0,1]，因此无需特殊处理 clip(upper=0).abs()
+                signal_scores.append(score_series)
+            fused_risks[category] = np.maximum.reduce(signal_scores) if signal_scores else pd.Series(0.0, index=df.index)
         fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
         p_judge = get_params_block(self.strategy, 'judgment_day_params', {})
         # 获取所有风险类别的阈值
-        archangel_threshold = get_param_value(p_judge.get('archangel_alert_threshold'), 0.7)
+        # 调整阈值名称以匹配新的风险类别
         cognitive_systemic_threshold = get_param_value(p_judge.get('cognitive_systemic_alert_threshold'), 0.7)
-        euphoria_threshold = get_param_value(p_judge.get('euphoria_alert_threshold'), 0.75)
-        deception_risk_threshold = get_param_value(p_judge.get('deception_risk_alert_threshold'), 0.7)
-        bearish_divergence_threshold = get_param_value(p_judge.get('bearish_divergence_alert_threshold'), 0.6)
-        liquidity_drain_threshold = get_param_value(p_judge.get('liquidity_drain_alert_threshold'), 0.6)
-        top_reversal_process_threshold = get_param_value(p_judge.get('top_reversal_process_alert_threshold'), 0.6)
-        micro_structural_threshold = get_param_value(p_judge.get('micro_structural_alert_threshold'), 0.5)
-        early_warning_threshold = get_param_value(p_judge.get('early_warning_alert_threshold'), 0.5)
-        is_uptrend_context = df.get('close_D', 0) > df.get('EMA_5_D', 0)
+        cognitive_cyclical_threshold = get_param_value(p_judge.get('cognitive_cyclical_alert_threshold'), 0.6) # 使用原 liquidity_drain_threshold 的值
+        cognitive_early_warning_threshold = get_param_value(p_judge.get('cognitive_early_warning_alert_threshold'), 0.5) # 使用原 early_warning_threshold 的值
         conditions = [
-            fused_risks_df['ARCHANGEL_RISK'] > archangel_threshold,
             fused_risks_df['COGNITIVE_SYSTEMIC_RISK'] > cognitive_systemic_threshold,
-            fused_risks_df['EUPHORIA_RISK'] > euphoria_threshold,
-            fused_risks_df['DECEPTION_RISK'] > deception_risk_threshold,
-            fused_risks_df['BEARISH_DIVERGENCE_RISK'] > bearish_divergence_threshold,
-            fused_risks_df['LIQUIDITY_DRAIN_RISK'] > liquidity_drain_threshold,
-            fused_risks_df['TOP_REVERSAL_PROCESS_RISK'] > top_reversal_process_threshold,
-            fused_risks_df['MICRO_STRUCTURAL_RISK'] > micro_structural_threshold,
-            fused_risks_df['EARLY_WARNING_RISK'] > early_warning_threshold,
+            fused_risks_df['COGNITIVE_CYCLICAL_RISK'] > cognitive_cyclical_threshold,
+            fused_risks_df['COGNITIVE_EARLY_WARNING_RISK'] > cognitive_early_warning_threshold,
         ]
-        choices_level = [3, 3, 2, 2, 2, 2, 2, 1, 1] # 警报等级
+        choices_level = [3, 2, 1] # 警报等级
         choices_reason = [
-            '红色警报: 明确顶部形态',
-            '红色警报: 系统性风险或重大派发',
-            '橙色警报: 亢奋风险',
-            '橙色警报: 资金流诡道风险',
-            '橙色警报: 熊市背离风险',
-            '橙色警报: 流动性枯竭或结构空心化',
-            '橙色警报: 过程顶部反转风险',
-            '黄色警报: 微观结构风险',
-            '黄色警报: 早期预警或一般性风险'
+            '红色警报: 认知系统性风险或重大派发',
+            '橙色警报: 认知周期顶部风险',
+            '黄色警报: 认知早期预警'
         ]
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
