@@ -224,9 +224,6 @@
                     }
                 },
                 "fusion_risk": {
-                    "FUSION_RISK_STAGNATION": {
-                        "weight": 1.0
-                    },
                     "FUSION_RISK_DISTRIBUTION_PRESSURE": {
                         "weight": 1.0
                     }

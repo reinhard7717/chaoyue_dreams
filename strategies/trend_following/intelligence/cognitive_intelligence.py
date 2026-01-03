@@ -489,7 +489,7 @@ class CognitiveIntelligence:
                    "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT" in signal_name:
                     signal_score = raw_signal.clip(upper=0).abs() # 对于情绪钟摆和信念韧性，负值代表恐慌，取绝对值
                 elif "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name or \
-                     "FUSION_RISK_STAGNATION" in signal_name or \
+                     "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW" in signal_name or \
                      "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name or \
                      "PROCESS_META_LOSER_CAPITULATION" in signal_name or \
                      "SCORE_BEHAVIOR_VOLUME_ATROPHY" in signal_name:
@@ -743,7 +743,7 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                if "FUSION_RISK_STAGNATION" in signal_name or \
+                if "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW" in signal_name or \
                    "PROCESS_META_WINNER_CONVICTION_DECAY" in signal_name or \
                    "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
@@ -1128,7 +1128,7 @@ class CognitiveIntelligence:
                 raw_signal = fetched_signals[signal_name]
                 if "SCORE_BEHAVIOR_DECEPTION_INDEX" in signal_name or \
                    "SCORE_RISK_BREAKOUT_FAILURE_CASCADE" in signal_name or \
-                   "FUSION_RISK_STAGNATION" in signal_name or \
+                   "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW" in signal_name or \
                    "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
                 elif "SCORE_FF_AXIOM_DIVERGENCE" in signal_name:

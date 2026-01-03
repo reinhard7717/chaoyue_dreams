@@ -1741,7 +1741,7 @@
               "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": 0.2,
               "SCORE_BEHAVIOR_VOLUME_ATROPHY": 0.15,
               "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM": 0.1,
-              "FUSION_RISK_STAGNATION": 0.08,
+              "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": 0.08,
               "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.07,
               "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": 0.15
             },
@@ -1834,7 +1834,7 @@
             },
             "structural_trend_exhaustion_weights": {
               "description": "结构趋势衰竭风险融合权重。正值信号直接使用，双极性信号取负向绝对值。",
-              "FUSION_RISK_STAGNATION": 0.3,
+              "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": 0.3,
               "FUSION_BIPOLAR_TREND_QUALITY": 0.25,
               "SCORE_DYN_AXIOM_MOMENTUM": 0.2,
               "SCORE_STRUCT_STRATEGIC_POSTURE": 0.15,
@@ -1953,7 +1953,7 @@
               "description": "风险过滤权重。正向为风险，双极性信号取负向绝对值。",
               "SCORE_BEHAVIOR_DECEPTION_INDEX": 0.3,
               "SCORE_RISK_BREAKOUT_FAILURE_CASCADE": 0.25,
-              "FUSION_RISK_STAGNATION": 0.2,
+              "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": 0.2,
               "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.15,
               "SCORE_FF_AXIOM_DIVERGENCE": 0.1
             },
