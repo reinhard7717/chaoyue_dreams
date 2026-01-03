@@ -2557,14 +2557,14 @@ class ChipIntelligence:
         accel_5_main_force_slippage_raw = signals_data['ACCEL_5_main_force_slippage_index_D']
         deception_index_raw = signals_data['deception_index_D']
         # 1. 狂热背景深度化 (FOMO Backdrop)
-        norm_retail_fomo_premium = utils.get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_winner_profit_margin = utils.get_adaptive_mtf_normalized_score(winner_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_theme_hotness = utils.get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_market_sentiment_positive = utils.get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data).clip(0, 1)
-        norm_winner_concentration_negative = utils.get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_total_winner_rate = utils.get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_winner_loser_momentum = utils.get_adaptive_mtf_normalized_score(winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_slope_5_winner_loser_momentum = utils.get_adaptive_mtf_normalized_score(slope_5_winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_winner_profit_margin = get_adaptive_mtf_normalized_score(winner_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_theme_hotness = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_market_sentiment_positive = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data).clip(0, 1)
+        norm_winner_concentration_negative = get_adaptive_mtf_normalized_score(winner_concentration_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_winner_loser_momentum = get_adaptive_mtf_normalized_score(winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_slope_5_winner_loser_momentum = get_adaptive_mtf_normalized_score(slope_5_winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 狂热背景归一化信号 ---")
             print(f"        norm_retail_fomo_premium: {norm_retail_fomo_premium.loc[probe_ts]:.4f}")
@@ -2576,7 +2576,7 @@ class ChipIntelligence:
             print(f"        norm_winner_loser_momentum: {norm_winner_loser_momentum.loc[probe_ts]:.4f}")
             print(f"        norm_slope_5_winner_loser_momentum: {norm_slope_5_winner_loser_momentum.loc[probe_ts]:.4f}")
         fomo_backdrop_numeric_weights = {k: v for k, v in fomo_backdrop_weights.items() if isinstance(v, (int, float))}
-        fomo_backdrop_score = utils._robust_geometric_mean(
+        fomo_backdrop_score = _robust_geometric_mean(
             {
                 'retail_fomo_premium': norm_retail_fomo_premium,
                 'winner_profit_margin': norm_winner_profit_margin,
@@ -2587,7 +2587,7 @@ class ChipIntelligence:
                 'winner_loser_momentum': norm_winner_loser_momentum,
                 'winner_loser_momentum_slope': norm_slope_5_winner_loser_momentum
             },
-            fomo_backdrop_numeric_weights, df_index, debug_info=debug_info_tuple
+            fomo_backdrop_numeric_weights, df_index
         )
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 狂热背景得分 (fomo_backdrop_score): {fomo_backdrop_score.loc[probe_ts]:.4f}")
@@ -2595,17 +2595,17 @@ class ChipIntelligence:
         is_fomo_context = fomo_backdrop_score > fomo_context_threshold
         # 2. 背离诡影精细化 (Divergence Shadow)
         norm_divergence_bearish = divergence_score.clip(-1, 0).abs() # 仅取负向部分（看跌背离）的绝对值
-        norm_dispersal_by_distribution = utils.get_adaptive_mtf_normalized_score(dispersal_by_distribution_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_chip_fault_magnitude_for_shadow = utils.get_adaptive_mtf_normalized_score(chip_fault_magnitude_raw.abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_cost_structure_negative = utils.get_adaptive_mtf_normalized_score(cost_structure_skewness_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_winner_stability_negative = utils.get_adaptive_mtf_normalized_score(winner_stability_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_chip_fault_blockage = utils.get_adaptive_mtf_normalized_score(chip_fault_blockage_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_dominant_peak_profit_margin = utils.get_adaptive_mtf_normalized_score(dominant_peak_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_dominant_peak_solidity_negative = utils.get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_upper_shadow_selling_pressure = utils.get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_pressure_rejection_strength_negative = utils.get_adaptive_mtf_normalized_score(pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_slope_5_dominant_peak_solidity_negative = utils.get_adaptive_mtf_normalized_score(slope_5_dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_slope_5_pressure_rejection_strength_negative = utils.get_adaptive_mtf_normalized_score(slope_5_pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_dispersal_by_distribution = utils.get_adaptive_mtf_normalized_score(dispersal_by_distribution_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_chip_fault_magnitude_for_shadow = utils.get_adaptive_mtf_normalized_score(chip_fault_magnitude_raw.abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_cost_structure_negative = utils.get_adaptive_mtf_normalized_score(cost_structure_skewness_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_winner_stability_negative = utils.get_adaptive_mtf_normalized_score(winner_stability_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_chip_fault_blockage = utils.get_adaptive_mtf_normalized_score(chip_fault_blockage_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_dominant_peak_profit_margin = utils.get_adaptive_mtf_normalized_score(dominant_peak_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_dominant_peak_solidity_negative = utils.get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_upper_shadow_selling_pressure = utils.get_adaptive_mtf_normalized_score(upper_shadow_selling_pressure_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_pressure_rejection_strength_negative = utils.get_adaptive_mtf_normalized_score(pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_slope_5_dominant_peak_solidity_negative = utils.get_adaptive_mtf_normalized_score(slope_5_dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_slope_5_pressure_rejection_strength_negative = utils.get_adaptive_mtf_normalized_score(slope_5_pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 背离诡影归一化信号 ---")
             print(f"        norm_divergence_bearish: {norm_divergence_bearish.loc[probe_ts]:.4f}")
@@ -2641,19 +2641,19 @@ class ChipIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 背离诡影得分 (divergence_shadow_score): {divergence_shadow_score.loc[probe_ts]:.4f}")
         # 3. 主力抽离多维度验证 (Main Force Retreat)
-        norm_profit_taking_flow_ratio = utils.get_adaptive_mtf_normalized_score(profit_taking_flow_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_covert_accumulation_negative = utils.get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_main_force_conviction_negative = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data).clip(-1, 0).abs()
-        norm_retail_flow_dominance = utils.get_adaptive_mtf_normalized_score(retail_flow_dominance_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_main_force_net_flow_negative = utils.get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_main_force_slippage = utils.get_adaptive_mtf_normalized_score(main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_rally_distribution_pressure = utils.get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_control_solidity_negative = utils.get_adaptive_mtf_normalized_score(control_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_counterparty_exhaustion = utils.get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_smart_money_net_buy_negative = utils.get_adaptive_mtf_normalized_score(smart_money_net_buy_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_slope_5_main_force_net_flow_calibrated_negative = utils.get_adaptive_mtf_normalized_score(slope_5_main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_accel_5_main_force_slippage = utils.get_adaptive_mtf_normalized_score(accel_5_main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_profit_taking_flow_ratio = utils.get_adaptive_mtf_normalized_score(profit_taking_flow_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_covert_accumulation_negative = utils.get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_conviction_negative = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data).clip(-1, 0).abs()
+        norm_retail_flow_dominance = utils.get_adaptive_mtf_normalized_score(retail_flow_dominance_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_net_flow_negative = utils.get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_slippage = utils.get_adaptive_mtf_normalized_score(main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_rally_distribution_pressure = utils.get_adaptive_mtf_normalized_score(rally_distribution_pressure_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_control_solidity_negative = utils.get_adaptive_mtf_normalized_score(control_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_counterparty_exhaustion = utils.get_adaptive_mtf_normalized_score(counterparty_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_smart_money_net_buy_negative = utils.get_adaptive_mtf_normalized_score(smart_money_net_buy_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_slope_5_main_force_net_flow_calibrated_negative = utils.get_adaptive_mtf_normalized_score(slope_5_main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_accel_5_main_force_slippage = utils.get_adaptive_mtf_normalized_score(accel_5_main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力抽离归一化信号 ---")
             print(f"        norm_profit_taking_flow_ratio: {norm_profit_taking_flow_ratio.loc[probe_ts]:.4f}")
@@ -2692,9 +2692,9 @@ class ChipIntelligence:
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力抽离得分 (main_force_retreat_score): {main_force_retreat_score.loc[probe_ts]:.4f}")
         # 4. 诡道背景调制强化 (Deception Modulator)
-        norm_chip_fault_magnitude_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_main_force_conviction_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
-        norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=debug_info_tuple, _parsed_tf_data=parsed_tf_data)
+        norm_chip_fault_magnitude_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_conviction_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道背景调制归一化信号 ---")
             print(f"        norm_chip_fault_magnitude_bipolar: {norm_chip_fault_magnitude_bipolar.loc[probe_ts]:.4f}")
