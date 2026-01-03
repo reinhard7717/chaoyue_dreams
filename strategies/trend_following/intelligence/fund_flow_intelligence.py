@@ -32,11 +32,11 @@ def _numba_calculate_deception_risk_core(
     """
     num_dates = len(norm_wash_trade_values)
     deception_risk_score_values = np.zeros(num_dates, dtype=np.float32)
-
     for i in range(num_dates):
         # 情境调制因子：市场情绪对风险的放大或抑制
         sentiment_mod_factor = (1 + np.abs(norm_market_sentiment_values[i]) * deception_context_sensitivity * np.sign(norm_market_sentiment_values[i]))
-        sentiment_mod_factor = np.clip(sentiment_mod_factor, 0.5, 1.5) # 裁剪到合理范围
+        # 修正：对标量进行裁剪，使用 np.maximum 和 np.minimum
+        sentiment_mod_factor = np.maximum(0.5, np.minimum(sentiment_mod_factor, 1.5)) # 裁剪到合理范围
         # 风险来源1：对倒强度
         risk_from_wash_trade = norm_wash_trade_values[i] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[i]
         # 风险来源2：诱多欺骗（正向欺骗指数）
@@ -49,58 +49,13 @@ def _numba_calculate_deception_risk_core(
         # 风险来源5：低资金流可信度
         # 只有当可信度低于阈值时才产生风险，且风险程度与低于阈值的程度成正比
         risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility_values[i]) - (1 - flow_credibility_threshold))
-        risk_from_low_credibility = np.clip(risk_from_low_credibility, 0.0, 1.0) # 确保在0到1之间
+        # 修正：对标量进行裁剪，使用 np.maximum 和 np.minimum
+        risk_from_low_credibility = np.maximum(0.0, np.minimum(risk_from_low_credibility, 1.0)) # 确保在0到1之间
         # 累加所有风险成分
         total_risk = risk_from_wash_trade + risk_from_bull_trap + risk_from_lure_long + risk_from_bear_trap_weak_conviction + risk_from_low_credibility
         # 最终风险分数裁剪到 [0, 1] 范围
-        deception_risk_score_values[i] = np.clip(total_risk, 0.0, 1.0)
-
-    return deception_risk_score_values
-@nb.njit(cache=True)
-def _numba_calculate_deception_risk_core(
-    norm_wash_trade_values: np.ndarray,
-    norm_deception_values: np.ndarray,
-    norm_conviction_values: np.ndarray,
-    norm_flow_credibility_values: np.ndarray,
-    norm_market_sentiment_values: np.ndarray,
-    norm_deception_lure_long_values: np.ndarray,
-    norm_deception_lure_short_values: np.ndarray, # 虽然在风险计算中不直接使用，但作为参数传入保持一致性
-    wash_trade_penalty_sensitivity: float,
-    deception_penalty_sensitivity: float,
-    deception_lure_long_penalty_sensitivity: float,
-    deception_context_sensitivity: float,
-    flow_credibility_threshold: float,
-    deception_cohesion_mod_values: np.ndarray,
-    wash_trade_cohesion_mod_values: np.ndarray
-) -> np.ndarray:
-    """
-    Numba优化后的核心函数，用于计算资金流诡道博弈风险。
-    直接操作NumPy数组，避免Pandas Series的内部开销。
-    """
-    num_dates = len(norm_wash_trade_values)
-    deception_risk_score_values = np.zeros(num_dates, dtype=np.float32)
-
-    for i in range(num_dates):
-        # 情境调制因子：市场情绪对风险的放大或抑制
-        sentiment_mod_factor = (1 + np.abs(norm_market_sentiment_values[i]) * deception_context_sensitivity * np.sign(norm_market_sentiment_values[i]))
-        sentiment_mod_factor = np.clip(sentiment_mod_factor, 0.5, 1.5) # 裁剪到合理范围
-        # 风险来源1：对倒强度
-        risk_from_wash_trade = norm_wash_trade_values[i] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[i]
-        # 风险来源2：诱多欺骗（正向欺骗指数）
-        risk_from_bull_trap = np.maximum(0.0, norm_deception_values[i]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[i]
-        # 风险来源3：诱多强度（deception_lure_long_intensity）
-        risk_from_lure_long = norm_deception_lure_long_values[i] * deception_lure_long_penalty_sensitivity
-        # 风险来源4：弱信念下的诱空（负向欺骗指数，且主力信念弱）
-        # (1 - norm_conviction.clip(lower=0)) 转换为 (1 - 正向信念)
-        risk_from_bear_trap_weak_conviction = np.maximum(0.0, -norm_deception_values[i]) * (1 - np.maximum(0.0, norm_conviction_values[i])) * deception_penalty_sensitivity * deception_cohesion_mod_values[i]
-        # 风险来源5：低资金流可信度
-        # 只有当可信度低于阈值时才产生风险，且风险程度与低于阈值的程度成正比
-        risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility_values[i]) - (1 - flow_credibility_threshold))
-        risk_from_low_credibility = np.clip(risk_from_low_credibility, 0.0, 1.0) # 确保在0到1之间
-        # 累加所有风险成分
-        total_risk = risk_from_wash_trade + risk_from_bull_trap + risk_from_lure_long + risk_from_bear_trap_weak_conviction + risk_from_low_credibility
-        # 最终风险分数裁剪到 [0, 1] 范围
-        deception_risk_score_values[i] = np.clip(total_risk, 0.0, 1.0)
+        # 修正：对标量进行裁剪，使用 np.maximum 和 np.minimum
+        deception_risk_score_values[i] = np.maximum(0.0, np.minimum(total_risk, 1.0))
 
     return deception_risk_score_values
 
@@ -161,57 +116,6 @@ def _numba_mtf_cohesion_divergence_core(
     
     trend_quality_modulator_values = np.clip(0.5 + trend_persistence_values, 0.5, 1.5)
 
-    # 4. 最终双极性共振分数：方向 * 强度 * 趋势质量
-    mtf_resonance_score_values = direction_cohesion_values * strength_cohesion_values * trend_quality_modulator_values
-    
-    return np.clip(mtf_resonance_score_values, -1.0, 1.0)
-@nb.njit(cache=True)
-def _numba_mtf_cohesion_divergence_core(
-    avg_short_slope_values: np.ndarray,
-    avg_short_accel_values: np.ndarray,
-    avg_long_slope_values: np.ndarray,
-    avg_long_accel_values: np.ndarray,
-    epsilon_sign: float,
-    persistence_window: int
-) -> np.ndarray:
-    """
-    Numba优化后的核心函数，用于计算多时间框架的共振/背离因子。
-    直接操作NumPy数组，避免Pandas Series的内部开销。
-    """
-    num_dates = len(avg_short_slope_values)
-    # 1. 方向一致性 (Direction Cohesion)
-    direction_cohesion_values = np.clip(avg_short_slope_values * avg_long_slope_values, -1.0, 1.0)
-    # 2. 强度一致性 (Magnitude Cohesion)
-    # 相对差异：短期和长期强度越接近，一致性越高
-    relative_strength_cohesion_slope_values = 1 - np.abs(avg_short_slope_values - avg_long_slope_values) / (np.abs(avg_short_slope_values) + np.abs(avg_long_slope_values) + epsilon_sign)
-    relative_strength_cohesion_accel_values = 1 - np.abs(avg_short_accel_values - avg_long_accel_values) / (np.abs(avg_short_accel_values) + np.abs(avg_long_accel_values) + epsilon_sign)
-    # 共同强度：短期和长期强度都高，则共同强度高
-    overall_magnitude_slope_values = (np.abs(avg_short_slope_values) + np.abs(avg_long_slope_values)) / 2
-    overall_magnitude_accel_values = (np.abs(avg_short_accel_values) + np.abs(avg_long_accel_values)) / 2
-    # 融合相对差异和共同强度
-    strength_cohesion_slope_values = np.clip((relative_strength_cohesion_slope_values + overall_magnitude_slope_values) / 2, 0.0, 1.0)
-    strength_cohesion_accel_values = np.clip((relative_strength_cohesion_accel_values + overall_magnitude_accel_values) / 2, 0.0, 1.0)
-    # 综合强度一致性
-    strength_cohesion_values = (strength_cohesion_slope_values + strength_cohesion_accel_values) / 2
-    # 3. 趋势质量/持久性调制器 (Trend Quality/Persistence Modulator)
-    short_slope_sign_values = np.where(np.abs(avg_short_slope_values) > epsilon_sign, np.sign(avg_short_slope_values), 0.0)
-    long_slope_sign_values = np.where(np.abs(avg_long_slope_values) > epsilon_sign, np.sign(avg_long_slope_values), 0.0)
-    directional_consistency_values = np.zeros(num_dates, dtype=np.float32)
-    for i in range(num_dates):
-        if short_slope_sign_values[i] != 0.0 and short_slope_sign_values[i] == long_slope_sign_values[i]:
-            directional_consistency_values[i] = 1.0
-    # Rolling mean for trend_persistence (manual Numba implementation)
-    trend_persistence_values = np.zeros(num_dates, dtype=np.float32)
-    for i in range(num_dates):
-        start_idx = max(0, i - persistence_window + 1)
-        window_sum = 0.0
-        window_count = 0
-        for j in range(start_idx, i + 1):
-            window_sum += directional_consistency_values[j]
-            window_count += 1
-        if window_count > 0:
-            trend_persistence_values[i] = window_sum / window_count
-    trend_quality_modulator_values = np.clip(0.5 + trend_persistence_values, 0.5, 1.5)
     # 4. 最终双极性共振分数：方向 * 强度 * 趋势质量
     mtf_resonance_score_values = direction_cohesion_values * strength_cohesion_values * trend_quality_modulator_values
     
