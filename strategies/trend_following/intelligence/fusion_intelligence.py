@@ -210,6 +210,9 @@ class FusionIntelligence:
         intraday_strategic_alignment_states = self._synthesize_intraday_strategic_alignment(df, debug_info)
         all_fusion_states.update(intraday_strategic_alignment_states)
         self.strategy.atomic_states.update(intraday_strategic_alignment_states)
+        behavioral_stagnation_evidence_states = self._calculate_behavioral_stagnation_evidence(df, debug_info)
+        all_fusion_states.update(behavioral_stagnation_evidence_states)
+        self.strategy.atomic_states.update(behavioral_stagnation_evidence_states)
         capital_dominance_shift_states = self._synthesize_capital_dominance_shift(df, debug_info)
         all_fusion_states.update(capital_dominance_shift_states)
         self.strategy.atomic_states.update(capital_dominance_shift_states)
@@ -1684,6 +1687,295 @@ class FusionIntelligence:
         print(f"  -- [融合层] “派发压力”冶炼完成，最新分值: {final_distribution_pressure.iloc[-1]:.4f}")
         return states
 
+    def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> pd.Series:
+        """
+        【V4.3 · 行为纯化版 - 增强与动态权重融合】计算纯粹基于行为类原始数据的滞涨证据原始分。
+        - 核心升级: 引入“不可持续拉升证据”维度，即使在上涨行情中，也能捕捉到主力暗中派发、诱多欺骗、上涨质量不佳等迹象。
+        - 优化点:
+          1. 行为惯性: 考虑价格和成交量斜率的减速或负向加速度，作为滞涨的补充证据。
+          2. 动态阈值: 根据市场波动率（ATR）动态调整K线形态（长上影线、小实体）的阈值。
+          3. 动量背离细化: 价格上涨但动量指标下降，且下降速度加快，则滞涨证据更强。
+          4. 成交量异常细化: 区分放量滞涨和缩量上涨，后者在某些情境下也可能是滞涨证据。
+          5. **新增“不可持续拉升证据”维度**：融合拉升派发压力、获利了结、诱多、对倒、主力执行Alpha逆向、上涨脉冲纯度逆向等信号。
+          6. **融合函数优化**：将最终融合从几何平均改为加权算术平均，避免零值对整体分数的过度影响。
+          7. **【新增】动态融合权重**：根据价格变化幅度动态调整各滞涨证据子维度的融合权重，使其在强劲上涨情境下更侧重于“不可持续拉升”和“动量背离”等风险。
+        - 【新增】在调试模式下，打印原始输入、中间计算结果和最终分数。
+        """
+        method_name = "_calculate_behavioral_stagnation_evidence"
+        stagnation_params = get_param_value(self.config_params.get('stagnation_evidence_params'), {
+            "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
+            "volume_stagnation_multiplier": 1.2, "momentum_divergence_penalty": 0.15,
+            "upward_efficiency_decay_bonus": 0.1, "intraday_control_decay_bonus": 0.1,
+            "dynamic_kline_atr_multiplier": 0.005,
+            "momentum_deceleration_bonus": 0.1,
+            "volume_drying_up_multiplier": 0.8
+        })
+        if not stagnation_params.get('enabled', False):
+            if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+                print(f"      [探针 - {method_name}] 信号未启用，返回0分。")
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        
+        base_fusion_weights = get_param_value(stagnation_params.get('fusion_weights'), {
+            "price_weakness": 0.2, "momentum_divergence": 0.2, "volume_anomaly": 0.2,
+            "intraday_control_weakness": 0.2, "unsustainable_rally_evidence": 0.2
+        })
+        unsustainable_rally_weights = get_param_value(stagnation_params.get('unsustainable_rally_weights'), {
+            "rally_distribution_pressure": 0.2, "profit_taking_flow_ratio": 0.2,
+            "deception_lure_long_intensity": 0.2, "wash_trade_intensity": 0.15,
+            "main_force_execution_alpha_inverse": 0.15, "upward_impulse_purity_inverse": 0.1
+        })
+        dynamic_fusion_params = get_param_value(stagnation_params.get('dynamic_fusion_weights_params'), {
+            "enabled": False, "price_change_threshold": 0.05,
+            "momentum_divergence_boost": 0.3, "unsustainable_rally_boost": 0.4,
+            "price_weakness_decay": 0.1, "volume_anomaly_decay": 0.1, "intraday_control_weakness_decay": 0.1
+        })
+
+        required_signals = [
+            'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D',
+            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
+            'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
+            'pct_change_D',
+            # 新增不可持续拉升证据的信号
+            'rally_distribution_pressure_D', 'profit_taking_flow_ratio_D',
+            'deception_lure_long_intensity_D', 'wash_trade_intensity_D',
+            'main_force_execution_alpha_D', 'upward_impulse_purity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, method_name, is_debug_enabled, probe_ts):
+            if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+                print(f"      [探针 - {method_name}] 缺少核心信号，返回0分。")
+            return pd.Series(0.0, index=df.index)
+        
+        signals_data = {sig: df[sig] for sig in required_signals}
+        debug_info = (is_debug_enabled, probe_ts, method_name)
+
+        open_price = signals_data['open_D']
+        high_price = signals_data['high_D']
+        low_price = signals_data['low_D']
+        close_price = signals_data['close_D']
+        current_volume = signals_data['volume_D']
+        volume_avg = signals_data['VOL_MA_21_D']
+        pct_change_val = signals_data['pct_change_D']
+        atr_val = signals_data['ATR_14_D']
+        robust_close_slope = signals_data['robust_close_slope']
+        robust_rsi_slope = signals_data['robust_RSI_13_slope']
+        robust_macd_slope = signals_data['robust_MACDh_13_34_8_slope']
+        accel_rsi = signals_data['ACCEL_5_RSI_13_D']
+        accel_macd = signals_data['ACCEL_5_MACDh_13_34_8_D']
+        upward_efficiency = signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']
+        intraday_bull_control = signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']
+
+        total_range = high_price - low_price
+        total_range_safe = total_range.replace(0, 1e-9)
+        body_range = (close_price - open_price).abs()
+        upper_shadow = high_price - np.maximum(open_price, close_price)
+        lower_shadow = np.minimum(open_price, close_price) - low_price
+
+        upper_shadow_ratio = (upper_shadow / total_range_safe).clip(0, 1)
+        body_ratio = (body_range / total_range_safe).clip(0, 1)
+
+        upper_shadow_ratio_threshold = stagnation_params.get('upper_shadow_ratio_threshold', 0.4)
+        body_ratio_threshold = stagnation_params.get('body_ratio_threshold', 0.3)
+        volume_stagnation_multiplier = stagnation_params.get('volume_stagnation_multiplier', 1.2)
+        momentum_divergence_penalty = stagnation_params.get('momentum_divergence_penalty', 0.15)
+        dynamic_kline_atr_multiplier = stagnation_params.get('dynamic_kline_atr_multiplier', 0.005)
+        momentum_deceleration_bonus = stagnation_params.get('momentum_deceleration_bonus', 0.1)
+        volume_drying_up_multiplier = stagnation_params.get('volume_drying_up_multiplier', 0.8)
+
+        dynamic_upper_shadow_threshold = upper_shadow_ratio_threshold + atr_val * dynamic_kline_atr_multiplier
+        dynamic_body_ratio_threshold = body_ratio_threshold - atr_val * dynamic_kline_atr_multiplier
+
+        pct_change_abs_raw = signals_data['pct_change_D'].abs()
+
+        series_for_mtf_norm_config = {
+            'pct_change_abs_raw': (pct_change_abs_raw, tf_weights, True),
+            'upward_efficiency': (upward_efficiency, tf_weights, True),
+            'intraday_bull_control': (intraday_bull_control, tf_weights, True),
+            # 新增不可持续拉升证据的归一化配置
+            'rally_distribution_pressure_D': (signals_data['rally_distribution_pressure_D'], tf_weights, True),
+            'profit_taking_flow_ratio_D': (signals_data['profit_taking_flow_ratio_D'], tf_weights, True),
+            'deception_lure_long_intensity_D': (signals_data['deception_lure_long_intensity_D'], tf_weights, True),
+            'wash_trade_intensity_D': (signals_data['wash_trade_intensity_D'], tf_weights, True),
+            'main_force_execution_alpha_D_inverse': (signals_data['main_force_execution_alpha_D'].clip(upper=0).abs(), tf_weights, True), # 负向Alpha的绝对值
+            'upward_impulse_purity_D_inverse': ((1 - signals_data['upward_impulse_purity_D']).clip(0,1), tf_weights, True) # 上涨纯度的逆向
+        }
+        
+        normalized_mtf_scores = {}
+        for key, (series_obj, tf_w, asc) in series_for_mtf_norm_config.items():
+            normalized_mtf_scores[key] = get_adaptive_mtf_normalized_score(series_obj, df.index, tf_weights=tf_w, ascending=asc, debug_info=False)
+
+        # 1. 价格行为疲软 (Price Action Weakness)
+        is_long_upper_shadow = (upper_shadow_ratio > dynamic_upper_shadow_threshold)
+        is_small_body = (body_ratio < dynamic_body_ratio_threshold)
+        is_high_open_low_close = (open_price > close_price) & (pct_change_val < 0)
+        price_weakness_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        price_weakness_score = price_weakness_score.mask(is_long_upper_shadow & is_small_body, 0.3)
+        price_weakness_score = price_weakness_score.mask(is_high_open_low_close, price_weakness_score + 0.4)
+
+        # 2. 动量背离 (Momentum Divergence)
+        is_price_rising = (robust_close_slope > 0)
+        is_rsi_momentum_decay = (robust_rsi_slope < 0)
+        is_macd_momentum_decay = (robust_macd_slope < 0)
+        momentum_divergence_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        rsi_deceleration_bonus = (is_rsi_momentum_decay & (accel_rsi < 0)).astype(int) * momentum_deceleration_bonus
+        macd_deceleration_bonus = (is_macd_momentum_decay & (accel_macd < 0)).astype(int) * momentum_deceleration_bonus
+        momentum_divergence_score = momentum_divergence_score.mask(
+            is_price_rising & (is_rsi_momentum_decay | is_macd_momentum_decay),
+            momentum_divergence_penalty * (is_rsi_momentum_decay.astype(int) + is_macd_momentum_decay.astype(int)) + \
+            rsi_deceleration_bonus + macd_deceleration_bonus
+        )
+        momentum_divergence_score = momentum_divergence_score.clip(0, 0.3)
+
+        # 3. 成交量异常 (Volume Anomaly)
+        norm_pct_change_abs = normalized_mtf_scores['pct_change_abs_raw']
+        is_volume_stagnation = (norm_pct_change_abs < 0.01) & (current_volume > volume_avg * volume_stagnation_multiplier) & (robust_close_slope > 0)
+        volume_extremity_score = is_volume_stagnation.astype(float) * (current_volume / volume_avg).clip(1, 2)
+        is_volume_drying_up = (pct_change_val > 0) & (current_volume < volume_avg * volume_drying_up_multiplier) & (robust_close_slope > 0)
+        volume_drying_up_score = is_volume_drying_up.astype(float) * (1 - (current_volume / volume_avg)).clip(0, 1)
+        volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1)
+
+        # 4. 日内控制力减弱 (Intraday Control Weakness)
+        norm_upward_efficiency_decay = (1 - normalized_mtf_scores['upward_efficiency']).clip(0, 1) * stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
+        norm_intraday_control_decay = (1 - normalized_mtf_scores['intraday_bull_control']).clip(0, 1) * stagnation_params.get('intraday_control_decay_bonus', 0.1)
+        intraday_control_weakness_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
+
+        # 5. 新增：不可持续拉升证据 (Unsustainable Rally Evidence)
+        norm_rally_distribution_pressure = normalized_mtf_scores['rally_distribution_pressure_D']
+        norm_profit_taking_flow_ratio = normalized_mtf_scores['profit_taking_flow_ratio_D']
+        norm_deception_lure_long_intensity = normalized_mtf_scores['deception_lure_long_intensity_D']
+        norm_wash_trade_intensity = normalized_mtf_scores['wash_trade_intensity_D']
+        norm_main_force_execution_alpha_inverse = normalized_mtf_scores['main_force_execution_alpha_D_inverse']
+        norm_upward_impulse_purity_inverse = normalized_mtf_scores['upward_impulse_purity_D_inverse']
+
+        unsustainable_rally_evidence_score = (
+            norm_rally_distribution_pressure * unsustainable_rally_weights.get('rally_distribution_pressure', 0.2) +
+            norm_profit_taking_flow_ratio * unsustainable_rally_weights.get('profit_taking_flow_ratio', 0.2) +
+            norm_deception_lure_long_intensity * unsustainable_rally_weights.get('deception_lure_long_intensity', 0.2) +
+            norm_wash_trade_intensity * unsustainable_rally_weights.get('wash_trade_intensity', 0.15) +
+            norm_main_force_execution_alpha_inverse * unsustainable_rally_weights.get('main_force_execution_alpha_inverse', 0.15) +
+            norm_upward_impulse_purity_inverse * unsustainable_rally_weights.get('upward_impulse_purity_inverse', 0.1)
+        ).clip(0, 1)
+
+        # 动态调整融合权重
+        current_fusion_weights = base_fusion_weights.copy()
+        if dynamic_fusion_params.get('enabled', False):
+            # 识别强劲上涨情境
+            is_strong_price_increase = (pct_change_val > dynamic_fusion_params.get('price_change_threshold', 0.05))
+            
+            if is_strong_price_increase.any(): # 只有在有强劲上涨的日子才应用动态调整
+                # 创建一个与df.index相同长度的Series，用于存储动态权重
+                dynamic_weights_series = pd.DataFrame(index=df.index, columns=current_fusion_weights.keys(), dtype=np.float32)
+                for key, weight in current_fusion_weights.items():
+                    dynamic_weights_series[key] = weight # 初始化为基础权重
+
+                # 应用动态调整
+                dynamic_weights_series['momentum_divergence'] = dynamic_weights_series['momentum_divergence'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['momentum_divergence'] + dynamic_fusion_params.get('momentum_divergence_boost', 0.3)
+                )
+                dynamic_weights_series['unsustainable_rally_evidence'] = dynamic_weights_series['unsustainable_rally_evidence'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['unsustainable_rally_evidence'] + dynamic_fusion_params.get('unsustainable_rally_boost', 0.4)
+                )
+                dynamic_weights_series['price_weakness'] = dynamic_weights_series['price_weakness'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['price_weakness'] - dynamic_fusion_params.get('price_weakness_decay', 0.1)
+                ).clip(lower=0) # 权重不能为负
+                dynamic_weights_series['volume_anomaly'] = dynamic_weights_series['volume_anomaly'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['volume_anomaly'] - dynamic_fusion_params.get('volume_anomaly_decay', 0.1)
+                ).clip(lower=0)
+                dynamic_weights_series['intraday_control_weakness'] = dynamic_weights_series['intraday_control_weakness'].mask(
+                    is_strong_price_increase,
+                    dynamic_weights_series['intraday_control_weakness'] - dynamic_fusion_params.get('intraday_control_weakness_decay', 0.1)
+                ).clip(lower=0)
+                
+                # 归一化动态权重，确保总和为1
+                sum_dynamic_weights = dynamic_weights_series.sum(axis=1)
+                # 避免除以零，对于 sum_dynamic_weights 为 0 的情况，保持原始权重或设为 0
+                sum_dynamic_weights_safe = sum_dynamic_weights.replace(0, 1e-9)
+                normalized_dynamic_weights = dynamic_weights_series.div(sum_dynamic_weights_safe, axis=0)
+                
+                # 将 Series 形式的权重转换为字典形式，以便后续使用
+                # 注意：这里需要为每个时间点应用不同的权重，所以不能直接用一个字典
+                # 而是需要根据 is_strong_price_increase 来选择使用哪组权重
+                # 简化处理：对于非强劲上涨的日子，使用 base_fusion_weights
+                # 对于强劲上涨的日子，使用 normalized_dynamic_weights
+                fusion_weights_applied = {}
+                for key in current_fusion_weights.keys():
+                    fusion_weights_applied[key] = pd.Series(base_fusion_weights[key], index=df.index, dtype=np.float32)
+                    fusion_weights_applied[key].mask(is_strong_price_increase, normalized_dynamic_weights[key], inplace=True)
+            else:
+                # 如果没有强劲上涨的日子，则全部使用基础权重
+                fusion_weights_applied = {key: pd.Series(weight, index=df.index, dtype=np.float32) for key, weight in base_fusion_weights.items()}
+        else:
+            # 如果动态权重未启用，则全部使用基础权重
+            fusion_weights_applied = {key: pd.Series(weight, index=df.index, dtype=np.float32) for key, weight in base_fusion_weights.items()}
+
+
+        # 最终融合 (加权算术平均)
+        scores_dict = {
+            "price_weakness": price_weakness_score,
+            "momentum_divergence": momentum_divergence_score,
+            "volume_anomaly": volume_anomaly_score,
+            "intraday_control_weakness": intraday_control_weakness_score,
+            "unsustainable_rally_evidence": unsustainable_rally_evidence_score
+        }
+        
+        weighted_sum = pd.Series(0.0, index=df.index, dtype=np.float32)
+        total_weight_sum = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        for key, score_series in scores_dict.items():
+            weight_series = fusion_weights_applied[key] # 使用动态或静态权重Series
+            weighted_sum += score_series * weight_series
+            total_weight_sum += weight_series
+        
+        # 避免除以零
+        total_weight_sum_safe = total_weight_sum.replace(0, 1e-9)
+        stagnation_score = (weighted_sum / total_weight_sum_safe).clip(0, 1)
+
+        is_rising_or_flat = (pct_change_val >= -0.005).astype(float)
+        final_stagnation_evidence = (stagnation_score * is_rising_or_flat).clip(0, 1)
+        final_score = final_stagnation_evidence.astype(np.float32)
+
+        if is_debug_enabled and probe_ts and not df.empty and probe_ts == df.index[-1]:
+            print(f"      [探针 - {method_name} - INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW] 原始输入 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - close_D: {signals_data['close_D'].loc[probe_ts]:.4f}")
+            print(f"        - open_D: {signals_data['open_D'].loc[probe_ts]:.4f}")
+            print(f"        - high_D: {signals_data['high_D'].loc[probe_ts]:.4f}")
+            print(f"        - low_D: {signals_data['low_D'].loc[probe_ts]:.4f}")
+            print(f"        - volume_D: {signals_data['volume_D'].loc[probe_ts]:.4f}")
+            print(f"        - VOL_MA_21_D: {signals_data['VOL_MA_21_D'].loc[probe_ts]:.4f}")
+            print(f"        - ATR_14_D: {signals_data['ATR_14_D'].loc[probe_ts]:.4f}")
+            print(f"        - robust_close_slope: {signals_data['robust_close_slope'].loc[probe_ts]:.4f}")
+            print(f"        - robust_RSI_13_slope: {signals_data['robust_RSI_13_slope'].loc[probe_ts]:.4f}")
+            print(f"        - robust_MACDh_13_34_8_slope: {signals_data['robust_MACDh_13_34_8_slope'].loc[probe_ts]:.4f}")
+            print(f"        - ACCEL_5_RSI_13_D: {signals_data['ACCEL_5_RSI_13_D'].loc[probe_ts]:.4f}")
+            print(f"        - ACCEL_5_MACDh_13_34_8_D: {signals_data['ACCEL_5_MACDh_13_34_8_D'].loc[probe_ts]:.4f}")
+            print(f"        - SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {signals_data['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'].loc[probe_ts]:.4f}")
+            print(f"        - SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {signals_data['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'].loc[probe_ts]:.4f}")
+            print(f"        - pct_change_D: {signals_data['pct_change_D'].loc[probe_ts]:.4f}")
+            print(f"        - rally_distribution_pressure_D: {signals_data['rally_distribution_pressure_D'].loc[probe_ts]:.4f}")
+            print(f"        - profit_taking_flow_ratio_D: {signals_data['profit_taking_flow_ratio_D'].loc[probe_ts]:.4f}")
+            print(f"        - deception_lure_long_intensity_D: {signals_data['deception_lure_long_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - wash_trade_intensity_D: {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        - main_force_execution_alpha_D: {signals_data['main_force_execution_alpha_D'].loc[probe_ts]:.4f}")
+            print(f"        - upward_impulse_purity_D: {signals_data['upward_impulse_purity_D'].loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 中间计算 @ {probe_ts.strftime('%Y-%m-%d')}:")
+            print(f"        - 价格行为疲软分数: {price_weakness_score.loc[probe_ts]:.4f}")
+            print(f"        - 动量背离分数: {momentum_divergence_score.loc[probe_ts]:.4f}")
+            print(f"        - 成交量异常分数: {volume_anomaly_score.loc[probe_ts]:.4f}")
+            print(f"        - 日内控制力减弱分数: {intraday_control_weakness_score.loc[probe_ts]:.4f}")
+            print(f"        - 不可持续拉升证据分数: {unsustainable_rally_evidence_score.loc[probe_ts]:.4f}")
+            print(f"        - 动态权重应用于强劲上涨情境: {is_strong_price_increase.loc[probe_ts]}")
+            if is_strong_price_increase.loc[probe_ts]:
+                print(f"        - 调整后权重 (price_weakness): {normalized_dynamic_weights['price_weakness'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (momentum_divergence): {normalized_dynamic_weights['momentum_divergence'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (volume_anomaly): {normalized_dynamic_weights['volume_anomaly'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (intraday_control_weakness): {normalized_dynamic_weights['intraday_control_weakness'].loc[probe_ts]:.4f}")
+                print(f"        - 调整后权重 (unsustainable_rally_evidence): {normalized_dynamic_weights['unsustainable_rally_evidence'].loc[probe_ts]:.4f}")
+            print(f"      [探针 - {method_name}] 最终 '滞涨证据'分数 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
+        return final_score
 
 
     def _synthesize_multi_layer_reversal_confirmation(self, df: pd.DataFrame, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Dict[str, pd.Series]:

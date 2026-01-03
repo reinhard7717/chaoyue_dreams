@@ -2,11 +2,220 @@
 import os
 import pandas as pd
 import numpy as np
+import numba as nb
 from typing import Dict, List, Tuple, Any, Union, Optional
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, 
     get_adaptive_mtf_normalized_score, load_external_json_config, _robust_geometric_mean
 )
+
+@nb.njit(cache=True)
+def _numba_calculate_deception_risk_core(
+    norm_wash_trade_values: np.ndarray,
+    norm_deception_values: np.ndarray,
+    norm_conviction_values: np.ndarray,
+    norm_flow_credibility_values: np.ndarray,
+    norm_market_sentiment_values: np.ndarray,
+    norm_deception_lure_long_values: np.ndarray,
+    norm_deception_lure_short_values: np.ndarray, # 虽然在风险计算中不直接使用，但作为参数传入保持一致性
+    wash_trade_penalty_sensitivity: float,
+    deception_penalty_sensitivity: float,
+    deception_lure_long_penalty_sensitivity: float,
+    deception_context_sensitivity: float,
+    flow_credibility_threshold: float,
+    deception_cohesion_mod_values: np.ndarray,
+    wash_trade_cohesion_mod_values: np.ndarray
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算资金流诡道博弈风险。
+    直接操作NumPy数组，避免Pandas Series的内部开销。
+    """
+    num_dates = len(norm_wash_trade_values)
+    deception_risk_score_values = np.zeros(num_dates, dtype=np.float32)
+
+    for i in range(num_dates):
+        # 情境调制因子：市场情绪对风险的放大或抑制
+        sentiment_mod_factor = (1 + np.abs(norm_market_sentiment_values[i]) * deception_context_sensitivity * np.sign(norm_market_sentiment_values[i]))
+        sentiment_mod_factor = np.clip(sentiment_mod_factor, 0.5, 1.5) # 裁剪到合理范围
+        # 风险来源1：对倒强度
+        risk_from_wash_trade = norm_wash_trade_values[i] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[i]
+        # 风险来源2：诱多欺骗（正向欺骗指数）
+        risk_from_bull_trap = np.maximum(0.0, norm_deception_values[i]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[i]
+        # 风险来源3：诱多强度（deception_lure_long_intensity）
+        risk_from_lure_long = norm_deception_lure_long_values[i] * deception_lure_long_penalty_sensitivity
+        # 风险来源4：弱信念下的诱空（负向欺骗指数，且主力信念弱）
+        # (1 - norm_conviction.clip(lower=0)) 转换为 (1 - 正向信念)
+        risk_from_bear_trap_weak_conviction = np.maximum(0.0, -norm_deception_values[i]) * (1 - np.maximum(0.0, norm_conviction_values[i])) * deception_penalty_sensitivity * deception_cohesion_mod_values[i]
+        # 风险来源5：低资金流可信度
+        # 只有当可信度低于阈值时才产生风险，且风险程度与低于阈值的程度成正比
+        risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility_values[i]) - (1 - flow_credibility_threshold))
+        risk_from_low_credibility = np.clip(risk_from_low_credibility, 0.0, 1.0) # 确保在0到1之间
+        # 累加所有风险成分
+        total_risk = risk_from_wash_trade + risk_from_bull_trap + risk_from_lure_long + risk_from_bear_trap_weak_conviction + risk_from_low_credibility
+        # 最终风险分数裁剪到 [0, 1] 范围
+        deception_risk_score_values[i] = np.clip(total_risk, 0.0, 1.0)
+
+    return deception_risk_score_values
+@nb.njit(cache=True)
+def _numba_calculate_deception_risk_core(
+    norm_wash_trade_values: np.ndarray,
+    norm_deception_values: np.ndarray,
+    norm_conviction_values: np.ndarray,
+    norm_flow_credibility_values: np.ndarray,
+    norm_market_sentiment_values: np.ndarray,
+    norm_deception_lure_long_values: np.ndarray,
+    norm_deception_lure_short_values: np.ndarray, # 虽然在风险计算中不直接使用，但作为参数传入保持一致性
+    wash_trade_penalty_sensitivity: float,
+    deception_penalty_sensitivity: float,
+    deception_lure_long_penalty_sensitivity: float,
+    deception_context_sensitivity: float,
+    flow_credibility_threshold: float,
+    deception_cohesion_mod_values: np.ndarray,
+    wash_trade_cohesion_mod_values: np.ndarray
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算资金流诡道博弈风险。
+    直接操作NumPy数组，避免Pandas Series的内部开销。
+    """
+    num_dates = len(norm_wash_trade_values)
+    deception_risk_score_values = np.zeros(num_dates, dtype=np.float32)
+
+    for i in range(num_dates):
+        # 情境调制因子：市场情绪对风险的放大或抑制
+        sentiment_mod_factor = (1 + np.abs(norm_market_sentiment_values[i]) * deception_context_sensitivity * np.sign(norm_market_sentiment_values[i]))
+        sentiment_mod_factor = np.clip(sentiment_mod_factor, 0.5, 1.5) # 裁剪到合理范围
+        # 风险来源1：对倒强度
+        risk_from_wash_trade = norm_wash_trade_values[i] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[i]
+        # 风险来源2：诱多欺骗（正向欺骗指数）
+        risk_from_bull_trap = np.maximum(0.0, norm_deception_values[i]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[i]
+        # 风险来源3：诱多强度（deception_lure_long_intensity）
+        risk_from_lure_long = norm_deception_lure_long_values[i] * deception_lure_long_penalty_sensitivity
+        # 风险来源4：弱信念下的诱空（负向欺骗指数，且主力信念弱）
+        # (1 - norm_conviction.clip(lower=0)) 转换为 (1 - 正向信念)
+        risk_from_bear_trap_weak_conviction = np.maximum(0.0, -norm_deception_values[i]) * (1 - np.maximum(0.0, norm_conviction_values[i])) * deception_penalty_sensitivity * deception_cohesion_mod_values[i]
+        # 风险来源5：低资金流可信度
+        # 只有当可信度低于阈值时才产生风险，且风险程度与低于阈值的程度成正比
+        risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility_values[i]) - (1 - flow_credibility_threshold))
+        risk_from_low_credibility = np.clip(risk_from_low_credibility, 0.0, 1.0) # 确保在0到1之间
+        # 累加所有风险成分
+        total_risk = risk_from_wash_trade + risk_from_bull_trap + risk_from_lure_long + risk_from_bear_trap_weak_conviction + risk_from_low_credibility
+        # 最终风险分数裁剪到 [0, 1] 范围
+        deception_risk_score_values[i] = np.clip(total_risk, 0.0, 1.0)
+
+    return deception_risk_score_values
+
+@nb.njit(cache=True)
+def _numba_mtf_cohesion_divergence_core(
+    avg_short_slope_values: np.ndarray,
+    avg_short_accel_values: np.ndarray,
+    avg_long_slope_values: np.ndarray,
+    avg_long_accel_values: np.ndarray,
+    epsilon_sign: float,
+    persistence_window: int
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算多时间框架的共振/背离因子。
+    直接操作NumPy数组，避免Pandas Series的内部开销。
+    """
+    num_dates = len(avg_short_slope_values)
+    
+    # 1. 方向一致性 (Direction Cohesion)
+    direction_cohesion_values = np.clip(avg_short_slope_values * avg_long_slope_values, -1.0, 1.0)
+
+    # 2. 强度一致性 (Magnitude Cohesion)
+    # 相对差异：短期和长期强度越接近，一致性越高
+    relative_strength_cohesion_slope_values = 1 - np.abs(avg_short_slope_values - avg_long_slope_values) / (np.abs(avg_short_slope_values) + np.abs(avg_long_slope_values) + epsilon_sign)
+    relative_strength_cohesion_accel_values = 1 - np.abs(avg_short_accel_values - avg_long_accel_values) / (np.abs(avg_short_accel_values) + np.abs(avg_long_accel_values) + epsilon_sign)
+    
+    # 共同强度：短期和长期强度都高，则共同强度高
+    overall_magnitude_slope_values = (np.abs(avg_short_slope_values) + np.abs(avg_long_slope_values)) / 2
+    overall_magnitude_accel_values = (np.abs(avg_short_accel_values) + np.abs(avg_long_accel_values)) / 2
+    
+    # 融合相对差异和共同强度
+    strength_cohesion_slope_values = np.clip((relative_strength_cohesion_slope_values + overall_magnitude_slope_values) / 2, 0.0, 1.0)
+    strength_cohesion_accel_values = np.clip((relative_strength_cohesion_accel_values + overall_magnitude_accel_values) / 2, 0.0, 1.0)
+    
+    # 综合强度一致性
+    strength_cohesion_values = (strength_cohesion_slope_values + strength_cohesion_accel_values) / 2
+
+    # 3. 趋势质量/持久性调制器 (Trend Quality/Persistence Modulator)
+    short_slope_sign_values = np.where(np.abs(avg_short_slope_values) > epsilon_sign, np.sign(avg_short_slope_values), 0.0)
+    long_slope_sign_values = np.where(np.abs(avg_long_slope_values) > epsilon_sign, np.sign(avg_long_slope_values), 0.0)
+    
+    directional_consistency_values = np.zeros(num_dates, dtype=np.float32)
+    for i in range(num_dates):
+        if short_slope_sign_values[i] != 0.0 and short_slope_sign_values[i] == long_slope_sign_values[i]:
+            directional_consistency_values[i] = 1.0
+    
+    # Rolling mean for trend_persistence (manual Numba implementation)
+    trend_persistence_values = np.zeros(num_dates, dtype=np.float32)
+    for i in range(num_dates):
+        start_idx = max(0, i - persistence_window + 1)
+        window_sum = 0.0
+        window_count = 0
+        for j in range(start_idx, i + 1):
+            window_sum += directional_consistency_values[j]
+            window_count += 1
+        if window_count > 0:
+            trend_persistence_values[i] = window_sum / window_count
+    
+    trend_quality_modulator_values = np.clip(0.5 + trend_persistence_values, 0.5, 1.5)
+
+    # 4. 最终双极性共振分数：方向 * 强度 * 趋势质量
+    mtf_resonance_score_values = direction_cohesion_values * strength_cohesion_values * trend_quality_modulator_values
+    
+    return np.clip(mtf_resonance_score_values, -1.0, 1.0)
+@nb.njit(cache=True)
+def _numba_mtf_cohesion_divergence_core(
+    avg_short_slope_values: np.ndarray,
+    avg_short_accel_values: np.ndarray,
+    avg_long_slope_values: np.ndarray,
+    avg_long_accel_values: np.ndarray,
+    epsilon_sign: float,
+    persistence_window: int
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算多时间框架的共振/背离因子。
+    直接操作NumPy数组，避免Pandas Series的内部开销。
+    """
+    num_dates = len(avg_short_slope_values)
+    # 1. 方向一致性 (Direction Cohesion)
+    direction_cohesion_values = np.clip(avg_short_slope_values * avg_long_slope_values, -1.0, 1.0)
+    # 2. 强度一致性 (Magnitude Cohesion)
+    # 相对差异：短期和长期强度越接近，一致性越高
+    relative_strength_cohesion_slope_values = 1 - np.abs(avg_short_slope_values - avg_long_slope_values) / (np.abs(avg_short_slope_values) + np.abs(avg_long_slope_values) + epsilon_sign)
+    relative_strength_cohesion_accel_values = 1 - np.abs(avg_short_accel_values - avg_long_accel_values) / (np.abs(avg_short_accel_values) + np.abs(avg_long_accel_values) + epsilon_sign)
+    # 共同强度：短期和长期强度都高，则共同强度高
+    overall_magnitude_slope_values = (np.abs(avg_short_slope_values) + np.abs(avg_long_slope_values)) / 2
+    overall_magnitude_accel_values = (np.abs(avg_short_accel_values) + np.abs(avg_long_accel_values)) / 2
+    # 融合相对差异和共同强度
+    strength_cohesion_slope_values = np.clip((relative_strength_cohesion_slope_values + overall_magnitude_slope_values) / 2, 0.0, 1.0)
+    strength_cohesion_accel_values = np.clip((relative_strength_cohesion_accel_values + overall_magnitude_accel_values) / 2, 0.0, 1.0)
+    # 综合强度一致性
+    strength_cohesion_values = (strength_cohesion_slope_values + strength_cohesion_accel_values) / 2
+    # 3. 趋势质量/持久性调制器 (Trend Quality/Persistence Modulator)
+    short_slope_sign_values = np.where(np.abs(avg_short_slope_values) > epsilon_sign, np.sign(avg_short_slope_values), 0.0)
+    long_slope_sign_values = np.where(np.abs(avg_long_slope_values) > epsilon_sign, np.sign(avg_long_slope_values), 0.0)
+    directional_consistency_values = np.zeros(num_dates, dtype=np.float32)
+    for i in range(num_dates):
+        if short_slope_sign_values[i] != 0.0 and short_slope_sign_values[i] == long_slope_sign_values[i]:
+            directional_consistency_values[i] = 1.0
+    # Rolling mean for trend_persistence (manual Numba implementation)
+    trend_persistence_values = np.zeros(num_dates, dtype=np.float32)
+    for i in range(num_dates):
+        start_idx = max(0, i - persistence_window + 1)
+        window_sum = 0.0
+        window_count = 0
+        for j in range(start_idx, i + 1):
+            window_sum += directional_consistency_values[j]
+            window_count += 1
+        if window_count > 0:
+            trend_persistence_values[i] = window_sum / window_count
+    trend_quality_modulator_values = np.clip(0.5 + trend_persistence_values, 0.5, 1.5)
+    # 4. 最终双极性共振分数：方向 * 强度 * 趋势质量
+    mtf_resonance_score_values = direction_cohesion_values * strength_cohesion_values * trend_quality_modulator_values
+    
+    return np.clip(mtf_resonance_score_values, -1.0, 1.0)
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
@@ -2201,96 +2410,59 @@ class FundFlowIntelligence:
 
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
         """
-        【V4.3 升级 · 效率优化与共振因子精修版 & 趋势质量强化版】计算双极性多时间框架的共振/背离因子。
-        - 核心优化: 增加了 `pre_fetched_data` 参数，允许预先传入数据，避免重复调用 `_get_safe_series`。
+        【V4.4 升级 · Numba优化与共振因子精修版 & 趋势质量强化版】计算双极性多时间框架的共振/背离因子。
+        - 核心优化: 将核心数值计算逻辑迁移至Numba加速的辅助函数 `_numba_mtf_cohesion_divergence_core`。
+        - 效率优化: 增加了 `pre_fetched_data` 参数，允许预先传入数据，避免重复调用 `_get_safe_series`。
         - 新增: `tf_weights` 参数，允许传入不同的时间框架权重。
         - 共振因子精修: 优化了方向一致性和强度一致性的计算，使其在斜率接近零时也能更合理地反映共振状态。
         - 趋势质量强化: 引入了趋势质量调制器，评估短期和长期趋势方向的持续性，以增强共振信号的可靠性。
         """
         method_name_str = "_calculate_mtf_cohesion_divergence"
+        # 1. 获取短期和长期斜率/加速度的归一化分数
         short_slope_scores = []
         short_accel_scores = []
         long_slope_scores = []
         long_accel_scores = []
-        # 获取短期斜率和加速度
+        # Helper to get normalized score
+        def _get_norm_score(raw_series, is_bipolar_flag):
+            if is_bipolar_flag:
+                return get_adaptive_mtf_normalized_bipolar_score(raw_series, df.index, tf_weights)
+            else:
+                return get_adaptive_mtf_normalized_score(raw_series, df.index, ascending=True, tf_weights=tf_weights)
+        # Process short periods
         for p in short_periods:
             slope_col = f'SLOPE_{p}_{signal_base_name}'
             accel_col = f'ACCEL_{p}_{signal_base_name}'
-            # 优先从预取数据中获取
-            if pre_fetched_data and slope_col in pre_fetched_data:
-                slope_raw = pre_fetched_data[slope_col]
-            else:
-                slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
-            if pre_fetched_data and accel_col in pre_fetched_data:
-                accel_raw = pre_fetched_data[accel_col]
-            else:
-                accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
-            if is_bipolar:
-                short_slope_scores.append(get_adaptive_mtf_normalized_bipolar_score(slope_raw, df.index, tf_weights))
-                short_accel_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
-            else:
-                short_slope_scores.append(get_adaptive_mtf_normalized_score(slope_raw, df.index, ascending=True, tf_weights=tf_weights))
-                short_accel_scores.append(get_adaptive_mtf_normalized_score(accel_raw, df.index, ascending=True, tf_weights=tf_weights))
-        # 获取长期斜率和加速度
+            slope_raw = pre_fetched_data.get(slope_col) if pre_fetched_data else self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
+            accel_raw = pre_fetched_data.get(accel_col) if pre_fetched_data else self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
+            short_slope_scores.append(_get_norm_score(slope_raw, is_bipolar))
+            short_accel_scores.append(_get_norm_score(accel_raw, is_bipolar))
+        # Process long periods
         for p in long_periods:
             slope_col = f'SLOPE_{p}_{signal_base_name}'
             accel_col = f'ACCEL_{p}_{signal_base_name}'
-            # 优先从预取数据中获取
-            if pre_fetched_data and slope_col in pre_fetched_data:
-                slope_raw = pre_fetched_data[slope_col]
-            else:
-                slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
-            if pre_fetched_data and accel_col in pre_fetched_data:
-                accel_raw = pre_fetched_data[accel_col]
-            else:
-                accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
-            if is_bipolar:
-                long_slope_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
-                long_accel_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
-            else:
-                long_slope_scores.append(get_adaptive_mtf_normalized_score(slope_raw, df.index, ascending=True, tf_weights=tf_weights))
-                long_accel_scores.append(get_adaptive_mtf_normalized_score(accel_raw, df.index, ascending=True, tf_weights=tf_weights))
-        # 平均短期和长期分数
+            slope_raw = pre_fetched_data.get(slope_col) if pre_fetched_data else self._get_safe_series(df, df, slope_col, 0.0, method_name_str)
+            accel_raw = pre_fetched_data.get(accel_col) if pre_fetched_data else self._get_safe_series(df, df, accel_col, 0.0, method_name_str)
+            long_slope_scores.append(_get_norm_score(slope_raw, is_bipolar))
+            long_accel_scores.append(_get_norm_score(accel_raw, is_bipolar))
+        # Calculate average scores, handling empty lists
         avg_short_slope = sum(short_slope_scores) / len(short_slope_scores) if short_slope_scores else pd.Series(0.0, index=df.index)
         avg_short_accel = sum(short_accel_scores) / len(short_accel_scores) if short_accel_scores else pd.Series(0.0, index=df.index)
         avg_long_slope = sum(long_slope_scores) / len(long_slope_scores) if long_slope_scores else pd.Series(0.0, index=df.index)
         avg_long_accel = sum(long_accel_scores) / len(long_accel_scores) if long_accel_scores else pd.Series(0.0, index=df.index)
-        # 计算双极性共振/背离分数
-        epsilon_sign = 1e-9
-        # 1. 方向一致性 (Direction Cohesion) - 强度感知
-        # 如果短期和长期方向一致，且强度都高，则方向一致性高。如果方向相反，则为负。
-        # 使用乘积来反映方向和强度，并裁剪到 [-1, 1]
-        direction_cohesion = (avg_short_slope * avg_long_slope).clip(-1, 1)
-        # 2. 强度一致性 (Magnitude Cohesion) - 相对差异与共同强度融合
-        # 相对差异：短期和长期强度越接近，一致性越高
-        relative_strength_cohesion_slope = 1 - (avg_short_slope - avg_long_slope).abs() / (avg_short_slope.abs() + avg_long_slope.abs() + epsilon_sign)
-        relative_strength_cohesion_accel = 1 - (avg_short_accel - avg_long_accel).abs() / (avg_short_accel.abs() + avg_long_accel.abs() + epsilon_sign)
-        # 共同强度：短期和长期强度都高，则共同强度高
-        overall_magnitude_slope = (avg_short_slope.abs() + avg_long_slope.abs()) / 2
-        overall_magnitude_accel = (avg_short_accel.abs() + avg_long_accel.abs()) / 2
-        # 融合相对差异和共同强度
-        strength_cohesion_slope = (relative_strength_cohesion_slope + overall_magnitude_slope) / 2
-        strength_cohesion_accel = (relative_strength_cohesion_accel + overall_magnitude_accel) / 2
-        # 确保强度一致性在0到1之间
-        strength_cohesion_slope = strength_cohesion_slope.clip(0, 1)
-        strength_cohesion_accel = strength_cohesion_accel.clip(0, 1)
-        # 综合强度一致性
-        strength_cohesion = (strength_cohesion_slope + strength_cohesion_accel) / 2
-        # 3. 趋势质量/持久性调制器 (Trend Quality/Persistence Modulator)
-        # 评估短期和长期平均斜率方向的持续性。
-        # 例如，计算过去5天短期和长期斜率方向一致的比例。
-        persistence_window = 5 # 可配置
-        short_slope_sign = np.sign(avg_short_slope).where(avg_short_slope.abs() > epsilon_sign, 0.0)
-        long_slope_sign = np.sign(avg_long_slope).where(avg_long_slope.abs() > epsilon_sign, 0.0)
-        # 方向一致性计数：如果短期和长期方向一致，则为1，否则为0
-        directional_consistency = ((short_slope_sign == long_slope_sign) & (short_slope_sign != 0)).astype(float)
-        # 滚动平均方向一致性，反映趋势的持久性
-        trend_persistence = directional_consistency.rolling(window=persistence_window, min_periods=1).mean().fillna(0)
-        # 将持久性分数转换为调制器，范围在 [0.5, 1.5] 之间，增强或减弱共振
-        trend_quality_modulator = (0.5 + trend_persistence).clip(0.5, 1.5)
-        # 4. 最终双极性共振分数：方向 * 强度 * 趋势质量
-        mtf_resonance_score = direction_cohesion * strength_cohesion * trend_quality_modulator
-        mtf_resonance_score = mtf_resonance_score.clip(-1, 1) # 确保最终分数在 [-1, 1] 范围内
+        # 2. 准备NumPy数组，传递给Numba函数
+        epsilon_sign = 1e-9 # Small constant to avoid division by zero
+        persistence_window = 5 # Default, can be made configurable
+        mtf_resonance_score_values = _numba_mtf_cohesion_divergence_core(
+            avg_short_slope.values,
+            avg_short_accel.values,
+            avg_long_slope.values,
+            avg_long_accel.values,
+            epsilon_sign,
+            persistence_window
+        )
+        # 3. 将Numba函数返回的NumPy数组转换回Pandas Series
+        mtf_resonance_score = pd.Series(mtf_resonance_score_values, index=df.index, dtype=np.float32)
         return mtf_resonance_score.astype(np.float32)
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
@@ -3042,9 +3214,10 @@ class FundFlowIntelligence:
 
     def _diagnose_deception_risk(self, df: pd.DataFrame, debug_info_tuple: tuple) -> pd.Series:
         """
-        【V1.0 · 资金流诡道独立版】诊断资金流层面的诡道博弈风险。
+        【V1.1 · Numba优化版】诊断资金流层面的诡道博弈风险。
         融合了欺骗指数、对倒强度、诱多/诱空强度以及资金流可信度等因素，并根据市场情境进行动态调制。
         高分代表资金流层面存在显著的诡道风险，如主力诱多、虚假对倒等，预示潜在的陷阱或风险。
+        - 核心优化: 将最终的风险聚合计算逻辑迁移至Numba加速的辅助函数 `_numba_calculate_deception_risk_core`。
         """
         method_name = "_diagnose_deception_risk"
         df_index = df.index
@@ -3052,35 +3225,41 @@ class FundFlowIntelligence:
         ac_params = get_param_value(p_conf_ff.get('axiom_consensus_params'), {})
         is_debug_enabled_for_method, probe_ts, _ = debug_info_tuple
         deception_mod_enabled = get_param_value(ac_params.get('deception_mod_enabled'), True)
-        deception_penalty_sensitivity = get_param_value(ac_params.get('deception_penalty_sensitivity'), 0.6)
+        # 如果模块被禁用，则提前返回0分
+        if not deception_mod_enabled:
+            # if is_debug_enabled_for_method and probe_ts and probe_ts in df_index:
+            #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道风险模块被禁用，返回0。")
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 获取配置参数
         wash_trade_penalty_sensitivity = get_param_value(ac_params.get('wash_trade_penalty_sensitivity'), 0.4)
-        conviction_threshold_deception = get_param_value(ac_params.get('conviction_threshold_deception'), 0.2)
+        deception_penalty_sensitivity = get_param_value(ac_params.get('deception_penalty_sensitivity'), 0.6)
+        deception_lure_long_penalty_sensitivity = get_param_value(ac_params.get('deception_lure_long_penalty_sensitivity'), 0.2)
+        deception_context_sensitivity = get_param_value(ac_params.get('deception_context_sensitivity'), 0.3)
         flow_credibility_threshold = get_param_value(ac_params.get('flow_credibility_threshold'), 0.5)
         deception_context_modulator_signal_name = get_param_value(ac_params.get('deception_context_modulator_signal'), 'market_sentiment_score_D')
-        deception_context_sensitivity = get_param_value(ac_params.get('deception_context_sensitivity'), 0.3)
-        deception_lure_long_penalty_sensitivity = get_param_value(ac_params.get('deception_lure_long_penalty_sensitivity'), 0.2)
-        deception_lure_short_bonus_sensitivity = get_param_value(ac_params.get('deception_lure_short_bonus_sensitivity'), 0.1)
-        # 预取所有斜率和加速度数据到单个字典 (从 _diagnose_axiom_consensus 复制过来，确保独立性)
+        # 预取所有斜率和加速度数据（从 _diagnose_axiom_consensus 复制过来，确保独立性）
         all_mtf_periods = list(set(get_param_value(ac_params.get('mtf_cohesion_params', {}).get('short_periods'), [5, 13]) + get_param_value(ac_params.get('mtf_cohesion_params', {}).get('long_periods'), [21, 55])))
         signal_bases_for_mtf_cohesion = [
             'main_force_flow_directionality_D', 'NMFNF_D', 'order_book_imbalance_D',
-            'microstructure_efficiency_index_D', 'deception_index_D', 'wash_trade_intensity_D'
+            'microstructure_efficiency_index_D', 'deception_index_D', 'wash_trade_intensity_D',
+            'main_force_conviction_index_D', 'flow_credibility_index_D', deception_context_modulator_signal_name,
+            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D'
         ]
         all_pre_fetched_slopes_accels = {}
         for signal_base in signal_bases_for_mtf_cohesion:
             for p in all_mtf_periods:
                 all_pre_fetched_slopes_accels[f'SLOPE_{p}_{signal_base}'] = self._get_safe_series(df, df, f'SLOPE_{p}_{signal_base}', 0.0, method_name=method_name)
                 all_pre_fetched_slopes_accels[f'ACCEL_{p}_{signal_base}'] = self._get_safe_series(df, df, f'ACCEL_{p}_{signal_base}', 0.0, method_name=method_name)
+        # 校验所需信号是否存在
         required_signals = [
             'wash_trade_intensity_D', 'deception_index_D', 'main_force_conviction_index_D',
             'flow_credibility_index_D', deception_context_modulator_signal_name,
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D'
         ]
-        required_signals = list(set(required_signals))
+        required_signals = list(set(required_signals)) # 去重
         if not self._validate_required_signals(df, required_signals, method_name):
-            # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-            #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。")
-            return pd.Series(0.0, index=df.index)
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 集中获取原始数据
         raw_data_cache = {}
         for signal_name in required_signals:
             if signal_name in all_pre_fetched_slopes_accels:
@@ -3105,60 +3284,45 @@ class FundFlowIntelligence:
         if mtf_cohesion_enabled:
             deception_cohesion = self._calculate_mtf_cohesion_divergence(df, 'deception_index_D', all_mtf_periods[:2], all_mtf_periods[2:], True, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
             wash_trade_cohesion = self._calculate_mtf_cohesion_divergence(df, 'wash_trade_intensity_D', all_mtf_periods[:2], all_mtf_periods[2:], False, tf_weights_ff, pre_fetched_data=all_pre_fetched_slopes_accels)
-            # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-            #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振因子计算 (诡道) ---")
-            #     print(f"        deception_cohesion: {deception_cohesion.loc[probe_ts]:.4f}")
-            #     print(f"        wash_trade_cohesion: {wash_trade_cohesion.loc[probe_ts]:.4f}")
-        # 诡道博弈风险计算
-        deception_risk_score = pd.Series(0.0, index=df_index)
-        if deception_mod_enabled:
-            norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-            norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights_ff)
-            norm_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights_ff)
-            norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-            norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(deception_context_modulator_raw, df_index, tf_weights=tf_weights_ff)
-            norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-            norm_deception_lure_short = get_adaptive_mtf_normalized_score(deception_lure_short_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-            sentiment_mod_factor = (1 + norm_market_sentiment.abs() * deception_context_sensitivity * np.sign(norm_market_sentiment))
-            deception_cohesion_mod = (1 + deception_cohesion * mtf_cohesion_deception_weights.get('deception_index', 0.5) * mtf_cohesion_modulator_sensitivity)
-            wash_trade_cohesion_mod = (1 + wash_trade_cohesion * mtf_cohesion_deception_weights.get('wash_trade_intensity', 0.5) * mtf_cohesion_modulator_sensitivity)
-            # 诡道风险的构成：对倒、诱多、低可信度、负向欺骗（如果主力信念弱）
-            # 将所有风险因素累加，并进行归一化到 [0, 1]
-            risk_from_wash_trade = norm_wash_trade * wash_trade_penalty_sensitivity * sentiment_mod_factor.clip(0.5, 1.5) * wash_trade_cohesion_mod
-            risk_from_bull_trap = norm_deception.clip(lower=0) * deception_penalty_sensitivity * sentiment_mod_factor.clip(0.5, 1.5) * deception_cohesion_mod
-            risk_from_lure_long = norm_deception_lure_long * deception_lure_long_penalty_sensitivity
-            # 负向欺骗（诱空）如果主力信念弱，也可能构成风险
-            risk_from_bear_trap_weak_conviction = (norm_deception.clip(upper=0).abs() * (1 - norm_conviction.clip(lower=0))) * deception_penalty_sensitivity * deception_cohesion_mod
-            # 低资金流可信度本身就是风险
-            risk_from_low_credibility = (1 - norm_flow_credibility) * (1 - flow_credibility_threshold) # 可信度越低，风险越高
-            # 诱空奖励 (如果主力信念也强，则视为洗盘吸筹) - 这部分是机会，不计入风险
-            # bear_trap_mitigation_mask = (norm_deception < 0) & (norm_conviction > conviction_threshold_deception) & (norm_flow_credibility > flow_credibility_threshold)
-            # deception_modulator.loc[bear_trap_mitigation_mask] = deception_modulator.loc[bear_trap_mitigation_mask] * (1 + norm_deception.loc[bear_trap_mitigation_mask].abs() * deception_penalty_sensitivity * 0.5 * sentiment_mod_factor.loc[bear_trap_mitigation_mask].clip(0.5, 1.5) * deception_cohesion_mod.loc[bear_trap_mitigation_mask])
-            # 诱空奖励，如果主力信念为正，则增强 - 这部分是机会，不计入风险
-            # deception_modulator = deception_modulator * (1 + norm_deception_lure_short * deception_lure_short_bonus_sensitivity * norm_conviction.clip(lower=0))
-            # 综合诡道风险，并裁剪到 [0, 1]
-            deception_risk_score = (
-                risk_from_wash_trade +
-                risk_from_bull_trap +
-                risk_from_lure_long +
-                risk_from_bear_trap_weak_conviction +
-                risk_from_low_credibility
-            ).clip(0, 1) # 确保风险分数在 [0, 1] 范围内
-            # if is_debug_enabled_for_method and probe_ts and probe_ts in df.index:
-            #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道博弈风险计算 ---")
-            #     print(f"        对倒归一化: {norm_wash_trade.loc[probe_ts]:.4f}")
-            #     print(f"        欺骗归一化: {norm_deception.loc[probe_ts]:.4f}")
-            #     print(f"        信念归一化: {norm_conviction.loc[probe_ts]:.4f}")
-            #     print(f"        资金流可信度归一化: {norm_flow_credibility.loc[probe_ts]:.4f}")
-            #     print(f"        市场情绪归一化 (诡道上下文): {norm_market_sentiment.loc[probe_ts]:.4f}")
-            #     print(f"        诱多归一化: {norm_deception_lure_long.loc[probe_ts]:.4f}")
-            #     print(f"        诱空归一化: {norm_deception_lure_short.loc[probe_ts]:.4f}")
-            #     print(f"        对倒风险贡献: {risk_from_wash_trade.loc[probe_ts]:.4f}")
-            #     print(f"        诱多欺骗风险贡献: {risk_from_bull_trap.loc[probe_ts]:.4f}")
-            #     print(f"        诱多强度风险贡献: {risk_from_lure_long.loc[probe_ts]:.4f}")
-            #     print(f"        弱信念诱空风险贡献: {risk_from_bear_trap_weak_conviction.loc[probe_ts]:.4f}")
-            #     print(f"        低可信度风险贡献: {risk_from_low_credibility.loc[probe_ts]:.4f}")
-            #     print(f"        资金流诡道风险 (SCORE_FF_DECEPTION_RISK): {deception_risk_score.loc[probe_ts]:.4f}")
+        # 归一化所有原始信号
+        norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights=tf_weights_ff)
+        norm_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights_ff)
+        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(deception_context_modulator_raw, df_index, tf_weights=tf_weights_ff)
+        norm_deception_lure_long = get_adaptive_mtf_normalized_score(deception_lure_long_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_deception_lure_short = get_adaptive_mtf_normalized_score(deception_lure_short_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        # 准备NumPy数组，传递给Numba函数
+        norm_wash_trade_values = norm_wash_trade.values
+        norm_deception_values = norm_deception.values
+        norm_conviction_values = norm_conviction.values
+        norm_flow_credibility_values = norm_flow_credibility.values
+        norm_market_sentiment_values = norm_market_sentiment.values
+        norm_deception_lure_long_values = norm_deception_lure_long.values
+        norm_deception_lure_short_values = norm_deception_lure_short.values # 传入但可能不直接用于风险计算
+        deception_cohesion_mod_values = (1 + deception_cohesion * mtf_cohesion_deception_weights.get('deception_index', 0.5) * mtf_cohesion_modulator_sensitivity).values
+        wash_trade_cohesion_mod_values = (1 + wash_trade_cohesion * mtf_cohesion_deception_weights.get('wash_trade_intensity', 0.5) * mtf_cohesion_modulator_sensitivity).values
+        # 调用Numba优化后的核心函数
+        deception_risk_score_values = _numba_calculate_deception_risk_core(
+            norm_wash_trade_values,
+            norm_deception_values,
+            norm_conviction_values,
+            norm_flow_credibility_values,
+            norm_market_sentiment_values,
+            norm_deception_lure_long_values,
+            norm_deception_lure_short_values,
+            wash_trade_penalty_sensitivity,
+            deception_penalty_sensitivity,
+            deception_lure_long_penalty_sensitivity,
+            deception_context_sensitivity,
+            flow_credibility_threshold,
+            deception_cohesion_mod_values,
+            wash_trade_cohesion_mod_values
+        )
+        # 将Numba函数返回的NumPy数组转换回Pandas Series
+        deception_risk_score = pd.Series(deception_risk_score_values, index=df_index, dtype=np.float32)
+        # if is_debug_enabled_for_method and probe_ts and probe_ts in df_index:
+        #     print(f"  -- [资金流层调试] {method_ts.strftime('%Y-%m-%d')}: 资金流诡道风险诊断完成，最终分值: {deception_risk_score.loc[probe_ts]:.4f}")
         return deception_risk_score.astype(np.float32)
 
 
