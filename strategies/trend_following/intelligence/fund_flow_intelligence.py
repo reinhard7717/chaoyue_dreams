@@ -1683,11 +1683,12 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V6.4 · 原始数据缓存修复版 & 调试信息统一输出版】资金流公理三：诊断“资金流纯度与动能”
+        【V6.5 · 诡道风险强化版】资金流公理三：诊断“资金流纯度与动能”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         - 【修复】修复了 `raw_data_cache` 在调试模式下可能因缺少预取信号而引发 `KeyError` 的问题。
         - 【新增】所有调试信息统一在方法末尾输出。
+        - 【增强】强化 SCORE_FF_DECEPTION_RISK 对资金流纯度的惩罚作用，以更准确识别诱多陷阱。
         """
         method_name = "_diagnose_axiom_flow_momentum"
         df_index = df.index
@@ -1727,6 +1728,7 @@ class FundFlowIntelligence:
         purity_context_sensitivity_fomo = get_param_value(fm_params.get('purity_context_sensitivity_fomo'), 0.1)
         purity_penalty_factor_wash_trade = get_param_value(fm_params.get('purity_penalty_factor_wash_trade'), 0.5)
         purity_penalty_factor_deception = get_param_value(fm_params.get('purity_penalty_factor_deception'), 0.7)
+        purity_penalty_factor_deception_risk = get_param_value(fm_params.get('purity_penalty_factor_deception_risk'), 0.8) # 新增参数
         purity_mitigation_factor = get_param_value(fm_params.get('purity_mitigation_factor'), 0.2)
         purity_auxiliary_signal_name = get_param_value(fm_params.get('purity_auxiliary_signal'), 'main_force_t0_efficiency_D')
         contextual_modulator_enabled = get_param_value(fm_params.get('contextual_modulator_enabled'), True)
@@ -1782,7 +1784,9 @@ class FundFlowIntelligence:
             'retail_buy_ofi_D', 'retail_sell_ofi_D',
             'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D'
         ]
-        if not self._validate_required_signals(df, required_signals, method_name):
+        required_signals.append('SCORE_FF_DECEPTION_RISK') # 确保 SCORE_FF_DECEPTION_RISK 存在于 atomic_states
+        required_signals = list(set(required_signals))
+        if not self._validate_required_signals(df, required_signals, method_name, atomic_states=self.strategy.atomic_states):
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。"] = ""
                 self._print_debug_output(debug_output)
@@ -1812,7 +1816,10 @@ class FundFlowIntelligence:
         # 修复：确保 raw_data_cache 包含所有 required_signals，包括预取的斜率和加速度
         raw_data_cache = all_pre_fetched_slopes_accels.copy() # 从预取数据开始
         for signal_name in required_signals:
-            if signal_name not in raw_data_cache: # 如果信号不在预取数据中，则按需获取
+            if signal_name == 'SCORE_FF_DECEPTION_RISK':
+                score_ff_deception_risk = self.strategy.atomic_states.get('SCORE_FF_DECEPTION_RISK', pd.Series(0.0, index=df.index, dtype=np.float32))
+                raw_data_cache[signal_name] = score_ff_deception_risk
+            elif signal_name not in raw_data_cache: # 如果信号不在预取数据中，则按需获取
                 raw_data_cache[signal_name] = self._get_safe_series(df, df, signal_name, 0.0, method_name=method_name)
         nmfnf_slope_5_raw = raw_data_cache['SLOPE_5_NMFNF_D'] # 现在可以直接访问，因为已确保存在
         nmfnf_slope_13_raw = raw_data_cache['SLOPE_13_NMFNF_D']
@@ -1863,6 +1870,7 @@ class FundFlowIntelligence:
         retail_sell_ofi_raw = raw_data_cache['retail_sell_ofi_D']
         wash_trade_buy_volume_raw = raw_data_cache['wash_trade_buy_volume_D']
         wash_trade_sell_volume_raw = raw_data_cache['wash_trade_sell_volume_D']
+        score_ff_deception_risk = raw_data_cache['SCORE_FF_DECEPTION_RISK'] # 获取 SCORE_FF_DECEPTION_RISK
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
             for sig_name in required_signals:
@@ -1934,9 +1942,12 @@ class FundFlowIntelligence:
                 norm_mf_flow_gini_inverted * purity_context_sensitivity_gini +
                 (1 - norm_retail_fomo) * purity_context_sensitivity_fomo
             ).clip(0, 1)
+            
+            # 增强：将 SCORE_FF_DECEPTION_RISK 直接纳入 purity_penalty
             purity_penalty = (
                 norm_wash_trade_multi_tf * purity_penalty_factor_wash_trade +
-                norm_deception_multi_tf.abs() * purity_penalty_factor_deception
+                norm_deception_multi_tf.abs() * purity_penalty_factor_deception +
+                score_ff_deception_risk * purity_penalty_factor_deception_risk # 新增惩罚项
             ) * (1 - context_mod_factor)
             purity_modulator = (1 - purity_penalty + norm_purity_auxiliary * purity_mitigation_factor).clip(0.01, 1.5)
             if is_debug_enabled and probe_ts:
@@ -1988,10 +1999,10 @@ class FundFlowIntelligence:
                 debug_output[f"        environment_mod: {environment_mod.loc[probe_ts]:.4f}"] = ""
                 debug_output[f"        环境调制器 (environment_modulator): {environment_modulator.loc[probe_ts]:.4f}"] = ""
         # --- 4. 结构洞察升级 (Structural Insight Upgrade) ---
-        norm_lg_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_slope_5_raw, df_index, tf_weights_ff)
-        norm_lg_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_accel_5_raw, df_index, tf_weights_ff)
-        norm_xl_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_slope_5_raw, df_index, tf_weights_ff)
-        norm_xl_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_accel_5_raw, df_index, tf_weights_ff)
+        norm_lg_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_lg_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_accel_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_xl_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_xl_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(xl_flow_accel_5_raw, df_index, tf_weights=tf_weights_ff)
         norm_retail_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(retail_flow_slope_5_raw, df_index, tf_weights=tf_weights_ff)
         norm_retail_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(retail_flow_accel_5_raw, df_index, tf_weights=tf_weights_ff)
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights=tf_weights_ff)
