@@ -602,12 +602,10 @@ class FundFlowIntelligence:
         norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         structural_divergence_base = (lg_flow_dynamic_score - retail_flow_dynamic_score)
         retail_modulator = (1 - norm_retail_fomo * retail_sentiment_mod_sensitivity) + (norm_retail_panic * retail_sentiment_mod_sensitivity)
-        
         # V5.6 诡道风险强化版：增强 SCORE_FF_DECEPTION_RISK 对结构性张力的直接惩罚作用
         deception_modulator_for_structural_tension = (1 + deceptive_tension_score * structural_tension_deception_mod_sensitivity).clip(0.1, 2.0)
         # 新增直接惩罚因子，当 SCORE_FF_DECEPTION_RISK 高时，直接削弱结构性张力
         direct_deception_risk_penalty = (1 - score_ff_deception_risk * structural_tension_deception_risk_penalty_factor).clip(0.0, 1.0)
-        
         structural_tension_score = (structural_divergence_base * retail_modulator * deception_modulator_for_structural_tension * direct_deception_risk_penalty).clip(-1, 1)
         _temp_debug_values["结构性张力"] = {
             "norm_lg_flow_slope_mtf": norm_lg_flow_slope_mtf,
@@ -1983,11 +1981,11 @@ class FundFlowIntelligence:
         flow_quality_raw = raw_data_cache[flow_quality_signal_name]
         retail_dominance_raw = raw_data_cache[retail_dominance_signal_name]
         score_ff_deception_risk = raw_data_cache['SCORE_FF_DECEPTION_RISK'] # 获取 SCORE_FF_DECEPTION_RISK
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name in required_signals:
-                val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for sig_name in required_signals:
+        #         val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
+        #         debug_output[f"        '{sig_name}': {val:.4f}"] = ""
         # --- 1. 基础动能深化 (Enhanced Base Momentum) ---
         norm_nmfnf_slope_5 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_5_raw, df_index, tf_weights=tf_weights_ff)
         norm_nmfnf_slope_13 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_13_raw, df_index, tf_weights=tf_weights_ff)
@@ -2011,19 +2009,19 @@ class FundFlowIntelligence:
             norm_sm_net_buy_slope_5 * smart_money_momentum_weights.get('sm_net_buy_slope_5', 0.6) +
             norm_sm_net_buy_accel_5 * smart_money_momentum_weights.get('sm_net_buy_accel_5', 0.4)
         ).clip(-1, 1)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础动能深化 ---"] = ""
-            debug_output[f"        norm_nmfnf_slope_5: {norm_nmfnf_slope_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_nmfnf_slope_13: {norm_nmfnf_slope_13.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_nmfnf_slope_21: {norm_nmfnf_slope_21.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_nmfnf_slope_55: {norm_nmfnf_slope_55.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_nmfnf_accel_5: {norm_nmfnf_accel_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_nmfnf_accel_13: {norm_nmfnf_accel_13.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_nmfnf_accel_21: {norm_nmfnf_accel_21.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_nmfnf_accel_55: {norm_nmfnf_accel_55.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_sm_net_buy_slope_5: {norm_sm_net_buy_slope_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_sm_net_buy_accel_5: {norm_sm_net_buy_accel_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        基础动能分数 (base_momentum_score): {base_momentum_score.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础动能深化 ---"] = ""
+        #     debug_output[f"        norm_nmfnf_slope_5: {norm_nmfnf_slope_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_nmfnf_slope_13: {norm_nmfnf_slope_13.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_nmfnf_slope_21: {norm_nmfnf_slope_21.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_nmfnf_slope_55: {norm_nmfnf_slope_55.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_nmfnf_accel_5: {norm_nmfnf_accel_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_nmfnf_accel_13: {norm_nmfnf_accel_13.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_nmfnf_accel_21: {norm_nmfnf_accel_21.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_nmfnf_accel_55: {norm_nmfnf_accel_55.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_sm_net_buy_slope_5: {norm_sm_net_buy_slope_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_sm_net_buy_accel_5: {norm_sm_net_buy_accel_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        基础动能分数 (base_momentum_score): {base_momentum_score.loc[probe_ts]:.4f}"] = ""
         # --- 2. 诡道纯度精修 (Deceptive Purity Refinement) ---
         purity_modulator = pd.Series(1.0, index=df_index)
         if purity_filter_enabled:
@@ -2054,7 +2052,6 @@ class FundFlowIntelligence:
                 norm_mf_flow_gini_inverted * purity_context_sensitivity_gini +
                 (1 - norm_retail_fomo) * purity_context_sensitivity_fomo
             ).clip(0, 1)
-            
             # 增强：将 SCORE_FF_DECEPTION_RISK 直接纳入 purity_penalty
             purity_penalty = (
                 norm_wash_trade_multi_tf * purity_penalty_factor_wash_trade +
@@ -2062,18 +2059,18 @@ class FundFlowIntelligence:
                 score_ff_deception_risk * purity_penalty_factor_deception_risk # 新增惩罚项
             ) * (1 - context_mod_factor)
             purity_modulator = (1 - purity_penalty + norm_purity_auxiliary * purity_mitigation_factor).clip(0.01, 1.5)
-            if is_debug_enabled and probe_ts:
-                debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道纯度精修 ---"] = ""
-                debug_output[f"        norm_wash_trade_multi_tf: {norm_wash_trade_multi_tf.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_deception_multi_tf: {norm_deception_multi_tf.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_mf_conviction: {norm_mf_conviction.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_flow_credibility: {norm_flow_credibility.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_mf_flow_gini_inverted: {norm_mf_flow_gini_inverted.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_retail_fomo: {norm_retail_fomo.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_purity_auxiliary: {norm_purity_auxiliary.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        context_mod_factor: {context_mod_factor.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        purity_penalty: {purity_penalty.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        纯度调制器 (purity_modulator): {purity_modulator.loc[probe_ts]:.4f}"] = ""
+            # if is_debug_enabled and probe_ts:
+            #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道纯度精修 ---"] = ""
+            #     debug_output[f"        norm_wash_trade_multi_tf: {norm_wash_trade_multi_tf.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_deception_multi_tf: {norm_deception_multi_tf.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_mf_conviction: {norm_mf_conviction.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_flow_credibility: {norm_flow_credibility.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_mf_flow_gini_inverted: {norm_mf_flow_gini_inverted.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_retail_fomo: {norm_retail_fomo.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_purity_auxiliary: {norm_purity_auxiliary.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        context_mod_factor: {context_mod_factor.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        purity_penalty: {purity_penalty.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        纯度调制器 (purity_modulator): {purity_modulator.loc[probe_ts]:.4f}"] = ""
         # --- 3. 环境感知增强 (Environmental Awareness Enhancement) ---
         environment_modulator = pd.Series(1.0, index=df_index)
         if contextual_modulator_enabled:
@@ -2085,15 +2082,12 @@ class FundFlowIntelligence:
                 norm_liquidity_slope_13 * liquidity_slope_weights.get('slope_13', 0.4)
             ).clip(-1, 1)
             norm_liquidity_impact = get_adaptive_mtf_normalized_score(liquidity_impact_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
-            
             # MODIFICATION START: 修正 norm_liquidity_slope_mtf 的使用，移除 abs()
             liquidity_mod = (
                 (norm_liquidity_supply * liquidity_mod_sensitivity_level) +
                 (norm_liquidity_slope_mtf * liquidity_mod_sensitivity_slope) + # 移除 .abs()
                 (norm_liquidity_impact * liquidity_mod_sensitivity_level)
             ).clip(0, 1)
-            # MODIFICATION END
-
             norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_price_volume_entropy = get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
@@ -2103,17 +2097,17 @@ class FundFlowIntelligence:
                 norm_price_volume_entropy * environment_mod_sensitivity_entropy
             ).clip(0, 1)
             environment_modulator = (1 + liquidity_mod * environment_mod).clip(0.5, 1.5)
-            if is_debug_enabled and probe_ts:
-                debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 环境感知增强 ---"] = ""
-                debug_output[f"        norm_liquidity_supply: {norm_liquidity_supply.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_liquidity_slope_mtf: {norm_liquidity_slope_mtf.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_liquidity_impact: {norm_liquidity_impact.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        liquidity_mod: {liquidity_mod.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_volatility_instability: {norm_volatility_instability.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_trend_vitality: {norm_trend_vitality.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_price_volume_entropy: {norm_price_volume_entropy.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        environment_mod: {environment_mod.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        环境调制器 (environment_modulator): {environment_modulator.loc[probe_ts]:.4f}"] = ""
+            # if is_debug_enabled and probe_ts:
+            #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 环境感知增强 ---"] = ""
+            #     debug_output[f"        norm_liquidity_supply: {norm_liquidity_supply.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_liquidity_slope_mtf: {norm_liquidity_slope_mtf.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_liquidity_impact: {norm_liquidity_impact.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        liquidity_mod: {liquidity_mod.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_volatility_instability: {norm_volatility_instability.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_trend_vitality: {norm_trend_vitality.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_price_volume_entropy: {norm_price_volume_entropy.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        environment_mod: {environment_mod.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        环境调制器 (environment_modulator): {environment_modulator.loc[probe_ts]:.4f}"] = ""
         # --- 4. 结构洞察升级 (Structural Insight Upgrade) ---
         norm_lg_flow_slope_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_slope_5_raw, df_index, tf_weights=tf_weights_ff)
         norm_lg_flow_accel_5 = get_adaptive_mtf_normalized_bipolar_score(lg_flow_accel_5_raw, df_index, tf_weights=tf_weights_ff)
@@ -2145,7 +2139,6 @@ class FundFlowIntelligence:
         norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['retail_sell_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_buy_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_sell_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
-        
         # MODIFICATION START: 修正 structural_momentum_weights_v6_1 的加减法逻辑
         structural_momentum_score = structural_momentum_score + \
                                     (norm_main_force_buy_ofi * structural_momentum_weights_v6_1.get('main_force_buy_ofi', 0.1)) + \
@@ -2156,29 +2149,27 @@ class FundFlowIntelligence:
                                     (norm_retail_buy_ofi * structural_momentum_weights_v6_1.get('retail_buy_ofi', -0.05)) + \
                                     (norm_wash_trade_buy_volume * structural_momentum_weights_v6_1.get('wash_trade_buy_volume', -0.05)) + \
                                     (norm_wash_trade_sell_volume * structural_momentum_weights_v6_1.get('wash_trade_sell_volume', -0.05))
-        # MODIFICATION END
-
         structural_momentum_score = structural_momentum_score.clip(-1, 1)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 结构洞察升级 ---"] = ""
-            debug_output[f"        norm_lg_flow_slope_5: {norm_lg_flow_slope_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_lg_flow_accel_5: {norm_lg_flow_accel_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_xl_flow_slope_5: {norm_xl_flow_slope_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_xl_flow_accel_5: {norm_xl_flow_accel_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_retail_flow_slope_5: {norm_retail_flow_slope_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_retail_flow_accel_5: {norm_retail_flow_accel_5.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_main_force_flow_directionality: {norm_main_force_flow_directionality.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_flow_quality: {norm_flow_quality.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_retail_dominance: {norm_retail_dominance.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_rally_sell_distribution_intensity: {norm_rally_sell_distribution_intensity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_rally_buy_support_weakness: {norm_rally_buy_support_weakness.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_main_force_buy_ofi: {norm_main_force_buy_ofi.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_main_force_sell_ofi: {norm_main_force_sell_ofi.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_retail_buy_ofi: {norm_retail_buy_ofi.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_retail_sell_ofi: {norm_retail_sell_ofi.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_wash_trade_buy_volume: {norm_wash_trade_buy_volume.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_wash_trade_sell_volume: {norm_wash_trade_sell_volume.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        结构动能分数 (structural_momentum_score): {structural_momentum_score.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 结构洞察升级 ---"] = ""
+        #     debug_output[f"        norm_lg_flow_slope_5: {norm_lg_flow_slope_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_lg_flow_accel_5: {norm_lg_flow_accel_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_xl_flow_slope_5: {norm_xl_flow_slope_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_xl_flow_accel_5: {norm_xl_flow_accel_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_retail_flow_slope_5: {norm_retail_flow_slope_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_retail_flow_accel_5: {norm_retail_flow_accel_5.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_main_force_flow_directionality: {norm_main_force_flow_directionality.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_flow_quality: {norm_flow_quality.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_retail_dominance: {norm_retail_dominance.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_rally_sell_distribution_intensity: {norm_rally_sell_distribution_intensity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_rally_buy_support_weakness: {norm_rally_buy_support_weakness.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_main_force_buy_ofi: {norm_main_force_buy_ofi.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_main_force_sell_ofi: {norm_main_force_sell_ofi.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_retail_buy_ofi: {norm_retail_buy_ofi.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_retail_sell_ofi: {norm_retail_sell_ofi.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_wash_trade_buy_volume: {norm_wash_trade_buy_volume.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_wash_trade_sell_volume: {norm_wash_trade_sell_volume.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        结构动能分数 (structural_momentum_score): {structural_momentum_score.loc[probe_ts]:.4f}"] = ""
         # --- 5. 最终融合与演化趋势 (Final Fusion & Evolution Trend) ---
         # 融合基础动能、纯度调制和结构洞察
         fused_momentum_score = (base_momentum_score * purity_modulator * environment_modulator + structural_momentum_score).clip(-1, 1)
@@ -2210,20 +2201,20 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合与演化趋势 ---"] = ""
-            debug_output[f"        融合动能分数 (fused_momentum_score): {fused_momentum_score.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        平滑融合动能 (smoothed_fused_momentum): {smoothed_fused_momentum.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        速度 (velocity): {velocity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        加速度 (acceleration): {acceleration.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        组合演化上下文调制 (combined_evolution_context_mod): {combined_evolution_context_mod.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        动态基础权重: {dynamic_base_score_weight.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        动态速度权重: {dynamic_velocity_weight.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        动态加速度权重: {dynamic_acceleration_weight.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流纯度与动能诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            self._print_debug_output(debug_output)
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合与演化趋势 ---"] = ""
+        #     debug_output[f"        融合动能分数 (fused_momentum_score): {fused_momentum_score.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        平滑融合动能 (smoothed_fused_momentum): {smoothed_fused_momentum.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        速度 (velocity): {velocity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        加速度 (acceleration): {acceleration.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        组合演化上下文调制 (combined_evolution_context_mod): {combined_evolution_context_mod.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        动态基础权重: {dynamic_base_score_weight.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        动态速度权重: {dynamic_velocity_weight.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        动态加速度权重: {dynamic_acceleration_weight.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流纯度与动能诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     self._print_debug_output(debug_output)
         return final_score.astype(np.float32)
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

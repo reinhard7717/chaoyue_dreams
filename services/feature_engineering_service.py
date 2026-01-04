@@ -28,29 +28,23 @@ def _numba_rolling_fft_energy_ratio_core(
         if i < window - 1:
             continue
         window_data = data[i - window + 1 : i + 1]
-        
         # 内联 _fft_energy_ratio 的逻辑
         N_window = len(window_data)
         if N_window < 2:
             results[i] = np.nan
             continue
-        
         # Numba 的 np.fft.fft 需要浮点数输入，输出为复数
         # 确保输入是 float64，以避免类型转换问题
         # 使用 objmode 暂时退出 Numba 模式，调用 Python 的 np.fft.fft
         with objmode(yf='complex128[:]'): # 声明 yf 的类型为一维复数数组
             yf = np.fft.fft(window_data.astype(np.float64))
-        
         yf_abs = np.abs(yf[:N_window // 2]) # 取正频率部分
-        
         total_energy = np.sum(yf_abs**2)
         if total_energy == 0:
             results[i] = np.nan
             continue
-        
         low_freq_idx = int(N_window * low_freq_cutoff_ratio)
         low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
-        
         results[i] = low_freq_energy / total_energy
         
     return results
