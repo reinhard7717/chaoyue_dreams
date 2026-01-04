@@ -2212,11 +2212,11 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V5.4 · 双极性归一化修正版 & 效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
+        【V5.5 · 双极性归一化精确修正版 & 效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         - 【修复】将缺失的 `main_force_vwap_deviation_D` 替换为 `intraday_vwap_div_index_D`。
-        - 【修正】修复 `main_force_cost_advantage_D` 和 `intraday_vwap_div_index_D` 双极性归一化逻辑，确保其与信号业务含义一致。
+        - 【精确修正】修复 `main_force_cost_advantage_D` 和 `intraday_vwap_div_index_D` 双极性归一化逻辑，确保其与信号业务含义一致。
         - 【新增】所有调试信息统一在方法末尾输出。
         """
         method_name = "_diagnose_axiom_capital_signature"
@@ -2293,16 +2293,16 @@ class FundFlowIntelligence:
                 val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
         # --- 1. 成本优势 (Cost Advantage) ---
-        # MODIFICATION START: 修正 main_force_cost_advantage_D 的归一化逻辑
-        # 业务含义：值越高越好（正值表示优势，负值表示劣势），因此使用 ascending=True 进行单极性归一化，再转换为双极性
-        norm_main_force_cost_advantage_unipolar = get_adaptive_mtf_normalized_score(main_force_cost_advantage_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_main_force_cost_advantage = norm_main_force_cost_advantage_unipolar * 2 - 1
+        # MODIFICATION START: 精确修正 main_force_cost_advantage_D 的归一化逻辑
+        # 业务含义：正值好，负值坏。先对绝对值进行归一化，再乘以原始值的符号。
+        norm_abs_cost_advantage = get_adaptive_mtf_normalized_score(main_force_cost_advantage_raw.abs(), df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_main_force_cost_advantage = (norm_abs_cost_advantage * np.sign(main_force_cost_advantage_raw)).clip(-1, 1)
         # MODIFICATION END
 
-        # MODIFICATION START: 修正 intraday_vwap_div_index_D 的归一化逻辑
-        # 业务含义：值越低越好（偏离越小越好），因此使用 ascending=False 进行单极性归一化，再转换为双极性
-        norm_main_force_vwap_deviation_unipolar = get_adaptive_mtf_normalized_score(main_force_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
-        norm_main_force_vwap_deviation = norm_main_force_vwap_deviation_unipolar * 2 - 1
+        # MODIFICATION START: 精确修正 intraday_vwap_div_index_D 的归一化逻辑
+        # 业务含义：越低越好（0最好，高值最差）。先对原始值进行升序归一化（0->0, max->1），然后转换为 [1, -1]
+        norm_unipolar_vwap_deviation = get_adaptive_mtf_normalized_score(main_force_vwap_deviation_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_main_force_vwap_deviation = (1 - (norm_unipolar_vwap_deviation * 2)).clip(-1, 1)
         # MODIFICATION END
 
         cost_advantage_score = (
