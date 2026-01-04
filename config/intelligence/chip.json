@@ -350,17 +350,7 @@
             "context_modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
             "comment_context_modulator_signal": "用于调制惩罚强度的情境信号（如波动不稳定性）。",
             "context_modulator_sensitivity": 0.7,
-            "comment_context_modulator_sensitivity": "情境调制器对惩罚强度的敏感度。",
-            "deception_index_weight": 0.5,
-            "comment_deception_index_weight": "正向欺骗指数在复合正向欺骗分数中的权重。",
-            "deception_slope_weight": 0.3,
-            "comment_deception_slope_weight": "正向欺骗斜率在复合正向欺骗分数中的权重。",
-            "deception_accel_weight": 0.2,
-            "comment_deception_accel_weight": "正向欺骗加速度在复合正向欺骗分数中的权重。",
-            "positive_deception_threshold": 0.3,
-            "comment_positive_deception_threshold": "复合正向欺骗分数触发“有正向欺骗”的阈值。",
-            "strong_deception_no_sharp_drop_penalty_factor": 0.5,
-            "comment_strong_deception_no_sharp_drop_penalty_factor": "当有强正向欺骗但无大幅下跌时，施加的惩罚因子。"
+            "comment_context_modulator_sensitivity": "情境调制器对惩罚强度的敏感度。"
         },
         "divergence_params": {
             "description": "【V7.2 · 情境自适应张力版】价筹张力信号的专属参数。",
@@ -806,8 +796,6 @@
                 "bear_trap_ls_bonus_factor": 0.5,
                 "comment_bear_trap_ls_bonus_factor": "诱空欺骗强度对诱空奖励的额外因子。"
             },
-            "strong_positive_deception_penalty_factor": 0.2,
-            "comment_strong_positive_deception_penalty_factor": "在DGM模块中，当出现强正向欺骗但无大幅下跌时，施加的额外惩罚因子。",
             "final_fusion_weights": {
                 "mf_aq": 0.35,
                 "cst": 0.3,
@@ -824,7 +812,9 @@
             "context_modulator_sensitivity_conviction": 0.4,
             "comment_context_modulator_sensitivity_conviction": "主力信念对情境调制的敏感度。",
             "deception_boost_factor_negative": 0.5,
-            "comment_deception_boost_factor_negative": "诱空欺骗强度对正向拐点信号的增强因子。"
+            "comment_deception_boost_factor_negative": "诱空欺骗强度对正向拐点信号的增强因子。",
+            "retail_panic_positive_pct_penalty_factor": 0.5,
+            "comment_retail_panic_positive_pct_penalty_factor": "当散户恐慌指数高且股价上涨时，对散户恐慌影响和诱空反吸奖励的惩罚因子。"
         },
         "chip_retail_vulnerability_params": {
             "description": "【V2.0 · 诡道诱导版】散户筹码脆弱性指数的专属参数。",

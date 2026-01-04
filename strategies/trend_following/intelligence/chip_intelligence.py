@@ -287,42 +287,62 @@ def _numba_calculate_distribution_whisper_deception_modulator_core(
 
 @nb.njit(cache=True)
 def _numba_calculate_historical_potential_dgm_score_core(
-    norm_deception_index_positive: np.ndarray,
-    norm_deception_index_negative: np.ndarray,
+    norm_deception_index: np.ndarray,
     norm_wash_trade_intensity: np.ndarray,
     norm_retail_panic_surrender: np.ndarray,
     norm_main_force_conviction: np.ndarray,
     chip_flow_directionality_proxy: np.ndarray,
+    norm_pct_change: np.ndarray, # 新增参数：归一化后的日涨跌幅
     dgm_weights_deception_impact: float,
     dgm_weights_wash_trade_penalty: float,
     dgm_weights_flow_directionality_boost: float,
     dgm_weights_retail_panic_impact: float,
     dgm_weights_main_force_conviction_impact: float,
     bearish_deception_and_mf_out_penalty_factor: float,
-    strong_positive_deception_penalty_factor: float
+    retail_panic_positive_pct_penalty_factor: float # 新增参数：散户恐慌上涨惩罚因子
 ) -> np.ndarray:
     """
     Numba优化后的核心函数，用于计算_diagnose_axiom_historical_potential中的dgm_score。
     """
-    n = len(norm_deception_index_positive)
+    n = len(norm_deception_index)
     dgm_score_base = np.zeros(n, dtype=np.float32)
     dgm_score = np.zeros(n, dtype=np.float32)
     for i in range(n):
-        bull_trap_mask = (norm_deception_index_positive[i] > 0) and (chip_flow_directionality_proxy[i] < 0)
-        bear_trap_absorption_mask = (norm_deception_index_negative[i] > 0) and (chip_flow_directionality_proxy[i] > 0)
-        bearish_deception_and_mf_out_mask = (norm_deception_index_negative[i] > 0) and (chip_flow_directionality_proxy[i] < 0)
+        bull_trap_mask = (norm_deception_index[i] > 0) and (chip_flow_directionality_proxy[i] < 0)
+        bear_trap_absorption_mask = (norm_deception_index[i] < 0) and (chip_flow_directionality_proxy[i] > 0)
+        bearish_deception_and_mf_out_mask = (norm_deception_index[i] < 0) and (chip_flow_directionality_proxy[i] < 0)
+
+        # Bull trap penalty
         if bull_trap_mask:
-            dgm_score_base[i] -= (norm_deception_index_positive[i] * np.abs(chip_flow_directionality_proxy[i])) * dgm_weights_deception_impact * 1.5
-            dgm_score_base[i] -= norm_deception_index_positive[i] * strong_positive_deception_penalty_factor
+            dgm_score_base[i] -= (norm_deception_index[i] * np.abs(chip_flow_directionality_proxy[i])) * dgm_weights_deception_impact * 1.5 # 惩罚因子加倍
+        # Bear trap absorption
         elif bear_trap_absorption_mask:
-            dgm_score_base[i] += (norm_deception_index_negative[i] * chip_flow_directionality_proxy[i]) * dgm_weights_deception_impact * 1.2
+            # 修复：当诱空反吸发生时，如果股价正在上涨，则减少奖励，因为这可能是一个诱多陷阱
+            bear_trap_bonus = (np.abs(norm_deception_index[i]) * chip_flow_directionality_proxy[i]) * dgm_weights_deception_impact * 1.2
+            if norm_pct_change[i] > 0.1: # 如果股价上涨超过一定阈值 (归一化后)
+                # 减少奖励，因为上涨可能削弱了诱空反吸的有效性，或暗示诱多
+                bear_trap_bonus *= (1.0 - norm_pct_change[i] * retail_panic_positive_pct_penalty_factor)
+                bear_trap_bonus = max(0.0, bear_trap_bonus) # 确保奖励不为负
+            dgm_score_base[i] += bear_trap_bonus
+
         dgm_score_base[i] -= norm_wash_trade_intensity[i] * dgm_weights_wash_trade_penalty
+
         if chip_flow_directionality_proxy[i] > 0 and not bull_trap_mask:
             dgm_score_base[i] += chip_flow_directionality_proxy[i] * dgm_weights_flow_directionality_boost
-        dgm_score_base[i] += norm_retail_panic_surrender[i] * dgm_weights_retail_panic_impact
+
+        # 修复：当散户恐慌指数高但股价上涨时，减少其正面影响
+        retail_panic_impact_contribution = norm_retail_panic_surrender[i] * dgm_weights_retail_panic_impact
+        if norm_retail_panic_surrender[i] > 0.5 and norm_pct_change[i] > 0.1: # 如果散户恐慌高且股价上涨
+            # 减少恐慌带来的正面影响，因为这可能不是真正的底部恐慌，而是卖出到高点
+            retail_panic_impact_contribution *= (1.0 - norm_pct_change[i] * retail_panic_positive_pct_penalty_factor)
+            retail_panic_impact_contribution = max(0.0, retail_panic_impact_contribution) # 确保贡献不为负
+        dgm_score_base[i] += retail_panic_impact_contribution
+
         dgm_score_base[i] += np.abs(norm_main_force_conviction[i]) * dgm_weights_main_force_conviction_impact
+
+        # 最终的 dgm_score 赋值，处理极低负值情况
         if bearish_deception_and_mf_out_mask:
-            dgm_score[i] = -0.9
+            dgm_score[i] = -0.9 # 强制设置为极低负值
         else:
             dgm_score[i] = dgm_score_base[i]
     return np.clip(dgm_score, -1.0, 1.0)
@@ -642,23 +662,21 @@ def _numba_calculate_bull_trap_penalty_core(
     composite_positive_deception_score: np.ndarray,
     has_positive_deception: np.ndarray,
     deception_penalty_multiplier: float,
-    dynamic_penalty_sensitivity: np.ndarray,
-    strong_deception_no_sharp_drop_penalty_factor: float
+    dynamic_penalty_sensitivity: np.ndarray
 ) -> np.ndarray:
     """
     Numba优化后的核心函数，用于计算_calculate_bull_trap_context_penalty中的penalty_factor。
     """
     n = len(has_recent_sharp_drop)
     penalty_factor = np.ones(n, dtype=np.float32)
+
     for i in range(n):
         bull_trap_condition = has_recent_sharp_drop[i] and has_positive_deception[i]
-        strong_deception_only_condition = (not has_recent_sharp_drop[i]) and has_positive_deception[i] and (composite_positive_deception_score[i] > 0.7)
         if bull_trap_condition:
             penalty_strength = composite_positive_deception_score[i] * deception_penalty_multiplier * dynamic_penalty_sensitivity[i]
+            # 修复：使用min/max组合进行标量裁剪
             penalty_factor[i] = 1 - max(0.0, min(penalty_strength, 1.0))
-        elif strong_deception_only_condition:
-            penalty_strength = composite_positive_deception_score[i] * strong_deception_no_sharp_drop_penalty_factor * dynamic_penalty_sensitivity[i]
-            penalty_factor[i] = 1 - max(0.0, min(penalty_strength, 1.0))
+            
     return penalty_factor
 
 class ChipIntelligence:
@@ -2826,34 +2844,29 @@ class ChipIntelligence:
         - 核心修复: 增强 `dgm_score` 的惩罚机制，当出现“诱空”且主力资金流出时，强制将分数设置为极低负值，并确保其优先级，修正主力流出判断逻辑。
         - 纯筹码化：移除对资金类信号（如主力资金流向、资金流可信度）的依赖，替换为纯筹码类指标。
         - **新增业务逻辑：引入“牛市陷阱情境惩罚”，在近期大幅下跌后伴随正向欺骗时，大幅降低筹码势能的得分。**
+        - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_axiom_historical_potential"
         df_index = df.index
         required_signals = [
-            'retail_panic_surrender_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
-            'structural_tension_index_D', 'panic_selling_cascade_D', 'total_loser_rate_D',
-            'loser_loss_margin_avg_D', 'SLOPE_5_loser_pain_index_D', 'ACCEL_5_chip_fatigue_index_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'capitulation_absorption_index_D',
-            'floating_chip_cleansing_efficiency_D', 'support_validation_strength_D',
-            'main_force_execution_alpha_D', 'active_buying_support_D', 'opening_gap_defense_strength_D',
-            'control_solidity_index_D', 'SLOPE_5_support_validation_strength_D',
-            'ACCEL_5_main_force_execution_alpha_D', 'order_book_clearing_rate_D',
             'covert_accumulation_signal_D', 'suppressive_accumulation_intensity_D',
-            'main_force_cost_advantage_D', 'peak_control_transfer_D', 'main_force_conviction_index_D',
-            'main_force_net_flow_calibrated_D', 'main_force_flow_directionality_D', 'main_force_vpoc_D',
-            'main_force_activity_ratio_D', 'SLOPE_5_covert_accumulation_signal_D',
-            'ACCEL_5_main_force_conviction_index_D', 'SMART_MONEY_HM_NET_BUY_D',
-            'chip_fault_magnitude_D', 'deception_index_D', 'wash_trade_intensity_D',
-            'chip_health_score_D', 'main_force_conviction_index_D',
-            'ACCEL_5_total_loser_rate_D', 'SLOPE_5_retail_panic_surrender_index_D', 'ACCEL_5_structural_tension_index_D',
-            'SLOPE_5_floating_chip_cleansing_efficiency_D', 'ACCEL_5_order_book_clearing_rate_D',
-            'SLOPE_5_micro_price_impact_asymmetry_D', 'SLOPE_5_vwap_control_strength_D', 'ACCEL_5_vwap_crossing_intensity_D',
-            'ACCEL_5_covert_accumulation_signal_D', 'SLOPE_5_suppressive_accumulation_intensity_D',
-            'ACCEL_5_main_force_cost_advantage_D', 'SLOPE_5_main_force_flow_directionality_D',
-            'ACCEL_5_main_force_vpoc_D', 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D',
-            'flow_credibility_index_D',
-            'supportive_distribution_intensity_D',
-            'vwap_control_strength_D', 'vwap_crossing_intensity_D', 'micro_price_impact_asymmetry_D',
+            'main_force_cost_advantage_D', 'floating_chip_cleansing_efficiency_D',
+            'chip_health_score_D', 'dominant_peak_solidity_D',
+            'SLOPE_5_cost_structure_skewness_D', 'SLOPE_5_peak_separation_ratio_D',
+            'vacuum_zone_magnitude_D', 'vacuum_traversal_efficiency_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'chip_fatigue_index_D',
+            'chip_fault_magnitude_D',
+            'winner_stability_index_D', 'loser_pain_index_D',
+            'active_selling_pressure_D', 'capitulation_absorption_index_D',
+            'deception_index_D', 'wash_trade_intensity_D',
+            'main_force_execution_alpha_D', 'asymmetric_friction_index_D',
+            'SLOPE_5_winner_concentration_90pct_D', 'SLOPE_5_loser_concentration_90pct_D',
+            'structural_tension_index_D', 'structural_entropy_change_D',
+            'pressure_rejection_strength_D', 'support_validation_strength_D',
+            'order_book_clearing_rate_D', 'micro_price_impact_asymmetry_D',
+            'retail_panic_surrender_index_D', 'main_force_conviction_index_D',
+            'market_sentiment_score_D',
+            'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
             'pct_change_D'
         ]
         p_conf = self.chip_ultimate_params
@@ -2891,15 +2904,15 @@ class ChipIntelligence:
             'mf_aq': 0.35, 'cst': 0.3, 'pce': 0.35
         })
         context_modulator_signals = get_param_value(historical_potential_params.get('context_modulator_signals'), {
-            'volatility_instability': {'signal_name': 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'weight': 0.3, 'ascending': False},
-            'chip_fatigue': {'signal_name': 'chip_fatigue_index_D', 'weight': 0.2, 'ascending': False},
-            'market_sentiment': {'signal_name': 'market_sentiment_score_D', 'weight': 0.3, 'ascending': True},
-            'flow_credibility': {'signal_name': 'flow_credibility_index_D', 'weight': 0.2, 'ascending': True}
+            'volatility_instability': {'signal_name': 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'weight': 0.3, 'ascending': false},
+            'chip_fatigue': {'signal_name': 'chip_fatigue_index_D', 'weight': 0.2, 'ascending': false},
+            'market_sentiment': {'signal_name': 'market_sentiment_score_D', 'weight': 0.3, 'ascending': true},
+            'flow_credibility': {'signal_name': 'flow_credibility_index_D', 'weight': 0.2, 'ascending': true}
         })
         context_modulator_sensitivity = get_param_value(historical_potential_params.get('context_modulator_sensitivity'), 0.5)
         dgm_modulator_sensitivity = get_param_value(historical_potential_params.get('dgm_modulator_sensitivity'), 0.8)
         bearish_deception_and_mf_out_penalty_factor = get_param_value(historical_potential_params.get('bearish_deception_and_mf_out_penalty_factor'), 1.0)
-        strong_positive_deception_penalty_factor = get_param_value(historical_potential_params.get('strong_positive_deception_penalty_factor'), 0.2)
+        retail_panic_positive_pct_penalty_factor = get_param_value(historical_potential_params.get('retail_panic_positive_pct_penalty_factor'), 0.5) # 新增参数获取
         context_modulator_signals['flow_credibility']['signal_name'] = 'winner_stability_index_D'
         context_modulator_signals['flow_credibility']['ascending'] = True
         for ctx_key, ctx_config in context_modulator_signals.items():
@@ -2933,10 +2946,11 @@ class ChipIntelligence:
         norm_suppressive_accumulation = utils.get_adaptive_mtf_normalized_score(suppressive_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_main_force_cost_advantage = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_floating_chip_cleansing_efficiency = utils.get_adaptive_mtf_normalized_score(floating_chip_cleansing_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_chip_fault_magnitude_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        norm_chip_fault_magnitude = utils.get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_main_force_execution_alpha = utils.get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_asymmetric_friction_index = utils.get_adaptive_mtf_normalized_score(asymmetric_friction_index_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        deception_purity_adjustment = 1 + (norm_chip_fault_magnitude_bipolar * -1) * mf_aq_weights.get('deception_purity_factor', 0.1)
+        deception_purity_adjustment = pd.Series(1.0, index=df_index)
+        deception_purity_adjustment = 1 + (norm_chip_fault_magnitude * -1) * mf_aq_weights.get('deception_purity_factor', 0.1)
         deception_purity_adjustment = deception_purity_adjustment.clip(0.5, 1.5)
         dynamic_covert_weight = pd.Series(mf_aq_weights.get('covert_accumulation', 0.25), index=df_index)
         dynamic_suppressive_weight = pd.Series(mf_aq_weights.get('suppressive_accumulation', 0.15), index=df_index)
@@ -3026,30 +3040,33 @@ class ChipIntelligence:
         main_force_conviction_raw = signals_data['main_force_conviction_index_D']
         conviction_flow_buy_raw = signals_data['conviction_flow_buy_intensity_D']
         conviction_flow_sell_raw = signals_data['conviction_flow_sell_intensity_D']
-        norm_deception_index_positive = utils.get_adaptive_mtf_normalized_score(deception_index_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_deception_index_negative = utils.get_adaptive_mtf_normalized_score(deception_index_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
+        pct_change_raw = signals_data['pct_change_D'] # 获取原始 pct_change_D
+        norm_deception_index = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_retail_panic_surrender = utils.get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_main_force_conviction = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_conviction_flow_buy = utils.get_adaptive_mtf_normalized_score(conviction_flow_buy_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_conviction_flow_sell = utils.get_adaptive_mtf_normalized_score(conviction_flow_sell_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         chip_flow_directionality_proxy = (norm_conviction_flow_buy - norm_conviction_flow_sell).clip(-1, 1)
+        norm_pct_change = utils.get_adaptive_mtf_normalized_bipolar_score(pct_change_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data) # 归一化 pct_change_D
+        # --- Numba优化区域：dgm_score ---
         dgm_score_values = _numba_calculate_historical_potential_dgm_score_core(
-            norm_deception_index_positive.values,
-            norm_deception_index_negative.values,
+            norm_deception_index.values,
             norm_wash_trade_intensity.values,
             norm_retail_panic_surrender.values,
             norm_main_force_conviction.values,
             chip_flow_directionality_proxy.values,
+            norm_pct_change.values, # 新增参数
             dgm_weights.get('deception_impact', 0.4),
             dgm_weights.get('wash_trade_penalty', 0.2),
             dgm_weights.get('flow_directionality_boost', 0.1),
             dgm_weights.get('retail_panic_impact', 0.15),
             dgm_weights.get('main_force_conviction_impact', 0.15),
             bearish_deception_and_mf_out_penalty_factor,
-            strong_positive_deception_penalty_factor
+            retail_panic_positive_pct_penalty_factor # 新增参数
         )
         dgm_score = pd.Series(dgm_score_values, index=df_index, dtype=np.float32)
+        # --- Numba优化区域结束 ---
         context_modulator_components = []
         total_context_weight = 0.0
         for ctx_key, ctx_config in context_modulator_signals.items():
@@ -3085,7 +3102,7 @@ class ChipIntelligence:
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“筹码势能”信号...")
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+            print(f"      [筹码层调试] {method_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
             for sig_name in required_signals:
                 val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
                 print(f"        '{sig_name}': {val:.4f}")
@@ -3095,7 +3112,7 @@ class ChipIntelligence:
             print(f"        norm_suppressive_accumulation: {norm_suppressive_accumulation.loc[probe_ts]:.4f}")
             print(f"        norm_main_force_cost_advantage: {norm_main_force_cost_advantage.loc[probe_ts]:.4f}")
             print(f"        norm_floating_chip_cleansing_efficiency: {norm_floating_chip_cleansing_efficiency.loc[probe_ts]:.4f}")
-            print(f"        norm_chip_fault_magnitude_bipolar: {norm_chip_fault_magnitude_bipolar.loc[probe_ts]:.4f}")
+            print(f"        norm_chip_fault_magnitude: {norm_chip_fault_magnitude.loc[probe_ts]:.4f}")
             print(f"        norm_main_force_execution_alpha: {norm_main_force_execution_alpha.loc[probe_ts]:.4f}")
             print(f"        norm_asymmetric_friction_index: {norm_asymmetric_friction_index.loc[probe_ts]:.4f}")
             print(f"        norm_dominant_peak_solidity: {norm_dominant_peak_solidity.loc[probe_ts]:.4f}")
@@ -3115,13 +3132,13 @@ class ChipIntelligence:
             print(f"        norm_support_validation_strength: {norm_support_validation_strength.loc[probe_ts]:.4f}")
             print(f"        norm_order_book_clearing_rate: {norm_order_book_clearing_rate.loc[probe_ts]:.4f}")
             print(f"        norm_micro_price_impact_asymmetry: {norm_micro_price_impact_asymmetry.loc[probe_ts]:.4f}")
-            print(f"        norm_deception_index_positive: {norm_deception_index_positive.loc[probe_ts]:.4f}")
-            print(f"        norm_deception_index_negative: {norm_deception_index_negative.loc[probe_ts]:.4f}")
+            print(f"        norm_deception_index: {norm_deception_index.loc[probe_ts]:.4f}")
             print(f"        norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[probe_ts]:.4f}")
             print(f"        norm_retail_panic_surrender: {norm_retail_panic_surrender.loc[probe_ts]:.4f}")
             print(f"        norm_main_force_conviction: {norm_main_force_conviction.loc[probe_ts]:.4f}")
             print(f"        norm_conviction_flow_buy: {norm_conviction_flow_buy.loc[probe_ts]:.4f}")
             print(f"        norm_conviction_flow_sell: {norm_conviction_flow_sell.loc[probe_ts]:.4f}")
+            print(f"        norm_pct_change: {norm_pct_change.loc[probe_ts]:.4f}") # 新增打印
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
             print(f"        deception_purity_adjustment: {deception_purity_adjustment.loc[probe_ts]:.4f}")
             print(f"        dynamic_covert_weight: {dynamic_covert_weight.loc[probe_ts]:.4f}")
@@ -4350,7 +4367,7 @@ class ChipIntelligence:
                     正向欺骗信号的判断现在基于 `deception_index_D` 及其多时间周期（斜率、加速度）的融合。
                     结合市场波动性作为情境调制器，动态调整惩罚强度。
         - 调试增强: 增加详细打印，追踪牛市陷阱检测的各个中间步骤，包括多维欺骗信号的融合。
-        - 业务逻辑修正: 恢复使用 `deception_index_D` ，并增强其“正向欺骗”的判断逻辑，引入多时间周期分析。
+        - 业务逻辑修正: 恢复使用 `deception_index_D`，并增强其“正向欺骗”的判断逻辑，引入多时间周期分析。
         - 返回值: 一个 Series，值为 0 到 1 之间。1 表示无惩罚，0 表示完全惩罚。
         """
         df_index = df.index
@@ -4363,11 +4380,6 @@ class ChipIntelligence:
         deception_penalty_multiplier = get_param_value(bt_params.get('deception_penalty_multiplier'), 2.5)
         context_modulator_signal_name = get_param_value(bt_params.get('context_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         context_modulator_sensitivity = get_param_value(bt_params.get('context_modulator_sensitivity'), 0.7)
-        strong_deception_no_sharp_drop_penalty_factor = get_param_value(bt_params.get('strong_deception_no_sharp_drop_penalty_factor'), 0.5)
-        deception_index_weight = get_param_value(bt_params.get('deception_index_weight'), 0.5)
-        deception_slope_weight = get_param_value(bt_params.get('deception_slope_weight'), 0.3)
-        deception_accel_weight = get_param_value(bt_params.get('deception_accel_weight'), 0.2)
-        positive_deception_threshold = get_param_value(bt_params.get('positive_deception_threshold'), 0.3)
         deception_signal_to_use = 'deception_index_D'
         required_signals = ['pct_change_D', deception_signal_to_use, context_modulator_signal_name]
         if not self._validate_required_signals(df, required_signals, "_calculate_bull_trap_context_penalty"):
@@ -4390,25 +4402,31 @@ class ChipIntelligence:
         has_recent_sharp_drop = (min_pct_change_in_window <= min_sharp_drop_pct)
         deception_slope_raw = deception_index_raw.diff(1).fillna(0)
         deception_accel_raw = deception_slope_raw.diff(1).fillna(0)
-        norm_deception_index_positive = utils.get_adaptive_mtf_normalized_score(deception_index_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
-        norm_deception_slope_positive = utils.get_adaptive_mtf_normalized_score(deception_slope_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
-        norm_deception_accel_positive = utils.get_adaptive_mtf_normalized_score(deception_accel_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_deception_slope_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_slope_raw, df_index, tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_deception_accel_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_accel_raw, df_index, tf_weights, _parsed_tf_data=parsed_tf_data)
+        deception_index_weight = get_param_value(bt_params.get('deception_index_weight', 0.5), 0.5)
+        deception_slope_weight = get_param_value(bt_params.get('deception_slope_weight', 0.3), 0.3)
+        deception_accel_weight = get_param_value(bt_params.get('deception_accel_weight', 0.2), 0.2)
+        positive_deception_threshold = get_param_value(bt_params.get('positive_deception_threshold', 0.3), 0.3)
         composite_positive_deception_score = (
-            norm_deception_index_positive * deception_index_weight +
-            norm_deception_slope_positive * deception_slope_weight +
-            norm_deception_accel_positive * deception_accel_weight
+            norm_deception_index_bipolar * deception_index_weight +
+            norm_deception_slope_bipolar * deception_slope_weight +
+            norm_deception_accel_bipolar * deception_accel_weight
         ) / (deception_index_weight + deception_slope_weight + deception_accel_weight)
         has_positive_deception = (composite_positive_deception_score > positive_deception_threshold)
         norm_context_modulator = utils.get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         dynamic_penalty_sensitivity = 1 + norm_context_modulator * context_modulator_sensitivity
+        # --- Numba优化区域：penalty_factor ---
         penalty_factor_values = _numba_calculate_bull_trap_penalty_core(
             has_recent_sharp_drop.values,
             composite_positive_deception_score.values,
             has_positive_deception.values,
             deception_penalty_multiplier,
-            dynamic_penalty_sensitivity.values,
-            strong_deception_no_sharp_drop_penalty_factor
+            dynamic_penalty_sensitivity.values
         )
         penalty_factor = pd.Series(penalty_factor_values, index=df_index, dtype=np.float32)
+        # --- Numba优化区域结束 ---
         return penalty_factor
+
 
