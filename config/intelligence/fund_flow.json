@@ -103,8 +103,8 @@
             "macro_flow_quality_weights": {
                 "description": "宏观资金流质量融合权重。",
                 "main_force_flow_directionality": 0.3,
-                "main_force_flow_gini_inverted": 0.2,
-                "nmfnf_net_flow": 0.5
+                "main_force_flow_gini_inverted": 0.4,
+                "nmfnf_net_flow": 0.3
             },
             "micro_control_quality_weights": {
                 "description": "微观控制质量融合权重。",

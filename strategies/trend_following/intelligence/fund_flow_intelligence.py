@@ -839,6 +839,7 @@ class FundFlowIntelligence:
         - 核心升级7: 详细探针输出：增加print语句，方便调试和理解计算过程。
         - 核心升级8: 引入多时间框架共振因子：评估关键资金流信号在不同时间框架下的协同或背离，作为重要的调制器。
         - 【新增】所有调试信息统一在方法末尾输出。
+        - 【修正】修复 macro_flow_quality_score 计算逻辑，使其使用 macro_flow_quality_weights 作为主要融合权重，并用 MTF共振因子调制。
         """
         method_name = "_diagnose_axiom_consensus"
         df_index = df.index
@@ -1004,11 +1005,22 @@ class FundFlowIntelligence:
         norm_main_force_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights_ff)
         norm_main_force_flow_gini_inverted = 1 - get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_nmfnf_net_flow = get_adaptive_mtf_normalized_bipolar_score(nmfnf_raw, df_index, tf_weights_ff)
+
+        # MODIFICATION START: 修正 macro_flow_quality_score 的计算逻辑，使用 macro_flow_quality_weights 作为主要融合权重
+        # 并用 mtf_cohesion 来调制每个分量
+        # Component 1: 主力资金流方向性，受其MTF共振调制
+        comp1 = norm_main_force_flow_directionality * (1 + macro_flow_directionality_cohesion * mtf_cohesion_modulator_sensitivity)
+        # Component 2: 资金流基尼系数倒置，不受MTF共振调制（因为没有为其定义cohesion）
+        comp2 = norm_main_force_flow_gini_inverted
+        # Component 3: 净资金流，受其MTF共振调制
+        comp3 = norm_nmfnf_net_flow * (1 + nmfnf_cohesion * mtf_cohesion_modulator_sensitivity)
+
         macro_flow_quality_score = (
-            norm_main_force_flow_directionality * mtf_cohesion_macro_flow_weights.get('main_force_flow_directionality', 0.5) * (1 + macro_flow_directionality_cohesion * mtf_cohesion_macro_flow_weights.get('main_force_flow_directionality', 0.5) * mtf_cohesion_modulator_sensitivity) +
-            norm_main_force_flow_gini_inverted * macro_flow_quality_weights.get('main_force_flow_gini_inverted', 0.2) +
-            norm_nmfnf_net_flow * mtf_cohesion_macro_flow_weights.get('nmfnf', 0.5) * (1 + nmfnf_cohesion * mtf_cohesion_macro_flow_weights.get('nmfnf', 0.5) * mtf_cohesion_modulator_sensitivity)
+            comp1 * macro_flow_quality_weights.get('main_force_flow_directionality', 0.3) +
+            comp2 * macro_flow_quality_weights.get('main_force_flow_gini_inverted', 0.2) +
+            comp3 * macro_flow_quality_weights.get('nmfnf_net_flow', 0.5)
         ).clip(-1, 1)
+        # MODIFICATION END
         # 将宏观资金流质量计算结果收集到 _temp_debug_values
         _temp_debug_values["宏观资金流质量计算"] = {
             "norm_main_force_flow_directionality": norm_main_force_flow_directionality,
@@ -1023,7 +1035,7 @@ class FundFlowIntelligence:
         norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         exhaustion_score = (norm_sell_exhaustion - norm_buy_exhaustion).clip(-1, 1)
         norm_market_impact_cost_inverted = 1 - get_adaptive_mtf_normalized_score(market_impact_cost_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_liquidity_slope = get_adaptive_mtf_normalized_bipolar_score(liquidity_slope_raw, df_index, tf_weights_ff)
+        norm_liquidity_slope = get_adaptive_mtf_normalized_bipolar_score(liquidity_slope_raw, df_index, tf_weights=tf_weights_ff)
         norm_liquidity_authenticity = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_buy_sweep_intensity = get_adaptive_mtf_normalized_score(buy_sweep_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_sell_sweep_intensity_inverted = 1 - get_adaptive_mtf_normalized_score(sell_sweep_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
