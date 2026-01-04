@@ -1490,5 +1490,54 @@ def _numba_calculate_zscore_core(
             zscores[i] = default_value
     return zscores
 
+@numba.njit(cache=True)
+def _numba_calculate_zscore_core(
+    series_values: np.ndarray,
+    window: int,
+    min_periods: int,
+    default_value: float
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算滚动窗口内的Z-score。
+    """
+    n = len(series_values)
+    zscores = np.full(n, default_value, dtype=np.float32)
+    rolling_mean, rolling_std = _numba_rolling_mean_std_core(series_values, window, min_periods)
+    for i in range(n):
+        if not np.isnan(series_values[i]) and not np.isnan(rolling_mean[i]) and not np.isnan(rolling_std[i]):
+            if rolling_std[i] > 1e-9: # 避免除以零
+                zscores[i] = (series_values[i] - rolling_mean[i]) / rolling_std[i]
+            else:
+                # 如果标准差为0，表示窗口内所有值相同，zscore为0
+                zscores[i] = 0.0
+        else:
+            zscores[i] = default_value
+    return zscores
+
+@numba.njit(cache=True)
+def _numba_nonlinear_fusion_core(
+    score_arrays: List[np.ndarray],
+    weight_arrays: List[np.ndarray],
+    volatility_mod_array: np.ndarray,
+    sentiment_mod_array: np.ndarray,
+    entropy_mod_array: np.ndarray
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于执行非线性融合计算。
+    """
+    num_dates = len(score_arrays[0]) if score_arrays else 0
+    if num_dates == 0:
+        return np.full(0, 0.0, dtype=np.float32)
+    fused_score = np.zeros(num_dates, dtype=np.float32)
+    for i in range(len(score_arrays)):
+        score_series = score_arrays[i]
+        weight = weight_arrays[i]
+        # 动态调整分数，例如：高波动率时，某些指标的权重可能降低
+        # 这里使用一个简单的乘法调制，更复杂的可以根据具体指标设计
+        # 确保所有调制因子都是数组，以便进行逐元素操作
+        modulated_score = score_series * (1 + volatility_mod_array * 0.1 - sentiment_mod_array * 0.05 - entropy_mod_array * 0.05)
+        fused_score += modulated_score * weight
+    # 使用 tanh 将分数映射到 [-1, 1] 之间，提供非线性压缩
+    return np.tanh(fused_score)
 
 

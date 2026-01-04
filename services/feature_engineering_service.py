@@ -9,34 +9,123 @@ import pandas_ta as ta
 from numpy.fft import fft
 import numba # 确保已导入
 from utils.math_tools import hurst_exponent
-
+from strategies.trend_following.utils import _numba_nonlinear_fusion_core
 logger = logging.getLogger("services")
 
 @numba.njit(cache=True)
-def _numba_nonlinear_fusion_core(
-    score_arrays: List[np.ndarray],
-    weight_arrays: List[np.ndarray],
-    volatility_mod_array: np.ndarray,
-    sentiment_mod_array: np.ndarray,
-    entropy_mod_array: np.ndarray
-) -> np.ndarray:
+def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
     """
-    Numba优化后的核心函数，用于执行非线性融合计算。
+    【Numba优化版】计算Higuchi分形维数。
     """
-    num_dates = len(score_arrays[0]) if score_arrays else 0
-    if num_dates == 0:
-        return np.full(0, 0.0, dtype=np.float32)
-    fused_score = np.zeros(num_dates, dtype=np.float32)
-    for i in range(len(score_arrays)):
-        score_series = score_arrays[i]
-        weight = weight_arrays[i]
-        # 动态调整分数，例如：高波动率时，某些指标的权重可能降低
-        # 这里使用一个简单的乘法调制，更复杂的可以根据具体指标设计
-        # 确保所有调制因子都是数组，以便进行逐元素操作
-        modulated_score = score_series * (1 + volatility_mod_array * 0.1 - sentiment_mod_array * 0.05 - entropy_mod_array * 0.05)
-        fused_score += modulated_score * weight
-    # 使用 tanh 将分数映射到 [-1, 1] 之间，提供非线性压缩
-    return np.tanh(fused_score)
+    L = np.empty(k_max, dtype=np.float64)
+    L.fill(np.nan) # 初始化为NaN
+    x_len = len(x)
+    if x_len < 2:
+        return np.nan
+    
+    for k_idx in range(k_max):
+        k = k_idx + 1
+        Lk_sum = 0.0
+        count = 0
+        for m in range(k):
+            # Numba不支持切片步长为负，但这里m::k是正向步长
+            series_len = (x_len - m - 1) // k + 1
+            if series_len < 2:
+                continue
+            current_series = np.empty(series_len, dtype=np.float64)
+            for i in range(series_len):
+                current_series[i] = x[m + i * k]
+            diffs = np.abs(np.diff(current_series))
+            if len(diffs) > 0:
+                denominator = ((x_len - m) // k * k)
+                if denominator == 0:
+                    continue
+                Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
+                count += 1
+        if count > 0 and Lk_sum > 0:
+            L[k_idx] = np.log(Lk_sum / count / k)
+        else:
+            L[k_idx] = np.nan
+    valid_L_indices = np.where(~np.isnan(L))[0]
+    if len(valid_L_indices) < 2:
+        return np.nan
+    valid_L = L[valid_L_indices]
+    k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))
+    valid_k_range_log = k_range_log[valid_L_indices]
+    
+    try:
+        # 手动实现线性回归斜率
+        N = len(valid_L)
+        sum_x = np.sum(valid_k_range_log)
+        sum_y = np.sum(valid_L)
+        sum_xy = np.sum(valid_k_range_log * valid_L)
+        sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
+        denominator_reg = N * sum_x2 - sum_x * sum_x
+        if denominator_reg == 0:
+            return np.nan
+        slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
+        fd = np.abs(slope)
+        # 核心修复：手动实现标量裁剪，避免np.clip对标量参数的Numba TypingError
+        if fd < 1.0:
+            fd = 1.0
+        elif fd > 2.0:
+            fd = 2.0
+        return fd
+    except Exception:
+        return np.nan
+
+@numba.njit(cache=True)
+def _numba_sample_entropy(x: np.ndarray, m: int, r: float) -> float:
+    """
+    【Numba优化版】计算样本熵。
+    """
+    n = len(x)
+    if n < m + 1:
+        return np.nan
+
+    # 计算距离函数
+    def _max_dist(x_i, x_j):
+        return np.max(np.abs(x_i - x_j))
+
+    # 计算 B_m(r)
+    B = 0
+    for i in range(n - m + 1):
+        for j in range(i + 1, n - m + 1): # 避免重复和自身比较
+            if _max_dist(x[i:i+m], x[j:j+m]) < r:
+                B += 1
+
+    # 计算 A_m(r)
+    A = 0
+    for i in range(n - m):
+        for j in range(i + 1, n - m): # 避免重复和自身比较
+            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
+                A += 1
+    
+    # 原始实现中 B 和 A 的计算方式可能导致 B < A
+    # 样本熵的定义是 -ln(A/B)
+    # B_m(r) 是匹配长度为 m 的模式对的数量
+    # A_m(r) 是匹配长度为 m+1 的模式对的数量
+    # 这里的 B 和 A 应该对应于原始定义中的 N_m 和 N_{m+1}
+    
+    # 重新计算 B 和 A
+    count_m = 0
+    for i in range(n - m):
+        for j in range(i + 1, n - m):
+            if _max_dist(x[i:i+m], x[j:j+m]) < r:
+                count_m += 1
+    
+    count_m_plus_1 = 0
+    for i in range(n - m - 1):
+        for j in range(i + 1, n - m - 1):
+            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
+                count_m_plus_1 += 1
+
+    if count_m == 0:
+        return np.nan # 避免除以零
+    
+    return -np.log(count_m_plus_1 / count_m)
+
+
 
 class FeatureEngineeringService:
     """
