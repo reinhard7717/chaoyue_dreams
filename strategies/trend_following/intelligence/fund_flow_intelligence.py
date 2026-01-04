@@ -2450,7 +2450,6 @@ class FundFlowIntelligence:
         ]
         # MODIFICATION START: 提前进行去重操作
         required_signals = list(set(required_signals))
-        # MODIFICATION END
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。"] = ""
@@ -2473,7 +2472,6 @@ class FundFlowIntelligence:
         dynamic_evolution_context_modulator_2_raw = raw_data_cache[dynamic_evolution_context_modulator_signal_2_name]
         # MODIFICATION START: 优化原始信号值收集
         _temp_debug_values = {"原始信号值": raw_data_cache}
-        # MODIFICATION END
         # --- 1. 微观结构效率 (Microstructure Efficiency) ---
         norm_microstructure_efficiency = get_adaptive_mtf_normalized_score(microstructure_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights=tf_weights_ff)
@@ -2481,11 +2479,11 @@ class FundFlowIntelligence:
             norm_microstructure_efficiency * microstructure_efficiency_weights.get('microstructure_efficiency_index', 0.6) +
             norm_order_book_imbalance * microstructure_efficiency_weights.get('order_book_imbalance', 0.4)
         ).clip(-1, 1)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 微观结构效率 ---"] = ""
-            debug_output[f"        norm_microstructure_efficiency: {norm_microstructure_efficiency.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_order_book_imbalance: {norm_order_book_imbalance.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        微观结构效率分数 (microstructure_efficiency_score): {microstructure_efficiency_score.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 微观结构效率 ---"] = ""
+        #     debug_output[f"        norm_microstructure_efficiency: {norm_microstructure_efficiency.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_order_book_imbalance: {norm_order_book_imbalance.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        微观结构效率分数 (microstructure_efficiency_score): {microstructure_efficiency_score.loc[probe_ts]:.4f}"] = ""
         # --- 2. 流动性真实性 (Liquidity Authenticity) ---
         norm_liquidity_authenticity = get_adaptive_mtf_normalized_score(liquidity_authenticity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_intensity_inverted = 1 - get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -2493,11 +2491,11 @@ class FundFlowIntelligence:
             norm_liquidity_authenticity * liquidity_authenticity_weights.get('liquidity_authenticity_score', 0.7) +
             norm_wash_trade_intensity_inverted * liquidity_authenticity_weights.get('wash_trade_intensity_inverted', 0.3)
         ).clip(-1, 1)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 流动性真实性 ---"] = ""
-            debug_output[f"        norm_liquidity_authenticity: {norm_liquidity_authenticity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_wash_trade_intensity_inverted: {norm_wash_trade_intensity_inverted.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        流动性真实性分数 (liquidity_authenticity_score): {liquidity_authenticity_score.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 流动性真实性 ---"] = ""
+        #     debug_output[f"        norm_liquidity_authenticity: {norm_liquidity_authenticity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_wash_trade_intensity_inverted: {norm_wash_trade_intensity_inverted.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        流动性真实性分数 (liquidity_authenticity_score): {liquidity_authenticity_score.loc[probe_ts]:.4f}"] = ""
         # --- 3. 资金流质量 (Flow Quality) ---
         norm_main_force_flow_gini_inverted = 1 - get_adaptive_mtf_normalized_score(main_force_flow_gini_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -2505,11 +2503,11 @@ class FundFlowIntelligence:
             norm_main_force_flow_gini_inverted * flow_quality_weights.get('main_force_flow_gini_inverted', 0.5) +
             norm_flow_credibility * flow_quality_weights.get('flow_credibility', 0.5)
         ).clip(-1, 1)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 资金流质量 ---"] = ""
-            debug_output[f"        norm_main_force_flow_gini_inverted: {norm_main_force_flow_gini_inverted.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_flow_credibility: {norm_flow_credibility.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        资金流质量分数 (flow_quality_score): {flow_quality_score.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 资金流质量 ---"] = ""
+        #     debug_output[f"        norm_main_force_flow_gini_inverted: {norm_main_force_flow_gini_inverted.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        norm_flow_credibility: {norm_flow_credibility.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        资金流质量分数 (flow_quality_score): {flow_quality_score.loc[probe_ts]:.4f}"] = ""
         # --- 4. 情境调制器 (Contextual Modulator) ---
         context_modulator = pd.Series(1.0, index=df_index)
         if contextual_modulator_enabled:
@@ -2520,15 +2518,15 @@ class FundFlowIntelligence:
             volatility_mod = (1 - norm_volatility_instability * context_sensitivity_volatility)
             trend_vitality_mod = (1 + norm_trend_vitality * context_sensitivity_trend_vitality)
             context_modulator = (sentiment_mod * volatility_mod * trend_vitality_mod).clip(0.5, 1.5)
-            if is_debug_enabled and probe_ts:
-                debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 情境调制器 ---"] = ""
-                debug_output[f"        norm_market_sentiment: {norm_market_sentiment.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_volatility_instability: {norm_volatility_instability.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        norm_trend_vitality: {norm_trend_vitality.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        sentiment_mod: {sentiment_mod.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        volatility_mod: {volatility_mod.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        trend_vitality_mod: {trend_vitality_mod.loc[probe_ts]:.4f}"] = ""
-                debug_output[f"        情境调制器 (context_modulator): {context_modulator.loc[probe_ts]:.4f}"] = ""
+            # if is_debug_enabled and probe_ts:
+            #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 情境调制器 ---"] = ""
+            #     debug_output[f"        norm_market_sentiment: {norm_market_sentiment.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_volatility_instability: {norm_volatility_instability.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        norm_trend_vitality: {norm_trend_vitality.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        sentiment_mod: {sentiment_mod.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        volatility_mod: {volatility_mod.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        trend_vitality_mod: {trend_vitality_mod.loc[probe_ts]:.4f}"] = ""
+            #     debug_output[f"        情境调制器 (context_modulator): {context_modulator.loc[probe_ts]:.4f}"] = ""
         # --- 5. 融合基础分数 (Fusion Base Score) ---
         base_flow_structure_health_score = (
             microstructure_efficiency_score * 0.4 +
@@ -2536,9 +2534,9 @@ class FundFlowIntelligence:
             flow_quality_score * 0.3
         ) * context_modulator
         base_flow_structure_health_score = base_flow_structure_health_score.clip(-1, 1)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 融合基础分数 ---"] = ""
-            debug_output[f"        基础资金流结构健康分数 (base_flow_structure_health_score): {base_flow_structure_health_score.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 融合基础分数 ---"] = ""
+        #     debug_output[f"        基础资金流结构健康分数 (base_flow_structure_health_score): {base_flow_structure_health_score.loc[probe_ts]:.4f}"] = ""
         # --- 6. 演化趋势与前瞻性增强 (Evolution Trend & Foresight Enhancement) ---
         smoothed_base_score = base_flow_structure_health_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
@@ -2564,19 +2562,19 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 演化趋势与前瞻性增强 ---"] = ""
-            debug_output[f"        平滑基础分数 (smoothed_base_score): {smoothed_base_score.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        速度 (velocity): {velocity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        加速度 (acceleration): {acceleration.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        组合演化上下文调制 (combined_evolution_context_mod): {combined_evolution_context_mod.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        动态基础权重: {dynamic_base_score_weight.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        动态速度权重: {dynamic_velocity_weight.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        动态加速度权重: {dynamic_acceleration_weight.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流结构健康度诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            self._print_debug_output(debug_output)
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 演化趋势与前瞻性增强 ---"] = ""
+        #     debug_output[f"        平滑基础分数 (smoothed_base_score): {smoothed_base_score.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        速度 (velocity): {velocity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        加速度 (acceleration): {acceleration.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        组合演化上下文调制 (combined_evolution_context_mod): {combined_evolution_context_mod.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        动态基础权重: {dynamic_base_score_weight.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        动态速度权重: {dynamic_velocity_weight.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        动态加速度权重: {dynamic_acceleration_weight.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流结构健康度诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     self._print_debug_output(debug_output)
         return final_score.astype(np.float32)
 
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, pre_fetched_data: Optional[Dict[str, pd.Series]] = None) -> pd.Series:
