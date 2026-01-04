@@ -1356,7 +1356,8 @@ def _numba_normalize_score_multi_window_core(
                     normalized_series_window[i] = 1.0 - ranked_series_values[i]
                 else:
                     normalized_series_window[i] = ranked_series_values[i]
-            normalized_series_window[i] = np.clip(normalized_series_window[i], 0.0, 1.0)
+            # 显式转换为 float32
+            normalized_series_window[i] = np.clip(normalized_series_window[i], np.float32(0.0), np.float32(1.0))
             if is_original_zero_values[i]:
                 normalized_series_window[i] = 0.0
         results_array[:, w_idx] = normalized_series_window
@@ -1408,12 +1409,14 @@ def _numba_normalize_to_bipolar_multi_window_core(
             if not np.isnan(rolling_std[i]) and rolling_std[i] > 1e-9:
                 z_score = (series_values[i] - rolling_mean[i]) / (rolling_std[i] * sensitivity)
                 bipolar_score_window[i] = np.tanh(z_score)
-            elif not np.isnan(rolling_mean[i]): # std is zero or very small, but mean is valid
+            elif not np.isnan(rolling_mean[i]):
                 bipolar_score_window[i] = np.sign(series_values[i] - rolling_mean[i])
-            else: # rolling_mean is also NaN (not enough data)
-                bipolar_score_window[i] = np.sign(series_values[i]) # Fallback to sign of the value itself
+            else:
+                bipolar_score_window[i] = np.sign(series_values[i])
             if is_original_zero_values[i]:
                 bipolar_score_window[i] = 0.0
+            # 显式转换为 float32
+            bipolar_score_window[i] = np.clip(bipolar_score_window[i], np.float32(-1.0), np.float32(1.0))
             if np.isnan(bipolar_score_window[i]):
                 bipolar_score_window[i] = default_value
         results_array[:, w_idx] = bipolar_score_window
@@ -1448,10 +1451,13 @@ def _numba_normalize_single_window_energy_score_core(
                 normalized_scores[i] = (series_values[i] - rolling_min) / (rolling_max - rolling_min)
             else:
                 normalized_scores[i] = (rolling_max - series_values[i]) / (rolling_max - rolling_min)
-        else: # All values in window are the same non-zero value
-            normalized_scores[i] = 1.0 if series_values[i] == rolling_max else 0.0
-        normalized_scores[i] = np.clip(normalized_scores[i], 0.0, 1.0)
+        else:
+            normalized_scores[i] = np.float32(1.0) if series_values[i] == rolling_max else np.float32(0.0)
+        # 显式转换为 float32
+        normalized_scores[i] = np.clip(normalized_scores[i], np.float32(0.0), np.float32(1.0))
         if np.isnan(normalized_scores[i]):
             normalized_scores[i] = default_value
     return normalized_scores
+
+
 
