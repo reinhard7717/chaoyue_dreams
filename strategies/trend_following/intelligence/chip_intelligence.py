@@ -798,7 +798,7 @@ class ChipIntelligence:
             historical_potential = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
         # 调用并记录吸筹回声信号
-        absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
+        absorption_echo = self._diagnose_absorption_echo(df)
         # 确保 absorption_echo 是 Series
         if not isinstance(absorption_echo, pd.Series):
             print(f"    -> [筹码情报警告] _diagnose_absorption_echo 返回无效类型，使用默认值。")
