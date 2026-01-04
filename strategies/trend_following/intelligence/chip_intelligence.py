@@ -3492,24 +3492,33 @@ class ChipIntelligence:
         - 核心逻辑: 识别市场和谐度由低转向高，预示市场情绪和结构改善的关键时刻。
         - 核心升级: 引入和谐水平调制器，确保低和谐水平下的拐点得分不会过高。
         - 核心修复: 移除固定持续性奖励，并降低情境调制器的最大乘数，使信号更精准。
+        - 核心适配: 调整信号依赖，使用现有筹码类指标作为代理，确保方法可运行。
         """
         method_name = "_diagnose_harmony_inflection"
         df_index = df.index
+        # MODIFICATION START: 更新 required_signals 列表，使用现有筹码类指标作为代理
         required_signals = [
-            'harmony_score', # 确保 harmony_score 在所需信号列表中
-            'harmony_velocity_D', 'harmony_acceleration_D',
-            'threshold_modulator_raw_D', 'deception_index_D', 'wash_trade_intensity_D',
-            'chip_health_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'main_force_conviction_index_D', 'pct_change_D',
-            'dynamic_low_harmony_threshold_D', 'dynamic_high_harmony_threshold_D'
+            'chip_health_score_D', # 作为 harmony_score 的代理
+            'SLOPE_5_chip_health_score_D', # 作为 harmony_velocity_D 的代理
+            'ACCEL_5_chip_health_score_D', # 作为 harmony_acceleration_D 的代理
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', # 作为 threshold_modulator_raw_D 的代理
+            'deception_index_D',
+            'wash_trade_intensity_D',
+            'main_force_conviction_index_D'
+            # 移除 'pct_change_D'，因为它在方法中未被使用
+            # 移除 'dynamic_low_harmony_threshold_D', 'dynamic_high_harmony_threshold_D'，因为它们是缺失的动态阈值，将使用静态默认值
         ]
+        # MODIFICATION END
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         parsed_tf_data = utils._parse_tf_weights(tf_weights)
         harmony_inflection_params = get_param_value(p_conf.get('harmony_inflection_params'), {})
+
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
+
         signals_data = self._get_all_required_signals(df, required_signals, method_name)
+
         is_debug_enabled = self.should_probe
         probe_ts = None
         if is_debug_enabled and self.probe_dates_set:
@@ -3517,41 +3526,67 @@ class ChipIntelligence:
                 if date.date() in self.probe_dates_set:
                     probe_ts = date
                     break
+
         # --- 信号归一化 ---
-        norm_harmony_score = utils.get_adaptive_mtf_normalized_score(signals_data['harmony_score'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
-        norm_velocity = utils.get_adaptive_mtf_normalized_score(signals_data['harmony_velocity_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
-        norm_acceleration = utils.get_adaptive_mtf_normalized_score(signals_data['harmony_acceleration_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
-        norm_threshold_modulator = utils.get_adaptive_mtf_normalized_score(signals_data['threshold_modulator_raw_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        # MODIFICATION START: 使用代理信号进行归一化
+        norm_harmony_score = utils.get_adaptive_mtf_normalized_score(signals_data['chip_health_score_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_velocity = utils.get_adaptive_mtf_normalized_score(signals_data['SLOPE_5_chip_health_score_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_acceleration = utils.get_adaptive_mtf_normalized_score(signals_data['ACCEL_5_chip_health_score_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_threshold_modulator = utils.get_adaptive_mtf_normalized_score(signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        # MODIFICATION END
         norm_deception = utils.get_adaptive_mtf_normalized_bipolar_score(signals_data['deception_index_D'], df_index, tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_wash_trade = utils.get_adaptive_mtf_normalized_score(signals_data['wash_trade_intensity_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_chip_health = utils.get_adaptive_mtf_normalized_score(signals_data['chip_health_score_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_volatility_instability = utils.get_adaptive_mtf_normalized_score(signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_main_force_conviction = utils.get_adaptive_mtf_normalized_score(signals_data['main_force_conviction_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
-        norm_pct_change = utils.get_adaptive_mtf_normalized_score(signals_data['pct_change_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        # 移除 norm_pct_change 的计算，因为它未被使用
+        # norm_pct_change = utils.get_adaptive_mtf_normalized_score(signals_data['pct_change_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+
         # --- 1. 和谐速度与加速度 (Harmony Velocity & Acceleration) ---
-        harmony_velocity = signals_data['harmony_velocity_D']
-        harmony_acceleration = signals_data['harmony_acceleration_D']
+        # MODIFICATION START: 使用代理信号
+        harmony_velocity = signals_data['SLOPE_5_chip_health_score_D']
+        harmony_acceleration = signals_data['ACCEL_5_chip_health_score_D']
+        # MODIFICATION END
+
         # --- 2. 拐点强度 (Inflection Strength) ---
         inflection_params = get_param_value(harmony_inflection_params.get('inflection_params'), {})
         positive_inflection_strength = (norm_velocity * get_param_value(inflection_params.get('velocity_weight'), 0.6) +
                                         norm_acceleration * get_param_value(inflection_params.get('acceleration_weight'), 0.4))
         positive_inflection_strength = positive_inflection_strength.clip(0, 1)
+
         negative_inflection_strength = (1 - norm_velocity) * (1 - norm_acceleration) # 假设负向拐点与正向相反
         negative_inflection_strength = negative_inflection_strength.clip(0, 1)
+
         inflection_strength = positive_inflection_strength - negative_inflection_strength # 净拐点强度
         inflection_strength = inflection_strength.clip(0, 1) # 只关注正向拐点
+
         # --- 3. 动态和谐阈值 (Dynamic Harmony Thresholds) ---
-        dynamic_low_harmony_threshold = signals_data['dynamic_low_harmony_threshold_D']
-        dynamic_high_harmony_threshold = signals_data['dynamic_high_harmony_threshold_D']
+        # MODIFICATION START: 移除对缺失动态阈值信号的直接引用，使用静态默认值
+        # dynamic_low_harmony_threshold = signals_data['dynamic_low_harmony_threshold_D']
+        # dynamic_high_harmony_threshold = signals_data['dynamic_high_harmony_threshold_D']
+        # 使用配置中的静态默认阈值
+        default_low_harmony_threshold = get_param_value(harmony_inflection_params.get('default_low_harmony_threshold'), 0.2)
+        default_high_harmony_threshold = get_param_value(harmony_inflection_params.get('default_high_harmony_threshold'), 0.8)
+        # MODIFICATION END
+
         # --- 4. 位置敏感性因子 (Position Sensitivity Factor) ---
-        # 当 harmony_score 接近低阈值时，积极拐点信号更强；接近高阈值时，积极拐点信号减弱
         position_sensitivity_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        # 如果当前和谐度低于低阈值，则给予一定惩罚，因为可能只是超跌反弹
-        position_sensitivity_factor.loc[signals_data['harmony_score'] < dynamic_low_harmony_threshold] = \
-            (signals_data['harmony_score'] / dynamic_low_harmony_threshold).clip(0.5, 1.0)
-        # 如果当前和谐度高于高阈值，则给予一定惩罚，因为可能已经处于高位
-        position_sensitivity_factor.loc[signals_data['harmony_score'] > dynamic_high_harmony_threshold] = \
-            (1 - (signals_data['harmony_score'] - dynamic_high_harmony_threshold) / (signals_data['harmony_score'].max() - dynamic_high_harmony_threshold)).clip(0.5, 1.0)
+        # MODIFICATION START: 使用 chip_health_score_D 作为 harmony_score 的代理，并使用静态默认阈值
+        current_harmony_proxy = signals_data['chip_health_score_D']
+
+        # 如果当前和谐度代理低于低阈值，则给予一定惩罚，因为可能只是超跌反弹
+        position_sensitivity_factor.loc[current_harmony_proxy < default_low_harmony_threshold] = \
+            (current_harmony_proxy / default_low_harmony_threshold).clip(0.5, 1.0)
+        # 如果当前和谐度代理高于高阈值，则给予一定惩罚，因为可能已经处于高位
+        # 确保分母不为零，并处理 max_harmony_proxy 可能小于 default_high_harmony_threshold 的情况
+        max_harmony_proxy_val = current_harmony_proxy.max()
+        denominator = max_harmony_proxy_val - default_high_harmony_threshold
+        if denominator <= 0: # 避免除以零或负数
+            denominator = 1e-6 # 使用一个极小值
+        position_sensitivity_factor.loc[current_harmony_proxy > default_high_harmony_threshold] = \
+            (1 - (current_harmony_proxy - default_high_harmony_threshold) / denominator).clip(0.5, 1.0)
+        # MODIFICATION END
+
         # --- 5. 欺骗调制器 (Deception Modulator) ---
         deception_modulator_params = get_param_value(harmony_inflection_params.get('deception_modulator_params'), {})
         deception_modulator_weights = get_param_value(deception_modulator_params.get('weights'), {
@@ -3566,6 +3601,7 @@ class ChipIntelligence:
         deception_modulator_score = utils._robust_geometric_mean(deception_modulator_components, deception_modulator_weights, df_index)
         deception_modulator = 1 + (deception_modulator_score - 0.5) * get_param_value(deception_modulator_params.get('sensitivity'), 0.8)
         deception_modulator = deception_modulator.clip(0.01, 2.0)
+
         # --- 6. 情境调制器 (Context Modulator) ---
         context_modulator_params = get_param_value(harmony_inflection_params.get('context_modulator_params'), {})
         context_modulator_signals = get_param_value(context_modulator_params.get('signals'), {
@@ -3573,6 +3609,7 @@ class ChipIntelligence:
             'main_force_conviction': {'signal_name': 'main_force_conviction_index_D', 'weight': 0.5, 'ascending': True}
         })
         context_modulator_sensitivity = get_param_value(context_modulator_params.get('sensitivity'), 1.0)
+
         context_modulator_components_list = []
         total_context_weight = 0.0
         for ctx_key, ctx_config in context_modulator_signals.items():
@@ -3588,46 +3625,55 @@ class ChipIntelligence:
             combined_context_modulator = sum(context_modulator_components_list) / total_context_weight
         else:
             combined_context_modulator = pd.Series(0.5, index=df_index)
+
         # 情境调制器转换为乘数
         context_multiplier = 1 + (combined_context_modulator - 0.5) * context_modulator_sensitivity
-        # MODIFICATION START: 降低情境调制器的最大乘数
         context_multiplier = context_multiplier.clip(0.5, get_param_value(context_modulator_params.get('clip_max'), 1.3))
-        # MODIFICATION END
+
         # --- 融合计算 ---
-        # MODIFICATION START: 引入和谐水平调制器，并移除 persistence_bonus
+        # 引入和谐水平调制器，并移除 persistence_bonus
         # 确保低和谐水平下的拐点得分不会过高，clip(0.1, 1.0) 保证即使极低也不会完全归零
         harmony_level_modulator = norm_harmony_score.clip(0.1, 1.0)
         inflection_strength_modulated_by_level = inflection_strength * harmony_level_modulator
         inflection_strength_modulated = inflection_strength_modulated_by_level * deception_modulator * position_sensitivity_factor
         final_score = inflection_strength_modulated * context_multiplier
-        # MODIFICATION END
         final_score = final_score.clip(0, 1)
+
         # 调试信息
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“和谐拐点”信号...")
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
-            for sig_name in required_signals:
-                val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
-                print(f"        '{sig_name}': {val:.4f}")
+            # MODIFICATION START: 调整原始信号输出以匹配新的 required_signals
+            print(f"        'chip_health_score_D' (harmony_score proxy): {signals_data['chip_health_score_D'].loc[probe_ts]:.4f}")
+            print(f"        'SLOPE_5_chip_health_score_D' (harmony_velocity_D proxy): {signals_data['SLOPE_5_chip_health_score_D'].loc[probe_ts]:.4f}")
+            print(f"        'ACCEL_5_chip_health_score_D' (harmony_acceleration_D proxy): {signals_data['ACCEL_5_chip_health_score_D'].loc[probe_ts]:.4f}")
+            print(f"        'VOLATILITY_INSTABILITY_INDEX_21d_D' (threshold_modulator_raw_D proxy): {signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'].loc[probe_ts]:.4f}")
+            print(f"        'deception_index_D': {signals_data['deception_index_D'].loc[probe_ts]:.4f}")
+            print(f"        'wash_trade_intensity_D': {signals_data['wash_trade_intensity_D'].loc[probe_ts]:.4f}")
+            print(f"        'main_force_conviction_index_D': {signals_data['main_force_conviction_index_D'].loc[probe_ts]:.4f}")
+            # MODIFICATION END
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化信号值 ---")
             for key, series in locals().items():
                 if key.startswith('norm_') and isinstance(series, pd.Series) and probe_ts in series.index:
                     print(f"        {key}: {series.loc[probe_ts]:.4f}")
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
-            print(f"        harmony_velocity: {harmony_velocity.loc[probe_ts]:.4f}")
-            print(f"        harmony_acceleration: {harmony_acceleration.loc[probe_ts]:.4f}")
+            # MODIFICATION START: 调整关键计算节点输出以匹配新的代理信号
+            print(f"        harmony_velocity (proxy): {harmony_velocity.loc[probe_ts]:.4f}")
+            print(f"        harmony_acceleration (proxy): {harmony_acceleration.loc[probe_ts]:.4f}")
+            # MODIFICATION END
             print(f"        positive_inflection_strength: {positive_inflection_strength.loc[probe_ts]:.4f}")
             print(f"        negative_inflection_strength: {negative_inflection_strength.loc[probe_ts]:.4f}")
             print(f"        inflection_strength: {inflection_strength.loc[probe_ts]:.4f}")
-            print(f"        harmony_level_modulator: {harmony_level_modulator.loc[probe_ts]:.4f}") # 新增调试输出
-            print(f"        inflection_strength_modulated_by_level: {inflection_strength_modulated_by_level.loc[probe_ts]:.4f}") # 新增调试输出
-            print(f"        dynamic_low_harmony_threshold: {dynamic_low_harmony_threshold.loc[probe_ts]:.4f}")
-            print(f"        dynamic_high_harmony_threshold: {dynamic_high_harmony_threshold.loc[probe_ts]:.4f}")
+            print(f"        harmony_level_modulator: {harmony_level_modulator.loc[probe_ts]:.4f}")
+            print(f"        inflection_strength_modulated_by_level: {inflection_strength_modulated_by_level.loc[probe_ts]:.4f}")
+            # MODIFICATION START: 调整动态阈值输出为静态默认值
+            print(f"        default_low_harmony_threshold: {default_low_harmony_threshold:.4f}")
+            print(f"        default_high_harmony_threshold: {default_high_harmony_threshold:.4f}")
+            # MODIFICATION END
             print(f"        position_sensitivity_factor: {position_sensitivity_factor.loc[probe_ts]:.4f}")
             print(f"        deception_modulator: {deception_modulator.loc[probe_ts]:.4f}")
             print(f"        inflection_strength_modulated: {inflection_strength_modulated.loc[probe_ts]:.4f}")
-            # print(f"        persistence_bonus: {persistence_bonus.loc[probe_ts]:.4f}") # 移除调试输出
-            print(f"        context_multiplier: {context_multiplier.loc[probe_ts]:.4f}") # 修正变量名
+            print(f"        context_multiplier: {context_multiplier.loc[probe_ts]:.4f}")
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终和谐拐点得分 (final_score): {final_score.loc[probe_ts]:.4f}")
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “和谐拐点”信号诊断完成。")
         print(f"  -- [筹码层] “和谐拐点”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")

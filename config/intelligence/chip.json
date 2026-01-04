@@ -920,7 +920,7 @@
             "dynamic_weight_sensitivity": 0.3,
             "comment_dynamic_weight_sensitivity": "动态权重调制敏感度。"
         },
-        "harmony_inflection_params": {
+"harmony_inflection_params": {
             "description": "【V5.0 · 和谐拐点】和谐拐点信号的专属参数。",
             "inflection_params": {
                 "description": "拐点强度计算参数",
@@ -950,10 +950,14 @@
                 "comment_clip_max": "情境调制器乘数的最大值，防止过度放大"
             },
             "base_score_weights": {
-                "velocity": 0.4,
-                "acceleration": 0.3,
-                "threshold_proximity": 0.3
-            }
+                "panic_source": 0.3,
+                "counter_flow": 0.3,
+                "mf_echo": 0.4
+            },
+            "default_low_harmony_threshold": 0.2,
+            "comment_default_low_harmony_threshold": "当动态和谐低阈值信号缺失时，用于位置敏感性因子的默认低阈值",
+            "default_high_harmony_threshold": 0.8,
+            "comment_default_high_harmony_threshold": "当动态和谐高阈值信号缺失时，用于位置敏感性因子的默认高阈值"
         }
       }
 }
