@@ -6,7 +6,8 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
-import numba # 确保已导入
+import numba
+from numba import objmode
 from utils.math_tools import hurst_exponent
 from strategies.trend_following.utils import _numba_nonlinear_fusion_core
 logger = logging.getLogger("services")
@@ -36,7 +37,10 @@ def _numba_rolling_fft_energy_ratio_core(
         
         # Numba 的 np.fft.fft 需要浮点数输入，输出为复数
         # 确保输入是 float64，以避免类型转换问题
-        yf = np.fft.fft(window_data.astype(np.float64)) # 修改点：将 fft 改为 np.fft.fft
+        # 使用 objmode 暂时退出 Numba 模式，调用 Python 的 np.fft.fft
+        with objmode(yf='complex128[:]'): # 声明 yf 的类型为一维复数数组
+            yf = np.fft.fft(window_data.astype(np.float64))
+        
         yf_abs = np.abs(yf[:N_window // 2]) # 取正频率部分
         
         total_energy = np.sum(yf_abs**2)
