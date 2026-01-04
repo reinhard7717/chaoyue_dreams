@@ -3102,7 +3102,7 @@ class ChipIntelligence:
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“筹码势能”信号...")
-            print(f"      [筹码层调试] {method_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+            print(f"      [筹码层调试] {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
             for sig_name in required_signals:
                 val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
                 print(f"        '{sig_name}': {val:.4f}")
