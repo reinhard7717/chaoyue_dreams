@@ -1337,6 +1337,7 @@ class StructuralIntelligence:
         - 核心逻辑: 评估动态高点作为阻力的脆弱性，以及动态低点作为支撑的脆弱性。
         - 纯结构类信号: 仅使用结构层原始数据进行分析。
         - 探针输出: 详细输出原料信号、关键计算节点、结果值。
+        - 【V1.1 核心修正】修正了 `price_to_high_raw` 和 `price_to_low_raw` 的计算逻辑，使其在价格突破边界时能正确反映边界的弱势。
         """
         method_name = "_diagnose_platform_boundary_inverses"
         p_conf_struct = self.structural_ultimate_params
@@ -1394,10 +1395,10 @@ class StructuralIntelligence:
             print(f"        breakout_readiness: {breakout_readiness.iloc[-1]:.4f}")
             print(f"        axiom_stability: {axiom_stability.iloc[-1]:.4f}")
         # --- STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE (高点弱势) ---
-        # 1. 价格接近度与动量 (高点越近，动量越强，高点越弱)
-        # 避免 dynamic_high - close_D <= 0 导致除以0或负数，确保比率有意义
-        price_to_high_raw = (dynamic_high - close_D).clip(lower=0) / atr_D
-        price_to_high_score = self.get_dynamic_normalized_score(price_to_high_raw, df_index, tf_weights, ascending=False) # 越小越好
+        # 1. 价格接近度与动量 (高点越近或已突破，动量越强，高点越弱)
+        # 修正: 当close_D > dynamic_high时，price_to_high_raw应为正，表示已突破，高点阻力弱
+        price_to_high_raw = (close_D - dynamic_high) / atr_D
+        price_to_high_score = self.get_dynamic_normalized_score(price_to_high_raw, df_index, tf_weights, ascending=True) # 越大越好 (突破或接近)
         price_momentum_towards_high_score = self.get_dynamic_normalized_score(slope_5_close_D.clip(lower=0), df_index, tf_weights, ascending=True) # 向上动量越强越好
         price_acceleration_towards_high_score = self.get_dynamic_normalized_score(accel_5_close_D.clip(lower=0), df_index, tf_weights, ascending=True) # 向上加速度越强越好
         # 2. 阻力质量 (阻力拒绝越弱，高点越弱)
@@ -1421,8 +1422,8 @@ class StructuralIntelligence:
         if self.is_probe_date:
             print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 关键节点:")
             print(f"        price_to_high_raw: {price_to_high_raw.iloc[-1]:.4f}, score: {price_to_high_score.iloc[-1]:.4f}")
-            print(f"        slope_5_close_D (raw): {slope_5_close_D.iloc[-1]:.4f}, score: {price_momentum_towards_high_score.iloc[-1]:.4f}")
-            print(f"        accel_5_close_D (raw): {accel_5_close_D.iloc[-1]:.4f}, score: {price_acceleration_towards_high_score.iloc[-1]:.4f}")
+            print(f"        slope_5_close_D (raw, clipped): {slope_5_close_D.clip(lower=0).iloc[-1]:.4f}, score: {price_momentum_towards_high_score.iloc[-1]:.4f}")
+            print(f"        accel_5_close_D (raw, clipped): {accel_5_close_D.clip(lower=0).iloc[-1]:.4f}, score: {price_acceleration_towards_high_score.iloc[-1]:.4f}")
             print(f"        pressure_rejection_strength_D (raw): {pressure_rejection_strength_D.iloc[-1]:.4f}, score: {resistance_rejection_weakness_score.iloc[-1]:.4f}")
             print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_high_score.iloc[-1]:.4f}")
             print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_high_score.iloc[-1]:.4f}")
@@ -1430,11 +1431,12 @@ class StructuralIntelligence:
             print(f"        breakout_readiness (raw): {breakout_readiness.iloc[-1]:.4f}, score: {breakout_readiness_support_score.iloc[-1]:.4f}")
             print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 最终分数: {platform_high_inverse.iloc[-1]:.4f}")
         # --- STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE (低点弱势) ---
-        # 1. 价格接近度与动量 (低点越近，动量越弱，低点越弱)
-        price_to_low_raw = (close_D - dynamic_low).clip(lower=0) / atr_D
-        price_to_low_score = self.get_dynamic_normalized_score(price_to_low_raw, df_index, tf_weights, ascending=False) # 越小越好
-        price_momentum_towards_low_score = self.get_dynamic_normalized_score(slope_5_close_D.clip(upper=0).abs(), df_index, tf_weights, ascending=True) # 向下动量越强越好
-        price_acceleration_towards_low_score = self.get_dynamic_normalized_score(accel_5_close_D.clip(upper=0).abs(), df_index, tf_weights, ascending=True) # 向下加速度越强越好
+        # 1. 价格接近度与动量 (低点越近或已跌破，动量越强，低点越弱)
+        # 修正: 当close_D < dynamic_low时，price_to_low_raw应为正，表示已跌破，低点支撑弱
+        price_to_low_raw = (dynamic_low - close_D) / atr_D
+        price_to_low_score = self.get_dynamic_normalized_score(price_to_low_raw, df_index, tf_weights, ascending=True) # 越大越好 (跌破或接近)
+        price_momentum_towards_low_score = self.get_dynamic_normalized_score((-slope_5_close_D).clip(lower=0), df_index, tf_weights, ascending=True) # 向下动量越强越好
+        price_acceleration_towards_low_score = self.get_dynamic_normalized_score((-accel_5_close_D).clip(lower=0), df_index, tf_weights, ascending=True) # 向下加速度越强越好
         # 2. 支撑质量 (支撑吸收越弱，低点越弱)
         support_absorption_weakness_score = self.get_dynamic_normalized_score(lower_shadow_absorption_strength_D, df_index, tf_weights, ascending=False) # 吸收强度越低越好
         volume_burst_at_low_score = self.get_dynamic_normalized_score(volume_burstiness_index_D, df_index, tf_weights, ascending=True) # 爆发量越大越好
@@ -1456,8 +1458,8 @@ class StructuralIntelligence:
         if self.is_probe_date:
             print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 关键节点:")
             print(f"        price_to_low_raw: {price_to_low_raw.iloc[-1]:.4f}, score: {price_to_low_score.iloc[-1]:.4f}")
-            print(f"        slope_5_close_D (raw, abs): {slope_5_close_D.iloc[-1]:.4f}, score: {price_momentum_towards_low_score.iloc[-1]:.4f}")
-            print(f"        accel_5_close_D (raw, abs): {accel_5_close_D.iloc[-1]:.4f}, score: {price_acceleration_towards_low_score.iloc[-1]:.4f}")
+            print(f"        slope_5_close_D (raw, clipped): {(-slope_5_close_D).clip(lower=0).iloc[-1]:.4f}, score: {price_momentum_towards_low_score.iloc[-1]:.4f}")
+            print(f"        accel_5_close_D (raw, clipped): {(-accel_5_close_D).clip(lower=0).iloc[-1]:.4f}, score: {price_acceleration_towards_low_score.iloc[-1]:.4f}")
             print(f"        lower_shadow_absorption_strength_D (raw): {lower_shadow_absorption_strength_D.iloc[-1]:.4f}, score: {support_absorption_weakness_score.iloc[-1]:.4f}")
             print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_low_score.iloc[-1]:.4f}")
             print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_low_score.iloc[-1]:.4f}")
