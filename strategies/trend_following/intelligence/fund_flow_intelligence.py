@@ -1810,6 +1810,8 @@ class FundFlowIntelligence:
         - 【修复】修复了 `raw_data_cache` 在调试模式下可能因缺少预取信号而引发 `KeyError` 的问题。
         - 【新增】所有调试信息统一在方法末尾输出。
         - 【增强】强化 SCORE_FF_DECEPTION_RISK 对资金流纯度的惩罚作用，以更准确识别诱多陷阱。
+        - 【修正】修复 `environment_modulator` 中 `norm_liquidity_slope_mtf` 的 `abs()` 错误。
+        - 【修正】修复 `structural_momentum_score` 中 `structural_momentum_weights_v6_1` 的加减法逻辑错误。
         """
         method_name = "_diagnose_axiom_flow_momentum"
         df_index = df.index
@@ -1986,16 +1988,16 @@ class FundFlowIntelligence:
                 val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
         # --- 1. 基础动能深化 (Enhanced Base Momentum) ---
-        norm_nmfnf_slope_5 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_5_raw, df_index, tf_weights_ff)
-        norm_nmfnf_slope_13 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_13_raw, df_index, tf_weights_ff)
-        norm_nmfnf_slope_21 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_21_raw, df_index, tf_weights_ff)
-        norm_nmfnf_slope_55 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_55_raw, df_index, tf_weights_ff)
-        norm_nmfnf_accel_5 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_5_raw, df_index, tf_weights_ff)
-        norm_nmfnf_accel_13 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_13_raw, df_index, tf_weights_ff)
-        norm_nmfnf_accel_21 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_21_raw, df_index, tf_weights_ff)
-        norm_nmfnf_accel_55 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_55_raw, df_index, tf_weights_ff)
-        norm_sm_net_buy_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_5_raw, df_index, tf_weights_ff)
-        norm_sm_net_buy_accel_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_accel_5_raw, df_index, tf_weights_ff)
+        norm_nmfnf_slope_5 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_nmfnf_slope_13 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_13_raw, df_index, tf_weights=tf_weights_ff)
+        norm_nmfnf_slope_21 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_21_raw, df_index, tf_weights=tf_weights_ff)
+        norm_nmfnf_slope_55 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_slope_55_raw, df_index, tf_weights=tf_weights_ff)
+        norm_nmfnf_accel_5 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_nmfnf_accel_13 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_13_raw, df_index, tf_weights=tf_weights_ff)
+        norm_nmfnf_accel_21 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_21_raw, df_index, tf_weights=tf_weights_ff)
+        norm_nmfnf_accel_55 = get_adaptive_mtf_normalized_bipolar_score(nmfnf_accel_55_raw, df_index, tf_weights=tf_weights_ff)
+        norm_sm_net_buy_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_sm_net_buy_accel_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_accel_5_raw, df_index, tf_weights=tf_weights_ff)
         base_momentum_score = (
             norm_nmfnf_slope_5 * base_momentum_weights.get('nmfnf_slope_5', 0.2) +
             norm_nmfnf_slope_13 * base_momentum_weights.get('nmfnf_slope_13', 0.15) +
@@ -2051,6 +2053,7 @@ class FundFlowIntelligence:
                 norm_mf_flow_gini_inverted * purity_context_sensitivity_gini +
                 (1 - norm_retail_fomo) * purity_context_sensitivity_fomo
             ).clip(0, 1)
+            
             # 增强：将 SCORE_FF_DECEPTION_RISK 直接纳入 purity_penalty
             purity_penalty = (
                 norm_wash_trade_multi_tf * purity_penalty_factor_wash_trade +
@@ -2081,11 +2084,15 @@ class FundFlowIntelligence:
                 norm_liquidity_slope_13 * liquidity_slope_weights.get('slope_13', 0.4)
             ).clip(-1, 1)
             norm_liquidity_impact = get_adaptive_mtf_normalized_score(liquidity_impact_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
+            
+            # MODIFICATION START: 修正 norm_liquidity_slope_mtf 的使用，移除 abs()
             liquidity_mod = (
                 (norm_liquidity_supply * liquidity_mod_sensitivity_level) +
-                (norm_liquidity_slope_mtf.abs() * liquidity_mod_sensitivity_slope) +
+                (norm_liquidity_slope_mtf * liquidity_mod_sensitivity_slope) + # 移除 .abs()
                 (norm_liquidity_impact * liquidity_mod_sensitivity_level)
             ).clip(0, 1)
+            # MODIFICATION END
+
             norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_price_volume_entropy = get_adaptive_mtf_normalized_score(price_volume_entropy_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
@@ -2135,15 +2142,19 @@ class FundFlowIntelligence:
         norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['retail_sell_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_buy_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_sell_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        
+        # MODIFICATION START: 修正 structural_momentum_weights_v6_1 的加减法逻辑
         structural_momentum_score = structural_momentum_score + \
                                     (norm_main_force_buy_ofi * structural_momentum_weights_v6_1.get('main_force_buy_ofi', 0.1)) + \
-                                    (norm_retail_sell_ofi * structural_momentum_weights_v6_1.get('retail_sell_ofi', 0.05)) - \
-                                    (norm_rally_sell_distribution_intensity * structural_momentum_weights_v6_1.get('rally_sell_distribution_intensity', -0.1)) - \
-                                    (norm_rally_buy_support_weakness * structural_momentum_weights_v6_1.get('rally_buy_support_weakness', -0.1)) - \
-                                    (norm_main_force_sell_ofi * structural_momentum_weights_v6_1.get('main_force_sell_ofi', -0.1)) - \
-                                    (norm_retail_buy_ofi * structural_momentum_weights_v6_1.get('retail_buy_ofi', -0.05)) - \
-                                    (norm_wash_trade_buy_volume * structural_momentum_weights_v6_1.get('wash_trade_buy_volume', -0.05)) - \
+                                    (norm_retail_sell_ofi * structural_momentum_weights_v6_1.get('retail_sell_ofi', 0.05)) + \
+                                    (norm_rally_sell_distribution_intensity * structural_momentum_weights_v6_1.get('rally_sell_distribution_intensity', -0.1)) + \
+                                    (norm_rally_buy_support_weakness * structural_momentum_weights_v6_1.get('rally_buy_support_weakness', -0.1)) + \
+                                    (norm_main_force_sell_ofi * structural_momentum_weights_v6_1.get('main_force_sell_ofi', -0.1)) + \
+                                    (norm_retail_buy_ofi * structural_momentum_weights_v6_1.get('retail_buy_ofi', -0.05)) + \
+                                    (norm_wash_trade_buy_volume * structural_momentum_weights_v6_1.get('wash_trade_buy_volume', -0.05)) + \
                                     (norm_wash_trade_sell_volume * structural_momentum_weights_v6_1.get('wash_trade_sell_volume', -0.05))
+        # MODIFICATION END
+
         structural_momentum_score = structural_momentum_score.clip(-1, 1)
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 结构洞察升级 ---"] = ""
