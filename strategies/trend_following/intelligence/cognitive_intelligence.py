@@ -37,6 +37,7 @@ class CognitiveIntelligence:
             self.dynamic_thresholds = get_params_block(full_config_dict_for_dynamic_thresholds, 'strategy_params.trend_follow.dynamic_thresholds', {})
         else:
             self.dynamic_thresholds = dynamic_thresholds
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -46,6 +47,7 @@ class CognitiveIntelligence:
             print(f"    -> [CognitiveIntelligence情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index) # 移除了末尾的 .index
         return df[column_name]
+
     def _get_fused_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.4 · 返回值修复版】安全地从原子状态库中获取由融合层提供的态势分数。
@@ -57,6 +59,7 @@ class CognitiveIntelligence:
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=df.index) # 移除了末尾的 .index
+
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
         【V2.3 · 返回值修复版】安全地从原子状态库或主数据帧中获取信号。
@@ -71,6 +74,7 @@ class CognitiveIntelligence:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             score = pd.Series(default, index=df.index)
         return score
+
     def _get_playbook_score(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
         安全地从 playbook_states 获取剧本信号分数。
@@ -91,6 +95,7 @@ class CognitiveIntelligence:
                 else:
                     print(f"    -> [DEBUG _get_playbook_score] 信号 '{signal_name}' 原始值: {score:.4f}")
         return score
+
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         cognitive_scores = pd.DataFrame(index=df.index)
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -109,6 +114,7 @@ class CognitiveIntelligence:
         if playbooks_config.get('cognitive_playbook_energy_compression_params'):
             cognitive_scores["COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION"] = self._calculate_energy_compression(df)
         return cognitive_scores
+
     def _calculate_suppressive_accumulation(self, df: pd.DataFrame) -> pd.Series:
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
@@ -249,6 +255,7 @@ class CognitiveIntelligence:
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
+
     def _calculate_chasing_accumulation(self, df: pd.DataFrame) -> pd.Series:
         method_name = "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
@@ -414,6 +421,7 @@ class CognitiveIntelligence:
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
+
     def _calculate_capitulation_reversal(self, df: pd.DataFrame) -> pd.Series:
         method_name = "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL"
         print(f"  -> [认知层] 正在计算 {method_name}...")
@@ -634,6 +642,7 @@ class CognitiveIntelligence:
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
+
     def _calculate_distribution_at_high(self, df: pd.DataFrame) -> pd.Series:
         method_name = "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH"
         print(f"  -> [认知层] 正在计算 {method_name}...")
@@ -782,6 +791,7 @@ class CognitiveIntelligence:
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
+
     def _calculate_leading_dragon_awakening(self, df: pd.DataFrame) -> pd.Series:
         method_name = "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING"
         print(f"  -> [认知层] 正在计算 {method_name}...")
@@ -953,6 +963,7 @@ class CognitiveIntelligence:
         final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
+
     def _calculate_energy_compression(self, df: pd.DataFrame) -> pd.Series:
         method_name = "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION"
         print(f"  -> [认知层] 正在计算 {method_name}...")

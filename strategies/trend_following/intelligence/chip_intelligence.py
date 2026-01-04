@@ -3493,6 +3493,7 @@ class ChipIntelligence:
         - 核心升级: 引入和谐水平调制器，确保低和谐水平下的拐点得分不会过高。
         - 核心修复: 移除固定持续性奖励，并降低情境调制器的最大乘数，使信号更精准。
         - 核心适配: 调整信号依赖，使用现有筹码类指标作为代理，确保方法可运行。
+        - 核心修正: 修复位置敏感性因子计算中，归一化信号与阈值比较的逻辑错误。
         """
         method_name = "_diagnose_harmony_inflection"
         df_index = df.index
@@ -3571,20 +3572,21 @@ class ChipIntelligence:
 
         # --- 4. 位置敏感性因子 (Position Sensitivity Factor) ---
         position_sensitivity_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        # MODIFICATION START: 使用 chip_health_score_D 作为 harmony_score 的代理，并使用静态默认阈值
-        current_harmony_proxy = signals_data['chip_health_score_D']
+        # MODIFICATION START: 修正逻辑，使用 norm_harmony_score 与归一化阈值进行比较
+        current_harmony_proxy_normalized = norm_harmony_score
 
         # 如果当前和谐度代理低于低阈值，则给予一定惩罚，因为可能只是超跌反弹
-        position_sensitivity_factor.loc[current_harmony_proxy < default_low_harmony_threshold] = \
-            (current_harmony_proxy / default_low_harmony_threshold).clip(0.5, 1.0)
+        position_sensitivity_factor.loc[current_harmony_proxy_normalized < default_low_harmony_threshold] = \
+            (current_harmony_proxy_normalized / default_low_harmony_threshold).clip(0.5, 1.0)
         # 如果当前和谐度代理高于高阈值，则给予一定惩罚，因为可能已经处于高位
-        # 确保分母不为零，并处理 max_harmony_proxy 可能小于 default_high_harmony_threshold 的情况
-        max_harmony_proxy_val = current_harmony_proxy.max()
-        denominator = max_harmony_proxy_val - default_high_harmony_threshold
+        # 确保分母不为零，并处理 max_harmony_proxy_val 可能小于 default_high_harmony_threshold 的情况
+        # 这里使用 norm_harmony_score 的最大值，它应该接近 1.0
+        max_norm_harmony_score_val = norm_harmony_score.max()
+        denominator = max_norm_harmony_score_val - default_high_harmony_threshold
         if denominator <= 0: # 避免除以零或负数
             denominator = 1e-6 # 使用一个极小值
-        position_sensitivity_factor.loc[current_harmony_proxy > default_high_harmony_threshold] = \
-            (1 - (current_harmony_proxy - default_high_harmony_threshold) / denominator).clip(0.5, 1.0)
+        position_sensitivity_factor.loc[current_harmony_proxy_normalized > default_high_harmony_threshold] = \
+            (1 - (current_harmony_proxy_normalized - default_high_harmony_threshold) / denominator).clip(0.5, 1.0)
         # MODIFICATION END
 
         # --- 5. 欺骗调制器 (Deception Modulator) ---
