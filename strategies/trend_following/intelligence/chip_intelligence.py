@@ -1343,7 +1343,7 @@ class ChipIntelligence:
                 if date.date() in self.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
+        debug_info_tuple = False
         chip_health_raw = signals_data['chip_health_score_D']
         winner_stability = signals_data['winner_stability_index_D']
         loser_pain = signals_data['loser_pain_index_D']
@@ -1363,8 +1363,6 @@ class ChipIntelligence:
         slope_5_support_validation_raw = signals_data['SLOPE_5_support_validation_strength_D']
         accel_5_capitulation_absorption_raw = signals_data['ACCEL_5_capitulation_absorption_index_D']
         slope_5_active_buying_support_raw = signals_data['SLOPE_5_active_buying_support_D']
-        fomo_index_raw = signals_data['winner_concentration_90pct_D']
-        profit_taking_quality_raw = signals_data['winner_profit_margin_avg_D']
         upper_shadow_selling_pressure_raw = signals_data['upper_shadow_selling_pressure_D']
         rally_distribution_pressure_raw = signals_data['rally_distribution_pressure_D']
         retail_fomo_premium_raw = signals_data['retail_fomo_premium_index_D']
@@ -1504,7 +1502,7 @@ class ChipIntelligence:
             norm_wash_trade_intensity.values,
             norm_main_force_conviction_bipolar.values,
             deception_modulator_weights.get('deception_index_boost', 0.5),
-            deception_modulator_weights.get('deception_index_penalty', 0.5),
+            deception_modulator_weights.get('deception_ll_penalty_weight', 0.5), # 修复：使用正确的键名
             deception_modulator_weights.get('wash_trade_penalty', 0.3),
             conviction_threshold # 修复：传递已定义的conviction_threshold
         )
