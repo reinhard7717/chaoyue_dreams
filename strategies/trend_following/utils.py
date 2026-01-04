@@ -1356,8 +1356,8 @@ def _numba_normalize_score_multi_window_core(
                     normalized_series_window[i] = 1.0 - ranked_series_values[i]
                 else:
                     normalized_series_window[i] = ranked_series_values[i]
-            # 显式转换为 float32
-            normalized_series_window[i] = np.clip(normalized_series_window[i], np.float32(0.0), np.float32(1.0))
+            # 替换 np.clip 为 Numba 兼容的标量裁剪逻辑
+            normalized_series_window[i] = max(np.float32(0.0), min(normalized_series_window[i], np.float32(1.0)))
             if is_original_zero_values[i]:
                 normalized_series_window[i] = 0.0
         results_array[:, w_idx] = normalized_series_window
@@ -1415,8 +1415,8 @@ def _numba_normalize_to_bipolar_multi_window_core(
                 bipolar_score_window[i] = np.sign(series_values[i])
             if is_original_zero_values[i]:
                 bipolar_score_window[i] = 0.0
-            # 显式转换为 float32
-            bipolar_score_window[i] = np.clip(bipolar_score_window[i], np.float32(-1.0), np.float32(1.0))
+            # 替换 np.clip 为 Numba 兼容的标量裁剪逻辑
+            bipolar_score_window[i] = max(np.float32(-1.0), min(bipolar_score_window[i], np.float32(1.0)))
             if np.isnan(bipolar_score_window[i]):
                 bipolar_score_window[i] = default_value
         results_array[:, w_idx] = bipolar_score_window
@@ -1453,8 +1453,8 @@ def _numba_normalize_single_window_energy_score_core(
                 normalized_scores[i] = (rolling_max - series_values[i]) / (rolling_max - rolling_min)
         else:
             normalized_scores[i] = np.float32(1.0) if series_values[i] == rolling_max else np.float32(0.0)
-        # 显式转换为 float32
-        normalized_scores[i] = np.clip(normalized_scores[i], np.float32(0.0), np.float32(1.0))
+        # 替换 np.clip 为 Numba 兼容的标量裁剪逻辑
+        normalized_scores[i] = max(np.float32(0.0), min(normalized_scores[i], np.float32(1.0)))
         if np.isnan(normalized_scores[i]):
             normalized_scores[i] = default_value
     return normalized_scores
