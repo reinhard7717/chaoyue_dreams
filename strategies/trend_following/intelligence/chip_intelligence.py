@@ -2464,34 +2464,33 @@ class ChipIntelligence:
         context_multiplier = context_multiplier.clip(0.5, 1.5)
         final_score = (base_score_adjusted * deception_multiplier * context_multiplier).clip(0, 1)
         # 调试信息
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“吸筹回声”信号...")
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
-            for sig_name in required_signals:
-                val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
-                print(f"        '{sig_name}': {val:.4f}")
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化信号值 ---")
-            for key, series in locals().items():
-                if key.startswith('norm_') and isinstance(series, pd.Series) and probe_ts in series.index:
-                    print(f"        {key}: {series.loc[probe_ts]:.4f}")
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
-            print(f"        panic_source_score: {panic_source_score.loc[probe_ts]:.4f}")
-            print(f"        panic_slope_dampening_factor: {panic_slope_dampening_factor.loc[probe_ts]:.4f}")
-            print(f"        panic_source_score_modulated: {panic_source_score_modulated.loc[probe_ts]:.4f}")
-            print(f"        is_panic_context: {is_panic_context.loc[probe_ts]}")
-            print(f"        counter_flow_medium_score: {counter_flow_medium_score.loc[probe_ts]:.4f}")
-            print(f"        main_force_echo_score: {main_force_echo_score.loc[probe_ts]:.4f}")
-            print(f"        deception_modulator: {deception_modulator.loc[probe_ts]:.4f}")
-            print(f"        context_modulator: {combined_context_modulator.loc[probe_ts]:.4f}")
-            print(f"        base_score: {base_score.loc[probe_ts]:.4f}")
-            print(f"        panic_absorption_penalty: {panic_absorption_penalty.loc[probe_ts]:.4f}")
-            print(f"        base_score_adjusted: {base_score_adjusted.loc[probe_ts]:.4f}")
-            print(f"        deception_multiplier: {deception_multiplier.loc[probe_ts]:.4f}")
-            print(f"        context_multiplier: {context_multiplier.loc[probe_ts]:.4f}")
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终吸筹回声得分 (final_score): {final_score.loc[probe_ts]:.4f}")
-            print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “吸筹回声”信号诊断完成。")
-        else:
-            print(f"  -- [筹码层] “吸筹回声”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")
+        # if is_debug_enabled and probe_ts and probe_ts in df.index:
+        #     print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“吸筹回声”信号...")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+        #     for sig_name in required_signals:
+        #         val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
+        #         print(f"        '{sig_name}': {val:.4f}")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化信号值 ---")
+        #     for key, series in locals().items():
+        #         if key.startswith('norm_') and isinstance(series, pd.Series) and probe_ts in series.index:
+        #             print(f"        {key}: {series.loc[probe_ts]:.4f}")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
+        #     print(f"        panic_source_score: {panic_source_score.loc[probe_ts]:.4f}")
+        #     print(f"        panic_slope_dampening_factor: {panic_slope_dampening_factor.loc[probe_ts]:.4f}")
+        #     print(f"        panic_source_score_modulated: {panic_source_score_modulated.loc[probe_ts]:.4f}")
+        #     print(f"        is_panic_context: {is_panic_context.loc[probe_ts]}")
+        #     print(f"        counter_flow_medium_score: {counter_flow_medium_score.loc[probe_ts]:.4f}")
+        #     print(f"        main_force_echo_score: {main_force_echo_score.loc[probe_ts]:.4f}")
+        #     print(f"        deception_modulator: {deception_modulator.loc[probe_ts]:.4f}")
+        #     print(f"        context_modulator: {combined_context_modulator.loc[probe_ts]:.4f}")
+        #     print(f"        base_score: {base_score.loc[probe_ts]:.4f}")
+        #     print(f"        panic_absorption_penalty: {panic_absorption_penalty.loc[probe_ts]:.4f}")
+        #     print(f"        base_score_adjusted: {base_score_adjusted.loc[probe_ts]:.4f}")
+        #     print(f"        deception_multiplier: {deception_multiplier.loc[probe_ts]:.4f}")
+        #     print(f"        context_multiplier: {context_multiplier.loc[probe_ts]:.4f}")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终吸筹回声得分 (final_score): {final_score.loc[probe_ts]:.4f}")
+        #     print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “吸筹回声”信号诊断完成。")
+        print(f"  -- [筹码层] “吸筹回声”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.fillna(0.0).astype(np.float32)
 
     def _diagnose_distribution_whisper(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
@@ -2540,12 +2539,6 @@ class ChipIntelligence:
                     probe_ts = date
                     break
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“派发诡影”信号...")
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
-            for sig_name in required_signals:
-                val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
-                print(f"        '{sig_name}': {val:.4f}")
         retail_fomo_premium_raw = signals_data['retail_fomo_premium_index_D']
         winner_profit_margin_raw = signals_data['winner_profit_margin_avg_D']
         theme_hotness_raw = signals_data['THEME_HOTNESS_SCORE_D']
@@ -2588,16 +2581,6 @@ class ChipIntelligence:
         norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_winner_loser_momentum = get_adaptive_mtf_normalized_score(winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_slope_5_winner_loser_momentum = get_adaptive_mtf_normalized_score(slope_5_winner_loser_momentum_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 狂热背景归一化信号 ---")
-            print(f"        norm_retail_fomo_premium: {norm_retail_fomo_premium.loc[probe_ts]:.4f}")
-            print(f"        norm_winner_profit_margin: {norm_winner_profit_margin.loc[probe_ts]:.4f}")
-            print(f"        norm_theme_hotness: {norm_theme_hotness.loc[probe_ts]:.4f}")
-            print(f"        norm_market_sentiment_positive: {norm_market_sentiment_positive.loc[probe_ts]:.4f}")
-            print(f"        norm_winner_concentration_negative: {norm_winner_concentration_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_total_winner_rate: {norm_total_winner_rate.loc[probe_ts]:.4f}")
-            print(f"        norm_winner_loser_momentum: {norm_winner_loser_momentum.loc[probe_ts]:.4f}")
-            print(f"        norm_slope_5_winner_loser_momentum: {norm_slope_5_winner_loser_momentum.loc[probe_ts]:.4f}")
         fomo_backdrop_numeric_weights = {k: v for k, v in fomo_backdrop_weights.items() if isinstance(v, (int, float))}
         fomo_backdrop_score = _robust_geometric_mean(
             {
@@ -2612,13 +2595,9 @@ class ChipIntelligence:
             },
             fomo_backdrop_numeric_weights, df_index
         )
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 狂热背景得分 (fomo_backdrop_score): {fomo_backdrop_score.loc[probe_ts]:.4f}")
         # 初始化 is_fomo_context，确保它总是有值
         is_fomo_context = pd.Series(False, index=df_index, dtype=bool)
         is_fomo_context = fomo_backdrop_score > fomo_context_threshold
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"        是否处于FOMO情境 (is_fomo_context): {is_fomo_context.loc[probe_ts]}")
         # 2. 背离诡影精细化 (Divergence Shadow)
         norm_divergence_bearish = divergence_score.clip(-1, 0).abs() # 仅取负向部分（看跌背离）的绝对值
         norm_dispersal_by_distribution = utils.get_adaptive_mtf_normalized_score(dispersal_by_distribution_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -2632,20 +2611,6 @@ class ChipIntelligence:
         norm_pressure_rejection_strength_negative = utils.get_adaptive_mtf_normalized_score(pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_slope_5_dominant_peak_solidity_negative = utils.get_adaptive_mtf_normalized_score(slope_5_dominant_peak_solidity_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_slope_5_pressure_rejection_strength_negative = utils.get_adaptive_mtf_normalized_score(slope_5_pressure_rejection_strength_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 背离诡影归一化信号 ---")
-            print(f"        norm_divergence_bearish: {norm_divergence_bearish.loc[probe_ts]:.4f}")
-            print(f"        norm_dispersal_by_distribution: {norm_dispersal_by_distribution.loc[probe_ts]:.4f}")
-            print(f"        norm_chip_fault_magnitude_for_shadow: {norm_chip_fault_magnitude_for_shadow.loc[probe_ts]:.4f}")
-            print(f"        norm_cost_structure_negative: {norm_cost_structure_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_winner_stability_negative: {norm_winner_stability_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_chip_fault_blockage: {norm_chip_fault_blockage.loc[probe_ts]:.4f}")
-            print(f"        norm_dominant_peak_profit_margin: {norm_dominant_peak_profit_margin.loc[probe_ts]:.4f}")
-            print(f"        norm_dominant_peak_solidity_negative: {norm_dominant_peak_solidity_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_upper_shadow_selling_pressure: {norm_upper_shadow_selling_pressure.loc[probe_ts]:.4f}")
-            print(f"        norm_pressure_rejection_strength_negative: {norm_pressure_rejection_strength_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_slope_5_dominant_peak_solidity_negative: {norm_slope_5_dominant_peak_solidity_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_slope_5_pressure_rejection_strength_negative: {norm_slope_5_pressure_rejection_strength_negative.loc[probe_ts]:.4f}")
         divergence_shadow_numeric_weights = {k: v for k, v in divergence_shadow_weights.items() if isinstance(v, (int, float))}
         divergence_shadow_score = utils._robust_geometric_mean(
             {
@@ -2663,8 +2628,6 @@ class ChipIntelligence:
                 'pressure_rejection_strength_slope_negative': norm_slope_5_pressure_rejection_strength_negative
             },
             divergence_shadow_numeric_weights, df_index)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 背离诡影得分 (divergence_shadow_score): {divergence_shadow_score.loc[probe_ts]:.4f}")
         # 3. 主力抽离多维度验证 (Main Force Retreat)
         norm_profit_taking_flow_ratio = utils.get_adaptive_mtf_normalized_score(profit_taking_flow_ratio_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_covert_accumulation_negative = utils.get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
@@ -2679,21 +2642,6 @@ class ChipIntelligence:
         norm_smart_money_net_buy_negative = utils.get_adaptive_mtf_normalized_score(smart_money_net_buy_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_slope_5_main_force_net_flow_calibrated_negative = utils.get_adaptive_mtf_normalized_score(slope_5_main_force_net_flow_calibrated_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_accel_5_main_force_slippage = utils.get_adaptive_mtf_normalized_score(accel_5_main_force_slippage_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力抽离归一化信号 ---")
-            print(f"        norm_profit_taking_flow_ratio: {norm_profit_taking_flow_ratio.loc[probe_ts]:.4f}")
-            print(f"        norm_covert_accumulation_negative: {norm_covert_accumulation_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[probe_ts]:.4f}")
-            print(f"        norm_main_force_conviction_negative: {norm_main_force_conviction_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_retail_flow_dominance: {norm_retail_flow_dominance.loc[probe_ts]:.4f}")
-            print(f"        norm_main_force_net_flow_negative: {norm_main_force_net_flow_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_main_force_slippage: {norm_main_force_slippage.loc[probe_ts]:.4f}")
-            print(f"        norm_rally_distribution_pressure: {norm_rally_distribution_pressure.loc[probe_ts]:.4f}")
-            print(f"        norm_control_solidity_negative: {norm_control_solidity_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_counterparty_exhaustion: {norm_counterparty_exhaustion.loc[probe_ts]:.4f}")
-            print(f"        norm_smart_money_net_buy_negative: {norm_smart_money_net_buy_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_slope_5_main_force_net_flow_calibrated_negative: {norm_slope_5_main_force_net_flow_calibrated_negative.loc[probe_ts]:.4f}")
-            print(f"        norm_accel_5_main_force_slippage: {norm_accel_5_main_force_slippage.loc[probe_ts]:.4f}")
         main_force_retreat_numeric_weights = {k: v for k, v in main_force_retreat_weights.items() if isinstance(v, (int, float))}
         main_force_retreat_score = utils._robust_geometric_mean(
             {
@@ -2713,17 +2661,10 @@ class ChipIntelligence:
                 'main_force_slippage_accel': norm_accel_5_main_force_slippage
             },
             main_force_retreat_numeric_weights, df_index)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力抽离得分 (main_force_retreat_score): {main_force_retreat_score.loc[probe_ts]:.4f}")
         # 4. 诡道背景调制强化 (Deception Modulator)
         norm_chip_fault_magnitude_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_main_force_conviction_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道背景调制归一化信号 ---")
-            print(f"        norm_chip_fault_magnitude_bipolar: {norm_chip_fault_magnitude_bipolar.loc[probe_ts]:.4f}")
-            print(f"        norm_main_force_conviction_bipolar: {norm_main_force_conviction_bipolar.loc[probe_ts]:.4f}")
-            print(f"        norm_deception_index_bipolar: {norm_deception_index_bipolar.loc[probe_ts]:.4f}")
         deception_modulator_values = _numba_calculate_distribution_whisper_deception_modulator_core(
             norm_chip_fault_magnitude_bipolar.values,
             norm_main_force_conviction_bipolar.values,
@@ -2734,23 +2675,68 @@ class ChipIntelligence:
             deception_modulator_params.get('deception_index_weight', 0.5)
         )
         deception_modulator = pd.Series(deception_modulator_values, index=df_index, dtype=np.float32)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 诡道调制器 (deception_modulator): {deception_modulator.loc[probe_ts]:.4f}")
         # 5. 最终融合
         base_score = (
             fomo_backdrop_score.pow(final_fusion_exponent) *
             divergence_shadow_score.pow(final_fusion_exponent) *
             main_force_retreat_score.pow(final_fusion_exponent)
         ).pow(1 / (3 * final_fusion_exponent))
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 基础融合得分 (base_score): {base_score.loc[probe_ts]:.4f}")
         final_score = (base_score * deception_modulator) * is_fomo_context
         final_score = final_score.clip(0, 1).fillna(0.0).astype(np.float32)
-        if is_debug_enabled and probe_ts and probe_ts in df_index:
-            print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终派发诡影得分 (final_score): {final_score.loc[probe_ts]:.4f}")
-            print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “派发诡影”信号诊断完成。")
-        else:
-            print(f"  -- [筹码层] “派发诡影”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")
+        # 调试信息集中输出
+        # if is_debug_enabled and probe_ts and probe_ts in df_index:
+        #     print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“派发诡影”信号...")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+        #     for sig_name in required_signals:
+        #         val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
+        #         print(f"        '{sig_name}': {val:.4f}")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化信号值 ---")
+        #     print(f"        norm_retail_fomo_premium: {norm_retail_fomo_premium.loc[probe_ts]:.4f}")
+        #     print(f"        norm_winner_profit_margin: {norm_winner_profit_margin.loc[probe_ts]:.4f}")
+        #     print(f"        norm_theme_hotness: {norm_theme_hotness.loc[probe_ts]:.4f}")
+        #     print(f"        norm_market_sentiment_positive: {norm_market_sentiment_positive.loc[probe_ts]:.4f}")
+        #     print(f"        norm_winner_concentration_negative: {norm_winner_concentration_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_total_winner_rate: {norm_total_winner_rate.loc[probe_ts]:.4f}")
+        #     print(f"        norm_winner_loser_momentum: {norm_winner_loser_momentum.loc[probe_ts]:.4f}")
+        #     print(f"        norm_slope_5_winner_loser_momentum: {norm_slope_5_winner_loser_momentum.loc[probe_ts]:.4f}")
+        #     print(f"        norm_divergence_bearish: {norm_divergence_bearish.loc[probe_ts]:.4f}")
+        #     print(f"        norm_dispersal_by_distribution: {norm_dispersal_by_distribution.loc[probe_ts]:.4f}")
+        #     print(f"        norm_chip_fault_magnitude_for_shadow: {norm_chip_fault_magnitude_for_shadow.loc[probe_ts]:.4f}")
+        #     print(f"        norm_cost_structure_negative: {norm_cost_structure_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_winner_stability_negative: {norm_winner_stability_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_chip_fault_blockage: {norm_chip_fault_blockage.loc[probe_ts]:.4f}")
+        #     print(f"        norm_dominant_peak_profit_margin: {norm_dominant_peak_profit_margin.loc[probe_ts]:.4f}")
+        #     print(f"        norm_dominant_peak_solidity_negative: {norm_dominant_peak_solidity_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_upper_shadow_selling_pressure: {norm_upper_shadow_selling_pressure.loc[probe_ts]:.4f}")
+        #     print(f"        norm_pressure_rejection_strength_negative: {norm_pressure_rejection_strength_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_slope_5_dominant_peak_solidity_negative: {norm_slope_5_dominant_peak_solidity_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_slope_5_pressure_rejection_strength_negative: {norm_slope_5_pressure_rejection_strength_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_profit_taking_flow_ratio: {norm_profit_taking_flow_ratio.loc[probe_ts]:.4f}")
+        #     print(f"        norm_covert_accumulation_negative: {norm_covert_accumulation_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[probe_ts]:.4f}")
+        #     print(f"        norm_main_force_conviction_negative: {norm_main_force_conviction_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_retail_flow_dominance: {norm_retail_flow_dominance.loc[probe_ts]:.4f}")
+        #     print(f"        norm_main_force_net_flow_negative: {norm_main_force_net_flow_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_main_force_slippage: {norm_main_force_slippage.loc[probe_ts]:.4f}")
+        #     print(f"        norm_rally_distribution_pressure: {norm_rally_distribution_pressure.loc[probe_ts]:.4f}")
+        #     print(f"        norm_control_solidity_negative: {norm_control_solidity_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_counterparty_exhaustion: {norm_counterparty_exhaustion.loc[probe_ts]:.4f}")
+        #     print(f"        norm_smart_money_net_buy_negative: {norm_smart_money_net_buy_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_slope_5_main_force_net_flow_calibrated_negative: {norm_slope_5_main_force_net_flow_calibrated_negative.loc[probe_ts]:.4f}")
+        #     print(f"        norm_accel_5_main_force_slippage: {norm_accel_5_main_force_slippage.loc[probe_ts]:.4f}")
+        #     print(f"        norm_chip_fault_magnitude_bipolar: {norm_chip_fault_magnitude_bipolar.loc[probe_ts]:.4f}")
+        #     print(f"        norm_main_force_conviction_bipolar: {norm_main_force_conviction_bipolar.loc[probe_ts]:.4f}")
+        #     print(f"        norm_deception_index_bipolar: {norm_deception_index_bipolar.loc[probe_ts]:.4f}")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
+        #     print(f"        fomo_backdrop_score: {fomo_backdrop_score.loc[probe_ts]:.4f}")
+        #     print(f"        is_fomo_context: {is_fomo_context.loc[probe_ts]}")
+        #     print(f"        divergence_shadow_score: {divergence_shadow_score.loc[probe_ts]:.4f}")
+        #     print(f"        main_force_retreat_score: {main_force_retreat_score.loc[probe_ts]:.4f}")
+        #     print(f"        deception_modulator: {deception_modulator.loc[probe_ts]:.4f}")
+        #     print(f"        base_score: {base_score.loc[probe_ts]:.4f}")
+        #     print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终派发诡影得分 (final_score): {final_score.loc[probe_ts]:.4f}")
+        #     print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “派发诡影”信号诊断完成。")
+        #  print(f"  -- [筹码层] “派发诡影”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
