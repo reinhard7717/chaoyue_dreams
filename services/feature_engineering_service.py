@@ -1096,7 +1096,8 @@ class FeatureEngineeringService:
         peak_volume_ratio = _get_safe_series_local('dominant_peak_volume_ratio_D', 0.5)
         chip_fault = _get_safe_series_local('chip_fault_blockage_ratio_D', 0.0)
         concentration_health = (1 - cost_gini).clip(0, 1)
-        normalized_kurtosis = peak_kurtosis.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5)
+        # 修复点1: 显式转换为 np.float32
+        normalized_kurtosis = peak_kurtosis.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5).astype(np.float32)
         peak_quality = (peak_solidity * peak_volume_ratio * normalized_kurtosis).clip(0, 1)
         blockage_penalty = (1 - chip_fault)
         concentration_scores = {
@@ -1175,7 +1176,8 @@ class FeatureEngineeringService:
         # --- 4. 主力控盘与意图 (Main Force Control & Intent Score) ---
         mf_control_leverage = _get_safe_series_local('control_solidity_index_D', 0.0)
         mf_on_peak_flow_composite = (_get_safe_series_local('main_force_on_peak_buy_flow_D', 0.0) - _get_safe_series_local('main_force_on_peak_sell_flow_D', 0.0))
-        mf_on_peak_flow_normalized = (mf_on_peak_flow_composite.rank(pct=True) * 2 - 1).clip(0, 1)
+        # 修复点2: 显式转换为 np.float32
+        mf_on_peak_flow_normalized = (mf_on_peak_flow_composite.rank(pct=True) * 2 - 1).clip(0, 1).astype(np.float32)
         mf_intent_composite = (
             _get_safe_series_local('main_force_flow_directionality_D', 0.0) * 0.2 +
             (_get_safe_series_local('main_force_buy_execution_alpha_D', 0.0) - _get_safe_series_local('main_force_sell_execution_alpha_D', 0.0)) * 0.2 +
@@ -1196,12 +1198,8 @@ class FeatureEngineeringService:
         turnover_health = turnover_health.clip(0, 1)
         distribution_penalty = (_get_safe_series_local('covert_distribution_signal_D', 0.0) + _get_safe_series_local('supportive_distribution_intensity_D', 0.0)).clip(0, 1) * 0.1
         main_force_scores = {
-            'control_strength': control_strength,
-            'mf_on_peak_flow_normalized': mf_on_peak_flow_normalized,
-            'mf_intent_composite': (mf_intent_composite + 1) / 2, # 归一化到 [0, 1]
-            'mf_cost_advantage_final': mf_cost_advantage_final,
-            'turnover_health': turnover_health,
-            'distribution_penalty': distribution_penalty
+            'control_strength': control_strength, 'mf_on_peak_flow_normalized': mf_on_peak_flow_normalized, 'mf_intent_composite': (mf_intent_composite + 1) / 2,
+            'mf_cost_advantage_final': mf_cost_advantage_final, 'turnover_health': turnover_health, 'distribution_penalty': distribution_penalty
         }
         main_force_weights = {
             'control_strength': 0.3, 'mf_on_peak_flow_normalized': 0.2, 'mf_intent_composite': 0.3,
