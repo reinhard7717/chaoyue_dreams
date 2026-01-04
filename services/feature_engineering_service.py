@@ -13,118 +13,44 @@ from strategies.trend_following.utils import _numba_nonlinear_fusion_core
 logger = logging.getLogger("services")
 
 @numba.njit(cache=True)
-def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
+def _numba_rolling_fft_energy_ratio_core(
+    data: np.ndarray,
+    window: int,
+    low_freq_cutoff_ratio: float
+) -> np.ndarray:
     """
-    【Numba优化版】计算Higuchi分形维数。
+    【Numba优化版】计算滚动窗口内的FFT能量比。
+    将原 _fft_energy_ratio 的逻辑内联到此滚动计算核心中。
     """
-    L = np.empty(k_max, dtype=np.float64)
-    L.fill(np.nan) # 初始化为NaN
-    x_len = len(x)
-    if x_len < 2:
-        return np.nan
-    
-    for k_idx in range(k_max):
-        k = k_idx + 1
-        Lk_sum = 0.0
-        count = 0
-        for m in range(k):
-            # Numba不支持切片步长为负，但这里m::k是正向步长
-            series_len = (x_len - m - 1) // k + 1
-            if series_len < 2:
-                continue
-            current_series = np.empty(series_len, dtype=np.float64)
-            for i in range(series_len):
-                current_series[i] = x[m + i * k]
-            diffs = np.abs(np.diff(current_series))
-            if len(diffs) > 0:
-                denominator = ((x_len - m) // k * k)
-                if denominator == 0:
-                    continue
-                Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
-                count += 1
-        if count > 0 and Lk_sum > 0:
-            L[k_idx] = np.log(Lk_sum / count / k)
-        else:
-            L[k_idx] = np.nan
-    valid_L_indices = np.where(~np.isnan(L))[0]
-    if len(valid_L_indices) < 2:
-        return np.nan
-    valid_L = L[valid_L_indices]
-    k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))
-    valid_k_range_log = k_range_log[valid_L_indices]
-    
-    try:
-        # 手动实现线性回归斜率
-        N = len(valid_L)
-        sum_x = np.sum(valid_k_range_log)
-        sum_y = np.sum(valid_L)
-        sum_xy = np.sum(valid_k_range_log * valid_L)
-        sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
-        denominator_reg = N * sum_x2 - sum_x * sum_x
-        if denominator_reg == 0:
-            return np.nan
-        slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
-        fd = np.abs(slope)
-        # 核心修复：手动实现标量裁剪，避免np.clip对标量参数的Numba TypingError
-        if fd < 1.0:
-            fd = 1.0
-        elif fd > 2.0:
-            fd = 2.0
-        return fd
-    except Exception:
-        return np.nan
-
-@numba.njit(cache=True)
-def _numba_sample_entropy(x: np.ndarray, m: int, r: float) -> float:
-    """
-    【Numba优化版】计算样本熵。
-    """
-    n = len(x)
-    if n < m + 1:
-        return np.nan
-
-    # 计算距离函数
-    def _max_dist(x_i, x_j):
-        return np.max(np.abs(x_i - x_j))
-
-    # 计算 B_m(r)
-    B = 0
-    for i in range(n - m + 1):
-        for j in range(i + 1, n - m + 1): # 避免重复和自身比较
-            if _max_dist(x[i:i+m], x[j:j+m]) < r:
-                B += 1
-
-    # 计算 A_m(r)
-    A = 0
-    for i in range(n - m):
-        for j in range(i + 1, n - m): # 避免重复和自身比较
-            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
-                A += 1
-    
-    # 原始实现中 B 和 A 的计算方式可能导致 B < A
-    # 样本熵的定义是 -ln(A/B)
-    # B_m(r) 是匹配长度为 m 的模式对的数量
-    # A_m(r) 是匹配长度为 m+1 的模式对的数量
-    # 这里的 B 和 A 应该对应于原始定义中的 N_m 和 N_{m+1}
-    
-    # 重新计算 B 和 A
-    count_m = 0
-    for i in range(n - m):
-        for j in range(i + 1, n - m):
-            if _max_dist(x[i:i+m], x[j:j+m]) < r:
-                count_m += 1
-    
-    count_m_plus_1 = 0
-    for i in range(n - m - 1):
-        for j in range(i + 1, n - m - 1):
-            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
-                count_m_plus_1 += 1
-
-    if count_m == 0:
-        return np.nan # 避免除以零
-    
-    return -np.log(count_m_plus_1 / count_m)
-
+    n = len(data)
+    results = np.full(n, np.nan, dtype=np.float64) # FFT结果通常为float64
+    for i in range(n):
+        if i < window - 1:
+            continue
+        window_data = data[i - window + 1 : i + 1]
+        
+        # 内联 _fft_energy_ratio 的逻辑
+        N_window = len(window_data)
+        if N_window < 2:
+            results[i] = np.nan
+            continue
+        
+        # Numba 的 np.fft.fft 需要浮点数输入，输出为复数
+        # 确保输入是 float64，以避免类型转换问题
+        yf = np.fft.fft(window_data.astype(np.float64))
+        yf_abs = np.abs(yf[:N_window // 2]) # 取正频率部分
+        
+        total_energy = np.sum(yf_abs**2)
+        if total_energy == 0:
+            results[i] = np.nan
+            continue
+        
+        low_freq_idx = int(N_window * low_freq_cutoff_ratio)
+        low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
+        
+        results[i] = low_freq_energy / total_energy
+        
+    return results
 
 
 class FeatureEngineeringService:
@@ -385,19 +311,8 @@ class FeatureEngineeringService:
             if count_m == 0:
                 return np.nan # 避免除以零
             return -np.log(count_m_plus_1 / count_m)
-        # 移除Numba装饰器，让其作为普通Python函数运行
-        def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5): # <--- 移除 @numba.njit
-            N = len(x)
-            if N < 2: return np.nan
-            yf = np.fft.fft(x) # <--- 使用 np.fft.fft
-            yf_abs = np.abs(yf[:N//2]) # 取正频率部分
-            total_energy = np.sum(yf_abs**2)
-            if total_energy == 0: return np.nan
-            # freqs = np.fft.fftfreq(N, d=1)[:N//2] # 此行未使用，可以移除
-            low_freq_idx = int(N * low_freq_cutoff_ratio)
-            # high_freq_idx = int(N * high_freq_cutoff_ratio) # 此行未使用，可以移除
-            low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
-            return low_freq_energy / total_energy
+        # 移除原 _fft_energy_ratio 函数的定义，因为它将被新的 Numba 核心函数替代
+        # def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5): ...
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
@@ -472,27 +387,26 @@ class FeatureEngineeringService:
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
             if fft_col not in df.columns:
                 try:
-                    energy_ratios = []
                     log_returns_or_series = current_series.dropna()
                     if len(log_returns_or_series) < fft_window:
                         df[fft_col] = np.nan
                     else:
-                        for i in range(len(log_returns_or_series)):
-                            if i < fft_window - 1:
-                                energy_ratios.append(np.nan)
-                                continue
-                            window_data = log_returns_or_series.iloc[i - fft_window + 1 : i + 1].values
-                            energy_ratios.append(_fft_energy_ratio(window_data, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5)) # <--- 调用普通Python函数
-                        df[fft_col] = pd.Series(energy_ratios, index=log_returns_or_series.index).reindex(df.index)
+                        # 【Numba优化】调用新的 Numba 核心函数进行滚动计算
+                        fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
+                            log_returns_or_series.values,
+                            fft_window,
+                            low_freq_cutoff_ratio=0.1
+                        )
+                        df[fft_col] = pd.Series(fft_energy_ratios_values, index=log_returns_or_series.index).reindex(df.index)
                 except Exception as e:
                     logger.error(f"FFT能量比(周期{fft_window}, 列: {source_col})计算失败: {e}")
                     df[fft_col] = np.nan
-        # --- 6. 波动率不稳定性 (状态切换前兆) ---
-        vi_window = params.get('volatility_instability_window', 21)
-        vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
-        atr_col = f'ATR_14{suffix}'
-        if atr_col in df.columns and vi_col not in df.columns:
-            df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
+            # --- 6. 波动率不稳定性 (状态切换前兆) ---
+            vi_window = params.get('volatility_instability_window', 21)
+            vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
+            atr_col = f'ATR_14{suffix}'
+            if atr_col in df.columns and vi_col not in df.columns:
+                df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
         all_dfs[timeframe] = df
         return all_dfs
 
