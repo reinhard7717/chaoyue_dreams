@@ -178,6 +178,34 @@
                 "MA_POTENTIAL_ORDERLINESS_SCORE_D": {"method": "mtf_adaptive", "ascending": false}
             },
             "comment": "结构稳定性维度参数，包含各子维度的融合权重和指标归一化配置。"
+        },
+        "platform_boundary_inverse_params": {
+            "enabled": true,
+            "description": "【V1.0 · 新增】平台边界反向信号参数，用于评估动态高点和低点的强度反转。",
+            "high_inverse_weights": {
+                "proximity_to_high": 0.2,
+                "price_momentum_towards_high": 0.15,
+                "price_acceleration_towards_high": 0.1,
+                "resistance_rejection_weakness": 0.2,
+                "volume_burst_at_high": 0.1,
+                "volatility_expansion_at_high": 0.05,
+                "structural_tension_support": 0.1,
+                "breakout_readiness_support": 0.1
+            },
+            "comment_high_inverse_weights": "动态高点反向信号的融合权重，高分表示高点弱势。",
+            "low_inverse_weights": {
+                "proximity_to_low": 0.2,
+                "price_momentum_towards_low": 0.15,
+                "price_acceleration_towards_low": 0.1,
+                "support_absorption_weakness": 0.2,
+                "volume_burst_at_low": 0.1,
+                "volatility_expansion_at_low": 0.05,
+                "structural_tension_weakness": 0.1,
+                "stability_weakness": 0.1
+            },
+            "comment_low_inverse_weights": "动态低点反向信号的融合权重，高分表示低点弱势。",
+            "mtf_weights_for_inverses": { "3": 0.4, "5": 0.3, "8": 0.2, "13": 0.1 },
+            "comment_mtf_weights_for_inverses": "用于平台边界反向信号内部归一化的多时间框架权重。"
         }
     }
 }

@@ -154,6 +154,7 @@ class StructuralIntelligence:
                       部分抵消环境惩罚，而非简单叠加奖励。最终得分同时体现逆势的荣耀与代价。
         - 【V6.0 · 结构动量深度进化版】更新结构动量计算逻辑，调用新的 `_diagnose_structural_momentum` 方法。
         - 【V6.0.1 · 探针清晰化】在调用 `_diagnose_structural_momentum` 时，增加 `posture_type` 参数，使探针输出更明确。
+        - 【V8.1 · 平台边界反向信号】新增 `STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE` 和 `STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE` 信号。
         """
         all_states = {}
         p_conf = self.structural_ultimate_params
@@ -189,6 +190,12 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCTURE_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
+        # --- 步骤一.五: 诊断平台边界反向信号 ---
+        platform_high_inverse, platform_low_inverse = self._diagnose_platform_boundary_inverses(
+            df, dynamic_high, dynamic_low, axiom_tension, breakout_readiness, axiom_stability
+        )
+        all_states['STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE'] = platform_high_inverse
+        all_states['STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE'] = platform_low_inverse
         # --- 步骤二: 诊断内部战略态势 ---
         strategic_posture, defense_strength = self._diagnose_strategic_posture(
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_quality, breakout_readiness
@@ -1324,6 +1331,140 @@ class StructuralIntelligence:
         final_score = pd.Series(np.sign(fused_momentum) * (np.abs(fused_momentum) ** non_linear_exponent), index=df_index).clip(-1, 1).astype(np.float32)
         return final_score
 
+    def _diagnose_platform_boundary_inverses(self, df: pd.DataFrame, dynamic_high: pd.Series, dynamic_low: pd.Series, axiom_tension: pd.Series, breakout_readiness: pd.Series, axiom_stability: pd.Series) -> Tuple[pd.Series, pd.Series]:
+        """
+        【V1.0 · 诡道博弈版】诊断平台动态高点和低点的反向强度（即弱势程度）。
+        - 核心逻辑: 评估动态高点作为阻力的脆弱性，以及动态低点作为支撑的脆弱性。
+        - 纯结构类信号: 仅使用结构层原始数据进行分析。
+        - 探针输出: 详细输出原料信号、关键计算节点、结果值。
+        """
+        method_name = "_diagnose_platform_boundary_inverses"
+        p_conf_struct = self.structural_ultimate_params
+        params = get_param_value(p_conf_struct.get('platform_boundary_inverse_params'), {})
+        if not params.get('enabled', False):
+            print(f"    -> [结构情报探针] {method_name} 已在配置中禁用，跳过。")
+            return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
+        high_inverse_weights = params.get('high_inverse_weights', {})
+        low_inverse_weights = params.get('low_inverse_weights', {})
+        tf_weights = params.get('mtf_weights_for_inverses', {3: 0.4, 5: 0.3, 8: 0.2, 13: 0.1})
+        df_index = df.index
+        required_signals = [
+            'close_D', 'high_D', 'low_D', 'ATR_14_D',
+            'pressure_rejection_strength_D', 'lower_shadow_absorption_strength_D',
+            'trend_efficiency_ratio_D', 'volume_burstiness_index_D',
+            'volatility_expansion_ratio_D', 'BBW_21_2.0_D',
+            'SLOPE_5_close_D', 'ACCEL_5_close_D',
+            'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'equilibrium_compression_index_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, method_name):
+            return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
+        # 获取原始信号
+        close_D = self._get_safe_series(df, 'close_D', method_name=method_name)
+        atr_D = self._get_safe_series(df, 'ATR_14_D', 1e-9, method_name=method_name).replace(0, 1e-9) # 避免除以零
+        pressure_rejection_strength_D = self._get_safe_series(df, 'pressure_rejection_strength_D', method_name=method_name)
+        lower_shadow_absorption_strength_D = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', method_name=method_name)
+        trend_efficiency_ratio_D = self._get_safe_series(df, 'trend_efficiency_ratio_D', method_name=method_name)
+        volume_burstiness_index_D = self._get_safe_series(df, 'volume_burstiness_index_D', method_name=method_name)
+        volatility_expansion_ratio_D = self._get_safe_series(df, 'volatility_expansion_ratio_D', method_name=method_name)
+        bbw_D = self._get_safe_series(df, 'BBW_21_2.0_D', method_name=method_name)
+        slope_5_close_D = self._get_safe_series(df, 'SLOPE_5_close_D', method_name=method_name)
+        accel_5_close_D = self._get_safe_series(df, 'ACCEL_5_close_D', method_name=method_name)
+        ma_orderliness_D = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', method_name=method_name)
+        equilibrium_compression_D = self._get_safe_series(df, 'equilibrium_compression_index_D', method_name=method_name)
+        # 确保 dynamic_high 和 dynamic_low 不为 NaN，如果为 NaN 则用 close_D 填充，避免后续计算错误
+        dynamic_high = dynamic_high.fillna(close_D)
+        dynamic_low = dynamic_low.fillna(close_D)
+        if self.is_probe_date:
+            print(f"    -> [结构情报探针] {method_name} - 原始信号值:")
+            print(f"        close_D: {close_D.iloc[-1]:.4f}")
+            print(f"        dynamic_high: {dynamic_high.iloc[-1]:.4f}")
+            print(f"        dynamic_low: {dynamic_low.iloc[-1]:.4f}")
+            print(f"        ATR_14_D: {atr_D.iloc[-1]:.4f}")
+            print(f"        pressure_rejection_strength_D: {pressure_rejection_strength_D.iloc[-1]:.4f}")
+            print(f"        lower_shadow_absorption_strength_D: {lower_shadow_absorption_strength_D.iloc[-1]:.4f}")
+            print(f"        trend_efficiency_ratio_D: {trend_efficiency_ratio_D.iloc[-1]:.4f}")
+            print(f"        volume_burstiness_index_D: {volume_burstiness_index_D.iloc[-1]:.4f}")
+            print(f"        volatility_expansion_ratio_D: {volatility_expansion_ratio_D.iloc[-1]:.4f}")
+            print(f"        BBW_21_2.0_D: {bbw_D.iloc[-1]:.4f}")
+            print(f"        SLOPE_5_close_D: {slope_5_close_D.iloc[-1]:.4f}")
+            print(f"        ACCEL_5_close_D: {accel_5_close_D.iloc[-1]:.4f}")
+            print(f"        MA_POTENTIAL_ORDERLINESS_SCORE_D: {ma_orderliness_D.iloc[-1]:.4f}")
+            print(f"        equilibrium_compression_index_D: {equilibrium_compression_D.iloc[-1]:.4f}")
+            print(f"        axiom_tension: {axiom_tension.iloc[-1]:.4f}")
+            print(f"        breakout_readiness: {breakout_readiness.iloc[-1]:.4f}")
+            print(f"        axiom_stability: {axiom_stability.iloc[-1]:.4f}")
+        # --- STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE (高点弱势) ---
+        # 1. 价格接近度与动量 (高点越近，动量越强，高点越弱)
+        # 避免 dynamic_high - close_D <= 0 导致除以0或负数，确保比率有意义
+        price_to_high_raw = (dynamic_high - close_D).clip(lower=0) / atr_D
+        price_to_high_score = self.get_dynamic_normalized_score(price_to_high_raw, df_index, tf_weights, ascending=False) # 越小越好
+        price_momentum_towards_high_score = self.get_dynamic_normalized_score(slope_5_close_D.clip(lower=0), df_index, tf_weights, ascending=True) # 向上动量越强越好
+        price_acceleration_towards_high_score = self.get_dynamic_normalized_score(accel_5_close_D.clip(lower=0), df_index, tf_weights, ascending=True) # 向上加速度越强越好
+        # 2. 阻力质量 (阻力拒绝越弱，高点越弱)
+        resistance_rejection_weakness_score = self.get_dynamic_normalized_score(pressure_rejection_strength_D, df_index, tf_weights, ascending=False) # 拒绝强度越低越好
+        volume_burst_at_high_score = self.get_dynamic_normalized_score(volume_burstiness_index_D, df_index, tf_weights, ascending=True) # 爆发量越大越好
+        volatility_expansion_at_high_score = self.get_dynamic_normalized_score(volatility_expansion_ratio_D, df_index, tf_weights, ascending=True) # 波动率扩张越大越好
+        # 3. 结构上下文 (张力越高，突破准备度越高，高点越弱)
+        structural_tension_support_score = self.get_dynamic_normalized_score(axiom_tension, df_index, tf_weights, ascending=True) # 张力越高越好
+        breakout_readiness_support_score = self.get_dynamic_normalized_score(breakout_readiness, df_index, tf_weights, ascending=True) # 准备度越高越好
+        # 融合高点弱势
+        platform_high_inverse = (
+            price_to_high_score * high_inverse_weights.get('proximity_to_high', 0.2) +
+            price_momentum_towards_high_score * high_inverse_weights.get('price_momentum_towards_high', 0.15) +
+            price_acceleration_towards_high_score * high_inverse_weights.get('price_acceleration_towards_high', 0.1) +
+            resistance_rejection_weakness_score * high_inverse_weights.get('resistance_rejection_weakness', 0.2) +
+            volume_burst_at_high_score * high_inverse_weights.get('volume_burst_at_high', 0.1) +
+            volatility_expansion_at_high_score * high_inverse_weights.get('volatility_expansion_at_high', 0.05) +
+            structural_tension_support_score * high_inverse_weights.get('structural_tension_support', 0.1) +
+            breakout_readiness_support_score * high_inverse_weights.get('breakout_readiness_support', 0.1)
+        ).clip(0, 1).astype(np.float32)
+        if self.is_probe_date:
+            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 关键节点:")
+            print(f"        price_to_high_raw: {price_to_high_raw.iloc[-1]:.4f}, score: {price_to_high_score.iloc[-1]:.4f}")
+            print(f"        slope_5_close_D (raw): {slope_5_close_D.iloc[-1]:.4f}, score: {price_momentum_towards_high_score.iloc[-1]:.4f}")
+            print(f"        accel_5_close_D (raw): {accel_5_close_D.iloc[-1]:.4f}, score: {price_acceleration_towards_high_score.iloc[-1]:.4f}")
+            print(f"        pressure_rejection_strength_D (raw): {pressure_rejection_strength_D.iloc[-1]:.4f}, score: {resistance_rejection_weakness_score.iloc[-1]:.4f}")
+            print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_high_score.iloc[-1]:.4f}")
+            print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_high_score.iloc[-1]:.4f}")
+            print(f"        axiom_tension (raw): {axiom_tension.iloc[-1]:.4f}, score: {structural_tension_support_score.iloc[-1]:.4f}")
+            print(f"        breakout_readiness (raw): {breakout_readiness.iloc[-1]:.4f}, score: {breakout_readiness_support_score.iloc[-1]:.4f}")
+            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 最终分数: {platform_high_inverse.iloc[-1]:.4f}")
+        # --- STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE (低点弱势) ---
+        # 1. 价格接近度与动量 (低点越近，动量越弱，低点越弱)
+        price_to_low_raw = (close_D - dynamic_low).clip(lower=0) / atr_D
+        price_to_low_score = self.get_dynamic_normalized_score(price_to_low_raw, df_index, tf_weights, ascending=False) # 越小越好
+        price_momentum_towards_low_score = self.get_dynamic_normalized_score(slope_5_close_D.clip(upper=0).abs(), df_index, tf_weights, ascending=True) # 向下动量越强越好
+        price_acceleration_towards_low_score = self.get_dynamic_normalized_score(accel_5_close_D.clip(upper=0).abs(), df_index, tf_weights, ascending=True) # 向下加速度越强越好
+        # 2. 支撑质量 (支撑吸收越弱，低点越弱)
+        support_absorption_weakness_score = self.get_dynamic_normalized_score(lower_shadow_absorption_strength_D, df_index, tf_weights, ascending=False) # 吸收强度越低越好
+        volume_burst_at_low_score = self.get_dynamic_normalized_score(volume_burstiness_index_D, df_index, tf_weights, ascending=True) # 爆发量越大越好
+        volatility_expansion_at_low_score = self.get_dynamic_normalized_score(volatility_expansion_ratio_D, df_index, tf_weights, ascending=True) # 波动率扩张越大越好
+        # 3. 结构上下文 (张力越低，稳定性越低，低点越弱)
+        structural_tension_weakness_score = self.get_dynamic_normalized_score(axiom_tension, df_index, tf_weights, ascending=False) # 张力越低越好
+        stability_weakness_score = self.get_dynamic_normalized_score(((axiom_stability + 1) / 2), df_index, tf_weights, ascending=False) # 稳定性越低越好 (axiom_stability是-1到1，转成0到1)
+        # 融合低点弱势
+        platform_low_inverse = (
+            price_to_low_score * low_inverse_weights.get('proximity_to_low', 0.2) +
+            price_momentum_towards_low_score * low_inverse_weights.get('price_momentum_towards_low', 0.15) +
+            price_acceleration_towards_low_score * low_inverse_weights.get('price_acceleration_towards_low', 0.1) +
+            support_absorption_weakness_score * low_inverse_weights.get('support_absorption_weakness', 0.2) +
+            volume_burst_at_low_score * low_inverse_weights.get('volume_burst_at_low', 0.1) +
+            volatility_expansion_at_low_score * low_inverse_weights.get('volatility_expansion_at_low', 0.05) +
+            structural_tension_weakness_score * low_inverse_weights.get('structural_tension_weakness', 0.1) +
+            stability_weakness_score * low_inverse_weights.get('stability_weakness', 0.1)
+        ).clip(0, 1).astype(np.float32)
+        if self.is_probe_date:
+            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 关键节点:")
+            print(f"        price_to_low_raw: {price_to_low_raw.iloc[-1]:.4f}, score: {price_to_low_score.iloc[-1]:.4f}")
+            print(f"        slope_5_close_D (raw, abs): {slope_5_close_D.iloc[-1]:.4f}, score: {price_momentum_towards_low_score.iloc[-1]:.4f}")
+            print(f"        accel_5_close_D (raw, abs): {accel_5_close_D.iloc[-1]:.4f}, score: {price_acceleration_towards_low_score.iloc[-1]:.4f}")
+            print(f"        lower_shadow_absorption_strength_D (raw): {lower_shadow_absorption_strength_D.iloc[-1]:.4f}, score: {support_absorption_weakness_score.iloc[-1]:.4f}")
+            print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_low_score.iloc[-1]:.4f}")
+            print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_low_score.iloc[-1]:.4f}")
+            print(f"        axiom_tension (raw): {axiom_tension.iloc[-1]:.4f}, score: {structural_tension_weakness_score.iloc[-1]:.4f}")
+            print(f"        axiom_stability (raw): {axiom_stability.iloc[-1]:.4f}, score: {stability_weakness_score.iloc[-1]:.4f}")
+            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 最终分数: {platform_low_inverse.iloc[-1]:.4f}")
+        return platform_high_inverse, platform_low_inverse
 
 
 

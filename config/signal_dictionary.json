@@ -641,6 +641,22 @@
             "scoring_mode": "unipolar",
             "description": "【V1.0 · 战术剧本识别】一个高阶战术识别信号，旨在捕捉A股经典的“暴力洗盘后二次启动”剧本。它通过识别一个完整的行为序列：[前期稳定蓄势] -> [短暂但剧烈的下跌，伴随主力强势吸筹] -> [价格快速修复并放量启动]，来确认一次高质量的二次主升浪机会。该信号为事件驱动型，仅在剧本确认的当天输出高分。"
         },
+        "STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE": {
+            "cn_name": "【结构】平台动态高点反向",
+            "category": "结构层-原子",
+            "type": "context",
+            "score": 100,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 诡道博弈版】量化平台动态高点的弱势程度。高分代表动态高点阻力薄弱，易于向上突破；低分代表高点阻力强劲，难以突破。融合了价格接近度、价格动量与加速度、阻力拒绝强度、成交量爆发、波动率扩张以及结构张力与突破准备度等纯结构类信号。"
+        },
+        "STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE": {
+            "cn_name": "【结构】平台动态低点反向",
+            "category": "结构层-原子",
+            "type": "context",
+            "score": 100,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 诡道博弈版】量化平台动态低点的弱势程度。高分代表动态低点支撑脆弱，易于向下破位；低分代表低点支撑坚固，难以跌破。融合了价格接近度、价格动量与加速度、支撑吸收强度、成交量爆发、波动率扩张以及结构张力与稳定性等纯结构类信号。"
+        },
         "SCORE_STRUCT_AXIOM_ENVIRONMENT": {
             "cn_name": "【结构公理】战场环境",
             "category": "结构层-原子",
