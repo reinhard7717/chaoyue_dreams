@@ -937,13 +937,13 @@ class IndicatorService:
         - 【修复】对于 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline`，
                   这些数据已在数据准备阶段从DAO获取并合并到DataFrame中，此处不再尝试调用 `IndicatorCalculator` 进行计算，而是直接跳过。
         - 【新增】Z-score计算已通过 Numba 优化。
+        - 【修改】当数据行数不足时，不再提前返回，而是继续尝试计算所有指标。
         """
         if not config:
             return df
         max_required_period = self._get_max_period_for_timeframe(config, timeframe_key)
         if len(df) < max_required_period:
-            logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过。")
-            return df
+            logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将尝试计算部分指标。")
         df_for_calc = df.copy()
         # 新增代码块：在指标计算前，再次检查并清理重复索引
         if df_for_calc.index.duplicated().any():
