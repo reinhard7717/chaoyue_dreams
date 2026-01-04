@@ -833,7 +833,7 @@ class ChipIntelligence:
             strategic_tactical_harmony = pd.Series(0.0, index=df.index)
         all_chip_states['SCORE_CHIP_STRATEGIC_TACTICAL_HARMONY'] = strategic_tactical_harmony
         # 调用并记录和谐拐点信号
-        harmony_inflection = self._diagnose_harmony_inflection(df, strategic_tactical_harmony)
+        harmony_inflection = self._diagnose_harmony_inflection(df)
         # 确保 harmony_inflection 是 Series
         if not isinstance(harmony_inflection, pd.Series):
             print(f"    -> [筹码情报警告] _diagnose_harmony_inflection 返回无效类型，使用默认值。")
