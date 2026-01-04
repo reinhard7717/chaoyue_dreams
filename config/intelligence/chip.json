@@ -527,88 +527,110 @@
             "meta_modulator_sensitivity": 0.5
         },
         "absorption_echo_params": {
-            "description": "【V5.1 · 诡道反吸强化版】吸筹回声信号的专属参数。",
-            "panic_source_weights": {
-                "description": "恐慌声源融合权重。",
-                "retail_panic_surrender": 0.15,
-                "loser_pain": 0.15,
-                "chip_fatigue": 0.1,
-                "structural_tension_negative": 0.1,
-                "panic_selling_cascade": 0.1,
-                "total_loser_rate": 0.08,
-                "loser_loss_margin_avg": 0.08,
-                "loser_pain_slope": 0.08,
-                "chip_fatigue_accel": 0.08,
-                "volatility_instability": 0.08,
-                "total_loser_rate_accel": 0.05,
-                "retail_panic_surrender_slope": 0.05,
-                "structural_tension_accel": 0.05
+            "description": "【V5.0 · 深度回声版】吸筹回声信号的专属参数。",
+            "panic_source_params": {
+                "description": "恐慌源分数计算参数",
+                "weights": {
+                    "retail_panic": 0.2,
+                    "loser_pain": 0.15,
+                    "chip_fatigue": 0.1,
+                    "structural_tension_negative": 0.15,
+                    "panic_selling_cascade": 0.15,
+                    "total_loser_rate": 0.05,
+                    "loser_loss_margin_avg": 0.05,
+                    "slope_loser_pain": 0.05,
+                    "accel_chip_fatigue": 0.05,
+                    "volatility_instability": 0.05,
+                    "accel_total_loser_rate": 0.05,
+                    "slope_retail_panic": 0.05,
+                    "accel_structural_tension": 0.05
+                },
+                "panic_context_threshold": 0.5,
+                "comment_panic_context_threshold": "判断是否处于恐慌情境的阈值"
             },
-            "panic_context_threshold": 0.3,
-            "counter_flow_medium_weights": {
-                "description": "逆流介质融合权重。",
-                "divergence_bullish": 0.15,
-                "capitulation_absorption": 0.1,
-                "cleansing_efficiency": 0.1,
-                "support_validation": 0.1,
-                "main_force_execution_alpha": 0.1,
-                "active_buying_support": 0.1,
-                "opening_gap_defense_strength": 0.08,
-                "control_solidity": 0.08,
-                "support_validation_slope": 0.08,
-                "main_force_execution_alpha_accel": 0.05,
-                "order_book_clearing_rate": 0.06,
-                "cleansing_efficiency_slope": 0.05,
-                "order_book_clearing_accel": 0.05,
-                "micro_impact_asymmetry": 0.05,
-                "micro_impact_asymmetry_slope": 0.03,
-                "vwap_control_strength": 0.05,
-                "vwap_control_strength_slope": 0.03,
-                "vwap_crossing_intensity": 0.03,
-                "vwap_crossing_intensity_accel": 0.02
+            "counter_flow_params": {
+                "description": "反向流动介质强度计算参数",
+                "weights": {
+                    "capitulation_absorption": 0.15,
+                    "cleansing_efficiency": 0.15,
+                    "support_validation": 0.15,
+                    "mf_execution_alpha": 0.1,
+                    "active_buying_support": 0.1,
+                    "opening_gap_defense": 0.1,
+                    "control_solidity": 0.05,
+                    "support_validation_slope": 0.05,
+                    "mf_execution_alpha_accel": 0.05,
+                    "order_book_clearing_rate": 0.05,
+                    "slope_cleansing": 0.05,
+                    "accel_order_book_clearing": 0.05,
+                    "micro_price_impact_asymmetry": 0.05,
+                    "slope_micro_price_impact_asymmetry": 0.05,
+                    "vwap_control_strength": 0.05,
+                    "slope_vwap_control_strength": 0.05,
+                    "vwap_crossing_intensity": 0.05,
+                    "accel_vwap_crossing_intensity": 0.05
+                }
             },
-            "main_force_echo_weights": {
-                "description": "主力回声融合权重。",
-                "covert_accumulation": 0.1,
-                "suppressive_accumulation": 0.08,
-                "cost_advantage": 0.08,
-                "peak_control_transfer": 0.08,
-                "main_force_conviction_positive": 0.08,
-                "main_force_net_flow_positive": 0.1,
-                "main_force_flow_directionality_positive": 0.08,
-                "main_force_vpoc": 0.08,
-                "main_force_activity_ratio": 0.08,
-                "covert_accumulation_slope": 0.08,
-                "main_force_conviction_accel": 0.08,
-                "smart_money_net_buy_positive": 0.08,
-                "covert_accumulation_accel": 0.05,
-                "suppressive_accumulation_slope": 0.05,
-                "cost_advantage_accel": 0.05,
-                "flow_directionality_slope": 0.05,
-                "main_force_vpoc_accel": 0.05,
-                "smart_money_net_buy_slope": 0.05
+            "mf_echo_params": {
+                "description": "主力回声强度计算参数",
+                "weights": {
+                    "covert_accumulation": 0.15,
+                    "suppressive_accumulation": 0.1,
+                    "mf_cost_advantage": 0.15,
+                    "peak_control_transfer": 0.1,
+                    "mf_conviction_positive": 0.15,
+                    "mf_net_flow_positive": 0.1,
+                    "mf_flow_directionality_positive": 0.1,
+                    "mf_vpoc": 0.05,
+                    "mf_activity_ratio": 0.05,
+                    "slope_covert_accumulation": 0.05,
+                    "accel_mf_conviction": 0.05,
+                    "smart_money_net_buy": 0.05,
+                    "accel_covert_accumulation": 0.05,
+                    "slope_suppressive_accumulation": 0.05,
+                    "accel_mf_cost_advantage": 0.05,
+                    "slope_mf_flow_directionality": 0.05,
+                    "accel_mf_vpoc": 0.05,
+                    "slope_smart_money_net_buy": 0.05
+                }
             },
             "deception_modulator_params": {
-                "description": "诡道背景调制参数。",
-                "conviction_threshold": 0.2,
-                "deception_index_boost_weight": 0.5,
-                "deception_index_penalty_weight": 0.5,
-                "wash_trade_penalty_weight": 0.3,
-                "penalty_factor": 0.4,
-                "deception_ll_penalty_weight": 0.2,
-                "comment_deception_ll_penalty_weight": "诱多欺骗强度对吸筹回声的惩罚权重。",
-                "deception_ls_boost_weight": 0.2,
-                "comment_deception_ls_boost_weight": "诱空欺骗强度对吸筹回声的增强权重。"
+                "description": "欺骗调制器计算参数",
+                "weights": {
+                    "chip_fault": 0.1,
+                    "deception_index": 0.2,
+                    "wash_trade": 0.1,
+                    "mf_conviction": 0.2,
+                    "supportive_distribution": 0.2,
+                    "flow_credibility": 0.1,
+                    "structural_tension": 0.05,
+                    "chip_health": 0.05
+                },
+                "sensitivity": 0.8,
+                "comment_sensitivity": "欺骗调制器对最终分数的影响敏感度",
+                "supportive_distribution_penalty_weight": 1.0,
+                "comment_supportive_distribution_penalty_weight": "支持性派发信号的惩罚权重，高值表示更强的惩罚"
             },
-            "context_modulator_weights": {
-                "description": "情境调制器融合权重。",
-                "flow_credibility": 0.4,
-                "structural_tension_inverse": 0.3,
-                "chip_health": 0.3
+            "context_modulator_params": {
+                "description": "情境调制器计算参数",
+                "signals": {
+                    "volatility_instability": {"signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D", "weight": 0.3, "ascending": false},
+                    "chip_fatigue": {"signal_name": "chip_fatigue_index_D", "weight": 0.2, "ascending": false},
+                    "market_sentiment": {"signal_name": "market_sentiment_score_D", "weight": 0.3, "ascending": true},
+                    "flow_credibility": {"signal_name": "flow_credibility_index_D", "weight": 0.2, "ascending": true}
+                },
+                "sensitivity": 0.5,
+                "comment_sensitivity": "情境调制器对最终分数的影响敏感度"
             },
-            "final_fusion_exponent": 0.25,
-            "supportive_distribution_penalty_factor": 0.2,
-            "comment_supportive_distribution_penalty_factor": "支持性派发强度对吸筹回声的惩罚因子。"
+            "base_score_weights": {
+                "panic_source": 0.3,
+                "counter_flow": 0.3,
+                "mf_echo": 0.4
+            },
+            "panic_without_absorption_penalty_factor": 0.5,
+            "comment_panic_without_absorption_penalty_factor": "当散户恐慌高但吸筹低时，对基础分数的惩罚因子",
+            "panic_without_absorption_threshold": 0.7,
+            "comment_panic_without_absorption_threshold": "判断'无吸筹恐慌'的散户恐慌阈值"
         },
         "distribution_whisper_params": {
             "description": "【V4.0 · 深度高频诡道派发版】派发诡影信号的专属参数。",
