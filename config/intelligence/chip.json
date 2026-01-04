@@ -601,7 +601,8 @@
                     "deception_index": 0.2,
                     "wash_trade": 0.1,
                     "mf_conviction": 0.2,
-                    "supportive_distribution": 0.2,
+                    "supportive_distribution": 0.3,
+                    "comment_supportive_distribution": "增加支持性派发信号的权重，以更强地惩罚派发行为",
                     "flow_credibility": 0.1,
                     "structural_tension": 0.05,
                     "chip_health": 0.05
@@ -616,7 +617,7 @@
                 "signals": {
                     "volatility_instability": {"signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D", "weight": 0.3, "ascending": false},
                     "chip_fatigue": {"signal_name": "chip_fatigue_index_D", "weight": 0.2, "ascending": false},
-                    "market_sentiment": {"signal_name": "market_sentiment_score_D", "weight": 0.3, "ascending": true},
+                    "market_sentiment": {"signal_name": "market_sentiment_score_D", "weight": 0.3, "ascending": false, "comment": "高市场情绪对吸筹回声信号应为负面影响"},
                     "flow_credibility": {"signal_name": "flow_credibility_index_D", "weight": 0.2, "ascending": true}
                 },
                 "sensitivity": 0.5,
@@ -629,8 +630,8 @@
             },
             "panic_without_absorption_penalty_factor": 0.5,
             "comment_panic_without_absorption_penalty_factor": "当散户恐慌高但吸筹低时，对基础分数的惩罚因子",
-            "panic_without_absorption_threshold": 0.7,
-            "comment_panic_without_absorption_threshold": "判断'无吸筹恐慌'的散户恐慌阈值"
+            "panic_without_absorption_threshold": 0.5,
+            "comment_panic_without_absorption_threshold": "判断'无吸筹恐慌'的散户恐慌和低吸收阈值"
         },
         "distribution_whisper_params": {
             "description": "【V4.0 · 深度高频诡道派发版】派发诡影信号的专属参数。",

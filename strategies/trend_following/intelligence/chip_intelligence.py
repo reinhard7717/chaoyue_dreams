@@ -2210,7 +2210,7 @@ class ChipIntelligence:
             'suppressive_accumulation_intensity_D', 'main_force_cost_advantage_D',
             'peak_control_transfer_D', 'main_force_conviction_index_D',
             'main_force_net_flow_calibrated_D', 'main_force_flow_directionality_D',
-            'main_force_vpoc_D', 'main_force_activity_ratio_D', 'market_sentiment_score_D',
+            'main_force_vpoc_D', 'main_force_activity_ratio_D',
             'SLOPE_5_covert_accumulation_signal_D', 'ACCEL_5_main_force_conviction_index_D',
             'SMART_MONEY_HM_NET_BUY_D', 'chip_fault_magnitude_D',
             'deception_index_D', 'wash_trade_intensity_D', 'chip_health_score_D',
@@ -2223,15 +2223,19 @@ class ChipIntelligence:
             'SLOPE_5_vwap_control_strength_D', 'ACCEL_5_vwap_crossing_intensity_D',
             'ACCEL_5_covert_accumulation_signal_D', 'SLOPE_5_suppressive_accumulation_intensity_D',
             'ACCEL_5_main_force_cost_advantage_D', 'SLOPE_5_main_force_flow_directionality_D',
-            'ACCEL_5_main_force_vpoc_D', 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D'
+            'ACCEL_5_main_force_vpoc_D', 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D',
+            'market_sentiment_score_D'
         ]
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         parsed_tf_data = utils._parse_tf_weights(tf_weights)
         absorption_echo_params = get_param_value(p_conf.get('absorption_echo_params'), {})
+
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
+
         signals_data = self._get_all_required_signals(df, required_signals, method_name)
+
         is_debug_enabled = self.should_probe
         probe_ts = None
         if is_debug_enabled and self.probe_dates_set:
@@ -2239,6 +2243,7 @@ class ChipIntelligence:
                 if date.date() in self.probe_dates_set:
                     probe_ts = date
                     break
+
         # --- 信号归一化 ---
         norm_retail_panic_surrender = utils.get_adaptive_mtf_normalized_score(signals_data['retail_panic_surrender_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_loser_pain = utils.get_adaptive_mtf_normalized_score(signals_data['loser_pain_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
@@ -2253,6 +2258,7 @@ class ChipIntelligence:
         norm_accel_5_total_loser_rate = utils.get_adaptive_mtf_normalized_score(signals_data['ACCEL_5_total_loser_rate_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_slope_5_retail_panic_surrender = utils.get_adaptive_mtf_normalized_score(signals_data['SLOPE_5_retail_panic_surrender_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_accel_5_structural_tension = utils.get_adaptive_mtf_normalized_score(signals_data['ACCEL_5_structural_tension_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+
         norm_capitulation_absorption = utils.get_adaptive_mtf_normalized_score(signals_data['capitulation_absorption_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_cleansing_efficiency = utils.get_adaptive_mtf_normalized_score(signals_data['floating_chip_cleansing_efficiency_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_support_validation = utils.get_adaptive_mtf_normalized_score(signals_data['support_validation_strength_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
@@ -2271,6 +2277,7 @@ class ChipIntelligence:
         norm_slope_5_vwap_control_strength = utils.get_adaptive_mtf_normalized_score(signals_data['SLOPE_5_vwap_control_strength_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_vwap_crossing_intensity = utils.get_adaptive_mtf_normalized_score(signals_data['vwap_crossing_intensity_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_accel_5_vwap_crossing_intensity = utils.get_adaptive_mtf_normalized_score(signals_data['ACCEL_5_vwap_crossing_intensity_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+
         norm_covert_accumulation = utils.get_adaptive_mtf_normalized_score(signals_data['covert_accumulation_signal_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_suppressive_accumulation = utils.get_adaptive_mtf_normalized_score(signals_data['suppressive_accumulation_intensity_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_main_force_cost_advantage = utils.get_adaptive_mtf_normalized_score(signals_data['main_force_cost_advantage_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
@@ -2289,6 +2296,7 @@ class ChipIntelligence:
         norm_slope_5_main_force_flow_directionality = utils.get_adaptive_mtf_normalized_score(signals_data['SLOPE_5_main_force_flow_directionality_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_accel_5_main_force_vpoc = utils.get_adaptive_mtf_normalized_score(signals_data['ACCEL_5_main_force_vpoc_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_slope_5_smart_money_net_buy = utils.get_adaptive_mtf_normalized_score(signals_data['SLOPE_5_SMART_MONEY_HM_NET_BUY_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+
         norm_chip_fault_magnitude_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(signals_data['chip_fault_magnitude_D'], df_index, tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_deception_index_bipolar = utils.get_adaptive_mtf_normalized_bipolar_score(signals_data['deception_index_D'], df_index, tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_wash_trade_intensity = utils.get_adaptive_mtf_normalized_score(signals_data['wash_trade_intensity_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
@@ -2297,6 +2305,8 @@ class ChipIntelligence:
         norm_flow_credibility = utils.get_adaptive_mtf_normalized_score(signals_data['flow_credibility_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_structural_tension = utils.get_adaptive_mtf_normalized_score(signals_data['structural_tension_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
         norm_chip_health_score = utils.get_adaptive_mtf_normalized_score(signals_data['chip_health_score_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_market_sentiment_score = utils.get_adaptive_mtf_normalized_score(signals_data['market_sentiment_score_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+
         # --- 1. 恐慌源分数 (Panic Source Score) ---
         panic_source_params = get_param_value(absorption_echo_params.get('panic_source_params'), {})
         panic_source_weights = get_param_value(panic_source_params.get('weights'), {
@@ -2322,11 +2332,13 @@ class ChipIntelligence:
             'accel_structural_tension': norm_accel_5_structural_tension
         }
         panic_source_score = utils._robust_geometric_mean(panic_source_components, panic_source_weights, df_index)
+
         panic_slope_dampening_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
         # 如果散户恐慌斜率下降，则对恐慌源分数进行衰减
         panic_slope_dampening_factor.loc[norm_slope_5_retail_panic_surrender < 0.5] = 0.5
         panic_source_score_modulated = panic_source_score * panic_slope_dampening_factor
         is_panic_context = (panic_source_score_modulated > get_param_value(panic_source_params.get('panic_context_threshold'), 0.5))
+
         # --- 2. 反向流动介质强度 (Counter Flow Medium Score) ---
         counter_flow_params = get_param_value(absorption_echo_params.get('counter_flow_params'), {})
         counter_flow_weights = get_param_value(counter_flow_params.get('weights'), {
@@ -2359,6 +2371,7 @@ class ChipIntelligence:
             'accel_vwap_crossing_intensity': norm_accel_5_vwap_crossing_intensity
         }
         counter_flow_medium_score = utils._robust_geometric_mean(counter_flow_components, counter_flow_weights, df_index)
+
         # --- 3. 主力回声强度 (Main Force Echo Score) ---
         mf_echo_params = get_param_value(absorption_echo_params.get('mf_echo_params'), {})
         mf_echo_weights = get_param_value(mf_echo_params.get('weights'), {
@@ -2391,6 +2404,7 @@ class ChipIntelligence:
             'slope_smart_money_net_buy': norm_slope_5_smart_money_net_buy
         }
         main_force_echo_score = utils._robust_geometric_mean(mf_echo_components, mf_echo_weights, df_index)
+
         # --- 4. 欺骗调制器 (Deception Modulator) ---
         deception_modulator_params = get_param_value(absorption_echo_params.get('deception_modulator_params'), {})
         deception_modulator_weights = get_param_value(deception_modulator_params.get('weights'), {
@@ -2400,28 +2414,32 @@ class ChipIntelligence:
         })
         # 新增参数：支持性派发惩罚权重
         supportive_distribution_penalty_weight = get_param_value(deception_modulator_params.get('supportive_distribution_penalty_weight'), 1.0)
+
         deception_modulator_components = {
             'chip_fault': (norm_chip_fault_magnitude_bipolar + 1) / 2,
             'deception_index': (1 - (norm_deception_index_bipolar + 1) / 2), # 负向欺骗（诱空）视为积极，正向欺骗（诱多）视为消极
             'wash_trade': (1 - norm_wash_trade_intensity), # 高对倒强度视为消极
             'mf_conviction': (norm_main_force_conviction_bipolar + 1) / 2,
-            # MODIFICATION START: 强化对支持性派发的惩罚
+            # 强化对支持性派发的惩罚
             'supportive_distribution': (1 - norm_supportive_distribution_intensity * supportive_distribution_penalty_weight).clip(0, 1),
-            # MODIFICATION END
             'flow_credibility': norm_flow_credibility,
             'structural_tension': norm_structural_tension,
             'chip_health': norm_chip_health_score
         }
         deception_modulator = utils._robust_geometric_mean(deception_modulator_components, deception_modulator_weights, df_index)
+
         # --- 5. 情境调制器 (Context Modulator) ---
         context_modulator_params = get_param_value(absorption_echo_params.get('context_modulator_params'), {})
         context_modulator_signals = get_param_value(context_modulator_params.get('signals'), {
             'volatility_instability': {'signal_name': 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'weight': 0.3, 'ascending': False},
             'chip_fatigue': {'signal_name': 'chip_fatigue_index_D', 'weight': 0.2, 'ascending': False},
-            'market_sentiment': {'signal_name': 'market_sentiment_score_D', 'weight': 0.3, 'ascending': True},
+            # MODIFICATION START: 反转市场情绪对吸筹回声的影响方向
+            'market_sentiment': {'signal_name': 'market_sentiment_score_D', 'weight': 0.3, 'ascending': False},
+            # MODIFICATION END
             'flow_credibility': {'signal_name': 'flow_credibility_index_D', 'weight': 0.2, 'ascending': True}
         })
         context_modulator_sensitivity = get_param_value(context_modulator_params.get('sensitivity'), 0.5)
+
         context_modulator_components_list = []
         total_context_weight = 0.0
         for ctx_key, ctx_config in context_modulator_signals.items():
@@ -2437,6 +2455,7 @@ class ChipIntelligence:
             combined_context_modulator = sum(context_modulator_components_list) / total_context_weight
         else:
             combined_context_modulator = pd.Series(0.5, index=df_index)
+
         # --- 融合计算 ---
         base_score_weights = get_param_value(absorption_echo_params.get('base_score_weights'), {
             'panic_source': 0.3, 'counter_flow': 0.3, 'mf_echo': 0.4
@@ -2447,22 +2466,28 @@ class ChipIntelligence:
             'mf_echo': main_force_echo_score
         }
         base_score = utils._robust_geometric_mean(base_score_components, base_score_weights, df_index)
-        # MODIFICATION START: 引入“无吸筹恐慌”惩罚
+
+        # 引入“无吸筹恐慌”惩罚
         panic_without_absorption_penalty_factor = get_param_value(absorption_echo_params.get('panic_without_absorption_penalty_factor'), 0.5)
         panic_without_absorption_threshold = get_param_value(absorption_echo_params.get('panic_without_absorption_threshold'), 0.7)
+
         panic_without_absorption_mask = (norm_retail_panic_surrender > panic_without_absorption_threshold) & \
                                         (norm_capitulation_absorption < (1 - panic_without_absorption_threshold))
+
         panic_absorption_penalty = pd.Series(1.0, index=df_index, dtype=np.float32)
         panic_absorption_penalty.loc[panic_without_absorption_mask] = (1.0 - panic_without_absorption_penalty_factor)
+
         base_score_adjusted = base_score * panic_absorption_penalty
-        # MODIFICATION END
+
         # 欺骗调制器转换为乘数
         deception_multiplier = 1 + (deception_modulator - 0.5) * get_param_value(deception_modulator_params.get('sensitivity'), 0.8)
         deception_multiplier = deception_multiplier.clip(0.01, 2.0) # 限制乘数范围
-        # 情境调制器转换为乘数
+
         context_multiplier = 1 + (combined_context_modulator - 0.5) * context_modulator_sensitivity
         context_multiplier = context_multiplier.clip(0.5, 1.5)
+
         final_score = (base_score_adjusted * deception_multiplier * context_multiplier).clip(0, 1)
+
         # 调试信息
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“吸筹回声”信号...")
@@ -2492,6 +2517,7 @@ class ChipIntelligence:
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “吸筹回声”信号诊断完成。")
         else:
             print(f"  -- [筹码层] “吸筹回声”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")
+
         return final_score.fillna(0.0).astype(np.float32)
 
     def _diagnose_distribution_whisper(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
