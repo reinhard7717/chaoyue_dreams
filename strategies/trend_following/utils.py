@@ -1099,7 +1099,7 @@ def normalize_score(series: pd.Series, target_index: pd.Index, windows: Union[in
     else:
         return results_df.astype(np.float32)
 
-def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Union[int, List[int]], sensitivity: float = 1.0, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Union[pd.Series, pd.DataFrame]:
+def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Union[int, List[int]], sensitivity: Union[float, pd.Series] = 1.0, default_value: float = 0.0, debug_info: Optional[Tuple[bool, pd.Timestamp, str]] = None) -> Union[pd.Series, pd.DataFrame]:
     is_debug_enabled, probe_ts, signal_name = debug_info if debug_info else (False, None, "Unknown")
     if not isinstance(series, pd.Series) or series.empty:
         if isinstance(windows, int):
@@ -1115,10 +1115,15 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Uni
         windows_list = windows
     series_values = padded_series.values.astype(np.float32)
     is_original_zero_values = is_original_zero.values
+    # 将 sensitivity 转换为 NumPy 数组
+    if isinstance(sensitivity, pd.Series):
+        sensitivity_values = sensitivity.reindex(target_index).fillna(1.0).values.astype(np.float32)
+    else:
+        sensitivity_values = np.full(len(target_index), sensitivity, dtype=np.float32)
     results_array = _numba_normalize_to_bipolar_multi_window_core(
         series_values,
         windows_list,
-        sensitivity,
+        sensitivity_values, # 传递 NumPy 数组
         default_value,
         is_original_zero_values
     )
@@ -1384,7 +1389,7 @@ def _numba_rolling_mean_std_core(arr: np.ndarray, window: int, min_periods: int)
 def _numba_normalize_to_bipolar_multi_window_core(
     series_values: np.ndarray,
     windows_list: List[int],
-    sensitivity: float,
+    sensitivity_values: np.ndarray, # 修改为 np.ndarray
     default_value: float,
     is_original_zero_values: np.ndarray,
     min_periods_ratio: float = 0.2
@@ -1406,8 +1411,9 @@ def _numba_normalize_to_bipolar_multi_window_core(
         for i in range(num_dates):
             if np.isnan(series_values[i]):
                 continue
-            if not np.isnan(rolling_std[i]) and rolling_std[i] > 1e-9:
-                z_score = (series_values[i] - rolling_mean[i]) / (rolling_std[i] * sensitivity)
+            current_sensitivity = sensitivity_values[i] # 获取当前时间点的敏感度
+            if not np.isnan(rolling_std[i]) and rolling_std[i] > 1e-9 and current_sensitivity > 1e-9: # 避免除以零
+                z_score = (series_values[i] - rolling_mean[i]) / (rolling_std[i] * current_sensitivity)
                 bipolar_score_window[i] = np.tanh(z_score)
             elif not np.isnan(rolling_mean[i]):
                 bipolar_score_window[i] = np.sign(series_values[i] - rolling_mean[i])
@@ -1415,7 +1421,6 @@ def _numba_normalize_to_bipolar_multi_window_core(
                 bipolar_score_window[i] = np.sign(series_values[i])
             if is_original_zero_values[i]:
                 bipolar_score_window[i] = 0.0
-            # 替换 np.clip 为 Numba 兼容的标量裁剪逻辑
             bipolar_score_window[i] = max(np.float32(-1.0), min(bipolar_score_window[i], np.float32(1.0)))
             if np.isnan(bipolar_score_window[i]):
                 bipolar_score_window[i] = default_value
