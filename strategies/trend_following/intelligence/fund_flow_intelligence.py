@@ -2299,13 +2299,9 @@ class FundFlowIntelligence:
         norm_main_force_cost_advantage = (norm_abs_cost_advantage * np.sign(main_force_cost_advantage_raw)).clip(-1, 1)
 
         # MODIFICATION START: 精确修正 intraday_vwap_div_index_D 的归一化逻辑
-        # 业务含义：越低越好（0最好，高值最差）。
-        # 1. 先对原始值进行升序归一化（0->0, max->1），得到一个“差”的程度的单极性分数。
-        norm_unipolar_vwap_deviation_badness = get_adaptive_mtf_normalized_score(main_force_vwap_deviation_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        # 2. 将“差”的程度反转，得到“好”的程度的单极性分数（0->1, max->0）。
-        norm_unipolar_vwap_deviation_goodness = 1 - norm_unipolar_vwap_deviation_badness
-        # 3. 将“好”的程度转换为 [-1, 1] 范围的双极性分数。
-        norm_main_force_vwap_deviation = (norm_unipolar_vwap_deviation_goodness * 2 - 1).clip(-1, 1)
+        # 业务含义：越接近0越好。先对绝对值进行升序归一化（0->0, max->1），然后转换为 [1, -1]
+        norm_abs_vwap_deviation = get_adaptive_mtf_normalized_score(main_force_vwap_deviation_raw.abs(), df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_main_force_vwap_deviation = (1 - (norm_abs_vwap_deviation * 2)).clip(-1, 1)
         # MODIFICATION END
 
         cost_advantage_score = (
