@@ -2335,6 +2335,8 @@ class FusionIntelligence:
         - 核心思路: 融合平台基石品质、动态平台高低点、结构稳定性、宏观趋势健康度以及结构张力等信号。
                     提供一个对市场“骨架”健康程度的综合评估。
         - 融合哲学: “市场骨架，健康为本”。坚实的结构是趋势持续的基础，脆弱的结构则暗藏风险。
+        - 【V1.1 修复】移除对 STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 和 STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 的特殊处理，
+                      让 _get_atomic_score 正常获取这些信号。
         """
         method_name = "_synthesize_market_structure_health"
         is_debug_enabled, probe_ts, _ = debug_info if debug_info else (False, None, method_name)
@@ -2349,24 +2351,9 @@ class FusionIntelligence:
         # 1. 收集结构健康度相关信号
         health_components = []
         for signal_name, weight in health_components_weights_config.items():
-            score = pd.Series(0.0, index=df_index, dtype=np.float32) # 默认值
-            if signal_name == 'STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE':
-                # 假设这是一个从 STRUCT_PLATFORM_DYNAMIC_HIGH 派生出的反向指标，暂时缺失
-                score = pd.Series(0.0, index=df_index, dtype=np.float32)
-                if is_debug_enabled and probe_ts and probe_ts in df.index:
-                    print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 警告：结构健康组件 '{signal_name}' 缺失，使用0.0填充。")
-            elif signal_name == 'STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE':
-                # 假设这是一个从 STRUCT_PLATFORM_DYNAMIC_LOW 派生出的反向指标，暂时缺失
-                score = pd.Series(0.0, index=df_index, dtype=np.float32)
-                if is_debug_enabled and probe_ts and probe_ts in df.index:
-                    print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 警告：结构健康组件 '{signal_name}' 缺失，使用0.0填充。")
-            elif signal_name == 'STRUCT_PLATFORM_VPOC_STABILITY':
-                # 假设这是一个从 STRUCT_PLATFORM_VPOC 派生出的稳定性指标，暂时缺失
-                score = pd.Series(0.0, index=df_index, dtype=np.float32)
-                if is_debug_enabled and probe_ts and probe_ts in df.index:
-                    print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 警告：结构健康组件 '{signal_name}' 缺失，使用0.0填充。")
-            else:
-                score = self._get_atomic_score(df, signal_name, 0.0, debug_info).fillna(0.0)
+            # 移除对 STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE, STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE, STRUCT_PLATFORM_VPOC_STABILITY 的特殊处理
+            # 让 _get_atomic_score 正常获取这些信号
+            score = self._get_atomic_score(df, signal_name, 0.0, debug_info).fillna(0.0)
             health_components.append((score, weight, signal_name))
             if is_debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"      [融合层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 结构健康组件 '{signal_name}': {score.loc[probe_ts]:.4f} (权重: {weight})")
