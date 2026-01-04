@@ -3486,59 +3486,27 @@ class ChipIntelligence:
         final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
         return final_score
 
-    def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
+    def _diagnose_harmony_inflection(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.5 · Numba优化版】诊断战略与战术和谐度的动态转折点，旨在构建一个诡道拐点判别与确认系统。
-        - 核心优化: 将inflection_strength和deception_modulator的计算逻辑迁移至Numba加速的辅助函数。
-        - 核心升级1: 动态阈值自适应：和谐度所处区间（低位、中位、高位）的判断阈值不再固定，而是根据市场波动性或筹码健康度动态调整，提高对拐点“位置”判断的适应性。
-        - 核心升级2: 非对称拐点动能融合：采用更复杂的非线性函数融合速度和加速度，并允许正向和负向拐点使用不同的融合参数，以更精细地量化拐点背后的真实动能，并反映市场情绪的非对称性。
-        - 核心升级3: 诡道博弈过滤与惩罚：引入欺骗指数、对倒强度等诡道因子作为调制器，识别并惩罚伴随诱多欺骗的正向拐点，或适度削弱伴随诱空洗盘的负向拐点，提高信号真实性。
-        - 核心升级4: 拐点延续性确认奖励：引入短期延续性检查机制，如果拐点方向在后续几天得到确认，则给予额外奖励，增强信号可靠性和鲁棒性。
-        - 核心升级5: 增强情境调制器：除了筹码健康度和波动性，再引入主力信念指数作为情境调制器，更全面评估拐点信号在不同市场参与者意图下的可靠性。
-        - 核心修复: 确保 `deception_modulator` 在 `norm_deception` 为负时，能够正确增强正向拐点信号，并增加增强敏感度。
-        - **新增业务逻辑：引入“牛市陷阱情境惩罚”，在近期大幅下跌后伴随正向欺骗时，大幅降低和谐拐点的得分。**
-        - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
+        【V5.9 · 和谐拐点】诊断“和谐拐点”信号
+        - 核心逻辑: 识别市场和谐度由低转向高，预示市场情绪和结构改善的关键时刻。
+        - 核心升级: 引入和谐水平调制器，确保低和谐水平下的拐点得分不会过高。
+        - 核心修复: 移除固定持续性奖励，并降低情境调制器的最大乘数，使信号更精准。
         """
         method_name = "_diagnose_harmony_inflection"
         df_index = df.index
+        required_signals = [
+            'harmony_score', # 确保 harmony_score 在所需信号列表中
+            'harmony_velocity_D', 'harmony_acceleration_D',
+            'threshold_modulator_raw_D', 'deception_index_D', 'wash_trade_intensity_D',
+            'chip_health_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'main_force_conviction_index_D', 'pct_change_D',
+            'dynamic_low_harmony_threshold_D', 'dynamic_high_harmony_threshold_D'
+        ]
         p_conf = self.chip_ultimate_params
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 优化：预解析 tf_weights 一次
         parsed_tf_data = utils._parse_tf_weights(tf_weights)
-        inflection_params = get_param_value(p_conf.get('harmony_inflection_params'), {})
-        velocity_period = get_param_value(inflection_params.get('velocity_period'), 1)
-        acceleration_period = get_param_value(inflection_params.get('acceleration_period'), 1)
-        positive_strength_tanh_factor = get_param_value(inflection_params.get('positive_strength_tanh_factor'), 1.5)
-        negative_strength_tanh_factor = get_param_value(inflection_params.get('negative_strength_tanh_factor'), 1.5)
-        base_low_harmony_threshold = get_param_value(inflection_params.get('base_low_harmony_threshold'), 0.2)
-        base_high_harmony_threshold = get_param_value(inflection_params.get('base_high_harmony_threshold'), 0.8)
-        threshold_modulator_signal_name = get_param_value(inflection_params.get('threshold_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
-        threshold_modulator_sensitivity = get_param_value(inflection_params.get('threshold_modulator_sensitivity'), 0.2)
-        low_harmony_boost_factor = get_param_value(inflection_params.get('low_harmony_boost_factor'), 1.5)
-        high_harmony_boost_factor = get_param_value(inflection_params.get('high_harmony_boost_factor'), 1.5)
-        mid_harmony_neutral_factor = get_param_value(inflection_params.get('mid_harmony_neutral_factor'), 1.0)
-        deception_signal_name = get_param_value(inflection_params.get('deception_signal'), 'deception_index_D')
-        wash_trade_signal_name = get_param_value(inflection_params.get('wash_trade_signal'), 'wash_trade_intensity_D')
-        deception_penalty_sensitivity = get_param_value(inflection_params.get('deception_penalty_sensitivity'), 0.7)
-        wash_trade_mitigation_sensitivity = get_param_value(inflection_params.get('wash_trade_mitigation_sensitivity'), 0.3)
-        persistence_period = get_param_value(inflection_params.get('persistence_period'), 2)
-        persistence_bonus_factor = get_param_value(inflection_params.get('persistence_bonus_factor'), 0.1)
-        context_modulator_signal_1_name = get_param_value(inflection_params.get('context_modulator_signal_1'), 'chip_health_score_D')
-        context_modulator_signal_2_name = get_param_value(inflection_params.get('context_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
-        context_modulator_signal_3_name = get_param_value(inflection_params.get('context_modulator_signal_3'), 'main_force_conviction_index_D')
-        context_modulator_sensitivity_health = get_param_value(inflection_params.get('context_modulator_sensitivity_health'), 0.5)
-        context_modulator_sensitivity_volatility = get_param_value(inflection_params.get('context_modulator_sensitivity_volatility'), 0.3)
-        context_modulator_sensitivity_conviction = get_param_value(inflection_params.get('context_modulator_sensitivity_conviction'), 0.4)
-        deception_boost_factor_negative = get_param_value(inflection_params.get('deception_boost_factor_negative'), 0.5)
-        required_signals = [
-            threshold_modulator_signal_name,
-            deception_signal_name,
-            wash_trade_signal_name,
-            context_modulator_signal_1_name,
-            context_modulator_signal_2_name,
-            context_modulator_signal_3_name,
-            'pct_change_D'
-        ]
+        harmony_inflection_params = get_param_value(p_conf.get('harmony_inflection_params'), {})
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
         signals_data = self._get_all_required_signals(df, required_signals, method_name)
@@ -3549,116 +3517,121 @@ class ChipIntelligence:
                 if date.date() in self.probe_dates_set:
                     probe_ts = date
                     break
-        debug_info_tuple = (is_debug_enabled, probe_ts, method_name)
-        threshold_modulator_raw = signals_data[threshold_modulator_signal_name]
-        deception_raw = signals_data[deception_signal_name]
-        wash_trade_raw = signals_data[wash_trade_signal_name]
-        chip_health_raw = signals_data[context_modulator_signal_1_name]
-        volatility_instability_raw = signals_data[context_modulator_signal_2_name]
-        main_force_conviction_raw = signals_data[context_modulator_signal_3_name]
-        # --- 修正：先计算 harmony_velocity 和 harmony_acceleration ---
-        harmony_velocity = harmony_score.diff(velocity_period).fillna(0)
-        harmony_acceleration = harmony_velocity.diff(acceleration_period).fillna(0)
-        # 优化：传递预解析的 tf_weights 数据
-        norm_velocity = utils.get_adaptive_mtf_normalized_bipolar_score(harmony_velocity, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_acceleration = utils.get_adaptive_mtf_normalized_bipolar_score(harmony_acceleration, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        # --- Numba优化区域：inflection_strength ---
-        positive_inflection_strength_values, negative_inflection_strength_values = _numba_calculate_inflection_strength_core(
-            norm_velocity.values,
-            norm_acceleration.values,
-            positive_strength_tanh_factor,
-            negative_strength_tanh_factor
-        )
-        positive_inflection_strength = pd.Series(positive_inflection_strength_values, index=df_index, dtype=np.float32)
-        negative_inflection_strength = pd.Series(negative_inflection_strength_values, index=df_index, dtype=np.float32)
-        inflection_strength = positive_inflection_strength - negative_inflection_strength
-        # --- Numba优化区域结束 ---
-        # 优化：传递预解析的 tf_weights 数据
-        norm_threshold_modulator = utils.get_adaptive_mtf_normalized_score(threshold_modulator_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        dynamic_low_harmony_threshold = base_low_harmony_threshold * (1 - norm_threshold_modulator * threshold_modulator_sensitivity)
-        dynamic_high_harmony_threshold = base_high_harmony_threshold * (1 + norm_threshold_modulator * threshold_modulator_sensitivity)
-        dynamic_low_harmony_threshold = dynamic_low_harmony_threshold.clip(0.05, 0.3)
-        dynamic_high_harmony_threshold = dynamic_high_harmony_threshold.clip(0.7, 0.95)
-        position_sensitivity_factor = pd.Series(mid_harmony_neutral_factor, index=df_index)
-        low_harmony_zone_mask = harmony_score < dynamic_low_harmony_threshold
-        position_sensitivity_factor.loc[low_harmony_zone_mask & (inflection_strength > 0)] = low_harmony_boost_factor
-        position_sensitivity_factor.loc[low_harmony_zone_mask & (inflection_strength < 0)] = 1 / low_harmony_boost_factor
-        high_harmony_zone_mask = harmony_score > dynamic_high_harmony_threshold
-        position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength < 0)] = high_harmony_boost_factor
-        position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength > 0)] = 1 / high_harmony_boost_factor
-        # 优化：传递预解析的 tf_weights 数据
-        norm_deception = utils.get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_wash_trade = utils.get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        # --- Numba优化区域：deception_modulator ---
-        deception_modulator_values = _numba_calculate_harmony_inflection_deception_modulator_core(
-            inflection_strength.values,
-            norm_deception.values,
-            norm_wash_trade.values,
-            deception_boost_factor_negative,
-            deception_penalty_sensitivity,
-            wash_trade_mitigation_sensitivity
-        )
-        deception_modulator = pd.Series(deception_modulator_values, index=df_index, dtype=np.float32)
-        # --- Numba优化区域结束 ---
-        inflection_strength_modulated = inflection_strength * deception_modulator
-        persistence_bonus = pd.Series(0.0, index=df_index)
-        positive_persistence_mask = (inflection_strength_modulated > 0) & \
-                                    (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() > 0)
-        persistence_bonus.loc[positive_persistence_mask] = persistence_bonus_factor
-        negative_persistence_mask = (inflection_strength_modulated < 0) & \
-                                    (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() < 0)
-        persistence_bonus.loc[negative_persistence_mask] = -persistence_bonus_factor
-        # 优化：传递预解析的 tf_weights 数据
-        norm_chip_health = utils.get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_volatility_instability = utils.get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        norm_main_force_conviction = utils.get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
-        context_modulator = (
-            (1 + norm_chip_health * context_modulator_sensitivity_health) *
-            (1 + norm_volatility_instability * context_modulator_sensitivity_volatility) *
-            (1 + norm_main_force_conviction * context_modulator_sensitivity_conviction)
-        ).clip(0.5, 2.0)
-        final_score = (inflection_strength_modulated * position_sensitivity_factor * context_modulator) + persistence_bonus
-        bull_trap_penalty = self._calculate_bull_trap_context_penalty(df)
-        final_score = final_score * bull_trap_penalty
-        final_score = final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
+        # --- 信号归一化 ---
+        norm_harmony_score = utils.get_adaptive_mtf_normalized_score(signals_data['harmony_score'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_velocity = utils.get_adaptive_mtf_normalized_score(signals_data['harmony_velocity_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_acceleration = utils.get_adaptive_mtf_normalized_score(signals_data['harmony_acceleration_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_threshold_modulator = utils.get_adaptive_mtf_normalized_score(signals_data['threshold_modulator_raw_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_deception = utils.get_adaptive_mtf_normalized_bipolar_score(signals_data['deception_index_D'], df_index, tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_wash_trade = utils.get_adaptive_mtf_normalized_score(signals_data['wash_trade_intensity_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_chip_health = utils.get_adaptive_mtf_normalized_score(signals_data['chip_health_score_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_volatility_instability = utils.get_adaptive_mtf_normalized_score(signals_data['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=False, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_main_force_conviction = utils.get_adaptive_mtf_normalized_score(signals_data['main_force_conviction_index_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        norm_pct_change = utils.get_adaptive_mtf_normalized_score(signals_data['pct_change_D'], df_index, ascending=True, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+        # --- 1. 和谐速度与加速度 (Harmony Velocity & Acceleration) ---
+        harmony_velocity = signals_data['harmony_velocity_D']
+        harmony_acceleration = signals_data['harmony_acceleration_D']
+        # --- 2. 拐点强度 (Inflection Strength) ---
+        inflection_params = get_param_value(harmony_inflection_params.get('inflection_params'), {})
+        positive_inflection_strength = (norm_velocity * get_param_value(inflection_params.get('velocity_weight'), 0.6) +
+                                        norm_acceleration * get_param_value(inflection_params.get('acceleration_weight'), 0.4))
+        positive_inflection_strength = positive_inflection_strength.clip(0, 1)
+        negative_inflection_strength = (1 - norm_velocity) * (1 - norm_acceleration) # 假设负向拐点与正向相反
+        negative_inflection_strength = negative_inflection_strength.clip(0, 1)
+        inflection_strength = positive_inflection_strength - negative_inflection_strength # 净拐点强度
+        inflection_strength = inflection_strength.clip(0, 1) # 只关注正向拐点
+        # --- 3. 动态和谐阈值 (Dynamic Harmony Thresholds) ---
+        dynamic_low_harmony_threshold = signals_data['dynamic_low_harmony_threshold_D']
+        dynamic_high_harmony_threshold = signals_data['dynamic_high_harmony_threshold_D']
+        # --- 4. 位置敏感性因子 (Position Sensitivity Factor) ---
+        # 当 harmony_score 接近低阈值时，积极拐点信号更强；接近高阈值时，积极拐点信号减弱
+        position_sensitivity_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
+        # 如果当前和谐度低于低阈值，则给予一定惩罚，因为可能只是超跌反弹
+        position_sensitivity_factor.loc[signals_data['harmony_score'] < dynamic_low_harmony_threshold] = \
+            (signals_data['harmony_score'] / dynamic_low_harmony_threshold).clip(0.5, 1.0)
+        # 如果当前和谐度高于高阈值，则给予一定惩罚，因为可能已经处于高位
+        position_sensitivity_factor.loc[signals_data['harmony_score'] > dynamic_high_harmony_threshold] = \
+            (1 - (signals_data['harmony_score'] - dynamic_high_harmony_threshold) / (signals_data['harmony_score'].max() - dynamic_high_harmony_threshold)).clip(0.5, 1.0)
+        # --- 5. 欺骗调制器 (Deception Modulator) ---
+        deception_modulator_params = get_param_value(harmony_inflection_params.get('deception_modulator_params'), {})
+        deception_modulator_weights = get_param_value(deception_modulator_params.get('weights'), {
+            'deception': 0.3, 'wash_trade': 0.3, 'chip_health': 0.2, 'mf_conviction': 0.2
+        })
+        deception_modulator_components = {
+            'deception': (1 - (norm_deception + 1) / 2), # 负向欺骗（诱空）视为积极，正向欺骗（诱多）视为消极
+            'wash_trade': (1 - norm_wash_trade), # 高对倒强度视为消极
+            'chip_health': norm_chip_health,
+            'mf_conviction': norm_main_force_conviction
+        }
+        deception_modulator_score = utils._robust_geometric_mean(deception_modulator_components, deception_modulator_weights, df_index)
+        deception_modulator = 1 + (deception_modulator_score - 0.5) * get_param_value(deception_modulator_params.get('sensitivity'), 0.8)
+        deception_modulator = deception_modulator.clip(0.01, 2.0)
+        # --- 6. 情境调制器 (Context Modulator) ---
+        context_modulator_params = get_param_value(harmony_inflection_params.get('context_modulator_params'), {})
+        context_modulator_signals = get_param_value(context_modulator_params.get('signals'), {
+            'volatility_instability': {'signal_name': 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'weight': 0.5, 'ascending': False},
+            'main_force_conviction': {'signal_name': 'main_force_conviction_index_D', 'weight': 0.5, 'ascending': True}
+        })
+        context_modulator_sensitivity = get_param_value(context_modulator_params.get('sensitivity'), 1.0)
+        context_modulator_components_list = []
+        total_context_weight = 0.0
+        for ctx_key, ctx_config in context_modulator_signals.items():
+            signal_name = ctx_config.get('signal_name')
+            weight = ctx_config.get('weight', 0.0)
+            ascending = ctx_config.get('ascending', True)
+            if signal_name and weight > 0:
+                raw_signal = signals_data[signal_name]
+                norm_signal = utils.get_adaptive_mtf_normalized_score(raw_signal, df_index, ascending=ascending, tf_weights=tf_weights, _parsed_tf_data=parsed_tf_data)
+                context_modulator_components_list.append(norm_signal * weight)
+                total_context_weight += weight
+        if context_modulator_components_list and total_context_weight > 0:
+            combined_context_modulator = sum(context_modulator_components_list) / total_context_weight
+        else:
+            combined_context_modulator = pd.Series(0.5, index=df_index)
+        # 情境调制器转换为乘数
+        context_multiplier = 1 + (combined_context_modulator - 0.5) * context_modulator_sensitivity
+        # MODIFICATION START: 降低情境调制器的最大乘数
+        context_multiplier = context_multiplier.clip(0.5, get_param_value(context_modulator_params.get('clip_max'), 1.3))
+        # MODIFICATION END
+        # --- 融合计算 ---
+        # MODIFICATION START: 引入和谐水平调制器，并移除 persistence_bonus
+        # 确保低和谐水平下的拐点得分不会过高，clip(0.1, 1.0) 保证即使极低也不会完全归零
+        harmony_level_modulator = norm_harmony_score.clip(0.1, 1.0)
+        inflection_strength_modulated_by_level = inflection_strength * harmony_level_modulator
+        inflection_strength_modulated = inflection_strength_modulated_by_level * deception_modulator * position_sensitivity_factor
+        final_score = inflection_strength_modulated * context_multiplier
+        # MODIFICATION END
+        final_score = final_score.clip(0, 1)
+        # 调试信息
         if is_debug_enabled and probe_ts and probe_ts in df.index:
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断“和谐拐点”信号...")
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
-            print(f"        harmony_score: {harmony_score.loc[probe_ts]:.4f}")
-            print(f"        threshold_modulator_raw: {threshold_modulator_raw.loc[probe_ts]:.4f}")
-            print(f"        deception_raw: {deception_raw.loc[probe_ts]:.4f}")
-            print(f"        wash_trade_raw: {wash_trade_raw.loc[probe_ts]:.4f}")
-            print(f"        chip_health_raw: {chip_health_raw.loc[probe_ts]:.4f}")
-            print(f"        volatility_instability_raw: {volatility_instability_raw.loc[probe_ts]:.4f}")
-            print(f"        main_force_conviction_raw: {main_force_conviction_raw.loc[probe_ts]:.4f}")
+            for sig_name in required_signals:
+                val = signals_data[sig_name].loc[probe_ts] if probe_ts in signals_data[sig_name].index else np.nan
+                print(f"        '{sig_name}': {val:.4f}")
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化信号值 ---")
-            print(f"        norm_velocity: {norm_velocity.loc[probe_ts]:.4f}")
-            print(f"        norm_acceleration: {norm_acceleration.loc[probe_ts]:.4f}")
-            print(f"        norm_threshold_modulator: {norm_threshold_modulator.loc[probe_ts]:.4f}")
-            print(f"        norm_deception: {norm_deception.loc[probe_ts]:.4f}")
-            print(f"        norm_wash_trade: {norm_wash_trade.loc[probe_ts]:.4f}")
-            print(f"        norm_chip_health: {norm_chip_health.loc[probe_ts]:.4f}")
-            print(f"        norm_volatility_instability: {norm_volatility_instability.loc[probe_ts]:.4f}")
-            print(f"        norm_main_force_conviction: {norm_main_force_conviction.loc[probe_ts]:.4f}")
+            for key, series in locals().items():
+                if key.startswith('norm_') and isinstance(series, pd.Series) and probe_ts in series.index:
+                    print(f"        {key}: {series.loc[probe_ts]:.4f}")
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
             print(f"        harmony_velocity: {harmony_velocity.loc[probe_ts]:.4f}")
             print(f"        harmony_acceleration: {harmony_acceleration.loc[probe_ts]:.4f}")
             print(f"        positive_inflection_strength: {positive_inflection_strength.loc[probe_ts]:.4f}")
             print(f"        negative_inflection_strength: {negative_inflection_strength.loc[probe_ts]:.4f}")
             print(f"        inflection_strength: {inflection_strength.loc[probe_ts]:.4f}")
+            print(f"        harmony_level_modulator: {harmony_level_modulator.loc[probe_ts]:.4f}") # 新增调试输出
+            print(f"        inflection_strength_modulated_by_level: {inflection_strength_modulated_by_level.loc[probe_ts]:.4f}") # 新增调试输出
             print(f"        dynamic_low_harmony_threshold: {dynamic_low_harmony_threshold.loc[probe_ts]:.4f}")
             print(f"        dynamic_high_harmony_threshold: {dynamic_high_harmony_threshold.loc[probe_ts]:.4f}")
             print(f"        position_sensitivity_factor: {position_sensitivity_factor.loc[probe_ts]:.4f}")
             print(f"        deception_modulator: {deception_modulator.loc[probe_ts]:.4f}")
             print(f"        inflection_strength_modulated: {inflection_strength_modulated.loc[probe_ts]:.4f}")
-            print(f"        persistence_bonus: {persistence_bonus.loc[probe_ts]:.4f}")
-            print(f"        context_modulator: {context_modulator.loc[probe_ts]:.4f}")
-            print(f"        bull_trap_penalty: {bull_trap_penalty.loc[probe_ts]:.4f}")
+            # print(f"        persistence_bonus: {persistence_bonus.loc[probe_ts]:.4f}") # 移除调试输出
+            print(f"        context_multiplier: {context_multiplier.loc[probe_ts]:.4f}") # 修正变量名
             print(f"      [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终和谐拐点得分 (final_score): {final_score.loc[probe_ts]:.4f}")
             print(f"  -- [筹码层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: “和谐拐点”信号诊断完成。")
-        else:
-            print(f"  -- [筹码层] “和谐拐点”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")
-        return final_score
+        print(f"  -- [筹码层] “和谐拐点”信号诊断完成，最新分值: {final_score.iloc[-1]:.4f}")
+        return final_score.fillna(0.0).astype(np.float32)
 
     def _diagnose_chip_retail_vulnerability(self, df: pd.DataFrame) -> pd.Series:
         """

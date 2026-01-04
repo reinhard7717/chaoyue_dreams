@@ -919,6 +919,41 @@
             "comment_dynamic_weight_mod_signal": "动态权重调制信号（如市场情绪）。",
             "dynamic_weight_sensitivity": 0.3,
             "comment_dynamic_weight_sensitivity": "动态权重调制敏感度。"
+        },
+        "harmony_inflection_params": {
+            "description": "【V5.0 · 和谐拐点】和谐拐点信号的专属参数。",
+            "inflection_params": {
+                "description": "拐点强度计算参数",
+                "velocity_weight": 0.6,
+                "acceleration_weight": 0.4
+            },
+            "deception_modulator_params": {
+                "description": "欺骗调制器计算参数",
+                "weights": {
+                    "deception": 0.3,
+                    "wash_trade": 0.3,
+                    "chip_health": 0.2,
+                    "mf_conviction": 0.2
+                },
+                "sensitivity": 0.8,
+                "comment_sensitivity": "欺骗调制器对最终分数的影响敏感度"
+            },
+            "context_modulator_params": {
+                "description": "情境调制器计算参数",
+                "signals": {
+                    "volatility_instability": {"signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D", "weight": 0.5, "ascending": false},
+                    "main_force_conviction": {"signal_name": "main_force_conviction_index_D", "weight": 0.5, "ascending": true}
+                },
+                "sensitivity": 1.0,
+                "comment_sensitivity": "情境调制器对最终分数的影响敏感度",
+                "clip_max": 1.3,
+                "comment_clip_max": "情境调制器乘数的最大值，防止过度放大"
+            },
+            "base_score_weights": {
+                "velocity": 0.4,
+                "acceleration": 0.3,
+                "threshold_proximity": 0.3
+            }
         }
       }
 }
