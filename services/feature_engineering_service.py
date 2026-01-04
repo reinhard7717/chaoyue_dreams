@@ -13,117 +13,30 @@ from utils.math_tools import hurst_exponent
 logger = logging.getLogger("services")
 
 @numba.njit(cache=True)
-def _numba_higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
+def _numba_nonlinear_fusion_core(
+    score_arrays: List[np.ndarray],
+    weight_arrays: List[np.ndarray],
+    volatility_mod_array: np.ndarray,
+    sentiment_mod_array: np.ndarray,
+    entropy_mod_array: np.ndarray
+) -> np.ndarray:
     """
-    【Numba优化版】计算Higuchi分形维数。
+    Numba优化后的核心函数，用于执行非线性融合计算。
     """
-    L = np.empty(k_max, dtype=np.float64)
-    L.fill(np.nan) # 初始化为NaN
-    x_len = len(x)
-    if x_len < 2:
-        return np.nan
-    
-    for k_idx in range(k_max):
-        k = k_idx + 1
-        Lk_sum = 0.0
-        count = 0
-        for m in range(k):
-            # Numba不支持切片步长为负，但这里m::k是正向步长
-            series_len = (x_len - m - 1) // k + 1
-            if series_len < 2:
-                continue
-            current_series = np.empty(series_len, dtype=np.float64)
-            for i in range(series_len):
-                current_series[i] = x[m + i * k]
-            diffs = np.abs(np.diff(current_series))
-            if len(diffs) > 0:
-                denominator = ((x_len - m) // k * k)
-                if denominator == 0:
-                    continue
-                Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
-                count += 1
-        if count > 0 and Lk_sum > 0:
-            L[k_idx] = np.log(Lk_sum / count / k)
-        else:
-            L[k_idx] = np.nan
-    valid_L_indices = np.where(~np.isnan(L))[0]
-    if len(valid_L_indices) < 2:
-        return np.nan
-    valid_L = L[valid_L_indices]
-    k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))
-    valid_k_range_log = k_range_log[valid_L_indices]
-    
-    try:
-        # 手动实现线性回归斜率
-        N = len(valid_L)
-        sum_x = np.sum(valid_k_range_log)
-        sum_y = np.sum(valid_L)
-        sum_xy = np.sum(valid_k_range_log * valid_L)
-        sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
-        denominator_reg = N * sum_x2 - sum_x * sum_x
-        if denominator_reg == 0:
-            return np.nan
-        slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
-        fd = np.abs(slope)
-        # 核心修复：手动实现标量裁剪，避免np.clip对标量参数的Numba TypingError
-        if fd < 1.0:
-            fd = 1.0
-        elif fd > 2.0:
-            fd = 2.0
-        return fd
-    except Exception:
-        return np.nan
-
-@numba.njit(cache=True)
-def _numba_sample_entropy(x: np.ndarray, m: int, r: float) -> float:
-    """
-    【Numba优化版】计算样本熵。
-    """
-    n = len(x)
-    if n < m + 1:
-        return np.nan
-
-    # 计算距离函数
-    def _max_dist(x_i, x_j):
-        return np.max(np.abs(x_i - x_j))
-
-    # 计算 B_m(r)
-    B = 0
-    for i in range(n - m + 1):
-        for j in range(i + 1, n - m + 1): # 避免重复和自身比较
-            if _max_dist(x[i:i+m], x[j:j+m]) < r:
-                B += 1
-
-    # 计算 A_m(r)
-    A = 0
-    for i in range(n - m):
-        for j in range(i + 1, n - m): # 避免重复和自身比较
-            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
-                A += 1
-    
-    # 原始实现中 B 和 A 的计算方式可能导致 B < A
-    # 样本熵的定义是 -ln(A/B)
-    # B_m(r) 是匹配长度为 m 的模式对的数量
-    # A_m(r) 是匹配长度为 m+1 的模式对的数量
-    # 这里的 B 和 A 应该对应于原始定义中的 N_m 和 N_{m+1}
-    
-    # 重新计算 B 和 A
-    count_m = 0
-    for i in range(n - m):
-        for j in range(i + 1, n - m):
-            if _max_dist(x[i:i+m], x[j:j+m]) < r:
-                count_m += 1
-    
-    count_m_plus_1 = 0
-    for i in range(n - m - 1):
-        for j in range(i + 1, n - m - 1):
-            if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
-                count_m_plus_1 += 1
-
-    if count_m == 0:
-        return np.nan # 避免除以零
-    
-    return -np.log(count_m_plus_1 / count_m)
+    num_dates = len(score_arrays[0]) if score_arrays else 0
+    if num_dates == 0:
+        return np.full(0, 0.0, dtype=np.float32)
+    fused_score = np.zeros(num_dates, dtype=np.float32)
+    for i in range(len(score_arrays)):
+        score_series = score_arrays[i]
+        weight = weight_arrays[i]
+        # 动态调整分数，例如：高波动率时，某些指标的权重可能降低
+        # 这里使用一个简单的乘法调制，更复杂的可以根据具体指标设计
+        # 确保所有调制因子都是数组，以便进行逐元素操作
+        modulated_score = score_series * (1 + volatility_mod_array * 0.1 - sentiment_mod_array * 0.05 - entropy_mod_array * 0.05)
+        fused_score += modulated_score * weight
+    # 使用 tanh 将分数映射到 [-1, 1] 之间，提供非线性压缩
+    return np.tanh(fused_score)
 
 class FeatureEngineeringService:
     """
@@ -966,11 +879,12 @@ class FeatureEngineeringService:
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V3.3 · 结构动力学与细粒度博弈升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
+        【V3.4 · OCH非线性融合Numba优化版】计算整体筹码健康度 (Overall Chip Health, OCH)。
         - 核心升级: 维度一“筹码集中度与结构优化”的计算逻辑重构，引入 cost_gini_coefficient 和 primary_peak_kurtosis 两个核心指标，
                     替代旧的 winner/loser_concentration 指标，实现对筹码结构更精准、更深刻的量化评估。
                     全面替换旧的聚合指标，引入新的买卖双方细粒度指标，并重新设计部分融合逻辑，以更精确地反映市场博弈的真实情况。
         - 【新增】引入非线性融合（tanh函数）和情境自适应（基于波动率和市场情绪）来增强OCH的鲁棒性和敏感度。
+        - 【新增】`_nonlinear_fusion` 逻辑已通过 Numba 优化。
         - 目的: 在数据层提前计算一个综合的筹码健康度指标，供后续斜率计算和情报层使用。
         - 数据源: 直接从 df 中获取原始筹码相关列。
         """
@@ -1059,26 +973,33 @@ class FeatureEngineeringService:
         def _get_safe_series_local(col_name, default_val=0.0):
             if col_name not in df.columns:
                 print(f"调试信息: OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
-                return pd.Series(default_val, index=df_index)
-            return df[col_name].fillna(default_val)
+                return pd.Series(default_val, index=df_index, dtype=np.float32) # 确保返回 float32
+            return df[col_name].fillna(default_val).astype(np.float32) # 确保返回 float32
         # --- 情境自适应调制器 ---
         # 波动率情境：高波动率时，筹码健康度可能更不稳定，需要更谨慎的评估
-        volatility_context = _get_safe_series_local('VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0).rolling(21).mean().fillna(0)
+        volatility_context = _get_safe_series_local('VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
         # 市场情绪情境：极端情绪下，筹码健康度可能被扭曲
-        sentiment_context = _get_safe_series_local('market_sentiment_score_D', 0.0).rolling(21).mean().fillna(0)
+        sentiment_context = _get_safe_series_local('market_sentiment_score_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
         # 市场信息复杂度情境：高复杂度时，信号可能更模糊
-        entropy_context = _get_safe_series_local('price_volume_entropy_D', 0.0).rolling(21).mean().fillna(0)
+        entropy_context = _get_safe_series_local('price_volume_entropy_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
         # 融合函数：使用 tanh 激活函数进行非线性融合，并考虑情境调制
-        def _nonlinear_fusion(scores, weights, volatility_mod=1.0, sentiment_mod=1.0, entropy_mod=1.0):
-            fused_score = pd.Series(0.0, index=df_index)
-            for score_name, weight in weights.items():
-                score_series = scores.get(score_name, pd.Series(0.0, index=df_index))
-                # 动态调整权重或分数，例如：高波动率时，某些指标的权重可能降低
-                # 这里使用一个简单的乘法调制，更复杂的可以根据具体指标设计
-                modulated_score = score_series * (1 + volatility_mod * 0.1 - sentiment_mod * 0.05 - entropy_mod * 0.05)
-                fused_score += modulated_score * weight
-            # 使用 tanh 将分数映射到 [-1, 1] 之间，提供非线性压缩
-            return np.tanh(fused_score)
+        def _nonlinear_fusion(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, float], volatility_mod: pd.Series, sentiment_mod: pd.Series, entropy_mod: pd.Series) -> pd.Series:
+            # 准备 Numba 函数所需的 NumPy 数组
+            score_arrays = []
+            weight_arrays = []
+            for score_name, weight in weights_dict.items():
+                score_series = scores_dict.get(score_name, pd.Series(0.0, index=df_index, dtype=np.float32))
+                score_arrays.append(score_series.values)
+                weight_arrays.append(np.full_like(score_series.values, weight, dtype=np.float32))
+            # 调用 Numba 优化函数
+            fused_score_values = _numba_nonlinear_fusion_core(
+                score_arrays,
+                weight_arrays,
+                volatility_mod.values,
+                sentiment_mod.values,
+                entropy_mod.values
+            )
+            return pd.Series(fused_score_values, index=df_index, dtype=np.float32)
         # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
         cost_gini = _get_safe_series_local('cost_gini_coefficient_D', 0.5)
         peak_kurtosis = _get_safe_series_local('primary_peak_kurtosis_D', 3.0)
@@ -1180,7 +1101,7 @@ class FeatureEngineeringService:
         control_strength = mf_control_leverage * ((vwap_control_composite + 1) / 2)
         mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2
         turnover_rate_f = _get_safe_series_local('turnover_rate_f_D', 0.0)
-        turnover_health = pd.Series(1.0, index=df_index)
+        turnover_health = pd.Series(1.0, index=df_index, dtype=np.float32)
         turnover_health[turnover_rate_f < 2] = turnover_rate_f[turnover_rate_f < 2] / 2
         turnover_health[turnover_rate_f > 15] = 1 - (turnover_rate_f[turnover_rate_f > 15] - 15) / 10
         turnover_health = turnover_health.clip(0, 1)

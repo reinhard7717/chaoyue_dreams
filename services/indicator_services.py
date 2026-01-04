@@ -27,6 +27,7 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from utils.cache_manager import CacheManager
 from utils.math_tools import hurst_exponent
+from strategies.trend_following.utils import _numba_calculate_zscore_core
 
 warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
 warnings.filterwarnings(action='ignore', category=FutureWarning, message=".*Passing 'suffixes' which cause duplicate columns.*")
@@ -930,11 +931,12 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.23 · 指标计算前重复索引终极清理版】根据配置为指定时间周期计算所有技术指标。
+        【V110.24 · Z-score Numba优化版】根据配置为指定时间周期计算所有技术指标。
         - 核心修复: 在指标计算前，对 `df_for_calc` 进行最终的重复索引清理，确保 `pandas_ta` 等库接收到的DataFrame索引唯一。
         - 核心修复: 调整了 `merge_results` 函数的逻辑，确保只对**不以时间框架后缀结尾**的列添加后缀，避免重复。
         - 【修复】对于 `advanced_structural_metrics`, `platform_feature`, `trendline_feature`, `multi_timeframe_trendline`，
                   这些数据已在数据准备阶段从DAO获取并合并到DataFrame中，此处不再尝试调用 `IndicatorCalculator` 进行计算，而是直接跳过。
+        - 【新增】Z-score计算已通过 Numba 优化。
         """
         if not config:
             return df
@@ -1009,8 +1011,14 @@ class IndicatorService:
                         else: continue
                         if source_col_name in df_for_calc.columns:
                             source_series = df_for_calc[source_col_name]
-                            zscore_result = ((source_series - source_series.rolling(window=window).mean()) / source_series.rolling(window=window).std()).fillna(0)
-                            df_for_calc[output_col_name.removesuffix(f"_{timeframe_key}") + f"_{timeframe_key}"] = zscore_result
+                            # 【Numba优化】调用新的 Numba 辅助函数
+                            zscore_values = _numba_calculate_zscore_core(
+                                source_series.values.astype(np.float32),
+                                window,
+                                max(1, int(window * 0.2)), # min_periods
+                                0.0 # default_value
+                            )
+                            df_for_calc[output_col_name.removesuffix(f"_{timeframe_key}") + f"_{timeframe_key}"] = pd.Series(zscore_values, index=df_for_calc.index, dtype=np.float32)
                         else:
                             logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
                     except Exception as e:

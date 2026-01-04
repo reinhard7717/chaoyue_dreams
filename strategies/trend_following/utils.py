@@ -1464,5 +1464,31 @@ def _numba_normalize_single_window_energy_score_core(
             normalized_scores[i] = default_value
     return normalized_scores
 
+# 文件: strategies/trend_following/utils.py
+
+@numba.njit(cache=True)
+def _numba_calculate_zscore_core(
+    series_values: np.ndarray,
+    window: int,
+    min_periods: int,
+    default_value: float
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算滚动窗口内的Z-score。
+    """
+    n = len(series_values)
+    zscores = np.full(n, default_value, dtype=np.float32)
+    rolling_mean, rolling_std = _numba_rolling_mean_std_core(series_values, window, min_periods)
+    for i in range(n):
+        if not np.isnan(series_values[i]) and not np.isnan(rolling_mean[i]) and not np.isnan(rolling_std[i]):
+            if rolling_std[i] > 1e-9: # 避免除以零
+                zscores[i] = (series_values[i] - rolling_mean[i]) / rolling_std[i]
+            else:
+                # 如果标准差为0，表示窗口内所有值相同，zscore为0
+                zscores[i] = 0.0
+        else:
+            zscores[i] = default_value
+    return zscores
+
 
 
