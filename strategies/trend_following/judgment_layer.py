@@ -11,10 +11,10 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V538.1 · 进攻风险分离与全面惩罚版】
-        - 核心革命: final_score 现在是 (总进攻分 - 总风险惩罚) * confidence_damper。
-        - 核心增强: df['risk_score'] 现在记录所有负向信号的绝对值之和 (total_risk_sum)。
-        - 收益: 实现了从“基于规则的被动离场”到“基于状态的主动防御”的哲学飞跃。
+        【V538.3 · 纯净分数决策版】
+        - 核心革命: 彻底取消警报系统。决策完全基于 (总进攻分 - 总风险惩罚) * confidence_damper。
+        - 核心逻辑: 不再生成或使用 alert_level 和 alert_reason。
+        - 收益: 决策流程更加纯粹和量化，避免了警报机制带来的额外复杂性。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -26,28 +26,26 @@ class JudgmentLayer:
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
-        # 获取总进攻分和总风险惩罚分
-        total_offensive_score = df['entry_score'] # 此时 entry_score 已经是 OffensiveLayer 返回的总进攻分
-        total_risk_sum = df['total_risk_sum'] # 从 IntelligenceLayer 传递过来的总风险惩罚分
-        # 计算净得分：总进攻分 - 总风险惩罚
+        total_offensive_score = df['entry_score']
+        total_risk_sum = df['total_risk_sum']
         net_score = total_offensive_score - total_risk_sum
-        # 应用信心阻尼器到净得分
         df['final_score'] = net_score * confidence_damper
-        df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
+        # 移除警报等级和原因的赋值，以及对 _adjudicate_risk_level 的调用
+        # df['alert_level'], df['alert_reason'] = self._adjudicate_risk_level(total_risk_sum) # 移除此行
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        # df['risk_score'] 现在直接使用 total_risk_sum，代表所有负向信号的绝对值之和
-        df['risk_score'] = total_risk_sum.fillna(0.0) 
+        df['risk_score'] = total_risk_sum.fillna(0.0)
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
         is_score_sufficient = df['final_score'] > final_score_threshold
-        # 核心否决逻辑
-        is_veto_by_alert = df['alert_level'] >= get_param_value(p_judge_common.get('veto_alert_level'), 3)
-        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
+        # 移除警报否决逻辑
+        # is_veto_by_alert = df['alert_level'] >= get_param_value(p_judge_common.get('veto_alert_level'), 3) # 移除此行
+        potential_buy_condition = is_score_sufficient # 不再有警报否决，直接判断分数是否足够
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        alert_veto_condition = is_score_sufficient & is_veto_by_alert
-        df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[alert_veto_condition, 'final_score'] = 0.0 # 风险否决时最终分归零
+        # 移除警报否决条件下的信号类型和分数归零逻辑
+        # alert_veto_condition = is_score_sufficient & is_veto_by_alert # 移除此行
+        # df.loc[alert_veto_condition, 'signal_type'] = '风险否决' # 移除此行
+        # df.loc[alert_veto_condition, 'final_score'] = 0.0 # 移除此行
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
@@ -141,80 +139,6 @@ class JudgmentLayer:
         final_buy_condition = (df['signal_type'] == '买入信号')
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
-
-    def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
-        """
-        【V2.14 · 筹码派发诡影纳入版】风险裁决者 (Risk Adjudicator)
-        - 核心升级: 将筹码层面的派发诡影风险信号 `SCORE_CHIP_RISK_DISTRIBUTION_WHISPER` 纳入最高优先级风险类别。
-        - 核心逻辑: 严格遵循指令，现在只检查由 FusionIntelligence 和 CognitiveIntelligence
-                      生成的风险信号，移除了所有其他原子层和过程层信号。
-        - 核心逻辑: 根据信号的性质和重要性，将其归类到不同的警报等级（3级红色、2级橙色、1级黄色）。
-        """
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        # 扩展风险类别，现在只包含 FusionIntelligence 和 CognitiveIntelligence 生成的风险信号
-        risk_categories = {
-            # 3级红色警报：最高优先级，系统性风险或明确顶部信号
-            'COGNITIVE_SYSTEMIC_RISK': [ # 认知层面的系统性风险或重大派发陷阱
-                'COGNITIVE_RISK_KEY_SUPPORT_BREAK',
-                'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE',
-                'COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION',
-                'COGNITIVE_RISK_RETAIL_FOMO_RETREAT',
-                'COGNITIVE_RISK_HARVEST_CONFIRMATION',
-                'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION',
-                'COGNITIVE_RISK_LIQUIDITY_TRAP',
-                'COGNITIVE_RISK_TREND_EXHAUSTION',
-                'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', # 认知层高位派发风险
-                'FUSION_RISK_DISTRIBUTION_PRESSURE', # 融合层派发压力
-                'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME', # 由 FusionIntelligence 生成的趋势衰竭综合征
-                'FUSION_RISK_STAGNATION', # 融合层滞涨风险
-                'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', # 由 FusionIntelligence 生成的内部行为滞涨证据
-                'SCORE_FF_DECEPTION_RISK', # 资金流诡道风险
-                'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER' # 新增：筹码派发诡影
-            ],
-            # 2级橙色警报：显著风险，需要高度关注
-            'COGNITIVE_CYCLICAL_RISK': [ # 认知层周期顶部风险
-                'COGNITIVE_RISK_CYCLICAL_TOP'
-            ],
-            # 1级黄色警报：早期预警或一般性风险
-            'COGNITIVE_EARLY_WARNING_RISK': [ # 认知层早期预警
-                'COGNITIVE_RISK_MARKET_UNCERTAINTY',
-                'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE'
-            ]
-        }
-        fused_risks = {}
-        for category, signals in risk_categories.items():
-            signal_scores = []
-            for s in signals:
-                score_series = atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0)
-                # 这些信号在 signal_dictionary.json 中都是 type: risk, scoring_mode: unipolar，
-                # 值越高风险越大，已归一化到 [0,1]，因此无需特殊处理 clip(upper=0).abs()
-                signal_scores.append(score_series)
-            fused_risks[category] = np.maximum.reduce(signal_scores) if signal_scores else pd.Series(0.0, index=df.index)
-        fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
-        p_judge = get_params_block(self.strategy, 'judgment_day_params', {})
-        # 获取所有风险类别的阈值
-        # 调整阈值名称以匹配新的风险类别
-        cognitive_systemic_threshold = get_param_value(p_judge.get('cognitive_systemic_alert_threshold'), 0.7)
-        cognitive_cyclical_threshold = get_param_value(p_judge.get('cognitive_cyclical_alert_threshold'), 0.6) # 使用原 liquidity_drain_threshold 的值
-        cognitive_early_warning_threshold = get_param_value(p_judge.get('cognitive_early_warning_alert_threshold'), 0.5) # 使用原 early_warning_alert_threshold 的值
-        # 移除未使用的 is_uptrend_context
-        # is_uptrend_context = df.get('close_D', 0) > df.get('EMA_5_D', 0)
-        conditions = [
-            fused_risks_df['COGNITIVE_SYSTEMIC_RISK'] > cognitive_systemic_threshold,
-            fused_risks_df['COGNITIVE_CYCLICAL_RISK'] > cognitive_cyclical_threshold,
-            fused_risks_df['COGNITIVE_EARLY_WARNING_RISK'] > cognitive_early_warning_threshold,
-        ]
-        choices_level = [3, 2, 1] # 警报等级
-        choices_reason = [
-            '红色警报: 认知系统性风险或重大派发',
-            '橙色警报: 认知周期顶部风险',
-            '黄色警报: 认知早期预警'
-        ]
-        alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
-        alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
-        self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
-        return alert_level, alert_reason, fused_risks_df
 
     def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:
         """
