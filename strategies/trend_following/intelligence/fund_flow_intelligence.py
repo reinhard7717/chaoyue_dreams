@@ -1254,49 +1254,49 @@ class FundFlowIntelligence:
             "final_score": final_score
         }
         # 统一输出调试信息
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断战场控制权..."] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振因子计算 ---"] = ""
-            for key, series in _temp_debug_values["MTF共振因子计算"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 宏观资金流质量计算 ---"] = ""
-            for key, series in _temp_debug_values["宏观资金流质量计算"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 微观盘口意图推断计算 ---"] = ""
-            for key, series in _temp_debug_values["微观盘口意图推断计算"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道风险信号获取 ---"] = ""
-            for key, series in _temp_debug_values["诡道风险信号获取"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重自适应计算 ---"] = ""
-            for key, series in _temp_debug_values["动态权重自适应计算"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础战场控制权融合 ---"] = ""
-            for key, series in _temp_debug_values["基础战场控制权融合"].items():
-                if isinstance(series, pd.Series):
-                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                    debug_output[f"        {key}: {val:.4f}"] = ""
-                else:
-                    debug_output[f"        {key}: {series:.4f}"] = ""
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态演化与前瞻性增强 ---"] = ""
-            for key, series in _temp_debug_values["战场控制权动态演化与前瞻性增强"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 战场控制权诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断战场控制权..."] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for sig_name, series in _temp_debug_values["原始信号值"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振因子计算 ---"] = ""
+        #     for key, series in _temp_debug_values["MTF共振因子计算"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 宏观资金流质量计算 ---"] = ""
+        #     for key, series in _temp_debug_values["宏观资金流质量计算"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 微观盘口意图推断计算 ---"] = ""
+        #     for key, series in _temp_debug_values["微观盘口意图推断计算"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道风险信号获取 ---"] = ""
+        #     for key, series in _temp_debug_values["诡道风险信号获取"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重自适应计算 ---"] = ""
+        #     for key, series in _temp_debug_values["动态权重自适应计算"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础战场控制权融合 ---"] = ""
+        #     for key, series in _temp_debug_values["基础战场控制权融合"].items():
+        #         if isinstance(series, pd.Series):
+        #             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #             debug_output[f"        {key}: {val:.4f}"] = ""
+        #         else:
+        #             debug_output[f"        {key}: {series:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态演化与前瞻性增强 ---"] = ""
+        #     for key, series in _temp_debug_values["战场控制权动态演化与前瞻性增强"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 战场控制权诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score.astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
