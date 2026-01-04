@@ -2212,7 +2212,7 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V5.6 · 双极性归一化精确修正版 & 效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
+        【V5.7 · 双极性归一化精确修正版 & 效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         - 【修复】将缺失的 `main_force_vwap_deviation_D` 替换为 `intraday_vwap_div_index_D`。
@@ -2299,9 +2299,13 @@ class FundFlowIntelligence:
         norm_main_force_cost_advantage = (norm_abs_cost_advantage * np.sign(main_force_cost_advantage_raw)).clip(-1, 1)
 
         # MODIFICATION START: 精确修正 intraday_vwap_div_index_D 的归一化逻辑
-        # 业务含义：越低越好（0最好，高值最差）。先对原始值进行降序归一化（0->1, max->0），然后转换为 [1, -1]
-        norm_unipolar_vwap_deviation = get_adaptive_mtf_normalized_score(main_force_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
-        norm_main_force_vwap_deviation = (norm_unipolar_vwap_deviation * 2 - 1).clip(-1, 1)
+        # 业务含义：越低越好（0最好，高值最差）。
+        # 1. 先对原始值进行升序归一化（0->0, max->1），得到一个“差”的程度的单极性分数。
+        norm_unipolar_vwap_deviation_badness = get_adaptive_mtf_normalized_score(main_force_vwap_deviation_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        # 2. 将“差”的程度反转，得到“好”的程度的单极性分数（0->1, max->0）。
+        norm_unipolar_vwap_deviation_goodness = 1 - norm_unipolar_vwap_deviation_badness
+        # 3. 将“好”的程度转换为 [-1, 1] 范围的双极性分数。
+        norm_main_force_vwap_deviation = (norm_unipolar_vwap_deviation_goodness * 2 - 1).clip(-1, 1)
         # MODIFICATION END
 
         cost_advantage_score = (
@@ -2619,9 +2623,9 @@ class FundFlowIntelligence:
         debug_info_tuple = (is_debug_enabled, probe_ts, method_name_str)
         # 调试信息收集字典
         debug_output = {}
-        if is_debug_enabled and probe_ts:
-            debug_output[f"--- {method_name_str} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算MTF共振/背离因子 for {signal_base_name}..."] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"--- {method_name_str} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算MTF共振/背离因子 for {signal_base_name}..."] = ""
         # 1. 获取短期和长期斜率/加速度的归一化分数
         short_slope_scores = []
         short_accel_scores = []
@@ -2654,12 +2658,12 @@ class FundFlowIntelligence:
         avg_short_accel = sum(short_accel_scores) / len(short_accel_scores) if short_accel_scores else pd.Series(0.0, index=df_index)
         avg_long_slope = sum(long_slope_scores) / len(long_slope_scores) if long_slope_scores else pd.Series(0.0, index=df_index)
         avg_long_accel = sum(long_accel_scores) / len(long_accel_scores) if long_accel_scores else pd.Series(0.0, index=df_index)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: --- 平均归一化斜率/加速度 ---"] = ""
-            debug_output[f"        avg_short_slope: {avg_short_slope.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        avg_short_accel: {avg_short_accel.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        avg_long_slope: {avg_long_slope.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        avg_long_accel: {avg_long_accel.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: --- 平均归一化斜率/加速度 ---"] = ""
+        #     debug_output[f"        avg_short_slope: {avg_short_slope.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        avg_short_accel: {avg_short_accel.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        avg_long_slope: {avg_long_slope.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        avg_long_accel: {avg_long_accel.loc[probe_ts]:.4f}"] = ""
         # 2. 准备NumPy数组，传递给Numba函数
         epsilon_sign = 1e-9 # Small constant to avoid division by zero
         persistence_window = 5 # Default, can be made configurable
@@ -2673,11 +2677,11 @@ class FundFlowIntelligence:
         )
         # 3. 将Numba函数返回的NumPy数组转换回Pandas Series
         mtf_resonance_score = pd.Series(mtf_resonance_score_values, index=df_index, dtype=np.float32)
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: --- Numba核心计算结果 ---"] = ""
-            debug_output[f"        mtf_resonance_score: {mtf_resonance_score.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"  -- [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振/背离因子计算完成。"] = ""
-            self._print_debug_output(debug_output)
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: --- Numba核心计算结果 ---"] = ""
+        #     debug_output[f"        mtf_resonance_score: {mtf_resonance_score.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"  -- [资金流层调试] {method_name_str} @ {probe_ts.strftime('%Y-%m-%d')}: MTF共振/背离因子计算完成。"] = ""
+        #     self._print_debug_output(debug_output)
         return mtf_resonance_score.astype(np.float32)
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
