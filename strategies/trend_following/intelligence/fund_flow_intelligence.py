@@ -2400,6 +2400,7 @@ class FundFlowIntelligence:
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         - 【新增】所有调试信息统一在方法末尾输出。
+        - 【优化】优化 required_signals 的构建和原始信号调试信息的收集。
         """
         method_name = "_diagnose_axiom_flow_structure_health"
         df_index = df.index
@@ -2447,7 +2448,9 @@ class FundFlowIntelligence:
             context_modulator_signal_1_name, context_modulator_signal_2_name, context_modulator_signal_3_name,
             dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name
         ]
+        # MODIFICATION START: 提前进行去重操作
         required_signals = list(set(required_signals))
+        # MODIFICATION END
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。"] = ""
@@ -2468,11 +2471,9 @@ class FundFlowIntelligence:
         trend_vitality_raw = raw_data_cache[context_modulator_signal_3_name]
         dynamic_evolution_context_modulator_1_raw = raw_data_cache[dynamic_evolution_context_modulator_signal_1_name]
         dynamic_evolution_context_modulator_2_raw = raw_data_cache[dynamic_evolution_context_modulator_signal_2_name]
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name in required_signals:
-                val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+        # MODIFICATION START: 优化原始信号值收集
+        _temp_debug_values = {"原始信号值": raw_data_cache}
+        # MODIFICATION END
         # --- 1. 微观结构效率 (Microstructure Efficiency) ---
         norm_microstructure_efficiency = get_adaptive_mtf_normalized_score(microstructure_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights=tf_weights_ff)
