@@ -1363,6 +1363,8 @@ class ChipIntelligence:
         slope_5_support_validation_raw = signals_data['SLOPE_5_support_validation_strength_D']
         accel_5_capitulation_absorption_raw = signals_data['ACCEL_5_capitulation_absorption_index_D']
         slope_5_active_buying_support_raw = signals_data['SLOPE_5_active_buying_support_D']
+        fomo_index_raw = signals_data['winner_concentration_90pct_D']
+        profit_taking_quality_raw = signals_data['winner_profit_margin_avg_D']
         upper_shadow_selling_pressure_raw = signals_data['upper_shadow_selling_pressure_D']
         rally_distribution_pressure_raw = signals_data['rally_distribution_pressure_D']
         retail_fomo_premium_raw = signals_data['retail_fomo_premium_index_D']
@@ -1508,6 +1510,8 @@ class ChipIntelligence:
         )
         conviction_base_unipolar = pd.Series(conviction_base_unipolar_values, index=df_index, dtype=np.float32)
         # --- Numba优化区域结束 ---
+        # 确保 fomo_index_raw 在使用前被定义
+        fomo_index_raw = signals_data['winner_concentration_90pct_D']
         norm_fomo_deviation = utils.get_adaptive_mtf_normalized_score((fomo_index_raw - fomo_concentration_optimal_target).abs(), df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
         profit_taking_quality_thresholded = (profit_taking_quality_raw - profit_taking_threshold).clip(lower=0)
         norm_profit_taking_quality = utils.get_adaptive_mtf_normalized_score(profit_taking_quality_thresholded, df_index, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)
