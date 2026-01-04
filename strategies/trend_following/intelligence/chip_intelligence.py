@@ -2210,7 +2210,7 @@ class ChipIntelligence:
             'suppressive_accumulation_intensity_D', 'main_force_cost_advantage_D',
             'peak_control_transfer_D', 'main_force_conviction_index_D',
             'main_force_net_flow_calibrated_D', 'main_force_flow_directionality_D',
-            'main_force_vpoc_D', 'main_force_activity_ratio_D',
+            'main_force_vpoc_D', 'main_force_activity_ratio_D', 'market_sentiment_score_D',
             'SLOPE_5_covert_accumulation_signal_D', 'ACCEL_5_main_force_conviction_index_D',
             'SMART_MONEY_HM_NET_BUY_D', 'chip_fault_magnitude_D',
             'deception_index_D', 'wash_trade_intensity_D', 'chip_health_score_D',
