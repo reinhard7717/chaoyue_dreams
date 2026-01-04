@@ -1293,7 +1293,7 @@ def _numba_rank_window_average(arr_window, min_periods_for_rank):
     rank_of_last_element = ranks[n - 1] # n-1 是 arr_window 中最后一个元素的索引
     return rank_of_last_element / n # 归一化排名 (除以窗口总长度)
 
-@nb.njit(cache=True)
+@numba.njit(cache=True)
 def _numba_rolling_rank_core(arr: np.ndarray, window: int, min_periods: int) -> np.ndarray:
     """
     Numba优化后的核心函数，用于计算滚动窗口内的排名归一化分数。
@@ -1325,7 +1325,7 @@ def _numba_rolling_rank_core(arr: np.ndarray, window: int, min_periods: int) -> 
             ranked_scores[i] = rank
     return ranked_scores
 
-@nb.njit(cache=True)
+@numba.njit(cache=True)
 def _numba_normalize_score_multi_window_core(
     series_values: np.ndarray,
     windows_list: List[int],
@@ -1362,7 +1362,7 @@ def _numba_normalize_score_multi_window_core(
         results_array[:, w_idx] = normalized_series_window
     return results_array
 
-@nb.njit(cache=True)
+@numba.njit(cache=True)
 def _numba_rolling_mean_std_core(arr: np.ndarray, window: int, min_periods: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Numba优化后的核心函数，用于计算滚动窗口内的均值和标准差。
@@ -1379,7 +1379,7 @@ def _numba_rolling_mean_std_core(arr: np.ndarray, window: int, min_periods: int)
             rolling_std[i] = np.std(valid_data) # np.std in Numba is population std by default
     return rolling_mean, rolling_std
 
-@nb.njit(cache=True)
+@numba.njit(cache=True)
 def _numba_normalize_to_bipolar_multi_window_core(
     series_values: np.ndarray,
     windows_list: List[int],
@@ -1419,7 +1419,7 @@ def _numba_normalize_to_bipolar_multi_window_core(
         results_array[:, w_idx] = bipolar_score_window
     return results_array
 
-@nb.njit(cache=True)
+@numba.njit(cache=True)
 def _numba_normalize_single_window_energy_score_core(
     series_values: np.ndarray,
     window: int,
