@@ -2212,10 +2212,11 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V5.3 · 信号替换与效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
+        【V5.4 · 双极性归一化修正版 & 效率优化版 & 调试信息统一输出版】资金流公理五：诊断“主力资金的成本与效率特征”
         - 核心优化: 预先获取所有斜率和加速度数据，并通过 `pre_fetched_data` 参数传递给 `_get_mtf_dynamic_score`。
                     集中所有其他原始数据获取操作，减少重复的 `_get_safe_series` 调用。
         - 【修复】将缺失的 `main_force_vwap_deviation_D` 替换为 `intraday_vwap_div_index_D`。
+        - 【修正】修复 `main_force_cost_advantage_D` 和 `intraday_vwap_div_index_D` 双极性归一化逻辑，确保其与信号业务含义一致。
         - 【新增】所有调试信息统一在方法末尾输出。
         """
         method_name = "_diagnose_axiom_capital_signature"
@@ -2292,17 +2293,28 @@ class FundFlowIntelligence:
                 val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
         # --- 1. 成本优势 (Cost Advantage) ---
-        norm_main_force_cost_advantage = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights=tf_weights_ff)
-        # 使用 intraday_vwap_div_index_D，它通常是双极性的
-        norm_main_force_vwap_deviation = get_adaptive_mtf_normalized_bipolar_score(main_force_vwap_deviation_raw, df_index, tf_weights=tf_weights_ff)
+        # MODIFICATION START: 修正 main_force_cost_advantage_D 的归一化逻辑
+        # 业务含义：值越高越好（正值表示优势，负值表示劣势），因此使用 ascending=True 进行单极性归一化，再转换为双极性
+        norm_main_force_cost_advantage_unipolar = get_adaptive_mtf_normalized_score(main_force_cost_advantage_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_main_force_cost_advantage = norm_main_force_cost_advantage_unipolar * 2 - 1
+        # MODIFICATION END
+
+        # MODIFICATION START: 修正 intraday_vwap_div_index_D 的归一化逻辑
+        # 业务含义：值越低越好（偏离越小越好），因此使用 ascending=False 进行单极性归一化，再转换为双极性
+        norm_main_force_vwap_deviation_unipolar = get_adaptive_mtf_normalized_score(main_force_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
+        norm_main_force_vwap_deviation = norm_main_force_vwap_deviation_unipolar * 2 - 1
+        # MODIFICATION END
+
         cost_advantage_score = (
             norm_main_force_cost_advantage * cost_advantage_weights.get('main_force_cost_advantage', 0.6) +
             norm_main_force_vwap_deviation * cost_advantage_weights.get('intraday_vwap_div_index_D', 0.4) # 更新权重键名
         ).clip(-1, 1)
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 成本优势 ---"] = ""
-            debug_output[f"        norm_main_force_cost_advantage: {norm_main_force_cost_advantage.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        norm_main_force_vwap_deviation (intraday_vwap_div_index_D): {norm_main_force_vwap_deviation.loc[probe_ts]:.4f}"] = ""
+            # MODIFICATION START: 调试输出显示实际的双极性分数
+            debug_output[f"        norm_main_force_cost_advantage (bipolar): {norm_main_force_cost_advantage.loc[probe_ts]:.4f}"] = ""
+            debug_output[f"        norm_main_force_vwap_deviation (intraday_vwap_div_index_D, bipolar): {norm_main_force_vwap_deviation.loc[probe_ts]:.4f}"] = ""
+            # MODIFICATION END
             debug_output[f"        成本优势分数 (cost_advantage_score): {cost_advantage_score.loc[probe_ts]:.4f}"] = ""
         # --- 2. 执行效率 (Execution Efficiency) ---
         norm_main_force_execution_alpha = get_adaptive_mtf_normalized_bipolar_score(main_force_execution_alpha_raw, df_index, tf_weights=tf_weights_ff)

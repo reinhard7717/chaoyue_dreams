@@ -1646,14 +1646,12 @@
             "cn_name": "【认知剧本】龙头苏醒",
             "category": "认知层-剧本",
             "type": "dynamic",
-            "score": 800,
             "description": "基于动态证据，推演龙头股被主力资金重新激活并率先突破的“苏醒”剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
             "cn_name": "【认知剧本】板块轮动先锋",
             "category": "认知层-剧本",
             "type": "dynamic",
-            "score": 500,
             "description": "基于动态证据，推演资金从旧热点流出并挖掘冷门板块的“轮动切换”剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
