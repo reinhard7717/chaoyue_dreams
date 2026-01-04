@@ -1812,6 +1812,7 @@ class FundFlowIntelligence:
         - 【增强】强化 SCORE_FF_DECEPTION_RISK 对资金流纯度的惩罚作用，以更准确识别诱多陷阱。
         - 【修正】修复 `environment_modulator` 中 `norm_liquidity_slope_mtf` 的 `abs()` 错误。
         - 【修正】修复 `structural_momentum_score` 中 `structural_momentum_weights_v6_1` 的加减法逻辑错误。
+        - 【修正】修复 `structural_momentum_score` 中 `retail_flow_dominance` 的计算逻辑，使其与权重意图一致。
         """
         method_name = "_diagnose_axiom_flow_momentum"
         df_index = df.index
@@ -2132,7 +2133,9 @@ class FundFlowIntelligence:
             norm_flow_quality * structural_momentum_weights.get('main_force_flow_gini', 0.15) + # flow_quality_signal_name 对应 main_force_flow_gini_D
             norm_retail_flow_slope_5 * structural_momentum_weights.get('retail_flow_slope_5', -0.1) +
             norm_retail_flow_accel_5 * structural_momentum_weights.get('retail_flow_accel_5', -0.05) +
-            (1 - norm_retail_dominance) * structural_momentum_weights.get('retail_flow_dominance', -0.15) # 零售主导越低，结构动能越好
+            # MODIFICATION START: 修正 retail_flow_dominance 的计算逻辑
+            norm_retail_dominance * structural_momentum_weights.get('retail_flow_dominance', -0.15) # 零售主导越高，结构动能越差，因此直接乘以负权重
+            # MODIFICATION END
         ).clip(-1, 1)
         norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(raw_data_cache['rally_sell_distribution_intensity_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(raw_data_cache['rally_buy_support_weakness_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
