@@ -237,7 +237,6 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict, strategy_ins
     """
     【V11.7 · 签名修复与参数直传版】计算全局的底部和顶部上下文分数
     - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名，避免参数错位和未定义参数的错误。
-    - 签名修复: 明确接受 `strategy_instance` 作为第三个参数，以便直接获取配置，避免间接依赖。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -246,9 +245,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict, strategy_ins
         print(f"      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'{close_col}'列，无法计算。")
         empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
         return empty_series, empty_series
-    # 直接使用传入的 strategy_instance 来获取参数
     p_synthesis = get_params_block(strategy_instance, 'ultimate_signal_synthesis_params', {})
-    # 修复NameError: 从参数块中获取 norm_window 的值
     norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
     ma55_lifeline = df.get('MA_55_D', df[close_col])
@@ -266,7 +263,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict, strategy_ins
     distance_from_ma55 = (df[close_col] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
     lifeline_support_score_raw = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
     lifeline_support_score = lifeline_support_score_raw * slope_moderator
-    price_pos_yearly = normalize_score(df[close_col], df.index, 250, ascending=True) # 修正 normalize_score 调用
+    price_pos_yearly = normalize_score(df[close_col], df.index, 250, ascending=True)
     absolute_value_zone_score = 1.0 - price_pos_yearly
     deep_bottom_context_score_values = np.maximum.reduce([
         lifeline_support_score.values,
@@ -274,7 +271,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict, strategy_ins
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
     rsi_w_col = 'RSI_13_W'
-    rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, 52, ascending=False) # 修正 normalize_score 调用
+    rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, 52, ascending=False)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
     context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
@@ -301,7 +298,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict, strategy_ins
         bonus_factor = get_param_value(p_meta.get('bonus_factor'), 0.3)
         meta_dynamics_col = f'SLOPE_{short_slope_p}_EMA_{long_ma_p}_D'
         if meta_dynamics_col in df.columns:
-            deceleration_score = normalize_score(df[meta_dynamics_col], df.index, norm_window, ascending=True) # 修正 normalize_score 调用
+            deceleration_score = normalize_score(df[meta_dynamics_col], df.index, norm_window, ascending=True)
             meta_dynamics_bonus = (deceleration_score * is_deep_bearish_zone * bonus_factor)
             bottom_context_score_raw = (bottom_context_score_raw + meta_dynamics_bonus).clip(0, 1)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
@@ -360,48 +357,20 @@ def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Inde
         print(f"         [探针] {signal_name} - get_robust_bipolar_normalized_score 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
         if probe_ts in series.index:
             print(f"           - 原始值: {series.loc[probe_ts]:.4f}")
-    # 确保 'series' 是 pandas Series 且为数值类型
     if isinstance(series, pd.DataFrame):
         if len(series.columns) == 1:
-            series = series.iloc[:, 0] # 将单列DataFrame转换为Series
+            series = series.iloc[:, 0]
         else:
             if is_debug_enabled and probe_ts:
                 print(f"           - 警告: 接收到多列DataFrame '{series.columns.tolist()}'，无法处理。返回默认值。")
             return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 强制转换为数值类型，并将无法转换的值设为NaN，然后填充0
     series = pd.to_numeric(series, errors='coerce').fillna(0)
-    if series.empty: # 检查是否为空 Series
+    if series.empty:
         if is_debug_enabled and probe_ts:
             print(f"           - 警告: 原始Series为空，返回默认值。")
         return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 确保 series 与 target_index 对齐，并填充 NaN
-    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
-    series_isolated = series_aligned.where(series_aligned.abs() >= 1e-6) # 隔离接近0的值，不参与均值和标准差计算
-    min_periods = max(1, int(window * 0.2))
-    rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
-    rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
-    bipolar_score = pd.Series(np.nan, index=series.index, dtype=np.float32)
-    # 避免除以零，并确保标准差有效
-    valid_std_mask = rolling_std.notna() & (rolling_std.abs() > 1e-9)
-    if valid_std_mask.any():
-        z_score = (series_isolated[valid_std_mask] - rolling_mean[valid_std_mask]) / (rolling_std[valid_std_mask] * sensitivity)
-        bipolar_score.loc[valid_std_mask] = np.tanh(z_score)
-    # 处理标准差为零或NaN的情况 (临界点豁免逻辑)
-    zero_or_nan_std_mask = ~valid_std_mask
-    if zero_or_nan_std_mask.any():
-        # 尝试计算偏差
-        deviation = series_isolated[zero_or_nan_std_mask] - rolling_mean[zero_or_nan_std_mask]
-        # 正常情况：deviation可以计算出来 (即 rolling_mean 有效)
-        valid_deviation_mask = deviation.notna()
-        if valid_deviation_mask.any():
-            bipolar_score.loc[deviation[valid_deviation_mask].index] = np.sign(deviation[valid_deviation_mask])
-        # 豁免情况：deviation是NaN (通常因为 min_periods 导致 rolling_mean 是 NaN)
-        nan_deviation_mask = deviation.isna()
-        if nan_deviation_mask.any():
-            # 直接使用原始 series_aligned 的符号
-            original_series_subset = series_aligned[nan_deviation_mask.index]
-            bipolar_score.loc[original_series_subset.index] = np.sign(original_series_subset)
-    final_score = bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
+    # 直接调用优化后的 normalize_to_bipolar
+    final_score = normalize_to_bipolar(series, target_index, window, sensitivity, default_value, debug_info)
     if is_debug_enabled and probe_ts:
         print(f"         [探针] {signal_name} - get_robust_bipolar_normalized_score 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {final_score.loc[probe_ts]:.4f}")
     return final_score
@@ -411,22 +380,17 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     【V2.4 · 归一化函数调用修复版】全息动态计算引擎
     - 核心修复: 修正了 `normalize_score` 函数的调用方式，使其符合新的参数签名。
     """
-    # 创建一个默认的Series，用于在df.get找不到列时返回，构建双重保险
     default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-    # 维度一：速度变化 (加速度) - 衡量趋势斜率的变化趋势
     slope_1 = df.get(f'SLOPE_1_{base_name}', default_series)
     slope_5 = df.get(f'SLOPE_5_{base_name}', default_series)
     slope_diff = slope_1 - slope_5
     velocity_accel_score = normalize_score(slope_diff, df.index, norm_window, ascending=True)
     velocity_decel_score = normalize_score(slope_diff, df.index, norm_window, ascending=False)
-    # 维度二：力量变化 (加加速度 / Jerk) - 衡量趋势加速度的变化趋势
     accel_1 = df.get(f'ACCEL_1_{base_name}', default_series)
     accel_5 = df.get(f'ACCEL_5_{base_name}', default_series)
     accel_diff = accel_1 - accel_5
     jerk_accel_score = normalize_score(accel_diff, df.index, norm_window, ascending=True)
     jerk_decel_score = normalize_score(accel_diff, df.index, norm_window, ascending=False)
-    # 融合：两大维度必须共振，形成合力
-    # 使用np.sqrt，意图更清晰
     bullish_holographic_score = np.sqrt(velocity_accel_score * jerk_accel_score).astype(np.float32)
     bearish_holographic_score = np.sqrt(velocity_decel_score * jerk_decel_score).astype(np.float32)
     return bullish_holographic_score, bearish_holographic_score
@@ -539,7 +503,6 @@ def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
         ma_slope_col = f'SLOPE_{p}_MA_{p}_D'
         if ma_slope_col not in df.columns: ma_slope_col = f'SLOPE_{p}_close_D'
         ma_slope = df.get(ma_slope_col, pd.Series(0, index=df.index))
-        # 修正 normalize_score 调用
         ma_slope_score = normalize_score(ma_slope, df.index, p*2, ascending=True)
         bias_period = 21 if p <= 21 else 55
         bias_col = f'BIAS_{bias_period}_D'
@@ -566,15 +529,12 @@ def calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_wi
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     adx_threshold = get_param_value(params.get('adx_threshold'), 20)
-    # 叉戟一: 趋势强度 (ADX) - 浪潮有多高？
     adx = df.get('ADX_14_D', pd.Series(0, index=df.index))
     is_trending = (adx > adx_threshold).astype(np.float32)
     strength_score = normalize_score(adx, df.index, norm_window, ascending=True) * is_trending
-    # 叉戟二: 趋势方向 (PDI/NDI) - 浪潮往哪边涌？
     pdi = df.get('PDI_14_D', pd.Series(0, index=df.index))
     ndi = df.get('NDI_14_D', pd.Series(0, index=df.index))
     direction_score = (pdi > ndi).astype(np.float32)
-    # 最终融合：现在是二叉戟合一，更纯粹、更强大
     trend_confirmation_score = (strength_score * direction_score)
     return trend_confirmation_score.clip(0, 1).astype(np.float32)
 
@@ -1053,12 +1013,14 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 没有有效的窗口权重，返回0。")
         return pd.Series(0.0, index=target_index)
-    # 将 force_zero_if_original_zero 参数传递给 normalize_score
+    # 调用优化后的 normalize_score，一次性获取所有窗口的归一化分数
     normalized_scores_df = normalize_score(series, target_index, windows_list, ascending, default_value, debug_info, force_zero_if_original_zero=force_zero_if_original_zero)
     final_scores = pd.Series(0.0, index=target_index, dtype=np.float32)
+    total_weight = 0.0
     for window, weight in valid_windows_weights:
-        final_scores += normalized_scores_df[window] * weight
-    total_weight = sum(w for _, w in valid_windows_weights)
+        if window in normalized_scores_df.columns:
+            final_scores += normalized_scores_df[window] * weight
+            total_weight += weight
     if total_weight > 0:
         final_scores /= total_weight
     else:
@@ -1086,11 +1048,14 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
         if is_debug_enabled and probe_ts:
             print(f"         - 警告: 没有有效的窗口权重，返回0。")
         return pd.Series(default_value, index=target_index)
+    # 调用优化后的 normalize_to_bipolar，一次性获取所有窗口的归一化分数
     normalized_scores_df = normalize_to_bipolar(series, target_index, windows_list, sensitivity, default_value, debug_info)
     final_scores = pd.Series(0.0, index=target_index, dtype=np.float32)
+    total_weight = 0.0
     for window, weight in valid_windows_weights:
-        final_scores += normalized_scores_df[window] * weight
-    total_weight = sum(w for _, w in valid_windows_weights)
+        if window in normalized_scores_df.columns:
+            final_scores += normalized_scores_df[window] * weight
+            total_weight += weight
     if total_weight > 0:
         final_scores /= total_weight
     else:
@@ -1115,32 +1080,20 @@ def normalize_score(series: pd.Series, target_index: pd.Index, windows: Union[in
         windows_list = [windows]
     else:
         windows_list = windows
-    results_df = pd.DataFrame(index=target_index, dtype=np.float32)
-    for window in windows_list:
-        if is_debug_enabled and probe_ts:
-            print(f"           [探针] {signal_name} - normalize_score (window={window}) 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-            if probe_ts in series.index:
-                print(f"             - 原始值: {series.loc[probe_ts]:.4f}")
-        min_periods_for_rank = max(2, int(window * 0.2))
-        if window > len(padded_series):
-            results_df[window] = default_value
-            continue
-        # 使用 Numba 优化后的排名函数
-        # 将 min_periods_for_rank 作为 args 传递给 Numba 函数
-        ranked_series = padded_series.rolling(window=window, min_periods=min_periods_for_rank).apply(
-            _numba_rank_window_average, raw=True, args=(min_periods_for_rank,)
-        )
-        if not ascending:
-            normalized_series_window = 1 - ranked_series
-        else:
-            normalized_series_window = ranked_series
-        normalized_series_window = normalized_series_window.clip(0, 1)
-        # 根据 force_zero_if_original_zero 参数决定是否将原始值为零的归一化分数强制设置为零
-        if force_zero_if_original_zero:
-            normalized_series_window = normalized_series_window.where(~is_original_zero, 0.0)
-        results_df[window] = normalized_series_window.reindex(target_index).fillna(default_value)
-        if is_debug_enabled and probe_ts:
-            print(f"           [探针] {signal_name} - normalize_score (window={window}) 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {results_df[window].loc[probe_ts]:.4f}")
+    series_values = padded_series.values.astype(np.float32)
+    is_original_zero_values = is_original_zero.values
+    results_array = _numba_normalize_score_multi_window_core(
+        series_values,
+        windows_list,
+        ascending,
+        default_value,
+        is_original_zero_values
+    )
+    results_df = pd.DataFrame(results_array, index=target_index, columns=windows_list, dtype=np.float32)
+    if is_debug_enabled and probe_ts:
+        for window in windows_list:
+            if probe_ts in results_df.index:
+                print(f"           [探针] {signal_name} - normalize_score (window={window}) 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {results_df[window].loc[probe_ts]:.4f}")
     if isinstance(windows, int):
         return results_df[windows].astype(np.float32)
     else:
@@ -1153,47 +1106,27 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, windows: Uni
             return pd.Series(default_value, index=target_index, dtype=np.float32)
         else:
             return pd.DataFrame({w: default_value for w in windows}, index=target_index, dtype=np.float32)
-    # 重新索引并填充 NaN。使用 fillna(0) 确保滚动统计量计算的连续性。
-    padded_series = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0)
-    # 记录原始值为零的位置，以便在最终结果中强制为零
+    padded_series = series.reindex(target_index).ffill().bfill()
+    padded_series = pd.to_numeric(padded_series, errors='coerce').fillna(0)
     is_original_zero = (padded_series.abs() < 1e-9)
     if isinstance(windows, int):
         windows_list = [windows]
     else:
         windows_list = windows
-    results_df = pd.DataFrame(index=target_index, dtype=np.float32)
-    for window in windows_list:
-        if is_debug_enabled and probe_ts:
-            print(f"           [探针] {signal_name} - normalize_to_bipolar (window={window}) 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
-            if probe_ts in series.index:
-                print(f"             - 原始值: {series.loc[probe_ts]:.4f}")
-        if window > len(padded_series):
-            results_df[window] = default_value
-            continue
-        min_periods_for_rolling = max(1, int(window * 0.2)) # 确保至少有1个周期进行滚动计算
-        # 直接在 padded_series 上计算滚动均值和标准差
-        rolling_mean = padded_series.rolling(window=window, min_periods=min_periods_for_rolling).mean()
-        rolling_std = padded_series.rolling(window=window, min_periods=min_periods_for_rolling).std()
-        bipolar_score_window = pd.Series(np.nan, index=target_index, dtype=np.float32)
-        # 情况1: 标准差不为零且非 NaN
-        valid_std_mask = rolling_std.notna() & (rolling_std.abs() > 1e-9)
-        if valid_std_mask.any():
-            z_score = (padded_series.loc[valid_std_mask] - rolling_mean.loc[valid_std_mask]) / (rolling_std.loc[valid_std_mask] * sensitivity)
-            bipolar_score_window.loc[valid_std_mask] = np.tanh(z_score)
-        # 情况2: 标准差为零或 NaN (窗口内所有值相同，或数据不足)
-        zero_or_nan_std_mask = ~valid_std_mask
-        if zero_or_nan_std_mask.any():
-            # 如果窗口内所有值相同，则 z_score 分母为 0。此时，分数应反映值的符号。
-            # 如果值是正的，分数是 1；负的，分数是 -1；零，分数是 0。
-            # np.sign() 函数可以很好地处理这种情况。
-            bipolar_score_window.loc[zero_or_nan_std_mask] = np.sign(padded_series.loc[zero_or_nan_std_mask])
-            # 对于因数据不足导致 rolling_mean/std 为 NaN 的情况，np.sign(NaN) 仍为 NaN，
-            # 最终会由 fillna(default_value) 处理。
-        # 确保原始值为零的条目在双极性分数中也为零
-        bipolar_score_window = bipolar_score_window.where(~is_original_zero, 0.0)
-        results_df[window] = bipolar_score_window.reindex(target_index).fillna(default_value)
-        if is_debug_enabled and probe_ts:
-            print(f"           [探针] {signal_name} - normalize_to_bipolar (window={window}) 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {results_df[window].loc[probe_ts]:.4f}")
+    series_values = padded_series.values.astype(np.float32)
+    is_original_zero_values = is_original_zero.values
+    results_array = _numba_normalize_to_bipolar_multi_window_core(
+        series_values,
+        windows_list,
+        sensitivity,
+        default_value,
+        is_original_zero_values
+    )
+    results_df = pd.DataFrame(results_array, index=target_index, columns=windows_list, dtype=np.float32)
+    if is_debug_enabled and probe_ts:
+        for window in windows_list:
+            if probe_ts in results_df.index:
+                print(f"           [探针] {signal_name} - normalize_to_bipolar (window={window}) 结果 @ {probe_ts.strftime('%Y-%m-%d')}: {results_df[window].loc[probe_ts]:.4f}")
     if isinstance(windows, int):
         return results_df[windows].astype(np.float32)
     else:
@@ -1205,24 +1138,17 @@ def _normalize_single_window_energy_score(series: pd.Series, target_index: pd.In
     - 当滚动窗口内的所有有效数据点都为零时，强制其归一化分数为 0.0。
     - 否则，执行标准的 Min-Max 归一化。
     """
-    # 确保 series 与 target_index 对齐，并填充 NaN
+    if series.empty:
+        return pd.Series(default_value, index=target_index, dtype=np.float32)
     series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0)
-    # 计算滚动窗口内的最小值和最大值
-    rolling_min = series_aligned.rolling(window=window, min_periods=1).min()
-    rolling_max = series_aligned.rolling(window=window, min_periods=1).max()
-    normalized = pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 识别全零窗口：当滚动窗口内的最小值和最大值都为0时
-    all_zeros_in_window_mask = (rolling_min == 0) & (rolling_max == 0)
-    # 对于全零窗口，分数强制为0
-    normalized.loc[all_zeros_in_window_mask] = 0.0
-    # 对于非全零窗口，执行标准归一化
-    # 避免除以零，并确保分母有效
-    non_zero_range_mask = (rolling_max - rolling_min > 1e-9) & (~all_zeros_in_window_mask)
-    if ascending:
-        normalized.loc[non_zero_range_mask] = (series_aligned.loc[non_zero_range_mask] - rolling_min.loc[non_zero_range_mask]) / (rolling_max.loc[non_zero_range_mask] - rolling_min.loc[non_zero_range_mask])
-    else:
-        normalized.loc[non_zero_range_mask] = (rolling_max.loc[non_zero_range_mask] - series_aligned.loc[non_zero_range_mask]) / (rolling_max.loc[non_zero_range_mask] - rolling_min.loc[non_zero_range_mask])
-    return normalized.clip(0, 1).astype(np.float32)
+    series_values = series_aligned.values.astype(np.float32)
+    normalized_values = _numba_normalize_single_window_energy_score_core(
+        series_values,
+        window,
+        ascending,
+        default_value
+    )
+    return pd.Series(normalized_values, index=target_index, dtype=np.float32)
 
 def get_adaptive_mtf_normalized_energy_score(series: pd.Series, target_index: pd.Index, tf_weights: Dict[str, float], ascending: bool = True, default_value: float = 0.5) -> pd.Series:
     """
@@ -1237,7 +1163,6 @@ def get_adaptive_mtf_normalized_energy_score(series: pd.Series, target_index: pd
     for period_str, weight in tf_weights.items():
         period = int(period_str)
         if weight > 0:
-            # 调用能量指标专用的单窗口归一化函数
             score = _normalize_single_window_energy_score(series, target_index, period, ascending=ascending, default_value=default_value)
             weighted_scores += score * weight
             total_weight += weight
@@ -1368,6 +1293,165 @@ def _numba_rank_window_average(arr_window, min_periods_for_rank):
     rank_of_last_element = ranks[n - 1] # n-1 是 arr_window 中最后一个元素的索引
     return rank_of_last_element / n # 归一化排名 (除以窗口总长度)
 
+@nb.njit(cache=True)
+def _numba_rolling_rank_core(arr: np.ndarray, window: int, min_periods: int) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算滚动窗口内的排名归一化分数。
+    arr: 输入的NumPy数组。
+    window: 滚动窗口大小。
+    min_periods: 计算所需的最小非NaN周期数。
+    返回: 滚动排名归一化分数数组。
+    """
+    n = len(arr)
+    ranked_scores = np.full(n, np.nan, dtype=np.float32)
+    for i in range(n):
+        start_idx = max(0, i - window + 1)
+        current_window_data = arr[start_idx : i + 1]
+        valid_data = current_window_data[~np.isnan(current_window_data)]
+        if len(valid_data) < min_periods:
+            continue
+        last_element = arr[i]
+        if np.isnan(last_element):
+            continue
+        less_than = 0
+        equal_to = 0
+        for val in valid_data:
+            if val < last_element:
+                less_than += 1
+            elif val == last_element:
+                equal_to += 1
+        if len(valid_data) > 0:
+            rank = (less_than + (equal_to - 1) / 2.0 + 1) / len(valid_data)
+            ranked_scores[i] = rank
+    return ranked_scores
 
+@nb.njit(cache=True)
+def _numba_normalize_score_multi_window_core(
+    series_values: np.ndarray,
+    windows_list: List[int],
+    ascending: bool,
+    default_value: float,
+    is_original_zero_values: np.ndarray,
+    min_periods_ratio: float = 0.2
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算多个窗口的滚动排名归一化分数。
+    直接操作NumPy数组。
+    """
+    num_dates = len(series_values)
+    num_windows = len(windows_list)
+    results_array = np.full((num_dates, num_windows), default_value, dtype=np.float32)
+    for w_idx in range(num_windows):
+        window = windows_list[w_idx]
+        if window <= 0:
+            continue
+        min_periods_for_rank = max(1, int(window * min_periods_ratio))
+        ranked_series_values = _numba_rolling_rank_core(series_values, window, min_periods_for_rank)
+        normalized_series_window = np.full(num_dates, default_value, dtype=np.float32)
+        for i in range(num_dates):
+            if np.isnan(ranked_series_values[i]):
+                normalized_series_window[i] = default_value
+            else:
+                if not ascending:
+                    normalized_series_window[i] = 1.0 - ranked_series_values[i]
+                else:
+                    normalized_series_window[i] = ranked_series_values[i]
+            normalized_series_window[i] = np.clip(normalized_series_window[i], 0.0, 1.0)
+            if is_original_zero_values[i]:
+                normalized_series_window[i] = 0.0
+        results_array[:, w_idx] = normalized_series_window
+    return results_array
 
+@nb.njit(cache=True)
+def _numba_rolling_mean_std_core(arr: np.ndarray, window: int, min_periods: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Numba优化后的核心函数，用于计算滚动窗口内的均值和标准差。
+    """
+    n = len(arr)
+    rolling_mean = np.full(n, np.nan, dtype=np.float32)
+    rolling_std = np.full(n, np.nan, dtype=np.float32)
+    for i in range(n):
+        start_idx = max(0, i - window + 1)
+        current_window_data = arr[start_idx : i + 1]
+        valid_data = current_window_data[~np.isnan(current_window_data)]
+        if len(valid_data) >= min_periods:
+            rolling_mean[i] = np.mean(valid_data)
+            rolling_std[i] = np.std(valid_data) # np.std in Numba is population std by default
+    return rolling_mean, rolling_std
+
+@nb.njit(cache=True)
+def _numba_normalize_to_bipolar_multi_window_core(
+    series_values: np.ndarray,
+    windows_list: List[int],
+    sensitivity: float,
+    default_value: float,
+    is_original_zero_values: np.ndarray,
+    min_periods_ratio: float = 0.2
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算多个窗口的双极归一化分数。
+    直接操作NumPy数组。
+    """
+    num_dates = len(series_values)
+    num_windows = len(windows_list)
+    results_array = np.full((num_dates, num_windows), default_value, dtype=np.float32)
+    for w_idx in range(num_windows):
+        window = windows_list[w_idx]
+        if window <= 0:
+            continue
+        min_periods_for_rolling = max(1, int(window * min_periods_ratio))
+        rolling_mean, rolling_std = _numba_rolling_mean_std_core(series_values, window, min_periods_for_rolling)
+        bipolar_score_window = np.full(num_dates, default_value, dtype=np.float32)
+        for i in range(num_dates):
+            if np.isnan(series_values[i]):
+                continue
+            if not np.isnan(rolling_std[i]) and rolling_std[i] > 1e-9:
+                z_score = (series_values[i] - rolling_mean[i]) / (rolling_std[i] * sensitivity)
+                bipolar_score_window[i] = np.tanh(z_score)
+            elif not np.isnan(rolling_mean[i]): # std is zero or very small, but mean is valid
+                bipolar_score_window[i] = np.sign(series_values[i] - rolling_mean[i])
+            else: # rolling_mean is also NaN (not enough data)
+                bipolar_score_window[i] = np.sign(series_values[i]) # Fallback to sign of the value itself
+            if is_original_zero_values[i]:
+                bipolar_score_window[i] = 0.0
+            if np.isnan(bipolar_score_window[i]):
+                bipolar_score_window[i] = default_value
+        results_array[:, w_idx] = bipolar_score_window
+    return results_array
+
+@nb.njit(cache=True)
+def _numba_normalize_single_window_energy_score_core(
+    series_values: np.ndarray,
+    window: int,
+    ascending: bool,
+    default_value: float,
+    min_periods_ratio: float = 0.2
+) -> np.ndarray:
+    """
+    Numba优化后的核心函数，对单个窗口进行能量指标归一化。
+    """
+    n = len(series_values)
+    normalized_scores = np.full(n, default_value, dtype=np.float32)
+    min_periods = max(1, int(window * min_periods_ratio))
+    for i in range(n):
+        start_idx = max(0, i - window + 1)
+        current_window_data = series_values[start_idx : i + 1]
+        valid_data = current_window_data[~np.isnan(current_window_data)]
+        if len(valid_data) < min_periods:
+            continue
+        rolling_min = np.min(valid_data)
+        rolling_max = np.max(valid_data)
+        if rolling_min == 0 and rolling_max == 0:
+            normalized_scores[i] = 0.0
+        elif rolling_max - rolling_min > 1e-9:
+            if ascending:
+                normalized_scores[i] = (series_values[i] - rolling_min) / (rolling_max - rolling_min)
+            else:
+                normalized_scores[i] = (rolling_max - series_values[i]) / (rolling_max - rolling_min)
+        else: # All values in window are the same non-zero value
+            normalized_scores[i] = 1.0 if series_values[i] == rolling_max else 0.0
+        normalized_scores[i] = np.clip(normalized_scores[i], 0.0, 1.0)
+        if np.isnan(normalized_scores[i]):
+            normalized_scores[i] = default_value
+    return normalized_scores
 
