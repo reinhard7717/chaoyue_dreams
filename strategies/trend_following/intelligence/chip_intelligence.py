@@ -2904,10 +2904,10 @@ class ChipIntelligence:
             'mf_aq': 0.35, 'cst': 0.3, 'pce': 0.35
         })
         context_modulator_signals = get_param_value(historical_potential_params.get('context_modulator_signals'), {
-            'volatility_instability': {'signal_name': 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'weight': 0.3, 'ascending': false},
-            'chip_fatigue': {'signal_name': 'chip_fatigue_index_D', 'weight': 0.2, 'ascending': false},
-            'market_sentiment': {'signal_name': 'market_sentiment_score_D', 'weight': 0.3, 'ascending': true},
-            'flow_credibility': {'signal_name': 'flow_credibility_index_D', 'weight': 0.2, 'ascending': true}
+            'volatility_instability': {'signal_name': 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'weight': 0.3, 'ascending': False},
+            'chip_fatigue': {'signal_name': 'chip_fatigue_index_D', 'weight': 0.2, 'ascending': False},
+            'market_sentiment': {'signal_name': 'market_sentiment_score_D', 'weight': 0.3, 'ascending': True},
+            'flow_credibility': {'signal_name': 'flow_credibility_index_D', 'weight': 0.2, 'ascending': True}
         })
         context_modulator_sensitivity = get_param_value(historical_potential_params.get('context_modulator_sensitivity'), 0.5)
         dgm_modulator_sensitivity = get_param_value(historical_potential_params.get('dgm_modulator_sensitivity'), 0.8)
