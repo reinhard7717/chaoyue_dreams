@@ -56,6 +56,16 @@ class ProcessIntelligence:
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.probe_dates = get_param_value(self.debug_params.get('probe_dates'), [])
 
+    def _print_debug_output(self, debug_output: Dict):
+        """
+        统一打印调试信息。
+        """
+        for key, value in debug_output.items():
+            if value:
+                print(f"{key}: {value}")
+            else:
+                print(key)
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
