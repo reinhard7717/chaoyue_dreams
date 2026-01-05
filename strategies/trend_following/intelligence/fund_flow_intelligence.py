@@ -39,13 +39,13 @@ def _numba_calculate_deception_risk_core(
         sentiment_mod_factor = np.maximum(0.5, np.minimum(sentiment_mod_factor, 1.5)) # 裁剪到合理范围
         # 风险来源1：对倒强度
         risk_from_wash_trade = norm_wash_trade_values[i] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[i]
-        # MODIFICATION START: 修正 risk_from_bull_trap 和 risk_from_bear_trap_weak_conviction 的逻辑
-        # 风险来源2：诱多欺骗（负向归一化欺骗指数，即 norm_deception < 0）
-        risk_from_bull_trap = np.maximum(0.0, -norm_deception_values[i]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[i]
+        # MODIFICATION START: 撤销上次的交换，恢复到与注释逻辑一致的状态
+        # 风险来源2：诱多欺骗（正向归一化欺骗指数，即 norm_deception > 0）
+        risk_from_bull_trap = np.maximum(0.0, norm_deception_values[i]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[i]
         # 风险来源3：诱多强度（deception_lure_long_intensity）
         risk_from_lure_long = norm_deception_lure_long_values[i] * deception_lure_long_penalty_sensitivity
-        # 风险来源4：弱信念下的诱空（正向归一化欺骗指数，即 norm_deception > 0，且主力信念弱）
-        risk_from_bear_trap_weak_conviction = np.maximum(0.0, norm_deception_values[i]) * (1 - np.maximum(0.0, norm_conviction_values[i])) * deception_penalty_sensitivity * deception_cohesion_mod_values[i]
+        # 风险来源4：弱信念下的诱空（负向归一化欺骗指数，即 norm_deception < 0，且主力信念弱）
+        risk_from_bear_trap_weak_conviction = np.maximum(0.0, -norm_deception_values[i]) * (1 - np.maximum(0.0, norm_conviction_values[i])) * deception_penalty_sensitivity * deception_cohesion_mod_values[i]
         # MODIFICATION END
         # 风险来源5：低资金流可信度
         # 只有当可信度低于阈值时才产生风险，且风险程度与低于阈值的程度成正比
