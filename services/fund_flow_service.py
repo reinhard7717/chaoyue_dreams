@@ -810,7 +810,7 @@ class AdvancedFundFlowMetricsService:
                 print(f"[{stock_code}] [探针 A.1 - {current_date}] hf_analysis_df 为空，可能原因: tick_data_for_day 或 level5_data_for_day 为空。")
         context = {
             'intraday_data': intraday_data,
-            'daily_data': daily_data,
+            'daily_data': daily_data, # 确保这里是原始的 daily_data Series
             'hf_analysis_df': hf_analysis_df,
             'common_data': common_data,
             'hf_features': hf_features,
@@ -1205,7 +1205,7 @@ class AdvancedFundFlowMetricsService:
         hf_features = context['hf_features']
         should_probe = context['debug']['should_probe']
         stock_code = context['debug']['stock_code']
-        current_date = common_data['daily_data'].name.date()
+        current_date = context['daily_data'].name.date()
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
@@ -1308,7 +1308,7 @@ class AdvancedFundFlowMetricsService:
         hf_features = context['hf_features']
         should_probe = context['debug']['should_probe']
         stock_code = context['debug']['stock_code']
-        current_date = common_data['daily_data'].name.date()
+        current_date = context['daily_data'].name.date()
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1835,7 +1835,7 @@ class AdvancedFundFlowMetricsService:
         common_data = context['common_data']
         should_probe = context['debug']['should_probe']
         stock_code = context['debug']['stock_code']
-        current_date = common_data['daily_data'].name.date()
+        current_date = context['daily_data'].name.date()
         from datetime import time
         import pandas as pd
         import numpy as np
@@ -2135,7 +2135,7 @@ class AdvancedFundFlowMetricsService:
         common_data = context['common_data']
         should_probe = context['debug']['should_probe']
         stock_code = context['debug']['stock_code']
-        current_date = common_data['daily_data'].name.date()
+        current_date = context['daily_data'].name.date()
         import numpy as np
         import pandas as pd
         metrics = {
