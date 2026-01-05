@@ -450,11 +450,6 @@ class AdvancedFundFlowMetricsService:
         return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame, debug_mode: bool = False) -> tuple[dict, None]:
-        """
-        【V1.1 · 记忆注入版】
-        - 核心修正: 在调用行为指标计算引擎前，将包含 `prev_metrics` 的完整 `daily_data_series` 传递下去，
-                     确保时间序列指标（如CMF斜率）能够获取到前一日的状态。
-        """
         day_metrics = {}
         daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series, debug_mode=debug_mode)
         day_metrics.update(daily_derived_metrics)
@@ -465,11 +460,10 @@ class AdvancedFundFlowMetricsService:
         aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=debug_mode)
         if not aggregate_pvwap_costs_df.empty:
             day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
-        # 此处的 daily_data_series 已经包含了从上游传入的 prev_metrics
         updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
         main_force_net_flow_calibrated = daily_derived_metrics.get('main_force_net_flow_calibrated')
         behavioral_metrics = self._compute_all_behavioral_metrics(
-            attributed_minute_df, updated_daily_data_series,
+            stock_code, attributed_minute_df, updated_daily_data_series,
             tick_data=tick_data_for_day,
             level5_data=level5_data_for_day,
             realtime_data=realtime_data_for_day,
@@ -481,12 +475,6 @@ class AdvancedFundFlowMetricsService:
         return day_metrics, None
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None, memory: dict = None) -> tuple[pd.DataFrame, dict, list, dict]:
-        """
-        【V12.1 · 诊断驾驶舱升级版】
-        - 核心升级: 引入 A-系列 (Aggregation Service) 探针，监控服务层的数据流转和关键上游计算节点。
-        【V72.2 · 生产就绪版】
-        - 核心清除: 移除所有调试探针相关的print语句和逻辑，恢复生产状态。
-        """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
@@ -529,21 +517,6 @@ class AdvancedFundFlowMetricsService:
         return final_metrics_df, attributed_minute_data_map, failures, prev_metrics
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
-        """
-        【V49.0 · 架构净化版】
-        - 核心重构: 彻底移除为高频指标设置 np.nan 占位符的“反模式”，让方法回归单一职责。
-        - 重构原因: 探针 V48.9 证明了问题根源不在于具体指标的计算，而在于数据组装流程的架构缺陷。
-                     不完整的占位符列表导致了最终字段的缺失。
-        - 核心实现:
-          - 删除所有为 main_force_activity_ratio, main_force_conviction_index 等高频指标预设的 np.nan 占位符。
-          - 此方法现在只计算并返回真正能从日线数据中派生的指标。
-        【V72.0 · 资金流拆分版】
-        - 核心增强: 将 POWER_STRUCTURE_METRICS 中的净流入指标拆分为买入和卖出分量，
-                     提供更细致的资金流向洞察。
-        【V72.1 · 修复fillna错误】
-        - 核心修复: 将对标量数值的 `.fillna(0)` 调用替换为 `np.nan_to_num(..., nan=0.0)`，
-                     解决 `'numpy.float64' object has no attribute 'fillna'` 错误。
-        """
         results = {}
         WAN = 10000.0
         def get_calibrated_value(target_col_name: str):
@@ -572,12 +545,8 @@ class AdvancedFundFlowMetricsService:
                 calibration_factor = (1 + confirmation_score) / (1 + available_sources) if available_sources > 0 else 1.0
                 return base_value * calibration_factor
             return np.nan
-        # 计算净流入指标
         for col_name in ['net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated', 'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated', 'net_sh_amount_calibrated']:
             results[col_name] = get_calibrated_value(col_name)
-        # 计算拆分后的买入/卖出金额指标
-        # 这些指标直接从 Tushare 的原始 buy/sell amount 字段计算，不进行复杂的校准，因为它们是原始数据。
-        # 确保这些字段在 daily_data_series 中存在，如果不存在则默认为0或NaN
         buy_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_sm_amount'), errors='coerce'), nan=0.0)
         sell_sm = np.nan_to_num(pd.to_numeric(daily_data_series.get('sell_sm_amount'), errors='coerce'), nan=0.0)
         buy_md = np.nan_to_num(pd.to_numeric(daily_data_series.get('buy_md_amount'), errors='coerce'), nan=0.0)
@@ -625,7 +594,6 @@ class AdvancedFundFlowMetricsService:
                 results['mf_retail_battle_intensity'] = np.nan
         except Exception:
             results['mf_retail_battle_intensity'] = np.nan
-        # 移除所有为高频指标设置的 np.nan 占位符
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
             retail_flow_calibrated = results.get('retail_net_flow_calibrated')
@@ -824,12 +792,7 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         return pd.DataFrame.from_dict(all_results, orient='index').set_index('trade_time')
 
-    def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
-        """
-        【V71.1 · 探针激活版】
-        - 核心职责: 统一调度所有行为指标计算内核，是高频分析的中央处理器。
-        - 核心修正: 允许 `debug_mode` 参数控制内部探针的激活状态。
-        """
+    def _compute_all_behavioral_metrics(self, stock_code: str, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         results = {}
         if intraday_data.empty:
             return results
@@ -837,7 +800,14 @@ class AdvancedFundFlowMetricsService:
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
         hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0))
-        # 移除所有探针逻辑
+        current_date = daily_data.name.date()
+        should_probe = self.debug_params.get('enable_mfca_probe', False) and \
+                       (current_date == pd.to_datetime(self.debug_params.get('target_date')).date() if self.debug_params.get('target_date') else True)
+        if should_probe:
+            print(f"[{stock_code}] [探针 A.1 - {current_date}] _compute_all_behavioral_metrics 启动。")
+            print(f"[{stock_code}] [探针 A.1 - {current_date}] hf_analysis_df 是否为空: {hf_analysis_df.empty}")
+            if hf_analysis_df.empty:
+                print(f"[{stock_code}] [探针 A.1 - {current_date}] hf_analysis_df 为空，可能原因: tick_data_for_day 或 level5_data_for_day 为空。")
         context = {
             'intraday_data': intraday_data,
             'daily_data': daily_data,
@@ -846,7 +816,9 @@ class AdvancedFundFlowMetricsService:
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
-                'should_probe': debug_mode, # 根据传入的debug_mode设置should_probe
+                'should_probe': should_probe,
+                'target_date': self.debug_params.get('target_date'),
+                'stock_code': stock_code
             }
         }
         if not hf_analysis_df.empty:
@@ -854,7 +826,6 @@ class AdvancedFundFlowMetricsService:
             results.update(AdvancedFundFlowMetricsService._calculate_ofi_based_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_order_book_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_micro_dynamics_metrics(context))
-            # 调用 Level 5 订单流指标计算方法
             results.update(AdvancedFundFlowMetricsService._calculate_level5_order_flow_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_related_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))
@@ -1229,39 +1200,72 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_shadow_metrics(context: dict) -> dict:
-        """
-        【V67.4 · 对数压缩终版】(生产环境清洁版)
-        - 核心逻辑: 采用“价值效率”维度，并引入 `np.log1p` 对数压缩层，彻底解决归一化和数值饱和问题。
-        """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = common_data['daily_data'].name.date()
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data.get('atr', 0)
         daily_total_amount = common_data.get('daily_total_amount', 0)
+        if should_probe:
+            print(f"[{stock_code}] [探针 S.1 - {current_date}] _calculate_shadow_metrics 启动。")
+            print(f"[{stock_code}] [探针 S.1 - {current_date}] Day Open: {day_open}, Close: {day_close}, High: {day_high}, Low: {day_low}, ATR: {atr}, Daily Amount: {daily_total_amount}")
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and pd.notna(atr) and atr > 0 and daily_total_amount > 0:
             day_range = day_high - day_low
-            if day_range <= 0: return metrics
+            if should_probe:
+                print(f"[{stock_code}] [探针 S.1 - {current_date}] Day Range: {day_range}")
+            if day_range <= 0:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 S.1 - {current_date}] Day Range <= 0，返回NaN。")
+                return metrics
             market_value_efficiency = (day_range / atr) / (daily_total_amount / 10000)
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
+            if should_probe:
+                print(f"[{stock_code}] [探针 S.1 - {current_date}] Body High: {body_high}, Body Low: {body_low}")
             if day_low < body_low:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 S.1 - {current_date}] 存在下影线 (Day Low < Body Low)。")
                 price_recovery_norm = (body_low - day_low) / atr
                 if not hf_analysis_df.empty:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 S.1 - {current_date}] hf_analysis_df 不为空。")
                     hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] < body_low]
                     mf_trades_in_shadow = hf_features['mf_trades'].loc[hf_features['mf_trades'].index.intersection(hf_shadow_zone.index)]
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 S.1 - {current_date}] 下影线区域内主力交易是否为空: {mf_trades_in_shadow.empty}")
                     if not mf_trades_in_shadow.empty:
                         mf_buy_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['amount'].sum()
                         mf_sell_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['amount'].sum()
                         mf_net_buy_amount_10k = (mf_buy_amount - mf_sell_amount) / 10000
+                        if should_probe:
+                            print(f"[{stock_code}] [探针 S.1 - {current_date}] 主力下影线净买入 (万元): {mf_net_buy_amount_10k}, 市场价值效率: {market_value_efficiency}")
                         if mf_net_buy_amount_10k > 0 and market_value_efficiency > 0:
                             absorption_efficiency = price_recovery_norm / mf_net_buy_amount_10k
                             normalized_strength = absorption_efficiency / market_value_efficiency
                             compressed_strength = np.log1p(normalized_strength)
                             metrics['lower_shadow_absorption_strength'] = np.tanh(compressed_strength) * 100
+                            if should_probe:
+                                print(f"[{stock_code}] [探针 S.1 - {current_date}] lower_shadow_absorption_strength 计算完成: {metrics['lower_shadow_absorption_strength']}")
+                        else:
+                            if should_probe:
+                                print(f"[{stock_code}] [探针 S.1 - {current_date}] 主力下影线净买入 <= 0 或市场价值效率 <= 0，lower_shadow_absorption_strength 无法计算。")
+                    else:
+                        if should_probe:
+                            print(f"[{stock_code}] [探针 S.1 - {current_date}] 下影线区域内无主力交易，lower_shadow_absorption_strength 无法计算。")
+                else:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 S.1 - {current_date}] hf_analysis_df 为空，lower_shadow_absorption_strength 无法计算。")
+            else:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 S.1 - {current_date}] 无下影线 (Day Low >= Body Low)，lower_shadow_absorption_strength 无法计算。")
             if day_high > body_high:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 S.1 - {current_date}] 存在上影线 (Day High > Body High)。")
                 price_rejection_norm = (day_high - body_high) / atr
                 if not hf_analysis_df.empty:
                     hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] > body_high]
@@ -1270,25 +1274,41 @@ class AdvancedFundFlowMetricsService:
                         mf_buy_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['amount'].sum()
                         mf_sell_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['amount'].sum()
                         mf_net_sell_amount_10k = (mf_sell_amount - mf_buy_amount) / 10000
+                        if should_probe:
+                            print(f"[{stock_code}] [探针 S.1 - {current_date}] 主力上影线净卖出 (万元): {mf_net_sell_amount_10k}, 市场价值效率: {market_value_efficiency}")
                         if mf_net_sell_amount_10k > 0 and market_value_efficiency > 0:
                             rejection_efficiency = price_rejection_norm / mf_net_sell_amount_10k
                             normalized_pressure = rejection_efficiency / market_value_efficiency
                             compressed_pressure = np.log1p(normalized_pressure)
                             metrics['upper_shadow_selling_pressure'] = np.tanh(compressed_pressure) * 100
+                            if should_probe:
+                                print(f"[{stock_code}] [探针 S.1 - {current_date}] upper_shadow_selling_pressure 计算完成: {metrics['upper_shadow_selling_pressure']}")
+                        else:
+                            if should_probe:
+                                print(f"[{stock_code}] [探针 S.1 - {current_date}] 主力上影线净卖出 <= 0 或市场价值效率 <= 0，upper_shadow_selling_pressure 无法计算。")
+                    else:
+                        if should_probe:
+                            print(f"[{stock_code}] [探针 S.1 - {current_date}] 上影线区域内无主力交易，upper_shadow_selling_pressure 无法计算。")
+                else:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 S.1 - {current_date}] hf_analysis_df 为空，upper_shadow_selling_pressure 无法计算。")
+            else:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 S.1 - {current_date}] 无上影线 (Day High <= Body High)，upper_shadow_selling_pressure 无法计算。")
+        else:
+            if should_probe:
+                print(f"[{stock_code}] [探针 S.1 - {current_date}] 日线数据或ATR/Daily Amount无效，_calculate_shadow_metrics 返回NaN。")
         return metrics
 
     @staticmethod
     def _calculate_dip_rally_metrics(context: dict) -> dict:
-        """
-        【V67.3 · 价值效率终极版】(生产环境清洁版)
-        - 核心逻辑: `rally_distribution_pressure` 采用“先聚合再求比”的稳健算法，并统一到“价值效率”维度进行归一化。
-        【V72.0 · 资金流拆分版】
-        - 核心增强: 拆分 `dip_absorption_power` 和 `rally_distribution_pressure` 为买卖双方贡献。
-        """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = common_data['daily_data'].name.date()
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1298,6 +1318,10 @@ class AdvancedFundFlowMetricsService:
         daily_total_amount = common_data.get('daily_total_amount', 0)
         day_high, day_low = common_data['day_high'], common_data['day_low']
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+        if should_probe:
+            print(f"[{stock_code}] [探针 D.1 - {current_date}] _calculate_dip_rally_metrics 启动。")
+            print(f"[{stock_code}] [探针 D.1 - {current_date}] Daily VWAP: {daily_vwap}, ATR: {atr}, Daily Total Amount: {daily_total_amount}")
+            print(f"[{stock_code}] [探针 D.1 - {current_date}] hf_analysis_df 是否为空: {hf_analysis_df.empty}")
         if not continuous_trading_df.empty and 'minute_vwap' in continuous_trading_df.columns:
             peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
             troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
@@ -1306,19 +1330,24 @@ class AdvancedFundFlowMetricsService:
                 absorption_zone_hf = hf_analysis_df[hf_analysis_df['price'] < daily_vwap]
                 if not absorption_zone_hf.empty:
                     mf_net_buy_vol = absorption_zone_hf['main_force_ofi'].clip(lower=0).sum()
-                    mf_net_sell_vol = absorption_zone_hf['main_force_ofi'].clip(upper=0).sum() # 新增行
+                    mf_net_sell_vol = absorption_zone_hf['main_force_ofi'].clip(upper=0).sum()
                     price_drop_vs_vwap = (daily_vwap - absorption_zone_hf['price']).clip(lower=0)
                     price_weighted_effort = (price_drop_vs_vwap * absorption_zone_hf['volume']).sum()
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 D.1 - {current_date}] 逢低吸筹区主力净买入量: {mf_net_buy_vol}, 价格加权努力: {price_weighted_effort}")
                     if price_weighted_effort > 0:
                         absorption_efficiency = mf_net_buy_vol / price_weighted_effort
                         metrics['dip_absorption_power'] = np.tanh(absorption_efficiency * atr) * 100
-                        metrics['dip_buy_absorption_strength'] = np.tanh(mf_net_buy_vol / price_weighted_effort * atr) * 100 # 新增行
-                        # 逢低卖压抵抗能力：如果主力在低位有净卖出，但价格没有大幅下跌，说明有抵抗
-                        if mf_net_sell_vol < 0: # 如果主力有净卖出
-                            resistance_efficiency = abs(mf_net_sell_vol) / price_weighted_effort # 卖出量与价格下跌的效率
-                            metrics['dip_sell_pressure_resistance'] = np.tanh(resistance_efficiency * atr) * 100 # 新增行
+                        metrics['dip_buy_absorption_strength'] = np.tanh(mf_net_buy_vol / price_weighted_effort * atr) * 100
+                        if should_probe:
+                            print(f"[{stock_code}] [探针 D.1 - {current_date}] dip_absorption_power 计算完成: {metrics['dip_absorption_power']}")
+                        if mf_net_sell_vol < 0:
+                            resistance_efficiency = abs(mf_net_sell_vol) / price_weighted_effort
+                            metrics['dip_sell_pressure_resistance'] = np.tanh(resistance_efficiency * atr) * 100
+                            if should_probe:
+                                print(f"[{stock_code}] [探针 D.1 - {current_date}] dip_sell_pressure_resistance 计算完成: {metrics['dip_sell_pressure_resistance']}")
                 total_mf_net_sell_amount_in_rallies = 0
-                total_mf_net_buy_amount_in_rallies = 0 # 新增行
+                total_mf_net_buy_amount_in_rallies = 0
                 total_rally_price_change_norm = 0
                 mf_trades = hf_features['mf_trades']
                 for i in range(len(turning_points) - 1):
@@ -1332,26 +1361,39 @@ class AdvancedFundFlowMetricsService:
                             mf_buy_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['amount'].sum()
                             mf_sell_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['amount'].sum()
                             total_mf_net_sell_amount_in_rallies += (mf_sell_amount - mf_buy_amount)
-                            total_mf_net_buy_amount_in_rallies += (mf_buy_amount - mf_sell_amount) # 新增行
+                            total_mf_net_buy_amount_in_rallies += (mf_buy_amount - mf_sell_amount)
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change_norm += (price_change_in_rally / atr)
                 day_range = day_high - day_low
+                if should_probe:
+                    print(f"[{stock_code}] [探针 D.1 - {current_date}] 总拉升价格变化归一化: {total_rally_price_change_norm}, 日线范围: {day_range}, 日总成交额: {daily_total_amount}")
+                    print(f"[{stock_code}] [探针 D.1 - {current_date}] 拉升中主力净买入总额: {total_mf_net_buy_amount_in_rallies}")
                 if total_rally_price_change_norm > 0 and day_range > 0 and daily_total_amount > 0:
                     deception_coeff = (total_mf_net_sell_amount_in_rallies / 10000) / total_rally_price_change_norm
                     market_price_cost = (daily_total_amount / 10000) / (day_range / atr)
                     if market_price_cost > 0:
                         normalized_pressure = deception_coeff / market_price_cost
                         metrics['rally_distribution_pressure'] = np.tanh(normalized_pressure) * 100
-                        metrics['rally_sell_distribution_intensity'] = np.tanh(deception_coeff / market_price_cost) * 100 # 新增行
-                        # 拉高买方支撑弱度：如果主力在拉高时净买入为负，说明支撑弱
+                        metrics['rally_sell_distribution_intensity'] = np.tanh(deception_coeff / market_price_cost) * 100
+                        if should_probe:
+                            print(f"[{stock_code}] [探针 D.1 - {current_date}] rally_distribution_pressure 计算完成: {metrics['rally_distribution_pressure']}")
                         if total_mf_net_buy_amount_in_rallies < 0:
                             weakness_coeff = (abs(total_mf_net_buy_amount_in_rallies) / 10000) / total_rally_price_change_norm
-                            metrics['rally_buy_support_weakness'] = np.tanh(weakness_coeff / market_price_cost) * 100 # 新增行
-            else: # Fallback for when hf_analysis_df is empty
-                # Existing fallback logic for dip_absorption_power and rally_distribution_pressure
-                # For split metrics, we might need to add similar fallback logic or leave them as NaN if high-freq data is essential.
-                # For now, let's assume these split metrics primarily rely on hf_analysis_df.
-                pass
+                            metrics['rally_buy_support_weakness'] = np.tanh(weakness_coeff / market_price_cost) * 100
+                            if should_probe:
+                                print(f"[{stock_code}] [探针 D.1 - {current_date}] rally_buy_support_weakness 计算完成: {metrics['rally_buy_support_weakness']}")
+                    else:
+                        if should_probe:
+                            print(f"[{stock_code}] [探针 D.1 - {current_date}] market_price_cost <= 0，拉升派发/支撑指标无法计算。")
+                else:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 D.1 - {current_date}] total_rally_price_change_norm <= 0 或日线数据无效，拉升派发/支撑指标无法计算。")
+            else:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 D.1 - {current_date}] hf_analysis_df 为空或日线数据无效，拉升/吸筹指标无法计算。")
+        else:
+            if should_probe:
+                print(f"[{stock_code}] [探针 D.1 - {current_date}] continuous_trading_df 为空或缺少 minute_vwap，拉升/吸筹指标无法计算。")
         return metrics
 
     @staticmethod
@@ -1787,13 +1829,13 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_retail_sentiment_metrics(context: dict) -> dict:
-        """
-        【V71.0 · 终极生产版】(生产环境清洁版)
-        """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = common_data['daily_data'].name.date()
         from datetime import time
         import pandas as pd
         import numpy as np
@@ -1803,6 +1845,9 @@ class AdvancedFundFlowMetricsService:
         }
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data['atr']
+        if should_probe:
+            print(f"[{stock_code}] [探针 R.1 - {current_date}] _calculate_retail_sentiment_metrics 启动。")
+            print(f"[{stock_code}] [探针 R.1 - {current_date}] ATR: {atr}, hf_analysis_df 是否为空: {hf_analysis_df.empty}")
         if not hf_analysis_df.empty and pd.notna(atr) and atr > 0:
             total_weighted_fomo_score = 0
             total_fomo_volume = 0
@@ -1810,15 +1855,21 @@ class AdvancedFundFlowMetricsService:
             fomo_events = hf_analysis_df['is_new_high'].ne(hf_analysis_df['is_new_high'].shift()).cumsum()
             daily_retail_buy_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'B')]['volume'].sum()
             avg_retail_buy_rate = daily_retail_buy_vol / (4 * 3600) if daily_retail_buy_vol > 0 else 0
+            if should_probe:
+                print(f"[{stock_code}] [探针 R.1 - {current_date}] 零售日买入量: {daily_retail_buy_vol}, 平均零售买入速率: {avg_retail_buy_rate}")
             for _, event_df in hf_analysis_df.groupby(fomo_events):
                 if not event_df['is_new_high'].all():
                     continue
-                if event_df.empty: continue
+                if event_df.empty:
+                    continue
                 retail_buy_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'B')]
-                if retail_buy_trades.empty: continue
+                if retail_buy_trades.empty:
+                    continue
                 fomo_vol_in_event = retail_buy_trades['volume'].sum()
                 cost_fomo = (retail_buy_trades['price'] * retail_buy_trades['volume']).sum() / fomo_vol_in_event
                 cost_mf_sell = daily_data.get('avg_cost_main_sell')
+                if should_probe:
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] FOMO事件中零售买入量: {fomo_vol_in_event}, 零售FOMO成本: {cost_fomo}, 主力卖出成本: {cost_mf_sell}")
                 if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                     cost_premium_component = (cost_fomo - cost_mf_sell) / atr
                     aggressive_buy_mask = retail_buy_trades['price'] >= retail_buy_trades['sell_price1']
@@ -1832,21 +1883,32 @@ class AdvancedFundFlowMetricsService:
             if total_fomo_volume > 0:
                 weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
                 metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * 100
+                if should_probe:
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] retail_fomo_premium_index 计算完成: {metrics['retail_fomo_premium_index']}")
+            else:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] total_fomo_volume 为0，retail_fomo_premium_index 无法计算。")
             total_weighted_panic_score = 0
             total_panic_volume = 0
             hf_analysis_df['is_new_low'] = hf_analysis_df['price'] < hf_analysis_df['price'].cummin().shift(1).fillna(float('inf'))
             panic_events = hf_analysis_df['is_new_low'].ne(hf_analysis_df['is_new_low'].shift()).cumsum()
             daily_retail_sell_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'S')]['volume'].sum()
             avg_retail_sell_rate = daily_retail_sell_vol / (4 * 3600) if daily_retail_sell_vol > 0 else 0
+            if should_probe:
+                print(f"[{stock_code}] [探针 R.1 - {current_date}] 零售日卖出量: {daily_retail_sell_vol}, 平均零售卖出速率: {avg_retail_sell_rate}")
             for _, event_df in hf_analysis_df.groupby(panic_events):
                 if not event_df['is_new_low'].all():
                     continue
-                if event_df.empty: continue
+                if event_df.empty:
+                    continue
                 retail_sell_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'S')]
-                if retail_sell_trades.empty: continue
+                if retail_sell_trades.empty:
+                    continue
                 panic_vol_in_event = retail_sell_trades['volume'].sum()
                 cost_panic = (retail_sell_trades['price'] * retail_sell_trades['volume']).sum() / panic_vol_in_event
                 cost_mf_buy = daily_data.get('avg_cost_main_buy')
+                if should_probe:
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] Panic事件中零售卖出量: {panic_vol_in_event}, 零售Panic成本: {cost_panic}, 主力买入成本: {cost_mf_buy}")
                 if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                     cost_discount_component = (cost_mf_buy - cost_panic) / atr
                     aggressive_sell_mask = retail_sell_trades['price'] <= retail_sell_trades['buy_price1']
@@ -1860,7 +1922,14 @@ class AdvancedFundFlowMetricsService:
             if total_panic_volume > 0:
                 weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
                 metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * 100
+                if should_probe:
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] retail_panic_surrender_index 计算完成: {metrics['retail_panic_surrender_index']}")
+            else:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] total_panic_volume 为0，retail_panic_surrender_index 无法计算。")
         else:
+            if should_probe:
+                print(f"[{stock_code}] [探针 R.1 - {current_date}] hf_analysis_df 为空或ATR无效，零售情绪指标尝试回退到分钟数据。")
             continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
             if pd.notna(day_high) and pd.notna(day_low):
                 day_range = day_high - day_low
@@ -1878,6 +1947,8 @@ class AdvancedFundFlowMetricsService:
                                 if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                     premium = (cost_fomo / cost_mf_sell - 1)
                                     metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
+                                    if should_probe:
+                                        print(f"[{stock_code}] [探针 R.1 - {current_date}] (Fallback) retail_fomo_premium_index 计算完成: {metrics['retail_fomo_premium_index']}")
                     panic_zone_threshold = day_low + 0.25 * day_range
                     panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
                     if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
@@ -1891,6 +1962,8 @@ class AdvancedFundFlowMetricsService:
                                 if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                     discount = (cost_mf_buy - cost_panic) / cost_mf_buy
                                     metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
+                                    if should_probe:
+                                        print(f"[{stock_code}] [探针 R.1 - {current_date}] (Fallback) retail_panic_surrender_index 计算完成: {metrics['retail_panic_surrender_index']}")
         return metrics
 
     @staticmethod
@@ -2057,19 +2130,12 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_flow_efficiency_metrics(context: dict) -> dict:
-        """
-        【V66.2 · 探针最终标准化版】
-        - 核心修复: 修正了因遗漏改造而导致的 `KeyError: 'is_target_date'` 致命错误。
-        - 核心重构: 彻底废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志，完成探针系统的最终标准化。
-        【V72.0 · 资金流拆分版】
-        - 核心增强: 拆分 `flow_efficiency_index` 为买卖双方效率。
-        【V72.2 · 生产就绪版】
-        - 核心清除: 移除所有调试探针相关的print语句和逻辑，恢复生产状态。
-        """
         hf_analysis_df = context['hf_analysis_df']
         intraday_data = context['intraday_data']
         common_data = context['common_data']
         should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = common_data['daily_data'].name.date()
         import numpy as np
         import pandas as pd
         metrics = {
@@ -2079,20 +2145,35 @@ class AdvancedFundFlowMetricsService:
         }
         atr = common_data.get('atr')
         daily_total_volume = common_data.get('daily_total_volume')
+        if should_probe:
+            print(f"[{stock_code}] [探针 F.1 - {current_date}] _calculate_flow_efficiency_metrics 启动。")
+            print(f"[{stock_code}] [探针 F.1 - {current_date}] ATR: {atr}, Daily Total Volume: {daily_total_volume}")
         if pd.isna(atr) or atr <= 0 or pd.isna(daily_total_volume) or daily_total_volume <= 0:
+            if should_probe:
+                print(f"[{stock_code}] [探针 F.1 - {current_date}] 条件不满足: ATR或Daily Total Volume无效。返回NaN。")
             return metrics
         efficiency_coeff = np.nan
         buy_efficiency_coeff = np.nan
         sell_efficiency_coeff = np.nan
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
+            if should_probe:
+                print(f"[{stock_code}] [探针 F.1 - {current_date}] hf_analysis_df 不为空且包含关键列。")
             df = hf_analysis_df[hf_analysis_df['main_force_ofi'] != 0].copy()
+            if should_probe:
+                print(f"[{stock_code}] [探针 F.1 - {current_date}] 过滤 main_force_ofi != 0 后 df 是否为空: {df.empty}")
             if not df.empty:
                 df['price_change_per_ofi'] = df['mid_price_change'] / df['main_force_ofi']
                 weights = df['main_force_ofi'].abs()
+                if should_probe:
+                    print(f"[{stock_code}] [探针 F.1 - {current_date}] weights.sum(): {weights.sum()}")
                 if weights.sum() > 0:
                     efficiency_coeff = np.average(df['price_change_per_ofi'], weights=weights)
                     metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
-                # 新增拆分指标
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 F.1 - {current_date}] flow_efficiency_index 计算完成: {metrics['flow_efficiency_index']}")
+                else:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 F.1 - {current_date}] weights.sum() 为0，flow_efficiency_index 无法计算。")
                 df_buy = hf_analysis_df[hf_analysis_df['main_force_ofi'] > 0].copy()
                 if not df_buy.empty:
                     df_buy['price_change_per_ofi'] = df_buy['mid_price_change'] / df_buy['main_force_ofi']
@@ -2107,7 +2188,12 @@ class AdvancedFundFlowMetricsService:
                     if weights_sell.sum() > 0:
                         sell_efficiency_coeff = np.average(df_sell['price_change_per_ofi'], weights=weights_sell)
                         metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr
+            else:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 F.1 - {current_date}] 过滤 main_force_ofi != 0 后 df 为空，flow_efficiency_index 无法计算。")
         else:
+            if should_probe:
+                print(f"[{stock_code}] [探针 F.1 - {current_date}] hf_analysis_df 为空或缺少关键列，尝试分钟数据回退。")
             if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
                 df = intraday_data.copy()
                 df['price_change'] = df['close'].diff()
@@ -2118,7 +2204,6 @@ class AdvancedFundFlowMetricsService:
                     if weights.sum() > 0:
                         efficiency_coeff = np.average(df['price_change_per_vol'], weights=weights)
                         metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
-                # Fallback for split metrics
                 df_buy_fallback = intraday_data[intraday_data['main_force_net_vol'] > 0].copy()
                 if not df_buy_fallback.empty:
                     df_buy_fallback['price_change'] = df_buy_fallback['close'].diff()
@@ -2139,6 +2224,9 @@ class AdvancedFundFlowMetricsService:
                         if weights_sell_fallback.sum() > 0:
                             sell_efficiency_coeff = np.average(df_sell_fallback['price_change_per_vol'], weights=weights_sell_fallback)
                             metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr
+            else:
+                if should_probe:
+                    print(f"[{stock_code}] [探针 F.1 - {current_date}] 分钟数据回退路径也无法计算 flow_efficiency_index。")
         return metrics
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
