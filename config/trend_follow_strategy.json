@@ -575,7 +575,7 @@
       "debug_params": {
         "should_probe": true,
         "enabled": { "value": true },
-        "probe_dates": ["2025-12-10"]
+        "probe_dates": ["2025-12-03"]
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },

@@ -4171,7 +4171,6 @@ class ProcessIntelligence:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算风暴眼中的寂静..."] = ""
-
         df_index = df.index
         params = get_param_value(config.get('storm_eye_calm_params'), {})
         # --- 1. 获取配置参数 ---
@@ -4321,7 +4320,6 @@ class ProcessIntelligence:
         mf_activity_ratio_raw = self._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), np.nan, method_name=method_name)
         volatility_regime_raw = self._get_safe_series(df, regime_modulator_params.get('volatility_signal', 'VOLATILITY_INSTABILITY_INDEX_21d_D'), np.nan, method_name=method_name)
         trend_regime_raw = self._get_safe_series(df, regime_modulator_params.get('trend_signal', 'ADX_14_D'), np.nan, method_name=method_name)
-
         _temp_debug_values["原始信号值"] = {
             "SCORE_STRUCT_AXIOM_TENSION": tension_score,
             "BBW_21_2.0_D": bbw_raw,
@@ -4384,14 +4382,12 @@ class ProcessIntelligence:
             "main_force_activity_ratio_D": mf_activity_ratio_raw,
             "ADX_14_D": trend_regime_raw
         }
-
         # --- 4. 计算MTF斜率/加速度分数 ---
         bbw_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'BBW_21_2.0_D', mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
         vol_instability_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
         turnover_rate_slope_inverted_score = self._get_mtf_slope_accel_score(df, 'turnover_rate_f_D', mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
         mf_net_flow_slope_positive = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
         mtf_cohesion_score = self._get_mtf_cohesion_score(df, mtf_cohesion_base_signals, mtf_slope_accel_weights, df_index, method_name)
-
         _temp_debug_values["MTF斜率/加速度分数"] = {
             "bbw_slope_inverted_score": bbw_slope_inverted_score,
             "vol_instability_slope_inverted_score": vol_instability_slope_inverted_score,
@@ -4399,7 +4395,6 @@ class ProcessIntelligence:
             "mf_net_flow_slope_positive": mf_net_flow_slope_positive,
             "mtf_cohesion_score": mtf_cohesion_score
         }
-
         # --- 5. 归一化和计算各维度分数 ---
         # Energy Compression
         bbw_inverted_score = self._normalize_series(bbw_raw, target_index=df_index, ascending=False)
@@ -4422,11 +4417,9 @@ class ProcessIntelligence:
             'volume_structure_skew_inverted': volume_structure_skew_inverted, 'volume_profile_entropy_inverted': volume_profile_entropy_inverted
         }
         energy_compression_score = _robust_geometric_mean(energy_compression_scores_dict, energy_compression_weights, df_index)
-
         _temp_debug_values["能量压缩"] = {
             "energy_compression_score": energy_compression_score
         }
-
         # Volume Exhaustion
         turnover_rate_inverted_score = self._normalize_series(turnover_rate_f_raw, target_index=df_index, ascending=False)
         turnover_rate_raw_inverted = self._normalize_series(turnover_rate_raw, target_index=df_index, ascending=False)
@@ -4453,11 +4446,9 @@ class ProcessIntelligence:
             'turnover_rate_raw_inverted': turnover_rate_raw_inverted
         }
         volume_exhaustion_score = _robust_geometric_mean(volume_exhaustion_scores_dict, volume_exhaustion_weights, df_index)
-
         _temp_debug_values["量能枯竭"] = {
             "volume_exhaustion_score": volume_exhaustion_score
         }
-
         # Main Force Covert Intent
         stealth_ops_normalized = self._normalize_series(stealth_ops_score, target_index=df_index, ascending=True)
         split_order_accum_normalized = self._normalize_series(split_order_accum_score, target_index=df_index, ascending=True)
@@ -4503,7 +4494,6 @@ class ProcessIntelligence:
             'liquidity_authenticity_positive': liquidity_authenticity_positive
         }
         main_force_flow_ambiguity = _robust_geometric_mean(ambiguity_components, ambiguity_components_weights, df_index)
-
         _temp_debug_values["主力隐蔽意图"] = {
             "stealth_ops": stealth_ops_normalized,
             "split_order_accum": split_order_accum_normalized,
@@ -4522,12 +4512,23 @@ class ProcessIntelligence:
             "main_force_net_flow_volatility_inverted": main_force_net_flow_volatility_inverted,
             "main_force_flow_ambiguity": main_force_flow_ambiguity
         }
+        # 定义 main_force_covert_intent_scores_dict 局部变量
+        main_force_covert_intent_scores_dict = {
+            'stealth_ops': stealth_ops_normalized, 'split_order_accum': split_order_accum_normalized,
+            'mf_net_flow_positive': mf_net_flow_positive,
+            'mf_cost_advantage_positive': mf_cost_advantage_positive, 'mf_buy_ofi_positive': mf_buy_ofi_positive,
+            'mf_t0_buy_efficiency_positive': mf_t0_buy_efficiency_positive, 'mf_net_flow_slope_positive': mf_net_flow_slope_positive,
+            'order_book_imbalance_positive': order_book_imbalance_positive,
+            'micro_price_impact_asymmetry_positive': micro_price_impact_asymmetry_positive,
+            'mf_vwap_guidance_neutrality': mf_vwap_guidance_neutrality, 'vwap_control_neutrality': vwap_control_neutrality,
+            'observed_large_order_size_avg_inverted': observed_large_order_size_avg_inverted, 'market_impact_cost_inverted': market_impact_cost_inverted,
+            'main_force_net_flow_volatility_inverted': main_force_net_flow_volatility_inverted,
+            'main_force_flow_ambiguity': main_force_flow_ambiguity
+        }
         main_force_covert_intent_score = _robust_geometric_mean(main_force_covert_intent_scores_dict, main_force_covert_intent_weights, df_index)
-
         _temp_debug_values["主力隐蔽意图融合"] = {
             "main_force_covert_intent_score": main_force_covert_intent_score
         }
-
         # Subdued Market Sentiment
         sentiment_pendulum_negative = self._normalize_series(sentiment_pendulum_score, target_index=df_index, bipolar=True).clip(upper=0).abs()
         market_sentiment_inverted = self._normalize_series(market_sentiment_raw, target_index=df_index, ascending=False)
@@ -4568,11 +4569,9 @@ class ProcessIntelligence:
             'trend_alignment_positive': trend_alignment_positive
         }
         subdued_market_sentiment_score = _robust_geometric_mean(subdued_market_sentiment_scores_dict, subdued_market_sentiment_weights, df_index)
-
         _temp_debug_values["市场情绪低迷融合"] = {
             "subdued_market_sentiment_score": subdued_market_sentiment_score
         }
-
         # Breakout Readiness
         goodness_of_fit_score = self._normalize_series(goodness_of_fit_raw, target_index=df_index, ascending=True)
         platform_conviction_score = self._normalize_series(platform_conviction_raw, target_index=df_index, ascending=True)
@@ -4583,11 +4582,9 @@ class ProcessIntelligence:
             'platform_conviction': platform_conviction_score
         }
         breakout_readiness_score = _robust_geometric_mean(breakout_readiness_scores_dict, breakout_readiness_weights, df_index)
-
         _temp_debug_values["突破准备度融合"] = {
             "breakout_readiness_score": breakout_readiness_score
         }
-
         # --- 6. 市场情境动态调节器 ---
         market_regime_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
         if get_param_value(regime_modulator_params.get('enabled'), False):
@@ -4602,11 +4599,9 @@ class ProcessIntelligence:
                 base_modulator_factor +
                 (volatility_norm * volatility_sensitivity + trend_norm * trend_sensitivity) / (volatility_sensitivity + trend_sensitivity + 1e-9)
             ).clip(min_modulator, max_modulator)
-
         _temp_debug_values["市场情境动态调节器"] = {
             "market_regime_modulator": market_regime_modulator
         }
-
         # --- 7. 最终融合 ---
         adjusted_final_fusion_weights = {k: v * market_regime_modulator for k, v in final_fusion_weights.items()}
         base_calm_scores_dict = {
@@ -4632,7 +4627,6 @@ class ProcessIntelligence:
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
         final_score = (final_score * main_force_amplifier).clip(0, 1).fillna(0.0)
-
         _temp_debug_values["最终融合"] = {
             "adjusted_final_fusion_weights": adjusted_final_fusion_weights,
             "base_calm_score": base_calm_score,
@@ -4644,7 +4638,6 @@ class ProcessIntelligence:
             "main_force_amplifier": main_force_amplifier,
             "final_score": final_score
         }
-
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
@@ -4654,7 +4647,6 @@ class ProcessIntelligence:
                     debug_output[f"        '{key}': {val:.4f}"] = ""
                 else: # Handle non-Series values like dicts or raw numbers
                     debug_output[f"        '{key}': {value}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF斜率/加速度分数 ---"] = ""
             for key, series in _temp_debug_values["MTF斜率/加速度分数"].items():
                 if isinstance(series, pd.Series):
@@ -4662,7 +4654,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 能量压缩 ---"] = ""
             for key, series in _temp_debug_values["能量压缩"].items():
                 if isinstance(series, pd.Series):
@@ -4670,7 +4661,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 量能枯竭 ---"] = ""
             for key, series in _temp_debug_values["量能枯竭"].items():
                 if isinstance(series, pd.Series):
@@ -4678,7 +4668,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图 ---"] = ""
             for key, series in _temp_debug_values["主力隐蔽意图"].items():
                 if isinstance(series, pd.Series):
@@ -4686,7 +4675,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图融合 ---"] = ""
             for key, series in _temp_debug_values["主力隐蔽意图融合"].items():
                 if isinstance(series, pd.Series):
@@ -4694,7 +4682,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场情绪低迷融合 ---"] = ""
             for key, series in _temp_debug_values["市场情绪低迷融合"].items():
                 if isinstance(series, pd.Series):
@@ -4702,7 +4689,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 突破准备度融合 ---"] = ""
             for key, series in _temp_debug_values["突破准备度融合"].items():
                 if isinstance(series, pd.Series):
@@ -4710,7 +4696,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场情境动态调节器 ---"] = ""
             for key, series in _temp_debug_values["市场情境动态调节器"].items():
                 if isinstance(series, pd.Series):
@@ -4718,7 +4703,6 @@ class ProcessIntelligence:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合 ---"] = ""
             for key, series in _temp_debug_values["最终融合"].items():
                 if isinstance(series, pd.Series):
@@ -4734,16 +4718,13 @@ class ProcessIntelligence:
                             debug_output[f"          {sub_key}: {sub_value}"] = ""
                 else:
                     debug_output[f"        {key}: {series}"] = ""
-
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 风暴眼中的寂静诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
             for key, value in debug_output.items():
                 if value:
                     print(f"{key}: {value}")
                 else:
                     print(key)
-
         return final_score.astype(np.float32)
-
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         """
         【V1.4 · 参数名修正版】可复用的元分析核心引擎。
