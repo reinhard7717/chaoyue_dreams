@@ -1305,6 +1305,7 @@ class FundFlowIntelligence:
         - 核心升级: 引入多时间框架共振因子，评估关键信念信号在不同时间框架下的协同或背离，作为重要的调制器。
         - 核心细化: 将资金流效率从 `flow_efficiency_index_D` 细化为 `buy_flow_efficiency_index_D` 和 `sell_flow_efficiency_index_D`。
         - 【新增】所有调试信息统一在方法末尾输出。
+        - 【修正】修复 `core_conviction_score` 中 `core_conviction_weights_v4_1` 部分的计算逻辑，确保负向权重正确应用惩罚。
         """
         method_name = "_diagnose_axiom_conviction"
         df_index = df.index
@@ -1527,11 +1528,11 @@ class FundFlowIntelligence:
             "sell_flow_efficiency_cohesion": sell_flow_efficiency_cohesion
         }
         # --- 1. 核心信念强度 (Core Conviction Strength) ---
-        norm_mf_conviction_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_5_raw, df_index, tf_weights_ff)
-        norm_mf_conviction_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_13_raw, df_index, tf_weights_ff)
-        norm_mf_conviction_slope_21 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_21_raw, df_index, tf_weights_ff)
-        norm_sm_net_buy_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_5_raw, df_index, tf_weights_ff)
-        norm_sm_net_buy_slope_13 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_13_raw, df_index, tf_weights_ff)
+        norm_mf_conviction_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_mf_conviction_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_13_raw, df_index, tf_weights=tf_weights_ff)
+        norm_mf_conviction_slope_21 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_21_raw, df_index, tf_weights=tf_weights_ff)
+        norm_sm_net_buy_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_sm_net_buy_slope_13 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_13_raw, df_index, tf_weights=tf_weights_ff)
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_intraday_large_order_flow = get_adaptive_mtf_normalized_bipolar_score(intraday_large_order_flow_synthesized, df_index, tf_weights=tf_weights_ff)
         norm_main_force_flow_purity = get_adaptive_mtf_normalized_score(main_force_flow_purity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
@@ -1552,15 +1553,17 @@ class FundFlowIntelligence:
         norm_retail_sell_ofi = get_adaptive_mtf_normalized_score(raw_data_cache['retail_sell_ofi_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_buy_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_buy_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_wash_trade_sell_volume = get_adaptive_mtf_normalized_score(raw_data_cache['wash_trade_sell_volume_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
+        # MODIFICATION START: 修正 core_conviction_weights_v4_1 的应用逻辑，将所有减号改为加号
         core_conviction_score = core_conviction_score + \
                                 (norm_main_force_buy_ofi * core_conviction_weights_v4_1.get('main_force_buy_ofi', 0.1)) + \
-                                (norm_retail_sell_ofi * core_conviction_weights_v4_1.get('retail_sell_ofi', 0.05)) - \
-                                (norm_rally_sell_distribution_intensity * core_conviction_weights_v4_1.get('rally_sell_distribution_intensity', -0.1)) - \
-                                (norm_rally_buy_support_weakness * core_conviction_weights_v4_1.get('rally_buy_support_weakness', -0.1)) - \
-                                (norm_main_force_sell_ofi * core_conviction_weights_v4_1.get('main_force_sell_ofi', -0.1)) - \
-                                (norm_retail_buy_ofi * core_conviction_weights_v4_1.get('retail_buy_ofi', -0.05)) - \
-                                (norm_wash_trade_buy_volume * core_conviction_weights_v4_1.get('wash_trade_buy_volume', -0.05)) - \
+                                (norm_retail_sell_ofi * core_conviction_weights_v4_1.get('retail_sell_ofi', 0.05)) + \
+                                (norm_rally_sell_distribution_intensity * core_conviction_weights_v4_1.get('rally_sell_distribution_intensity', -0.1)) + \
+                                (norm_rally_buy_support_weakness * core_conviction_weights_v4_1.get('rally_buy_support_weakness', -0.1)) + \
+                                (norm_main_force_sell_ofi * core_conviction_weights_v4_1.get('main_force_sell_ofi', -0.1)) + \
+                                (norm_retail_buy_ofi * core_conviction_weights_v4_1.get('retail_buy_ofi', -0.05)) + \
+                                (norm_wash_trade_buy_volume * core_conviction_weights_v4_1.get('wash_trade_buy_volume', -0.05)) + \
                                 (norm_wash_trade_sell_volume * core_conviction_weights_v4_1.get('wash_trade_sell_volume', -0.05))
+        # MODIFICATION END
         core_conviction_score = core_conviction_score.clip(-1, 1)
         # MODIFICATION START: 将核心信念强度计算结果收集到 _temp_debug_values
         _temp_debug_values["核心信念强度"] = {
@@ -1585,9 +1588,9 @@ class FundFlowIntelligence:
         # --- 2. 诡道博弈韧性调制 (Deceptive Resilience Modulation) ---
         deceptive_resilience_modulator = pd.Series(1.0, index=df_index)
         if deceptive_resilience_mod_enabled:
-            norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, tf_weights_ff)
-            norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, tf_weights_ff)
-            norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, tf_weights_ff)
+            norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+            norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, tf_weights=tf_weights_ff)
+            norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, tf_weights=tf_weights_ff)
             norm_deception_multi_tf = (
                 norm_deception_slope_5 * deception_slope_weights.get('slope_5', 0.5) +
                 norm_deception_slope_13 * deception_slope_weights.get('slope_13', 0.3) +
@@ -1632,12 +1635,12 @@ class FundFlowIntelligence:
             "deceptive_resilience_modulator": deceptive_resilience_modulator
         }
         # --- 3. 信念传导效率 (Conviction Transmission Efficiency) ---
-        norm_mf_exec_alpha_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_5_raw, df_index, tf_weights_ff)
-        norm_mf_exec_alpha_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_13_raw, df_index, tf_weights_ff)
-        norm_buy_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(buy_flow_efficiency_slope_5_raw, df_index, tf_weights_ff)
-        norm_buy_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(buy_flow_efficiency_slope_13_raw, df_index, tf_weights_ff)
-        norm_sell_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sell_flow_efficiency_slope_5_raw, df_index, tf_weights_ff)
-        norm_sell_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(sell_flow_efficiency_slope_13_raw, df_index, tf_weights_ff)
+        norm_mf_exec_alpha_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_mf_exec_alpha_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_13_raw, df_index, tf_weights=tf_weights_ff)
+        norm_buy_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(buy_flow_efficiency_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_buy_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(buy_flow_efficiency_slope_13_raw, df_index, tf_weights=tf_weights_ff)
+        norm_sell_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sell_flow_efficiency_slope_5_raw, df_index, tf_weights=tf_weights_ff)
+        norm_sell_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(sell_flow_efficiency_slope_13_raw, df_index, tf_weights=tf_weights_ff)
         norm_intraday_price_impact = get_adaptive_mtf_normalized_bipolar_score(intraday_price_impact_raw, df_index, tf_weights=tf_weights_ff)
         norm_large_order_pressure = get_adaptive_mtf_normalized_score(large_order_pressure_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_intraday_vwap_deviation = get_adaptive_mtf_normalized_score(intraday_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
