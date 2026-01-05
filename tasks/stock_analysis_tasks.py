@@ -796,11 +796,29 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             logger.error(f"策略配置文件未找到: {config_path}")
         except json.JSONDecodeError:
             logger.error(f"解码策略配置文件 JSON 失败: {config_path}")
-        debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
-        enable_probe = debug_params.get('enable_mfca_probe', False)
-        target_date_str = debug_params.get('target_date')
-        fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params)
-        chip_service = AdvancedChipMetricsService()
+        
+        # 从配置文件中提取原始的 debug_params
+        raw_debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
+        
+        # 构建服务层期望的 debug_params 结构
+        service_debug_params = {}
+        service_debug_params['enable_mfca_probe'] = raw_debug_params.get('should_probe', False)
+        
+        # 如果 probe_dates 存在且不为空，则取第一个日期作为 target_date
+        probe_dates = raw_debug_params.get('probe_dates')
+        if probe_dates and isinstance(probe_dates, list) and len(probe_dates) > 0:
+            service_debug_params['target_date'] = probe_dates[0]
+        else:
+            service_debug_params['target_date'] = None # 如果没有指定日期，则不限制日期
+            
+        # 更新任务自身的探针变量，使其使用转换后的参数
+        enable_probe = service_debug_params.get('enable_mfca_probe', False)
+        target_date_str = service_debug_params.get('target_date') # 使用这个变量来控制任务自身的 M.2 探针
+        
+        # 将转换后的 debug_params 传递给服务层
+        fund_flow_service = AdvancedFundFlowMetricsService(debug_params=service_debug_params)
+        chip_service = AdvancedChipMetricsService(debug_params=service_debug_params) # 确保 chip_service 也接收 debug_params
+        
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
@@ -903,7 +921,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_base_daily_df = seed_daily_df.join(seed_daily_basic_df.drop(columns=overlap_cols), how='left')
                 seed_base_daily_df['atr_14d'] = seed_base_daily_df.index.map(atr_map_global)
                 ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
-                fund_flow_service.debug_params = debug_params
+                fund_flow_service.debug_params = service_debug_params
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
                     stock_info, seed_ff_raw_df.index,
@@ -918,20 +936,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     minute_data_map=seed_data_dfs.get("stock_minute_data_map"),
                     realtime_data_map=seed_data_dfs.get("stock_realtime_data_map"),
                     memory=cross_chunk_memory_bus['fund_flow_memory']
-                )
-                seed_ff_minute_map_for_chip_service = copy.deepcopy(seed_ff_minute_map)
-                seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
-                seed_chip_raw_df = chip_service._preprocess_and_merge_data(
-                    stock_code, seed_chip_data_dfs, seed_base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
-                    high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
-                )
-                seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                _, cross_chunk_memory_bus['chip_memory'], seed_failures = chip_service._synthesize_and_forge_metrics(
-                    stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service,
-                    memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params,
-                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"),
-                    realtime_data_map=seed_data_dfs.get("stock_realtime_data_map"),
-                    level5_data_map=seed_data_dfs.get("stock_level5_data_map")
                 )
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
@@ -979,7 +983,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             base_daily_df = daily_df.join(daily_basic_df.drop(columns=overlap_cols), how='left')
             base_daily_df['atr_14d'] = base_daily_df.index.map(atr_map_global)
             ff_data_dfs = {"tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"]}
-            fund_flow_service.debug_params = debug_params
+            fund_flow_service.debug_params = service_debug_params
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=base_daily_df)
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
@@ -993,6 +997,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             all_failures.extend(ff_failures)
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
+            chip_service.debug_params = service_debug_params
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
@@ -1006,7 +1011,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             )
             chip_metrics_df, cross_chunk_memory_bus['chip_memory'], chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_for_chip_service,
-                memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params,
+                memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=service_debug_params,
                 tick_data_map=tick_data_map, realtime_data_map=realtime_data_map, level5_data_map=level5_data_map
             )
             all_failures.extend(chunk_failures)
@@ -1045,12 +1050,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         else:
             logger.info(f"[{stock_code}] 深度融合计算未产生任何新指标。")
             return {"status": "no_new_data", "failures": all_failures}
-    try:
-        result = async_to_sync(main)(is_incremental, start_date_str)
-        return result
-    except Exception as e:
-        logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock (merged task) for {stock_code}: {e}", exc_info=True)
-        raise
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_geometric_patterns_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
