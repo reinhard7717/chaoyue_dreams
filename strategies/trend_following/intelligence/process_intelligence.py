@@ -4539,14 +4539,14 @@ class ProcessIntelligence:
         market_sentiment_inverted = self._normalize_series(market_sentiment_raw, target_index=df_index, ascending=False)
         retail_panic_inverted = self._normalize_series(retail_panic_raw, target_index=df_index, ascending=False)
         retail_fomo_inverted = self._normalize_series(retail_fomo_raw, target_index=df_index, ascending=False)
-        loser_pain_positive = self._normalize_series(loser_pain_raw, target_index=df_index, ascending=true)
+        loser_pain_positive = self._normalize_series(loser_pain_raw, target_index=df_index, ascending=True)
         liquidity_tide_calm = self._normalize_series(liquidity_tide_score.abs(), target_index=df_index, ascending=False)
         hurst_calm = (1 - (hurst_raw - 0.5).abs() / 0.5).clip(0, 1)
-        sentiment_neutrality = 1 - self._normalize_series(market_sentiment_raw.abs(), target_index=df_index, ascending=true)
+        sentiment_neutrality = 1 - self._normalize_series(market_sentiment_raw.abs(), target_index=df_index, ascending=True)
         sentiment_pendulum_neutrality = 1 - self._normalize_series(sentiment_pendulum_score.abs(), target_index=df_index, bipolar=true).abs()
         sentiment_volatility_inverted = self._normalize_series(market_sentiment_std_raw, target_index=df_index, ascending=False)
         sentiment_pendulum_volatility_inverted = self._normalize_series(sentiment_pendulum_std_raw, target_index=df_index, ascending=False)
-        long_term_sentiment_subdued = self._normalize_series(market_sentiment_long_term_mean - market_sentiment_raw, target_index=df_index, ascending=true)
+        long_term_sentiment_subdued = self._normalize_series(market_sentiment_long_term_mean - market_sentiment_raw, target_index=df_index, ascending=True)
         # 修正 sentiment_pendulum_not_extreme 和 market_sentiment_not_extreme
         sentiment_pendulum_not_extreme = (1 - (sentiment_pendulum_score.abs() - sentiment_pendulum_neutral_range).clip(lower=0) / (sentiment_pendulum_score.abs().max() - sentiment_pendulum_neutral_range + 1e-9)).clip(0, 1)
         market_sentiment_not_extreme = (1 - (market_sentiment_raw.abs() - sentiment_neutral_range).clip(lower=0) / (market_sentiment_raw.abs().max() - sentiment_neutral_range + 1e-9)).clip(0, 1)
@@ -4555,7 +4555,7 @@ class ProcessIntelligence:
         structural_entropy_change_inverted = self._normalize_series(structural_entropy_change_raw.abs(), target_index=df_index, ascending=False)
         # 新增情绪组件
         mean_reversion_frequency_inverted = self._normalize_series(mean_reversion_frequency_raw, target_index=df_index, ascending=False)
-        trend_alignment_positive = self._normalize_series(trend_alignment_index_raw, target_index=df_index, ascending=true)
+        trend_alignment_positive = self._normalize_series(trend_alignment_index_raw, target_index=df_index, ascending=True)
         subdued_market_sentiment_scores_dict = {
             'sentiment_pendulum_negative': sentiment_pendulum_negative, 'market_sentiment_inverted': market_sentiment_inverted,
             'retail_panic_inverted': retail_panic_inverted, 'retail_fomo_inverted': retail_fomo_inverted,
