@@ -1675,7 +1675,7 @@ class ProcessIntelligence:
             for key, series in _temp_debug_values["基础背离分数"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_ts.strftime('%Y-%m-%d')}: --- 量能确认分数 ---"] = ""
+            debug_output[f"  -- [过程情报调试] {probe_ts.strftime('%Y-%m-%d')}: --- 量能确认分数 ---"] = ""
             for key, series in _temp_debug_values["量能确认分数"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
