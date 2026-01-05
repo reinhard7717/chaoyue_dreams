@@ -247,6 +247,7 @@ class FundFlowIntelligence:
                       同时为正时，才确认为一次高置信度的V型反转拐点。旨在捕捉趋势“破晓”的关键瞬间。
         - 【增强】计算并存储 SCORE_FF_DECEPTION_RISK 信号时，增加健壮性检查，确保其为有效Series。
         - 【新增】所有调试信息统一在方法末尾输出。
+        - 【追踪】新增对 SCORE_FF_DECEPTION_RISK 信号生命周期的详细追踪打印。
         """
         # 直接使用在 __init__ 中加载的配置
         p_conf = self.p_conf_ff
@@ -284,7 +285,19 @@ class FundFlowIntelligence:
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: _diagnose_deception_risk 返回无效数据或空Series，SCORE_FF_DECEPTION_RISK 将使用默认值0.0。"] = ""
             score_ff_deception_risk = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        # MODIFICATION START: 添加对局部变量 score_ff_deception_risk 的调试打印
+        if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
+            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk after _diagnose_deception_risk call: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
+        # MODIFICATION END
+
         self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk # 存储诡道风险信号
+
+        # MODIFICATION START: 添加对 atomic_states['SCORE_FF_DECEPTION_RISK'] 的调试打印
+        if is_debug_enabled and probe_ts and probe_ts in self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].index:
+            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: SCORE_FF_DECEPTION_RISK stored in atomic_states: {self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].loc[probe_ts]:.4f}"] = ""
+        # MODIFICATION END
+
         # 1.2 计算 axiom_divergence
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence # 存储分歧公理，供后续使用
@@ -369,6 +382,12 @@ class FundFlowIntelligence:
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk.astype(np.float32)
+
+        # MODIFICATION START: 添加对局部变量 score_ff_deception_risk 在最终 all_states 赋值前的调试打印
+        if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
+            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk before final all_states loop: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
+        # MODIFICATION END
+
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 战略态势合成 ---"] = ""
             debug_output[f"        攻击力量 (attack_score): {attack_score.loc[probe_ts]:.4f}"] = ""
