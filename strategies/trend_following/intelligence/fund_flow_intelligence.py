@@ -39,14 +39,13 @@ def _numba_calculate_deception_risk_core(
         sentiment_mod_factor = np.maximum(0.5, np.minimum(sentiment_mod_factor, 1.5)) # 裁剪到合理范围
         # 风险来源1：对倒强度
         risk_from_wash_trade = norm_wash_trade_values[i] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[i]
-        # MODIFICATION START: 撤销上次的交换，恢复到与注释逻辑一致的状态
+        # 撤销上次的交换，恢复到与注释逻辑一致的状态
         # 风险来源2：诱多欺骗（正向归一化欺骗指数，即 norm_deception > 0）
         risk_from_bull_trap = np.maximum(0.0, norm_deception_values[i]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[i]
         # 风险来源3：诱多强度（deception_lure_long_intensity）
         risk_from_lure_long = norm_deception_lure_long_values[i] * deception_lure_long_penalty_sensitivity
         # 风险来源4：弱信念下的诱空（负向归一化欺骗指数，即 norm_deception < 0，且主力信念弱）
         risk_from_bear_trap_weak_conviction = np.maximum(0.0, -norm_deception_values[i]) * (1 - np.maximum(0.0, norm_conviction_values[i])) * deception_penalty_sensitivity * deception_cohesion_mod_values[i]
-        # MODIFICATION END
         # 风险来源5：低资金流可信度
         # 只有当可信度低于阈值时才产生风险，且风险程度与低于阈值的程度成正比
         risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility_values[i]) - (1 - flow_credibility_threshold))
@@ -266,10 +265,10 @@ class FundFlowIntelligence:
         debug_info_tuple = (is_debug_enabled, probe_ts, "diagnose_fund_flow_states")
         # 调试信息收集字典
         debug_output = {}
-        if is_debug_enabled and probe_ts:
-            debug_output[f"--- diagnose_fund_flow_states 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"FundFlowIntelligence self.debug_params: {self.debug_params}"] = ""
-            debug_output["启动【V29.3 · 诡道风险健壮性增强版】资金流情报分析..."] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"--- diagnose_fund_flow_states 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"FundFlowIntelligence self.debug_params: {self.debug_params}"] = ""
+        #     debug_output["启动【V29.3 · 诡道风险健壮性增强版】资金流情报分析..."] = ""
         if not get_param_value(p_conf.get('enabled'), True):
             if is_debug_enabled and probe_ts:
                 debug_output["-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。"] = ""
@@ -285,19 +284,13 @@ class FundFlowIntelligence:
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: _diagnose_deception_risk 返回无效数据或空Series，SCORE_FF_DECEPTION_RISK 将使用默认值0.0。"] = ""
             score_ff_deception_risk = pd.Series(0.0, index=df.index, dtype=np.float32)
-
-        # MODIFICATION START: 添加对局部变量 score_ff_deception_risk 的调试打印
-        if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
-            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk after _diagnose_deception_risk call: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
-        # MODIFICATION END
-
+        # 添加对局部变量 score_ff_deception_risk 的调试打印
+        # if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
+        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk after _diagnose_deception_risk call: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
         self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk # 存储诡道风险信号
-
-        # MODIFICATION START: 添加对 atomic_states['SCORE_FF_DECEPTION_RISK'] 的调试打印
-        if is_debug_enabled and probe_ts and probe_ts in self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].index:
-            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: SCORE_FF_DECEPTION_RISK stored in atomic_states: {self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].loc[probe_ts]:.4f}"] = ""
-        # MODIFICATION END
-
+        # 添加对 atomic_states['SCORE_FF_DECEPTION_RISK'] 的调试打印
+        # if is_debug_enabled and probe_ts and probe_ts in self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].index:
+        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: SCORE_FF_DECEPTION_RISK stored in atomic_states: {self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].loc[probe_ts]:.4f}"] = ""
         # 1.2 计算 axiom_divergence
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence # 存储分歧公理，供后续使用
@@ -382,31 +375,28 @@ class FundFlowIntelligence:
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk.astype(np.float32)
-
-        # MODIFICATION START: 添加对局部变量 score_ff_deception_risk 在最终 all_states 赋值前的调试打印
-        if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
-            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk before final all_states loop: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
-        # MODIFICATION END
-
-        if is_debug_enabled and probe_ts:
-            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 战略态势合成 ---"] = ""
-            debug_output[f"        攻击力量 (attack_score): {attack_score.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        防御力量 (defense_score): {defense_score.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        内部协同度调制器 (internal_harmony_modulator): {internal_harmony_modulator.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        情境调节器 (context_modulator_final): {context_modulator_final.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        脆弱性惩罚 (vulnerability_penalty): {vulnerability_penalty.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        最终战略态势分数 (strategic_posture_score): {strategic_posture_score.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 和谐拐点计算 ---"] = ""
-            debug_output[f"        态势速度 (posture_velocity): {posture_velocity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        态势加速度 (posture_acceleration): {posture_acceleration.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"        和谐拐点分数 (harmony_inflection_score): {harmony_inflection_score.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终原子及融合信号 ---"] = ""
-            for key, series in all_states.items():
-                debug_output[f"        {key}: {series.loc[probe_ts]:.4f}"] = ""
-            debug_output[f"【V29.3 · 诡道风险健壮性增强版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。"] = ""
-            self._print_debug_output(debug_output)
+        # 添加对局部变量 score_ff_deception_risk 在最终 all_states 赋值前的调试打印
+        # if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
+        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk before final all_states loop: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
+        # if is_debug_enabled and probe_ts:
+        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 战略态势合成 ---"] = ""
+        #     debug_output[f"        攻击力量 (attack_score): {attack_score.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        防御力量 (defense_score): {defense_score.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        内部协同度调制器 (internal_harmony_modulator): {internal_harmony_modulator.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        情境调节器 (context_modulator_final): {context_modulator_final.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        脆弱性惩罚 (vulnerability_penalty): {vulnerability_penalty.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        最终战略态势分数 (strategic_posture_score): {strategic_posture_score.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 和谐拐点计算 ---"] = ""
+        #     debug_output[f"        态势速度 (posture_velocity): {posture_velocity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        态势加速度 (posture_acceleration): {posture_acceleration.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"        和谐拐点分数 (harmony_inflection_score): {harmony_inflection_score.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终原子及融合信号 ---"] = ""
+        #     for key, series in all_states.items():
+        #         debug_output[f"        {key}: {series.loc[probe_ts]:.4f}"] = ""
+        #     debug_output[f"【V29.3 · 诡道风险健壮性增强版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。"] = ""
+        #     self._print_debug_output(debug_output)
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -2837,7 +2827,7 @@ class FundFlowIntelligence:
         }
         # --- 5. 看涨背离信号 (Bullish Divergence) ---
         # 资金流分歧为正 (看涨)，主力信念为正 (看涨)，资金流方向为正 (看涨)，且可信度高
-        # MODIFICATION START: 将 bullish_divergence_base 作为一个布尔掩码，在平滑后应用
+        # 将 bullish_divergence_base 作为一个布尔掩码，在平滑后应用
         bullish_base_condition_met = (
             (axiom_divergence > bullish_divergence_threshold) &
             (norm_conviction > bullish_conviction_threshold) &
@@ -2867,7 +2857,7 @@ class FundFlowIntelligence:
         }
         # --- 6. 看跌背离信号 (Bearish Divergence) ---
         # 资金流分歧为负 (看跌)，主力信念为负 (看跌)，资金流方向为负 (看跌)，且可信度高
-        # MODIFICATION START: 将 bearish_divergence_base 作为一个布尔掩码，在平滑后应用
+        # 将 bearish_divergence_base 作为一个布尔掩码，在平滑后应用
         bearish_base_condition_met = (
             (axiom_divergence < -bearish_divergence_threshold) &
             (norm_conviction < -bearish_conviction_threshold) &
@@ -2895,7 +2885,7 @@ class FundFlowIntelligence:
             "bearish_divergence_smoothed": bearish_divergence_smoothed, # 新增调试输出
             "bearish_divergence": bearish_divergence
         }
-        # MODIFICATION START: 统一输出调试信息
+        # 统一输出调试信息
         # if is_debug_enabled and probe_ts:
         #     debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
         #     for sig_name, series in _temp_debug_values["原始信号值"].items():
@@ -3119,6 +3109,7 @@ class FundFlowIntelligence:
         融合了欺骗指数、对倒强度、诱多/诱空强度以及资金流可信度等因素，并根据市场情境进行动态调制。
         高分代表资金流层面存在显著的诡道风险，如主力诱多、虚假对倒等，预示潜在的陷阱或风险。
         - 核心优化: 将最终的风险聚合计算逻辑迁移至Numba加速的辅助函数 `_numba_calculate_deception_risk_core`。
+        - 核心修正: 修复调试输出中关键计算节点值与Numba函数逻辑不一致的问题。
         """
         method_name = "_diagnose_deception_risk"
         df_index = df.index
@@ -3222,41 +3213,42 @@ class FundFlowIntelligence:
         )
         # 将Numba函数返回的NumPy数组转换回Pandas Series
         deception_risk_score = pd.Series(deception_risk_score_values, index=df_index, dtype=np.float32)
-        # MODIFICATION START: 取消注释调试输出
-        if is_debug_enabled_for_method and probe_ts and probe_ts in df_index:
-            print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流诡道博弈风险...")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
-            for sig_name in required_signals:
-                val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
-                print(f"        '{sig_name}': {val:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化信号值 ---")
-            print(f"        norm_wash_trade: {norm_wash_trade.loc[probe_ts]:.4f}")
-            print(f"        norm_deception: {norm_deception.loc[probe_ts]:.4f}")
-            print(f"        norm_conviction: {norm_conviction.loc[probe_ts]:.4f}")
-            print(f"        norm_flow_credibility: {norm_flow_credibility.loc[probe_ts]:.4f}")
-            print(f"        norm_market_sentiment: {norm_market_sentiment.loc[probe_ts]:.4f}")
-            print(f"        norm_deception_lure_long: {norm_deception_lure_long.loc[probe_ts]:.4f}")
-            print(f"        norm_deception_lure_short: {norm_deception_lure_short.loc[probe_ts]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振调制因子 ---")
-            print(f"        deception_cohesion_mod: {deception_cohesion_mod_values[df_index.get_loc(probe_ts)]:.4f}")
-            print(f"        wash_trade_cohesion_mod: {wash_trade_cohesion_mod_values[df_index.get_loc(probe_ts)]:.4f}")
-            print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
-            sentiment_mod_factor = (1 + np.abs(norm_market_sentiment.loc[probe_ts]) * deception_context_sensitivity * np.sign(norm_market_sentiment.loc[probe_ts]))
-            sentiment_mod_factor = np.maximum(0.5, np.minimum(sentiment_mod_factor, 1.5))
-            risk_from_wash_trade = norm_wash_trade.loc[probe_ts] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[df_index.get_loc(probe_ts)]
-            risk_from_bull_trap = np.maximum(0.0, -norm_deception.loc[probe_ts]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[df_index.get_loc(probe_ts)]
-            risk_from_lure_long = norm_deception_lure_long.loc[probe_ts] * deception_lure_long_penalty_sensitivity
-            risk_from_bear_trap_weak_conviction = np.maximum(0.0, norm_deception.loc[probe_ts]) * (1 - np.maximum(0.0, norm_conviction.loc[probe_ts])) * deception_penalty_sensitivity * deception_cohesion_mod_values[df_index.get_loc(probe_ts)]
-            risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility.loc[probe_ts]) - (1 - flow_credibility_threshold))
-            risk_from_low_credibility = np.maximum(0.0, np.minimum(risk_from_low_credibility, 1.0))
-            print(f"        sentiment_mod_factor: {sentiment_mod_factor:.4f}")
-            print(f"        risk_from_wash_trade: {risk_from_wash_trade:.4f}")
-            print(f"        risk_from_bull_trap: {risk_from_bull_trap:.4f}")
-            print(f"        risk_from_lure_long: {risk_from_lure_long:.4f}")
-            print(f"        risk_from_bear_trap_weak_conviction: {risk_from_bear_trap_weak_conviction:.4f}")
-            print(f"        risk_from_low_credibility: {risk_from_low_credibility:.4f}")
-            print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流诡道风险诊断完成，最终分值: {deception_risk_score.loc[probe_ts]:.4f}")
-        # MODIFICATION END
+        # 修正调试输出中关键计算节点值的逻辑，使其与Numba函数一致
+        # if is_debug_enabled_for_method and probe_ts and probe_ts in df_index:
+        #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流诡道博弈风险...")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---")
+        #     for sig_name in required_signals:
+        #         val = raw_data_cache[sig_name].loc[probe_ts] if probe_ts in raw_data_cache[sig_name].index else np.nan
+        #         print(f"        '{sig_name}': {val:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化信号值 ---")
+        #     print(f"        norm_wash_trade: {norm_wash_trade.loc[probe_ts]:.4f}")
+        #     print(f"        norm_deception: {norm_deception.loc[probe_ts]:.4f}")
+        #     print(f"        norm_conviction: {norm_conviction.loc[probe_ts]:.4f}")
+        #     print(f"        norm_flow_credibility: {norm_flow_credibility.loc[probe_ts]:.4f}")
+        #     print(f"        norm_market_sentiment: {norm_market_sentiment.loc[probe_ts]:.4f}")
+        #     print(f"        norm_deception_lure_long: {norm_deception_lure_long.loc[probe_ts]:.4f}")
+        #     print(f"        norm_deception_lure_short: {norm_deception_lure_short.loc[probe_ts]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF共振调制因子 ---")
+        #     print(f"        deception_cohesion_mod: {deception_cohesion_mod_values[df_index.get_loc(probe_ts)]:.4f}")
+        #     print(f"        wash_trade_cohesion_mod: {wash_trade_cohesion_mod_values[df_index.get_loc(probe_ts)]:.4f}")
+        #     print(f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关键计算节点值 ---")
+        #     sentiment_mod_factor = (1 + np.abs(norm_market_sentiment.loc[probe_ts]) * deception_context_sensitivity * np.sign(norm_market_sentiment.loc[probe_ts]))
+        #     sentiment_mod_factor = np.maximum(0.5, np.minimum(sentiment_mod_factor, 1.5))
+        #     risk_from_wash_trade = norm_wash_trade.loc[probe_ts] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[df_index.get_loc(probe_ts)]
+        #     # 修正此处逻辑，使其与 _numba_calculate_deception_risk_core 中的逻辑一致
+        #     risk_from_bull_trap = np.maximum(0.0, norm_deception.loc[probe_ts]) * deception_penalty_sensitivity * sentiment_mod_factor * deception_cohesion_mod_values[df_index.get_loc(probe_ts)]
+        #     risk_from_lure_long = norm_deception_lure_long.loc[probe_ts] * deception_lure_long_penalty_sensitivity
+        #     # 修正此处逻辑，使其与 _numba_calculate_deception_risk_core 中的逻辑一致
+        #     risk_from_bear_trap_weak_conviction = np.maximum(0.0, -norm_deception.loc[probe_ts]) * (1 - np.maximum(0.0, norm_conviction.loc[probe_ts])) * deception_penalty_sensitivity * deception_cohesion_mod_values[df_index.get_loc(probe_ts)]
+        #     risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility.loc[probe_ts]) - (1 - flow_credibility_threshold))
+        #     risk_from_low_credibility = np.maximum(0.0, np.minimum(risk_from_low_credibility, 1.0))
+        #     print(f"        sentiment_mod_factor: {sentiment_mod_factor:.4f}")
+        #     print(f"        risk_from_wash_trade: {risk_from_wash_trade:.4f}")
+        #     print(f"        risk_from_bull_trap: {risk_from_bull_trap:.4f}")
+        #     print(f"        risk_from_lure_long: {risk_from_lure_long:.4f}")
+        #     print(f"        risk_from_bear_trap_weak_conviction: {risk_from_bear_trap_weak_conviction:.4f}")
+        #     print(f"        risk_from_low_credibility: {risk_from_low_credibility:.4f}")
+        #     print(f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流诡道风险诊断完成，最终分值: {deception_risk_score.loc[probe_ts]:.4f}")
         return deception_risk_score.astype(np.float32)
 
 
