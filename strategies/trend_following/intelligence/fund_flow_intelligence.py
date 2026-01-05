@@ -2674,12 +2674,13 @@ class FundFlowIntelligence:
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V4.0 · 深度情境与风险感知版】诊断资金流看涨/看跌背离信号。
+        【V4.1 · 深度情境与风险感知版】诊断资金流看涨/看跌背离信号。
         - 核心升级: 引入更全面的情境调制器，融合战略态势、资金流可信度及散户情绪。
         - 核心升级: 引入纯度与确认因子，增强信号的可靠性。
         - 核心升级: 引入非线性指数，增强信号的区分度。
         - 核心修正: 将硬编码的阈值替换为配置参数，提高灵活性。
         - 核心修正: 统一调试信息输出。
+        - 核心修复: 修复 'smoothing_ema_span' 未定义错误，从配置中获取该参数。
         """
         method_name = "_diagnose_fund_flow_divergence_signals"
         df_index = df.index
@@ -2698,13 +2699,16 @@ class FundFlowIntelligence:
         # 调试信息收集字典
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
+
         if is_debug_enabled and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断资金流看涨/看跌背离信号..."] = ""
+
         p_conf_ff = self.p_conf_ff
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         div_params = get_param_value(p_conf_ff.get('fund_flow_divergence_params'), {})
-        # 从配置中获取所有阈值和权重
+
+        # MODIFICATION START: 从配置中获取所有阈值和权重，包括 smoothing_ema_span
         bullish_divergence_threshold = get_param_value(div_params.get('bullish_divergence_threshold'), 0.1)
         bearish_divergence_threshold = get_param_value(div_params.get('bearish_divergence_threshold'), 0.1)
         bullish_conviction_threshold = get_param_value(div_params.get('bullish_conviction_threshold'), 0.3)
@@ -2713,11 +2717,15 @@ class FundFlowIntelligence:
         bearish_conviction_threshold = get_param_value(div_params.get('bearish_conviction_threshold'), 0.3)
         bearish_momentum_threshold = get_param_value(div_params.get('bearish_momentum_threshold'), 0.4)
         bearish_flow_credibility_threshold = get_param_value(div_params.get('bearish_flow_credibility_threshold'), 0.6)
+
         purity_weights = get_param_value(div_params.get('purity_weights'), {'deception_inverse': 0.5, 'wash_trade_inverse': 0.5})
         confirmation_weights = get_param_value(div_params.get('confirmation_weights'), {'conviction_positive': 0.5, 'flow_momentum_positive': 0.5})
         context_modulator_weights = get_param_value(div_params.get('context_modulator_weights'), {'strategic_posture': 0.4, 'flow_credibility': 0.3, 'retail_panic_fomo_context': 0.3})
         non_linear_exponent = get_param_value(div_params.get('non_linear_exponent'), 1.2)
         retail_panic_fomo_sensitivity = get_param_value(div_params.get('retail_panic_fomo_sensitivity'), 0.5)
+        smoothing_ema_span = get_param_value(div_params.get('smoothing_ema_span'), 5) # 修复：从配置中获取 smoothing_ema_span
+        # MODIFICATION END
+
         required_signals = [
             'main_force_conviction_index_D', 'main_force_flow_directionality_D',
             'flow_credibility_index_D', 'market_sentiment_score_D',
@@ -2726,17 +2734,20 @@ class FundFlowIntelligence:
             'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D' # For retail_panic_fomo_context
         ]
         required_signals = list(set(required_signals))
+
         # Ensure atomic_states are available for strategic_posture
         if 'SCORE_FF_STRATEGIC_POSTURE' not in self.strategy.atomic_states:
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号 SCORE_FF_STRATEGIC_POSTURE，返回0。"] = ""
                 self._print_debug_output(debug_output)
             return pd.Series(0.0, index=df_index, dtype=np.float32), pd.Series(0.0, index=df_index, dtype=np.float32)
+
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 缺少必要信号，返回0。"] = ""
                 self._print_debug_output(debug_output)
             return pd.Series(0.0, index=df_index, dtype=np.float32), pd.Series(0.0, index=df_index, dtype=np.float32)
+
         # --- 原始数据获取 (用于探针和计算) ---
         raw_data_cache = {}
         for signal_name in required_signals:
@@ -2752,12 +2763,15 @@ class FundFlowIntelligence:
         retail_panic_surrender_raw = raw_data_cache['retail_panic_surrender_index_D']
         retail_fomo_premium_raw = raw_data_cache['retail_fomo_premium_index_D']
         strategic_posture_score = self.strategy.atomic_states['SCORE_FF_STRATEGIC_POSTURE'] # From atomic_states
-        # 收集原始信号值到 _temp_debug_values
+
+        # MODIFICATION START: 收集原始信号值到 _temp_debug_values
         _temp_debug_values["原始信号值"] = {}
         for sig_name in required_signals:
             _temp_debug_values["原始信号值"][sig_name] = raw_data_cache[sig_name]
         _temp_debug_values["原始信号值"]["axiom_divergence"] = axiom_divergence
         _temp_debug_values["原始信号值"]["SCORE_FF_STRATEGIC_POSTURE"] = strategic_posture_score
+        # MODIFICATION END
+
         # --- 1. 归一化关键信号 ---
         norm_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights=tf_weights_ff)
         norm_flow_directionality = get_adaptive_mtf_normalized_bipolar_score(main_force_flow_directionality_raw, df_index, tf_weights=tf_weights_ff)
@@ -2768,7 +2782,8 @@ class FundFlowIntelligence:
         norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        # 收集归一化信号值到 _temp_debug_values
+
+        # MODIFICATION START: 收集归一化信号值到 _temp_debug_values
         _temp_debug_values["归一化关键信号"] = {
             "norm_conviction": norm_conviction,
             "norm_flow_directionality": norm_flow_directionality,
@@ -2780,6 +2795,8 @@ class FundFlowIntelligence:
             "norm_retail_panic": norm_retail_panic,
             "norm_retail_fomo": norm_retail_fomo
         }
+        # MODIFICATION END
+
         # --- 2. 情境调制器 (Enhanced Context Modulator) ---
         # retail_panic_fomo_context: 散户恐慌或狂热，高恐慌或高狂热都可能降低信号可靠性
         retail_panic_fomo_context = (norm_retail_panic + norm_retail_fomo).clip(0, 1)
@@ -2792,12 +2809,15 @@ class FundFlowIntelligence:
         context_modulator_score = _robust_geometric_mean(context_components, context_modulator_weights, df_index)
         context_modulator = 1 + (context_modulator_score - 0.5) * 1.0 # Simple linear scaling around 1.0
         context_modulator = context_modulator.clip(0.5, 1.5) # Clip to reasonable range
-        # 收集情境调制器到 _temp_debug_values
+
+        # MODIFICATION START: 收集情境调制器到 _temp_debug_values
         _temp_debug_values["情境调制器"] = {
             "retail_panic_fomo_context": retail_panic_fomo_context,
             "context_modulator_score": context_modulator_score,
             "context_modulator": context_modulator
         }
+        # MODIFICATION END
+
         # --- 3. 纯度调制器 (Purity Modulator) ---
         # 高欺骗和高对倒会降低信号纯度
         norm_deception_inverse = (1 - norm_deception.abs()) # 欺骗指数绝对值越高，纯度越低
@@ -2808,12 +2828,15 @@ class FundFlowIntelligence:
         }
         purity_modulator = _robust_geometric_mean(purity_components, purity_weights, df_index)
         purity_modulator = purity_modulator.clip(0.1, 1.0) # 纯度调制器应在0.1到1之间，惩罚作用
-        # 收集纯度调制器到 _temp_debug_values
+
+        # MODIFICATION START: 收集纯度调制器到 _temp_debug_values
         _temp_debug_values["纯度调制器"] = {
             "norm_deception_inverse": norm_deception_inverse,
             "norm_wash_trade_inverse": norm_wash_trade_inverse,
             "purity_modulator": purity_modulator
         }
+        # MODIFICATION END
+
         # --- 4. 确认调制器 (Confirmation Modulator) ---
         # 高主力信念和高资金流动能会增强信号确认度
         confirmation_components = {
@@ -2822,10 +2845,13 @@ class FundFlowIntelligence:
         }
         confirmation_modulator = _robust_geometric_mean(confirmation_components, confirmation_weights, df_index)
         confirmation_modulator = confirmation_modulator.clip(0.5, 1.5) # 确认调制器应在0.5到1.5之间
-        # 收集确认调制器到 _temp_debug_values
+
+        # MODIFICATION START: 收集确认调制器到 _temp_debug_values
         _temp_debug_values["确认调制器"] = {
             "confirmation_modulator": confirmation_modulator
         }
+        # MODIFICATION END
+
         # --- 5. 看涨背离信号 (Bullish Divergence) ---
         # 资金流分歧为正 (看涨)，主力信念为正 (看涨)，资金流方向为正 (看涨)，且可信度高
         bullish_divergence_base = (
@@ -2834,6 +2860,7 @@ class FundFlowIntelligence:
             (norm_flow_directionality > bullish_momentum_threshold) &
             (norm_flow_credibility > bullish_flow_credibility_threshold)
         ).astype(np.float32)
+
         # 强度调制：分歧越大、信念越强、方向性越强、可信度越高，信号越强
         bullish_divergence_strength = (
             (axiom_divergence.clip(lower=bullish_divergence_threshold) - bullish_divergence_threshold) +
@@ -2841,15 +2868,19 @@ class FundFlowIntelligence:
             (norm_flow_directionality.clip(lower=bullish_momentum_threshold) - bullish_momentum_threshold) +
             (norm_flow_credibility.clip(lower=bullish_flow_credibility_threshold) - bullish_flow_credibility_threshold)
         ).clip(0, 1)
+
         bullish_divergence = bullish_divergence_base * bullish_divergence_strength * context_modulator * purity_modulator * confirmation_modulator
         bullish_divergence = bullish_divergence.pow(non_linear_exponent) # 应用非线性指数
         bullish_divergence = bullish_divergence.ewm(span=smoothing_ema_span, adjust=False).mean().clip(0, 1)
-        # 收集看涨背离信号到 _temp_debug_values
+
+        # MODIFICATION START: 收集看涨背离信号到 _temp_debug_values
         _temp_debug_values["看涨背离信号"] = {
             "bullish_divergence_base": bullish_divergence_base,
             "bullish_divergence_strength": bullish_divergence_strength,
             "bullish_divergence": bullish_divergence
         }
+        # MODIFICATION END
+
         # --- 6. 看跌背离信号 (Bearish Divergence) ---
         # 资金流分歧为负 (看跌)，主力信念为负 (看跌)，资金流方向为负 (看跌)，且可信度高
         bearish_divergence_base = (
@@ -2858,6 +2889,7 @@ class FundFlowIntelligence:
             (norm_flow_directionality < -bearish_momentum_threshold) &
             (norm_flow_credibility > bearish_flow_credibility_threshold) # 高可信度使看跌信号更可靠
         ).astype(np.float32)
+
         # 强度调制：分歧越大、信念越负、方向性越负、可信度越高，信号越强
         bearish_divergence_strength = (
             (axiom_divergence.clip(upper=-bearish_divergence_threshold) + bearish_divergence_threshold).abs() +
@@ -2865,16 +2897,20 @@ class FundFlowIntelligence:
             (norm_flow_directionality.clip(upper=-bearish_momentum_threshold) + bearish_momentum_threshold).abs() +
             (norm_flow_credibility.clip(lower=bearish_flow_credibility_threshold) - bearish_flow_credibility_threshold)
         ).clip(0, 1)
+
         bearish_divergence = bearish_divergence_base * bearish_divergence_strength * context_modulator * purity_modulator * confirmation_modulator
         bearish_divergence = bearish_divergence.pow(non_linear_exponent) # 应用非线性指数
         bearish_divergence = bearish_divergence.ewm(span=smoothing_ema_span, adjust=False).mean().clip(0, 1)
-        # 收集看跌背离信号到 _temp_debug_values
+
+        # MODIFICATION START: 收集看跌背离信号到 _temp_debug_values
         _temp_debug_values["看跌背离信号"] = {
             "bearish_divergence_base": bearish_divergence_base,
             "bearish_divergence_strength": bearish_divergence_strength,
             "bearish_divergence": bearish_divergence
         }
-        # 统一输出调试信息
+        # MODIFICATION END
+
+        # MODIFICATION START: 统一输出调试信息
         if is_debug_enabled and probe_ts:
             debug_output[f"      [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
             for sig_name, series in _temp_debug_values["原始信号值"].items():
@@ -2906,6 +2942,8 @@ class FundFlowIntelligence:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             debug_output[f"  -- [资金流层调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流看涨/看跌背离信号诊断完成。"] = ""
             self._print_debug_output(debug_output)
+        # MODIFICATION END
+
         return bullish_divergence, bearish_divergence
 
     def _diagnose_axiom_intent_purity(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

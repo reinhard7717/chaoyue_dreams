@@ -731,6 +731,7 @@
             "comment_bearish_divergence_threshold": "看跌背离信号的最低有效阈值。",
             "retail_panic_fomo_sensitivity": 0.5,
             "comment_retail_panic_fomo_sensitivity": "散户恐慌/狂热对情境调制器的敏感度。",
+            "smoothing_ema_span": 5,
             "mtf_resonance_factor_weights": {
             "nmfnf_cohesion": 0.6,
             "conviction_cohesion": 0.4
