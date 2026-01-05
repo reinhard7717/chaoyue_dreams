@@ -240,8 +240,8 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V29.3 · 诱多陷阱感知版 & 调试信息统一输出版 & 诡道风险健壮性增强版】资金流情报分析总指挥
-        - 核心升级: 优化了 `axiom_divergence` 的计算，使其能更有效识别“诱多陷阱”。
+        【V29.4 · 诡道消弭机会版】资金流情报分析总指挥
+        - 核心升级: 新增 `SCORE_FF_DECEPTION_MITIGATION_OPPORTUNITY` 信号，作为 `SCORE_FF_DECEPTION_RISK` 的反向指标。
         - 信号原理: 基于微积分思想，对顶层“战略态势”信号进行二阶求导。只有当态势的“速度”与“加速度”
                       同时为正时，才确认为一次高置信度的V型反转拐点。旨在捕捉趋势“破晓”的关键瞬间。
         - 【增强】计算并存储 SCORE_FF_DECEPTION_RISK 信号时，增加健壮性检查，确保其为有效Series。
@@ -265,10 +265,6 @@ class FundFlowIntelligence:
         debug_info_tuple = (is_debug_enabled, probe_ts, "diagnose_fund_flow_states")
         # 调试信息收集字典
         debug_output = {}
-        # if is_debug_enabled and probe_ts:
-        #     debug_output[f"--- diagnose_fund_flow_states 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-        #     debug_output[f"FundFlowIntelligence self.debug_params: {self.debug_params}"] = ""
-        #     debug_output["启动【V29.3 · 诡道风险健壮性增强版】资金流情报分析..."] = ""
         if not get_param_value(p_conf.get('enabled'), True):
             if is_debug_enabled and probe_ts:
                 debug_output["-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。"] = ""
@@ -284,17 +280,15 @@ class FundFlowIntelligence:
             if is_debug_enabled and probe_ts:
                 debug_output[f"  -- [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: _diagnose_deception_risk 返回无效数据或空Series，SCORE_FF_DECEPTION_RISK 将使用默认值0.0。"] = ""
             score_ff_deception_risk = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 添加对局部变量 score_ff_deception_risk 的调试打印
-        # if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
-        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk after _diagnose_deception_risk call: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
         self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk # 存储诡道风险信号
-        # 添加对 atomic_states['SCORE_FF_DECEPTION_RISK'] 的调试打印
-        # if is_debug_enabled and probe_ts and probe_ts in self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].index:
-        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: SCORE_FF_DECEPTION_RISK stored in atomic_states: {self.strategy.atomic_states['SCORE_FF_DECEPTION_RISK'].loc[probe_ts]:.4f}"] = ""
-        # 1.2 计算 axiom_divergence
+        # 1.2 新增：计算 SCORE_FF_DECEPTION_MITIGATION_OPPORTUNITY
+        # 诡道消弭机会 = 1 - 诡道风险
+        score_ff_deception_mitigation_opportunity = (1 - score_ff_deception_risk).clip(0, 1).astype(np.float32)
+        self.strategy.atomic_states['SCORE_FF_DECEPTION_MITIGATION_OPPORTUNITY'] = score_ff_deception_mitigation_opportunity # 存储诡道消弭机会信号
+        # 1.3 计算 axiom_divergence
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence # 存储分歧公理，供后续使用
-        # 1.3 计算其他原子公理
+        # 1.4 计算其他原子公理
         axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
         axiom_flow_structure_health = self._diagnose_axiom_flow_structure_health(df, norm_window)
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
@@ -330,7 +324,7 @@ class FundFlowIntelligence:
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="diagnose_fund_flow_states")
         norm_capital_signature = (axiom_capital_signature + 1) / 2
         norm_divergence = (axiom_divergence + 1) / 2
-        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, self.tf_weights_ff)
+        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df.index, tf_weights=self.tf_weights_ff)
         norm_volatility_instability_inverse = 1 - get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, self.tf_weights_ff, ascending=True)
         context_base = (norm_capital_signature * context_group.get('capital_signature', 0.2) +
                         norm_divergence * context_group.get('divergence', 0.2) +
@@ -375,28 +369,7 @@ class FundFlowIntelligence:
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_FF_DECEPTION_RISK'] = score_ff_deception_risk.astype(np.float32)
-        # 添加对局部变量 score_ff_deception_risk 在最终 all_states 赋值前的调试打印
-        # if is_debug_enabled and probe_ts and probe_ts in score_ff_deception_risk.index:
-        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: Local score_ff_deception_risk before final all_states loop: {score_ff_deception_risk.loc[probe_ts]:.4f}"] = ""
-        # if is_debug_enabled and probe_ts:
-        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 战略态势合成 ---"] = ""
-        #     debug_output[f"        攻击力量 (attack_score): {attack_score.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        防御力量 (defense_score): {defense_score.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        内部协同度调制器 (internal_harmony_modulator): {internal_harmony_modulator.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        情境调节器 (context_modulator_final): {context_modulator_final.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        脆弱性惩罚 (vulnerability_penalty): {vulnerability_penalty.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        最终战略态势分数 (strategic_posture_score): {strategic_posture_score.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 和谐拐点计算 ---"] = ""
-        #     debug_output[f"        态势速度 (posture_velocity): {posture_velocity.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        态势加速度 (posture_acceleration): {posture_acceleration.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        归一化速度 (norm_velocity): {norm_velocity.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"        和谐拐点分数 (harmony_inflection_score): {harmony_inflection_score.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"      [资金流层调试] diagnose_fund_flow_states @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终原子及融合信号 ---"] = ""
-        #     for key, series in all_states.items():
-        #         debug_output[f"        {key}: {series.loc[probe_ts]:.4f}"] = ""
-        #     debug_output[f"【V29.3 · 诡道风险健壮性增强版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。"] = ""
-        #     self._print_debug_output(debug_output)
+        all_states['SCORE_FF_DECEPTION_MITIGATION_OPPORTUNITY'] = score_ff_deception_mitigation_opportunity.astype(np.float32) # 新增机会信号
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

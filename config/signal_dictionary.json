@@ -520,6 +520,14 @@
             "scoring_mode": "unipolar",
             "description": "【V1.0 · 资金流诡道独立版】量化资金流层面的诡道博弈风险。融合了欺骗指数、对倒强度、诱多/诱空强度以及资金流可信度等因素，并根据市场情境进行动态调制。高分代表资金流层面存在显著的诡道风险，如主力诱多、虚假对倒等，预示潜在的陷阱或风险。"
         },
+        "SCORE_FF_DECEPTION_MITIGATION_OPPORTUNITY": {
+            "cn_name": "【资金流公理】诡道消弭机会",
+            "category": "资金流层-机会",
+            "type": "opportunity",
+            "score": 900,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 资金流诡道反向版】量化资金流层面诡道博弈消弭所带来的机会。该信号是SCORE_FF_DECEPTION_RISK的反向指标，当诡道风险降低或不存在时，此机会信号增强。高分代表资金流环境纯净、可信度高，主力行为透明，有利于真实的价格发现和趋势的健康发展，预示潜在的交易机会。"
+        },
         "说明_structure_layer": "--- 结构层 (Structure) ---",
         "SCORE_STRUCT_AXIOM_TREND_FORM": {
             "cn_name": "【结构公理】趋势形态",

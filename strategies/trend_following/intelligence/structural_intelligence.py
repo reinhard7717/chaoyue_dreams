@@ -663,7 +663,6 @@ class StructuralIntelligence:
         lower_shadow_absorption_strength_raw = self._get_safe_series(df, signal_mapping.get('lower_shadow_absorption_strength_D', 'lower_shadow_absorption_strength_D'), 0.0, method_name=method_name)
         defense_solidity_score_raw = self._get_safe_series(df, signal_mapping.get('defense_solidity_score_D', 'defense_solidity_score_D'), 0.0, method_name=method_name)
         opening_gap_defense_strength_raw = self._get_safe_series(df, signal_mapping.get('opening_gap_defense_strength_D', 'opening_gap_defense_strength_D'), 0.0, method_name=method_name)
-        
         # MODIFICATION START: 显式传递 ascending=True，并移除 get_norm_config 中的 default_ascending
         support_validation_strength_score = self.get_dynamic_normalized_score(
             support_validation_strength_raw, df_index, tf_weights, ascending=True, **get_norm_config('support_validation_strength_D'))
@@ -675,7 +674,6 @@ class StructuralIntelligence:
             defense_solidity_score_raw, df_index, tf_weights, ascending=True, **get_norm_config('defense_solidity_score_D'))
         opening_gap_defense_strength_score = self.get_dynamic_normalized_score(
             opening_gap_defense_strength_raw, df_index, tf_weights, ascending=True, **get_norm_config('opening_gap_defense_strength_D'))
-        # MODIFICATION END
         structural_support_strength_score = (
             support_validation_strength_score * structural_support_strength_weights.get('support_validation_strength', 0.3) +
             pressure_rejection_strength_score * structural_support_strength_weights.get('pressure_rejection_strength', 0.3) +
@@ -701,7 +699,6 @@ class StructuralIntelligence:
             goodness_of_fit_score_raw, df_index, tf_weights, ascending=True, **get_norm_config('goodness_of_fit_score_D'))
         structural_node_count_score = self.get_dynamic_normalized_score(
             structural_node_count_raw, df_index, tf_weights, ascending=True, **get_norm_config('structural_node_count_D'))
-        # MODIFICATION END
         structural_form_solidity_score = (
             equilibrium_compression_score * structural_form_solidity_weights.get('equilibrium_compression_index', 0.3) +
             platform_conviction_score * structural_form_solidity_weights.get('platform_conviction_score', 0.25) +
@@ -721,7 +718,6 @@ class StructuralIntelligence:
         fractal_dimension_score = self.get_dynamic_normalized_score(fractal_dimension_raw, df_index, tf_weights, ascending=False, **get_norm_config('FRACTAL_DIMENSION_89d_D', default_clip_range=[1.0, 2.0]))
         sample_entropy_score = self.get_dynamic_normalized_score(sample_entropy_raw, df_index, tf_weights, ascending=False, **get_norm_config('SAMPLE_ENTROPY_13d_D'))
         hurst_score = self.get_dynamic_normalized_score(hurst_raw, df_index, tf_weights, ascending=True, **get_norm_config('HURST_144d_D', default_clip_range=[0.0, 1.0]))
-        # MODIFICATION END
         volatility_orderliness_score = (
             bbw_score * volatility_orderliness_weights.get('BBW_21_2.0', 0.3) +
             volatility_instability_score * volatility_orderliness_weights.get('VOLATILITY_INSTABILITY_INDEX_21d', 0.3) +
@@ -739,7 +735,6 @@ class StructuralIntelligence:
         asymmetric_friction_index_score = self.get_dynamic_normalized_score(asymmetric_friction_index_raw, df_index, tf_weights, ascending=False, **get_norm_config('asymmetric_friction_index_D'))
         impulse_quality_ratio_score = self.get_dynamic_normalized_score(impulse_quality_ratio_raw, df_index, tf_weights, ascending=True, **get_norm_config('impulse_quality_ratio_D'))
         ma_potential_orderliness_score = self.get_dynamic_normalized_score(ma_potential_orderliness_score_raw, df_index, tf_weights, ascending=True, **get_norm_config('MA_POTENTIAL_ORDERLINESS_SCORE_D'))
-        # MODIFICATION END
         structural_movement_efficiency_score = (
             trend_efficiency_ratio_score * structural_movement_efficiency_weights.get('trend_efficiency_ratio', 0.3) +
             asymmetric_friction_index_score * structural_movement_efficiency_weights.get('asymmetric_friction_index', 0.3) +
@@ -756,7 +751,6 @@ class StructuralIntelligence:
         breakout_range_expansion_score = self.get_dynamic_normalized_score(breakout_range_expansion_raw, df_index, tf_weights, ascending=True, **get_norm_config('breakout_range_expansion_D'))
         breakout_retest_success_score = self.get_dynamic_normalized_score(breakout_retest_success_raw, df_index, tf_weights, ascending=True, **get_norm_config('breakout_retest_success_D'))
         breakout_duration_score = self.get_dynamic_normalized_score(breakout_duration_raw, df_index, tf_weights, ascending=True, **get_norm_config('breakout_duration_D'))
-        # MODIFICATION END
         structural_break_strength_score = (
             breakout_volume_ratio_score * structural_break_strength_weights.get('breakout_volume_ratio', 0.3) +
             breakout_range_expansion_score * structural_break_strength_weights.get('breakout_range_expansion', 0.3) +
@@ -774,7 +768,6 @@ class StructuralIntelligence:
         retracement_speed_ratio_score = self.get_dynamic_normalized_score(retracement_speed_ratio_raw, df_index, tf_weights, ascending=False, **get_norm_config('retracement_speed_ratio_D'))
         retracement_volume_decay_score = self.get_dynamic_normalized_score(retracement_volume_decay_raw, df_index, tf_weights, ascending=False, **get_norm_config('retracement_volume_decay_D')) # 爆发性越低越好
         retracement_MA_adherence_score = self.get_dynamic_normalized_score(retracement_MA_adherence_raw, df_index, tf_weights, ascending=False, **get_norm_config('retracement_MA_adherence_D')) # 有序度越低越好
-        # MODIFICATION END
         structural_retracement_efficiency_score = (
             retracement_depth_pct_score * structural_retracement_efficiency_weights.get('retracement_depth_pct', 0.3) +
             retracement_speed_ratio_score * structural_retracement_efficiency_weights.get('retracement_speed_ratio', 0.3) +
@@ -1387,7 +1380,6 @@ class StructuralIntelligence:
         # 确保 dynamic_high 和 dynamic_low 不为 NaN，如果为 NaN 则用 close_D 填充，避免后续计算错误
         dynamic_high = dynamic_high.fillna(close_D)
         dynamic_low = dynamic_low.fillna(close_D)
-
         # Helper to get normalization config for a signal (copied from _diagnose_axiom_stability)
         stability_params = get_param_value(p_conf_struct.get('stability_params'), {})
         signal_mapping = get_param_value(stability_params.get('signal_mapping'), {})
@@ -1401,26 +1393,25 @@ class StructuralIntelligence:
                 "mapping_func": config.get("mapping_func", None),
                 "mapping_func_params": config.get("mapping_func_params", {})
             }
-
-        if self.is_probe_date:
-            print(f"    -> [结构情报探针] {method_name} - 原始信号值:")
-            print(f"        close_D: {close_D.iloc[-1]:.4f}")
-            print(f"        dynamic_high: {dynamic_high.iloc[-1]:.4f}")
-            print(f"        dynamic_low: {dynamic_low.iloc[-1]:.4f}")
-            print(f"        ATR_14_D: {atr_D.iloc[-1]:.4f}")
-            print(f"        pressure_rejection_strength_D: {pressure_rejection_strength_D.iloc[-1]:.4f}")
-            print(f"        lower_shadow_absorption_strength_D: {lower_shadow_absorption_strength_D.iloc[-1]:.4f}")
-            print(f"        trend_efficiency_ratio_D: {trend_efficiency_ratio_D.iloc[-1]:.4f}")
-            print(f"        volume_burstiness_index_D: {volume_burstiness_index_D.iloc[-1]:.4f}")
-            print(f"        volatility_expansion_ratio_D: {volatility_expansion_ratio_D.iloc[-1]:.4f}")
-            print(f"        BBW_21_2.0_D: {bbw_D.iloc[-1]:.4f}")
-            print(f"        SLOPE_5_close_D: {slope_5_close_D.iloc[-1]:.4f}")
-            print(f"        ACCEL_5_close_D: {accel_5_close_D.iloc[-1]:.4f}")
-            print(f"        MA_POTENTIAL_ORDERLINESS_SCORE_D: {ma_orderliness_D.iloc[-1]:.4f}")
-            print(f"        equilibrium_compression_index_D: {equilibrium_compression_D.iloc[-1]:.4f}")
-            print(f"        axiom_tension: {axiom_tension.iloc[-1]:.4f}")
-            print(f"        breakout_readiness: {breakout_readiness.iloc[-1]:.4f}")
-            print(f"        axiom_stability: {axiom_stability.iloc[-1]:.4f}")
+        # if self.is_probe_date:
+        #     print(f"    -> [结构情报探针] {method_name} - 原始信号值:")
+        #     print(f"        close_D: {close_D.iloc[-1]:.4f}")
+        #     print(f"        dynamic_high: {dynamic_high.iloc[-1]:.4f}")
+        #     print(f"        dynamic_low: {dynamic_low.iloc[-1]:.4f}")
+        #     print(f"        ATR_14_D: {atr_D.iloc[-1]:.4f}")
+        #     print(f"        pressure_rejection_strength_D: {pressure_rejection_strength_D.iloc[-1]:.4f}")
+        #     print(f"        lower_shadow_absorption_strength_D: {lower_shadow_absorption_strength_D.iloc[-1]:.4f}")
+        #     print(f"        trend_efficiency_ratio_D: {trend_efficiency_ratio_D.iloc[-1]:.4f}")
+        #     print(f"        volume_burstiness_index_D: {volume_burstiness_index_D.iloc[-1]:.4f}")
+        #     print(f"        volatility_expansion_ratio_D: {volatility_expansion_ratio_D.iloc[-1]:.4f}")
+        #     print(f"        BBW_21_2.0_D: {bbw_D.iloc[-1]:.4f}")
+        #     print(f"        SLOPE_5_close_D: {slope_5_close_D.iloc[-1]:.4f}")
+        #     print(f"        ACCEL_5_close_D: {accel_5_close_D.iloc[-1]:.4f}")
+        #     print(f"        MA_POTENTIAL_ORDERLINESS_SCORE_D: {ma_orderliness_D.iloc[-1]:.4f}")
+        #     print(f"        equilibrium_compression_index_D: {equilibrium_compression_D.iloc[-1]:.4f}")
+        #     print(f"        axiom_tension: {axiom_tension.iloc[-1]:.4f}")
+        #     print(f"        breakout_readiness: {breakout_readiness.iloc[-1]:.4f}")
+        #     print(f"        axiom_stability: {axiom_stability.iloc[-1]:.4f}")
         # --- STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE (高点弱势) ---
         # 1. 价格接近度与动量 (高点越近或已突破，动量越强，高点越弱)
         # 修正: 当close_D > dynamic_high时，price_to_high_raw应为正，表示已突破，高点阻力弱
@@ -1446,17 +1437,17 @@ class StructuralIntelligence:
             structural_tension_support_score * high_inverse_weights.get('structural_tension_support', 0.1) +
             breakout_readiness_support_score * high_inverse_weights.get('breakout_readiness_support', 0.1)
         ).clip(0, 1).astype(np.float32)
-        if self.is_probe_date:
-            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 关键节点:")
-            print(f"        price_to_high_raw: {price_to_high_raw.iloc[-1]:.4f}, score: {price_to_high_score.iloc[-1]:.4f}")
-            print(f"        slope_5_close_D (raw, clipped): {slope_5_close_D.clip(lower=0).iloc[-1]:.4f}, score: {price_momentum_towards_high_score.iloc[-1]:.4f}")
-            print(f"        accel_5_close_D (raw, clipped): {accel_5_close_D.clip(lower=0).iloc[-1]:.4f}, score: {price_acceleration_towards_high_score.iloc[-1]:.4f}")
-            print(f"        pressure_rejection_strength_D (raw): {pressure_rejection_strength_D.iloc[-1]:.4f}, score: {resistance_rejection_weakness_score.iloc[-1]:.4f}")
-            print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_high_score.iloc[-1]:.4f}")
-            print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_high_score.iloc[-1]:.4f}")
-            print(f"        axiom_tension (raw): {axiom_tension.iloc[-1]:.4f}, score: {structural_tension_support_score.iloc[-1]:.4f}")
-            print(f"        breakout_readiness (raw): {breakout_readiness.iloc[-1]:.4f}, score: {breakout_readiness_support_score.iloc[-1]:.4f}")
-            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 最终分数: {platform_high_inverse.iloc[-1]:.4f}")
+        # if self.is_probe_date:
+        #     print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 关键节点:")
+        #     print(f"        price_to_high_raw: {price_to_high_raw.iloc[-1]:.4f}, score: {price_to_high_score.iloc[-1]:.4f}")
+        #     print(f"        slope_5_close_D (raw, clipped): {slope_5_close_D.clip(lower=0).iloc[-1]:.4f}, score: {price_momentum_towards_high_score.iloc[-1]:.4f}")
+        #     print(f"        accel_5_close_D (raw, clipped): {accel_5_close_D.clip(lower=0).iloc[-1]:.4f}, score: {price_acceleration_towards_high_score.iloc[-1]:.4f}")
+        #     print(f"        pressure_rejection_strength_D (raw): {pressure_rejection_strength_D.iloc[-1]:.4f}, score: {resistance_rejection_weakness_score.iloc[-1]:.4f}")
+        #     print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_high_score.iloc[-1]:.4f}")
+        #     print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_high_score.iloc[-1]:.4f}")
+        #     print(f"        axiom_tension (raw): {axiom_tension.iloc[-1]:.4f}, score: {structural_tension_support_score.iloc[-1]:.4f}")
+        #     print(f"        breakout_readiness (raw): {breakout_readiness.iloc[-1]:.4f}, score: {breakout_readiness_support_score.iloc[-1]:.4f}")
+        #     print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_HIGH_INVERSE 最终分数: {platform_high_inverse.iloc[-1]:.4f}")
         # --- STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE (低点弱势) ---
         # 1. 价格接近度与动量 (低点越近或已跌破，动量越强，低点越弱)
         # 修正: 当close_D < dynamic_low时，price_to_low_raw应为正，表示已跌破，低点支撑弱
@@ -1485,17 +1476,17 @@ class StructuralIntelligence:
             structural_tension_weakness_score * low_inverse_weights.get('structural_tension_weakness', 0.1) +
             stability_weakness_score * low_inverse_weights.get('stability_weakness', 0.1)
         ).clip(0, 1).astype(np.float32)
-        if self.is_probe_date:
-            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 关键节点:")
-            print(f"        price_to_low_raw: {price_to_low_raw.iloc[-1]:.4f}, score: {price_to_low_score.iloc[-1]:.4f}")
-            print(f"        slope_5_close_D (raw, clipped): {(-slope_5_close_D).clip(lower=0).iloc[-1]:.4f}, score: {price_momentum_towards_low_score.iloc[-1]:.4f}")
-            print(f"        accel_5_close_D (raw, clipped): {(-accel_5_close_D).clip(lower=0).iloc[-1]:.4f}, score: {price_acceleration_towards_low_score.iloc[-1]:.4f}")
-            print(f"        lower_shadow_absorption_strength_D (raw): {lower_shadow_absorption_strength_D.iloc[-1]:.4f}, score: {support_absorption_weakness_score.iloc[-1]:.4f}")
-            print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_low_score.iloc[-1]:.4f}")
-            print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_low_score.iloc[-1]:.4f}")
-            print(f"        axiom_tension (raw): {axiom_tension.iloc[-1]:.4f}, score: {structural_tension_weakness_score.iloc[-1]:.4f}")
-            print(f"        axiom_stability (raw): {axiom_stability.iloc[-1]:.4f}, score: {stability_weakness_score.iloc[-1]:.4f}")
-            print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 最终分数: {platform_low_inverse.iloc[-1]:.4f}")
+        # if self.is_probe_date:
+        #     print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 关键节点:")
+        #     print(f"        price_to_low_raw: {price_to_low_raw.iloc[-1]:.4f}, score: {price_to_low_score.iloc[-1]:.4f}")
+        #     print(f"        slope_5_close_D (raw, clipped): {(-slope_5_close_D).clip(lower=0).iloc[-1]:.4f}, score: {price_momentum_towards_low_score.iloc[-1]:.4f}")
+        #     print(f"        accel_5_close_D (raw, clipped): {(-accel_5_close_D).clip(lower=0).iloc[-1]:.4f}, score: {price_acceleration_towards_low_score.iloc[-1]:.4f}")
+        #     print(f"        lower_shadow_absorption_strength_D (raw): {lower_shadow_absorption_strength_D.iloc[-1]:.4f}, score: {support_absorption_weakness_score.iloc[-1]:.4f}")
+        #     print(f"        volume_burstiness_index_D (raw): {volume_burstiness_index_D.iloc[-1]:.4f}, score: {volume_burst_at_low_score.iloc[-1]:.4f}")
+        #     print(f"        volatility_expansion_ratio_D (raw): {volatility_expansion_ratio_D.iloc[-1]:.4f}, score: {volatility_expansion_at_low_score.iloc[-1]:.4f}")
+        #     print(f"        axiom_tension (raw): {axiom_tension.iloc[-1]:.4f}, score: {structural_tension_weakness_score.iloc[-1]:.4f}")
+        #     print(f"        axiom_stability (raw): {axiom_stability.iloc[-1]:.4f}, score: {stability_weakness_score.iloc[-1]:.4f}")
+        #     print(f"    -> [结构情报探针] {method_name} - STRUCT_PLATFORM_DYNAMIC_LOW_INVERSE 最终分数: {platform_low_inverse.iloc[-1]:.4f}")
         return platform_high_inverse, platform_low_inverse
 
 
