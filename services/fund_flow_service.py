@@ -800,46 +800,25 @@ class AdvancedFundFlowMetricsService:
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
         hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0))
-        
         current_date = daily_data.name.date()
-        
-        # --- START: 根据配置文件更新探针逻辑 ---
-        global_should_probe = self.debug_params.get('should_probe', False)
-        probe_dates_str = self.debug_params.get('probe_dates')
-
-        should_probe_for_this_date = False
-        if global_should_probe:
-            if probe_dates_str:
-                try:
-                    # 将配置中的日期字符串列表转换为日期对象列表
-                    parsed_probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
-                    if current_date in parsed_probe_dates:
-                        should_probe_for_this_date = True
-                except Exception as e:
-                    # 如果 probe_dates 格式错误，记录错误并默认开启探针（避免静默失败）
-                    logger.error(f"[{stock_code}] [探针配置错误] 解析 probe_dates 失败: {e}. 将忽略日期过滤。")
-                    should_probe_for_this_date = True
-            else:
-                # 如果 probe_dates 未指定，且全局 should_probe 为 True，则对所有日期进行探针
-                should_probe_for_this_date = True
-        # --- END: 根据配置文件更新探针逻辑 ---
-
-        if should_probe_for_this_date:
+        # 根据配置文件中的should_probe和probe_dates判断是否启用探针
+        should_probe = self.debug_params.get('should_probe', False) and \
+                       (current_date.strftime('%Y-%m-%d') in self.debug_params.get('probe_dates', []))
+        if should_probe:
             print(f"[{stock_code}] [探针 A.1 - {current_date}] _compute_all_behavioral_metrics 启动。")
             print(f"[{stock_code}] [探针 A.1 - {current_date}] hf_analysis_df 是否为空: {hf_analysis_df.empty}")
             if hf_analysis_df.empty:
                 print(f"[{stock_code}] [探针 A.1 - {current_date}] hf_analysis_df 为空，可能原因: tick_data_for_day 或 level5_data_for_day 为空。")
-        
         context = {
             'intraday_data': intraday_data,
-            'daily_data': daily_data,
+            'daily_data': daily_data, # 确保这里是原始的 daily_data Series
             'hf_analysis_df': hf_analysis_df,
             'common_data': common_data,
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
-                'should_probe': should_probe_for_this_date, # 传递日期特定的探针标志
-                'target_date': self.debug_params.get('target_date'), # 保持兼容性，尽管 probe_dates 更优先
+                'should_probe': should_probe,
+                'probe_dates': self.debug_params.get('probe_dates', []), # 更新为probe_dates
                 'stock_code': stock_code
             }
         }
