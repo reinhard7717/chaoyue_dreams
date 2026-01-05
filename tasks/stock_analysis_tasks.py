@@ -622,6 +622,48 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             for col in df.columns:
                 if col not in non_numeric_whitelist and not pd.api.types.is_datetime64_any_dtype(df[col]):
                     df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # 新增探针：在读取原料数据后输出最后一日的第一行和最后一行数据
+    print(f"\n[探针 P.1 - {stock_info.stock_code}] 原始数据加载审计 (日期范围: {dates_in_chunk.min().date()} - {dates_in_chunk.max().date()})")
+    last_date_in_chunk = dates_in_chunk.max().date()
+
+    for name, df in data_dfs.items():
+        # 仅审计非 _map 结尾的原始 DataFrame
+        if isinstance(df, pd.DataFrame) and not df.empty and not name.endswith("_map"):
+            print(f"  --- 数据源: {name} ---")
+            df_to_inspect = pd.DataFrame()
+            if 'trade_time' in df.columns:
+                # 确保 trade_time 是 datetime 类型以便过滤
+                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                df_to_inspect = df[df['trade_time'].dt.date == last_date_in_chunk]
+            else:
+                # 如果没有 trade_time 列，则无法按日期过滤，直接取整个 DataFrame 的首尾
+                print(f"  警告: 数据源 '{name}' 没有 'trade_time' 列，无法按最后一日过滤。将显示整个DataFrame的首尾行。")
+                df_to_inspect = df
+            if not df_to_inspect.empty:
+                # 打印第一行
+                print(f"  最后一日 ({last_date_in_chunk}) 第一行数据:")
+                first_row = df_to_inspect.iloc[0]
+                for col, val in first_row.items():
+                    print(f"    {col}: {val}")
+                # 如果有多行，打印最后一行
+                if len(df_to_inspect) > 1:
+                    print(f"  最后一日 ({last_date_in_chunk}) 最后一行数据:")
+                    last_row = df_to_inspect.iloc[-1]
+                    for col, val in last_row.items():
+                        print(f"    {col}: {val}")
+                elif 'trade_time' in df.columns: # 仅在按日期过滤且只有一行时打印此信息
+                    print(f"  最后一日 ({last_date_in_chunk}) 只有一行数据，已显示。")
+                print("-" * 30) # 分隔符，提高可读性
+            else:
+                print(f"  最后一日 ({last_date_in_chunk}) 无数据。")
+                print("-" * 30)
+        elif not isinstance(df, pd.DataFrame) and not name.endswith("_map"):
+            print(f"  --- 数据源: {name} ---")
+            print(f"  '{name}' 不是 DataFrame 类型或为空。")
+            print("-" * 30)
+    print("[探针 P.1 - 审计结束]\n")
+
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -1788,7 +1830,7 @@ def run_top_n_performance_analysis(
 # =================== 4. 数据维护任务 ==================
 # =================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.archive_historical_trade_data', queue='celery')
-def archive_historical_trade_data(self, days_to_keep: int = 450):
+def archive_historical_trade_data(self, days_to_keep: int = 650):
     """
     归档含有 'trade_time' 字段的表的历史数据。
     - 保留最近 `days_to_keep` 个交易日的数据。
