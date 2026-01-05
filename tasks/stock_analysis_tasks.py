@@ -553,8 +553,9 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
+    # 修改：添加 'turnover_rate_f' 到 all_daily_basic_fields
     all_daily_basic_fields = (
-        'trade_time', 'circ_mv', 'turnover_rate', 'float_share'
+        'trade_time', 'circ_mv', 'turnover_rate', 'float_share', 'turnover_rate_f'
     )
     fund_flow_tushare_fields = (
         'trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
@@ -603,7 +604,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
-    # 新增代码块：在源头预处理Level-5数据，计算OFI
     if not data_dfs["stock_level5_data"].empty and len(data_dfs["stock_level5_data"]) > 1:
         level5_df = data_dfs["stock_level5_data"].sort_values('trade_time').reset_index(drop=True)
         df_prev = level5_df.shift(1)
