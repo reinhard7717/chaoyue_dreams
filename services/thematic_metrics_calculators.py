@@ -35,7 +35,14 @@ class ThematicMetricsCalculators:
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
-        results = {}
+        stock_code = debug_info.get('stock_code', 'N/A') # 获取 stock_code
+        results = {
+            'volume_profile_entropy': np.nan,
+            'value_area_migration': np.nan,
+            'value_area_overlap_pct': np.nan,
+            'closing_acceptance_type': np.nan,
+            'equilibrium_compression_index': np.nan, # 确保初始化
+        }
         today_vpoc = np.nan
         if tick_df is not None and not tick_df.empty and tick_df['volume'].sum() > 0:
             vp_hf = tick_df.groupby('price')['volume'].sum()
@@ -76,8 +83,14 @@ class ThematicMetricsCalculators:
         prev_high = prev_day_metrics.get('high')
         prev_low = prev_day_metrics.get('low')
         prev_volume = prev_day_metrics.get('volume')
-        if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc]):
-            if day_high_qfq <= prev_high and day_low_qfq >= prev_low:
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] equilibrium_compression_index 计算前检查:")
+            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] prev_high: {prev_high}, prev_low: {prev_low}, prev_vpoc: {prev_vpoc}, prev_volume: {prev_volume}")
+            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] today_vpoc: {today_vpoc}, day_high_qfq: {day_high_qfq}, day_low_qfq: {day_low_qfq}, total_volume_safe: {total_volume_safe}")
+        if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc, day_high_qfq, day_low_qfq, total_volume_safe]):
+            if day_high_qfq <= prev_high and day_low_qfq >= prev_low: # 判断是否为“内含日”
+                if enable_probe and is_target_date:
+                    print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] 满足内含日条件 (day_high_qfq <= prev_high and day_low_qfq >= prev_low)。")
                 prev_range = prev_high - prev_low
                 today_range = day_high_qfq - day_low_qfq
                 if prev_range > 0 and prev_volume > 0:
@@ -86,9 +99,22 @@ class ThematicMetricsCalculators:
                     volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
+                    if enable_probe and is_target_date:
+                        print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] equilibrium_compression_index 计算完成: {results['equilibrium_compression_index']}")
+                else:
+                    if enable_probe and is_target_date:
+                        print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] prev_range <= 0 或 prev_volume <= 0，equilibrium_compression_index 无法计算。")
+            else:
+                if enable_probe and is_target_date:
+                    print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] 不满足内含日条件，equilibrium_compression_index 无法计算。")
+        else:
+            if enable_probe and is_target_date:
+                print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] 关键前置数据缺失，equilibrium_compression_index 无法计算。")
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] calculate_market_profile_metrics 结束。equilibrium_compression_index: {results['equilibrium_compression_index']}")
         return results
 
     @staticmethod
@@ -293,6 +319,8 @@ class ThematicMetricsCalculators:
                     volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] calculate_game_efficiency_metrics 结束。")
         return results
 
     @staticmethod

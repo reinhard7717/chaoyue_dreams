@@ -55,6 +55,7 @@ class StructuralMetricsCalculators:
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
+        stock_code = debug_info.get('stock_code', 'N/A') # 获取 stock_code
         results = {
             'intraday_energy_density': np.nan,
             'intraday_thrust_purity': np.nan,
@@ -66,10 +67,23 @@ class StructuralMetricsCalculators:
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] calculate_energy_density_metrics 启动。")
+            print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] atr_14: {atr_14}")
         if pd.notna(atr_14) and atr_14 > 0:
             turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
+            if enable_probe and is_target_date:
+                print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] turnover_rate_f: {turnover_rate}")
             if pd.notna(turnover_rate):
                 results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
+                if enable_probe and is_target_date:
+                    print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] intraday_energy_density 计算完成: {results['intraday_energy_density']}")
+            else:
+                if enable_probe and is_target_date:
+                    print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] turnover_rate_f 为 NaN，intraday_energy_density 无法计算。")
+        else:
+            if enable_probe and is_target_date:
+                print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] atr_14 无效，intraday_energy_density 无法计算。")
         if tick_df is not None and not tick_df.empty:
             total_volume = tick_df['volume'].sum()
             if total_volume > 0:
@@ -247,9 +261,26 @@ class StructuralMetricsCalculators:
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
-        results = {}
+        stock_code = debug_info.get('stock_code', 'N/A') # 获取 stock_code
+        results = {
+            'cost_dispersion_index': np.nan,
+            'intraday_pnl_imbalance': np.nan,
+            'mean_reversion_frequency': np.nan,
+            'trend_efficiency_ratio': np.nan,
+            'pullback_depth_ratio': np.nan,
+            'opening_impulse_efficiency': np.nan,
+            'midday_narrow_range_gravity': np.nan,
+            'tail_acceleration_efficiency': np.nan,
+            'closing_conviction_score': np.nan,
+            'absorption_strength_index': np.nan, # 确保此指标被初始化
+        }
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] calculate_control_metrics 启动。")
+            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] group.empty: {group.empty}, total_volume_safe: {total_volume_safe}, atr_14: {atr_14}")
         if group.empty or total_volume_safe == 0 or not pd.notna(atr_14) or atr_14 == 0:
-            return {}
+            if enable_probe and is_target_date:
+                print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] 前置条件不满足，返回空结果。")
+            return results
         dispersion_raw = np.nan
         if tick_df is not None and not tick_df.empty:
             weighted_price_mean = np.average(tick_df['price'], weights=tick_df['volume'])
@@ -343,6 +374,49 @@ class StructuralMetricsCalculators:
                 tail_force_factor = np.log1p(accel_ratio)
                 conviction_purity = tail_thrust_purity if pd.notna(tail_thrust_purity) else np.sign(day_close_qfq - vpoc)
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor * conviction_purity
+        # 计算 absorption_strength_index
+        if tick_df is not None and not tick_df.empty:
+            # 假设 absorption_strength_index 的计算逻辑
+            # 这里只是一个示例，实际逻辑需要根据指标定义来补充
+            # 例如，可以基于价格下跌时的买入量或价格上涨时的卖出量来衡量吸收强度
+            # 简化示例：价格下跌时，主力买入的强度
+            down_moves = tick_df[tick_df['price'].diff() < 0]
+            if not down_moves.empty:
+                mf_buy_on_dip = down_moves[down_moves['amount'] > 200000]['volume'].sum() # 假设大单为主力
+                total_vol_on_dip = down_moves['volume'].sum()
+                if total_vol_on_dip > 0:
+                    results['absorption_strength_index'] = mf_buy_on_dip / total_vol_on_dip
+                    if enable_probe and is_target_date:
+                        print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] absorption_strength_index (Tick): {results['absorption_strength_index']}")
+                else:
+                    if enable_probe and is_target_date:
+                        print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] total_vol_on_dip 为0，absorption_strength_index 无法计算。")
+            else:
+                if enable_probe and is_target_date:
+                    print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] down_moves 为空，absorption_strength_index 无法计算。")
+        else:
+            # 分钟数据回退逻辑
+            down_minutes = group[group['close'] < group['open']]
+            if not down_minutes.empty:
+                # 假设 main_force_buy_vol 是分钟数据中主力买入量
+                if 'main_force_buy_vol' in down_minutes.columns:
+                    mf_buy_on_dip = down_minutes['main_force_buy_vol'].sum()
+                    total_vol_on_dip = down_minutes['vol'].sum()
+                    if total_vol_on_dip > 0:
+                        results['absorption_strength_index'] = mf_buy_on_dip / total_vol_on_dip
+                        if enable_probe and is_target_date:
+                            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] absorption_strength_index (Minute Fallback): {results['absorption_strength_index']}")
+                    else:
+                        if enable_probe and is_target_date:
+                            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] total_vol_on_dip (Fallback) 为0，absorption_strength_index 无法计算。")
+                else:
+                    if enable_probe and is_target_date:
+                        print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] down_minutes 缺少 'main_force_buy_vol'，absorption_strength_index 无法计算。")
+            else:
+                if enable_probe and is_target_date:
+                    print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] down_minutes 为空，absorption_strength_index 无法计算。")
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] calculate_control_metrics 结束。absorption_strength_index: {results['absorption_strength_index']}")
         return results
 
     @staticmethod
@@ -365,8 +439,14 @@ class StructuralMetricsCalculators:
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
+        stock_code = debug_info.get('stock_code', 'N/A') # 获取 stock_code
         results = {}
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] calculate_game_efficiency_metrics 启动。")
+            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] group.empty: {group.empty}")
         if group.empty:
+            if enable_probe and is_target_date:
+                print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] group 为空，返回空结果。")
             return results
         # 1. 升维：趋势不对称指数 (Trend Asymmetry Index) - 分钟级
         up_minutes = group[group['close'] > group['open']]
@@ -403,6 +483,8 @@ class StructuralMetricsCalculators:
                 if total_down_vol > 0:
                     weighted_avg_slippage_down = np.average(abs(down_thrust_ticks['price_diff']), weights=down_thrust_ticks['volume'])
                     results['defense_cost_index'] = weighted_avg_slippage_down / atr_14
+        if enable_probe and is_target_date:
+            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] calculate_game_efficiency_metrics 结束。")
         return results
 
     @staticmethod

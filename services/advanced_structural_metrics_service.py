@@ -433,7 +433,11 @@ class AdvancedStructuralMetricsService:
                 prev_day_metrics = {
                     'high': prev_day_series.get('high_qfq'),
                     'low': prev_day_series.get('low_qfq'),
-                    'volume': prev_day_series.get('volume'),
+                    'volume': prev_day_series.get('vol'), # 修正为 'vol'
+                    'vpoc': prev_day_series.get('_today_vpoc'), # 从前一日的计算结果中获取
+                    'vah': prev_day_series.get('_today_vah'),
+                    'val': prev_day_series.get('_today_val'),
+                    'atr_14d': prev_day_series.get('ATR_14'),
                 }
         # 遍历 intraday_map，其键 trade_date_dt_obj 仍是 datetime.date 对象
         for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
@@ -474,7 +478,8 @@ class AdvancedStructuralMetricsService:
             debug_info = {
                 'is_target_date': is_target_date,
                 'enable_probe': self.debug_params.get('enable_asm_probe', False),
-                'trade_date_str': trade_date_dt_obj.strftime('%Y-%m-%d')
+                'trade_date_str': trade_date_dt_obj.strftime('%Y-%m-%d'),
+                'stock_code': stock_code # 传递 stock_code
             }
             day_metric_dict = self._calculate_daily_structural_metrics(
                 group=canonical_minute_df,
@@ -491,6 +496,7 @@ class AdvancedStructuralMetricsService:
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
             # 在传递给下一日的上下文中增加 volume
+            # 确保从 day_metric_dict 中获取 _today_vpoc 等，因为它们是在当前日计算的
             prev_day_metrics = {
                 'vpoc': day_metric_dict.get('_today_vpoc'),
                 'vah': day_metric_dict.get('_today_vah'),
@@ -498,7 +504,7 @@ class AdvancedStructuralMetricsService:
                 'atr_14d': daily_series_for_day.get('ATR_14'),
                 'high': daily_series_for_day.get('high_qfq'),
                 'low': daily_series_for_day.get('low_qfq'),
-                'volume': daily_series_for_day.get('volume'),
+                'volume': daily_series_for_day.get('vol'), # 修正为 'vol'
             }
         if not new_metrics_data:
             return pd.DataFrame()
