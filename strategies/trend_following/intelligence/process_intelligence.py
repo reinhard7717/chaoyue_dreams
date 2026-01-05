@@ -1785,6 +1785,14 @@ class ProcessIntelligence:
         
         # --- 修复: 添加 relative_position_weights 的获取 ---
         relative_position_weights = get_param_value(decay_params.get('relative_position_weights'), {"winner_stability_high": 0.6, "profit_taking_flow_low": 0.4})
+        # --- 修复: 添加 final_fusion_gm_weights 和 final_exponent 的获取 ---
+        final_fusion_gm_weights = get_param_value(decay_params.get('final_fusion_gm_weights'), {
+            "conviction_magnitude": 0.3, "pressure_magnitude": 0.25,
+            "synergy_factor": 0.2, "deception_filter": 0.15,
+            "context_modulator": 0.1
+        })
+        final_exponent = get_param_value(decay_params.get('final_exponent'), 1.5)
+
 
         # 更新所有必需的DF列和原子信号
         required_df_columns = [
@@ -1799,7 +1807,8 @@ class ProcessIntelligence:
             'pressure_rejection_strength_D', 'rally_buy_support_weakness_D',
             'buy_quote_exhaustion_rate_D', 'bid_side_liquidity_D', 'main_force_slippage_index_D',
             'structural_tension_index_D', 'volatility_expansion_ratio_D',
-            'chip_health_score_D', 'market_impact_cost_D'
+            'chip_health_score_D', 'market_impact_cost_D',
+            'trend_vitality_index_D' # --- 修复: 添加 trend_vitality_index_D ---
         ]
         # 动态添加MTF斜率和加速度信号
         for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
@@ -1888,6 +1897,9 @@ class ProcessIntelligence:
         volatility_expansion_raw = self._get_safe_series(df, 'volatility_expansion_ratio_D', 0.0, method_name=method_name)
         chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name)
         market_impact_cost_raw = self._get_safe_series(df, 'market_impact_cost_D', 0.0, method_name=method_name)
+        # --- 修复: 获取 trend_vitality_raw ---
+        trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
+
 
         _temp_debug_values["原始信号值"] = {
             "winner_stability_index_D": belief_signal_raw, # 使用已赋值的变量
@@ -1921,7 +1933,8 @@ class ProcessIntelligence:
             "structural_tension_index_D": structural_tension_raw,
             "volatility_expansion_ratio_D": volatility_expansion_raw,
             "chip_health_score_D": chip_health_raw,
-            "market_impact_cost_D": market_impact_cost_raw
+            "market_impact_cost_D": market_impact_cost_raw,
+            "trend_vitality_index_D": trend_vitality_raw # --- 修复: 添加 trend_vitality_raw ---
         }
 
         # --- 1. 信念强度 (Conviction Strength) ---
