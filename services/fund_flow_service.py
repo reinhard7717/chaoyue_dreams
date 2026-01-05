@@ -449,15 +449,15 @@ class AdvancedFundFlowMetricsService:
                 pass # 移除了此处的print调试信息
         return intraday_data_map
 
-    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame, debug_params: dict = None) -> tuple[dict, None]:
+    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame, debug_mode: bool = False) -> tuple[dict, None]:
         day_metrics = {}
-        daily_derived_metrics = self._calculate_daily_derived_metrics(stock_code, daily_data_series, debug_params=debug_params) # 传递 stock_code 和 debug_params
+        daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series, debug_mode=debug_mode)
         day_metrics.update(daily_derived_metrics)
         day_metrics.update(probabilistic_costs_dict)
         prob_costs_series = pd.Series(probabilistic_costs_dict)
         prob_costs_df_for_agg = pd.DataFrame([prob_costs_series], index=[daily_data_series.name])
         daily_df_for_agg = pd.DataFrame([daily_data_series.to_dict()], index=[daily_data_series.name])
-        aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=False)
+        aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=debug_mode)
         if not aggregate_pvwap_costs_df.empty:
             day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
         updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
@@ -468,7 +468,7 @@ class AdvancedFundFlowMetricsService:
             level5_data=level5_data_for_day,
             realtime_data=realtime_data_for_day,
             main_force_net_flow_calibrated=main_force_net_flow_calibrated,
-            debug_params=debug_params # 传递 debug_params
+            debug_mode=debug_mode
         )
         day_metrics.update(behavioral_metrics)
         day_metrics['trade_time'] = daily_data_series.name
@@ -481,6 +481,7 @@ class AdvancedFundFlowMetricsService:
         prev_metrics = memory.copy() if memory is not None else {}
         num_days = len(merged_df)
         for i, (trade_date, daily_data_series) in enumerate(merged_df.iterrows()):
+            debug_mode = (i == num_days - 1)
             date_obj = trade_date.date()
             daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(daily_data_series.get('vol'), errors='coerce') * 100
@@ -494,13 +495,13 @@ class AdvancedFundFlowMetricsService:
                 continue
             daily_data_series_with_mem = pd.concat([daily_data_series, pd.Series(prev_metrics, name=daily_data_series.name)])
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series_with_mem)
-            probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series_with_mem, debug_mode=False)
+            probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series_with_mem, debug_mode=debug_mode)
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series_with_mem, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_for_day=tick_data_map.get(date_obj),
                 level5_data_for_day=level5_data_map.get(date_obj),
                 realtime_data_for_day=realtime_data_map.get(date_obj),
-                debug_params=self.debug_params # 传递 self.debug_params
+                debug_mode=debug_mode
             )
             all_metrics_list.append(day_metrics)
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
@@ -515,17 +516,9 @@ class AdvancedFundFlowMetricsService:
         final_metrics_df.set_index('trade_time', inplace=True)
         return final_metrics_df, attributed_minute_data_map, failures, prev_metrics
 
-    def _calculate_daily_derived_metrics(self, stock_code: str, daily_data_series: pd.Series, debug_params: dict = None) -> dict:
+    def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
         results = {}
         WAN = 10000.0
-        current_date = daily_data_series.name.date()
-        should_probe = debug_params.get('enable_mfca_probe', False) and \
-                       (current_date == pd.to_datetime(debug_params.get('target_date')).date() if debug_params.get('target_date') else True)
-
-        if should_probe:
-            print(f"[{stock_code}] [探针 DDM.1 - {current_date}] _calculate_daily_derived_metrics 启动。")
-            print(f"[{stock_code}] [探针 DDM.1 - {current_date}] debug_params: {debug_params}")
-
         def get_calibrated_value(target_col_name: str):
             consensus_map = {
                 'net_flow_calibrated': ('net_flow_tushare', ['net_flow_ths', 'net_flow_dc']),
@@ -799,7 +792,7 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         return pd.DataFrame.from_dict(all_results, orient='index').set_index('trade_time')
 
-    def _compute_all_behavioral_metrics(self, stock_code: str, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_params: dict = None) -> dict:
+    def _compute_all_behavioral_metrics(self, stock_code: str, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         results = {}
         if intraday_data.empty:
             return results
@@ -807,26 +800,48 @@ class AdvancedFundFlowMetricsService:
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
         hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0))
+        
         current_date = daily_data.name.date()
-        should_probe = debug_params.get('enable_mfca_probe', False) and \
-                       (current_date == pd.to_datetime(debug_params.get('target_date')).date() if debug_params.get('target_date') else True)
+        
+        # --- START: 根据配置文件更新探针逻辑 ---
+        global_should_probe = self.debug_params.get('should_probe', False)
+        probe_dates_str = self.debug_params.get('probe_dates')
 
-        if should_probe:
+        should_probe_for_this_date = False
+        if global_should_probe:
+            if probe_dates_str:
+                try:
+                    # 将配置中的日期字符串列表转换为日期对象列表
+                    parsed_probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
+                    if current_date in parsed_probe_dates:
+                        should_probe_for_this_date = True
+                except Exception as e:
+                    # 如果 probe_dates 格式错误，记录错误并默认开启探针（避免静默失败）
+                    logger.error(f"[{stock_code}] [探针配置错误] 解析 probe_dates 失败: {e}. 将忽略日期过滤。")
+                    should_probe_for_this_date = True
+            else:
+                # 如果 probe_dates 未指定，且全局 should_probe 为 True，则对所有日期进行探针
+                should_probe_for_this_date = True
+        # --- END: 根据配置文件更新探针逻辑 ---
+
+        if should_probe_for_this_date:
             print(f"[{stock_code}] [探针 A.1 - {current_date}] _compute_all_behavioral_metrics 启动。")
             print(f"[{stock_code}] [探针 A.1 - {current_date}] hf_analysis_df 是否为空: {hf_analysis_df.empty}")
-            print(f"[{stock_code}] [探针 A.1 - {current_date}] debug_params: {debug_params}")
             if hf_analysis_df.empty:
                 print(f"[{stock_code}] [探针 A.1 - {current_date}] hf_analysis_df 为空，可能原因: tick_data_for_day 或 level5_data_for_day 为空。")
-
+        
         context = {
             'intraday_data': intraday_data,
-            'daily_data': daily_data, # 确保这里是原始的 daily_data Series
+            'daily_data': daily_data,
             'hf_analysis_df': hf_analysis_df,
             'common_data': common_data,
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
-            'debug_params': debug_params, # 传递完整的 debug_params
-            'stock_code': stock_code # 传递 stock_code
+            'debug': {
+                'should_probe': should_probe_for_this_date, # 传递日期特定的探针标志
+                'target_date': self.debug_params.get('target_date'), # 保持兼容性，尽管 probe_dates 更优先
+                'stock_code': stock_code
+            }
         }
         if not hf_analysis_df.empty:
             results.update(AdvancedFundFlowMetricsService._calculate_main_force_profile_metrics(context))
@@ -1210,22 +1225,18 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        debug_params = context['debug_params'] # 从 context 获取 debug_params
-        stock_code = context['stock_code'] # 从 context 获取 stock_code
-        current_date = context['daily_data'].name.date() # 修正：从 context['daily_data'] 获取日期
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = context['daily_data'].name.date()
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data.get('atr', 0)
         daily_total_amount = common_data.get('daily_total_amount', 0)
-        should_probe = debug_params.get('enable_mfca_probe', False) and \
-                       (current_date == pd.to_datetime(debug_params.get('target_date')).date() if debug_params.get('target_date') else True)
-
         if should_probe:
             print(f"[{stock_code}] [探针 S.1 - {current_date}] _calculate_shadow_metrics 启动。")
             print(f"[{stock_code}] [探针 S.1 - {current_date}] Day Open: {day_open}, Close: {day_close}, High: {day_high}, Low: {day_low}, ATR: {atr}, Daily Amount: {daily_total_amount}")
-            print(f"[{stock_code}] [探针 S.1 - {current_date}] debug_params: {debug_params}")
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and pd.notna(atr) and atr > 0 and daily_total_amount > 0:
             day_range = day_high - day_low
             if should_probe:
@@ -1317,9 +1328,9 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        debug_params = context['debug_params'] # 从 context 获取 debug_params
-        stock_code = context['stock_code'] # 从 context 获取 stock_code
-        current_date = context['daily_data'].name.date() # 修正：从 context['daily_data'] 获取日期
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = context['daily_data'].name.date()
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1329,14 +1340,10 @@ class AdvancedFundFlowMetricsService:
         daily_total_amount = common_data.get('daily_total_amount', 0)
         day_high, day_low = common_data['day_high'], common_data['day_low']
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
-        should_probe = debug_params.get('enable_mfca_probe', False) and \
-                       (current_date == pd.to_datetime(debug_params.get('target_date')).date() if debug_params.get('target_date') else True)
-
         if should_probe:
             print(f"[{stock_code}] [探针 D.1 - {current_date}] _calculate_dip_rally_metrics 启动。")
             print(f"[{stock_code}] [探针 D.1 - {current_date}] Daily VWAP: {daily_vwap}, ATR: {atr}, Daily Total Amount: {daily_total_amount}")
             print(f"[{stock_code}] [探针 D.1 - {current_date}] hf_analysis_df 是否为空: {hf_analysis_df.empty}")
-            print(f"[{stock_code}] [探针 D.1 - {current_date}] debug_params: {debug_params}")
         if not continuous_trading_df.empty and 'minute_vwap' in continuous_trading_df.columns:
             peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
             troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
@@ -1848,9 +1855,9 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
-        debug_params = context['debug_params'] # 从 context 获取 debug_params
-        stock_code = context['stock_code'] # 从 context 获取 stock_code
-        current_date = context['daily_data'].name.date() # 修正：从 context['daily_data'] 获取日期
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = context['daily_data'].name.date()
         from datetime import time
         import pandas as pd
         import numpy as np
@@ -1860,13 +1867,9 @@ class AdvancedFundFlowMetricsService:
         }
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data['atr']
-        should_probe = debug_params.get('enable_mfca_probe', False) and \
-                       (current_date == pd.to_datetime(debug_params.get('target_date')).date() if debug_params.get('target_date') else True)
-
         if should_probe:
             print(f"[{stock_code}] [探针 R.1 - {current_date}] _calculate_retail_sentiment_metrics 启动。")
             print(f"[{stock_code}] [探针 R.1 - {current_date}] ATR: {atr}, hf_analysis_df 是否为空: {hf_analysis_df.empty}")
-            print(f"[{stock_code}] [探针 R.1 - {current_date}] debug_params: {debug_params}")
         if not hf_analysis_df.empty and pd.notna(atr) and atr > 0:
             total_weighted_fomo_score = 0
             total_fomo_volume = 0
@@ -2152,9 +2155,9 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df = context['hf_analysis_df']
         intraday_data = context['intraday_data']
         common_data = context['common_data']
-        debug_params = context['debug_params'] # 从 context 获取 debug_params
-        stock_code = context['stock_code'] # 从 context 获取 stock_code
-        current_date = context['daily_data'].name.date() # 修正：从 context['daily_data'] 获取日期
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = context['daily_data'].name.date()
         import numpy as np
         import pandas as pd
         metrics = {
@@ -2164,13 +2167,9 @@ class AdvancedFundFlowMetricsService:
         }
         atr = common_data.get('atr')
         daily_total_volume = common_data.get('daily_total_volume')
-        should_probe = debug_params.get('enable_mfca_probe', False) and \
-                       (current_date == pd.to_datetime(debug_params.get('target_date')).date() if debug_params.get('target_date') else True)
-
         if should_probe:
             print(f"[{stock_code}] [探针 F.1 - {current_date}] _calculate_flow_efficiency_metrics 启动。")
             print(f"[{stock_code}] [探针 F.1 - {current_date}] ATR: {atr}, Daily Total Volume: {daily_total_volume}")
-            print(f"[{stock_code}] [探针 F.1 - {current_date}] debug_params: {debug_params}")
         if pd.isna(atr) or atr <= 0 or pd.isna(daily_total_volume) or daily_total_volume <= 0:
             if should_probe:
                 print(f"[{stock_code}] [探针 F.1 - {current_date}] 条件不满足: ATR或Daily Total Volume无效。返回NaN。")
