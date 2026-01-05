@@ -1884,13 +1884,12 @@ class ProcessIntelligence:
         chip_health_raw = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name)
         market_impact_cost_raw = self._get_safe_series(df, 'market_impact_cost_D', 0.0, method_name=method_name)
         _temp_debug_values["原始信号值"] = {
-            "winner_stability_index_D": winner_stability_raw,
-            "profit_taking_flow_ratio_D": profit_taking_flow_raw,
-            "deception_index_D": deception_index_raw,
-            "wash_trade_intensity_D": wash_trade_intensity_raw,
+            "winner_stability_index_D": belief_signal_raw, # 使用已赋值的变量
+            "profit_taking_flow_ratio_D": pressure_signal_raw, # 使用已赋值的变量
+            "upper_shadow_selling_pressure_D": upper_shadow_pressure_raw,
+            "retail_fomo_premium_index_D": retail_fomo_raw,
             "market_sentiment_score_D": market_sentiment_raw,
             "VOLATILITY_INSTABILITY_INDEX_21d_D": volatility_instability_raw,
-            "trend_vitality_index_D": trend_vitality_raw,
             "BIAS_13_D": bias_13_raw,
             "BIAS_21_D": bias_21_raw,
             "RSI_13_D": rsi_13_raw,
@@ -1922,7 +1921,7 @@ class ProcessIntelligence:
         # 使用MTF融合赢家稳定性及其斜率和加速度 (双极性)
         mtf_winner_stability = self._get_mtf_slope_accel_score(df, belief_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         # 赢家稳定性相对于历史区间的百分位 (越高越好，映射到 [0, 1])
-        winner_stability_percentile = winner_stability_raw.rank(pct=True).fillna(0.5)
+        winner_stability_percentile = belief_signal_raw.rank(pct=True).fillna(0.5) # 使用 belief_signal_raw
         # 综合信念强度：MTF趋势 + 历史相对位置
         conviction_strength_score = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) + 
                                      (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6))).clip(-1, 1)
@@ -1936,7 +1935,7 @@ class ProcessIntelligence:
         # 利润兑现流量是负向指标，所以其MTF分数越低（负值越大）代表压力越大，韧性越差
         mtf_profit_taking_flow = self._get_mtf_slope_accel_score(df, pressure_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         # 利润兑现流量相对于历史区间的百分位 (越低越好，映射到 [0, 1])
-        profit_taking_flow_percentile = (1 - profit_taking_flow_raw.rank(pct=True)).fillna(0.5)
+        profit_taking_flow_percentile = (1 - pressure_signal_raw.rank(pct=True)).fillna(0.5) # 使用 pressure_signal_raw
         # 综合压力韧性：(1 - MTF利润兑现流量) + 历史相对位置
         # 将mtf_profit_taking_flow反向，使其正值代表韧性强
         pressure_resilience_score = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) + 
@@ -2057,9 +2056,20 @@ class ProcessIntelligence:
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+            for key, value in _temp_debug_values["原始信号值"].items():
+                if isinstance(value, pd.Series):
+                    val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+                    debug_output[f"        '{key}': {val:.4f}"] = ""
+                elif isinstance(value, dict): # Handle dicts within _temp_debug_values["原始信号值"]
+                    debug_output[f"        '{key}':"] = ""
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, pd.Series):
+                            val = sub_value.loc[probe_ts] if probe_ts in sub_value.index else np.nan
+                            debug_output[f"          {sub_key}: {val:.4f}"] = ""
+                        else:
+                            debug_output[f"          {sub_key}: {sub_value}"] = ""
+                else:
+                    debug_output[f"        '{key}': {value}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 信念强度 ---"] = ""
             for key, series in _temp_debug_values["信念强度"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
