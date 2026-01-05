@@ -1378,7 +1378,7 @@ class AdvancedFundFlowMetricsService:
                         metrics['rally_sell_distribution_intensity'] = np.tanh(deception_coeff / market_price_cost) * 100
                         if should_probe:
                             print(f"[{stock_code}] [探针 D.1 - {current_date}] rally_distribution_pressure 计算完成: {metrics['rally_distribution_pressure']}")
-                        if total_mf_net_buy_amount_in_rallies < 0:
+                        if total_mf_net_buy_amount_in_rallies < 0: # 只有当主力净买入为负时才计算支撑弱点
                             weakness_coeff = (abs(total_mf_net_buy_amount_in_rallies) / 10000) / total_rally_price_change_norm
                             metrics['rally_buy_support_weakness'] = np.tanh(weakness_coeff / market_price_cost) * 100
                             if should_probe:
@@ -1850,87 +1850,96 @@ class AdvancedFundFlowMetricsService:
             print(f"[{stock_code}] [探针 R.1 - {current_date}] _calculate_retail_sentiment_metrics 启动。")
             print(f"[{stock_code}] [探针 R.1 - {current_date}] ATR: {atr}, hf_analysis_df 是否为空: {hf_analysis_df.empty}")
         if not hf_analysis_df.empty and pd.notna(atr) and atr > 0:
-            total_weighted_fomo_score = 0
-            total_fomo_volume = 0
-            hf_analysis_df['is_new_high'] = hf_analysis_df['price'] > hf_analysis_df['price'].cummax().shift(1).fillna(0)
-            fomo_events = hf_analysis_df['is_new_high'].ne(hf_analysis_df['is_new_high'].shift()).cumsum()
-            daily_retail_buy_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'B')]['volume'].sum()
-            avg_retail_buy_rate = daily_retail_buy_vol / (4 * 3600) if daily_retail_buy_vol > 0 else 0
+            # --- 零售 FOMO 溢价指数 ---
+            # 修正 is_new_high 的 fillna 策略
+            hf_analysis_df['is_new_high'] = hf_analysis_df['price'] > hf_analysis_df['price'].cummax().shift(1).fillna(method='bfill')
+            # 直接筛选在创新高时发生的零售买入交易
+            retail_buy_trades_at_new_high = hf_analysis_df[
+                (hf_analysis_df['amount'] < 50000) &
+                (hf_analysis_df['type'] == 'B') &
+                (hf_analysis_df['is_new_high'])
+            ].copy()
             if should_probe:
-                print(f"[{stock_code}] [探针 R.1 - {current_date}] 零售日买入量: {daily_retail_buy_vol}, 平均零售买入速率: {avg_retail_buy_rate}")
-            for _, event_df in hf_analysis_df.groupby(fomo_events):
-                if not event_df['is_new_high'].all():
-                    continue
-                if event_df.empty:
-                    continue
-                retail_buy_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'B')]
-                if retail_buy_trades.empty:
-                    continue
-                fomo_vol_in_event = retail_buy_trades['volume'].sum()
-                cost_fomo = (retail_buy_trades['price'] * retail_buy_trades['volume']).sum() / fomo_vol_in_event
+                print(f"[{stock_code}] [探针 R.1 - {current_date}] 创新高时发生的零售买入交易数量: {len(retail_buy_trades_at_new_high)}")
+            if not retail_buy_trades_at_new_high.empty:
+                total_weighted_fomo_score = 0
+                total_fomo_volume = 0
+                # 计算创新高零售买入的平均单笔量，作为 volume_spike_component 的归一化基准
+                avg_retail_trade_vol_at_new_high = retail_buy_trades_at_new_high['volume'].mean()
                 cost_mf_sell = daily_data.get('avg_cost_main_sell')
                 if should_probe:
-                    print(f"[{stock_code}] [探针 R.1 - {current_date}] FOMO事件中零售买入量: {fomo_vol_in_event}, 零售FOMO成本: {cost_fomo}, 主力卖出成本: {cost_mf_sell}")
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] 零售FOMO平均单笔量: {avg_retail_trade_vol_at_new_high}, 主力卖出成本: {cost_mf_sell}")
                 if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
-                    cost_premium_component = (cost_fomo - cost_mf_sell) / atr
-                    aggressive_buy_mask = retail_buy_trades['price'] >= retail_buy_trades['sell_price1']
-                    aggression_component = retail_buy_trades[aggressive_buy_mask]['volume'].sum() / fomo_vol_in_event
-                    duration_seconds = (event_df.index.max() - event_df.index.min()).total_seconds() + 1
-                    event_buy_rate = fomo_vol_in_event / duration_seconds
-                    volume_spike_component = np.log1p(event_buy_rate / avg_retail_buy_rate) if avg_retail_buy_rate > 0 else 0
-                    event_fomo_score = cost_premium_component * aggression_component * volume_spike_component
-                    total_weighted_fomo_score += event_fomo_score * fomo_vol_in_event
-                    total_fomo_volume += fomo_vol_in_event
-            if total_fomo_volume > 0:
-                weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
-                metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * 100
-                if should_probe:
-                    print(f"[{stock_code}] [探针 R.1 - {current_date}] retail_fomo_premium_index 计算完成: {metrics['retail_fomo_premium_index']}")
+                    for _, trade in retail_buy_trades_at_new_high.iterrows():
+                        fomo_vol_in_event = trade['volume']
+                        cost_fomo = trade['price']
+                        cost_premium_component = (cost_fomo - cost_mf_sell) / atr
+                        aggressive_buy = (trade['price'] >= trade['sell_price1'])
+                        aggression_component = 1.0 if aggressive_buy else 0.5
+                        volume_spike_component = 0.0
+                        if pd.notna(avg_retail_trade_vol_at_new_high) and avg_retail_trade_vol_at_new_high > 0:
+                            volume_spike_component = np.log1p(trade['volume'] / avg_retail_trade_vol_at_new_high)
+                        event_fomo_score = cost_premium_component * aggression_component * volume_spike_component
+                        total_weighted_fomo_score += event_fomo_score * fomo_vol_in_event
+                        total_fomo_volume += fomo_vol_in_event
+                if total_fomo_volume > 0:
+                    weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
+                    metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * 100
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 R.1 - {current_date}] retail_fomo_premium_index 计算完成: {metrics['retail_fomo_premium_index']}")
+                else:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 R.1 - {current_date}] total_fomo_volume 为0，retail_fomo_premium_index 无法计算。")
             else:
                 if should_probe:
-                    print(f"[{stock_code}] [探针 R.1 - {current_date}] total_fomo_volume 为0，retail_fomo_premium_index 无法计算。")
-            total_weighted_panic_score = 0
-            total_panic_volume = 0
-            hf_analysis_df['is_new_low'] = hf_analysis_df['price'] < hf_analysis_df['price'].cummin().shift(1).fillna(float('inf'))
-            panic_events = hf_analysis_df['is_new_low'].ne(hf_analysis_df['is_new_low'].shift()).cumsum()
-            daily_retail_sell_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'S')]['volume'].sum()
-            avg_retail_sell_rate = daily_retail_sell_vol / (4 * 3600) if daily_retail_sell_vol > 0 else 0
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] 没有在创新高时发生的零售买入交易，retail_fomo_premium_index 无法计算。")
+            # --- 零售恐慌投降指数 ---
+            # 修正 is_new_low 的 fillna 策略
+            hf_analysis_df['is_new_low'] = hf_analysis_df['price'] < hf_analysis_df['price'].cummin().shift(1).fillna(method='bfill')
+            # 直接筛选在创新低时发生的零售卖出交易
+            retail_sell_trades_at_new_low = hf_analysis_df[
+                (hf_analysis_df['amount'] < 50000) &
+                (hf_analysis_df['type'] == 'S') &
+                (hf_analysis_df['is_new_low'])
+            ].copy()
             if should_probe:
-                print(f"[{stock_code}] [探针 R.1 - {current_date}] 零售日卖出量: {daily_retail_sell_vol}, 平均零售卖出速率: {avg_retail_sell_rate}")
-            for _, event_df in hf_analysis_df.groupby(panic_events):
-                if not event_df['is_new_low'].all():
-                    continue
-                if event_df.empty:
-                    continue
-                retail_sell_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'S')]
-                if retail_sell_trades.empty:
-                    continue
-                panic_vol_in_event = retail_sell_trades['volume'].sum()
-                cost_panic = (retail_sell_trades['price'] * retail_sell_trades['volume']).sum() / panic_vol_in_event
+                print(f"[{stock_code}] [探针 R.1 - {current_date}] 创新低时发生的零售卖出交易数量: {len(retail_sell_trades_at_new_low)}")
+            if not retail_sell_trades_at_new_low.empty:
+                total_weighted_panic_score = 0
+                total_panic_volume = 0
+                # 计算创新低零售卖出的平均单笔量，作为 volume_spike_component 的归一化基准
+                avg_retail_trade_vol_at_new_low = retail_sell_trades_at_new_low['volume'].mean()
                 cost_mf_buy = daily_data.get('avg_cost_main_buy')
                 if should_probe:
-                    print(f"[{stock_code}] [探针 R.1 - {current_date}] Panic事件中零售卖出量: {panic_vol_in_event}, 零售Panic成本: {cost_panic}, 主力买入成本: {cost_mf_buy}")
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] 零售Panic平均单笔量: {avg_retail_trade_vol_at_new_low}, 主力买入成本: {cost_mf_buy}")
                 if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
-                    cost_discount_component = (cost_mf_buy - cost_panic) / atr
-                    aggressive_sell_mask = retail_sell_trades['price'] <= retail_sell_trades['buy_price1']
-                    aggression_component = retail_sell_trades[aggressive_sell_mask]['volume'].sum() / panic_vol_in_event
-                    duration_seconds = (event_df.index.max() - event_df.index.min()).total_seconds() + 1
-                    event_sell_rate = panic_vol_in_event / duration_seconds
-                    volume_spike_component = np.log1p(event_sell_rate / avg_retail_sell_rate) if avg_retail_sell_rate > 0 else 0
-                    event_panic_score = cost_discount_component * aggression_component * volume_spike_component
-                    total_weighted_panic_score += event_panic_score * panic_vol_in_event
-                    total_panic_volume += panic_vol_in_event
-            if total_panic_volume > 0:
-                weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
-                metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * 100
-                if should_probe:
-                    print(f"[{stock_code}] [探针 R.1 - {current_date}] retail_panic_surrender_index 计算完成: {metrics['retail_panic_surrender_index']}")
+                    for _, trade in retail_sell_trades_at_new_low.iterrows():
+                        panic_vol_in_event = trade['volume']
+                        cost_panic = trade['price']
+                        cost_discount_component = (cost_mf_buy - cost_panic) / atr
+                        aggressive_sell = (trade['price'] <= trade['buy_price1'])
+                        aggression_component = 1.0 if aggressive_sell else 0.5
+                        volume_spike_component = 0.0
+                        if pd.notna(avg_retail_trade_vol_at_new_low) and avg_retail_trade_vol_at_new_low > 0:
+                            volume_spike_component = np.log1p(trade['volume'] / avg_retail_trade_vol_at_new_low)
+                        event_panic_score = cost_discount_component * aggression_component * volume_spike_component
+                        total_weighted_panic_score += event_panic_score * panic_vol_in_event
+                        total_panic_volume += panic_vol_in_event
+                if total_panic_volume > 0:
+                    weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
+                    metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * 100
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 R.1 - {current_date}] retail_panic_surrender_index 计算完成: {metrics['retail_panic_surrender_index']}")
+                else:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 R.1 - {current_date}] total_panic_volume 为0，retail_panic_surrender_index 无法计算。")
             else:
                 if should_probe:
-                    print(f"[{stock_code}] [探针 R.1 - {current_date}] total_panic_volume 为0，retail_panic_surrender_index 无法计算。")
+                    print(f"[{stock_code}] [探针 R.1 - {current_date}] 没有在创新低时发生的零售卖出交易，retail_panic_surrender_index 无法计算。")
         else:
             if should_probe:
                 print(f"[{stock_code}] [探针 R.1 - {current_date}] hf_analysis_df 为空或ATR无效，零售情绪指标尝试回退到分钟数据。")
+            # Fallback logic (unchanged, as the primary fix is for HF data)
             continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
             if pd.notna(day_high) and pd.notna(day_low):
                 day_range = day_high - day_low
@@ -2153,9 +2162,6 @@ class AdvancedFundFlowMetricsService:
             if should_probe:
                 print(f"[{stock_code}] [探针 F.1 - {current_date}] 条件不满足: ATR或Daily Total Volume无效。返回NaN。")
             return metrics
-        efficiency_coeff = np.nan
-        buy_efficiency_coeff = np.nan
-        sell_efficiency_coeff = np.nan
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
             if should_probe:
                 print(f"[{stock_code}] [探针 F.1 - {current_date}] hf_analysis_df 不为空且包含关键列。")
@@ -2164,70 +2170,80 @@ class AdvancedFundFlowMetricsService:
                 print(f"[{stock_code}] [探针 F.1 - {current_date}] 过滤 main_force_ofi != 0 后 df 是否为空: {df.empty}")
             if not df.empty:
                 df['price_change_per_ofi'] = df['mid_price_change'] / df['main_force_ofi']
-                weights = df['main_force_ofi'].abs()
+                # 过滤掉 price_change_per_ofi 中的 NaN 值及其对应的权重
+                valid_mask = df['price_change_per_ofi'].notna()
+                valid_price_change_per_ofi = df.loc[valid_mask, 'price_change_per_ofi']
+                weights = df.loc[valid_mask, 'main_force_ofi'].abs()
                 if should_probe:
-                    print(f"[{stock_code}] [探针 F.1 - {current_date}] weights.sum(): {weights.sum()}")
+                    print(f"[{stock_code}] [探针 F.1 - {current_date}] weights.sum() (after NaN filter): {weights.sum()}")
                 if weights.sum() > 0:
-                    efficiency_coeff = np.average(df['price_change_per_ofi'], weights=weights)
+                    efficiency_coeff = np.average(valid_price_change_per_ofi, weights=weights)
                     metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
                     if should_probe:
                         print(f"[{stock_code}] [探针 F.1 - {current_date}] flow_efficiency_index 计算完成: {metrics['flow_efficiency_index']}")
                 else:
                     if should_probe:
-                        print(f"[{stock_code}] [探针 F.1 - {current_date}] weights.sum() 为0，flow_efficiency_index 无法计算。")
+                        print(f"[{stock_code}] [探针 F.1 - {current_date}] weights.sum() 为0 (after NaN filter)，flow_efficiency_index 无法计算。")
                 df_buy = hf_analysis_df[hf_analysis_df['main_force_ofi'] > 0].copy()
                 if not df_buy.empty:
                     df_buy['price_change_per_ofi'] = df_buy['mid_price_change'] / df_buy['main_force_ofi']
-                    weights_buy = df_buy['main_force_ofi'].abs()
+                    valid_mask_buy = df_buy['price_change_per_ofi'].notna()
+                    valid_price_change_per_ofi_buy = df_buy.loc[valid_mask_buy, 'price_change_per_ofi']
+                    weights_buy = df_buy.loc[valid_mask_buy, 'main_force_ofi'].abs()
                     if weights_buy.sum() > 0:
-                        buy_efficiency_coeff = np.average(df_buy['price_change_per_ofi'], weights=weights_buy)
+                        buy_efficiency_coeff = np.average(valid_price_change_per_ofi_buy, weights=weights_buy)
                         metrics['buy_flow_efficiency_index'] = (buy_efficiency_coeff * daily_total_volume) / atr
                 df_sell = hf_analysis_df[hf_analysis_df['main_force_ofi'] < 0].copy()
                 if not df_sell.empty:
                     df_sell['price_change_per_ofi'] = df_sell['mid_price_change'] / df_sell['main_force_ofi']
-                    weights_sell = df_sell['main_force_ofi'].abs()
+                    valid_mask_sell = df_sell['price_change_per_ofi'].notna()
+                    valid_price_change_per_ofi_sell = df_sell.loc[valid_mask_sell, 'price_change_per_ofi']
+                    weights_sell = df_sell.loc[valid_mask_sell, 'main_force_ofi'].abs()
                     if weights_sell.sum() > 0:
-                        sell_efficiency_coeff = np.average(df_sell['price_change_per_ofi'], weights=weights_sell)
+                        sell_efficiency_coeff = np.average(valid_price_change_per_ofi_sell, weights=weights_sell)
                         metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr
             else:
                 if should_probe:
-                    print(f"[{stock_code}] [探针 F.1 - {current_date}] 过滤 main_force_ofi != 0 后 df 为空，flow_efficiency_index 无法计算。")
-        else:
-            if should_probe:
-                print(f"[{stock_code}] [探针 F.1 - {current_date}] hf_analysis_df 为空或缺少关键列，尝试分钟数据回退。")
-            if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
-                df = intraday_data.copy()
-                df['price_change'] = df['close'].diff()
-                df = df[df['main_force_net_vol'] != 0].dropna(subset=['price_change'])
-                if not df.empty:
-                    df['price_change_per_vol'] = df['price_change'] / df['main_force_net_vol']
-                    weights = df['main_force_net_vol'].abs()
-                    if weights.sum() > 0:
-                        efficiency_coeff = np.average(df['price_change_per_vol'], weights=weights)
-                        metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
-                df_buy_fallback = intraday_data[intraday_data['main_force_net_vol'] > 0].copy()
-                if not df_buy_fallback.empty:
-                    df_buy_fallback['price_change'] = df_buy_fallback['close'].diff()
-                    df_buy_fallback = df_buy_fallback[df_buy_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                    print(f"[{stock_code}] [探针 F.1 - {current_date}] hf_analysis_df 为空或缺少关键列，尝试分钟数据回退。")
+                if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
+                    df = intraday_data.copy()
+                    df['price_change'] = df['close'].diff()
+                    df = df[df['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                    if not df.empty:
+                        df['price_change_per_vol'] = df['price_change'] / df['main_force_net_vol']
+                        valid_mask = df['price_change_per_vol'].notna()
+                        valid_price_change_per_vol = df.loc[valid_mask, 'price_change_per_vol']
+                        weights = df.loc[valid_mask, 'main_force_net_vol'].abs()
+                        if weights.sum() > 0:
+                            efficiency_coeff = np.average(valid_price_change_per_vol, weights=weights)
+                            metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
+                    df_buy_fallback = intraday_data[intraday_data['main_force_net_vol'] > 0].copy()
                     if not df_buy_fallback.empty:
-                        df_buy_fallback['price_change_per_vol'] = df_buy_fallback['price_change'] / df_buy_fallback['main_force_net_vol']
-                        weights_buy_fallback = df_buy_fallback['main_force_net_vol'].abs()
-                        if weights_buy_fallback.sum() > 0:
-                            buy_efficiency_coeff = np.average(df_buy_fallback['price_change_per_vol'], weights=weights_buy_fallback)
-                            metrics['buy_flow_efficiency_index'] = (buy_efficiency_coeff * daily_total_volume) / atr
-                df_sell_fallback = intraday_data[intraday_data['main_force_net_vol'] < 0].copy()
-                if not df_sell_fallback.empty:
-                    df_sell_fallback['price_change'] = df_sell_fallback['close'].diff()
-                    df_sell_fallback = df_sell_fallback[df_sell_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                        df_buy_fallback['price_change'] = df_buy_fallback['close'].diff()
+                        df_buy_fallback = df_buy_fallback[df_buy_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                        if not df_buy_fallback.empty:
+                            df_buy_fallback['price_change_per_vol'] = df_buy_fallback['price_change'] / df_buy_fallback['main_force_net_vol']
+                            valid_mask_buy_fallback = df_buy_fallback['price_change_per_vol'].notna()
+                            valid_price_change_per_vol_buy_fallback = df_buy_fallback.loc[valid_mask_buy_fallback, 'price_change_per_vol']
+                            weights_buy_fallback = df_buy_fallback.loc[valid_mask_buy_fallback, 'main_force_net_vol'].abs()
+                            if weights_buy_fallback.sum() > 0:
+                                buy_efficiency_coeff = np.average(valid_price_change_per_vol_buy_fallback, weights=weights_buy_fallback)
+                                metrics['buy_flow_efficiency_index'] = (buy_efficiency_coeff * daily_total_volume) / atr
+                    df_sell_fallback = intraday_data[intraday_data['main_force_net_vol'] < 0].copy()
                     if not df_sell_fallback.empty:
-                        df_sell_fallback['price_change_per_vol'] = df_sell_fallback['price_change'] / df_sell_fallback['main_force_net_vol']
-                        weights_sell_fallback = df_sell_fallback['main_force_net_vol'].abs()
-                        if weights_sell_fallback.sum() > 0:
-                            sell_efficiency_coeff = np.average(df_sell_fallback['price_change_per_vol'], weights=weights_sell_fallback)
-                            metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr
-            else:
-                if should_probe:
-                    print(f"[{stock_code}] [探针 F.1 - {current_date}] 分钟数据回退路径也无法计算 flow_efficiency_index。")
+                        df_sell_fallback['price_change'] = df_sell_fallback['close'].diff()
+                        df_sell_fallback = df_sell_fallback[df_sell_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                        if not df_sell_fallback.empty:
+                            df_sell_fallback['price_change_per_vol'] = df_sell_fallback['price_change'] / df_sell_fallback['main_force_net_vol']
+                            valid_mask_sell_fallback = df_sell_fallback['price_change_per_vol'].notna()
+                            valid_price_change_per_vol_sell_fallback = df_sell_fallback.loc[valid_mask_sell_fallback, 'price_change_per_vol']
+                            weights_sell_fallback = df_sell_fallback.loc[valid_mask_sell_fallback, 'main_force_net_vol'].abs()
+                            if weights_sell_fallback.sum() > 0:
+                                sell_efficiency_coeff = np.average(valid_price_change_per_vol_sell_fallback, weights=weights_sell_fallback)
+                                metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr
+                else:
+                    if should_probe:
+                        print(f"[{stock_code}] [探针 F.1 - {current_date}] 分钟数据回退路径也无法计算 flow_efficiency_index。")
         return metrics
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
