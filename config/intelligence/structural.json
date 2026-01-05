@@ -175,7 +175,9 @@
                 "asymmetric_friction_index_D": {"method": "quantile", "ascending": false},
                 "FRACTAL_DIMENSION_89d_D": {"method": "quantile", "ascending": false, "clip_range": [1.0, 2.0]},
                 "volume_burstiness_index_D": {"method": "mtf_adaptive", "ascending": false},
-                "MA_POTENTIAL_ORDERLINESS_SCORE_D": {"method": "mtf_adaptive", "ascending": false}
+                "MA_POTENTIAL_ORDERLINESS_SCORE_D": {"method": "mtf_adaptive", "ascending": false},
+                "lower_shadow_absorption_strength_D": {"method": "quantile", "ascending": false, "clip_range": [0.0, 100.0]},
+                "comment_lower_shadow_absorption_strength_D": "下影线吸收强度，越高表示吸收越强，对低点弱势的贡献应越低。"
             },
             "comment": "结构稳定性维度参数，包含各子维度的融合权重和指标归一化配置。"
         },
