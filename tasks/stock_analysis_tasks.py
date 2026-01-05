@@ -709,9 +709,10 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
                 strategy_config = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             pass # 在结构指标任务中，即使配置失败也不中断，仅影响调试探针
-        debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
+        # 修改：从配置文件中正确读取 debug_params
+        debug_params_from_config = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
         # 在服务初始化时传入调试参数
-        structural_service = AdvancedStructuralMetricsService(debug_params=debug_params)
+        structural_service = AdvancedStructuralMetricsService(debug_params=debug_params_from_config)
         stock_info, MetricsModel, _, last_metric_date, fetch_start_date = await structural_service._initialize_context(
             stock_code, incremental_flag, start_date_override
         )
@@ -727,6 +728,12 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
             logger.info(f"[{stock_code}] [结构指标任务] 无需计算的日期，任务终止。")
             return 0
         history_start_date = dates_to_process.min().date() - timedelta(days=100)
+        # 修改：添加 'turnover_rate_f' 和 'vol' 到 daily_data_qs 的 values 列表
+        # 注意：'turnover_rate_f' 实际上在 StockDailyBasic 中，而不是 DailyModel。
+        # 需要从 StockDailyBasic 中单独加载或在 _load_all_sources_unified 中合并。
+        # 为了简化，这里假设 DailyModel 包含了这些字段，或者在 _load_all_sources_unified 中会合并。
+        # 实际情况是 _load_all_sources_unified 会加载 daily_basic，所以这里不需要重复加载 turnover_rate_f
+        # 但 'vol' 字段在 DailyModel 中，需要确保加载。
         daily_data_qs = DailyModel.objects.filter(
             stock=stock_info,
             trade_time__gte=history_start_date,
@@ -741,7 +748,17 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         daily_df_with_atr.ta.atr(length=5, append=True, col_names=('ATR_5',))
         daily_df_with_atr.ta.atr(length=14, append=True, col_names=('ATR_14',))
         daily_df_with_atr.ta.atr(length=50, append=True, col_names=('ATR_50',))
+        # _load_all_sources_unified 会加载 daily_basic，其中包含 turnover_rate_f
+        # 所以这里不需要额外处理 turnover_rate_f，它会在 data_dfs['daily_basic'] 中
         data_dfs = await _load_all_sources_unified(stock_info, DailyModel, dates_to_process, cache_manager)
+        # 合并 daily_basic 到 daily_df_with_atr，以获取 turnover_rate_f
+        if 'daily_basic' in data_dfs and not data_dfs['daily_basic'].empty:
+            daily_basic_df = data_dfs['daily_basic'].set_index('trade_time')
+            # 确保索引类型一致
+            daily_basic_df.index = pd.to_datetime(daily_basic_df.index)
+            # 合并 turnover_rate_f
+            daily_df_with_atr = daily_df_with_atr.join(daily_basic_df[['turnover_rate_f']], how='left')
+
         tick_data_map = data_dfs.get("stock_tick_data_map", {})
         level5_data_map = data_dfs.get("stock_level5_data_map", {})
         minute_data_map = data_dfs.get("stock_minute_data_map", {})
