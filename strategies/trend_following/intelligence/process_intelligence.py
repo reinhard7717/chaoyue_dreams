@@ -1832,6 +1832,7 @@ class ProcessIntelligence:
             required_df_columns.append(f'SLOPE_{period_str}_volatility_expansion_ratio_D')
             required_df_columns.append(f'SLOPE_{period_str}_chip_health_score_D')
             required_df_columns.append(f'SLOPE_{period_str}_market_impact_cost_D')
+            required_df_columns.append(f'SLOPE_{period_str}_trend_vitality_index_D') # 添加MTF斜率
         for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
             required_df_columns.append(f'ACCEL_{period_str}_{belief_signal_name}')
             required_df_columns.append(f'ACCEL_{period_str}_{pressure_signal_name}')
@@ -1853,6 +1854,7 @@ class ProcessIntelligence:
             required_df_columns.append(f'ACCEL_{period_str}_volatility_expansion_ratio_D')
             required_df_columns.append(f'ACCEL_{period_str}_chip_health_score_D')
             required_df_columns.append(f'ACCEL_{period_str}_market_impact_cost_D')
+            required_df_columns.append(f'ACCEL_{period_str}_trend_vitality_index_D') # 添加MTF加速度
         required_atomic_signals = [
             'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER',
             'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'
@@ -2025,7 +2027,7 @@ class ProcessIntelligence:
         # 使用几何平均融合情境调制器，确保只有当多个情境同时有利时才高
         context_modulator_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()}, # 确保输入为正
-            contextual_modulator_weights,
+            contextual_modulator_weights, # --- 修复: 使用正确的变量名 ---
             df_index
         )
         # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
@@ -2106,33 +2108,59 @@ class ProcessIntelligence:
 
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 信念强度 ---"] = ""
             for key, series in _temp_debug_values["信念强度"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
+                if isinstance(series, pd.Series):
+                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {series}"] = ""
 
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 压力韧性 ---"] = ""
             for key, series in _temp_debug_values["压力韧性"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
+                if isinstance(series, pd.Series):
+                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {series}"] = ""
 
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 共振与背离因子 ---"] = ""
             for key, series in _temp_debug_values["共振与背离因子"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
+                if isinstance(series, pd.Series):
+                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {series}"] = ""
 
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道过滤 ---"] = ""
             for key, series in _temp_debug_values["诡道过滤"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
+                if isinstance(series, pd.Series):
+                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {series}"] = ""
 
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 情境调制 ---"] = ""
             for key, series in _temp_debug_values["情境调制"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
+                if isinstance(series, pd.Series):
+                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {series}"] = ""
 
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合 ---"] = ""
             for key, series in _temp_debug_values["最终融合"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
+                if isinstance(series, pd.Series):
+                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                elif isinstance(series, dict): # Handle dicts within _temp_debug_values["最终融合"]
+                    debug_output[f"        {key}:"] = ""
+                    for sub_key, sub_value in series.items():
+                        if isinstance(sub_value, pd.Series):
+                            val = sub_value.loc[probe_ts] if probe_ts in sub_value.index else np.nan
+                            debug_output[f"          {sub_key}: {val:.4f}"] = ""
+                        else:
+                            debug_output[f"          {sub_key}: {sub_value}"] = ""
+                else:
+                    debug_output[f"        {key}: {series}"] = ""
 
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 赢家信念衰减诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
             for key, value in debug_output.items():
