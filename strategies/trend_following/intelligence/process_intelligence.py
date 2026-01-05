@@ -2025,7 +2025,7 @@ class ProcessIntelligence:
         # 使用几何平均融合情境调制器，确保只有当多个情境同时有利时才高
         context_modulator_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()}, # 确保输入为正
-            context_modulator_weights,
+            contextual_modulator_weights,
             df_index
         )
         # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
