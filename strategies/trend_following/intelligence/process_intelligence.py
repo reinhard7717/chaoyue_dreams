@@ -618,14 +618,11 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.8 · 全息趋势与深度情境风险审判版】计算“主力拉升意图”的专属关系分数。
-        - 核心升级: 将核心信号（价格变化、主力净流）升级为多时间维度（MTF）斜率/加速度融合，
-                      更鲁棒地捕捉趋势和动能。
-        - 风险审判强化: 增强风险审判的多时间维度感知，引入更长期的下跌趋势和资金流出背离。
-        - 涨停日处理优化: 移除涨停日无条件奖励，改为根据 MTF 融合后的风险信号进行动态调整。
-        - 【重要修正】`pre_drop_risk_factor` 深度情境感知：不再仅仅判断前一日是否下跌，
-                      而是检查更长的周期，判断是否处于“上升波浪结束后开始下跌”的趋势中，
-                      以正确分辨超跌反弹和下跌中继。
+        【V6.0 · 全息意图与多维风险审判版】计算“主力拉升意图”的专属关系分数。
+        - 核心升级: 引入更多微观结构、订单流、筹码阻力、真空区穿越等信号，全面强化攻击性、控制力、障碍清除的评估。
+        - 风险审判强化: 增强对隐蔽派发、竭尽风险、不对称摩擦等微观风险的感知，使风险评估更精细。
+        - 情境感知增强: 引入市场情绪、结构张力、趋势活力、流动性真实性等作为情境调节器，使意图评估更具适应性。
+        - 探针优化: 增加详细的调试输出，覆盖所有新增的原始数据、归一化过程、中间计算节点和最终结果。
         """
         method_name = "_calculate_main_force_rally_intent"
         # --- 调试信息构建 ---
@@ -659,10 +656,28 @@ class ProcessIntelligence:
             'upper_shadow_selling_pressure_D', 'flow_credibility_index_D', 'chip_health_score_D',
             'retail_fomo_premium_index_D',
             'SLOPE_21_close_D', 'ACCEL_21_close_D', # 新增中长期趋势信号
-            'SLOPE_34_close_D', 'ACCEL_34_close_D' # 进一步增加中长期趋势信号
+            'SLOPE_34_close_D', 'ACCEL_34_close_D', # 进一步增加中长期趋势信号
+            # 新增信号
+            'buy_sweep_intensity_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
+            'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'constructive_turnover_ratio_D',
+            'upward_impulse_strength_D', 'vwap_buy_control_strength_D', 'mf_cost_zone_buy_intent_D',
+            'chip_fault_blockage_ratio_D', 'vacuum_traversal_efficiency_D', 'vacuum_zone_magnitude_D',
+            'dip_buy_absorption_strength_D', 'rally_buy_support_weakness_D', 'covert_distribution_signal_D',
+            'deception_lure_short_intensity_D', 'rally_distribution_pressure_D', 'exhaustion_risk_index_D',
+            'asymmetric_friction_index_D', 'volatility_expansion_ratio_D', 'market_sentiment_score_D',
+            'structural_tension_index_D', 'trend_vitality_index_D', 'liquidity_authenticity_score_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['close_D', 'main_force_net_flow_calibrated_D', 'upper_shadow_selling_pressure_D', 'retail_fomo_premium_index_D']:
+        for base_sig in [
+            'close_D', 'main_force_net_flow_calibrated_D', 'upper_shadow_selling_pressure_D',
+            'retail_fomo_premium_index_D', 'buy_sweep_intensity_D', 'main_force_buy_ofi_D',
+            'main_force_t0_buy_efficiency_D', 'upward_impulse_strength_D', 'vwap_buy_control_strength_D',
+            'mf_cost_zone_buy_intent_D', 'chip_fault_blockage_ratio_D', 'vacuum_traversal_efficiency_D',
+            'dip_buy_absorption_strength_D', 'rally_buy_support_weakness_D', 'covert_distribution_signal_D',
+            'deception_lure_short_intensity_D', 'rally_distribution_pressure_D', 'exhaustion_risk_index_D',
+            'asymmetric_friction_index_D', 'volatility_expansion_ratio_D', 'market_sentiment_score_D',
+            'structural_tension_index_D', 'trend_vitality_index_D', 'liquidity_authenticity_score_D'
+        ]:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
@@ -679,15 +694,8 @@ class ProcessIntelligence:
         cs_modulator_weight = config.get('capital_signature_modulator_weight', 0.0)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         # --- 原始数据获取 ---
-        mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_mf_net_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        prev_day_pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name).shift(1).fillna(0)
-        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name=method_name) # 用于计算从高点回落
-        # 新增中长期趋势信号
-        slope_21_close = self._get_safe_series(df, 'SLOPE_21_close_D', 0.0, method_name=method_name)
-        accel_21_close = self._get_safe_series(df, 'ACCEL_21_close_D', 0.0, method_name=method_name)
-        slope_34_close = self._get_safe_series(df, 'SLOPE_34_close_D', 0.0, method_name=method_name)
-        accel_34_close = self._get_safe_series(df, 'ACCEL_34_close_D', 0.0, method_name=method_name)
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
         main_force_slippage = self._get_safe_series(df, 'main_force_slippage_index_D', 0.0, method_name=method_name)
         upward_impulse_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
@@ -703,9 +711,40 @@ class ProcessIntelligence:
         flow_credibility = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
         chip_health = self._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name)
         retail_fomo = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
+        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name=method_name) # 用于计算从高点回落
+        prev_day_pct_change = pct_change.shift(1).fillna(0)
+        slope_21_close = self._get_safe_series(df, 'SLOPE_21_close_D', 0.0, method_name=method_name)
+        accel_21_close = self._get_safe_series(df, 'ACCEL_21_close_D', 0.0, method_name=method_name)
+        slope_34_close = self._get_safe_series(df, 'SLOPE_34_close_D', 0.0, method_name=method_name)
+        accel_34_close = self._get_safe_series(df, 'ACCEL_34_close_D', 0.0, method_name=method_name)
+        # 新增原始信号
+        buy_sweep_intensity = self._get_safe_series(df, 'buy_sweep_intensity_D', 0.0, method_name=method_name)
+        main_force_buy_ofi = self._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name)
+        main_force_t0_buy_efficiency = self._get_safe_series(df, 'main_force_t0_buy_efficiency_D', 0.0, method_name=method_name)
+        order_book_imbalance = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name)
+        micro_price_impact_asymmetry = self._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name=method_name)
+        constructive_turnover = self._get_safe_series(df, 'constructive_turnover_ratio_D', 0.0, method_name=method_name)
+        upward_impulse_strength = self._get_safe_series(df, 'upward_impulse_strength_D', 0.0, method_name=method_name)
+        vwap_buy_control_strength = self._get_safe_series(df, 'vwap_buy_control_strength_D', 0.0, method_name=method_name)
+        mf_cost_zone_buy_intent = self._get_safe_series(df, 'mf_cost_zone_buy_intent_D', 0.0, method_name=method_name)
+        chip_fault_blockage_ratio = self._get_safe_series(df, 'chip_fault_blockage_ratio_D', 0.0, method_name=method_name)
+        vacuum_traversal_efficiency = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name=method_name)
+        vacuum_zone_magnitude = self._get_safe_series(df, 'vacuum_zone_magnitude_D', 0.0, method_name=method_name)
+        dip_buy_absorption_strength = self._get_safe_series(df, 'dip_buy_absorption_strength_D', 0.0, method_name=method_name)
+        rally_buy_support_weakness = self._get_safe_series(df, 'rally_buy_support_weakness_D', 0.0, method_name=method_name)
+        covert_distribution = self._get_safe_series(df, 'covert_distribution_signal_D', 0.0, method_name=method_name)
+        deception_lure_short = self._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
+        rally_distribution_pressure = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name=method_name)
+        exhaustion_risk = self._get_safe_series(df, 'exhaustion_risk_index_D', 0.0, method_name=method_name)
+        asymmetric_friction = self._get_safe_series(df, 'asymmetric_friction_index_D', 0.0, method_name=method_name)
+        volatility_expansion = self._get_safe_series(df, 'volatility_expansion_ratio_D', 0.0, method_name=method_name)
+        market_sentiment = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
+        structural_tension = self._get_safe_series(df, 'structural_tension_index_D', 0.0, method_name=method_name)
+        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
+        liquidity_authenticity = self._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name=method_name)
         _temp_debug_values["原始信号值"] = {
-            "pct_change_D": df['pct_change_D'],
-            "main_force_net_flow_calibrated_D": df['main_force_net_flow_calibrated_D'],
+            "pct_change_D": pct_change,
+            "main_force_net_flow_calibrated_D": main_force_net_flow,
             "main_force_slippage_index_D": main_force_slippage,
             "upward_impulse_purity_D": upward_impulse_purity,
             "volume_ratio_D": volume_ratio,
@@ -727,8 +766,61 @@ class ProcessIntelligence:
             "ACCEL_34_close_D": accel_34_close,
             "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH": relative_strength,
             "SCORE_FF_AXIOM_CAPITAL_SIGNATURE": capital_signature,
+            # 新增原始信号调试
+            "buy_sweep_intensity_D": buy_sweep_intensity,
+            "main_force_buy_ofi_D": main_force_buy_ofi,
+            "main_force_t0_buy_efficiency_D": main_force_t0_buy_efficiency,
+            "order_book_imbalance_D": order_book_imbalance,
+            "micro_price_impact_asymmetry_D": micro_price_impact_asymmetry,
+            "constructive_turnover_ratio_D": constructive_turnover,
+            "upward_impulse_strength_D": upward_impulse_strength,
+            "vwap_buy_control_strength_D": vwap_buy_control_strength,
+            "mf_cost_zone_buy_intent_D": mf_cost_zone_buy_intent,
+            "chip_fault_blockage_ratio_D": chip_fault_blockage_ratio,
+            "vacuum_traversal_efficiency_D": vacuum_traversal_efficiency,
+            "vacuum_zone_magnitude_D": vacuum_zone_magnitude,
+            "dip_buy_absorption_strength_D": dip_buy_absorption_strength,
+            "rally_buy_support_weakness_D": rally_buy_support_weakness,
+            "covert_distribution_signal_D": covert_distribution,
+            "deception_lure_short_intensity_D": deception_lure_short,
+            "rally_distribution_pressure_D": rally_distribution_pressure,
+            "exhaustion_risk_index_D": exhaustion_risk,
+            "asymmetric_friction_index_D": asymmetric_friction,
+            "volatility_expansion_ratio_D": volatility_expansion,
+            "market_sentiment_score_D": market_sentiment,
+            "structural_tension_index_D": structural_tension,
+            "trend_vitality_index_D": trend_vitality,
+            "liquidity_authenticity_score_D": liquidity_authenticity
+        }
+        _temp_debug_values["派生信号值"] = {
             "is_limit_up_day": is_limit_up_day
         }
+        # --- MTF融合信号 ---
+        mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_mf_net_flow = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_upper_shadow_pressure = self._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_retail_fomo = self._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        # 新增MTF融合信号
+        mtf_buy_sweep_intensity = self._get_mtf_slope_accel_score(df, 'buy_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_main_force_buy_ofi = self._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_main_force_t0_buy_efficiency = self._get_mtf_slope_accel_score(df, 'main_force_t0_buy_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_upward_impulse_strength = self._get_mtf_slope_accel_score(df, 'upward_impulse_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_vwap_buy_control_strength = self._get_mtf_slope_accel_score(df, 'vwap_buy_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_mf_cost_zone_buy_intent = self._get_mtf_slope_accel_score(df, 'mf_cost_zone_buy_intent_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_chip_fault_blockage_ratio = self._get_mtf_slope_accel_score(df, 'chip_fault_blockage_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_vacuum_traversal_efficiency = self._get_mtf_slope_accel_score(df, 'vacuum_traversal_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_dip_buy_absorption_strength = self._get_mtf_slope_accel_score(df, 'dip_buy_absorption_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_rally_buy_support_weakness = self._get_mtf_slope_accel_score(df, 'rally_buy_support_weakness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_covert_distribution = self._get_mtf_slope_accel_score(df, 'covert_distribution_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_deception_lure_short = self._get_mtf_slope_accel_score(df, 'deception_lure_short_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_rally_distribution_pressure = self._get_mtf_slope_accel_score(df, 'rally_distribution_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_exhaustion_risk = self._get_mtf_slope_accel_score(df, 'exhaustion_risk_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_asymmetric_friction = self._get_mtf_slope_accel_score(df, 'asymmetric_friction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_volatility_expansion = self._get_mtf_slope_accel_score(df, 'volatility_expansion_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_market_sentiment = self._get_mtf_slope_accel_score(df, 'market_sentiment_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_structural_tension = self._get_mtf_slope_accel_score(df, 'structural_tension_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_trend_vitality = self._get_mtf_slope_accel_score(df, 'trend_vitality_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_liquidity_authenticity = self._get_mtf_slope_accel_score(df, 'liquidity_authenticity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # --- 归一化处理 ---
         price_impact_norm = self._normalize_series(main_force_slippage, df_index, bipolar=True)
         impulse_purity_norm = self._normalize_series(upward_impulse_purity, df_index, bipolar=True)
@@ -743,6 +835,13 @@ class ProcessIntelligence:
         flow_credibility_norm = self._normalize_series(flow_credibility, df_index, bipolar=False)
         chip_health_norm = self._normalize_series(chip_health, df_index, bipolar=False)
         retail_fomo_norm = self._normalize_series(retail_fomo, df_index, bipolar=False)
+        # 新增归一化信号
+        order_book_imbalance_positive_norm = self._normalize_series(order_book_imbalance.clip(lower=0), df_index, bipolar=False)
+        micro_price_impact_asymmetry_positive_norm = self._normalize_series(micro_price_impact_asymmetry.clip(lower=0), df_index, bipolar=False)
+        constructive_turnover_norm = self._normalize_series(constructive_turnover, df_index, bipolar=False)
+        chip_fault_blockage_ratio_inverted_norm = self._normalize_series(chip_fault_blockage_ratio, df_index, bipolar=False, ascending=False)
+        vacuum_zone_magnitude_norm = self._normalize_series(vacuum_zone_magnitude, df_index, bipolar=False)
+        rally_buy_support_weakness_inverted_norm = self._normalize_series(rally_buy_support_weakness, df_index, bipolar=False, ascending=False)
         _temp_debug_values["归一化处理"] = {
             "price_impact_norm": price_impact_norm,
             "impulse_purity_norm": impulse_purity_norm,
@@ -756,36 +855,75 @@ class ProcessIntelligence:
             "profit_absorption_norm": profit_absorption_norm,
             "flow_credibility_norm": flow_credibility_norm,
             "chip_health_norm": chip_health_norm,
-            "retail_fomo_norm": retail_fomo_norm
+            "retail_fomo_norm": retail_fomo_norm,
+            # 新增归一化信号调试
+            "mtf_buy_sweep_intensity": mtf_buy_sweep_intensity,
+            "mtf_main_force_buy_ofi": mtf_main_force_buy_ofi,
+            "mtf_main_force_t0_buy_efficiency": mtf_main_force_t0_buy_efficiency,
+            "order_book_imbalance_positive_norm": order_book_imbalance_positive_norm,
+            "micro_price_impact_asymmetry_positive_norm": micro_price_impact_asymmetry_positive_norm,
+            "constructive_turnover_norm": constructive_turnover_norm,
+            "mtf_upward_impulse_strength": mtf_upward_impulse_strength,
+            "mtf_vwap_buy_control_strength": mtf_vwap_buy_control_strength,
+            "mtf_mf_cost_zone_buy_intent": mtf_mf_cost_zone_buy_intent,
+            "chip_fault_blockage_ratio_inverted_norm": chip_fault_blockage_ratio_inverted_norm,
+            "mtf_vacuum_traversal_efficiency": mtf_vacuum_traversal_efficiency,
+            "vacuum_zone_magnitude_norm": vacuum_zone_magnitude_norm,
+            "mtf_dip_buy_absorption_strength": mtf_dip_buy_absorption_strength,
+            "rally_buy_support_weakness_inverted_norm": rally_buy_support_weakness_inverted_norm,
+            "mtf_covert_distribution": mtf_covert_distribution,
+            "mtf_deception_lure_short": mtf_deception_lure_short,
+            "mtf_rally_distribution_pressure": mtf_rally_distribution_pressure,
+            "mtf_exhaustion_risk": mtf_exhaustion_risk,
+            "mtf_asymmetric_friction": mtf_asymmetric_friction,
+            "mtf_volatility_expansion": mtf_volatility_expansion,
+            "mtf_market_sentiment": mtf_market_sentiment,
+            "mtf_structural_tension": mtf_structural_tension,
+            "mtf_trend_vitality": mtf_trend_vitality,
+            "mtf_liquidity_authenticity": mtf_liquidity_authenticity
         }
         # --- 1. 攻击性 (Aggressiveness) ---
         aggressiveness_score = (
-            mtf_price_trend.clip(lower=0) * 0.20 +
-            mtf_mf_net_flow.clip(lower=0) * 0.20 +
-            price_impact_norm.clip(lower=0) * 0.15 +
-            impulse_purity_norm.clip(lower=0) * 0.15 +
-            volume_ratio_norm.clip(lower=0) * 0.10 +
-            flow_credibility_norm * 0.10 +
-            chip_health_norm * 0.10
+            mtf_price_trend.clip(lower=0) * 0.15 +
+            mtf_mf_net_flow.clip(lower=0) * 0.15 +
+            price_impact_norm.clip(lower=0) * 0.10 +
+            impulse_purity_norm.clip(lower=0) * 0.10 +
+            volume_ratio_norm.clip(lower=0) * 0.05 +
+            flow_credibility_norm * 0.05 +
+            chip_health_norm * 0.05 +
+            mtf_buy_sweep_intensity * 0.10 + # 新增
+            mtf_main_force_buy_ofi * 0.08 + # 新增
+            mtf_main_force_t0_buy_efficiency * 0.07 + # 新增
+            order_book_imbalance_positive_norm * 0.05 + # 新增
+            micro_price_impact_asymmetry_positive_norm * 0.05 + # 新增
+            constructive_turnover_norm * 0.05 + # 新增
+            mtf_upward_impulse_strength * 0.05 # 新增
         ).clip(0, 1)
         _temp_debug_values["攻击性"] = {
             "aggressiveness_score": aggressiveness_score
         }
         # --- 2. 控制力 (Control) ---
         control_score = (
-            control_solidity_norm.clip(lower=0) * 0.35 +
-            cost_advantage_norm.clip(lower=0) * 0.25 +
-            concentration_slope_norm.clip(lower=0) * 0.20 +
-            peak_solidity_norm.clip(lower=0) * 0.20
+            control_solidity_norm.clip(lower=0) * 0.25 +
+            cost_advantage_norm.clip(lower=0) * 0.20 +
+            concentration_slope_norm.clip(lower=0) * 0.15 +
+            peak_solidity_norm.clip(lower=0) * 0.15 +
+            mtf_vwap_buy_control_strength * 0.15 + # 新增
+            mtf_mf_cost_zone_buy_intent * 0.05 + # 新增
+            chip_fault_blockage_ratio_inverted_norm * 0.05 # 新增
         ).clip(0, 1)
         _temp_debug_values["控制力"] = {
             "control_score": control_score
         }
         # --- 3. 障碍清除 (Obstacle Clearance) ---
         obstacle_clearance_score = (
-            buying_support_norm.clip(lower=0) * 0.40 +
-            pressure_rejection_norm.clip(lower=0) * 0.30 +
-            profit_absorption_norm.clip(lower=0) * 0.30
+            buying_support_norm.clip(lower=0) * 0.30 +
+            pressure_rejection_norm.clip(lower=0) * 0.20 +
+            profit_absorption_norm.clip(lower=0) * 0.20 +
+            mtf_vacuum_traversal_efficiency * 0.10 + # 新增
+            vacuum_zone_magnitude_norm * 0.05 + # 新增
+            mtf_dip_buy_absorption_strength * 0.10 + # 新增
+            rally_buy_support_weakness_inverted_norm * 0.05 # 新增
         ).clip(0, 1)
         _temp_debug_values["障碍清除"] = {
             "obstacle_clearance_score": obstacle_clearance_score
@@ -803,23 +941,27 @@ class ProcessIntelligence:
         }
         # --- 6. 风险审判模块 (Risk Adjudication) ---
         # 6.1. 派发风险 (Distribution Risk) - 引入MTF斜率
-        mtf_upper_shadow_pressure = self._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_retail_fomo = self._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         distribution_intensity_norm = self._normalize_series(distribution_at_peak_intensity, df_index, bipolar=False)
         mf_outflow_divergence = mtf_mf_net_flow.clip(upper=0).abs()
         distribution_risk_score = (
-            distribution_intensity_norm * 0.25 +
-            mtf_upper_shadow_pressure * 0.25 +
-            mf_outflow_divergence * 0.25 +
-            mtf_retail_fomo * 0.25
+            distribution_intensity_norm * 0.15 +
+            mtf_upper_shadow_pressure * 0.15 +
+            mf_outflow_divergence * 0.15 +
+            mtf_retail_fomo * 0.10 +
+            mtf_covert_distribution * 0.10 + # 新增
+            mtf_deception_lure_short * 0.10 + # 新增
+            mtf_rally_distribution_pressure * 0.10 + # 新增
+            mtf_exhaustion_risk * 0.05 + # 新增
+            mtf_asymmetric_friction * 0.05 + # 新增
+            mtf_volatility_expansion * 0.05 # 新增
         ).clip(0, 1)
         _temp_debug_values["派发风险"] = {
             "distribution_risk_score": distribution_risk_score
         }
         # 6.2. 前置下跌风险 (Pre-Drop Risk) - 深度情境感知
         # 短期累计跌幅
-        pre_5day_pct_change = df['close_D'].pct_change(periods=5).shift(1).fillna(0)
-        pre_13day_pct_change = df['close_D'].pct_change(periods=13).shift(1).fillna(0)
+        pre_5day_pct_change = close_price.pct_change(periods=5).shift(1).fillna(0)
+        pre_13day_pct_change = close_price.pct_change(periods=13).shift(1).fillna(0)
         norm_pre_drop_5d = self._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         norm_pre_drop_13d = self._normalize_series(pre_13day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         # 前一日的下跌风险
@@ -879,10 +1021,21 @@ class ProcessIntelligence:
         # --- 8. 相对强度和资本属性调节 ---
         rs_modulator = (1 + relative_strength * rs_amplifier)
         capital_modulator = (1 + capital_signature * cs_modulator_weight)
-        final_rally_intent = (final_rally_intent * rs_modulator * capital_modulator).clip(-1, 1)
+        # 新增情境调节器
+        market_sentiment_modulator = (1 + mtf_market_sentiment * 0.1) # 市场情绪越好，意图越强
+        structural_tension_modulator = (1 - mtf_structural_tension * 0.1) # 结构张力越大，意图越弱
+        trend_vitality_modulator = (1 + mtf_trend_vitality * 0.1) # 趋势活力越强，意图越强
+        liquidity_authenticity_modulator = (1 + mtf_liquidity_authenticity * 0.05) # 流动性越真实，意图越强
+        final_rally_intent = (final_rally_intent * rs_modulator * capital_modulator *
+                              market_sentiment_modulator * structural_tension_modulator *
+                              trend_vitality_modulator * liquidity_authenticity_modulator).clip(-1, 1)
         _temp_debug_values["相对强度和资本属性调节"] = {
             "rs_modulator": rs_modulator,
             "capital_modulator": capital_modulator,
+            "market_sentiment_modulator": market_sentiment_modulator,
+            "structural_tension_modulator": structural_tension_modulator,
+            "trend_vitality_modulator": trend_vitality_modulator,
+            "liquidity_authenticity_modulator": liquidity_authenticity_modulator,
             "final_rally_intent": final_rally_intent
         }
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
@@ -899,6 +1052,10 @@ class ProcessIntelligence:
             for sig_name, series in _temp_debug_values["原始信号值"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派生信号值 ---"] = ""
+            for sig_name, series in _temp_debug_values["派生信号值"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        '{sig_name}': {val}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
             for key, series in _temp_debug_values["归一化处理"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
