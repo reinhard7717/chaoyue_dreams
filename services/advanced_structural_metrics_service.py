@@ -554,8 +554,6 @@ class AdvancedStructuralMetricsService:
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty:
                 continue
-            # 核心变更：不再自己加载数据，直接使用传入的 intraday_data_map
-            # 我们需要根据当前区块的日期来过滤这个大的 map
             chunk_intraday_map = {
                 pd.to_datetime(d).date(): intraday_data_map[pd.to_datetime(d).date()]
                 for d in chunk_dates if pd.to_datetime(d).date() in intraday_data_map
@@ -563,7 +561,8 @@ class AdvancedStructuralMetricsService:
             if not chunk_intraday_map:
                 logger.warning(f"[{stock_info.stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何日内数据，跳过整个区块。")
                 continue
-            chunk_new_metrics_df = await self._forge_advanced_structural_metrics(chunk_intraday_map, stock_info.stock_code, daily_df_with_atr)
+            # 修改：传递 historical_metrics_df
+            chunk_new_metrics_df = await self._forge_advanced_structural_metrics(chunk_intraday_map, stock_info.stock_code, daily_df_with_atr, historical_metrics_df)
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
             logger.info(f"[{stock_info.stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
@@ -683,23 +682,42 @@ class AdvancedStructuralMetricsService:
                     intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
         return intraday_data_map
 
-    async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
+    async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame, historical_metrics_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V46.0 · 潜龙在渊】
+        - 核心升级: 在构建传递给下一日的 `prev_day_metrics` 上下文时，增加 `volume` 字段，
+                    为 `equilibrium_compression_index` 的计算提供必要的“力量胶着度”评估依据。
+        """
         new_metrics_data = []
-        prev_day_calculated_metrics = {} # 用于传递前一天的计算结果
+        prev_day_calculated_metrics = {}
         if intraday_map:
             first_date_dt_obj = min(intraday_map.keys())
             prev_date_ts = pd.to_datetime(first_date_dt_obj) - pd.Timedelta(days=1)
+            # 优先从 historical_metrics_df 中获取前一天的结构指标
+            if prev_date_ts in historical_metrics_df.index:
+                prev_hist_series = historical_metrics_df.loc[prev_date_ts]
+                prev_day_calculated_metrics.update({
+                    'vpoc': prev_hist_series.get('today_vpoc'), # 数据库中存储的字段名
+                    'vah': prev_hist_series.get('today_vah'),   # 数据库中存储的字段名
+                    'val': prev_hist_series.get('today_val'),   # 数据库中存储的字段名
+                })
+            # 从 daily_df_with_atr 中获取前一天的日线基础数据
             if prev_date_ts in daily_df_with_atr.index:
-                prev_day_series_from_daily = daily_df_with_atr.loc[prev_date_ts]
-                prev_day_calculated_metrics = {
-                    'high': prev_day_series_from_daily.get('high_qfq'),
-                    'low': prev_day_series_from_daily.get('low_qfq'),
-                    'volume': prev_day_series_from_daily.get('vol'),
-                    'atr_14d': prev_day_series_from_daily.get('ATR_14'),
-                    'vpoc': np.nan, # 初始为NaN，等待实际计算结果填充
-                    'vah': np.nan,
-                    'val': np.nan,
-                }
+                prev_daily_series = daily_df_with_atr.loc[prev_date_ts]
+                prev_day_calculated_metrics.update({
+                    'high': prev_daily_series.get('high_qfq'),
+                    'low': prev_daily_series.get('low_qfq'),
+                    'volume': prev_daily_series.get('vol'),
+                    'atr_14d': prev_daily_series.get('ATR_14'),
+                })
+            # 确保所有关键字段都有默认的 NaN 值，以防数据缺失
+            prev_day_calculated_metrics.setdefault('vpoc', np.nan)
+            prev_day_calculated_metrics.setdefault('vah', np.nan)
+            prev_day_calculated_metrics.setdefault('val', np.nan)
+            prev_day_calculated_metrics.setdefault('high', np.nan)
+            prev_day_calculated_metrics.setdefault('low', np.nan)
+            prev_day_calculated_metrics.setdefault('volume', np.nan)
+            prev_day_calculated_metrics.setdefault('atr_14d', np.nan)
         for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
             current_trade_timestamp = pd.to_datetime(trade_date_dt_obj)
             if current_trade_timestamp not in daily_df_with_atr.index:
