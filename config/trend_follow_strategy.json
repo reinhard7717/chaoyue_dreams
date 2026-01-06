@@ -120,6 +120,9 @@
     "slope_params": {
       "enabled": true,
       "series_to_slope": {
+        "open_D": [3, 13, 21, 34],
+        "high_D": [3, 13, 21, 34],
+        "low_D": [3, 13, 21, 34],
         "close_D": [3, 5, 8, 13, 21, 34, 55],
         "volume_D": [3, 5, 8, 13, 21, 34, 55],
         "amount_D": [5, 13, 21, 34, 55],
@@ -156,7 +159,7 @@
         "price_thrust_divergence_D": [5, 13],
         "trend_efficiency_ratio_D": [5, 13],
         "cost_gini_coefficient_D": [5, 13],
-        "mf_vpoc_premium_D": [5, 13],
+        "mf_vpoc_premium_D": [5, 13, 21, 34],
         "character_score_D": [5, 13],
         "signal_conviction_score_D": [5, 13],
         "touch_conviction_score_D": [5, 13],
@@ -183,7 +186,9 @@
         "support_validation_score_D": [5, 13],
         "trend_alignment_index_D": [5, 13],
         "trend_asymmetry_index_D": [5, 13],
-        "trend_conviction_score_D": [5, 13],        
+        "trend_conviction_score_D": [5, 13],
+        "net_sh_amount_calibrated_D": [5, 13, 21, 34],
+        "net_md_amount_calibrated_D": [5, 13, 21, 34],
         "说明_chip_axioms": "--- 为筹码四大公理提供支持 ---",
         "winner_concentration_90pct_D": [5, 13, 21, 34, 55],
         "loser_concentration_90pct_D": [5, 13, 21, 34, 55],
@@ -378,6 +383,9 @@
     "accel_params": {
       "enabled": true,
       "series_to_accel": {
+        "open_D": [5, 13],
+        "high_D": [5, 13],
+        "low_D": [5, 13],
         "close_D": [3, 5, 8, 13, 21, 34, 55],
         "volume_D": [3, 5, 8, 13, 21, 34, 55],
         "amount_D": [5, 13, 21, 34, 55],
@@ -449,6 +457,8 @@
         "trend_alignment_index_D": [5, 13],
         "trend_asymmetry_index_D": [5, 13],
         "trend_conviction_score_D": [5, 13],
+        "net_sh_amount_calibrated_D": [5, 13],
+        "net_md_amount_calibrated_D": [5, 13],
         "说明_chip_axioms": "--- 为筹码四大公理提供支持 ---",
         "main_force_execution_alpha_D": [5, 13, 21, 34, 55],
         "main_force_vpoc_D": [5, 13, 21, 34, 55],
