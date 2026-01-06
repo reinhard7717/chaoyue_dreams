@@ -9,14 +9,49 @@
         "说明_meta_score_weights": "【V4.0 希格斯场】权重数组，分别对应[关系位移(Displacement), 关系动量(Momentum)]",
         "diagnostics": [
             {
-                "name": "PROCESS_META_PV_REL_BULLISH_TURN",
+                "name": "PROCESS_META_PRICE_VOLUME_DYNAMICS",
                 "type": "meta_analysis",
                 "task_type": "base",
-                "relationship_type": "consensus",
-                "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-                "signal_B": "volume_D", "source_B": "df", "change_type_B": "diff",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
                 "enable_probe": false,
-                "comment": "【基础元分析-价量】保持不变，这是最基础的关系。"
+                "comment": "【V11.0 · 全息四象限与数据驱动版】价量关系诊断。基于价量四象限博弈模型，并引入多维共振因子和动态权重，严格仅使用数据层原始信号进行分析。",
+                "price_volume_dynamics_params": {
+                    "comment": "价量动态分析的专属参数。",
+                    "quadrant_weights": {
+                        "Q1_healthy_rally": 0.3,
+                        "Q2_bearish_divergence": 0.2,
+                        "Q3_panic_distribution": 0.2,
+                        "Q4_selling_exhaustion": 0.3
+                    },
+                    "resonance_components_weights": {
+                        "lower_shadow_absorption": 0.3,
+                        "power_transfer_positive": 0.3,
+                        "main_force_conviction_positive": 0.2,
+                        "active_buying_support": 0.2
+                    },
+                    "Q2_divergence_penalty_weights": {
+                        "retail_fomo": 0.5,
+                        "wash_trade": 0.5,
+                        "deception_index": 0.5
+                    },
+                    "Q4_exhaustion_evidence_weights": {
+                        "volume_atrophy": 0.4,
+                        "retail_panic_surrender": 0.3,
+                        "lower_shadow_absorption": 0.3,
+                        "chip_health": 0.2
+                    },
+                    "dynamic_context_modulator_weights": {
+                        "market_sentiment": 0.4,
+                        "volatility_inverse": 0.3,
+                        "trend_vitality": 0.3
+                    },
+                    "final_exponent": 1.2,
+                    "mtf_slope_accel_weights": {
+                        "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
+                        "accel_periods": {"5": 0.6, "13": 0.4}
+                    }
+                }
             },
             {
                 "name": "PROCESS_META_POWER_TRANSFER",
@@ -820,6 +855,88 @@
             "chip_concentration_confirmation": 0.2
             },
             "flow_multiplier_threshold": 0.0
+        },
+        "neutral_nan_defaults": {
+            "comment": "【V11.0 · NaN中性填充配置】当原始信号为NaN时，根据其业务含义填充的默认值，以在归一化后映射到中性区间。",
+            "intraday_energy_density_D": 50.0,
+            "character_score_D": 50.0,
+            "touch_conviction_score_D": 50.0,
+            "platform_conviction_score_D": 50.0,
+            "quality_score_D": 50.0,
+            "equilibrium_compression_index_D": 0.5,
+            "structural_potential_score_D": 50.0,
+            "trend_conviction_score_D": 50.0,
+            "vpin_score_D": 0.5,
+            "vwap_mean_reversion_corr_D": 0.0,
+            "platform_high_D": 0.5,
+            "platform_low_D": 0.5,
+            "breakout_quality_score_D": 50.0,
+            "breakout_readiness_score_D": 50.0,
+            "breakthrough_conviction_score_D": 0.5,
+            "defense_solidity_score_D": 0.5,
+            "support_validation_strength_D": 50.0,
+            "covert_accumulation_signal_D": 0.0,
+            "suppressive_accumulation_intensity_D": 0.0,
+            "deception_index_D": 0.0,
+            "deception_lure_long_intensity_D": 0.0,
+            "final_charge_intensity_D": 0.0,
+            "floating_chip_cleansing_efficiency_D": 0.5,
+            "hidden_accumulation_intensity_D": 0.0,
+            "internal_accumulation_intensity_D": 0.0,
+            "intraday_posture_score_D": 50.0,
+            "opening_gap_defense_strength_D": 50.0,
+            "panic_buy_absorption_contribution_D": 0.0,
+            "panic_sell_volume_contribution_D": 0.0,
+            "panic_selling_cascade_D": 0.0,
+            "peak_control_transfer_D": 0.0,
+            "peak_separation_ratio_D": 0.0,
+            "price_reversion_velocity_D": 0.0,
+            "pullback_depth_ratio_D": 0.0,
+            "reversal_conviction_rate_D": 0.5,
+            "reversal_power_index_D": 50.0,
+            "reversal_recovery_rate_D": 0.5,
+            "risk_reward_profile_D": 0.0,
+            "shock_conviction_score_D": 50.0,
+            "strategic_phase_score_D": 50.0,
+            "structural_entropy_change_D": 0.0,
+            "structural_leverage_D": 0.0,
+            "structural_node_count_D": 0.0,
+            "supportive_distribution_intensity_D": 0.0,
+            "trend_acceleration_score_D": 0.0,
+            "trend_alignment_index_D": 0.5,
+            "trend_asymmetry_index_D": 0.0,
+            "value_area_migration_D": 0.0,
+            "value_area_overlap_pct_D": 0.0,
+            "volatility_asymmetry_index_D": 0.0,
+            "volume_burstiness_index_D": 0.0,
+            "volume_structure_skew_D": 0.0,
+            "vwap_control_strength_D": 50.0,
+            "vwap_cross_down_intensity_D": 0.0,
+            "vwap_cross_up_intensity_D": 0.0,
+            "winner_stability_index_D": 50.0,
+            "main_force_activity_ratio_D": 50.0,
+            "main_force_conviction_index_D": 50.0,
+            "main_force_execution_alpha_D": 0.0,
+            "main_force_flow_directionality_D": 0.0,
+            "main_force_on_peak_buy_flow_D": 0.0,
+            "main_force_on_peak_sell_flow_D": 0.0,
+            "main_force_t0_efficiency_D": 0.0,
+            "main_force_t0_sell_efficiency_D": 0.0,
+            "main_force_vwap_down_guidance_D": 0.0,
+            "main_force_vwap_up_guidance_D": 0.0,
+            "market_impact_cost_D": 0.0,
+            "opening_buy_strength_D": 50.0,
+            "opening_sell_strength_D": 50.0,
+            "closing_strength_index_D": 50.0,
+            "total_buy_amount_calibrated_D": 0.0,
+            "total_sell_amount_calibrated_D": 0.0,
+            "wash_trade_intensity_D": 0.0,
+            "winner_profit_margin_avg_D": 0.0,
+            "loser_loss_margin_avg_D": 0.0,
+            "total_winner_rate_D": 0.5,
+            "total_loser_rate_D": 0.5,
+            "impulse_quality_ratio_D": 0.5,
+            "thrust_efficiency_score_D": 0.5
         }
     }
 }
