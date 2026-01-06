@@ -642,13 +642,15 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V10.0 · 纯粹数据驱动与自适应情境审判版】计算“主力拉升意图”的专属关系分数。
+        【V11.1 · 历史记忆与情境深度融合版】计算“主力拉升意图”的专属关系分数。
         - 核心升级: 严格限制仅使用数据层提供的原始指标，移除所有情报层生成的SCORE_FOUNDATION_AXIOM_*信号。
         - 动态权重机制精细化: 综合市场稳定性、市场情绪（基于原始零售/主力行为）、流动性（基于原始订单簿/资金流）等原始情境因子，自适应调整各维度权重。
         - 非线性融合优化: 基础看涨意图的加权幂平均幂次p根据原始情境因子动态调整。
         - 风险审判深化: 引入更多微观风险信号，并优化非线性风险惩罚函数。
         - 攻击性、控制力、障碍清除维度进一步补充微观结构和行为信号。
         - 情境调节器扩展，融入更多行为心理和市场情绪因子（基于原始数据）。
+        - 新增历史记忆与上下文机制：引入长期主力资金累计记忆、筹码集中度稳定性记忆和长期趋势强度上下文，以更全面地评估市场状态。
+        - 调整长期主力资金累计记忆和长期趋势强度的周期为21日，以更好地捕捉中短期趋势。
         - 探针优化: 增加详细的调试输出，覆盖所有新增的原始数据、归一化过程、中间计算节点和最终结果。
         """
         method_name = "_calculate_main_force_rally_intent"
@@ -673,6 +675,18 @@ class ProcessIntelligence:
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
+        # 获取历史上下文参数
+        historical_context_params = config.get('historical_context_params', {})
+        hc_enabled = get_param_value(historical_context_params.get('enabled'), False)
+        cumulative_mf_flow_window = get_param_value(historical_context_params.get('cumulative_mf_flow_window'), 21) # 调整为21
+        cumulative_mf_flow_modulator_factor = get_param_value(historical_context_params.get('cumulative_mf_flow_modulator_factor'), 0.1)
+        chip_concentration_stability_window = get_param_value(historical_context_params.get('chip_concentration_stability_window'), 55)
+        chip_concentration_stability_modulator_factor = get_param_value(historical_context_params.get('chip_concentration_stability_modulator_factor'), 0.05)
+        long_term_trend_slope_period = get_param_value(historical_context_params.get('long_term_trend_slope_period'), 21) # 调整为21
+        hc_mtf_weights_long = get_param_value(historical_context_params.get('mtf_weights_long'), {"55": 0.5, "89": 0.3, "144": 0.2})
+        hc_mtf_weights_medium = get_param_value(historical_context_params.get('mtf_weights_medium'), {"21": 0.4, "34": 0.3, "55": 0.3})
+        long_term_trend_modulator_factor = get_param_value(historical_context_params.get('long_term_trend_modulator_factor'), 0.15)
+
         # --- V10.0 原始信号列表 (严格限制为数据层提供) ---
         required_signals = [
             'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_slippage_index_D',
@@ -739,7 +753,9 @@ class ProcessIntelligence:
             'value_area_migration_D', 'value_area_overlap_pct_D', # 价值区域
             'volatility_asymmetry_index_D', 'volume_burstiness_index_D', 'volume_structure_skew_D', # 波动率与成交量
             'vpin_score_D', 'vwap_control_strength_D', 'vwap_cross_down_intensity_D', 'vwap_cross_up_intensity_D', 'vwap_crossing_intensity_D', 'vwap_mean_reversion_corr_D', 'vwap_sell_control_strength_D', # VWAP
-            'winner_stability_index_D' # 赢家稳定性
+            'winner_stability_index_D', # 赢家稳定性
+            'winner_concentration_90pct_D', # 用于筹码集中度稳定性
+            f'SLOPE_{long_term_trend_slope_period}_close_D' # 长期趋势斜率，现在是21日
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         # 遍历所有原始信号，为其添加MTF斜率和加速度版本
@@ -920,6 +936,10 @@ class ProcessIntelligence:
         vwap_mean_reversion_corr = self._get_safe_series(df, 'vwap_mean_reversion_corr_D', 0.0, method_name=method_name)
         vwap_sell_control_strength = self._get_safe_series(df, 'vwap_sell_control_strength_D', 0.0, method_name=method_name)
         winner_stability_index = self._get_safe_series(df, 'winner_stability_index_D', 0.0, method_name=method_name)
+        # V11.0 新增原始信号
+        winner_concentration_90pct = self._get_safe_series(df, 'winner_concentration_90pct_D', 0.0, method_name=method_name)
+        long_term_trend_slope = self._get_safe_series(df, f'SLOPE_{long_term_trend_slope_period}_close_D', 0.0, method_name=method_name) # 使用新的周期
+
         _temp_debug_values["原始信号值"] = {
             "pct_change_D": pct_change,
             "main_force_net_flow_calibrated_D": main_force_net_flow,
@@ -1083,7 +1103,9 @@ class ProcessIntelligence:
             "vwap_crossing_intensity_D": vwap_crossing_intensity,
             "vwap_mean_reversion_corr_D": vwap_mean_reversion_corr,
             "vwap_sell_control_strength_D": vwap_sell_control_strength,
-            "winner_stability_index_D": winner_stability_index
+            "winner_stability_index_D": winner_stability_index,
+            "winner_concentration_90pct_D": winner_concentration_90pct, # V11.0
+            f"SLOPE_{long_term_trend_slope_period}_close_D": long_term_trend_slope # V11.0
         }
         _temp_debug_values["派生信号值"] = {
             "is_limit_up_day": is_limit_up_day
@@ -1364,6 +1386,45 @@ class ProcessIntelligence:
             "mtf_vwap_sell_control_strength": mtf_vwap_sell_control_strength,
             "mtf_winner_stability_index": mtf_winner_stability_index
         }
+        # --- V11.1: 引入历史记忆与上下文机制 ---
+        if hc_enabled:
+            # 1. 主力资金累计记忆 (Cumulative Main Force Flow Memory)
+            # 计算长期主力资金累计净流入
+            # min_periods 确保在数据不足时不会产生NaN，而是从有足够数据开始计算
+            cumulative_mf_flow_long = main_force_net_flow.rolling(window=cumulative_mf_flow_window, min_periods=int(cumulative_mf_flow_window * 0.5)).sum()
+            # MTF归一化，使用中短期MTF权重
+            mtf_cumulative_mf_flow = self.get_adaptive_mtf_normalized_score(
+                cumulative_mf_flow_long, df.index, hc_mtf_weights_medium, ascending=True,
+                debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_cumulative_mf_flow")
+            )
+            _temp_debug_values["MTF融合信号"]["mtf_cumulative_mf_flow"] = mtf_cumulative_mf_flow
+
+            # 2. 筹码集中度稳定性 (Chip Concentration Stability)
+            # 计算赢家筹码集中度长期波动性的倒数（波动性越低，稳定性越高）
+            # 使用 winner_concentration_90pct 作为基础信号
+            rolling_std_winner_concentration = winner_concentration_90pct.rolling(window=chip_concentration_stability_window, min_periods=int(chip_concentration_stability_window * 0.5)).std().replace(0, np.nan)
+            chip_concentration_stability_raw = (1 / rolling_std_winner_concentration).fillna(0)
+            # MTF归一化，使用中短期MTF权重
+            mtf_chip_concentration_stability = self.get_adaptive_mtf_normalized_score(
+                chip_concentration_stability_raw, df.index, hc_mtf_weights_medium, ascending=True,
+                debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_chip_concentration_stability")
+            )
+            _temp_debug_values["MTF融合信号"]["mtf_chip_concentration_stability"] = mtf_chip_concentration_stability
+
+            # 3. 长期趋势强度上下文 (Long-Term Trend Strength Context)
+            # 获取长期趋势斜率，现在是21日周期
+            # MTF归一化，使用中短期MTF权重
+            mtf_long_term_trend_strength = self.get_adaptive_mtf_normalized_score(
+                long_term_trend_slope, df.index, hc_mtf_weights_medium, ascending=True,
+                debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_long_term_trend_strength")
+            )
+            _temp_debug_values["MTF融合信号"]["mtf_long_term_trend_strength"] = mtf_long_term_trend_strength
+        else:
+            # 如果历史上下文机制未启用，则这些信号为中性值
+            mtf_cumulative_mf_flow = pd.Series(0.0, index=df.index, dtype=np.float32)
+            mtf_chip_concentration_stability = pd.Series(0.5, index=df.index, dtype=np.float32) # 0.5表示中性，不增强也不削弱
+            mtf_long_term_trend_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
+
         # --- 归一化处理 ---
         price_impact_norm = self._normalize_series(main_force_slippage, df_index, bipolar=True)
         impulse_purity_norm = self._normalize_series(upward_impulse_purity, df_index, bipolar=True)
@@ -1822,6 +1883,9 @@ class ProcessIntelligence:
             "mtf_vwap_control_strength": 0.03, "mtf_winner_stability_index": 0.03
         }
         control_score = _robust_geometric_mean(control_components, control_weights, df_index).clip(0, 1)
+        # V11.1: 应用筹码集中度稳定性调节器
+        if hc_enabled:
+            control_score = (control_score * (1 + mtf_chip_concentration_stability * chip_concentration_stability_modulator_factor)).clip(0, 1)
         _temp_debug_values["控制力"] = {
             "control_score": control_score
         }
@@ -1867,42 +1931,50 @@ class ProcessIntelligence:
         _temp_debug_values["障碍清除"] = {
             "obstacle_clearance_score": obstacle_clearance_score
         }
-        # --- 4. 基础看涨意图 (Bullish Intent) - V10.0 加权幂平均融合，幂次p动态调整 ---
-        bullish_intent_components = {
-            "aggressiveness_score": aggressiveness_score,
-            "control_score": control_score,
-            "obstacle_clearance_score": obstacle_clearance_score
-        }
-        # 幂次 p 动态调整：市场越稳定/情绪越好/流动性越充裕，p越大，放大协同效应；反之p越小
-        base_power_mean_exponent = config.get('base_power_mean_exponent', 2.0)
-        # 幂次调整因子，根据综合情境得分调整
-        power_mean_exponent_modulator = (1 + overall_context_score * 0.8 - (1 - overall_context_score) * 0.4).clip(0.5, 3.0)
-        power_mean_exponent = base_power_mean_exponent * power_mean_exponent_modulator
-        # 加权幂平均融合
-        bullish_intent = pd.Series(0.0, index=df_index, dtype=np.float32)
-        total_weighted_power_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
-        total_weight_sum = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 使用动态权重
-        for key, score_series in bullish_intent_components.items():
-            weight = dynamic_weights.get(key.replace('_score', ''), 0.0) # 匹配动态权重键名
-            total_weighted_power_sum += (score_series.pow(power_mean_exponent) * weight)
-            total_weight_sum += weight
-        # 避免除以零或负数幂次
-        bullish_intent = (total_weighted_power_sum / total_weight_sum).pow(1/power_mean_exponent).clip(0, 1)
-        bullish_intent = bullish_intent.fillna(0.0) # 确保没有NaN
+        # --- 4. 基础看涨意图合成 ---
+        # V11.1: 引入长期趋势强度上下文调节器
+        long_term_trend_strength_modulator = (1 + mtf_long_term_trend_strength * long_term_trend_modulator_factor) # 长期趋势越强，看涨意图越受加成
+
+        # 攻击性、控制力、障碍清除的加权平均
+        bullish_intent = (
+            (aggressiveness_score * dynamic_weights["aggressiveness"] +
+             control_score * dynamic_weights["control"] +
+             obstacle_clearance_score * dynamic_weights["obstacle_clearance"]) /
+            (dynamic_weights["aggressiveness"] + dynamic_weights["control"] + dynamic_weights["obstacle_clearance"])
+        )
+        # V11.1: 应用长期趋势强度调节
+        bullish_intent = (bullish_intent * long_term_trend_strength_modulator).clip(0, 1)
+
+        # 幂平均，放大高分，抑制低分
+        power_mean_exponent = self.get_param_value(p_synthesis.get('power_mean_exponent'), 2.0)
+        bullish_intent = bullish_intent.pow(power_mean_exponent)
         _temp_debug_values["基础看涨意图"] = {
             "power_mean_exponent": power_mean_exponent,
             "bullish_intent": bullish_intent
         }
-        # --- 5. 看跌意图 (Bearish Intent) ---
-        bearish_mask = (mtf_price_trend < 0) | (mtf_mf_net_flow < 0)
-        bearish_score = (mtf_price_trend.clip(upper=0).abs() * 0.5 + mtf_mf_net_flow.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
+        # --- 5. 看跌意图 ---
+        # V11.1: 引入主力资金累计记忆调节器
+        # 历史累计资金流入强劲 (mtf_cumulative_mf_flow > 0)，削弱看跌意图
+        mf_flow_memory_anti_bearish_modulator = (1 - mtf_cumulative_mf_flow.clip(lower=0) * cumulative_mf_flow_modulator_factor).clip(0, 1)
+
+        # 看跌意图的计算
+        distribution_intensity_norm = self._normalize_series(distribution_at_peak_intensity, df_index, bipolar=False)
+        upper_shadow_selling_pressure_norm = self._normalize_series(upper_shadow_selling_pressure, df_index, bipolar=False)
+        flow_credibility_norm_inverted = (1 - flow_credibility_norm) # 信用度低，看跌
+        bearish_score = (
+            (distribution_intensity_norm * 0.4 +
+             upper_shadow_selling_pressure_norm * 0.3 +
+             flow_credibility_norm_inverted * 0.3)
+        )
+        # V11.1: 应用主力资金累计记忆调节
+        bearish_score = (bearish_score * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
+        # 转换为负值，表示看跌
+        bearish_score = -bearish_score
         _temp_debug_values["看跌意图"] = {
             "bearish_score": bearish_score
         }
         # --- 6. 风险审判模块 (Risk Adjudication) ---
         # 6.1. 派发风险 (Distribution Risk)
-        distribution_intensity_norm = self._normalize_series(distribution_at_peak_intensity, df_index, bipolar=False)
         mf_outflow_divergence = mtf_mf_net_flow.clip(upper=0).abs()
         distribution_risk_components = {
             "distribution_intensity_norm": distribution_intensity_norm,
@@ -2123,77 +2195,77 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_rally_pre_drop_risk_factor"] = pre_drop_risk_factor
         self.strategy.atomic_states["_DEBUG_rally_total_risk_penalty"] = total_risk_penalty
         # --- 统一输出调试信息 ---
-        # if is_debug_enabled_for_method and probe_ts:
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-        #     for sig_name, series in _temp_debug_values["原始信号值"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派生信号值 ---"] = ""
-        #     for sig_name, series in _temp_debug_values["派生信号值"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        '{sig_name}': {val}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF融合信号 ---"] = ""
-        #     for key, series in _temp_debug_values["MTF融合信号"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-        #     for key, series in _temp_debug_values["归一化处理"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 代理信号 ---"] = ""
-        #     for key, series in _temp_debug_values["代理信号"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重 ---"] = ""
-        #     for key, series in _temp_debug_values["动态权重"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 攻击性 ---"] = ""
-        #     for key, series in _temp_debug_values["攻击性"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 控制力 ---"] = ""
-        #     for key, series in _temp_debug_values["控制力"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 障碍清除 ---"] = ""
-        #     for key, series in _temp_debug_values["障碍清除"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础看涨意图 ---"] = ""
-        #     for key, series in _temp_debug_values["基础看涨意图"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看跌意图 ---"] = ""
-        #     for key, series in _temp_debug_values["看跌意图"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发风险 ---"] = ""
-        #     for key, series in _temp_debug_values["派发风险"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 前置下跌风险 ---"] = ""
-        #     for key, series in _temp_debug_values["前置下跌风险"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 综合风险惩罚因子 ---"] = ""
-        #     for key, series in _temp_debug_values["综合风险惩罚因子"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终意图合成 ---"] = ""
-        #     for key, series in _temp_debug_values["最终意图合成"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 相对强度和资本属性调节 ---"] = ""
-        #     for key, series in _temp_debug_values["相对强度和资本属性调节"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力拉升意图诊断完成，最终分值: {final_rally_intent.loc[probe_ts]:.4f}"] = ""
-        #     for key, value in debug_output.items():
-        #         if value:
-        #             print(f"{key}: {value}")
-        #         else:
-        #             print(key)
+        if is_debug_enabled_for_method and probe_ts:
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+            for sig_name, series in _temp_debug_values["原始信号值"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派生信号值 ---"] = ""
+            for sig_name, series in _temp_debug_values["派生信号值"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        '{sig_name}': {val}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF融合信号 ---"] = ""
+            for key, series in _temp_debug_values["MTF融合信号"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
+            for key, series in _temp_debug_values["归一化处理"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 代理信号 ---"] = ""
+            for key, series in _temp_debug_values["代理信号"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重 ---"] = ""
+            for key, series in _temp_debug_values["动态权重"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 攻击性 ---"] = ""
+            for key, series in _temp_debug_values["攻击性"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 控制力 ---"] = ""
+            for key, series in _temp_debug_values["控制力"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 障碍清除 ---"] = ""
+            for key, series in _temp_debug_values["障碍清除"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础看涨意图 ---"] = ""
+            for key, series in _temp_debug_values["基础看涨意图"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看跌意图 ---"] = ""
+            for key, series in _temp_debug_values["看跌意图"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发风险 ---"] = ""
+            for key, series in _temp_debug_values["派发风险"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 前置下跌风险 ---"] = ""
+            for key, series in _temp_debug_values["前置下跌风险"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 综合风险惩罚因子 ---"] = ""
+            for key, series in _temp_debug_values["综合风险惩罚因子"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终意图合成 ---"] = ""
+            for key, series in _temp_debug_values["最终意图合成"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 相对强度和资本属性调节 ---"] = ""
+            for key, series in _temp_debug_values["相对强度和资本属性调节"].items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力拉升意图诊断完成，最终分值: {final_rally_intent.loc[probe_ts]:.4f}"] = ""
+            for key, value in debug_output.items():
+                if value:
+                    print(f"{key}: {value}")
+                else:
+                    print(key)
         return final_rally_intent.astype(np.float32)
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -4563,7 +4635,6 @@ class ProcessIntelligence:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价量动态..."] = ""
-
         df_index = df.index
         params = config.get('price_volume_dynamics_params', {})
         quadrant_weights = get_param_value(params.get('quadrant_weights'), {"Q1_healthy_rally": 0.3, "Q2_bearish_divergence": 0.2, "Q3_panic_distribution": 0.2, "Q4_selling_exhaustion": 0.3})
@@ -4600,7 +4671,6 @@ class ProcessIntelligence:
         mtf_slope_accel_weights = get_param_value(params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1}, "accel_periods": {"5": 0.6, "13": 0.4}})
         historical_window_short = get_param_value(params.get('historical_window_short'), 5)
         historical_window_long = get_param_value(params.get('historical_window_long'), 21)
-
         # --- 1. 原始数据获取 (仅数据层信号) ---
         # 价格和成交量
         close_price = self._get_safe_series(df, 'close_D', method_name=method_name)
@@ -4704,8 +4774,6 @@ class ProcessIntelligence:
         reversal_recovery_rate = self._get_safe_series(df, 'reversal_recovery_rate_D', 0.0, method_name=method_name)
         volatility_asymmetry_index = self._get_safe_series(df, 'volatility_asymmetry_index_D', 0.0, method_name=method_name)
         mean_reversion_frequency = self._get_safe_series(df, 'mean_reversion_frequency_D', 0.0, method_name=method_name)
-
-
         # 确保所有需要的信号都在df中
         required_signals = [
             'close_D', 'volume_D', 'open_D', 'high_D', 'low_D',
@@ -4746,7 +4814,6 @@ class ProcessIntelligence:
             if not s.startswith(('SLOPE_', 'ACCEL_')) and s.endswith('_D'):
                 # 修正：提取不带_D后缀的原始信号名，使用rsplit确保只移除最后一个_D
                 base_signals_for_mtf_raw.append(s.rsplit('_', 1)[0]) # e.g., 'FRACTAL_DIMENSION_89d_D' -> 'FRACTAL_DIMENSION_89d'
-
         for base_sig_name in base_signals_for_mtf_raw:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 # 构造MTF斜率信号名：SLOPE_PERIOD_ORIGINAL_NAME_D
@@ -4759,7 +4826,6 @@ class ProcessIntelligence:
                 debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
                 self._print_debug_output(debug_output)
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         _temp_debug_values["原始信号值"] = {
             "close_D": close_price, "volume_D": volume, "open_D": open_price, "high_D": high_price, "low_D": low_price,
             "main_force_conviction_index_D": main_force_conviction, "wash_trade_intensity_D": wash_trade_intensity,
@@ -4810,7 +4876,6 @@ class ProcessIntelligence:
             "reversal_recovery_rate_D": reversal_recovery_rate, "volatility_asymmetry_index_D": volatility_asymmetry_index,
             "mean_reversion_frequency_D": mean_reversion_frequency
         }
-
         # --- 2. MTF融合与归一化处理 ---
         # 价格和成交量动量
         mtf_price_momentum = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -4823,14 +4888,12 @@ class ProcessIntelligence:
         mtf_active_buying_support = self._get_mtf_slope_accel_score(df, 'active_buying_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_deception_index = self._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_retail_fomo_premium_index = self._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-
         # 权力转移代理 (PROCESS_META_POWER_TRANSFER 的原始数据实现)
         effective_main_force_flow_proxy = (net_lg_amount + net_elg_amount).diff(1).fillna(0)
         effective_retail_flow_proxy = (net_sh_amount + net_md_amount).diff(1).fillna(0)
         power_transfer_raw_proxy = effective_main_force_flow_proxy - effective_retail_flow_proxy
         power_transfer_raw_proxy.name = 'power_transfer_raw_proxy_D' # 赋予临时列名
         mtf_power_transfer = self._get_mtf_slope_accel_score(df.assign(power_transfer_raw_proxy_D=power_transfer_raw_proxy), 'power_transfer_raw_proxy_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-
         # 下影线吸收代理 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION 的原始数据实现)
         total_range = (high_price - low_price).replace(0, 1e-9)
         lower_shadow = np.minimum(open_price, close_price) - low_price
@@ -4838,19 +4901,16 @@ class ProcessIntelligence:
         lower_shadow_absorption_raw = (lower_shadow_ratio > 0.3).astype(float) * (close_price > open_price * 0.99).astype(float)
         lower_shadow_absorption_raw.name = 'lower_shadow_absorption_raw_D' # 赋予临时列名
         mtf_lower_shadow_absorption = self._get_mtf_slope_accel_score(df.assign(lower_shadow_absorption_raw_D=lower_shadow_absorption_raw), 'lower_shadow_absorption_raw_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-
         # 量能萎缩代理 (SCORE_BEHAVIOR_VOLUME_ATROPHY 的原始数据实现)
         vol_ma_21 = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         volume_atrophy_raw = (1 - (volume / vol_ma_21)).clip(0, 1) # 量能低于均线越多，萎缩越严重
         volume_atrophy_raw.name = 'volume_atrophy_raw_D' # 赋予临时列名
         mtf_volume_atrophy = self._get_mtf_slope_accel_score(df.assign(volume_atrophy_raw_D=volume_atrophy_raw), 'volume_atrophy_raw_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-
         # 筹码战略态势代理 (SCORE_CHIP_STRATEGIC_POSTURE 的原始数据实现)
         mtf_winner_concentration = self._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_chip_health = self._get_mtf_slope_accel_score(df, 'chip_health_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_mf_vpoc_premium = self._get_mtf_slope_accel_score(df, 'mf_vpoc_premium_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_chip_strategic_posture = (mtf_winner_concentration * 0.4 + mtf_chip_health * 0.3 + mtf_mf_vpoc_premium * 0.3).clip(-1, 1)
-
         # V12.0 新增MTF融合信号
         mtf_volume_burstiness = self._get_mtf_slope_accel_score(df, 'volume_burstiness_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow_directionality = self._get_mtf_slope_accel_score(df, 'main_force_flow_directionality_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -4865,7 +4925,6 @@ class ProcessIntelligence:
         mtf_panic_selling_cascade = self._get_mtf_slope_accel_score(df, 'panic_selling_cascade_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_intraday_energy_density = self._get_mtf_slope_accel_score(df, 'intraday_energy_density_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_price_reversion_velocity = self._get_mtf_slope_accel_score(df, 'price_reversion_velocity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-
         # V13.0 新增MTF融合信号
         mtf_volume_profile_entropy = self._get_mtf_slope_accel_score(df, 'volume_profile_entropy_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_volume_structure_skew = self._get_mtf_slope_accel_score(df, 'volume_structure_skew_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -4926,8 +4985,6 @@ class ProcessIntelligence:
         mtf_reversal_recovery_rate = self._get_mtf_slope_accel_score(df, 'reversal_recovery_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_volatility_asymmetry_index = self._get_mtf_slope_accel_score(df, 'volatility_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_mean_reversion_frequency = self._get_mtf_slope_accel_score(df, 'mean_reversion_frequency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-
-
         _temp_debug_values["MTF融合信号"] = {
             "mtf_price_momentum": mtf_price_momentum,
             "mtf_volume_momentum": mtf_volume_momentum,
@@ -5013,7 +5070,6 @@ class ProcessIntelligence:
             "mtf_volatility_asymmetry_index": mtf_volatility_asymmetry_index,
             "mtf_mean_reversion_frequency": mtf_mean_reversion_frequency
         }
-
         # --- 辅助函数：动态权重调整 ---
         def _get_dynamic_weights(base_weights: Dict[str, float], context_modulator_score: pd.Series, dynamic_weight_sensitivity: float) -> Dict[str, pd.Series]:
             dynamic_weights = {}
@@ -5037,13 +5093,11 @@ class ProcessIntelligence:
             for key in dynamic_weights:
                 dynamic_weights[key] = dynamic_weights[key] / total_dynamic_weight
             return dynamic_weights
-
         # --- 市场情境因子 (用于动态权重调整) ---
         norm_market_sentiment = self._normalize_series(market_sentiment_score, df_index, bipolar=True)
         norm_volatility_inverse = self._normalize_series(volatility_instability_index, df_index, ascending=False)
         norm_trend_vitality = self._normalize_series(trend_vitality_index, df_index, bipolar=False)
         norm_liquidity_authenticity = self._normalize_series(liquidity_authenticity_score, df_index, bipolar=False)
-
         # --- 历史情境感知层 (V15.0 新增) ---
         # 象限持续性分数 (QPS)
         # 假设我们已经有了象限的初步判断，这里先用MTF动量作为代理
@@ -5054,28 +5108,22 @@ class ProcessIntelligence:
         temp_q2_proxy = (mtf_price_momentum.clip(lower=0) * mtf_volume_momentum.clip(upper=0).abs()).clip(0,1)
         temp_q3_proxy = (mtf_price_momentum.clip(upper=0).abs() * mtf_volume_momentum.clip(lower=0)).clip(0,1)
         temp_q4_proxy = (mtf_price_momentum.clip(upper=0).abs() * mtf_volume_momentum.clip(upper=0).abs()).clip(0,1)
-
         quadrant_persistence_Q1_Q4 = (temp_q1_proxy.rolling(window=historical_window_short).mean() + temp_q4_proxy.rolling(window=historical_window_short).mean()) / 2
         quadrant_persistence_Q2_Q3 = (temp_q2_proxy.rolling(window=historical_window_short).mean() + temp_q3_proxy.rolling(window=historical_window_short).mean()) / 2
         quadrant_persistence_Q1_Q4 = self._normalize_series(quadrant_persistence_Q1_Q4, df_index, bipolar=False)
         quadrant_persistence_Q2_Q3 = self._normalize_series(quadrant_persistence_Q2_Q3, df_index, bipolar=False)
-
         # 阶段转换指示器 (PTS)
         # 示例：从Q4到Q1的转换，或从Q1到Q2的警告
         phase_transition_Q4_to_Q1 = ((temp_q4_proxy.shift(1) > 0.5) & (temp_q1_proxy > 0.5)).astype(float)
         phase_transition_Q4_to_Q1 = self._normalize_series(phase_transition_Q4_to_Q1.rolling(window=historical_window_short).mean(), df_index, bipolar=False)
-
         # 累积资金流平衡 (CFB)
         cumulative_flow_balance_raw = (mtf_covert_accumulation_signal - mtf_covert_distribution_signal + mtf_holistic_cmf + mtf_main_force_net_flow_calibrated).rolling(window=historical_window_long).sum()
         cumulative_flow_balance = self._normalize_series(cumulative_flow_balance_raw, df_index, bipolar=True)
-
         # 市场阶段强度 (MRS)
         market_regime_strength_raw = (1 - mtf_is_consolidating) * mtf_trend_conviction_score + mtf_breakout_readiness_score + mtf_trend_acceleration_score
         market_regime_strength = self._normalize_series(market_regime_strength_raw, df_index, bipolar=False)
-
         # 反转潜力分数 (RPS) - 用于动态指数
         reversal_potential_score = self._normalize_series(mtf_reversal_power_index + mtf_reversal_recovery_rate, df_index, bipolar=False)
-
         _temp_debug_values["历史情境感知层"] = {
             "quadrant_persistence_Q1_Q4": quadrant_persistence_Q1_Q4,
             "quadrant_persistence_Q2_Q3": quadrant_persistence_Q2_Q3,
@@ -5084,18 +5132,15 @@ class ProcessIntelligence:
             "market_regime_strength": market_regime_strength,
             "reversal_potential_score": reversal_potential_score
         }
-
         # --- V16.0 情境调制器生成 ---
         # 将 bipolar 的 cumulative_flow_balance 映射到 [0, 1]
         accumulation_strength_modulator = (cumulative_flow_balance + 1) / 2
         trend_strength_modulator = market_regime_strength
         bullish_persistence_modulator = quadrant_persistence_Q1_Q4
         bearish_persistence_modulator = quadrant_persistence_Q2_Q3
-
         # V17.0 新增：整体看涨/看跌情境强度，用于最终指数调整
         overall_bullish_context_strength = (accumulation_strength_modulator + trend_strength_modulator + bullish_persistence_modulator) / 3
         overall_bearish_context_strength = ((1 - accumulation_strength_modulator) + (1 - trend_strength_modulator) + bearish_persistence_modulator) / 3
-
         _temp_debug_values["情境调制器"] = {
             "accumulation_strength_modulator": accumulation_strength_modulator,
             "trend_strength_modulator": trend_strength_modulator,
@@ -5104,7 +5149,6 @@ class ProcessIntelligence:
             "overall_bullish_context_strength": overall_bullish_context_strength,
             "overall_bearish_context_strength": overall_bearish_context_strength
         }
-
         context_modulator_components_for_weights = {
             "market_sentiment": norm_market_sentiment,
             "volatility_inverse": norm_volatility_inverse,
@@ -5117,7 +5161,6 @@ class ProcessIntelligence:
             dynamic_context_modulator_weights,
             df_index
         )
-
         # --- 3. 多层级共振引擎 ---
         # 3.1 价格-成交量共振
         dynamic_pv_resonance_weights = _get_dynamic_weights(price_volume_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
@@ -5131,7 +5174,6 @@ class ProcessIntelligence:
             "upward_impulse_strength": mtf_upward_impulse_strength # 上涨脉冲强度
         }
         price_volume_resonance = _robust_geometric_mean(price_volume_resonance_components_dict, dynamic_pv_resonance_weights, df_index).clip(0, 1)
-
         # 3.2 主力-筹码共振
         dynamic_mc_resonance_weights = _get_dynamic_weights(main_chip_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         main_chip_resonance_components_dict = {
@@ -5144,7 +5186,6 @@ class ProcessIntelligence:
             "SMART_MONEY_HM_COORDINATED_ATTACK": mtf_smart_money_coordinated_attack # 智能资金协同攻击
         }
         main_chip_resonance = _robust_geometric_mean(main_chip_resonance_components_dict, dynamic_mc_resonance_weights, df_index).clip(0, 1)
-
         # 3.3 市场情绪-流动性共振
         dynamic_sl_resonance_weights = _get_dynamic_weights(sentiment_liquidity_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         sentiment_liquidity_resonance_components_dict = {
@@ -5156,7 +5197,6 @@ class ProcessIntelligence:
             "loser_pain_index_inverted": (1 - mtf_loser_pain_index) # 输家痛苦指数越低越好 (反向指标)
         }
         sentiment_liquidity_resonance = _robust_geometric_mean(sentiment_liquidity_resonance_components_dict, dynamic_sl_resonance_weights, df_index).clip(0, 1)
-
         # 3.4 微观结构共振
         dynamic_ms_resonance_weights = _get_dynamic_weights(micro_structure_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         micro_structure_resonance_components_dict = {
@@ -5169,7 +5209,6 @@ class ProcessIntelligence:
             "closing_acceptance_type_positive": mtf_closing_acceptance_type.clip(lower=0) # 收盘接受类型积极
         }
         micro_structure_resonance = _robust_geometric_mean(micro_structure_resonance_components_dict, dynamic_ms_resonance_weights, df_index).clip(0, 1)
-
         # 3.5 质量与效率共振 (新增层级)
         dynamic_qe_resonance_weights = _get_dynamic_weights(quality_efficiency_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         quality_efficiency_resonance_components_dict = {
@@ -5180,7 +5219,6 @@ class ProcessIntelligence:
             "constructive_turnover_ratio": mtf_constructive_turnover_ratio
         }
         quality_efficiency_resonance = _robust_geometric_mean(quality_efficiency_resonance_components_dict, dynamic_qe_resonance_weights, df_index).clip(0, 1)
-
         # 3.6 融合所有多层级共振因子
         multi_level_resonance_factor_dict = {
             "price_volume_resonance": price_volume_resonance,
@@ -5190,7 +5228,6 @@ class ProcessIntelligence:
             "quality_efficiency_resonance": quality_efficiency_resonance
         }
         multi_level_resonance_factor = _robust_geometric_mean(multi_level_resonance_factor_dict, multi_level_resonance_weights, df_index).clip(0, 1)
-
         _temp_debug_values["多层级共振引擎"] = {
             "price_volume_resonance": price_volume_resonance,
             "main_chip_resonance": main_chip_resonance,
@@ -5199,15 +5236,12 @@ class ProcessIntelligence:
             "quality_efficiency_resonance": quality_efficiency_resonance,
             "multi_level_resonance_factor": multi_level_resonance_factor
         }
-
         # --- 4. 四象限分数计算 ---
         p_mom = mtf_price_momentum
         v_mom = mtf_volume_momentum
         final_score = pd.Series(0.0, index=df_index)
-
         # 市场情境因子：波动率、趋势强度、市场情绪 (已在上方计算)
         # norm_market_sentiment, norm_volatility_inverse, norm_trend_vitality, norm_liquidity_authenticity
-
         # 动态阈值：基于价格动量和成交量动量的历史标准差，并考虑市场情境
         price_volatility_norm = self._normalize_series(close_price.pct_change().rolling(self.std_window).std(), df_index, bipolar=False)
         volume_volatility_norm = self._normalize_series(volume.pct_change().rolling(self.std_window).std(), df_index, bipolar=False)
@@ -5215,7 +5249,6 @@ class ProcessIntelligence:
         dynamic_threshold_modulator = (norm_trend_vitality * 0.3 + (1 - norm_market_sentiment.abs()) * 0.3 + norm_liquidity_authenticity * 0.4).clip(0.5, 1.5) # 趋势强、情绪中性或流动性真实时，阈值更严格
         dynamic_price_threshold = price_volatility_norm * dynamic_threshold_sensitivity * dynamic_threshold_modulator
         dynamic_volume_threshold = volume_volatility_norm * dynamic_threshold_sensitivity * dynamic_threshold_modulator
-
         _temp_debug_values["动态阈值"] = {
             "price_volatility_norm": price_volatility_norm,
             "volume_volatility_norm": volume_volatility_norm,
@@ -5223,18 +5256,15 @@ class ProcessIntelligence:
             "dynamic_price_threshold": dynamic_price_threshold,
             "dynamic_volume_threshold": dynamic_volume_threshold
         }
-
         # Q1: 价涨量增 (健康上涨)
         # V16.0 信号影响力调制
         deception_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
         trend_reward_enhancement = trend_strength_modulator * context_impact_modulators.get("trend_reward_enhancement_factor", 0.2)
-
         mtf_wash_trade_intensity_adjusted = mtf_wash_trade_intensity * (1 - deception_impact_reduction)
         mtf_deception_index_adjusted = mtf_deception_index * (1 - deception_impact_reduction)
         mtf_main_force_t0_sell_efficiency_adjusted = mtf_main_force_t0_sell_efficiency * (1 - deception_impact_reduction)
         mtf_ask_side_liquidity_adjusted = mtf_ask_side_liquidity * (1 - trend_reward_enhancement) # 强趋势下，卖盘流动性高不一定是坏事
         mtf_profit_realization_quality_low_adjusted = (1 - mtf_profit_realization_quality) * (1 - trend_reward_enhancement) # 强趋势下，获利了结质量低可能只是正常调整
-
         dynamic_Q1_reward_weights = _get_dynamic_weights(Q1_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q1_reward_components_dict = {
             "p_mom": p_mom.clip(lower=0),
@@ -5261,19 +5291,16 @@ class ProcessIntelligence:
         }
         false_rally_penalty = _robust_geometric_mean(Q1_penalty_components_dict, dynamic_Q1_penalty_weights, df_index).clip(0, 1)
         score1 = score1_reward * (1 - false_rally_penalty)
-
         # Q2: 价涨量缩 (上涨乏力/背离 - 负向信号)
         # V16.0 信号影响力调制
         divergence_penalty_enhancement = bullish_persistence_modulator * context_impact_modulators.get("divergence_penalty_enhancement_factor", 0.3)
         deception_impact_reduction_Q2 = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
-
         mtf_retail_fomo_adjusted = mtf_retail_fomo_premium_index * (1 - deception_impact_reduction_Q2)
         mtf_wash_trade_adjusted_Q2 = mtf_wash_trade_intensity * (1 - deception_impact_reduction_Q2)
         mtf_deception_index_adjusted_Q2 = mtf_deception_index * (1 - deception_impact_reduction_Q2)
         mtf_vpin_score_high_adjusted = mtf_vpin_score * (1 + divergence_penalty_enhancement)
         mtf_winner_loser_momentum_negative_adjusted = mtf_winner_loser_momentum.clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
         mtf_price_thrust_divergence_negative_adjusted = mtf_price_thrust_divergence.clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
-
         # 显式背离证据：价格上涨，成交量未有效放大，且主力流向偏负
         price_up_volume_not_up = (p_mom > dynamic_price_threshold) & (v_mom < dynamic_volume_threshold) & (mtf_main_force_flow_directionality < 0)
         dynamic_Q2_divergence_penalty_weights = _get_dynamic_weights(Q2_divergence_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
@@ -5295,18 +5322,15 @@ class ProcessIntelligence:
         score2 = score2.where(price_up_volume_not_up, 0.0) # 只有在价涨量缩背离时才激活
         # 历史情境增强惩罚：如果Q1持续性强，但当前出现Q2，则视为更严重的趋势反转预警
         score2 -= score2.abs() * bullish_persistence_modulator * 0.5 # Q1持续性越强，Q2惩罚越大
-
         # Q3: 价跌量增 (放量下跌/恐慌 - 负向信号)
         # V16.0 信号影响力调制
         panic_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("panic_impact_reduction_factor", 0.4)
         absorption_reward_enhancement = cumulative_flow_balance.clip(lower=0) * context_impact_modulators.get("absorption_reward_enhancement_factor", 0.3)
         blockage_penalty_enhancement = bearish_persistence_modulator * context_impact_modulators.get("blockage_penalty_enhancement_factor", 0.3)
-
         mtf_retail_panic_surrender_adjusted = mtf_retail_panic_surrender * (1 - panic_impact_reduction)
         mtf_panic_selling_cascade_adjusted = mtf_panic_selling_cascade * (1 - panic_impact_reduction)
         mtf_chip_fault_blockage_ratio_adjusted = mtf_chip_fault_blockage_ratio * (1 + blockage_penalty_enhancement)
         mtf_structural_tension_index_adjusted = mtf_structural_tension_index * (1 + blockage_penalty_enhancement)
-
         Q3_panic_evidence_components = {
             "retail_panic_surrender": mtf_retail_panic_surrender_adjusted,
             "chip_strategic_posture_negative": mtf_chip_strategic_posture.clip(upper=0).abs(), # 筹码态势恶化
@@ -5345,12 +5369,10 @@ class ProcessIntelligence:
         score3 = score3_base * (1 - absorption_reward) * (1 + blockage_penalty) # 承接越强，负分越小；堵塞越强，负分越大
         # 历史情境增强奖励/惩罚：如果累积资金流开始转正，减少负分；如果Q3持续性强，增强惩罚
         score3 -= score3.abs() * bearish_persistence_modulator * 0.5 # Q2/Q3持续性越强，Q3惩罚越大
-
         # Q4: 价跌量缩 (卖压枯竭/底部 - 双向信号)
         # V16.0 信号影响力调制
         exhaustion_reward_enhancement = bearish_persistence_modulator * context_impact_modulators.get("exhaustion_reward_enhancement_factor", 0.3)
         false_bottom_penalty_reduction = accumulation_strength_modulator * context_impact_modulators.get("false_bottom_penalty_reduction_factor", 0.4)
-
         mtf_volume_atrophy_adjusted = mtf_volume_atrophy * (1 + exhaustion_reward_enhancement)
         mtf_retail_panic_surrender_adjusted_Q4 = mtf_retail_panic_surrender * (1 + exhaustion_reward_enhancement)
         mtf_loser_pain_index_high_adjusted = mtf_loser_pain_index.clip(lower=0) * (1 + exhaustion_reward_enhancement)
@@ -5358,7 +5380,6 @@ class ProcessIntelligence:
         mtf_structural_entropy_change_positive_adjusted = mtf_structural_entropy_change.clip(lower=0) * (1 - false_bottom_penalty_reduction)
         mtf_main_force_vwap_down_guidance_positive_adjusted = mtf_main_force_vwap_down_guidance.clip(lower=0) * (1 - false_bottom_penalty_reduction)
         mtf_chip_fatigue_index_low_adjusted = (1 - mtf_chip_fatigue_index) * (1 - false_bottom_penalty_reduction)
-
         dynamic_Q4_reward_weights = _get_dynamic_weights(Q4_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q4_exhaustion_evidence_components_dict = {
             "volume_atrophy": mtf_volume_atrophy_adjusted,
@@ -5393,7 +5414,6 @@ class ProcessIntelligence:
         # 历史情境增强奖励/惩罚：如果Q3持续性强，且识别到Q3->Q4转换，增强奖励；如果市场阶段指示盘整，且Q4持续性强，增强奖励
         score4 += phase_transition_Q4_to_Q1 * 0.3 # Q4到Q1转换，增强奖励
         score4 += bullish_persistence_modulator * 0.2 # Q4持续性强，增强奖励
-
         _temp_debug_values["四象限分数"] = {
             "p_mom": p_mom,
             "v_mom": v_mom,
@@ -5402,11 +5422,9 @@ class ProcessIntelligence:
             "score3": score3,
             "score4": score4
         }
-
         # --- 5. 动态权重与最终融合 ---
         # 市场情境因子：波动率、趋势强度、市场情绪 (已在上方计算)
         # norm_market_sentiment, norm_volatility_inverse, norm_trend_vitality, norm_liquidity_authenticity
-
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
             "volatility_inverse": norm_volatility_inverse,
@@ -5422,7 +5440,6 @@ class ProcessIntelligence:
         )
         # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
         context_modulator = 0.5 + context_modulator_score # 0.5 + [0,1] -> [0.5, 1.5]
-
         # 动态调整象限权重
         dynamic_quadrant_weights = {}
         for q_name, base_w in quadrant_weights.items():
@@ -5431,7 +5448,6 @@ class ProcessIntelligence:
             elif "Q2" in q_name or "Q3" in q_name: # 看跌象限，市场情境越差，权重越高
                 dynamic_quadrant_weights[q_name] = base_w * (1 + (1 - context_modulator_score) * dynamic_weight_sensitivity)
             dynamic_quadrant_weights[q_name] = dynamic_quadrant_weights[q_name].clip(0.05, 0.5) # 限制权重范围
-
         # 归一化动态权重
         total_dynamic_weight = pd.Series(0.0, index=df_index, dtype=np.float32)
         for key in dynamic_quadrant_weights:
@@ -5440,7 +5456,6 @@ class ProcessIntelligence:
         total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
         for key in dynamic_quadrant_weights:
             dynamic_quadrant_weights[key] = dynamic_quadrant_weights[key] / total_dynamic_weight
-
         # 动态调整 final_exponent (V17.0 核心修改)
         dynamic_final_exponent_components = {
             "volatility_inverse": norm_volatility_inverse,
@@ -5455,8 +5470,6 @@ class ProcessIntelligence:
         adjusted_final_exponent = final_exponent_base * (1 - dynamic_exponent_modulator * exponent_context_sensitivity)
         # 确保指数不会过小或过大，例如限制在 [0.1, 2.0] 之间
         adjusted_final_exponent = adjusted_final_exponent.clip(0.1, 2.0)
-
-
         _temp_debug_values["动态权重与情境调制"] = {
             "norm_market_sentiment": norm_market_sentiment,
             "norm_volatility_inverse": norm_volatility_inverse,
@@ -5468,7 +5481,6 @@ class ProcessIntelligence:
             "dynamic_exponent_modulator": dynamic_exponent_modulator,
             "adjusted_final_exponent": adjusted_final_exponent
         }
-
         # 最终融合：加权平均
         final_score_raw = (
             score1 * dynamic_quadrant_weights["Q1_healthy_rally"] +
@@ -5476,64 +5488,61 @@ class ProcessIntelligence:
             score3 * dynamic_quadrant_weights["Q3_panic_distribution"] +
             score4 * dynamic_quadrant_weights["Q4_selling_exhaustion"]
         )
-
         # 应用多层级共振因子和非线性指数
         final_score = final_score_raw * (1 + multi_level_resonance_factor * 0.5) # 共振因子放大
         final_score = np.sign(final_score) * (final_score.abs().pow(adjusted_final_exponent))
         final_score = final_score.clip(-1, 1).fillna(0.0)
-
         _temp_debug_values["最终融合分数"] = {
             "final_score_raw": final_score_raw,
             "final_score": final_score
         }
-
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF融合信号 ---"] = ""
-            for key, series in _temp_debug_values["MTF融合信号"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 历史情境感知层 ---"] = ""
-            for key, series in _temp_debug_values["历史情境感知层"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 情境调制器 ---"] = ""
-            for key, series in _temp_debug_values["情境调制器"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 多层级共振引擎 ---"] = ""
-            for key, series in _temp_debug_values["多层级共振引擎"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态阈值 ---"] = ""
-            for key, series in _temp_debug_values["动态阈值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 四象限分数 ---"] = ""
-            for key, series in _temp_debug_values["四象限分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重与情境调制 ---"] = ""
-            for key, series in _temp_debug_values["动态权重与情境调制"].items():
-                if isinstance(series, pd.Series):
-                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                    debug_output[f"        {key}: {val:.4f}"] = ""
-                else: # For dicts in dynamic_quadrant_weights
-                    debug_output[f"        {key}: {series}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合分数 ---"] = ""
-            for key, series in _temp_debug_values["最终融合分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价量动态诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for sig_name, series in _temp_debug_values["原始信号值"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF融合信号 ---"] = ""
+        #     for key, series in _temp_debug_values["MTF融合信号"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 历史情境感知层 ---"] = ""
+        #     for key, series in _temp_debug_values["历史情境感知层"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 情境调制器 ---"] = ""
+        #     for key, series in _temp_debug_values["情境调制器"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 多层级共振引擎 ---"] = ""
+        #     for key, series in _temp_debug_values["多层级共振引擎"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态阈值 ---"] = ""
+        #     for key, series in _temp_debug_values["动态阈值"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 四象限分数 ---"] = ""
+        #     for key, series in _temp_debug_values["四象限分数"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 动态权重与情境调制 ---"] = ""
+        #     for key, series in _temp_debug_values["动态权重与情境调制"].items():
+        #         if isinstance(series, pd.Series):
+        #             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #             debug_output[f"        {key}: {val:.4f}"] = ""
+        #         else: # For dicts in dynamic_quadrant_weights
+        #             debug_output[f"        {key}: {series}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合分数 ---"] = ""
+        #     for key, series in _temp_debug_values["最终融合分数"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价量动态诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score.astype(np.float32)
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:

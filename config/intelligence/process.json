@@ -379,7 +379,18 @@
                 "relative_strength_amplifier": 1.0,
                 "capital_signature_modulator_weight": 0.5,
                 "enable_probe": false,
-                "description": "【V4.0 · 资本属性调节版】诊断主力拉升意图。引入'相对强度'和'资本属性'作为双重调节器，区分'真龙头'与'跟风者'，并识别资金的真实属性。"
+                "description": "【V11.1 · 历史记忆与情境深度融合版】诊断主力拉升意图。引入'相对强度'和'资本属性'作为双重调节器，区分'真龙头'与'跟风者'，并识别资金的真实属性。新增历史记忆与上下文机制，调整部分周期为21日。",
+                "historical_context_params": {
+                    "enabled": true,
+                    "cumulative_mf_flow_window": 21,
+                    "cumulative_mf_flow_modulator_factor": 0.1,
+                    "chip_concentration_stability_window": 55,
+                    "chip_concentration_stability_modulator_factor": 0.05,
+                    "long_term_trend_slope_period": 21,
+                    "long_term_trend_modulator_factor": 0.15,
+                    "mtf_weights_long": {"55": 0.5, "89": 0.3, "144": 0.2},
+                    "mtf_weights_medium": {"21": 0.4, "34": 0.3, "55": 0.3}
+                }
             },
             {
                 "name": "PROCESS_META_COST_ADVANTAGE_TREND",
