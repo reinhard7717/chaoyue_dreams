@@ -15,7 +15,7 @@
                 "relationship_type": "custom",
                 "scoring_mode": "bipolar",
                 "enable_probe": false,
-                "comment": "【V14.0 · 情境自适应多层级共振引擎】价量关系诊断。引入更精细的量价结构、主力行为、订单流和筹码数据，实现共振因子和象限内逻辑的动态权重调整，以适应多变市场情境。",
+                "comment": "【V15.0 · 历史情境感知与动态记忆引擎】价量关系诊断。引入历史情境因子，使信号具备记忆和上下文感知能力，动态调制共振权重和象限逻辑，以适应市场阶段变化。",
                 "price_volume_dynamics_params": {
                     "comment": "价量动态分析的专属参数。",
                     "quadrant_weights": {
@@ -126,24 +126,35 @@
                         "chip_fatigue_index_low": 0.2
                     },
                     "dynamic_context_modulator_weights": {
-                        "market_sentiment": 0.3,
-                        "volatility_inverse": 0.3,
+                        "market_sentiment": 0.2,
+                        "volatility_inverse": 0.2,
                         "trend_vitality": 0.2,
-                        "liquidity_authenticity_score": 0.2
+                        "liquidity_authenticity_score": 0.2,
+                        "market_regime_strength": 0.2
                     },
                     "dynamic_exponent_modulator_weights": {
-                        "volatility_inverse": 0.25,
-                        "trend_vitality": 0.25,
-                        "market_sentiment": 0.2,
+                        "volatility_inverse": 0.2,
+                        "trend_vitality": 0.2,
+                        "market_sentiment": 0.15,
                         "liquidity_slope_positive": 0.15,
-                        "microstructure_efficiency_index": 0.15
+                        "microstructure_efficiency_index": 0.15,
+                        "reversal_potential_score": 0.15
+                    },
+                    "historical_context_weights": {
+                        "quadrant_persistence_Q1_Q4": 0.3,
+                        "quadrant_persistence_Q2_Q3": 0.2,
+                        "phase_transition_Q4_to_Q1": 0.2,
+                        "cumulative_flow_balance": 0.15,
+                        "market_regime_strength": 0.15
                     },
                     "final_exponent_base": 1.2,
                     "dynamic_threshold_sensitivity": 0.05,
                     "mtf_slope_accel_weights": {
                         "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
                         "accel_periods": {"5": 0.6, "13": 0.4}
-                    }
+                    },
+                    "historical_window_short": 5,
+                    "historical_window_long": 21
                 }
             },
             {
