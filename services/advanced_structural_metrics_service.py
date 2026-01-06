@@ -697,9 +697,9 @@ class AdvancedStructuralMetricsService:
             if prev_date_ts in historical_metrics_df.index:
                 prev_hist_series = historical_metrics_df.loc[prev_date_ts]
                 prev_day_calculated_metrics.update({
-                    'vpoc': prev_hist_series.get('today_vpoc'), # 数据库中存储的字段名
-                    'vah': prev_hist_series.get('today_vah'),   # 数据库中存储的字段名
-                    'val': prev_hist_series.get('today_val'),   # 数据库中存储的字段名
+                    'vpoc': prev_hist_series.get('_today_vpoc'), # 修正：使用正确的字段名 _today_vpoc
+                    'vah': prev_hist_series.get('_today_vah'),   # 修正：使用正确的字段名 _today_vah
+                    'val': prev_hist_series.get('_today_val'),   # 修正：使用正确的字段名 _today_val
                 })
             # 从 daily_df_with_atr 中获取前一天的日线基础数据
             if prev_date_ts in daily_df_with_atr.index:
