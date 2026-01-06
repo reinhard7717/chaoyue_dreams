@@ -4533,8 +4533,8 @@ class ProcessIntelligence:
 
     def _calculate_price_volume_dynamics(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V16.0 · 情境自适应信号影响力调制引擎】计算价量动态的专属分数。
-        - 核心升级: 引入情境调制器，动态调整微观信号（如洗盘、欺骗）对奖励/惩罚的实际贡献，实现更深层次的上下文感知。
+        【V17.0 · 信号强度自适应放大与情境敏感度增强】计算价量动态的专属分数。
+        - 核心升级: 优化非线性指数变换，使其在有利情境下放大信号，并增强情境对动态权重的影响力，确保最终分数更准确反映市场行为。
         - 核心重构: 优化四象限的数学模型，特别是Q2和Q4，使其更符合价量分析的业务逻辑。
         - 引入多维共振因子和动态权重，增强信号的鲁棒性和情境感知能力。
         - 全面探针调试，输出所有关键计算节点。
@@ -4593,7 +4593,9 @@ class ProcessIntelligence:
             "exhaustion_reward_enhancement_factor": 0.3,
             "false_bottom_penalty_reduction_factor": 0.4
         })
-        final_exponent_base = get_param_value(params.get('final_exponent_base'), 1.2)
+        final_exponent_base = get_param_value(params.get('final_exponent_base'), 1.0) # 调整基准指数为1.0
+        exponent_context_sensitivity = get_param_value(params.get('exponent_context_sensitivity'), 0.8) # 新增参数
+        dynamic_weight_sensitivity = get_param_value(params.get('dynamic_weight_sensitivity'), 0.3) # 新增参数
         dynamic_threshold_sensitivity = get_param_value(params.get('dynamic_threshold_sensitivity'), 0.05)
         mtf_slope_accel_weights = get_param_value(params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1}, "accel_periods": {"5": 0.6, "13": 0.4}})
         historical_window_short = get_param_value(params.get('historical_window_short'), 5)
@@ -5013,7 +5015,7 @@ class ProcessIntelligence:
         }
 
         # --- 辅助函数：动态权重调整 ---
-        def _get_dynamic_weights(base_weights: Dict[str, float], context_modulator_score: pd.Series) -> Dict[str, pd.Series]:
+        def _get_dynamic_weights(base_weights: Dict[str, float], context_modulator_score: pd.Series, dynamic_weight_sensitivity: float) -> Dict[str, pd.Series]:
             dynamic_weights = {}
             for key, base_w in base_weights.items():
                 # 简单示例：根据市场情绪调整权重，情绪越好，某些积极信号权重越高
@@ -5021,9 +5023,9 @@ class ProcessIntelligence:
                 # 这里使用一个简化的逻辑，积极信号在情境分数高时权重增加，消极信号在情境分数低时权重增加
                 # context_modulator_score 范围 [0, 1]
                 if "positive" in key or "inverted" in key or "high" in key or "calm" in key or "efficiency" in key or "purity" in key or "strength" in key or "quality" in key or "attack" in key or "readiness" in key or "recovery" in key or "accumulation" in key:
-                    dynamic_weights[key] = base_w * (1 + context_modulator_score * 0.2) # 积极信号在好情境下权重增加
+                    dynamic_weights[key] = base_w * (1 + context_modulator_score * dynamic_weight_sensitivity) # 积极信号在好情境下权重增加
                 elif "negative" in key or "low" in key or "fatigue" in key or "blockage" in key or "penalty" in key or "deception" in key or "wash_trade" in key or "slippage" in key or "pain" in key or "tension" in key or "distribution" in key:
-                    dynamic_weights[key] = base_w * (1 + (1 - context_modulator_score) * 0.2) # 消极信号在坏情境下权重增加
+                    dynamic_weights[key] = base_w * (1 + (1 - context_modulator_score) * dynamic_weight_sensitivity) # 消极信号在坏情境下权重增加
                 else:
                     dynamic_weights[key] = pd.Series(base_w, index=df_index)
             # 归一化动态权重
@@ -5090,11 +5092,17 @@ class ProcessIntelligence:
         bullish_persistence_modulator = quadrant_persistence_Q1_Q4
         bearish_persistence_modulator = quadrant_persistence_Q2_Q3
 
+        # V17.0 新增：整体看涨/看跌情境强度，用于最终指数调整
+        overall_bullish_context_strength = (accumulation_strength_modulator + trend_strength_modulator + bullish_persistence_modulator) / 3
+        overall_bearish_context_strength = ((1 - accumulation_strength_modulator) + (1 - trend_strength_modulator) + bearish_persistence_modulator) / 3
+
         _temp_debug_values["情境调制器"] = {
             "accumulation_strength_modulator": accumulation_strength_modulator,
             "trend_strength_modulator": trend_strength_modulator,
             "bullish_persistence_modulator": bullish_persistence_modulator,
-            "bearish_persistence_modulator": bearish_persistence_modulator
+            "bearish_persistence_modulator": bearish_persistence_modulator,
+            "overall_bullish_context_strength": overall_bullish_context_strength,
+            "overall_bearish_context_strength": overall_bearish_context_strength
         }
 
         context_modulator_components_for_weights = {
@@ -5112,7 +5120,7 @@ class ProcessIntelligence:
 
         # --- 3. 多层级共振引擎 ---
         # 3.1 价格-成交量共振
-        dynamic_pv_resonance_weights = _get_dynamic_weights(price_volume_resonance_components, context_modulator_score_for_weights)
+        dynamic_pv_resonance_weights = _get_dynamic_weights(price_volume_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         price_volume_resonance_components_dict = {
             "lower_shadow_absorption": mtf_lower_shadow_absorption,
             "active_buying_support": mtf_active_buying_support,
@@ -5125,7 +5133,7 @@ class ProcessIntelligence:
         price_volume_resonance = _robust_geometric_mean(price_volume_resonance_components_dict, dynamic_pv_resonance_weights, df_index).clip(0, 1)
 
         # 3.2 主力-筹码共振
-        dynamic_mc_resonance_weights = _get_dynamic_weights(main_chip_resonance_components, context_modulator_score_for_weights)
+        dynamic_mc_resonance_weights = _get_dynamic_weights(main_chip_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         main_chip_resonance_components_dict = {
             "power_transfer_positive": mtf_power_transfer.clip(lower=0),
             "main_force_conviction_positive": mtf_main_force_conviction.clip(lower=0),
@@ -5138,7 +5146,7 @@ class ProcessIntelligence:
         main_chip_resonance = _robust_geometric_mean(main_chip_resonance_components_dict, dynamic_mc_resonance_weights, df_index).clip(0, 1)
 
         # 3.3 市场情绪-流动性共振
-        dynamic_sl_resonance_weights = _get_dynamic_weights(sentiment_liquidity_resonance_components, context_modulator_score_for_weights)
+        dynamic_sl_resonance_weights = _get_dynamic_weights(sentiment_liquidity_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         sentiment_liquidity_resonance_components_dict = {
             "market_sentiment_positive": market_sentiment_score.clip(lower=0), # 使用原始情绪分数，MTF情绪可能过于平滑
             "retail_panic_surrender_inverted": (1 - mtf_retail_panic_surrender), # 散户恐慌越低越好
@@ -5150,7 +5158,7 @@ class ProcessIntelligence:
         sentiment_liquidity_resonance = _robust_geometric_mean(sentiment_liquidity_resonance_components_dict, dynamic_sl_resonance_weights, df_index).clip(0, 1)
 
         # 3.4 微观结构共振
-        dynamic_ms_resonance_weights = _get_dynamic_weights(micro_structure_resonance_components, context_modulator_score_for_weights)
+        dynamic_ms_resonance_weights = _get_dynamic_weights(micro_structure_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         micro_structure_resonance_components_dict = {
             "order_book_imbalance_positive": mtf_order_book_imbalance.clip(lower=0),
             "micro_price_impact_asymmetry_positive": mtf_micro_price_impact_asymmetry.clip(lower=0),
@@ -5163,7 +5171,7 @@ class ProcessIntelligence:
         micro_structure_resonance = _robust_geometric_mean(micro_structure_resonance_components_dict, dynamic_ms_resonance_weights, df_index).clip(0, 1)
 
         # 3.5 质量与效率共振 (新增层级)
-        dynamic_qe_resonance_weights = _get_dynamic_weights(quality_efficiency_resonance_components, context_modulator_score_for_weights)
+        dynamic_qe_resonance_weights = _get_dynamic_weights(quality_efficiency_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         quality_efficiency_resonance_components_dict = {
             "upward_impulse_purity": mtf_upward_impulse_purity,
             "flow_credibility_index": mtf_flow_credibility_index,
@@ -5227,7 +5235,7 @@ class ProcessIntelligence:
         mtf_ask_side_liquidity_adjusted = mtf_ask_side_liquidity * (1 - trend_reward_enhancement) # 强趋势下，卖盘流动性高不一定是坏事
         mtf_profit_realization_quality_low_adjusted = (1 - mtf_profit_realization_quality) * (1 - trend_reward_enhancement) # 强趋势下，获利了结质量低可能只是正常调整
 
-        dynamic_Q1_reward_weights = _get_dynamic_weights(Q1_reward_weights, context_modulator_score_for_weights)
+        dynamic_Q1_reward_weights = _get_dynamic_weights(Q1_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q1_reward_components_dict = {
             "p_mom": p_mom.clip(lower=0),
             "v_mom": v_mom.clip(lower=0),
@@ -5243,7 +5251,7 @@ class ProcessIntelligence:
         }
         score1_reward = _robust_geometric_mean(Q1_reward_components_dict, dynamic_Q1_reward_weights, df_index).clip(0, 1)
         # 惩罚虚假上涨：对倒、欺骗过高时惩罚，主力T0卖出效率高，卖盘流动性过高，获利了结质量低
-        dynamic_Q1_penalty_weights = _get_dynamic_weights(Q1_penalty_weights, context_modulator_score_for_weights)
+        dynamic_Q1_penalty_weights = _get_dynamic_weights(Q1_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q1_penalty_components_dict = {
             "wash_trade": mtf_wash_trade_intensity_adjusted,
             "deception_index": mtf_deception_index_adjusted,
@@ -5268,7 +5276,7 @@ class ProcessIntelligence:
 
         # 显式背离证据：价格上涨，成交量未有效放大，且主力流向偏负
         price_up_volume_not_up = (p_mom > dynamic_price_threshold) & (v_mom < dynamic_volume_threshold) & (mtf_main_force_flow_directionality < 0)
-        dynamic_Q2_divergence_penalty_weights = _get_dynamic_weights(Q2_divergence_penalty_weights, context_modulator_score_for_weights)
+        dynamic_Q2_divergence_penalty_weights = _get_dynamic_weights(Q2_divergence_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q2_divergence_penalty_components_dict = {
             "retail_fomo": mtf_retail_fomo_adjusted, # 散户追涨，风险高
             "wash_trade": mtf_wash_trade_adjusted_Q2, # 对倒，虚假上涨
@@ -5315,7 +5323,7 @@ class ProcessIntelligence:
         )
         score3_base = -(score3_magnitude * (1 + panic_evidence_factor)).clip(0, 1) # 恐慌证据越高，负向信号越强
         # 奖励逆势承接：主动买盘支持、下影线吸收、主力逆势吸筹、投降式吸收
-        dynamic_Q3_reward_weights = _get_dynamic_weights(Q3_reward_weights, context_modulator_score_for_weights)
+        dynamic_Q3_reward_weights = _get_dynamic_weights(Q3_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q3_reward_components_dict = {
             "lower_shadow_absorption": mtf_lower_shadow_absorption * (1 + absorption_reward_enhancement),
             "active_buying_support": mtf_active_buying_support * (1 + absorption_reward_enhancement),
@@ -5325,7 +5333,7 @@ class ProcessIntelligence:
         }
         absorption_reward = _robust_geometric_mean(Q3_reward_components_dict, dynamic_Q3_reward_weights, df_index).clip(0, 1)
         # 惩罚筹码堵塞：输家亏损扩大，恐慌抛售级联，筹码断层堵塞比高，下跌脉冲强度高，结构张力高
-        dynamic_Q3_penalty_weights = _get_dynamic_weights(Q3_penalty_weights, context_modulator_score_for_weights)
+        dynamic_Q3_penalty_weights = _get_dynamic_weights(Q3_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q3_penalty_components_dict = {
             "loser_loss_margin_avg_expanding": mtf_loser_loss_margin_avg.clip(lower=0), # 输家亏损扩大
             "panic_selling_cascade": mtf_panic_selling_cascade_adjusted,
@@ -5351,7 +5359,7 @@ class ProcessIntelligence:
         mtf_main_force_vwap_down_guidance_positive_adjusted = mtf_main_force_vwap_down_guidance.clip(lower=0) * (1 - false_bottom_penalty_reduction)
         mtf_chip_fatigue_index_low_adjusted = (1 - mtf_chip_fatigue_index) * (1 - false_bottom_penalty_reduction)
 
-        dynamic_Q4_reward_weights = _get_dynamic_weights(Q4_reward_weights, context_modulator_score_for_weights)
+        dynamic_Q4_reward_weights = _get_dynamic_weights(Q4_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q4_exhaustion_evidence_components_dict = {
             "volume_atrophy": mtf_volume_atrophy_adjusted,
             "retail_panic_surrender": mtf_retail_panic_surrender_adjusted_Q4, # 散户恐慌投降，可能接近底部
@@ -5373,7 +5381,7 @@ class ProcessIntelligence:
         # 如果卖压枯竭证据强，则为正向信号；否则为负向信号（持续弱势）
         score4_base = (score4_magnitude * exhaustion_evidence_factor - score4_magnitude * (1 - exhaustion_evidence_factor)).clip(-1, 1)
         # 惩罚虚假底部：价格回归速度过快（向下），结构熵增加，主力VWAP向下引导，筹码疲劳指数低
-        dynamic_Q4_penalty_weights = _get_dynamic_weights(Q4_penalty_weights, context_modulator_score_for_weights)
+        dynamic_Q4_penalty_weights = _get_dynamic_weights(Q4_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity)
         Q4_penalty_components_dict = {
             "price_reversion_velocity_negative": mtf_price_reversion_velocity_negative_adjusted,
             "structural_entropy_change_positive": mtf_structural_entropy_change_positive_adjusted,
@@ -5419,9 +5427,9 @@ class ProcessIntelligence:
         dynamic_quadrant_weights = {}
         for q_name, base_w in quadrant_weights.items():
             if "Q1" in q_name or "Q4" in q_name: # 看涨象限，市场情境越好，权重越高
-                dynamic_quadrant_weights[q_name] = base_w * (1 + context_modulator_score * 0.5)
+                dynamic_quadrant_weights[q_name] = base_w * (1 + context_modulator_score * dynamic_weight_sensitivity)
             elif "Q2" in q_name or "Q3" in q_name: # 看跌象限，市场情境越差，权重越高
-                dynamic_quadrant_weights[q_name] = base_w * (1 + (1 - context_modulator_score) * 0.5)
+                dynamic_quadrant_weights[q_name] = base_w * (1 + (1 - context_modulator_score) * dynamic_weight_sensitivity)
             dynamic_quadrant_weights[q_name] = dynamic_quadrant_weights[q_name].clip(0.05, 0.5) # 限制权重范围
 
         # 归一化动态权重
@@ -5433,7 +5441,7 @@ class ProcessIntelligence:
         for key in dynamic_quadrant_weights:
             dynamic_quadrant_weights[key] = dynamic_quadrant_weights[key] / total_dynamic_weight
 
-        # 动态调整 final_exponent
+        # 动态调整 final_exponent (V17.0 核心修改)
         dynamic_final_exponent_components = {
             "volatility_inverse": norm_volatility_inverse,
             "trend_vitality": norm_trend_vitality,
@@ -5443,7 +5451,11 @@ class ProcessIntelligence:
             "reversal_potential_score": reversal_potential_score # 反转潜力分数
         }
         dynamic_exponent_modulator = _robust_geometric_mean(dynamic_final_exponent_components, dynamic_exponent_modulator_weights, df_index)
-        adjusted_final_exponent = final_exponent_base * (1 + dynamic_exponent_modulator * 0.5) # 市场越稳定/趋势越强/情绪越好/流动性越积极/微观效率高/反转潜力大，指数越大，放大信号
+        # 新的指数计算逻辑：当情境越积极 (dynamic_exponent_modulator 越高)，指数越小 (越趋近于0)，从而放大分数
+        adjusted_final_exponent = final_exponent_base * (1 - dynamic_exponent_modulator * exponent_context_sensitivity)
+        # 确保指数不会过小或过大，例如限制在 [0.1, 2.0] 之间
+        adjusted_final_exponent = adjusted_final_exponent.clip(0.1, 2.0)
+
 
         _temp_debug_values["动态权重与情境调制"] = {
             "norm_market_sentiment": norm_market_sentiment,

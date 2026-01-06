@@ -15,7 +15,7 @@
                 "relationship_type": "custom",
                 "scoring_mode": "bipolar",
                 "enable_probe": false,
-                "comment": "【V16.0 · 情境自适应信号影响力调制引擎】价量关系诊断。引入情境调制器，动态调整微观信号（如洗盘、欺骗）对奖励/惩罚的实际贡献，实现更深层次的上下文感知。",
+                "comment": "【V17.0 · 信号强度自适应放大与情境敏感度增强】价量关系诊断。核心优化非线性指数变换，使其在有利情境下放大信号，并增强情境对动态权重的影响力，确保最终分数更准确反映市场行为。",
                 "price_volume_dynamics_params": {
                     "comment": "价量动态分析的专属参数。",
                     "quadrant_weights": {
@@ -157,7 +157,9 @@
                         "exhaustion_reward_enhancement_factor": 0.3,
                         "false_bottom_penalty_reduction_factor": 0.4
                     },
-                    "final_exponent_base": 1.2,
+                    "final_exponent_base": 1.0,
+                    "exponent_context_sensitivity": 0.8,
+                    "dynamic_weight_sensitivity": 0.3,
                     "dynamic_threshold_sensitivity": 0.05,
                     "mtf_slope_accel_weights": {
                         "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
