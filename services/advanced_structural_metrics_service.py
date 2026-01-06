@@ -886,7 +886,6 @@ class AdvancedStructuralMetricsService:
         """
         # 添加无条件探针：打印 self.debug_params
         logger.info(f"[{stock_info.stock_code}] [探针 L.0 - {end_date}] _load_historical_metrics 调用时 debug_params: {self.debug_params}")
-
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
@@ -915,7 +914,7 @@ class AdvancedStructuralMetricsService:
                 if 'today_vpoc' in df.columns:
                     logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics 'today_vpoc' 列头部:\n{df['today_vpoc'].head()}")
                 else:
-                    logger.info(f"[{stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
+                    logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
         return df
 
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
