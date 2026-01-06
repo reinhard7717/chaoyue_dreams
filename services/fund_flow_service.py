@@ -1303,6 +1303,14 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_dip_rally_metrics(context: dict) -> dict:
+        """
+        【V72.4 · 索引类型兼容修复版】
+        - 核心修复: 解决 `TypeError: '>=' not supported between instances of 'numpy.ndarray' and 'Timestamp'`。
+                    在对 `mf_trades.index` 进行时间范围过滤时，显式使用 `mf_trades.index.values`
+                    将其转换为底层的 `numpy.ndarray` (类型为 `datetime64[ns]`)，
+                    以确保与 `pd.Timestamp` 类型的 `start_time` 和 `end_time` 进行兼容的比较操作。
+                    这规避了 `pandas` 在特定版本或数据状态下可能出现的索引类型误判问题。
+        """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1357,7 +1365,8 @@ class AdvancedFundFlowMetricsService:
                     if window_df.empty or len(window_df) < 2: continue
                     if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]:
                         start_time, end_time = window_df.index[0], window_df.index[-1]
-                        mf_trades_in_rally = mf_trades[(mf_trades.index >= start_time) & (mf_trades.index <= end_time)]
+                        # 修复：将 mf_trades.index 显式转换为 numpy 数组进行比较，以避免 TypeError
+                        mf_trades_in_rally = mf_trades[(mf_trades.index.values >= start_time) & (mf_trades.index.values <= end_time)]
                         if not mf_trades_in_rally.empty:
                             mf_buy_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['amount'].sum()
                             mf_sell_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['amount'].sum()
@@ -2392,22 +2401,21 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_execution_alpha_metrics(context: dict) -> dict:
         """
-        【V71.0 · 终极生产版】(生产环境清洁版)
+        【V72.3 · 生产就绪版 - 探针恢复】
         - 核心职责: 计算主力买入、卖出以及综合的执行力Alpha。
         - 关键说明: `main_force_buy_execution_alpha` 和 `main_force_sell_execution_alpha`
                     提供了主力在买入和卖出侧的独立执行效率评估。
                     这些独立指标可用于更细致地判断主力意图（如低位吸筹或高位派发），
                     而非简单地依赖综合的 `main_force_execution_alpha`。
-        - 升级说明: 增加了详细探针，用于调试和检查每一步计算。
-        【V72.0 · 资金流拆分版】
-        - 核心增强: 拆分 `main_force_t0_efficiency` 为买卖双方效率。
-        【V72.2 · 生产就绪版】
-        - 核心清除: 移除所有调试探针相关的print语句和逻辑，恢复生产状态。
+        - 升级说明: 恢复了详细探针，用于调试和检查每一步计算。
         """
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
         hf_features = context['hf_features']
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = context['daily_data'].name.date()
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         import numpy as np
@@ -2423,44 +2431,74 @@ class AdvancedFundFlowMetricsService:
         }
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
+        if should_probe:
+            print(f"[{stock_code}] [探针 E.1 - {current_date}] _calculate_execution_alpha_metrics 启动。")
+            print(f"[{stock_code}] [探针 E.1 - {current_date}] Daily VWAP: {daily_vwap}, ATR: {atr}")
         if pd.isna(daily_vwap) or pd.isna(atr) or atr <= 0:
+            if should_probe:
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] 条件不满足: Daily VWAP或ATR无效。返回NaN。")
             return metrics
         buy_alpha, sell_alpha = np.nan, np.nan
         if not hf_analysis_df.empty:
+            if should_probe:
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] hf_analysis_df 不为空。")
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] HF MF Buy VWAP: {hf_mf_buy_vwap}, HF MF Sell VWAP: {hf_mf_sell_vwap}")
             if pd.notna(hf_mf_buy_vwap):
                 buy_alpha = (daily_vwap - hf_mf_buy_vwap) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
                 metrics['main_force_t0_buy_efficiency'] = buy_alpha
+                if should_probe:
+                    print(f"[{stock_code}] [探针 E.1 - {current_date}] main_force_buy_execution_alpha: {buy_alpha}")
             if pd.notna(hf_mf_sell_vwap):
                 sell_alpha = (hf_mf_sell_vwap - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
                 metrics['main_force_t0_sell_efficiency'] = sell_alpha
+                if should_probe:
+                    print(f"[{stock_code}] [探针 E.1 - {current_date}] main_force_sell_execution_alpha: {sell_alpha}")
             if pd.notna(hf_mf_sell_vwap) and pd.notna(hf_mf_buy_vwap) and daily_vwap > 0:
                 t0_spread = (hf_mf_sell_vwap - hf_mf_buy_vwap) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
+                if should_probe:
+                    print(f"[{stock_code}] [探针 E.1 - {current_date}] main_force_t0_spread_ratio: {t0_spread * 100}")
         else:
+            if should_probe:
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] hf_analysis_df 为空，尝试分钟数据回退。")
             avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
             avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
+            if should_probe:
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] Fallback: Avg Cost Main Buy: {avg_cost_main_buy}, Avg Cost Main Sell: {avg_cost_main_sell}")
             if pd.notna(avg_cost_main_buy):
                 buy_alpha = (daily_vwap - avg_cost_main_buy) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
                 metrics['main_force_t0_buy_efficiency'] = buy_alpha
+                if should_probe:
+                    print(f"[{stock_code}] [探针 E.1 - {current_date}] Fallback main_force_buy_execution_alpha: {buy_alpha}")
             if pd.notna(avg_cost_main_sell):
                 sell_alpha = (avg_cost_main_sell - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
                 metrics['main_force_t0_sell_efficiency'] = sell_alpha
+                if should_probe:
+                    print(f"[{stock_code}] [探针 E.1 - {current_date}] Fallback main_force_sell_execution_alpha: {sell_alpha}")
             if pd.notna(avg_cost_main_sell) and pd.notna(avg_cost_main_buy) and daily_vwap > 0:
                 t0_spread = (avg_cost_main_sell - avg_cost_main_buy) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
+                if should_probe:
+                    print(f"[{stock_code}] [探针 E.1 - {current_date}] Fallback main_force_t0_spread_ratio: {t0_spread * 100}")
         if pd.notna(buy_alpha) and pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = (buy_alpha + sell_alpha) / 2
             t0_spread_norm = (sell_alpha - (-buy_alpha))
             if pd.notna(sell_alpha) and sell_alpha != 0:
                 metrics['main_force_t0_efficiency'] = t0_spread_norm / sell_alpha
+            if should_probe:
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] main_force_execution_alpha: {metrics['main_force_execution_alpha']}, main_force_t0_efficiency: {metrics['main_force_t0_efficiency']}")
         elif pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = sell_alpha
+            if should_probe:
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] main_force_execution_alpha (only sell): {metrics['main_force_execution_alpha']}")
         elif pd.notna(buy_alpha):
             metrics['main_force_execution_alpha'] = buy_alpha
+            if should_probe:
+                print(f"[{stock_code}] [探针 E.1 - {current_date}] main_force_execution_alpha (only buy): {metrics['main_force_execution_alpha']}")
         return metrics
 
     @staticmethod
