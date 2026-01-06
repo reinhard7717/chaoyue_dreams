@@ -4556,7 +4556,6 @@ class ProcessIntelligence:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价量动态..."] = ""
-
         df_index = df.index
         params = config.get('price_volume_dynamics_params', {})
         quadrant_weights = get_param_value(params.get('quadrant_weights'), {"Q1_healthy_rally": 0.3, "Q2_bearish_divergence": 0.2, "Q3_panic_distribution": 0.2, "Q4_selling_exhaustion": 0.3})
@@ -4566,7 +4565,6 @@ class ProcessIntelligence:
         dynamic_context_modulator_weights = get_param_value(params.get('dynamic_context_modulator_weights'), {"market_sentiment": 0.4, "volatility_inverse": 0.3, "trend_vitality": 0.3})
         final_exponent = get_param_value(params.get('final_exponent'), 1.2)
         mtf_slope_accel_weights = get_param_value(params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1}, "accel_periods": {"5": 0.6, "13": 0.4}})
-
         # --- 1. 原始数据获取 (仅数据层信号) ---
         # 价格和成交量
         close_price = self._get_safe_series(df, 'close_D', method_name=method_name)
@@ -4581,6 +4579,7 @@ class ProcessIntelligence:
         upward_impulse_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         active_buying_support = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
+        retail_fomo_premium_index = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name) # 新增获取
         # 权力转移的原始组件
         net_sh_amount = self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0.0, method_name=method_name)
         net_md_amount = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0.0, method_name=method_name)
@@ -4599,7 +4598,7 @@ class ProcessIntelligence:
         required_signals = [
             'close_D', 'volume_D', 'open_D', 'high_D', 'low_D',
             'main_force_conviction_index_D', 'wash_trade_intensity_D', 'retail_panic_surrender_index_D',
-            'upward_impulse_purity_D', 'active_buying_support_D', 'deception_index_D',
+            'upward_impulse_purity_D', 'active_buying_support_D', 'deception_index_D', 'retail_fomo_premium_index_D', # 新增
             'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D', 'net_xl_amount_calibrated_D',
             'winner_concentration_90pct_D', 'loser_concentration_90pct_D', 'chip_health_score_D', 'mf_vpoc_premium_D',
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'trend_vitality_index_D'
@@ -4616,12 +4615,12 @@ class ProcessIntelligence:
                 debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
                 self._print_debug_output(debug_output)
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         _temp_debug_values["原始信号值"] = {
             "close_D": close_price, "volume_D": volume, "open_D": open_price, "high_D": high_price, "low_D": low_price,
             "main_force_conviction_index_D": main_force_conviction, "wash_trade_intensity_D": wash_trade_intensity,
             "retail_panic_surrender_index_D": retail_panic_surrender, "upward_impulse_purity_D": upward_impulse_purity,
             "active_buying_support_D": active_buying_support, "deception_index_D": deception_index,
+            "retail_fomo_premium_index_D": retail_fomo_premium_index, # 新增
             "net_sh_amount_calibrated_D": net_sh_amount, "net_md_amount_calibrated_D": net_md_amount,
             "net_lg_amount_calibrated_D": net_lg_amount, "net_xl_amount_calibrated_D": net_elg_amount,
             "winner_concentration_90pct_D": winner_concentration_90pct, "loser_concentration_90pct_D": loser_concentration_90pct,
@@ -4629,7 +4628,6 @@ class ProcessIntelligence:
             "market_sentiment_score_D": market_sentiment_score, "VOLATILITY_INSTABILITY_INDEX_21d_D": volatility_instability_index,
             "trend_vitality_index_D": trend_vitality_index
         }
-
         # --- 2. MTF融合与归一化处理 ---
         # 价格和成交量动量
         mtf_price_momentum = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -4641,7 +4639,7 @@ class ProcessIntelligence:
         mtf_upward_impulse_purity = self._get_mtf_slope_accel_score(df, 'upward_impulse_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_active_buying_support = self._get_mtf_slope_accel_score(df, 'active_buying_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_deception_index = self._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-
+        mtf_retail_fomo_premium_index = self._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False) # FIX: Add explicit assignment for mtf_retail_fomo_premium_index
         # 权力转移代理 (PROCESS_META_POWER_TRANSFER 的原始数据实现)
         # 假设 effective_main_force_flow 和 effective_retail_flow 已经通过其他方式计算或简化
         # 这里直接使用其核心逻辑：主力资金变化 - 散户资金变化
@@ -4652,28 +4650,28 @@ class ProcessIntelligence:
         effective_main_force_flow_proxy = (net_lg_amount + net_elg_amount).diff(1).fillna(0)
         effective_retail_flow_proxy = (net_sh_amount + net_md_amount).diff(1).fillna(0)
         power_transfer_raw_proxy = effective_main_force_flow_proxy - effective_retail_flow_proxy
-        mtf_power_transfer = self._get_mtf_slope_accel_score(df, power_transfer_raw_proxy.name, mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 假设 power_transfer_raw_proxy 已经有名字
-
+        # 为 power_transfer_raw_proxy 赋予一个临时的列名，以便 _get_mtf_slope_accel_score 可以处理
+        power_transfer_raw_proxy.name = 'power_transfer_raw_proxy_D'
+        mtf_power_transfer = self._get_mtf_slope_accel_score(df.assign(power_transfer_raw_proxy_D=power_transfer_raw_proxy), 'power_transfer_raw_proxy_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         # 下影线吸收代理 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION 的原始数据实现)
         total_range = (high_price - low_price).replace(0, 1e-9)
         lower_shadow = np.minimum(open_price, close_price) - low_price
         lower_shadow_ratio = (lower_shadow / total_range).fillna(0)
         # 强力下影线吸收：下影线占比高，且收盘价高于开盘价（阳线）或接近开盘价（十字星）
         lower_shadow_absorption_raw = (lower_shadow_ratio > 0.3).astype(float) * (close_price > open_price * 0.99).astype(float)
-        mtf_lower_shadow_absorption = self._get_mtf_slope_accel_score(df, lower_shadow_absorption_raw.name, mtf_slope_accel_weights, df_index, method_name, bipolar=False) # 假设 lower_shadow_absorption_raw 已经有名字
-
+        lower_shadow_absorption_raw.name = 'lower_shadow_absorption_raw_D'
+        mtf_lower_shadow_absorption = self._get_mtf_slope_accel_score(df.assign(lower_shadow_absorption_raw_D=lower_shadow_absorption_raw), 'lower_shadow_absorption_raw_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # 量能萎缩代理 (SCORE_BEHAVIOR_VOLUME_ATROPHY 的原始数据实现)
         # 假设 volume_D 已经有 VOL_MA_X_D
         vol_ma_21 = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         volume_atrophy_raw = (1 - (volume / vol_ma_21)).clip(0, 1) # 量能低于均线越多，萎缩越严重
-        mtf_volume_atrophy = self._get_mtf_slope_accel_score(df, volume_atrophy_raw.name, mtf_slope_accel_weights, df_index, method_name, bipolar=False) # 假设 volume_atrophy_raw 已经有名字
-
+        volume_atrophy_raw.name = 'volume_atrophy_raw_D'
+        mtf_volume_atrophy = self._get_mtf_slope_accel_score(df.assign(volume_atrophy_raw_D=volume_atrophy_raw), 'volume_atrophy_raw_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # 筹码战略态势代理 (SCORE_CHIP_STRATEGIC_POSTURE 的原始数据实现)
         mtf_winner_concentration = self._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_chip_health = self._get_mtf_slope_accel_score(df, 'chip_health_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_mf_vpoc_premium = self._get_mtf_slope_accel_score(df, 'mf_vpoc_premium_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_chip_strategic_posture = (mtf_winner_concentration * 0.4 + mtf_chip_health * 0.3 + mtf_mf_vpoc_premium * 0.3).clip(-1, 1)
-
         _temp_debug_values["MTF融合信号"] = {
             "mtf_price_momentum": mtf_price_momentum,
             "mtf_volume_momentum": mtf_volume_momentum,
@@ -4683,12 +4681,12 @@ class ProcessIntelligence:
             "mtf_upward_impulse_purity": mtf_upward_impulse_purity,
             "mtf_active_buying_support": mtf_active_buying_support,
             "mtf_deception_index": mtf_deception_index,
+            "mtf_retail_fomo_premium_index": mtf_retail_fomo_premium_index, # 新增
             "mtf_power_transfer": mtf_power_transfer,
             "mtf_lower_shadow_absorption": mtf_lower_shadow_absorption,
             "mtf_volume_atrophy": mtf_volume_atrophy,
             "mtf_chip_strategic_posture": mtf_chip_strategic_posture
         }
-
         # --- 3. 共振确认因子 (Resonance Confirmation Factor) ---
         # 核心证据：下影线吸收、权力转移、主力信念、主动买盘支持
         resonance_components = {
@@ -4698,16 +4696,13 @@ class ProcessIntelligence:
             "active_buying_support": mtf_active_buying_support
         }
         resonance_confirmation_factor = _robust_geometric_mean(resonance_components, resonance_components_weights, df_index).clip(0, 1)
-
         _temp_debug_values["共振确认因子"] = {
             "resonance_confirmation_factor": resonance_confirmation_factor
         }
-
         # --- 4. 四象限分数计算 ---
         p_mom = mtf_price_momentum
         v_mom = mtf_volume_momentum
         final_score = pd.Series(0.0, index=df_index)
-
         # Q1: 价涨量增 (健康上涨)
         # 融合：价格动量、成交量动量、上涨纯度、主力信念
         Q1_components = {
@@ -4718,7 +4713,6 @@ class ProcessIntelligence:
         }
         Q1_weights = {"p_mom": 0.3, "v_mom": 0.3, "upward_purity": 0.2, "main_force_conviction": 0.2}
         score1 = _robust_geometric_mean(Q1_components, Q1_weights, df_index).clip(0, 1)
-
         # Q2: 价涨量缩 (上涨乏力/背离 - 负向信号)
         # 融合：价格动量（正）、成交量动量（负绝对值）、背离惩罚因子
         Q2_divergence_penalty_components = {
@@ -4733,7 +4727,6 @@ class ProcessIntelligence:
             df_index
         )
         score2 = -(score2_magnitude * (1 + divergence_penalty_factor)).clip(0, 1) # 惩罚因子越高，负向信号越强
-
         # Q3: 价跌量增 (放量下跌/恐慌 - 负向信号)
         # 融合：价格动量（负绝对值）、成交量动量（正）、恐慌证据、筹码恶化
         Q3_panic_evidence_components = {
@@ -4748,7 +4741,6 @@ class ProcessIntelligence:
             df_index
         )
         score3 = -(score3_magnitude * (1 + panic_evidence_factor)).clip(0, 1) # 恐慌证据越高，负向信号越强
-
         # Q4: 价跌量缩 (卖压枯竭/底部 - 双向信号)
         # 融合：价格动量（负绝对值）、成交量动量（负绝对值）、卖压枯竭证据
         Q4_exhaustion_evidence_components = {
@@ -4765,7 +4757,6 @@ class ProcessIntelligence:
         )
         # 如果卖压枯竭证据强，则为正向信号；否则为负向信号（持续弱势）
         score4 = (score4_magnitude * exhaustion_evidence_factor - score4_magnitude * (1 - exhaustion_evidence_factor)).clip(-1, 1)
-
         _temp_debug_values["四象限分数"] = {
             "p_mom": p_mom,
             "v_mom": v_mom,
@@ -4774,13 +4765,11 @@ class ProcessIntelligence:
             "score3": score3,
             "score4": score4
         }
-
         # --- 5. 动态权重与最终融合 ---
         # 市场情境因子：波动率、趋势强度、市场情绪
         norm_market_sentiment = self._normalize_series(market_sentiment_score, df_index, bipolar=True)
         norm_volatility_inverse = self._normalize_series(volatility_instability_index, df_index, ascending=False)
         norm_trend_vitality = self._normalize_series(trend_vitality_index, df_index, bipolar=False)
-
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
             "volatility_inverse": norm_volatility_inverse,
@@ -4794,7 +4783,6 @@ class ProcessIntelligence:
         )
         # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
         context_modulator = 0.5 + context_modulator_score # 0.5 + [0,1] -> [0.5, 1.5]
-
         # 动态调整象限权重
         dynamic_quadrant_weights = {}
         for q_name, base_w in quadrant_weights.items():
@@ -4803,14 +4791,12 @@ class ProcessIntelligence:
             elif "Q2" in q_name or "Q3" in q_name: # 看跌象限，市场情境越差，权重越高
                 dynamic_quadrant_weights[q_name] = base_w * (1 + (1 - context_modulator_score) * 0.5)
             dynamic_quadrant_weights[q_name] = dynamic_quadrant_weights[q_name].clip(0.05, 0.5) # 限制权重范围
-
         # 归一化动态权重
         total_dynamic_weight = pd.Series(0.0, index=df_index, dtype=np.float32)
         for key in dynamic_quadrant_weights:
             total_dynamic_weight += dynamic_quadrant_weights[key]
         for key in dynamic_quadrant_weights:
             dynamic_quadrant_weights[key] = dynamic_quadrant_weights[key] / total_dynamic_weight
-
         _temp_debug_values["动态权重与情境调制"] = {
             "norm_market_sentiment": norm_market_sentiment,
             "norm_volatility_inverse": norm_volatility_inverse,
@@ -4819,7 +4805,6 @@ class ProcessIntelligence:
             "context_modulator": context_modulator,
             "dynamic_quadrant_weights": dynamic_quadrant_weights
         }
-
         # 最终融合：加权平均
         final_score_raw = (
             score1 * dynamic_quadrant_weights["Q1_healthy_rally"] +
@@ -4827,17 +4812,14 @@ class ProcessIntelligence:
             score3 * dynamic_quadrant_weights["Q3_panic_distribution"] +
             score4 * dynamic_quadrant_weights["Q4_selling_exhaustion"]
         )
-
         # 应用共振确认因子和非线性指数
         final_score = final_score_raw * (1 + resonance_confirmation_factor * 0.5) # 共振因子放大
         final_score = np.sign(final_score) * (final_score.abs().pow(final_exponent))
         final_score = final_score.clip(-1, 1).fillna(0.0)
-
         _temp_debug_values["最终融合分数"] = {
             "final_score_raw": final_score_raw,
             "final_score": final_score
         }
-
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
