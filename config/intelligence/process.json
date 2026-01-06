@@ -390,6 +390,10 @@
                     "long_term_trend_modulator_factor": 0.15,
                     "mtf_weights_long": {"55": 0.5, "89": 0.3, "144": 0.2},
                     "mtf_weights_medium": {"21": 0.4, "34": 0.3, "55": 0.3}
+                },
+                "rally_intent_synthesis_params": {
+                    "description": "主力拉升意图合成参数。",
+                    "power_mean_exponent": 2.0
                 }
             },
             {

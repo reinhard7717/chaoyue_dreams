@@ -254,7 +254,7 @@ def dispatch_stocks_quote_data_task(quote_batch_size: int = 50, cache_manager=No
     }
 
 # 单独：真实逐笔(Tick)”数据获取任务。
-@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_real_tick_task', queue='celery') # 重命名原任务
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_real_tick_task', queue='SaveData_RealTime_Tick') # 重命名原任务
 @with_cache_manager
 def dispatch_stocks_real_tick_task(cache_manager=None): # 移除不再需要的 quote_batch_size 参数
     """

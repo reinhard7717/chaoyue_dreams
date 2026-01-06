@@ -686,6 +686,8 @@ class ProcessIntelligence:
         hc_mtf_weights_long = get_param_value(historical_context_params.get('mtf_weights_long'), {"55": 0.5, "89": 0.3, "144": 0.2})
         hc_mtf_weights_medium = get_param_value(historical_context_params.get('mtf_weights_medium'), {"21": 0.4, "34": 0.3, "55": 0.3})
         long_term_trend_modulator_factor = get_param_value(historical_context_params.get('long_term_trend_modulator_factor'), 0.15)
+        # 获取主力拉升意图合成参数块
+        rally_intent_synthesis_params = config.get('rally_intent_synthesis_params', {})
 
         # --- V10.0 原始信号列表 (严格限制为数据层提供) ---
         required_signals = [
@@ -1946,7 +1948,7 @@ class ProcessIntelligence:
         bullish_intent = (bullish_intent * long_term_trend_strength_modulator).clip(0, 1)
 
         # 幂平均，放大高分，抑制低分
-        power_mean_exponent = get_param_value(p_synthesis.get('power_mean_exponent'), 2.0)
+        power_mean_exponent = get_param_value(rally_intent_synthesis_params.get('power_mean_exponent'), 2.0)
         bullish_intent = bullish_intent.pow(power_mean_exponent)
         _temp_debug_values["基础看涨意图"] = {
             "power_mean_exponent": power_mean_exponent,
