@@ -171,7 +171,7 @@
         "auction_intent_signal_D": [5, 13],
         "peak_mass_transfer_rate_D": [5, 13],
         "mf_cost_zone_defense_intent_D": [5, 13],
-        "volume_ratio_D": [5, 13],
+        "volume_ratio_D": [5, 13, 21, 34],
         "total_buy_amount_calibrated_D": [5, 13],
         "total_sell_amount_calibrated_D": [5, 13],
         "internal_accumulation_intensity_D": [5, 13],
