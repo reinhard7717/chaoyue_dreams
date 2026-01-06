@@ -1304,12 +1304,11 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_dip_rally_metrics(context: dict) -> dict:
         """
-        【V72.4 · 索引类型兼容修复版】
-        - 核心修复: 解决 `TypeError: '>=' not supported between instances of 'numpy.ndarray' and 'Timestamp'`。
-                    在对 `mf_trades.index` 进行时间范围过滤时，显式使用 `mf_trades.index.values`
-                    将其转换为底层的 `numpy.ndarray` (类型为 `datetime64[ns]`)，
-                    以确保与 `pd.Timestamp` 类型的 `start_time` 和 `end_time` 进行兼容的比较操作。
-                    这规避了 `pandas` 在特定版本或数据状态下可能出现的索引类型误判问题。
+        【V72.5 · 时区兼容修复版】
+        - 核心修复: 解决 `TypeError: Cannot compare tz-naive and tz-aware timestamps`。
+                    在对 `mf_trades.index.values` (被视为时区-naive的 `datetime64[ns]` 数组)
+                    与 `start_time` 和 `end_time` (时区-aware的 `pd.Timestamp` 对象) 进行比较时，
+                    将 `start_time` 和 `end_time` 显式转换为时区-naive，以确保比较操作的时区一致性。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -1321,6 +1320,7 @@ class AdvancedFundFlowMetricsService:
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
+        import pandas as pd # 确保 pandas 已导入，以便使用 Timestamp 的方法
         metrics = {}
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
@@ -1365,8 +1365,12 @@ class AdvancedFundFlowMetricsService:
                     if window_df.empty or len(window_df) < 2: continue
                     if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]:
                         start_time, end_time = window_df.index[0], window_df.index[-1]
-                        # 修复：将 mf_trades.index 显式转换为 numpy 数组进行比较，以避免 TypeError
-                        mf_trades_in_rally = mf_trades[(mf_trades.index.values >= start_time) & (mf_trades.index.values <= end_time)]
+                        # 核心修复：将 start_time 和 end_time 转换为时区-naive
+                        start_time_naive = start_time.tz_localize(None) if start_time.tz is not None else start_time
+                        end_time_naive = end_time.tz_localize(None) if end_time.tz is not None else end_time
+
+                        # 使用时区-naive的时间戳进行比较
+                        mf_trades_in_rally = mf_trades[(mf_trades.index.values >= start_time_naive) & (mf_trades.index.values <= end_time_naive)]
                         if not mf_trades_in_rally.empty:
                             mf_buy_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['amount'].sum()
                             mf_sell_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['amount'].sum()
