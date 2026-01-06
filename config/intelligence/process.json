@@ -15,7 +15,7 @@
                 "relationship_type": "custom",
                 "scoring_mode": "bipolar",
                 "enable_probe": false,
-                "comment": "【V13.0 · 自适应市场情境与模糊四象限版】价量关系诊断。引入市场情境分类，动态调整象限权重和共振因子，采用模糊逻辑划分象限，并集成更多微观结构数据。",
+                "comment": "【V13.0 · 智能动态四象限与多层级共振引擎】价量关系诊断。基于价量四象限博弈模型，引入多层级共振因子、动态象限边界和智能象限内逻辑，严格仅使用数据层原始信号进行分析。",
                 "price_volume_dynamics_params": {
                     "comment": "价量动态分析的专属参数。",
                     "quadrant_weights": {
@@ -24,52 +24,78 @@
                         "Q3_panic_distribution": 0.2,
                         "Q4_selling_exhaustion": 0.3
                     },
-                    "resonance_components_weights": {
-                        "lower_shadow_absorption": 0.15,
-                        "power_transfer_positive": 0.15,
-                        "main_force_conviction_positive": 0.1,
-                        "active_buying_support": 0.1,
-                        "volume_burstiness": 0.1,
-                        "main_force_flow_directionality_positive": 0.1,
-                        "order_book_imbalance_positive": 0.05,
-                        "micro_price_impact_asymmetry_positive": 0.05,
-                        "bid_side_liquidity": 0.05,
-                        "intraday_energy_density": 0.05,
-                        "vpin_score_low": 0.05
+                    "multi_level_resonance_weights": {
+                        "price_volume_resonance": 0.3,
+                        "main_chip_resonance": 0.3,
+                        "sentiment_liquidity_resonance": 0.2,
+                        "micro_structure_resonance": 0.2
                     },
-                    "Q1_quality_weights": {
-                        "upward_purity": 0.2,
-                        "main_force_conviction": 0.2,
+                    "price_volume_resonance_components": {
+                        "lower_shadow_absorption": 0.2,
+                        "active_buying_support": 0.2,
+                        "volume_burstiness": 0.2,
+                        "VPA_EFFICIENCY": 0.2,
+                        "volume_profile_entropy_inverted": 0.2
+                    },
+                    "main_chip_resonance_components": {
+                        "power_transfer_positive": 0.25,
+                        "main_force_conviction_positive": 0.25,
                         "main_force_flow_directionality_positive": 0.2,
-                        "order_book_imbalance_positive": 0.1,
-                        "micro_price_impact_asymmetry_positive": 0.1,
-                        "bid_side_liquidity": 0.1,
-                        "volume_delta_positive": 0.1
+                        "chip_strategic_posture": 0.15,
+                        "chip_fault_blockage_ratio_inverted": 0.15
+                    },
+                    "sentiment_liquidity_resonance_components": {
+                        "market_sentiment_positive": 0.3,
+                        "retail_panic_surrender_inverted": 0.2,
+                        "bid_side_liquidity": 0.2,
+                        "liquidity_slope_positive": 0.15,
+                        "order_flow_imbalance_positive": 0.15
+                    },
+                    "micro_structure_resonance_components": {
+                        "order_book_imbalance_positive": 0.25,
+                        "micro_price_impact_asymmetry_positive": 0.25,
+                        "intraday_energy_density": 0.2,
+                        "vpin_score_inverted": 0.15,
+                        "micro_impact_elasticity_positive": 0.15
+                    },
+                    "Q1_reward_weights": {
+                        "VPA_BUY_EFFICIENCY": 0.3,
+                        "main_force_execution_alpha": 0.25,
+                        "order_flow_imbalance_positive": 0.25,
+                        "main_force_vwap_up_guidance_positive": 0.2
+                    },
+                    "Q1_penalty_weights": {
+                        "main_force_t0_sell_efficiency": 0.5,
+                        "ask_side_liquidity_high": 0.5
                     },
                     "Q2_divergence_penalty_weights": {
                         "retail_fomo": 0.25,
                         "wash_trade": 0.25,
                         "deception_index": 0.2,
-                        "vpin_score_high": 0.2,
-                        "ask_side_liquidity_high": 0.1
+                        "vpin_score_high": 0.15,
+                        "winner_loser_momentum_negative": 0.15
                     },
-                    "Q3_panic_evidence_weights": {
-                        "retail_panic_surrender": 0.2,
-                        "chip_strategic_posture_negative": 0.2,
-                        "loser_loss_margin_avg_positive": 0.2,
-                        "total_loser_rate_positive": 0.15,
-                        "panic_selling_cascade": 0.15,
-                        "ask_side_liquidity_low": 0.1
+                    "Q3_reward_weights": {
+                        "lower_shadow_absorption": 0.3,
+                        "active_buying_support": 0.3,
+                        "main_force_flow_directionality_positive": 0.2,
+                        "main_force_t0_buy_efficiency": 0.2
                     },
-                    "Q4_exhaustion_evidence_weights": {
+                    "Q3_penalty_weights": {
+                        "loser_loss_margin_avg_expanding": 0.4,
+                        "panic_selling_cascade": 0.3,
+                        "chip_fault_blockage_ratio": 0.3
+                    },
+                    "Q4_reward_weights": {
                         "volume_atrophy": 0.25,
-                        "retail_panic_surrender": 0.15,
-                        "lower_shadow_absorption": 0.15,
-                        "chip_health": 0.1,
-                        "bid_side_liquidity": 0.1,
-                        "vpin_score_low": 0.1,
-                        "price_reversion_velocity_low": 0.05,
-                        "intraday_energy_density_low": 0.05
+                        "volume_profile_entropy_inverted": 0.25,
+                        "FRACTAL_DIMENSION_calm": 0.2,
+                        "bid_side_liquidity": 0.15,
+                        "vpin_score_low": 0.15
+                    },
+                    "Q4_penalty_weights": {
+                        "price_reversion_velocity_negative": 0.5,
+                        "structural_entropy_change_positive": 0.5
                     },
                     "dynamic_context_modulator_weights": {
                         "market_sentiment": 0.4,
@@ -77,26 +103,16 @@
                         "trend_vitality": 0.3
                     },
                     "dynamic_exponent_modulator_weights": {
-                        "volatility_inverse": 0.5,
-                        "trend_vitality": 0.5
+                        "volatility_inverse": 0.3,
+                        "trend_vitality": 0.3,
+                        "market_sentiment": 0.2,
+                        "liquidity_slope_positive": 0.2
                     },
-                    "final_exponent": 1.2,
+                    "final_exponent_base": 1.2,
                     "dynamic_threshold_sensitivity": 0.05,
-                    "sigmoid_steepness": 10.0,
                     "mtf_slope_accel_weights": {
                         "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
                         "accel_periods": {"5": 0.6, "13": 0.4}
-                    },
-                    "market_regime_weights": {
-                        "trend_strength": 0.4,
-                        "volatility_inverse": 0.3,
-                        "sentiment_neutrality": 0.3
-                    },
-                    "regime_quadrant_adjustment_factors": {
-                        "Strong_Bull": {"Q1_healthy_rally": 0.2, "Q2_bearish_divergence": -0.1, "Q3_panic_distribution": -0.1, "Q4_selling_exhaustion": 0.0},
-                        "Consolidation": {"Q1_healthy_rally": -0.1, "Q2_bearish_divergence": 0.1, "Q3_panic_distribution": 0.1, "Q4_selling_exhaustion": 0.1},
-                        "Bearish_Trend": {"Q1_healthy_rally": -0.2, "Q2_bearish_divergence": 0.1, "Q3_panic_distribution": 0.2, "Q4_selling_exhaustion": 0.0},
-                        "High_Volatility": {"Q1_healthy_rally": 0.0, "Q2_bearish_divergence": 0.1, "Q3_panic_distribution": 0.1, "Q4_selling_exhaustion": 0.0}
                     }
                 }
             },
