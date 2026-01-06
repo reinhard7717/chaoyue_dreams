@@ -3,6 +3,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime, time
+from scipy.stats import norm, linregress
 import numba
 from typing import Tuple
 from asgiref.sync import sync_to_async
