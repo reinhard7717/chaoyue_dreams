@@ -718,11 +718,6 @@ class AdvancedStructuralMetricsService:
             prev_day_calculated_metrics.setdefault('low', np.nan)
             prev_day_calculated_metrics.setdefault('volume', np.nan)
             prev_day_calculated_metrics.setdefault('atr_14d', np.nan)
-
-            # 添加调试探针：打印初始化后的 prev_day_calculated_metrics
-            if self.debug_params.get('should_probe', False):
-                print(f"[{stock_code}] [探针 F.1 - {first_date_dt_obj.strftime('%Y-%m-%d')}] 初始化 prev_day_calculated_metrics: {prev_day_calculated_metrics}")
-
         for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
             current_trade_timestamp = pd.to_datetime(trade_date_dt_obj)
             if current_trade_timestamp not in daily_df_with_atr.index:
@@ -884,15 +879,10 @@ class AdvancedStructuralMetricsService:
         - 核心修复: 修正了 `set_index` 的用法。旧用法会保留原始的 `trade_time` 列，导致下游 `reset_index` 操作时因列名冲突而失败。
                      新用法确保 `trade_time` 列在被设置为索引后，从DataFrame的列中被正确移除。
         """
-        # 添加无条件探针：打印 self.debug_params
-        print(f"[{stock_info.stock_code}] [探针 L.0 - {end_date}] _load_historical_metrics 调用时 debug_params: {self.debug_params}")
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
             required_cols = ['trade_time'] + [col for col in core_metric_cols if hasattr(model, col)]
-            # 添加探针：打印查询的列
-            if self.debug_params.get('should_probe', False):
-                print(f"[{stock_info.stock_code}] [探针 L.1 - {end_date}] _load_historical_metrics 查询列: {required_cols}")
             qs = model.objects.filter(
                 stock=stock_info,
                 trade_time__lt=end_date
@@ -908,13 +898,6 @@ class AdvancedStructuralMetricsService:
             for col in df.columns:
                 # 'trade_time' 已成为索引，不再是列，因此无需在循环中进行特殊处理
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-            # 添加探针：打印加载后的DataFrame头部和today_vpoc列
-            if self.debug_params.get('should_probe', False):
-                print(f"[{stock_info.stock_code}] [探针 L.2 - {end_date}] _load_historical_metrics 加载数据头部:\n{df.head()}")
-                if 'today_vpoc' in df.columns:
-                    print(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics 'today_vpoc' 列头部:\n{df['today_vpoc'].head()}")
-                else:
-                    print(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
         return df
 
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
@@ -1277,23 +1260,10 @@ class StructuralMetricsCalculators:
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] calculate_energy_density_metrics 启动。")
-            print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] atr_14: {atr_14}")
         if pd.notna(atr_14) and atr_14 > 0:
             turnover_rate_f = context.get('turnover_rate_f') # 从 context 中获取 turnover_rate_f
-            if enable_probe and is_target_date:
-                print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] turnover_rate_f: {turnover_rate_f}")
             if pd.notna(turnover_rate_f):
                 results['intraday_energy_density'] = np.log1p(turnover_rate_f) / atr_14
-                if enable_probe and is_target_date:
-                    print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] intraday_energy_density 计算完成: {results['intraday_energy_density']}")
-            else:
-                if enable_probe and is_target_date:
-                    print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] turnover_rate_f 为 NaN，intraday_energy_density 无法计算。")
-        else:
-            if enable_probe and is_target_date:
-                print(f"[{stock_code}] [探针 E.1 - {trade_date_str}] atr_14 无效，intraday_energy_density 无法计算。")
         if tick_df is not None and not tick_df.empty:
             total_volume = tick_df['volume'].sum()
             if total_volume > 0:
@@ -1474,12 +1444,7 @@ class StructuralMetricsCalculators:
             'closing_conviction_score': np.nan,
             'absorption_strength_index': np.nan,
         }
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] calculate_control_metrics 启动。")
-            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] group.empty: {group.empty}, total_volume_safe: {total_volume_safe}, atr_14: {atr_14}")
         if group.empty or total_volume_safe == 0 or not pd.notna(atr_14) or atr_14 == 0:
-            if enable_probe and is_target_date:
-                print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] 前置条件不满足，返回空结果。")
             return results
         dispersion_raw = np.nan
         if tick_df is not None and not tick_df.empty:
@@ -1581,14 +1546,6 @@ class StructuralMetricsCalculators:
                 total_vol_on_dip = down_moves['volume'].sum()
                 if total_vol_on_dip > 0:
                     results['absorption_strength_index'] = mf_buy_on_dip / total_vol_on_dip
-                    if enable_probe and is_target_date:
-                        print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] absorption_strength_index (Tick): {results['absorption_strength_index']}")
-                else:
-                    if enable_probe and is_target_date:
-                        print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] total_vol_on_dip 为0，absorption_strength_index 无法计算。")
-            else:
-                if enable_probe and is_target_date:
-                    print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] down_moves 为空，absorption_strength_index 无法计算。")
         else:
             down_minutes = group[group['close'] < group['open']].copy() # 确保是副本
             if not down_minutes.empty:
@@ -1597,19 +1554,6 @@ class StructuralMetricsCalculators:
                     total_vol_on_dip = down_minutes['vol'].sum()
                     if total_vol_on_dip > 0:
                         results['absorption_strength_index'] = mf_buy_on_dip / total_vol_on_dip
-                        if enable_probe and is_target_date:
-                            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] absorption_strength_index (Minute Fallback): {results['absorption_strength_index']}")
-                    else:
-                        if enable_probe and is_target_date:
-                            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] total_vol_on_dip (Fallback) 为0，absorption_strength_index 无法计算。")
-                else:
-                    if enable_probe and is_target_date:
-                        print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] down_minutes 缺少 'main_force_buy_vol'，absorption_strength_index 无法计算。")
-            else:
-                if enable_probe and is_target_date:
-                    print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] down_minutes 为空，absorption_strength_index 无法计算。")
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 C.1 - {trade_date_str}] calculate_control_metrics 结束。absorption_strength_index: {results['absorption_strength_index']}")
         return results
 
     @staticmethod
@@ -1634,12 +1578,7 @@ class StructuralMetricsCalculators:
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
         stock_code = debug_info.get('stock_code', 'N/A') # 获取 stock_code
         results = {}
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] calculate_game_efficiency_metrics 启动。")
-            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] group.empty: {group.empty}")
         if group.empty:
-            if enable_probe and is_target_date:
-                print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] group 为空，返回空结果。")
             return results
         # 1. 升维：趋势不对称指数 (Trend Asymmetry Index) - 分钟级
         up_minutes = group[group['close'] > group['open']]
@@ -1676,8 +1615,6 @@ class StructuralMetricsCalculators:
                 if total_down_vol > 0:
                     weighted_avg_slippage_down = np.average(abs(down_thrust_ticks['price_diff']), weights=down_thrust_ticks['volume'])
                     results['defense_cost_index'] = weighted_avg_slippage_down / atr_14
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] calculate_game_efficiency_metrics 结束。")
         return results
 
     @staticmethod
@@ -1758,14 +1695,9 @@ class ThematicMetricsCalculators:
         prev_low = prev_day_metrics.get('low')
         prev_volume = prev_day_metrics.get('volume')
         prev_vpoc = prev_day_metrics.get('vpoc')
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] equilibrium_compression_index 计算前检查:")
-            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] prev_high: {prev_high}, prev_low: {prev_low}, prev_vpoc: {prev_vpoc}, prev_volume: {prev_volume}")
-            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] today_vpoc: {today_vpoc}, day_high_qfq: {day_high_qfq}, day_low_qfq: {day_low_qfq}, total_volume_safe: {total_volume_safe}")
         if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc, day_high_qfq, day_low_qfq, total_volume_safe]):
             if day_high_qfq <= prev_high and day_low_qfq >= prev_low:
-                if enable_probe and is_target_date:
-                    print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] 满足内含日条件 (day_high_qfq <= prev_high and day_low_qfq >= prev_low)。")
+
                 prev_range = prev_high - prev_low
                 today_range = day_high_qfq - day_low_qfq
                 if prev_range > 0 and prev_volume > 0:
@@ -1774,22 +1706,9 @@ class ThematicMetricsCalculators:
                     volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
-                    if enable_probe and is_target_date:
-                        print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] equilibrium_compression_index 计算完成: {results['equilibrium_compression_index']}")
-                else:
-                    if enable_probe and is_target_date:
-                        print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] prev_range <= 0 或 prev_volume <= 0，equilibrium_compression_index 无法计算。")
-            else:
-                if enable_probe and is_target_date:
-                    print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] 不满足内含日条件，equilibrium_compression_index 无法计算。")
-        else:
-            if enable_probe and is_target_date:
-                print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] 关键前置数据缺失，equilibrium_compression_index 无法计算。")
         results['today_vpoc'] = today_vpoc
         results['today_vah'] = today_vah  
         results['today_val'] = today_val  
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] calculate_market_profile_metrics 结束。equilibrium_compression_index: {results['equilibrium_compression_index']}")
         return results
 
     @staticmethod
@@ -1964,8 +1883,6 @@ class ThematicMetricsCalculators:
                     volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
-        if enable_probe and is_target_date:
-            print(f"[{stock_code}] [探针 G.1 - {trade_date_str}] calculate_battlefield_metrics 结束。") # 修正方法名
         return results
 
     @staticmethod

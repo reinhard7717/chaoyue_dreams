@@ -540,7 +540,6 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
             # --- 探针 1: 修复了所有变量未定义和逻辑不匹配的问题 ---
-            print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
             wave_channel_height_top = (rolling_high_55d - ma55).replace(0, 1e-9)
@@ -563,7 +562,6 @@ class MultiTimeframeTrendStrategy:
             print(f"  - 价格在波段伸展度: {top_context_score_val:.2%}")
             print(f"  - ✅ 最终底部情景分 (Context): {bottom_context_score_val:.4f}")
             # --- 探针 2: 核心逻辑重构，适配“奖励模式” ---
-            print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
             print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
             p_chip_conf = get_params_block(self.tactical_engine, 'chip_ultimate_params', {})
             bonus_factor = get_param_value(p_chip_conf.get('bottom_context_bonus_factor'), 0.5)
@@ -581,7 +579,6 @@ class MultiTimeframeTrendStrategy:
             avg_trigger_score = np.nanmean(list(all_trigger_scores.values()))
             print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
             # --- 探针 3: 移除了内部的 import 语句 ---
-            print("\n--- [探针 3/3] 深入解剖：以筹码集中度的动态分 (5日周期) 为例 ---")
             slope_raw = df.get(f'SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
             accel_raw = df.get(f'ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
             # from .trend_following.utils import normalize_score # [代码删除] 移除此行
