@@ -697,9 +697,9 @@ class AdvancedStructuralMetricsService:
             if prev_date_ts in historical_metrics_df.index:
                 prev_hist_series = historical_metrics_df.loc[prev_date_ts]
                 prev_day_calculated_metrics.update({
-                    'vpoc': prev_hist_series.get('_today_vpoc'), # 修正：使用正确的字段名 _today_vpoc
-                    'vah': prev_hist_series.get('_today_vah'),   # 修正：使用正确的字段名 _today_vah
-                    'val': prev_hist_series.get('_today_val'),   # 修正：使用正确的字段名 _today_val
+                    'vpoc': prev_hist_series.get('today_vpoc'), # 修正：使用正确的字段名 today_vpoc
+                    'vah': prev_hist_series.get('today_vah'),   # 修正：使用正确的字段名 today_vah
+                    'val': prev_hist_series.get('today_val'),   # 修正：使用正确的字段名 today_val
                 })
             # 从 daily_df_with_atr 中获取前一天的日线基础数据
             if prev_date_ts in daily_df_with_atr.index:
@@ -771,9 +771,9 @@ class AdvancedStructuralMetricsService:
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
             prev_day_calculated_metrics = {
-                'vpoc': day_metric_dict.get('_today_vpoc'),
-                'vah': day_metric_dict.get('_today_vah'),
-                'val': day_metric_dict.get('_today_val'),
+                'vpoc': day_metric_dict.get('today_vpoc'), # 修正：使用正确的字段名 today_vpoc
+                'vah': day_metric_dict.get('today_vah'),   # 修正：使用正确的字段名 today_vah
+                'val': day_metric_dict.get('today_val'),   # 修正：使用正确的字段名 today_val
                 'atr_14d': daily_series_for_day.get('ATR_14'),
                 'high': daily_series_for_day.get('high_qfq'),
                 'low': daily_series_for_day.get('low_qfq'),
@@ -1768,9 +1768,9 @@ class ThematicMetricsCalculators:
         else:
             if enable_probe and is_target_date:
                 print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] 关键前置数据缺失，equilibrium_compression_index 无法计算。")
-        results['_today_vpoc'] = today_vpoc
-        results['_today_vah'] = today_vah
-        results['_today_val'] = today_val
+        results['today_vpoc'] = today_vpoc
+        results['today_vah'] = today_vah  
+        results['today_val'] = today_val  
         if enable_probe and is_target_date:
             print(f"[{stock_code}] [探针 M.1 - {trade_date_str}] calculate_market_profile_metrics 结束。equilibrium_compression_index: {results['equilibrium_compression_index']}")
         return results
