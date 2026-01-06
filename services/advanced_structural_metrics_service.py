@@ -790,7 +790,8 @@ class AdvancedStructuralMetricsService:
             'atr_50': daily_info.get('ATR_50'),
             'total_volume_safe': group['vol'].sum() if 'vol' in group.columns and not group.empty else 0,
             'debug': debug_info,
-            'turnover_rate_f': daily_info.get('turnover_rate_f'), # 确保 turnover_rate_f 传递到 context 中
+            'turnover_rate_f': daily_info.get('turnover_rate_f'),
+            'stock_code': debug_info.get('stock_code', 'N/A'), # 将 stock_code 添加到 context 顶层
         }
         energy_metrics = StructuralMetricsCalculators.calculate_energy_density_metrics(context)
         context.update(energy_metrics)
