@@ -565,7 +565,7 @@ class AdvancedStructuralMetricsService:
             chunk_new_metrics_df = await self._forge_advanced_structural_metrics(chunk_intraday_map, stock_info.stock_code, daily_df_with_atr, historical_metrics_df)
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
-            logger.info(f"[{stock_info.stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
+            print(f"[{stock_info.stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
             return 0
         full_sequence_for_derivatives = pd.concat([historical_metrics_df, all_new_core_metrics_df])
         full_sequence_for_derivatives.sort_index(inplace=True)
@@ -721,7 +721,7 @@ class AdvancedStructuralMetricsService:
 
             # 添加调试探针：打印初始化后的 prev_day_calculated_metrics
             if self.debug_params.get('should_probe', False):
-                logger.info(f"[{stock_code}] [探针 F.1 - {first_date_dt_obj.strftime('%Y-%m-%d')}] 初始化 prev_day_calculated_metrics: {prev_day_calculated_metrics}")
+                print(f"[{stock_code}] [探针 F.1 - {first_date_dt_obj.strftime('%Y-%m-%d')}] 初始化 prev_day_calculated_metrics: {prev_day_calculated_metrics}")
 
         for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
             current_trade_timestamp = pd.to_datetime(trade_date_dt_obj)
@@ -885,14 +885,14 @@ class AdvancedStructuralMetricsService:
                      新用法确保 `trade_time` 列在被设置为索引后，从DataFrame的列中被正确移除。
         """
         # 添加无条件探针：打印 self.debug_params
-        logger.info(f"[{stock_info.stock_code}] [探针 L.0 - {end_date}] _load_historical_metrics 调用时 debug_params: {self.debug_params}")
+        print(f"[{stock_info.stock_code}] [探针 L.0 - {end_date}] _load_historical_metrics 调用时 debug_params: {self.debug_params}")
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
             required_cols = ['trade_time'] + [col for col in core_metric_cols if hasattr(model, col)]
             # 添加探针：打印查询的列
             if self.debug_params.get('should_probe', False):
-                logger.info(f"[{stock_info.stock_code}] [探针 L.1 - {end_date}] _load_historical_metrics 查询列: {required_cols}")
+                print(f"[{stock_info.stock_code}] [探针 L.1 - {end_date}] _load_historical_metrics 查询列: {required_cols}")
             qs = model.objects.filter(
                 stock=stock_info,
                 trade_time__lt=end_date
@@ -910,11 +910,11 @@ class AdvancedStructuralMetricsService:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             # 添加探针：打印加载后的DataFrame头部和today_vpoc列
             if self.debug_params.get('should_probe', False):
-                logger.info(f"[{stock_info.stock_code}] [探针 L.2 - {end_date}] _load_historical_metrics 加载数据头部:\n{df.head()}")
+                print(f"[{stock_info.stock_code}] [探针 L.2 - {end_date}] _load_historical_metrics 加载数据头部:\n{df.head()}")
                 if 'today_vpoc' in df.columns:
-                    logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics 'today_vpoc' 列头部:\n{df['today_vpoc'].head()}")
+                    print(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics 'today_vpoc' 列头部:\n{df['today_vpoc'].head()}")
                 else:
-                    logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
+                    print(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
         return df
 
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
