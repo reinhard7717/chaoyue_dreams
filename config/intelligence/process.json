@@ -15,7 +15,7 @@
                 "relationship_type": "custom",
                 "scoring_mode": "bipolar",
                 "enable_probe": false,
-                "comment": "【V13.0 · 智能动态四象限与多层级共振引擎】价量关系诊断。基于价量四象限博弈模型，引入多层级共振因子、动态象限边界和智能象限内逻辑，严格仅使用数据层原始信号进行分析。",
+                "comment": "【V14.0 · 情境自适应多层级共振引擎】价量关系诊断。引入更精细的量价结构、主力行为、订单流和筹码数据，实现共振因子和象限内逻辑的动态权重调整，以适应多变市场情境。",
                 "price_volume_dynamics_params": {
                     "comment": "价量动态分析的专属参数。",
                     "quadrant_weights": {
@@ -25,88 +25,118 @@
                         "Q4_selling_exhaustion": 0.3
                     },
                     "multi_level_resonance_weights": {
-                        "price_volume_resonance": 0.3,
-                        "main_chip_resonance": 0.3,
+                        "price_volume_resonance": 0.25,
+                        "main_chip_resonance": 0.25,
                         "sentiment_liquidity_resonance": 0.2,
-                        "micro_structure_resonance": 0.2
+                        "micro_structure_resonance": 0.15,
+                        "quality_efficiency_resonance": 0.15
                     },
                     "price_volume_resonance_components": {
                         "lower_shadow_absorption": 0.2,
                         "active_buying_support": 0.2,
-                        "volume_burstiness": 0.2,
-                        "VPA_EFFICIENCY": 0.2,
-                        "volume_profile_entropy_inverted": 0.2
+                        "volume_burstiness": 0.15,
+                        "VPA_EFFICIENCY": 0.15,
+                        "volume_profile_entropy_inverted": 0.1,
+                        "volume_ratio_positive": 0.1,
+                        "upward_impulse_strength": 0.1
                     },
                     "main_chip_resonance_components": {
-                        "power_transfer_positive": 0.25,
-                        "main_force_conviction_positive": 0.25,
-                        "main_force_flow_directionality_positive": 0.2,
+                        "power_transfer_positive": 0.2,
+                        "main_force_conviction_positive": 0.2,
+                        "main_force_flow_directionality_positive": 0.15,
                         "chip_strategic_posture": 0.15,
-                        "chip_fault_blockage_ratio_inverted": 0.15
+                        "chip_fault_blockage_ratio_inverted": 0.1,
+                        "main_force_cost_advantage_positive": 0.1,
+                        "SMART_MONEY_HM_COORDINATED_ATTACK": 0.1
                     },
                     "sentiment_liquidity_resonance_components": {
-                        "market_sentiment_positive": 0.3,
-                        "retail_panic_surrender_inverted": 0.2,
-                        "bid_side_liquidity": 0.2,
+                        "market_sentiment_positive": 0.25,
+                        "retail_panic_surrender_inverted": 0.15,
+                        "bid_side_liquidity": 0.15,
                         "liquidity_slope_positive": 0.15,
-                        "order_flow_imbalance_positive": 0.15
+                        "order_flow_imbalance_positive": 0.15,
+                        "loser_pain_index_inverted": 0.15
                     },
                     "micro_structure_resonance_components": {
-                        "order_book_imbalance_positive": 0.25,
-                        "micro_price_impact_asymmetry_positive": 0.25,
-                        "intraday_energy_density": 0.2,
+                        "order_book_imbalance_positive": 0.2,
+                        "micro_price_impact_asymmetry_positive": 0.2,
+                        "intraday_energy_density": 0.15,
                         "vpin_score_inverted": 0.15,
-                        "micro_impact_elasticity_positive": 0.15
+                        "micro_impact_elasticity_positive": 0.1,
+                        "order_book_clearing_rate": 0.1,
+                        "closing_acceptance_type_positive": 0.1
+                    },
+                    "quality_efficiency_resonance_components": {
+                        "upward_impulse_purity": 0.25,
+                        "flow_credibility_index": 0.25,
+                        "profit_realization_quality": 0.2,
+                        "active_volume_price_efficiency": 0.15,
+                        "constructive_turnover_ratio": 0.15
                     },
                     "Q1_reward_weights": {
-                        "VPA_BUY_EFFICIENCY": 0.3,
-                        "main_force_execution_alpha": 0.25,
-                        "order_flow_imbalance_positive": 0.25,
-                        "main_force_vwap_up_guidance_positive": 0.2
+                        "VPA_BUY_EFFICIENCY": 0.2,
+                        "main_force_execution_alpha": 0.2,
+                        "order_flow_imbalance_positive": 0.15,
+                        "main_force_vwap_up_guidance_positive": 0.15,
+                        "upward_impulse_strength": 0.15,
+                        "flow_credibility_index": 0.15
                     },
                     "Q1_penalty_weights": {
-                        "main_force_t0_sell_efficiency": 0.5,
-                        "ask_side_liquidity_high": 0.5
+                        "wash_trade": 0.3,
+                        "deception_index": 0.2,
+                        "main_force_t0_sell_efficiency": 0.2,
+                        "ask_side_liquidity_high": 0.15,
+                        "profit_realization_quality_low": 0.15
                     },
                     "Q2_divergence_penalty_weights": {
-                        "retail_fomo": 0.25,
-                        "wash_trade": 0.25,
-                        "deception_index": 0.2,
+                        "retail_fomo": 0.2,
+                        "wash_trade": 0.2,
+                        "deception_index": 0.15,
                         "vpin_score_high": 0.15,
-                        "winner_loser_momentum_negative": 0.15
+                        "winner_loser_momentum_negative": 0.15,
+                        "price_thrust_divergence_negative": 0.15
                     },
                     "Q3_reward_weights": {
-                        "lower_shadow_absorption": 0.3,
-                        "active_buying_support": 0.3,
-                        "main_force_flow_directionality_positive": 0.2,
-                        "main_force_t0_buy_efficiency": 0.2
+                        "lower_shadow_absorption": 0.25,
+                        "active_buying_support": 0.25,
+                        "main_force_flow_directionality_positive": 0.15,
+                        "main_force_t0_buy_efficiency": 0.15,
+                        "capitulation_absorption_index": 0.2
                     },
                     "Q3_penalty_weights": {
-                        "loser_loss_margin_avg_expanding": 0.4,
-                        "panic_selling_cascade": 0.3,
-                        "chip_fault_blockage_ratio": 0.3
+                        "loser_loss_margin_avg_expanding": 0.25,
+                        "panic_selling_cascade": 0.2,
+                        "chip_fault_blockage_ratio": 0.2,
+                        "downward_impulse_strength": 0.2,
+                        "structural_tension_index": 0.15
                     },
                     "Q4_reward_weights": {
-                        "volume_atrophy": 0.25,
-                        "volume_profile_entropy_inverted": 0.25,
-                        "FRACTAL_DIMENSION_calm": 0.2,
+                        "volume_atrophy": 0.2,
+                        "volume_profile_entropy_inverted": 0.2,
+                        "FRACTAL_DIMENSION_calm": 0.15,
                         "bid_side_liquidity": 0.15,
-                        "vpin_score_low": 0.15
+                        "vpin_score_low": 0.1,
+                        "loser_pain_index_high": 0.1,
+                        "equilibrium_compression_index": 0.1
                     },
                     "Q4_penalty_weights": {
-                        "price_reversion_velocity_negative": 0.5,
-                        "structural_entropy_change_positive": 0.5
+                        "price_reversion_velocity_negative": 0.3,
+                        "structural_entropy_change_positive": 0.25,
+                        "main_force_vwap_down_guidance_positive": 0.25,
+                        "chip_fatigue_index_low": 0.2
                     },
                     "dynamic_context_modulator_weights": {
-                        "market_sentiment": 0.4,
+                        "market_sentiment": 0.3,
                         "volatility_inverse": 0.3,
-                        "trend_vitality": 0.3
+                        "trend_vitality": 0.2,
+                        "liquidity_authenticity_score": 0.2
                     },
                     "dynamic_exponent_modulator_weights": {
-                        "volatility_inverse": 0.3,
-                        "trend_vitality": 0.3,
+                        "volatility_inverse": 0.25,
+                        "trend_vitality": 0.25,
                         "market_sentiment": 0.2,
-                        "liquidity_slope_positive": 0.2
+                        "liquidity_slope_positive": 0.15,
+                        "microstructure_efficiency_index": 0.15
                     },
                     "final_exponent_base": 1.2,
                     "dynamic_threshold_sensitivity": 0.05,
