@@ -888,6 +888,9 @@ class AdvancedStructuralMetricsService:
         def get_data():
             core_metric_cols = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
             required_cols = ['trade_time'] + [col for col in core_metric_cols if hasattr(model, col)]
+            # 添加探针：打印查询的列
+            if self.debug_params.get('should_probe', False):
+                logger.info(f"[{stock_info.stock_code}] [探针 L.1 - {end_date}] _load_historical_metrics 查询列: {required_cols}")
             qs = model.objects.filter(
                 stock=stock_info,
                 trade_time__lt=end_date
@@ -903,6 +906,13 @@ class AdvancedStructuralMetricsService:
             for col in df.columns:
                 # 'trade_time' 已成为索引，不再是列，因此无需在循环中进行特殊处理
                 df[col] = pd.to_numeric(df[col], errors='coerce')
+            # 添加探针：打印加载后的DataFrame头部和today_vpoc列
+            if self.debug_params.get('should_probe', False):
+                logger.info(f"[{stock_info.stock_code}] [探针 L.2 - {end_date}] _load_historical_metrics 加载数据头部:\n{df.head()}")
+                if 'today_vpoc' in df.columns:
+                    logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics 'today_vpoc' 列头部:\n{df['today_vpoc'].head()}")
+                else:
+                    logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
         return df
 
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
