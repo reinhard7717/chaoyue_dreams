@@ -884,6 +884,9 @@ class AdvancedStructuralMetricsService:
         - 核心修复: 修正了 `set_index` 的用法。旧用法会保留原始的 `trade_time` 列，导致下游 `reset_index` 操作时因列名冲突而失败。
                      新用法确保 `trade_time` 列在被设置为索引后，从DataFrame的列中被正确移除。
         """
+        # 添加无条件探针：打印 self.debug_params
+        logger.info(f"[{stock_info.stock_code}] [探针 L.0 - {end_date}] _load_historical_metrics 调用时 debug_params: {self.debug_params}")
+
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
@@ -912,7 +915,7 @@ class AdvancedStructuralMetricsService:
                 if 'today_vpoc' in df.columns:
                     logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics 'today_vpoc' 列头部:\n{df['today_vpoc'].head()}")
                 else:
-                    logger.info(f"[{stock_info.stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
+                    logger.info(f"[{stock_code}] [探针 L.3 - {end_date}] _load_historical_metrics: 'today_vpoc' 列不存在于加载的数据中。")
         return df
 
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
