@@ -718,6 +718,11 @@ class AdvancedStructuralMetricsService:
             prev_day_calculated_metrics.setdefault('low', np.nan)
             prev_day_calculated_metrics.setdefault('volume', np.nan)
             prev_day_calculated_metrics.setdefault('atr_14d', np.nan)
+
+            # 添加调试探针：打印初始化后的 prev_day_calculated_metrics
+            if self.debug_params.get('should_probe', False):
+                logger.info(f"[{stock_code}] [探针 F.1 - {first_date_dt_obj.strftime('%Y-%m-%d')}] 初始化 prev_day_calculated_metrics: {prev_day_calculated_metrics}")
+
         for trade_date_dt_obj, data_for_day in sorted(intraday_map.items()):
             current_trade_timestamp = pd.to_datetime(trade_date_dt_obj)
             if current_trade_timestamp not in daily_df_with_atr.index:
