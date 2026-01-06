@@ -186,6 +186,7 @@
         "risk_reward_profile_D": [5, 13, 21, 34],
         "structural_leverage_D": [5, 13, 21, 34],
         "structural_node_count_D": [5, 13, 21, 34],
+        "mean_reversion_frequency_D": [5, 13, 21, 34],
         "structural_potential_score_D": [5, 13, 21, 34],
         "support_validation_score_D": [5, 13, 21, 34],
         "trend_alignment_index_D": [5, 13, 21, 34],
