@@ -1946,7 +1946,7 @@ class ProcessIntelligence:
         bullish_intent = (bullish_intent * long_term_trend_strength_modulator).clip(0, 1)
 
         # 幂平均，放大高分，抑制低分
-        power_mean_exponent = self.get_param_value(p_synthesis.get('power_mean_exponent'), 2.0)
+        power_mean_exponent = get_param_value(p_synthesis.get('power_mean_exponent'), 2.0)
         bullish_intent = bullish_intent.pow(power_mean_exponent)
         _temp_debug_values["基础看涨意图"] = {
             "power_mean_exponent": power_mean_exponent,
