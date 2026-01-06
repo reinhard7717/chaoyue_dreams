@@ -52,6 +52,13 @@ def is_trading_time():
         return True
     return False
 
+def is_trading_day():
+    now = datetime.datetime.now()
+    # 新增代码行: 首先检查当天是否为交易日
+    if not TradeCalendar.is_trade_date(check_date=now.date()):
+        return False # 如果不是交易日，则直接返回False
+    return True # 如果是交易日，则返回True
+
 # --- 辅助函数：获取需要处理的股票代码 ---
 async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBasicInfoDao):
     """
@@ -261,7 +268,7 @@ def dispatch_stocks_real_tick_task(cache_manager=None): # 移除不再需要的 
     【修改-调度器】
     此任务由 Celery Beat 调度，统一分发“真实逐笔(Tick)”数据获取任务。
     """
-    if not is_trading_time():
+    if not is_trading_day():
         return
     # 1. 获取需要处理的股票列表
     stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
