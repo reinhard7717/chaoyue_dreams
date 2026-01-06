@@ -4545,6 +4545,7 @@ class ProcessIntelligence:
                         FRACTAL_DIMENSION_89d_D, SAMPLE_ENTROPY_13d_D, micro_impact_elasticity_D。
         - 优化判定思路：引入动态象限边界，强化多层级共振因子，细化象限内智能逻辑，动态调整非线性指数。
         - 修复：MTF信号名称生成逻辑，确保正确处理包含'_D'子串的原始信号名称。
+        - 修复：'norm_trend_vitality'等情境因子在被使用前未赋值的错误。
         """
         method_name = "_calculate_price_volume_dynamics"
         # --- 调试信息构建 ---
@@ -4919,6 +4920,12 @@ class ProcessIntelligence:
         v_mom = mtf_volume_momentum
         final_score = pd.Series(0.0, index=df_index)
 
+        # 【修复点】将市场情境因子计算提前，确保在动态阈值计算时可用
+        # 市场情境因子：波动率、趋势强度、市场情绪
+        norm_market_sentiment = self._normalize_series(market_sentiment_score, df_index, bipolar=True)
+        norm_volatility_inverse = self._normalize_series(volatility_instability_index, df_index, ascending=False)
+        norm_trend_vitality = self._normalize_series(trend_vitality_index, df_index, bipolar=False)
+
         # 动态阈值：基于价格动量和成交量动量的历史标准差，并考虑市场情境
         price_volatility_norm = self._normalize_series(close_price.pct_change().rolling(self.std_window).std(), df_index, bipolar=False)
         volume_volatility_norm = self._normalize_series(volume.pct_change().rolling(self.std_window).std(), df_index, bipolar=False)
@@ -5049,9 +5056,10 @@ class ProcessIntelligence:
 
         # --- 5. 动态权重与最终融合 ---
         # 市场情境因子：波动率、趋势强度、市场情绪
-        norm_market_sentiment = self._normalize_series(market_sentiment_score, df_index, bipolar=True)
-        norm_volatility_inverse = self._normalize_series(volatility_instability_index, df_index, ascending=False)
-        norm_trend_vitality = self._normalize_series(trend_vitality_index, df_index, bipolar=False)
+        # 【修复点】这些变量已在上方计算，此处无需重复
+        # norm_market_sentiment = self._normalize_series(market_sentiment_score, df_index, bipolar=True)
+        # norm_volatility_inverse = self._normalize_series(volatility_instability_index, df_index, ascending=False)
+        # norm_trend_vitality = self._normalize_series(trend_vitality_index, df_index, bipolar=False)
 
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
