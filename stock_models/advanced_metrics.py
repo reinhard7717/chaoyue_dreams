@@ -788,6 +788,10 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'value_area_migration': '价值区迁移度(ATR)',
         'value_area_overlap_pct': '价值区重叠度(%)',
         'closing_acceptance_type': '收盘接受度类型',
+        # 新增字段：用于存储当日计算出的VPOC, VAH, VAL，供次日计算使用
+        'today_vpoc': '当日成交量加权平均价',
+        'today_vah': '当日价值区高点',
+        'today_val': '当日价值区低点',
     }
     CORE_METRICS = {
         **ENERGY_DENSITY_METRICS,
@@ -849,6 +853,10 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'breakthrough_conviction_score',
         'defense_solidity_score',
         'equilibrium_compression_index',
+        # 新增字段也添加到排除列表，因为它们不需要计算斜率和加速度
+        'today_vpoc',
+        'today_vah',
+        'today_val',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
