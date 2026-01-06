@@ -4544,6 +4544,7 @@ class ProcessIntelligence:
                         liquidity_slope_D, chip_fault_blockage_ratio_D, winner_loser_momentum_D,
                         FRACTAL_DIMENSION_89d_D, SAMPLE_ENTROPY_13d_D, micro_impact_elasticity_D。
         - 优化判定思路：引入动态象限边界，强化多层级共振因子，细化象限内智能逻辑，动态调整非线性指数。
+        - 修复：MTF信号名称生成逻辑，确保正确处理包含'_D'子串的原始信号名称。
         """
         method_name = "_calculate_price_volume_dynamics"
         # --- 调试信息构建 ---
@@ -4672,11 +4673,19 @@ class ProcessIntelligence:
             'structural_entropy_change_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
-        base_signals_for_mtf = [s.replace('_D', '') for s in required_signals if not s.startswith(('SLOPE_', 'ACCEL_')) and s.endswith('_D')]
-        for base_sig_name in base_signals_for_mtf:
+        base_signals_for_mtf_raw = []
+        for s in required_signals:
+            # 排除已经包含SLOPE_或ACCEL_的信号，并且确保是日线信号
+            if not s.startswith(('SLOPE_', 'ACCEL_')) and s.endswith('_D'):
+                # 修正：提取不带_D后缀的原始信号名，使用rsplit确保只移除最后一个_D
+                base_signals_for_mtf_raw.append(s.rsplit('_', 1)[0]) # e.g., 'FRACTAL_DIMENSION_89d_D' -> 'FRACTAL_DIMENSION_89d'
+
+        for base_sig_name in base_signals_for_mtf_raw:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+                # 构造MTF斜率信号名：SLOPE_PERIOD_ORIGINAL_NAME_D
                 required_signals.append(f'SLOPE_{period_str}_{base_sig_name}_D')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+                # 构造MTF加速度信号名：ACCEL_PERIOD_ORIGINAL_NAME_D
                 required_signals.append(f'ACCEL_{period_str}_{base_sig_name}_D')
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
@@ -4870,7 +4879,7 @@ class ProcessIntelligence:
 
         # 3.3 市场情绪-流动性共振
         sentiment_liquidity_resonance_components_dict = {
-            "market_sentiment_positive": mtf_market_sentiment_score.clip(lower=0),
+            "market_sentiment_positive": market_sentiment_score.clip(lower=0), # 使用原始情绪分数，MTF情绪可能过于平滑
             "retail_panic_surrender_inverted": (1 - mtf_retail_panic_surrender), # 散户恐慌越低越好
             "bid_side_liquidity": mtf_bid_side_liquidity,
             "liquidity_slope_positive": mtf_liquidity_slope.clip(lower=0),
