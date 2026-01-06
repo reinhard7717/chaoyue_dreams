@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Any
 
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score, 
-    get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
-    normalize_score, _robust_geometric_mean, get_adaptive_mtf_normalized_score
+    is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
+    normalize_score, _robust_geometric_mean
 )
 
 class ProcessIntelligence:
@@ -1393,7 +1393,7 @@ class ProcessIntelligence:
             # min_periods 确保在数据不足时不会产生NaN，而是从有足够数据开始计算
             cumulative_mf_flow_long = main_force_net_flow.rolling(window=cumulative_mf_flow_window, min_periods=int(cumulative_mf_flow_window * 0.5)).sum()
             # MTF归一化，使用中短期MTF权重
-            mtf_cumulative_mf_flow = self.get_adaptive_mtf_normalized_score(
+            mtf_cumulative_mf_flow = get_adaptive_mtf_normalized_score(
                 cumulative_mf_flow_long, df.index, hc_mtf_weights_medium, ascending=True,
                 debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_cumulative_mf_flow")
             )
@@ -1405,7 +1405,7 @@ class ProcessIntelligence:
             rolling_std_winner_concentration = winner_concentration_90pct.rolling(window=chip_concentration_stability_window, min_periods=int(chip_concentration_stability_window * 0.5)).std().replace(0, np.nan)
             chip_concentration_stability_raw = (1 / rolling_std_winner_concentration).fillna(0)
             # MTF归一化，使用中短期MTF权重
-            mtf_chip_concentration_stability = self.get_adaptive_mtf_normalized_score(
+            mtf_chip_concentration_stability = get_adaptive_mtf_normalized_score(
                 chip_concentration_stability_raw, df.index, hc_mtf_weights_medium, ascending=True,
                 debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_chip_concentration_stability")
             )
@@ -1414,7 +1414,7 @@ class ProcessIntelligence:
             # 3. 长期趋势强度上下文 (Long-Term Trend Strength Context)
             # 获取长期趋势斜率，现在是21日周期
             # MTF归一化，使用中短期MTF权重
-            mtf_long_term_trend_strength = self.get_adaptive_mtf_normalized_score(
+            mtf_long_term_trend_strength = get_adaptive_mtf_normalized_score(
                 long_term_trend_slope, df.index, hc_mtf_weights_medium, ascending=True,
                 debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_long_term_trend_strength")
             )
