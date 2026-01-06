@@ -15,7 +15,7 @@
                 "relationship_type": "custom",
                 "scoring_mode": "bipolar",
                 "enable_probe": false,
-                "comment": "【V15.0 · 历史情境感知与动态记忆引擎】价量关系诊断。引入历史情境因子，使信号具备记忆和上下文感知能力，动态调制共振权重和象限逻辑，以适应市场阶段变化。",
+                "comment": "【V16.0 · 情境自适应信号影响力调制引擎】价量关系诊断。引入情境调制器，动态调整微观信号（如洗盘、欺骗）对奖励/惩罚的实际贡献，实现更深层次的上下文感知。",
                 "price_volume_dynamics_params": {
                     "comment": "价量动态分析的专属参数。",
                     "quadrant_weights": {
@@ -146,6 +146,16 @@
                         "phase_transition_Q4_to_Q1": 0.2,
                         "cumulative_flow_balance": 0.15,
                         "market_regime_strength": 0.15
+                    },
+                    "context_impact_modulators": {
+                        "deception_impact_reduction_factor": 0.5,
+                        "trend_reward_enhancement_factor": 0.2,
+                        "divergence_penalty_enhancement_factor": 0.3,
+                        "panic_impact_reduction_factor": 0.4,
+                        "absorption_reward_enhancement_factor": 0.3,
+                        "blockage_penalty_enhancement_factor": 0.3,
+                        "exhaustion_reward_enhancement_factor": 0.3,
+                        "false_bottom_penalty_reduction_factor": 0.4
                     },
                     "final_exponent_base": 1.2,
                     "dynamic_threshold_sensitivity": 0.05,
