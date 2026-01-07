@@ -98,7 +98,7 @@ class DynamicMechanicsEngine:
         p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
         actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 新增行：健壮性检查
+        # 健壮性检查
         if not isinstance(actual_mtf_weights, dict):
             print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_momentum' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
             actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
@@ -174,7 +174,7 @@ class DynamicMechanicsEngine:
         p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
         actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 新增行：健壮性检查
+        # 健壮性检查
         if not isinstance(actual_mtf_weights, dict):
             print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_inertia' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
             actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
@@ -230,7 +230,7 @@ class DynamicMechanicsEngine:
         p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
         actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 新增行：健壮性检查
+        # 健壮性检查
         if not isinstance(actual_mtf_weights, dict):
             print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_stability' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
             actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
@@ -283,7 +283,7 @@ class DynamicMechanicsEngine:
         p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
         actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 新增行：健壮性检查
+        # 健壮性检查
         if not isinstance(actual_mtf_weights, dict):
             print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_energy' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
             actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
@@ -335,7 +335,7 @@ class DynamicMechanicsEngine:
         p_conf_struct_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_norm_weights_container = p_conf_struct_ultimate.get('mtf_normalization_weights', {})
         actual_mtf_weights = mtf_norm_weights_container.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 新增行：健壮性检查
+        # 健壮性检查
         if not isinstance(actual_mtf_weights, dict):
             print(f"    -> [力学情报警告] 方法 '_diagnose_axiom_ma_dynamics' 的MTF权重配置格式错误，使用硬编码默认值。配置: {actual_mtf_weights}")
             actual_mtf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}

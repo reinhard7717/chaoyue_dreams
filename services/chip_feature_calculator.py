@@ -327,12 +327,12 @@ class ChipFeatureCalculator:
                 # 新逻辑：(买方力量 - 卖方力量) / 总力量，量化“净胜结果”
                 net_conviction_flow = (gathering_total_weighted - dispersal_vol) / total_battle_vol
                 results['conviction_flow_index'] = net_conviction_flow * 100
-                # 新增行：计算买入和卖出信念流强度
+                # 计算买入和卖出信念流强度
                 results['conviction_flow_buy_intensity'] = (gathering_total_weighted / total_battle_vol) * 100
                 results['conviction_flow_sell_intensity'] = (dispersal_vol / total_battle_vol) * 100
             else:
                 results['conviction_flow_index'] = 0.0
-                # 新增行：当总战斗量为0时，强度也为0
+                # 当总战斗量为0时，强度也为0
                 results['conviction_flow_buy_intensity'] = 0.0
                 results['conviction_flow_sell_intensity'] = 0.0
         today_winner_rate = context.get('total_winner_rate')
@@ -1010,7 +1010,7 @@ class ChipFeatureCalculator:
             results['covert_accumulation_signal'] = np.clip(order_flow_imbalance * 100, 0, 100)
         else:
             results['covert_accumulation_signal'] = 0
-        # 新增行：计算隐蔽派发信号
+        # 计算隐蔽派发信号
         if price_momentum >= 0: # 价格上涨或横盘时，如果OFI为负，则可能是隐蔽派发
             results['covert_distribution_signal'] = np.clip(-order_flow_imbalance * 100, 0, 100)
         else:
@@ -1248,7 +1248,7 @@ class ChipFeatureCalculator:
                     if valid_weights.sum() > 0:
                         weighted_intent = np.average(valid_intent, weights=valid_weights)
                         results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
-                        # 新增行：计算买方和卖方意图强度
+                        # 计算买方和卖方意图强度
                         weighted_buy_power = np.average(total_weighted_bid_power[valid_mask], weights=valid_weights)
                         weighted_sell_power = np.average(total_weighted_ask_power[valid_mask], weights=valid_weights)
                         total_weighted_power = weighted_buy_power + weighted_sell_power
@@ -1415,7 +1415,7 @@ class ChipFeatureCalculator:
             results['suppressive_accumulation_intensity'] = np.clip(intensity_score * 100, 0, 100)
         else:
             results['suppressive_accumulation_intensity'] = 0.0
-        # 新增行：计算支撑性派发强度
+        # 计算支撑性派发强度
         supportive_mask = pct_change >= 0 # 价格上涨或横盘时
         if supportive_mask:
             intensity_score = (covert_distribution / 100) * np.log1p(np.clip(profit_taking_flow_ratio, 0, None))
@@ -1481,7 +1481,6 @@ class ChipFeatureCalculator:
             'day_high': day_high, 'day_low': day_low
         }
         return raw_hf_df, common_data
-        # [新增的代码块] 结束
 
     def _engineer_hf_features_for_chips(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
         """
@@ -1489,6 +1488,7 @@ class ChipFeatureCalculator:
         - 核心修复: 补全了 `mid_price_delta` 列的计算逻辑。此前的版本遗漏了这一关键步骤，
                      导致下游 `_compute_contextual_action_metrics` 方法在尝试访问该列时
                      因 `KeyError` 而崩溃。
+        - 核心新增: 植入详细探针，用于调试 `main_force_ofi` 的计算过程。
         """
         import numpy as np
         features = {
@@ -1497,19 +1497,62 @@ class ChipFeatureCalculator:
             'mf_buy_vol': 0.0, 'mf_sell_vol': 0.0, 'offensive_volume': 0.0,
             'passive_volume': 0.0, 'hf_mf_buy_vwap': np.nan, 'hf_mf_sell_vwap': np.nan,
         }
+        # 获取调试参数
+        debug_params = self.ctx.get('debug_params', {})
+        enable_probe = debug_params.get('should_probe', False)
+        probe_dates = debug_params.get('probe_dates', [])
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"\n[探针 D.1 - {stock_code} - {trade_date}] _engineer_hf_features_for_chips 启动。")
+            print(f"  - raw_hf_df.empty: {raw_hf_df.empty}")
         if raw_hf_df is None or raw_hf_df.empty:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 D.1.1 - {stock_code} - {trade_date}] raw_hf_df 为空，返回默认特征。")
             return pd.DataFrame(), features
         hf_analysis_df = raw_hf_df.copy()
+        # 确保数值类型以便进行计算
+        for col in ['buy_price1', 'sell_price1', 'buy_volume1', 'sell_volume1', 'amount', 'volume']:
+            if col in hf_analysis_df.columns:
+                hf_analysis_df[col] = pd.to_numeric(hf_analysis_df[col], errors='coerce')
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
-        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # 补全 mid_price_delta 的计算
+        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff()
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 D.1.2 - {stock_code} - {trade_date}] 中间价计算完成。")
+            print(f"    - mid_price (前5个): {hf_analysis_df['mid_price'].head().tolist()}")
+            print(f"    - prev_mid_price (前5个): {hf_analysis_df['prev_mid_price'].head().tolist()}")
+            print(f"    - mid_price_delta (前5个): {hf_analysis_df['mid_price_delta'].head().tolist()}")
         buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure - sell_pressure
-        is_main_force_trade = hf_analysis_df['amount'] > 200000
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 D.1.3 - {stock_code} - {trade_date}] 原始OFI计算完成。")
+            print(f"    - buy_pressure (总和): {buy_pressure.sum()}")
+            print(f"    - sell_pressure (总和): {sell_pressure.sum()}")
+            print(f"    - ofi (总和): {hf_analysis_df['ofi'].sum()}")
+            print(f"    - ofi (前5个): {hf_analysis_df['ofi'].head().tolist()}")
+        main_force_threshold = 200000 # 20万元
+        is_main_force_trade = hf_analysis_df['amount'] > main_force_threshold
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 D.1.4 - {stock_code} - {trade_date}] 主力交易识别完成。")
+            print(f"    - main_force_threshold: {main_force_threshold}")
+            print(f"    - 总交易笔数: {len(hf_analysis_df)}")
+            print(f"    - 主力交易笔数: {is_main_force_trade.sum()}")
+            print(f"    - amount (前5个): {hf_analysis_df['amount'].head().tolist()}")
+            print(f"    - is_main_force_trade (前5个): {is_main_force_trade.head().tolist()}")
         hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['ofi'], 0)
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 D.1.5 - {stock_code} - {trade_date}] 最终 main_force_ofi 计算完成。")
+            print(f"    - main_force_ofi (总和): {hf_analysis_df['main_force_ofi'].sum()}")
+            print(f"    - main_force_ofi (前5个): {hf_analysis_df['main_force_ofi'].head().tolist()}")
+            print(f"    - main_force_ofi (后5个): {hf_analysis_df['main_force_ofi'].tail().tolist()}")
+            print(f"    - main_force_ofi (正值总和 - 主力买入): {hf_analysis_df['main_force_ofi'].clip(lower=0).sum()}")
+            print(f"    - main_force_ofi (负值总和 - 主力卖出): {hf_analysis_df['main_force_ofi'].clip(upper=0).sum()}")
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 D.1.6 - {stock_code} - {trade_date}] mf_trades 为空，返回默认特征。")
             return hf_analysis_df, features
         features['mf_trades'] = mf_trades
         buy_trades_mask = mf_trades['type'] == 'B'
@@ -1521,6 +1564,11 @@ class ChipFeatureCalculator:
         if total_mf_vol > 0:
             features['mf_buy_vol'] = mf_trades[buy_trades_mask]['volume'].sum()
             features['mf_sell_vol'] = mf_trades[sell_trades_mask]['volume'].sum()
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 D.1.7 - {stock_code} - {trade_date}] 主力买卖量计算完成。")
+                print(f"    - total_mf_vol: {total_mf_vol}")
+                print(f"    - mf_buy_vol: {features['mf_buy_vol']}")
+                print(f"    - mf_sell_vol: {features['mf_sell_vol']}")
         return hf_analysis_df, features
 
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
