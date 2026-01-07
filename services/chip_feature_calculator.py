@@ -1546,7 +1546,7 @@ class ChipFeatureCalculator:
         }
         # 获取调试参数
         debug_params = context.get('debug_params', {})
-        enable_probe = debug_params.get('enable_contextual_action_probe', False)
+        enable_probe = debug_params.get('should_probe', False)
         probe_dates = debug_params.get('probe_dates', [])
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
