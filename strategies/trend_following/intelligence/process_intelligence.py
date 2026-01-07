@@ -642,10 +642,12 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V11.2 · 派发承接情境化版】计算“主力拉升意图”的专属关系分数。
+        【V11.3 · 承接强化与风险情境化版】计算“主力拉升意图”的专属关系分数。
+        - 核心强化: 显著增强“派发吸收强度”的积极作用，使其更直接地贡献于看涨意图，并提高其在攻击性中的权重。
+        - 核心优化: 进一步情境化“派发风险”，提高“派发吸收强度反向”在派发风险中的权重，以更有效地对冲派发烈度。
+        - 核心调整: 进一步调整风险惩罚的非线性函数参数，使其在面对中等风险时更加温和。
         - 核心升级: 引入“派发吸收强度”指标，对冲“派发烈度”带来的负面影响，更全面反映市场承接能力。
         - 核心优化: 引入“派发情境衰减器”，根据当日涨幅动态削弱“派发烈度”对看跌意图的贡献。
-        - 核心优化: 调整风险惩罚的敏感度，使其在面对中等风险时更温和，避免过度惩罚。
         - 核心升级: 严格限制仅使用数据层提供的原始指标，移除所有情报层生成的SCORE_FOUNDATION_AXIOM_*信号。
         - 动态权重机制精细化: 综合市场稳定性、市场情绪（基于原始零售/主力行为）、流动性（基于原始订单簿/资金流）等原始情境因子，自适应调整各维度权重。
         - 非线性融合优化: 基础看涨意图的加权幂平均幂次p根据原始情境因子动态调整。
@@ -674,7 +676,7 @@ class ProcessIntelligence:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算主力拉升意图..."] = ""
         # 获取MTF权重配置
-        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_conf_structural_ultimate = get_param_value(self.strategy.config.get('structural_ultimate_params'), {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
@@ -1261,6 +1263,8 @@ class ProcessIntelligence:
         mtf_vwap_sell_control_strength = self._get_mtf_slope_accel_score(df, 'vwap_sell_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_winner_stability_index = self._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # V11.2 新增MTF融合信号
+        mtf_absorption_of_distribution_intensity = self._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+
         _temp_debug_values["MTF融合信号"] = {
             "mtf_price_trend": mtf_price_trend,
             "mtf_mf_net_flow": mtf_mf_net_flow,
@@ -1401,6 +1405,11 @@ class ProcessIntelligence:
             "mtf_absorption_of_distribution_intensity": mtf_absorption_of_distribution_intensity # V11.2
         }
         # --- V11.1: 引入历史记忆与上下文机制 ---
+        # 确保这些变量在任何情况下都被初始化
+        mtf_cumulative_mf_flow = pd.Series(0.0, index=df.index, dtype=np.float32)
+        mtf_chip_concentration_stability = pd.Series(0.5, index=df.index, dtype=np.float32) # 0.5表示中性，不增强也不削弱
+        mtf_long_term_trend_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
+
         if hc_enabled:
             # 1. 主力资金累计记忆 (Cumulative Main Force Flow Memory)
             # 计算长期主力资金累计净流入
@@ -1411,7 +1420,7 @@ class ProcessIntelligence:
                 cumulative_mf_flow_long, df.index, hc_mtf_weights_medium, ascending=True,
                 debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_cumulative_mf_flow")
             )
-            _temp_debug_values["MTF融合信号"]["mtf_cumulative_mf_flow"] = mtf_cumulative_mf_flow # ADDED HERE
+            _temp_debug_values["MTF融合信号"]["mtf_cumulative_mf_flow"] = mtf_cumulative_mf_flow
 
             # 2. 筹码集中度稳定性 (Chip Concentration Stability)
             # 计算赢家筹码集中度长期波动性的倒数（波动性越低，稳定性越高）
@@ -1423,7 +1432,7 @@ class ProcessIntelligence:
                 chip_concentration_stability_raw, df.index, hc_mtf_weights_medium, ascending=True,
                 debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_chip_concentration_stability")
             )
-            _temp_debug_values["MTF融合信号"]["mtf_chip_concentration_stability"] = mtf_chip_concentration_stability # ADDED HERE
+            _temp_debug_values["MTF融合信号"]["mtf_chip_concentration_stability"] = mtf_chip_concentration_stability
 
             # 3. 长期趋势强度上下文 (Long-Term Trend Strength Context)
             # 获取长期趋势斜率，现在是21日周期
@@ -1432,16 +1441,8 @@ class ProcessIntelligence:
                 long_term_trend_slope, df.index, hc_mtf_weights_medium, ascending=True,
                 debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_long_term_trend_strength")
             )
-            _temp_debug_values["MTF融合信号"]["mtf_long_term_trend_strength"] = mtf_long_term_trend_strength # ADDED HERE
-        else:
-            # 如果历史上下文机制未启用，则这些信号为中性值
-            mtf_cumulative_mf_flow = pd.Series(0.0, index=df.index, dtype=np.float32)
-            mtf_chip_concentration_stability = pd.Series(0.5, index=df.index, dtype=np.float32) # 0.5表示中性，不增强也不削弱
-            mtf_long_term_trend_strength = pd.Series(0.0, index=df.index, dtype=np.float32)
-            # Also add to debug values for consistency, even if neutral
-            _temp_debug_values["MTF融合信号"]["mtf_cumulative_mf_flow"] = mtf_cumulative_mf_flow # ADDED HERE
-            _temp_debug_values["MTF融合信号"]["mtf_chip_concentration_stability"] = mtf_chip_concentration_stability # ADDED HERE
-            _temp_debug_values["MTF融合信号"]["mtf_long_term_trend_strength"] = mtf_long_term_trend_strength # ADDED HERE
+            _temp_debug_values["MTF融合信号"]["mtf_long_term_trend_strength"] = mtf_long_term_trend_strength
+        # else 块已在初始化时处理，确保变量始终有值
 
         # --- 归一化处理 ---
         price_impact_norm = self._normalize_series(main_force_slippage, df_index, bipolar=True)
@@ -1656,7 +1657,6 @@ class ProcessIntelligence:
             "wash_trade_intensity_norm": wash_trade_intensity_norm,
             "winner_profit_margin_avg_norm": winner_profit_margin_avg_norm,
             "loser_loss_margin_avg_norm": loser_loss_margin_avg_norm,
-            "total_winner_rate_norm": total_winner_rate_norm,
             "total_loser_rate_norm": total_loser_rate_norm,
             "impulse_quality_ratio_norm": impulse_quality_ratio_norm,
             "thrust_efficiency_score_norm": thrust_efficiency_score_norm,
@@ -1807,7 +1807,7 @@ class ProcessIntelligence:
             "constructive_turnover_norm": constructive_turnover_norm,
             "mtf_upward_impulse_strength": mtf_upward_impulse_strength,
             "mtf_order_book_clearing_rate": mtf_order_book_clearing_rate,
-            "sell_sweep_intensity_inverted_norm": (1 - mtf_sell_sweep_intensity), # 卖方扫单强度低，买方攻击性强
+            "sell_sweep_intensity_inverted_norm": sell_sweep_intensity_inverted_norm,
             "microstructure_efficiency_norm": microstructure_efficiency_norm,
             "imbalance_effectiveness_norm": imbalance_effectiveness_norm,
             "mtf_auction_showdown": mtf_auction_showdown,
@@ -1861,7 +1861,7 @@ class ProcessIntelligence:
             "mtf_intraday_posture_score": 0.02, "mtf_panic_buy_absorption_contribution": 0.02,
             "mtf_reversal_power_index": 0.02, "mtf_trend_acceleration_score": 0.02,
             "mtf_trend_conviction_score": 0.02, "mtf_vwap_cross_up_intensity": 0.02,
-            "mtf_absorption_of_distribution_intensity": 0.05 # INCREASED WEIGHT from 0.03 to 0.05
+            "mtf_absorption_of_distribution_intensity": 0.05 # 提高权重，从0.03调整为0.05
         }
         aggressiveness_score = _robust_geometric_mean(aggressiveness_components, aggressiveness_weights, df_index).clip(0, 1)
         _temp_debug_values["攻击性"] = {
@@ -1921,7 +1921,7 @@ class ProcessIntelligence:
             "mtf_vacuum_traversal_efficiency": mtf_vacuum_traversal_efficiency,
             "vacuum_zone_magnitude_norm": vacuum_zone_magnitude_norm,
             "mtf_dip_buy_absorption_strength": mtf_dip_buy_absorption_strength,
-            "rally_buy_support_weakness_inverted_norm": (1 - rally_buy_support_weakness_inverted_norm), # 追涨买盘支撑弱，障碍清除能力强
+            "rally_buy_support_weakness_inverted_norm": rally_buy_support_weakness_inverted_norm,
             "mtf_price_thrust_divergence_positive": mtf_price_thrust_divergence.clip(lower=0), # 价格推力正向
             "mtf_trend_efficiency_ratio": mtf_trend_efficiency_ratio,
             "mtf_order_book_liquidity_supply": mtf_order_book_liquidity_supply,
@@ -1960,15 +1960,16 @@ class ProcessIntelligence:
         long_term_trend_strength_modulator = (1 + mtf_long_term_trend_strength * long_term_trend_modulator_factor) # 长期趋势越强，看涨意图越受加成
 
         # 攻击性、控制力、障碍清除的加权平均
-        bullish_intent_base = ( # Renamed to avoid confusion with final bullish_intent
+        bullish_intent_base = (
             (aggressiveness_score * dynamic_weights["aggressiveness"] +
              control_score * dynamic_weights["control"] +
              obstacle_clearance_score * dynamic_weights["obstacle_clearance"]) /
             (dynamic_weights["aggressiveness"] + dynamic_weights["control"] + dynamic_weights["obstacle_clearance"])
         )
-        # V11.3: 强化派发吸收强度对看涨意图的直接贡献
-        # 派发吸收强度越高，越能直接增强看涨意图
-        bullish_intent = (bullish_intent_base + mtf_absorption_of_distribution_intensity * 0.1).clip(0,1) # Add a direct contribution, weight 0.1
+        # V11.3: 强化 mtf_absorption_of_distribution_intensity 的积极作用，直接贡献于看涨意图
+        # 承接强度越高，看涨意图越强，这里使用一个较小的系数，避免过度放大
+        bullish_intent = (bullish_intent_base + mtf_absorption_of_distribution_intensity * 0.1).clip(0, 1)
+
         # V11.1: 应用长期趋势强度调节
         bullish_intent = (bullish_intent * long_term_trend_strength_modulator).clip(0, 1)
 
@@ -1977,7 +1978,7 @@ class ProcessIntelligence:
         bullish_intent = bullish_intent.pow(power_mean_exponent)
         _temp_debug_values["基础看涨意图"] = {
             "power_mean_exponent": power_mean_exponent,
-            "bullish_intent_base": bullish_intent_base, # Add debug for base
+            "bullish_intent_base": bullish_intent_base, # 增加基础看涨意图的调试输出
             "bullish_intent": bullish_intent
         }
         # --- 5. 看跌意图 ---
@@ -1993,9 +1994,9 @@ class ProcessIntelligence:
         # V11.2: 引入派发情境衰减器 (Distribution Context Dampener)
         # 当日涨幅越大，对派发强度的看跌解读越弱
         # 使用 tanh 函数将涨幅映射到 [0, 1] 范围内的衰减因子
-        # 例如，pct_change = 7% -> tanh(0.07 * 10) = tanh(0.7) = 0.6, 衰减因子为 1 - 0.6 = 0.4
-        # pct_change = 0% -> tanh(0) = 0, 衰减因子为 1
-        # pct_change = -5% -> tanh(-0.5) = -0.46, 衰减因子为 1 - (-0.46) = 1.46 (负涨幅反而增强派发风险)
+        # 例如，pct_change = 7% -> tanh(0.07 * 10) = tanh(0.7) = 0.6，衰减因子为 1 - 0.6 = 0.4
+        # pct_change = 0% -> tanh(0) = 0，衰减因子为 1
+        # pct_change = -5% -> tanh(-0.5) = -0.46，衰减因子为 1 - (-0.46) = 1.46 (负涨幅反而增强派发风险)
         # 确保衰减因子在合理范围，例如 [0.1, 1.5]
         distribution_dampener = (1 - np.tanh(pct_change / 100 * 10)).clip(0.1, 1.5) # 涨幅越大，dampener越小，削弱派发影响
 
@@ -2097,7 +2098,7 @@ class ProcessIntelligence:
             "mtf_volume_burstiness_index": 0.02, "mtf_volume_structure_skew_positive": 0.02,
             "mtf_vpin_score": 0.02, "mtf_vwap_cross_down_intensity": 0.02,
             "mtf_vwap_sell_control_strength": 0.02,
-            "mtf_absorption_of_distribution_intensity_inverted": 0.05 # INCREASED WEIGHT from 0.03 to 0.05
+            "mtf_absorption_of_distribution_intensity_inverted": 0.05 # 提高权重，从0.03调整为0.05
         }
         distribution_risk_score = _robust_geometric_mean(distribution_risk_components, distribution_risk_weights, df_index).clip(0, 1)
         _temp_debug_values["派发风险"] = {
@@ -2134,30 +2135,11 @@ class ProcessIntelligence:
             "mtf_reversal_conviction_rate_inverted": (1 - mtf_reversal_conviction_rate),
             "mtf_reversal_recovery_rate_inverted": (1 - mtf_reversal_recovery_rate),
             "mtf_risk_reward_profile_negative": mtf_risk_reward_profile.clip(upper=0).abs(),
+            "mtf_shock_conviction_score": mtf_shock_conviction_score,
             "mtf_structural_entropy_change_negative": mtf_structural_entropy_change.clip(upper=0).abs(),
-            "mtf_trend_alignment_index_inverted": (1 - mtf_trend_alignment_index),
-            "mtf_trend_asymmetry_index_negative": mtf_trend_asymmetry_index.clip(upper=0).abs(),
-            "mtf_vwap_cross_down_intensity": mtf_vwap_cross_down_intensity,
-            "mtf_vwap_mean_reversion_corr_negative": mtf_vwap_mean_reversion_corr.clip(upper=0).abs()
-        }
-
-        pre_drop_risk_components = {
-            "single_day_drop_risk": single_day_drop_risk,
-            "norm_pre_drop_5d": norm_pre_drop_5d,
-            "norm_pre_drop_13d": norm_pre_drop_13d,
-            "medium_term_downtrend_strength": medium_term_downtrend_strength,
-            "norm_fall_from_peak_21d": norm_fall_from_peak_21d,
-            "mtf_price_thrust_divergence_negative": mtf_price_thrust_divergence.clip(upper=0).abs(), # 价格推力负向
-            "mtf_trend_efficiency_ratio_inverted": (1 - mtf_trend_efficiency_ratio), # 趋势效率低，风险高
-            "mtf_loser_concentration_90pct": mtf_loser_concentration_90pct, # 输家集中度高，风险高
-            "mtf_main_force_vwap_down_guidance_negative": mtf_main_force_vwap_down_guidance.clip(upper=0).abs(),
-            "mtf_platform_high": mtf_platform_high,
-            "mtf_platform_low_inverted": (1 - mtf_platform_low),
-            "mtf_pullback_depth_ratio": mtf_pullback_depth_ratio,
-            "mtf_reversal_conviction_rate_inverted": (1 - mtf_reversal_conviction_rate),
-            "mtf_reversal_recovery_rate_inverted": (1 - mtf_reversal_recovery_rate),
-            "mtf_risk_reward_profile_negative": mtf_risk_reward_profile.clip(upper=0).abs(),
-            "mtf_structural_entropy_change_negative": mtf_structural_entropy_change.clip(upper=0).abs(),
+            "mtf_structural_leverage": mtf_structural_leverage,
+            "mtf_structural_node_count": mtf_structural_node_count,
+            "mtf_structural_potential_score": mtf_structural_potential_score,
             "mtf_trend_alignment_index_inverted": (1 - mtf_trend_alignment_index),
             "mtf_trend_asymmetry_index_negative": mtf_trend_asymmetry_index.clip(upper=0).abs(),
             "mtf_vwap_cross_down_intensity": mtf_vwap_cross_down_intensity,
@@ -2171,6 +2153,7 @@ class ProcessIntelligence:
             "mtf_platform_high": 0.04, "mtf_platform_low_inverted": 0.04,
             "mtf_pullback_depth_ratio": 0.04, "mtf_reversal_conviction_rate_inverted": 0.04,
             "mtf_reversal_recovery_rate_inverted": 0.04, "mtf_risk_reward_profile_negative": 0.04,
+            "mtf_shock_conviction_score": 0.04, # 保持冲击信念的风险贡献，但后续会调整其在上涨行情中的解读
             "mtf_structural_entropy_change_negative": 0.04, "mtf_structural_leverage": 0.04,
             "mtf_structural_node_count": 0.04, "mtf_structural_potential_score": 0.04,
             "mtf_trend_alignment_index_inverted": 0.04, "mtf_trend_asymmetry_index_negative": 0.04,
@@ -2199,6 +2182,7 @@ class ProcessIntelligence:
         total_risk_penalty_raw = (distribution_risk_score * dynamic_weights["risk"] + pre_drop_risk_factor * (1 - dynamic_weights["risk"])).clip(0, 1)
         # 应用Sigmoid函数进行非线性惩罚
         # risk_sensitivity 和 sigmoid_center 从 config 中获取
+        # V11.3: 进一步调整 risk_sensitivity 和 sigmoid_center
         total_risk_penalty = 1 / (1 + np.exp(risk_sensitivity * (total_risk_penalty_raw - sigmoid_center)))
         # 归一化为惩罚因子，高风险对应高惩罚 (1-sigmoid_output)
         total_risk_penalty = (1 - total_risk_penalty).clip(0, 1)
