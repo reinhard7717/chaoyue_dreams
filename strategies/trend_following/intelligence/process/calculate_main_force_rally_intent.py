@@ -11,7 +11,7 @@ from strategies.trend_following.utils import (
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
     normalize_score, _robust_geometric_mean
 )
-from strategies.trend_following.intelligence.process.process_intelligence_helper import ProcessIntelligenceHelper
+from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 class CalculateMainForceRallyIntent:
     """
