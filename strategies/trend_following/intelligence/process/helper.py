@@ -1,4 +1,4 @@
-# 文件: strategies/trend_following/intelligence/process_intelligence.py
+# 文件: strategies/trend_following/intelligence/process/process_intelligence_helper.py
 import json
 import os
 import pandas as pd
@@ -12,20 +12,21 @@ from strategies.trend_following.utils import (
     normalize_score, _robust_geometric_mean
 )
 
-class ProcessHelper:
+class ProcessIntelligenceHelper:
+    """
+    【V1.0 · 过程情报辅助工具集】
+    - 核心职责: 封装 ProcessIntelligence 类中多个方法共享的辅助逻辑，提高代码模块化和复用性。
+    """
     def __init__(self, strategy_instance):
         """
-        【V3.4 · 探针优化版】
-        - 核心修复: 彻底移除在代码中硬编码的 `genesis_diagnostics` 列表。
-        - 核心升级: 确保 `process_intelligence_params.diagnostics` 配置是诊断任务的唯一真相来源，
-                      消除了重复执行的严重BUG，并遵循了“配置即代码”的最佳实践。
-        - 支持生成原子情报领域的反转信号。
-        - 优化: 统一在构造函数中获取探针配置，避免在各方法中重复读取。
+        初始化 ProcessIntelligenceHelper。
+        参数:
+            strategy_instance: 策略实例，用于访问全局配置和原子状态。
         """
         self.strategy = strategy_instance
         # 直接从新文件加载 process_intelligence_params
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.abspath(os.path.join(current_file_dir, '..', '..', '..'))
+        project_root = os.path.abspath(os.path.join(current_file_dir, '..', '..', '..', '..'))
         process_config_path = os.path.join(project_root, 'config', 'intelligence', 'process.json')
         try:
             with open(process_config_path, 'r', encoding='utf-8') as f:
@@ -66,14 +67,9 @@ class ProcessHelper:
                neutral_nan_defaults 字典已提取到配置中。
         """
         # 从配置中获取 neutral_nan_defaults 字典
-        # 假设 self 是 Strategy 实例，或者 self.strategy 是 Strategy 实例
         # get_params_block 函数需要一个 strategy_instance 参数
-        # 如果 _get_safe_series 是 Strategy 类的方法，那么 self 就是 strategy_instance
-        # 如果 _get_safe_series 是一个辅助类的方法，且该辅助类持有 Strategy 实例的引用 self.strategy
-        # 那么这里应该传入 self.strategy
-        # 根据上下文，_calculate_main_force_rally_intent 是 Strategy 类的方法，它调用 self._get_safe_series
-        # 所以 _get_safe_series 也是 Strategy 类的方法，可以直接传入 self
-        process_params = get_params_block(self, 'process_intelligence_params', {})
+        # 这里 self 是 ProcessIntelligenceHelper 实例，self.strategy 是 Strategy 实例
+        process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         neutral_nan_defaults = process_params.get('neutral_nan_defaults', {})
         # 检查是否为需要特殊默认值的信号
         current_default_value = neutral_nan_defaults.get(col_name, default_value)
@@ -189,9 +185,7 @@ class ProcessHelper:
         - 核心职责: 提供一个标准的、安全的方法来从 self.strategy.atomic_states 中获取预先计算好的原子信号。
         - 核心逻辑: 尝试从 atomic_states 字典中获取指定的信号 Series。如果不存在，则打印警告并
                      返回一个与 df 索引对齐的、填充了默认值的 Series，以保证数据流的健壮性。
-        - 修复: 解决了 'ProcessIntelligence' object has no attribute '_get_atomic_score' 的 AttributeError。
         """
-        #  实现了安全的原子信号访问逻辑
         score_series = self.strategy.atomic_states.get(score_name)
         if score_series is None:
             print(f"    -> [过程情报警告] 依赖的原子信号 '{score_name}' 不存在，使用默认值 {default_value}。")
