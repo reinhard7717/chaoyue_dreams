@@ -2235,9 +2235,12 @@ class ProcessIntelligence:
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础看涨意图 ---"] = ""
-            for key, series in _temp_debug_values["基础看涨意图"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
+            for key, value in _temp_debug_values["基础看涨意图"].items(): # 这里的value可能是float
+                if isinstance(value, pd.Series):
+                    val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else: # 如果是标量，直接输出
+                    debug_output[f"        {key}: {value:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看跌意图 ---"] = ""
             for key, series in _temp_debug_values["看跌意图"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
