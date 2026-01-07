@@ -230,6 +230,8 @@ class StockTimeTradeDAO(BaseDAO):
           - 当 trade_date 被提供时，API调用使用 'trade_date' 参数。
           - 当 start_date/end_date 被提供时，API调用使用 'start_date'/'end_date' 参数。
         这解决了当 start_date 和 end_date 相同时，API返回空数据的问题。
+        - 【修复】移除对不存在的 `format_daily_dataframe` 方法的调用，将数据处理逻辑内联。
+        - 【优化】采用向量化处理和分表批量保存，提高效率。
         :param trade_date: 单个交易日期。
         :param start_date: 开始日期。
         :param end_date: 结束日期。
@@ -265,6 +267,7 @@ class StockTimeTradeDAO(BaseDAO):
                 print(f"调试: DAO准备调用Tushare API [daily]，动态参数: {api_params}")
                 df = self.ts_pro.daily(**api_params)
                 if not df.empty:
+                    # 将 stock 对象直接添加到 DataFrame 中，方便后续处理
                     df['stock'] = stock
                     all_dfs.append(df)
             except Exception as e:
@@ -274,15 +277,53 @@ class StockTimeTradeDAO(BaseDAO):
             print("DAO: 未获取到任何股票的日线数据。")
             return {"status": "success", "message": "No daily data fetched, task completed."}
         combined_df = pd.concat(all_dfs, ignore_index=True)
-        processed_df = self.data_format_process_trade.format_daily_dataframe(combined_df)
-        data_list = processed_df.to_dict('records')
-        print(f"DAO: 准备保存 {len(data_list)} 条日线数据...")
-        await self._save_all_to_db_native_upsert(
-            model_class=StockDaily,
-            data_list=data_list,
-            unique_fields=['stock', 'trade_date']
-        )
-        return {"status": "success", "message": f"Saved {len(data_list)} daily trade records."}
+        # --- 开始向量化处理和分表逻辑 ---
+        # 1. 数据清洗
+        combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        # 确保关键字段和stock对象存在，ts_code用于获取模型，trade_date用于日期，stock用于外键
+        combined_df.dropna(subset=['ts_code', 'trade_date', 'stock'], inplace=True)
+        if combined_df.empty:
+            logger.warning("合并后的日线数据为空或清洗后为空，任务终止。")
+            return {"status": "success", "message": "Combined daily data is empty after cleaning.", "创建/更新成功": 0}
+        # 2. 向量化转换日期
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], format='%Y%m%d').dt.date
+        # 3. 确定模型类并分组
+        # 使用 apply 方法动态确定每行数据应属的模型
+        combined_df['model_class'] = combined_df['ts_code'].apply(get_daily_data_model_by_code)
+        data_dicts_by_model = defaultdict(list)
+        # 定义需要保存的列，并处理名称不一致的情况 (pct_chg -> pct_change)
+        # Tushare daily API返回的字段：ts_code, trade_date, open, high, low, close, pre_close, change, pct_chg, vol, amount
+        columns_to_keep = [
+            'stock', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'
+        ]
+        for model_class, group_df in combined_df.groupby('model_class', sort=False):
+            if group_df.empty:
+                continue
+            # 筛选出当前模型需要的列
+            final_cols = [col for col in columns_to_keep if col in group_df.columns]
+            # 重命名 'pct_chg' 为 'pct_change' 以匹配模型字段
+            group_df_renamed = group_df[final_cols].rename(columns={'pct_chg': 'pct_change'})
+            # 【新增】处理 amount 字段单位，Tushare daily API的amount是万元，转换为元
+            # 先确保amount列是数值类型，再进行乘法
+            if 'amount' in group_df_renamed.columns:
+                group_df_renamed['amount'] = pd.to_numeric(group_df_renamed['amount'], errors='coerce') * 10000
+            # 将 NaN 转换为 None 以适配数据库
+            data_to_save = group_df_renamed.where(pd.notnull(group_df_renamed), None).to_dict('records')
+            data_dicts_by_model[model_class].extend(data_to_save)
+        # 4. 批量保存到数据库
+        total_saved_count = 0
+        for model_class, data_list in data_dicts_by_model.items():
+            if not data_list:
+                continue
+            print(f"调试信息: 正在为模型 {model_class.__name__} 保存 {len(data_list)} 条数据...")
+            res = await self._save_all_to_db_native_upsert(
+                model_class=model_class,
+                data_list=data_list,
+                unique_fields=['stock', 'trade_time']
+            )
+            total_saved_count += res.get("创建/更新成功", 0)
+        print(f"DAO: 保存完成，共 {total_saved_count} 条日线数据。")
+        return {"status": "success", "message": f"Saved {total_saved_count} daily trade records.", "创建/更新成功": total_saved_count}
 
     async def save_daily_time_trade_history_by_stock_codes(
         self, 
