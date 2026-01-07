@@ -89,8 +89,9 @@ class IndicatorService:
 
     def _log_final_data_columns(self, all_dfs: Dict[str, pd.DataFrame]):
         """
-        【V225.0 新增】军械库清单生成器
+        【V225.1 军械库清单生成器 - 信号精简版】
         - 核心职责: 在所有数据准备和计算流程结束后，按周期清晰地打印出最终生成的所有数据列名。
+                    此版本只输出原始信号，不输出ACCEL_、SLOPE_开始的斜率及加速度信号。
         """
         print("\n" + "="*30 + " [最终军械库清单] " + "="*30)
         print("情报锻造中心已完成所有数据准备，最终产出的数据列清单如下：")
@@ -106,11 +107,14 @@ class IndicatorService:
             df = all_dfs[timeframe]
             if df is None or df.empty:
                 continue
-            print(f"\n--- 周期: {timeframe} (共 {len(df.columns)} 列) ---")
+            # 获取所有列名并排序
+            all_columns = sorted(df.columns.tolist())
+            # 过滤掉以 'ACCEL_' 或 'SLOPE_' 开头的列
+            filtered_columns = [col for col in all_columns if not col.startswith(('ACCEL_', 'SLOPE_'))]
+            print(f"\n--- 周期: {timeframe} (共 {len(filtered_columns)} 列) ---")
             # 为了美观，每5个列名换一行打印
-            columns_list = sorted(df.columns.tolist())
-            for i in range(0, len(columns_list), 5):
-                print("  ".join(f"{col:<30}" for col in columns_list[i:i+5]))
+            for i in range(0, len(filtered_columns), 5):
+                print("  ".join(f"{col:<30}" for col in filtered_columns[i:i+5]))
         print("\n" + "="*32 + " [清单生成完毕] " + "="*32 + "\n")
 
     # ▼▼▼ 调试辅助函数，用于抽查数据对齐情况 ▼▼▼
@@ -439,7 +443,7 @@ class IndicatorService:
         # --- 11. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        # self._log_final_data_columns(all_dfs) # 移除调试打印
+        self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:
