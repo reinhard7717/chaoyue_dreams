@@ -327,136 +327,287 @@ class CalculateMainForceRallyIntent:
     def _calculate_mtf_fused_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, df_index: pd.Index, method_name: str) -> Dict[str, pd.Series]:
         """
         计算所有MTF融合信号。
+        - 健壮性增强: 确保所有预期的MTF信号键都存在于返回的字典中，即使其计算结果为0。
         """
+        # 预先初始化所有MTF信号为0.0 Series，确保键始终存在
         mtf_signals = {
-            'mtf_price_trend': self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_mf_net_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            # 风险/压力类信号，改为 bipolar=True
-            'mtf_upper_shadow_pressure': self.helper._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_retail_fomo': self.helper._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_covert_distribution': self.helper._get_mtf_slope_accel_score(df, 'covert_distribution_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_deception_lure_short': self.helper._get_mtf_slope_accel_score(df, 'deception_lure_short_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_rally_distribution_pressure': self.helper._get_mtf_slope_accel_score(df, 'rally_distribution_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_exhaustion_risk': self.helper._get_mtf_slope_accel_score(df, 'exhaustion_risk_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_asymmetric_friction': self.helper._get_mtf_slope_accel_score(df, 'asymmetric_friction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_volatility_expansion': self.helper._get_mtf_slope_accel_score(df, 'volatility_expansion_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_market_sentiment': self.helper._get_mtf_slope_accel_score(df, 'market_sentiment_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_structural_tension': self.helper._get_mtf_slope_accel_score(df, 'structural_tension_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_liquidity_authenticity': self.helper._get_mtf_slope_accel_score(df, 'liquidity_authenticity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_order_book_clearing_rate': self.helper._get_mtf_slope_accel_score(df, 'order_book_clearing_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_sell_sweep_intensity': self.helper._get_mtf_slope_accel_score(df, 'sell_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_flow_gini': self.helper._get_mtf_slope_accel_score(df, 'main_force_flow_gini_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_microstructure_efficiency': self.helper._get_mtf_slope_accel_score(df, 'microstructure_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_imbalance_effectiveness': self.helper._get_mtf_slope_accel_score(df, 'imbalance_effectiveness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_auction_showdown': self.helper._get_mtf_slope_accel_score(df, 'auction_showdown_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_closing_conviction': self.helper._get_mtf_slope_accel_score(df, 'closing_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_intraday_energy_density': self.helper._get_mtf_slope_accel_score(df, 'intraday_energy_density_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_intraday_thrust_purity': self.helper._get_mtf_slope_accel_score(df, 'intraday_thrust_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_price_thrust_divergence': self.helper._get_mtf_slope_accel_score(df, 'price_thrust_divergence_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_trend_efficiency_ratio': self.helper._get_mtf_slope_accel_score(df, 'trend_efficiency_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_loser_concentration_90pct': self.helper._get_mtf_slope_accel_score(df, 'loser_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_winner_loser_momentum': self.helper._get_mtf_slope_accel_score(df, 'winner_loser_momentum_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_cost_structure_skewness': self.helper._get_mtf_slope_accel_score(df, 'cost_structure_skewness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_cost_gini_coefficient': self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_mf_vpoc_premium': self.helper._get_mtf_slope_accel_score(df, 'mf_vpoc_premium_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_character_score': self.helper._get_mtf_slope_accel_score(df, 'character_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_signal_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'signal_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_touch_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'touch_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_gathering_by_chasing': self.helper._get_mtf_slope_accel_score(df, 'gathering_by_chasing_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_gathering_by_support': self.helper._get_mtf_slope_accel_score(df, 'gathering_by_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_buy_flow_efficiency': self.helper._get_mtf_slope_accel_score(df, 'buy_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_sell_flow_efficiency': self.helper._get_mtf_slope_accel_score(df, 'sell_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_auction_closing_position': self.helper._get_mtf_slope_accel_score(df, 'auction_closing_position_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_auction_impact_score': self.helper._get_mtf_slope_accel_score(df, 'auction_impact_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_auction_intent_signal': self.helper._get_mtf_slope_accel_score(df, 'auction_intent_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_order_book_liquidity_supply': self.helper._get_mtf_slope_accel_score(df, 'order_book_liquidity_supply_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_liquidity_slope': self.helper._get_mtf_slope_accel_score(df, 'liquidity_slope_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_peak_mass_transfer_rate': self.helper._get_mtf_slope_accel_score(df, 'peak_mass_transfer_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_mf_cost_zone_defense_intent': self.helper._get_mtf_slope_accel_score(df, 'mf_cost_zone_defense_intent_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_bid_side_liquidity': self.helper._get_mtf_slope_accel_score(df, 'bid_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_ask_side_liquidity': self.helper._get_mtf_slope_accel_score(df, 'ask_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_retail_panic_surrender': self.helper._get_mtf_slope_accel_score(df, 'retail_panic_surrender_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_activity_ratio': self.helper._get_mtf_slope_accel_score(df, 'main_force_activity_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_conviction_index': self.helper._get_mtf_slope_accel_score(df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_execution_alpha': self.helper._get_mtf_slope_accel_score(df, 'main_force_execution_alpha_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_flow_directionality': self.helper._get_mtf_slope_accel_score(df, 'main_force_flow_directionality_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_on_peak_buy_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_buy_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_on_peak_sell_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_sell_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_t0_efficiency': self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_t0_sell_efficiency': self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_sell_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_vwap_down_guidance': self.helper._get_mtf_slope_accel_score(df, 'main_force_vwap_down_guidance_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_vwap_up_guidance': self.helper._get_mtf_slope_accel_score(df, 'main_force_vwap_up_guidance_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_market_impact_cost': self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_opening_buy_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_buy_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_opening_sell_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_sell_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_closing_strength_index': self.helper._get_mtf_slope_accel_score(df, 'closing_strength_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_total_buy_amount_calibrated': self.helper._get_mtf_slope_accel_score(df, 'total_buy_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_total_sell_amount_calibrated': self.helper._get_mtf_slope_accel_score(df, 'total_sell_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_wash_trade_intensity': self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_winner_profit_margin_avg': self.helper._get_mtf_slope_accel_score(df, 'winner_profit_margin_avg_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_loser_loss_margin_avg': self.helper._get_mtf_slope_accel_score(df, 'loser_loss_margin_avg_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_total_winner_rate': self.helper._get_mtf_slope_accel_score(df, 'total_winner_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_total_loser_rate': self.helper._get_mtf_slope_accel_score(df, 'total_loser_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_impulse_quality_ratio': self.helper._get_mtf_slope_accel_score(df, 'impulse_quality_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_thrust_efficiency_score': self.helper._get_mtf_slope_accel_score(df, 'thrust_efficiency_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_platform_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'platform_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_platform_high': self.helper._get_mtf_slope_accel_score(df, 'platform_high_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_platform_low': self.helper._get_mtf_slope_accel_score(df, 'platform_low_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_breakout_quality_score': self.helper._get_mtf_slope_accel_score(df, 'breakout_quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_breakout_readiness_score': self.helper._get_mtf_slope_accel_score(df, 'breakout_readiness_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_breakthrough_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'breakthrough_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_defense_solidity_score': self.helper._get_mtf_slope_accel_score(df, 'defense_solidity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_support_validation_strength': self.helper._get_mtf_slope_accel_score(df, 'support_validation_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_covert_accumulation_signal': self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_suppressive_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_deception_index': self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_deception_lure_long_intensity': self.helper._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_equilibrium_compression_index': self.helper._get_mtf_slope_accel_score(df, 'equilibrium_compression_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_final_charge_intensity': self.helper._get_mtf_slope_accel_score(df, 'final_charge_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_floating_chip_cleansing_efficiency': self.helper._get_mtf_slope_accel_score(df, 'floating_chip_cleansing_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_hidden_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_internal_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'internal_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_intraday_posture_score': self.helper._get_mtf_slope_accel_score(df, 'intraday_posture_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_opening_gap_defense_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_gap_defense_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_panic_buy_absorption_contribution': self.helper._get_mtf_slope_accel_score(df, 'panic_buy_absorption_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_panic_sell_volume_contribution': self.helper._get_mtf_slope_accel_score(df, 'panic_sell_volume_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_panic_selling_cascade': self.helper._get_mtf_slope_accel_score(df, 'panic_selling_cascade_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_peak_control_transfer': self.helper._get_mtf_slope_accel_score(df, 'peak_control_transfer_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_peak_separation_ratio': self.helper._get_mtf_slope_accel_score(df, 'peak_separation_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_price_reversion_velocity': self.helper._get_mtf_slope_accel_score(df, 'price_reversion_velocity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_pullback_depth_ratio': self.helper._get_mtf_slope_accel_score(df, 'pullback_depth_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_quality_score': self.helper._get_mtf_slope_accel_score(df, 'quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_reversal_conviction_rate': self.helper._get_mtf_slope_accel_score(df, 'reversal_conviction_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_reversal_power_index': self.helper._get_mtf_slope_accel_score(df, 'reversal_power_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_reversal_recovery_rate': self.helper._get_mtf_slope_accel_score(df, 'reversal_recovery_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_risk_reward_profile': self.helper._get_mtf_slope_accel_score(df, 'risk_reward_profile_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_shock_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'shock_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_strategic_phase_score': self.helper._get_mtf_slope_accel_score(df, 'strategic_phase_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_structural_entropy_change': self.helper._get_mtf_slope_accel_score(df, 'structural_entropy_change_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_structural_leverage': self.helper._get_mtf_slope_accel_score(df, 'structural_leverage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_structural_node_count': self.helper._get_mtf_slope_accel_score(df, 'structural_node_count_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_structural_potential_score': self.helper._get_mtf_slope_accel_score(df, 'structural_potential_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_support_validation_score': self.helper._get_mtf_slope_accel_score(df, 'support_validation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_supportive_distribution_intensity': self.helper._get_mtf_slope_accel_score(df, 'supportive_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_trend_acceleration_score': self.helper._get_mtf_slope_accel_score(df, 'trend_acceleration_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_trend_alignment_index': self.helper._get_mtf_slope_accel_score(df, 'trend_alignment_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_trend_asymmetry_index': self.helper._get_mtf_slope_accel_score(df, 'trend_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_trend_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'trend_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_value_area_migration': self.helper._get_mtf_slope_accel_score(df, 'value_area_migration_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_value_area_overlap_pct': self.helper._get_mtf_slope_accel_score(df, 'value_area_overlap_pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_volatility_asymmetry_index': self.helper._get_mtf_slope_accel_score(df, 'volatility_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_volume_burstiness_index': self.helper._get_mtf_slope_accel_score(df, 'volume_burstiness_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_volume_structure_skew': self.helper._get_mtf_slope_accel_score(df, 'volume_structure_skew_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vpin_score': self.helper._get_mtf_slope_accel_score(df, 'vpin_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vwap_control_strength': self.helper._get_mtf_slope_accel_score(df, 'vwap_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vwap_cross_down_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_down_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vwap_cross_up_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_up_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vwap_crossing_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_crossing_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vwap_mean_reversion_corr': self.helper._get_mtf_slope_accel_score(df, 'vwap_mean_reversion_corr_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vwap_sell_control_strength': self.helper._get_mtf_slope_accel_score(df, 'vwap_sell_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_winner_stability_index': self.helper._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_absorption_of_distribution_intensity': self.helper._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+            'mtf_price_trend': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_mf_net_flow': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_upper_shadow_pressure': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_retail_fomo': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_buy_sweep_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_buy_ofi': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_t0_buy_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_upward_impulse_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vwap_buy_control_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_mf_cost_zone_buy_intent': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_chip_fault_blockage_ratio': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vacuum_traversal_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_dip_buy_absorption_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_rally_buy_support_weakness': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_covert_distribution': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_deception_lure_short': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_rally_distribution_pressure': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_exhaustion_risk': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_asymmetric_friction': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_volatility_expansion': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_market_sentiment': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_structural_tension': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_trend_vitality': pd.Series(0.0, index=df_index, dtype=np.float32), # 确保此键存在
+            'mtf_liquidity_authenticity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_order_book_clearing_rate': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_sell_sweep_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_flow_gini': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_microstructure_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_imbalance_effectiveness': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_auction_showdown': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_closing_conviction': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_intraday_energy_density': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_intraday_thrust_purity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_price_thrust_divergence': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_trend_efficiency_ratio': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_loser_concentration_90pct': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_winner_loser_momentum': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_cost_structure_skewness': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_cost_gini_coefficient': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_mf_vpoc_premium': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_character_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_signal_conviction_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_touch_conviction_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_gathering_by_chasing': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_gathering_by_support': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_buy_flow_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_sell_flow_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_auction_closing_position': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_auction_impact_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_auction_intent_signal': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_order_book_liquidity_supply': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_liquidity_slope': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_peak_mass_transfer_rate': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_mf_cost_zone_defense_intent': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_bid_side_liquidity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_ask_side_liquidity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_retail_panic_surrender': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_activity_ratio': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_conviction_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_execution_alpha': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_flow_directionality': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_on_peak_buy_flow': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_on_peak_sell_flow': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_t0_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_t0_sell_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_vwap_down_guidance': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_main_force_vwap_up_guidance': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_market_impact_cost': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_opening_buy_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_opening_sell_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_closing_strength_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_total_buy_amount_calibrated': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_total_sell_amount_calibrated': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_wash_trade_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_winner_profit_margin_avg': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_loser_loss_margin_avg': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_total_winner_rate': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_total_loser_rate': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_impulse_quality_ratio': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_thrust_efficiency_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_platform_conviction_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_platform_high': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_platform_low': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_breakout_quality_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_breakout_readiness_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_breakthrough_conviction_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_defense_solidity_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_support_validation_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_covert_accumulation_signal': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_suppressive_accumulation_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_deception_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_deception_lure_long_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_equilibrium_compression_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_final_charge_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_floating_chip_cleansing_efficiency': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_hidden_accumulation_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_internal_accumulation_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_intraday_posture_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_opening_gap_defense_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_panic_buy_absorption_contribution': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_panic_sell_volume_contribution': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_panic_selling_cascade': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_peak_control_transfer': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_peak_separation_ratio': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_price_reversion_velocity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_pullback_depth_ratio': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_quality_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_reversal_conviction_rate': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_reversal_power_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_reversal_recovery_rate': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_risk_reward_profile': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_shock_conviction_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_strategic_phase_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_structural_entropy_change': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_structural_leverage': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_structural_node_count': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_structural_potential_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_support_validation_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_supportive_distribution_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_trend_acceleration_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_trend_alignment_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_trend_asymmetry_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_trend_conviction_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_value_area_migration': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_value_area_overlap_pct': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_volatility_asymmetry_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_volume_burstiness_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_volume_structure_skew': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vpin_score': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vwap_control_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vwap_cross_down_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vwap_cross_up_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vwap_crossing_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vwap_mean_reversion_corr': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_vwap_sell_control_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_winner_stability_index': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_absorption_of_distribution_intensity': pd.Series(0.0, index=df_index, dtype=np.float32)
         }
+
+        # 逐一计算并更新MTF信号
+        mtf_signals['mtf_price_trend'] = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_mf_net_flow'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_upper_shadow_pressure'] = self.helper._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_retail_fomo'] = self.helper._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_buy_sweep_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'buy_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_buy_ofi'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_t0_buy_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_buy_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_upward_impulse_strength'] = self.helper._get_mtf_slope_accel_score(df, 'upward_impulse_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vwap_buy_control_strength'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_buy_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_mf_cost_zone_buy_intent'] = self.helper._get_mtf_slope_accel_score(df, 'mf_cost_zone_buy_intent_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_chip_fault_blockage_ratio'] = self.helper._get_mtf_slope_accel_score(df, 'chip_fault_blockage_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vacuum_traversal_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'vacuum_traversal_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_dip_buy_absorption_strength'] = self.helper._get_mtf_slope_accel_score(df, 'dip_buy_absorption_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_rally_buy_support_weakness'] = self.helper._get_mtf_slope_accel_score(df, 'rally_buy_support_weakness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_covert_distribution'] = self.helper._get_mtf_slope_accel_score(df, 'covert_distribution_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_deception_lure_short'] = self.helper._get_mtf_slope_accel_score(df, 'deception_lure_short_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_rally_distribution_pressure'] = self.helper._get_mtf_slope_accel_score(df, 'rally_distribution_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_exhaustion_risk'] = self.helper._get_mtf_slope_accel_score(df, 'exhaustion_risk_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_asymmetric_friction'] = self.helper._get_mtf_slope_accel_score(df, 'asymmetric_friction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_volatility_expansion'] = self.helper._get_mtf_slope_accel_score(df, 'volatility_expansion_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_market_sentiment'] = self.helper._get_mtf_slope_accel_score(df, 'market_sentiment_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_structural_tension'] = self.helper._get_mtf_slope_accel_score(df, 'structural_tension_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_trend_vitality'] = self.helper._get_mtf_slope_accel_score(df, 'trend_vitality_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 确保此键被赋值
+        mtf_signals['mtf_liquidity_authenticity'] = self.helper._get_mtf_slope_accel_score(df, 'liquidity_authenticity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_order_book_clearing_rate'] = self.helper._get_mtf_slope_accel_score(df, 'order_book_clearing_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_sell_sweep_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'sell_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_flow_gini'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_flow_gini_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_microstructure_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'microstructure_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_imbalance_effectiveness'] = self.helper._get_mtf_slope_accel_score(df, 'imbalance_effectiveness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_auction_showdown'] = self.helper._get_mtf_slope_accel_score(df, 'auction_showdown_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_closing_conviction'] = self.helper._get_mtf_slope_accel_score(df, 'closing_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_intraday_energy_density'] = self.helper._get_mtf_slope_accel_score(df, 'intraday_energy_density_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_intraday_thrust_purity'] = self.helper._get_mtf_slope_accel_score(df, 'intraday_thrust_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_price_thrust_divergence'] = self.helper._get_mtf_slope_accel_score(df, 'price_thrust_divergence_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_trend_efficiency_ratio'] = self.helper._get_mtf_slope_accel_score(df, 'trend_efficiency_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_loser_concentration_90pct'] = self.helper._get_mtf_slope_accel_score(df, 'loser_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_winner_loser_momentum'] = self.helper._get_mtf_slope_accel_score(df, 'winner_loser_momentum_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_cost_structure_skewness'] = self.helper._get_mtf_slope_accel_score(df, 'cost_structure_skewness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_cost_gini_coefficient'] = self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_mf_vpoc_premium'] = self.helper._get_mtf_slope_accel_score(df, 'mf_vpoc_premium_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_character_score'] = self.helper._get_mtf_slope_accel_score(df, 'character_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_signal_conviction_score'] = self.helper._get_mtf_slope_accel_score(df, 'signal_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_touch_conviction_score'] = self.helper._get_mtf_slope_accel_score(df, 'touch_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_gathering_by_chasing'] = self.helper._get_mtf_slope_accel_score(df, 'gathering_by_chasing_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_gathering_by_support'] = self.helper._get_mtf_slope_accel_score(df, 'gathering_by_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_buy_flow_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'buy_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_sell_flow_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'sell_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_auction_closing_position'] = self.helper._get_mtf_slope_accel_score(df, 'auction_closing_position_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_auction_impact_score'] = self.helper._get_mtf_slope_accel_score(df, 'auction_impact_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_auction_intent_signal'] = self.helper._get_mtf_slope_accel_score(df, 'auction_intent_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_order_book_liquidity_supply'] = self.helper._get_mtf_slope_accel_score(df, 'order_book_liquidity_supply_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_liquidity_slope'] = self.helper._get_mtf_slope_accel_score(df, 'liquidity_slope_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_peak_mass_transfer_rate'] = self.helper._get_mtf_slope_accel_score(df, 'peak_mass_transfer_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_mf_cost_zone_defense_intent'] = self.helper._get_mtf_slope_accel_score(df, 'mf_cost_zone_defense_intent_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_bid_side_liquidity'] = self.helper._get_mtf_slope_accel_score(df, 'bid_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_ask_side_liquidity'] = self.helper._get_mtf_slope_accel_score(df, 'ask_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_retail_panic_surrender'] = self.helper._get_mtf_slope_accel_score(df, 'retail_panic_surrender_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_activity_ratio'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_activity_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_conviction_index'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_execution_alpha'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_execution_alpha_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_flow_directionality'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_flow_directionality_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_on_peak_buy_flow'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_buy_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_on_peak_sell_flow'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_sell_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_t0_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_t0_sell_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_sell_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_vwap_down_guidance'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_vwap_down_guidance_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_main_force_vwap_up_guidance'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_vwap_up_guidance_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_market_impact_cost'] = self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_opening_buy_strength'] = self.helper._get_mtf_slope_accel_score(df, 'opening_buy_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_opening_sell_strength'] = self.helper._get_mtf_slope_accel_score(df, 'opening_sell_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_closing_strength_index'] = self.helper._get_mtf_slope_accel_score(df, 'closing_strength_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_total_buy_amount_calibrated'] = self.helper._get_mtf_slope_accel_score(df, 'total_buy_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_total_sell_amount_calibrated'] = self.helper._get_mtf_slope_accel_score(df, 'total_sell_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_wash_trade_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_winner_profit_margin_avg'] = self.helper._get_mtf_slope_accel_score(df, 'winner_profit_margin_avg_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_loser_loss_margin_avg'] = self.helper._get_mtf_slope_accel_score(df, 'loser_loss_margin_avg_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_total_winner_rate'] = self.helper._get_mtf_slope_accel_score(df, 'total_winner_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_total_loser_rate'] = self.helper._get_mtf_slope_accel_score(df, 'total_loser_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_impulse_quality_ratio'] = self.helper._get_mtf_slope_accel_score(df, 'impulse_quality_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_thrust_efficiency_score'] = self.helper._get_mtf_slope_accel_score(df, 'thrust_efficiency_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_platform_conviction_score'] = self.helper._get_mtf_slope_accel_score(df, 'platform_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_platform_high'] = self.helper._get_mtf_slope_accel_score(df, 'platform_high_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_platform_low'] = self.helper._get_mtf_slope_accel_score(df, 'platform_low_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_breakout_quality_score'] = self.helper._get_mtf_slope_accel_score(df, 'breakout_quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_breakout_readiness_score'] = self.helper._get_mtf_slope_accel_score(df, 'breakout_readiness_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_breakthrough_conviction_score'] = self.helper._get_mtf_slope_accel_score(df, 'breakthrough_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_defense_solidity_score'] = self.helper._get_mtf_slope_accel_score(df, 'defense_solidity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_support_validation_strength'] = self.helper._get_mtf_slope_accel_score(df, 'support_validation_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_covert_accumulation_signal'] = self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_suppressive_accumulation_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_deception_index'] = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_deception_lure_long_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_equilibrium_compression_index'] = self.helper._get_mtf_slope_accel_score(df, 'equilibrium_compression_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_final_charge_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'final_charge_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_floating_chip_cleansing_efficiency'] = self.helper._get_mtf_slope_accel_score(df, 'floating_chip_cleansing_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_hidden_accumulation_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_internal_accumulation_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'internal_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_intraday_posture_score'] = self.helper._get_mtf_slope_accel_score(df, 'intraday_posture_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_opening_gap_defense_strength'] = self.helper._get_mtf_slope_accel_score(df, 'opening_gap_defense_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_panic_buy_absorption_contribution'] = self.helper._get_mtf_slope_accel_score(df, 'panic_buy_absorption_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_panic_sell_volume_contribution'] = self.helper._get_mtf_slope_accel_score(df, 'panic_sell_volume_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_panic_selling_cascade'] = self.helper._get_mtf_slope_accel_score(df, 'panic_selling_cascade_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_peak_control_transfer'] = self.helper._get_mtf_slope_accel_score(df, 'peak_control_transfer_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_peak_separation_ratio'] = self.helper._get_mtf_slope_accel_score(df, 'peak_separation_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_price_reversion_velocity'] = self.helper._get_mtf_slope_accel_score(df, 'price_reversion_velocity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_pullback_depth_ratio'] = self.helper._get_mtf_slope_accel_score(df, 'pullback_depth_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_quality_score'] = self.helper._get_mtf_slope_accel_score(df, 'quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_reversal_conviction_rate'] = self.helper._get_mtf_slope_accel_score(df, 'reversal_conviction_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_reversal_power_index'] = self.helper._get_mtf_slope_accel_score(df, 'reversal_power_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_reversal_recovery_rate'] = self.helper._get_mtf_slope_accel_score(df, 'reversal_recovery_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_risk_reward_profile'] = self.helper._get_mtf_slope_accel_score(df, 'risk_reward_profile_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_shock_conviction_score'] = self.helper._get_mtf_slope_accel_score(df, 'shock_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_strategic_phase_score'] = self.helper._get_mtf_slope_accel_score(df, 'strategic_phase_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_structural_entropy_change'] = self.helper._get_mtf_slope_accel_score(df, 'structural_entropy_change_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_structural_leverage'] = self.helper._get_mtf_slope_accel_score(df, 'structural_leverage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_structural_node_count'] = self.helper._get_mtf_slope_accel_score(df, 'structural_node_count_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_structural_potential_score'] = self.helper._get_mtf_slope_accel_score(df, 'structural_potential_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_support_validation_score'] = self.helper._get_mtf_slope_accel_score(df, 'support_validation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_supportive_distribution_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'supportive_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_trend_acceleration_score'] = self.helper._get_mtf_slope_accel_score(df, 'trend_acceleration_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_trend_alignment_index'] = self.helper._get_mtf_slope_accel_score(df, 'trend_alignment_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_trend_asymmetry_index'] = self.helper._get_mtf_slope_accel_score(df, 'trend_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_trend_conviction_score'] = self.helper._get_mtf_slope_accel_score(df, 'trend_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_value_area_migration'] = self.helper._get_mtf_slope_accel_score(df, 'value_area_migration_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_value_area_overlap_pct'] = self.helper._get_mtf_slope_accel_score(df, 'value_area_overlap_pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_volatility_asymmetry_index'] = self.helper._get_mtf_slope_accel_score(df, 'volatility_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_volume_burstiness_index'] = self.helper._get_mtf_slope_accel_score(df, 'volume_burstiness_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_volume_structure_skew'] = self.helper._get_mtf_slope_accel_score(df, 'volume_structure_skew_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vpin_score'] = self.helper._get_mtf_slope_accel_score(df, 'vpin_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vwap_control_strength'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vwap_cross_down_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_down_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vwap_cross_up_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_up_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vwap_crossing_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_crossing_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vwap_mean_reversion_corr'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_mean_reversion_corr_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_vwap_sell_control_strength'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_sell_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_winner_stability_index'] = self.helper._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_absorption_of_distribution_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         return mtf_signals
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict) -> Dict[str, pd.Series]:

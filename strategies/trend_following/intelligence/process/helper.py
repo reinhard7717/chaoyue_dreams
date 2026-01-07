@@ -84,6 +84,7 @@ class ProcessIntelligenceHelper:
         """
         【V1.1 · 统一归一化调用版】计算多时间框架斜率和加速度的融合分数。
         - 核心修正: 统一调用 `_normalize_series` 进行归一化，利用其多时间框架加权能力。
+        - 健壮性增强: 确保即使没有有效组件分数，也能返回一个填充了默认值（0.0）的Series。
         """
         slope_periods_weights = get_param_value(mtf_weights_config.get('slope_periods'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
         accel_periods_weights = get_param_value(mtf_weights_config.get('accel_periods'), {"5": 0.6, "13": 0.4})
@@ -91,10 +92,13 @@ class ProcessIntelligenceHelper:
         total_combined_weight = 0.0
         # 处理斜率
         for period_str, weight in slope_periods_weights.items():
-            period = int(period_str)
+            try:
+                period = int(period_str)
+            except ValueError:
+                continue
             slope_col = f'SLOPE_{period}_{base_signal_name}'
             slope_raw = self._get_safe_series(df, slope_col, np.nan, method_name=method_name)
-            if slope_raw.isnull().all():
+            if slope_raw.isnull().all(): # 如果原始斜率数据全为NaN，则跳过此组件
                 continue
             # 使用 _normalize_series 进行归一化，它会处理多时间框架的加权
             norm_score = self._normalize_series(slope_raw, df_index, bipolar=bipolar, ascending=ascending)
@@ -102,16 +106,20 @@ class ProcessIntelligenceHelper:
             total_combined_weight += weight
         # 处理加速度
         for period_str, weight in accel_periods_weights.items():
-            period = int(period_str)
+            try:
+                period = int(period_str)
+            except ValueError:
+                continue
             accel_col = f'ACCEL_{period}_{base_signal_name}'
             accel_raw = self._get_safe_series(df, accel_col, np.nan, method_name=method_name)
-            if accel_raw.isnull().all():
+            if accel_raw.isnull().all(): # 如果原始加速度数据全为NaN，则跳过此组件
                 continue
             # 使用 _normalize_series 进行归一化
             norm_score = self._normalize_series(accel_raw, df_index, bipolar=bipolar, ascending=ascending)
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
         if not all_scores_components or total_combined_weight == 0:
+            # 如果没有任何有效组件分数，返回一个填充了0.0的Series
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         fused_score = sum(all_scores_components) / total_combined_weight
         # 根据 bipolar 参数进行裁剪
