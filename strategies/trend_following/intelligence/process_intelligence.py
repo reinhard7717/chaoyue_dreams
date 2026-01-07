@@ -642,7 +642,10 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V11.1 · 历史记忆与情境深度融合版】计算“主力拉升意图”的专属关系分数。
+        【V11.2 · 派发承接情境化版】计算“主力拉升意图”的专属关系分数。
+        - 核心升级: 引入“派发吸收强度”指标，对冲“派发烈度”带来的负面影响，更全面反映市场承接能力。
+        - 核心优化: 引入“派发情境衰减器”，根据当日涨幅动态削弱“派发烈度”对看跌意图的贡献。
+        - 核心优化: 调整风险惩罚的敏感度，使其在面对中等风险时更温和，避免过度惩罚。
         - 核心升级: 严格限制仅使用数据层提供的原始指标，移除所有情报层生成的SCORE_FOUNDATION_AXIOM_*信号。
         - 动态权重机制精细化: 综合市场稳定性、市场情绪（基于原始零售/主力行为）、流动性（基于原始订单簿/资金流）等原始情境因子，自适应调整各维度权重。
         - 非线性融合优化: 基础看涨意图的加权幂平均幂次p根据原始情境因子动态调整。
@@ -688,6 +691,9 @@ class ProcessIntelligence:
         long_term_trend_modulator_factor = get_param_value(historical_context_params.get('long_term_trend_modulator_factor'), 0.15)
         # 获取主力拉升意图合成参数块
         rally_intent_synthesis_params = config.get('rally_intent_synthesis_params', {})
+        # 获取风险惩罚参数
+        risk_sensitivity = get_param_value(rally_intent_synthesis_params.get('risk_sensitivity'), 5.0)
+        sigmoid_center = get_param_value(rally_intent_synthesis_params.get('sigmoid_center'), 0.3)
 
         # --- V10.0 原始信号列表 (严格限制为数据层提供) ---
         required_signals = [
@@ -757,7 +763,8 @@ class ProcessIntelligence:
             'vpin_score_D', 'vwap_control_strength_D', 'vwap_cross_down_intensity_D', 'vwap_cross_up_intensity_D', 'vwap_crossing_intensity_D', 'vwap_mean_reversion_corr_D', 'vwap_sell_control_strength_D', # VWAP
             'winner_stability_index_D', # 赢家稳定性
             'winner_concentration_90pct_D', # 用于筹码集中度稳定性
-            f'SLOPE_{long_term_trend_slope_period}_close_D' # 长期趋势斜率，现在是21日
+            f'SLOPE_{long_term_trend_slope_period}_close_D', # 长期趋势斜率，现在是21日
+            'absorption_of_distribution_intensity_D' # 新增：派发吸收强度
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         # 遍历所有原始信号，为其添加MTF斜率和加速度版本
@@ -941,6 +948,8 @@ class ProcessIntelligence:
         # V11.0 新增原始信号
         winner_concentration_90pct = self._get_safe_series(df, 'winner_concentration_90pct_D', 0.0, method_name=method_name)
         long_term_trend_slope = self._get_safe_series(df, f'SLOPE_{long_term_trend_slope_period}_close_D', 0.0, method_name=method_name) # 使用新的周期
+        # V11.2 新增原始信号
+        absorption_of_distribution_intensity = self._get_safe_series(df, 'absorption_of_distribution_intensity_D', 0.0, method_name=method_name)
 
         _temp_debug_values["原始信号值"] = {
             "pct_change_D": pct_change,
@@ -1107,7 +1116,8 @@ class ProcessIntelligence:
             "vwap_sell_control_strength_D": vwap_sell_control_strength,
             "winner_stability_index_D": winner_stability_index,
             "winner_concentration_90pct_D": winner_concentration_90pct, # V11.0
-            f"SLOPE_{long_term_trend_slope_period}_close_D": long_term_trend_slope # V11.0
+            f"SLOPE_{long_term_trend_slope_period}_close_D": long_term_trend_slope, # V11.0
+            "absorption_of_distribution_intensity_D": absorption_of_distribution_intensity # V11.2
         }
         _temp_debug_values["派生信号值"] = {
             "is_limit_up_day": is_limit_up_day
@@ -1250,6 +1260,9 @@ class ProcessIntelligence:
         mtf_vwap_mean_reversion_corr = self._get_mtf_slope_accel_score(df, 'vwap_mean_reversion_corr_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_vwap_sell_control_strength = self._get_mtf_slope_accel_score(df, 'vwap_sell_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_winner_stability_index = self._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        # V11.2 新增MTF融合信号
+        mtf_absorption_of_distribution_intensity = self._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+
         _temp_debug_values["MTF融合信号"] = {
             "mtf_price_trend": mtf_price_trend,
             "mtf_mf_net_flow": mtf_mf_net_flow,
@@ -1386,7 +1399,11 @@ class ProcessIntelligence:
             "mtf_vwap_crossing_intensity": mtf_vwap_crossing_intensity,
             "mtf_vwap_mean_reversion_corr": mtf_vwap_mean_reversion_corr,
             "mtf_vwap_sell_control_strength": mtf_vwap_sell_control_strength,
-            "mtf_winner_stability_index": mtf_winner_stability_index
+            "mtf_winner_stability_index": mtf_winner_stability_index,
+            "mtf_cumulative_mf_flow": mtf_cumulative_mf_flow,
+            "mtf_chip_concentration_stability": mtf_chip_concentration_stability,
+            "mtf_long_term_trend_strength": mtf_long_term_trend_strength,
+            "mtf_absorption_of_distribution_intensity": mtf_absorption_of_distribution_intensity # V11.2
         }
         # --- V11.1: 引入历史记忆与上下文机制 ---
         if hc_enabled:
@@ -1431,7 +1448,6 @@ class ProcessIntelligence:
         price_impact_norm = self._normalize_series(main_force_slippage, df_index, bipolar=True)
         impulse_purity_norm = self._normalize_series(upward_impulse_purity, df_index, bipolar=True)
         volume_ratio_norm = self._normalize_series(volume_ratio - 1.0, df_index, bipolar=True)
-        control_solidity_norm = self._normalize_series(control_solidity, df_index, bipolar=True)
         control_solidity_norm = self._normalize_series(control_solidity, df_index, bipolar=True)
         cost_advantage_norm = self._normalize_series(cost_advantage, df_index, bipolar=True)
         concentration_slope_norm = self._normalize_series(concentration_slope, df_index, bipolar=True)
@@ -1563,6 +1579,9 @@ class ProcessIntelligence:
         vwap_mean_reversion_corr_norm = self._normalize_series(vwap_mean_reversion_corr, df_index, bipolar=True)
         vwap_sell_control_strength_norm = self._normalize_series(vwap_sell_control_strength, df_index, bipolar=False)
         winner_stability_index_norm = self._normalize_series(winner_stability_index, df_index, bipolar=False)
+        # V11.2 新增归一化信号
+        absorption_of_distribution_intensity_norm = self._normalize_series(absorption_of_distribution_intensity, df_index, bipolar=False)
+
         _temp_debug_values["归一化处理"] = {
             "price_impact_norm": price_impact_norm,
             "impulse_purity_norm": impulse_purity_norm,
@@ -1697,7 +1716,8 @@ class ProcessIntelligence:
             "vwap_crossing_intensity_norm": vwap_crossing_intensity_norm,
             "vwap_mean_reversion_corr_norm": vwap_mean_reversion_corr_norm,
             "vwap_sell_control_strength_norm": vwap_sell_control_strength_norm,
-            "winner_stability_index_norm": winner_stability_index_norm
+            "winner_stability_index_norm": winner_stability_index_norm,
+            "absorption_of_distribution_intensity_norm": absorption_of_distribution_intensity_norm # V11.2
         }
         # --- V10.0 代理信号构建 (替代情报层信号) ---
         # 1. 相对强度代理 (rs_modulator_proxy)
@@ -1817,7 +1837,8 @@ class ProcessIntelligence:
             "mtf_reversal_power_index": mtf_reversal_power_index,
             "mtf_trend_acceleration_score": mtf_trend_acceleration_score,
             "mtf_trend_conviction_score": mtf_trend_conviction_score,
-            "mtf_vwap_cross_up_intensity": mtf_vwap_cross_up_intensity
+            "mtf_vwap_cross_up_intensity": mtf_vwap_cross_up_intensity,
+            "mtf_absorption_of_distribution_intensity": mtf_absorption_of_distribution_intensity # 新增：派发吸收强度作为攻击性的一部分
         }
         aggressiveness_weights = {
             "mtf_price_trend": 0.04, "mtf_mf_net_flow": 0.04, "price_impact_norm": 0.03,
@@ -1840,7 +1861,8 @@ class ProcessIntelligence:
             "mtf_hidden_accumulation_intensity": 0.02, "mtf_internal_accumulation_intensity": 0.02,
             "mtf_intraday_posture_score": 0.02, "mtf_panic_buy_absorption_contribution": 0.02,
             "mtf_reversal_power_index": 0.02, "mtf_trend_acceleration_score": 0.02,
-            "mtf_trend_conviction_score": 0.02, "mtf_vwap_cross_up_intensity": 0.02
+            "mtf_trend_conviction_score": 0.02, "mtf_vwap_cross_up_intensity": 0.02,
+            "mtf_absorption_of_distribution_intensity": 0.03 # 新增权重
         }
         aggressiveness_score = _robust_geometric_mean(aggressiveness_components, aggressiveness_weights, df_index).clip(0, 1)
         _temp_debug_values["攻击性"] = {
@@ -1965,10 +1987,19 @@ class ProcessIntelligence:
         upper_shadow_selling_pressure_norm = self._normalize_series(upper_shadow_selling_pressure, df_index, bipolar=False)
         flow_credibility_norm_inverted = (1 - flow_credibility_norm) # 信用度低，看跌
         
+        # V11.2: 引入派发情境衰减器 (Distribution Context Dampener)
+        # 当日涨幅越大，对派发强度的看跌解读越弱
+        # 使用 tanh 函数将涨幅映射到 [0, 1] 范围内的衰减因子
+        # 例如，pct_change = 7% -> tanh(0.07 * 10) = tanh(0.7) = 0.6，衰减因子为 1 - 0.6 = 0.4
+        # pct_change = 0% -> tanh(0) = 0，衰减因子为 1
+        # pct_change = -5% -> tanh(-0.5) = -0.46，衰减因子为 1 - (-0.46) = 1.46 (负涨幅反而增强派发风险)
+        # 确保衰减因子在合理范围，例如 [0.1, 1.5]
+        distribution_dampener = (1 - np.tanh(pct_change / 100 * 10)).clip(0.1, 1.5) # 涨幅越大，dampener越小，削弱派发影响
+
         # 修正 bearish_score 的计算逻辑：它应该是一个正值，表示看跌意图的强度，然后乘以 -1 转换为双极性。
         # 并且 mf_flow_memory_anti_bearish_modulator 应该削弱看跌意图，而不是使其变得更负。
         bearish_score_raw = (
-            (distribution_intensity_norm * 0.4 +
+            (distribution_intensity_norm * distribution_dampener * 0.4 + # 应用衰减器
              upper_shadow_selling_pressure_norm * 0.3 +
              flow_credibility_norm_inverted * 0.3)
         ).clip(0, 1) # 确保原始看跌分数在 [0, 1] 之间
@@ -1979,6 +2010,7 @@ class ProcessIntelligence:
         # 转换为负值，表示看跌
         bearish_score = -bearish_score_modulated
         _temp_debug_values["看跌意图"] = {
+            "distribution_dampener": distribution_dampener, # 增加衰减器调试输出
             "bearish_score_raw": bearish_score_raw, # 增加原始看跌分数的调试输出
             "mf_flow_memory_anti_bearish_modulator": mf_flow_memory_anti_bearish_modulator, # 增加调节器的调试输出
             "bearish_score_modulated": bearish_score_modulated, # 增加调节后的看跌分数的调试输出
@@ -2034,7 +2066,8 @@ class ProcessIntelligence:
             "mtf_volume_structure_skew_positive": mtf_volume_structure_skew.clip(lower=0),
             "mtf_vpin_score": mtf_vpin_score,
             "mtf_vwap_cross_down_intensity": mtf_vwap_cross_down_intensity,
-            "mtf_vwap_sell_control_strength": mtf_vwap_sell_control_strength
+            "mtf_vwap_sell_control_strength": mtf_vwap_sell_control_strength,
+            "mtf_absorption_of_distribution_intensity_inverted": (1 - mtf_absorption_of_distribution_intensity) # 新增：派发吸收强度反向，承接越强，风险越低
         }
         distribution_risk_weights = {
             "distribution_intensity_norm": 0.03, "mtf_upper_shadow_pressure": 0.03,
@@ -2060,7 +2093,8 @@ class ProcessIntelligence:
             "mtf_value_area_migration_negative": 0.02, "mtf_volatility_asymmetry_index_positive": 0.02,
             "mtf_volume_burstiness_index": 0.02, "mtf_volume_structure_skew_positive": 0.02,
             "mtf_vpin_score": 0.02, "mtf_vwap_cross_down_intensity": 0.02,
-            "mtf_vwap_sell_control_strength": 0.02
+            "mtf_vwap_sell_control_strength": 0.02,
+            "mtf_absorption_of_distribution_intensity_inverted": 0.03 # 新增权重
         }
         distribution_risk_score = _robust_geometric_mean(distribution_risk_components, distribution_risk_weights, df_index).clip(0, 1)
         _temp_debug_values["派发风险"] = {
@@ -2111,8 +2145,10 @@ class ProcessIntelligence:
             "mtf_platform_high": 0.04, "mtf_platform_low_inverted": 0.04,
             "mtf_pullback_depth_ratio": 0.04, "mtf_reversal_conviction_rate_inverted": 0.04,
             "mtf_reversal_recovery_rate_inverted": 0.04, "mtf_risk_reward_profile_negative": 0.04,
-            "mtf_structural_entropy_change_negative": 0.04, "mtf_trend_alignment_index_inverted": 0.04,
-            "mtf_trend_asymmetry_index_negative": 0.04, "mtf_vwap_cross_down_intensity": 0.04,
+            "mtf_structural_entropy_change_negative": 0.04, "mtf_structural_leverage": 0.04,
+            "mtf_structural_node_count": 0.04, "mtf_structural_potential_score": 0.04,
+            "mtf_trend_alignment_index_inverted": 0.04, "mtf_trend_asymmetry_index_negative": 0.04,
+            "mtf_vwap_cross_down_intensity": 0.04,
             "mtf_vwap_mean_reversion_corr_negative": 0.04
         }
         pre_drop_risk_factor = _robust_geometric_mean(pre_drop_risk_components, pre_drop_risk_weights, df_index).clip(0, 1) * 0.7 # 整体风险因子权重
@@ -2136,10 +2172,7 @@ class ProcessIntelligence:
         # 风险权重根据动态权重调整
         total_risk_penalty_raw = (distribution_risk_score * dynamic_weights["risk"] + pre_drop_risk_factor * (1 - dynamic_weights["risk"])).clip(0, 1)
         # 应用Sigmoid函数进行非线性惩罚
-        risk_sensitivity = config.get('risk_sensitivity', 5.0) # 可配置的敏感度参数
-        # 调整Sigmoid函数的中心点，使其在低风险时惩罚更小，高风险时惩罚更大
-        # 例如，将中心点从0.5调整到0.3，意味着在0.3以下风险惩罚很小，0.3以上惩罚迅速增加
-        sigmoid_center = config.get('sigmoid_center', 0.3)
+        # risk_sensitivity 和 sigmoid_center 从 config 中获取
         total_risk_penalty = 1 / (1 + np.exp(risk_sensitivity * (total_risk_penalty_raw - sigmoid_center)))
         # 归一化为惩罚因子，高风险对应高惩罚 (1-sigmoid_output)
         total_risk_penalty = (1 - total_risk_penalty).clip(0, 1)
