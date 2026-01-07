@@ -1447,9 +1447,17 @@ class ChipFeatureCalculator:
         【V12.5 · 新增】高频数据准备器。
         - 核心职责: 从上下文中提取日线数据和原始高频数据(tick, level5, realtime)，
                      准备并返回高频计算所需的通用数据字典和合并后的原始高频DataFrame。
+        - 核心新增: 植入详细探针，用于调试高频数据的加载和合并过程。
         """
         import numpy as np
-        # [新增的代码块] 开始
+        # 获取调试参数
+        debug_params = self.ctx.get('debug_params', {})
+        enable_probe = debug_params.get('should_probe', False)
+        probe_dates = debug_params.get('probe_dates', [])
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"\n[探针 E.1 - {stock_code} - {trade_date}] _prepare_behavioral_data_for_chips 启动。")
         daily_total_volume = context.get('daily_turnover_volume', 0)
         daily_total_amount = pd.to_numeric(context.get('amount'), errors='coerce') * 1000 if 'amount' in context else 0
         daily_vwap = daily_total_amount / daily_total_volume if daily_total_volume > 0 else np.nan
@@ -1459,12 +1467,34 @@ class ChipFeatureCalculator:
         tick_data = context.get('tick_data')
         level5_data = context.get('level5_data')
         realtime_data = context.get('realtime_data')
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 E.1.1 - {stock_code} - {trade_date}] 原始高频数据加载状态:")
+            print(f"    - tick_data.empty: {tick_data.empty if tick_data is not None else True}")
+            print(f"    - level5_data.empty: {level5_data.empty if level5_data is not None else True}")
+            print(f"    - realtime_data.empty: {realtime_data.empty if realtime_data is not None else True}")
+            if tick_data is not None and not tick_data.empty:
+                print(f"    - tick_data head:\n{tick_data.head()}")
+                print(f"    - tick_data columns: {tick_data.columns.tolist()}")
+            if level5_data is not None and not level5_data.empty:
+                print(f"    - level5_data head:\n{level5_data.head()}")
+                print(f"    - level5_data columns: {level5_data.columns.tolist()}")
         raw_hf_df = pd.DataFrame()
         if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
+            # 确保索引是DatetimeIndex，并且已排序
+            tick_data_sorted = tick_data.sort_index()
+            level5_data_sorted = level5_data.sort_index()
             merged_hf = pd.merge_asof(
-                tick_data.sort_index(), level5_data.sort_index(),
-                left_index=True, right_index=True, direction='backward'
-            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
+                tick_data_sorted.reset_index(), level5_data_sorted.reset_index(),
+                on='trade_time',
+                direction='backward'
+            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume']) # 确保关键列不为空
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 E.1.2 - {stock_code} - {trade_date}] tick_data 和 level5_data 合并结果 (merged_hf):")
+                print(f"    - merged_hf.empty: {merged_hf.empty}")
+                if not merged_hf.empty:
+                    print(f"    - merged_hf head:\n{merged_hf.head()}")
+                    print(f"    - merged_hf tail:\n{merged_hf.tail()}")
+                    print(f"    - merged_hf columns: {merged_hf.columns.tolist()}")
             if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
                 realtime_prepped = realtime_data[['volume']].copy()
                 realtime_prepped['snapshot_time'] = realtime_prepped.index
@@ -1472,9 +1502,24 @@ class ChipFeatureCalculator:
                     merged_hf, realtime_prepped, left_index=True, right_index=True,
                     direction='backward', suffixes=('_tick', '_realtime')
                 )
+                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                    print(f"  [探针 E.1.3 - {stock_code} - {trade_date}] 合并 realtime_data 后的结果 (merged_hf):")
+                    print(f"    - merged_hf.empty: {merged_hf.empty}")
+                    if not merged_hf.empty:
+                        print(f"    - merged_hf head:\n{merged_hf.head()}")
+                        print(f"    - merged_hf columns: {merged_hf.columns.tolist()}")
             if not merged_hf.empty:
-                merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
+                # 确保 trade_time 是索引
+                if 'trade_time' in merged_hf.columns:
+                    merged_hf.set_index('trade_time', inplace=True)
+                merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True) # 确保 volume 列名正确
                 raw_hf_df = merged_hf
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 E.1.4 - {stock_code} - {trade_date}] 最终 raw_hf_df 状态:")
+            print(f"    - raw_hf_df.empty: {raw_hf_df.empty}")
+            if not raw_hf_df.empty:
+                print(f"    - raw_hf_df head:\n{raw_hf_df.head()}")
+                print(f"    - raw_hf_df columns: {raw_hf_df.columns.tolist()}")
         common_data = {
             'daily_total_volume': daily_total_volume, 'daily_total_amount': daily_total_amount,
             'daily_vwap': daily_vwap, 'atr': atr, 'day_open': day_open, 'day_close': day_close,

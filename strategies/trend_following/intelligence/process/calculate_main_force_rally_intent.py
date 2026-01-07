@@ -469,7 +469,6 @@ class CalculateMainForceRallyIntent:
             'mtf_winner_stability_index': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_absorption_of_distribution_intensity': pd.Series(0.0, index=df_index, dtype=np.float32)
         }
-
         # 逐一计算并更新MTF信号
         mtf_signals['mtf_price_trend'] = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_mf_net_flow'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
