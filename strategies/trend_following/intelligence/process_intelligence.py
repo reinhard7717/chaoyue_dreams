@@ -1432,6 +1432,7 @@ class ProcessIntelligence:
         impulse_purity_norm = self._normalize_series(upward_impulse_purity, df_index, bipolar=True)
         volume_ratio_norm = self._normalize_series(volume_ratio - 1.0, df_index, bipolar=True)
         control_solidity_norm = self._normalize_series(control_solidity, df_index, bipolar=True)
+        control_solidity_norm = self._normalize_series(control_solidity, df_index, bipolar=True)
         cost_advantage_norm = self._normalize_series(cost_advantage, df_index, bipolar=True)
         concentration_slope_norm = self._normalize_series(concentration_slope, df_index, bipolar=True)
         peak_solidity_norm = self._normalize_series(peak_solidity, df_index, bipolar=True)
@@ -1963,16 +1964,24 @@ class ProcessIntelligence:
         distribution_intensity_norm = self._normalize_series(distribution_at_peak_intensity, df_index, bipolar=False)
         upper_shadow_selling_pressure_norm = self._normalize_series(upper_shadow_selling_pressure, df_index, bipolar=False)
         flow_credibility_norm_inverted = (1 - flow_credibility_norm) # 信用度低，看跌
-        bearish_score = (
+        
+        # 修正 bearish_score 的计算逻辑：它应该是一个正值，表示看跌意图的强度，然后乘以 -1 转换为双极性。
+        # 并且 mf_flow_memory_anti_bearish_modulator 应该削弱看跌意图，而不是使其变得更负。
+        bearish_score_raw = (
             (distribution_intensity_norm * 0.4 +
              upper_shadow_selling_pressure_norm * 0.3 +
              flow_credibility_norm_inverted * 0.3)
-        )
-        # V11.1: 应用主力资金累计记忆调节
-        bearish_score = (bearish_score * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
+        ).clip(0, 1) # 确保原始看跌分数在 [0, 1] 之间
+
+        # V11.1: 应用主力资金累计记忆调节，削弱看跌意图
+        bearish_score_modulated = (bearish_score_raw * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
+        
         # 转换为负值，表示看跌
-        bearish_score = -bearish_score
+        bearish_score = -bearish_score_modulated
         _temp_debug_values["看跌意图"] = {
+            "bearish_score_raw": bearish_score_raw, # 增加原始看跌分数的调试输出
+            "mf_flow_memory_anti_bearish_modulator": mf_flow_memory_anti_bearish_modulator, # 增加调节器的调试输出
+            "bearish_score_modulated": bearish_score_modulated, # 增加调节后的看跌分数的调试输出
             "bearish_score": bearish_score
         }
         # --- 6. 风险审判模块 (Risk Adjudication) ---
@@ -2246,6 +2255,12 @@ class ProcessIntelligence:
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发风险 ---"] = ""
+            # 增加对 distribution_risk_components 的调试输出
+            if "distribution_risk_components_debug" in _temp_debug_values:
+                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发风险组件 ---"] = ""
+                for comp_name, comp_series in _temp_debug_values["distribution_risk_components_debug"].items():
+                    val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
+                    debug_output[f"        {comp_name}: {val:.4f}"] = ""
             for key, series in _temp_debug_values["派发风险"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
