@@ -114,7 +114,8 @@ class ProcessIntelligenceHelper:
         if not all_scores_components or total_combined_weight == 0:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         fused_score = sum(all_scores_components) / total_combined_weight
-        return fused_score.clip(0, 1) if not bipolar else fused_score.clip(-1, 1)
+        # 根据 bipolar 参数进行裁剪
+        return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
 
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
         """
@@ -161,7 +162,7 @@ class ProcessIntelligenceHelper:
                      get_adaptive_mtf_normalized_bipolar_score (双极) 进行归一化。
         """
         # 获取MTF权重配置
-        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        p_conf_structural_ultimate = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         if bipolar:
@@ -175,7 +176,7 @@ class ProcessIntelligenceHelper:
             return get_adaptive_mtf_normalized_score(
                 series=series,
                 target_index=target_index,
-                ascending=ascending,
+                ascending=ascending, # 确保 ascending 参数被传递
                 tf_weights=actual_mtf_weights
             )
 

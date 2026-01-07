@@ -1301,7 +1301,6 @@ class AdvancedFundFlowMetricsService:
                         # 核心修复：将 start_time 和 end_time 转换为时区-naive
                         start_time_naive = start_time.tz_localize(None) if start_time.tz is not None else start_time
                         end_time_naive = end_time.tz_localize(None) if end_time.tz is not None else end_time
-
                         # 使用时区-naive的时间戳进行比较
                         mf_trades_in_rally = mf_trades[(mf_trades.index.values >= start_time_naive) & (mf_trades.index.values <= end_time_naive)]
                         if not mf_trades_in_rally.empty:

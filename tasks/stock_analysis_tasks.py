@@ -758,7 +758,6 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
             daily_basic_df.index = pd.to_datetime(daily_basic_df.index)
             # 合并 turnover_rate_f
             daily_df_with_atr = daily_df_with_atr.join(daily_basic_df[['turnover_rate_f']], how='left')
-
         tick_data_map = data_dfs.get("stock_tick_data_map", {})
         level5_data_map = data_dfs.get("stock_level5_data_map", {})
         minute_data_map = data_dfs.get("stock_minute_data_map", {})

@@ -50,16 +50,13 @@ class CalculateMainForceRallyIntent:
         """
         method_name = "_calculate_main_force_rally_intent"
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._setup_debug_info(df, method_name)
-
         params = self._get_parameters(config)
         actual_mtf_weights = params["actual_mtf_weights"]
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         historical_context_params = params["historical_context_params"]
         rally_intent_synthesis_params = params["rally_intent_synthesis_params"]
-
         df_index = df.index
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
-
         # 1. 校验所需信号
         required_signals = self._get_required_signals_list(mtf_slope_accel_weights, historical_context_params)
         if not self.helper._validate_required_signals(df, required_signals, method_name):
@@ -67,54 +64,41 @@ class CalculateMainForceRallyIntent:
                 debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
                 self.helper._print_debug_output(debug_output)
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # 2. 获取原始信号
         raw_signals = self._get_raw_signals(df, method_name, get_param_value(historical_context_params.get('long_term_trend_slope_period'), 21))
         _temp_debug_values["原始信号值"] = raw_signals
         _temp_debug_values["派生信号值"] = {"is_limit_up_day": is_limit_up_day}
-
         # 3. 计算MTF融合信号
         mtf_signals = self._calculate_mtf_fused_signals(df, mtf_slope_accel_weights, df_index, method_name)
         _temp_debug_values["MTF融合信号"] = mtf_signals
-
         # 4. 计算历史上下文
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, historical_context_params, is_debug_enabled_for_method, probe_ts, _temp_debug_values)
-
         # 5. 归一化原始信号
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals, method_name)
         _temp_debug_values["归一化处理"] = normalized_signals
-
         # 6. 构建代理信号
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
         _temp_debug_values["代理信号"] = proxy_signals
-
         # 7. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, _temp_debug_values)
-
         # 8. 计算攻击性
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
-
         # 9. 计算控制力
         control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
-
         # 10. 计算障碍清除
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_obstacle_clearance"] = obstacle_clearance_score
-
         # 11. 合成基础看涨意图
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, dynamic_weights, historical_context, rally_intent_synthesis_params, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
-
         # 12. 计算看跌意图
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_bearish_score"] = bearish_score
-
         # 13. 风险审判模块
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, rally_intent_synthesis_params, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_total_risk_penalty"] = total_risk_penalty
-
         # 14. 最终意图合成
         penalized_bullish_part = bullish_intent * (1 - total_risk_penalty)
         final_rally_intent = (penalized_bullish_part + bearish_score).clip(-1, 1)
@@ -124,13 +108,10 @@ class CalculateMainForceRallyIntent:
             "penalized_bullish_part": penalized_bullish_part,
             "final_rally_intent_before_mod": final_rally_intent
         }
-
         # 15. 应用情境调节器
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, _temp_debug_values)
-
         # 16. 输出调试信息
         self._output_debug_info(is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values, final_rally_intent, method_name)
-
         return final_rally_intent.astype(np.float32)
 
     def _setup_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
@@ -350,141 +331,131 @@ class CalculateMainForceRallyIntent:
         mtf_signals = {
             'mtf_price_trend': self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_mf_net_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_upper_shadow_pressure': self.helper._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_retail_fomo': self.helper._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_buy_sweep_intensity': self.helper._get_mtf_slope_accel_score(df, 'buy_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_buy_ofi': self.helper._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_t0_buy_efficiency': self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_buy_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_upward_impulse_strength': self.helper._get_mtf_slope_accel_score(df, 'upward_impulse_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_vwap_buy_control_strength': self.helper._get_mtf_slope_accel_score(df, 'vwap_buy_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_mf_cost_zone_buy_intent': self.helper._get_mtf_slope_accel_score(df, 'mf_cost_zone_buy_intent_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_chip_fault_blockage_ratio': self.helper._get_mtf_slope_accel_score(df, 'chip_fault_blockage_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_vacuum_traversal_efficiency': self.helper._get_mtf_slope_accel_score(df, 'vacuum_traversal_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_dip_buy_absorption_strength': self.helper._get_mtf_slope_accel_score(df, 'dip_buy_absorption_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_rally_buy_support_weakness': self.helper._get_mtf_slope_accel_score(df, 'rally_buy_support_weakness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_covert_distribution': self.helper._get_mtf_slope_accel_score(df, 'covert_distribution_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_deception_lure_short': self.helper._get_mtf_slope_accel_score(df, 'deception_lure_short_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_rally_distribution_pressure': self.helper._get_mtf_slope_accel_score(df, 'rally_distribution_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_exhaustion_risk': self.helper._get_mtf_slope_accel_score(df, 'exhaustion_risk_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_asymmetric_friction': self.helper._get_mtf_slope_accel_score(df, 'asymmetric_friction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_volatility_expansion': self.helper._get_mtf_slope_accel_score(df, 'volatility_expansion_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            # 风险/压力类信号，改为 bipolar=True
+            'mtf_upper_shadow_pressure': self.helper._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_retail_fomo': self.helper._get_mtf_slope_accel_score(df, 'retail_fomo_premium_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_covert_distribution': self.helper._get_mtf_slope_accel_score(df, 'covert_distribution_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_deception_lure_short': self.helper._get_mtf_slope_accel_score(df, 'deception_lure_short_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_rally_distribution_pressure': self.helper._get_mtf_slope_accel_score(df, 'rally_distribution_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_exhaustion_risk': self.helper._get_mtf_slope_accel_score(df, 'exhaustion_risk_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_asymmetric_friction': self.helper._get_mtf_slope_accel_score(df, 'asymmetric_friction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_volatility_expansion': self.helper._get_mtf_slope_accel_score(df, 'volatility_expansion_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_market_sentiment': self.helper._get_mtf_slope_accel_score(df, 'market_sentiment_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_structural_tension': self.helper._get_mtf_slope_accel_score(df, 'structural_tension_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_trend_vitality': self.helper._get_mtf_slope_accel_score(df, 'trend_vitality_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_liquidity_authenticity': self.helper._get_mtf_slope_accel_score(df, 'liquidity_authenticity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_order_book_clearing_rate': self.helper._get_mtf_slope_accel_score(df, 'order_book_clearing_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_sell_sweep_intensity': self.helper._get_mtf_slope_accel_score(df, 'sell_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_flow_gini': self.helper._get_mtf_slope_accel_score(df, 'main_force_flow_gini_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_microstructure_efficiency': self.helper._get_mtf_slope_accel_score(df, 'microstructure_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_imbalance_effectiveness': self.helper._get_mtf_slope_accel_score(df, 'imbalance_effectiveness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_auction_showdown': self.helper._get_mtf_slope_accel_score(df, 'auction_showdown_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_closing_conviction': self.helper._get_mtf_slope_accel_score(df, 'closing_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_intraday_energy_density': self.helper._get_mtf_slope_accel_score(df, 'intraday_energy_density_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_intraday_thrust_purity': self.helper._get_mtf_slope_accel_score(df, 'intraday_thrust_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_structural_tension': self.helper._get_mtf_slope_accel_score(df, 'structural_tension_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_liquidity_authenticity': self.helper._get_mtf_slope_accel_score(df, 'liquidity_authenticity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_order_book_clearing_rate': self.helper._get_mtf_slope_accel_score(df, 'order_book_clearing_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_sell_sweep_intensity': self.helper._get_mtf_slope_accel_score(df, 'sell_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_main_force_flow_gini': self.helper._get_mtf_slope_accel_score(df, 'main_force_flow_gini_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_microstructure_efficiency': self.helper._get_mtf_slope_accel_score(df, 'microstructure_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_imbalance_effectiveness': self.helper._get_mtf_slope_accel_score(df, 'imbalance_effectiveness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_auction_showdown': self.helper._get_mtf_slope_accel_score(df, 'auction_showdown_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_closing_conviction': self.helper._get_mtf_slope_accel_score(df, 'closing_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_intraday_energy_density': self.helper._get_mtf_slope_accel_score(df, 'intraday_energy_density_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_intraday_thrust_purity': self.helper._get_mtf_slope_accel_score(df, 'intraday_thrust_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_price_thrust_divergence': self.helper._get_mtf_slope_accel_score(df, 'price_thrust_divergence_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_trend_efficiency_ratio': self.helper._get_mtf_slope_accel_score(df, 'trend_efficiency_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_loser_concentration_90pct': self.helper._get_mtf_slope_accel_score(df, 'loser_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_trend_efficiency_ratio': self.helper._get_mtf_slope_accel_score(df, 'trend_efficiency_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_loser_concentration_90pct': self.helper._get_mtf_slope_accel_score(df, 'loser_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_winner_loser_momentum': self.helper._get_mtf_slope_accel_score(df, 'winner_loser_momentum_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_cost_structure_skewness': self.helper._get_mtf_slope_accel_score(df, 'cost_structure_skewness_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_cost_gini_coefficient': self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_cost_gini_coefficient': self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_mf_vpoc_premium': self.helper._get_mtf_slope_accel_score(df, 'mf_vpoc_premium_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_character_score': self.helper._get_mtf_slope_accel_score(df, 'character_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_signal_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'signal_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_touch_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'touch_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_gathering_by_chasing': self.helper._get_mtf_slope_accel_score(df, 'gathering_by_chasing_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_gathering_by_support': self.helper._get_mtf_slope_accel_score(df, 'gathering_by_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_buy_flow_efficiency': self.helper._get_mtf_slope_accel_score(df, 'buy_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_sell_flow_efficiency': self.helper._get_mtf_slope_accel_score(df, 'sell_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_character_score': self.helper._get_mtf_slope_accel_score(df, 'character_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_signal_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'signal_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_touch_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'touch_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_gathering_by_chasing': self.helper._get_mtf_slope_accel_score(df, 'gathering_by_chasing_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_gathering_by_support': self.helper._get_mtf_slope_accel_score(df, 'gathering_by_support_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_buy_flow_efficiency': self.helper._get_mtf_slope_accel_score(df, 'buy_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_sell_flow_efficiency': self.helper._get_mtf_slope_accel_score(df, 'sell_flow_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_auction_closing_position': self.helper._get_mtf_slope_accel_score(df, 'auction_closing_position_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_auction_impact_score': self.helper._get_mtf_slope_accel_score(df, 'auction_impact_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_auction_intent_signal': self.helper._get_mtf_slope_accel_score(df, 'auction_intent_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_order_book_liquidity_supply': self.helper._get_mtf_slope_accel_score(df, 'order_book_liquidity_supply_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_auction_impact_score': self.helper._get_mtf_slope_accel_score(df, 'auction_impact_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_auction_intent_signal': self.helper._get_mtf_slope_accel_score(df, 'auction_intent_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_order_book_liquidity_supply': self.helper._get_mtf_slope_accel_score(df, 'order_book_liquidity_supply_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_liquidity_slope': self.helper._get_mtf_slope_accel_score(df, 'liquidity_slope_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_peak_mass_transfer_rate': self.helper._get_mtf_slope_accel_score(df, 'peak_mass_transfer_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_mf_cost_zone_defense_intent': self.helper._get_mtf_slope_accel_score(df, 'mf_cost_zone_defense_intent_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_bid_side_liquidity': self.helper._get_mtf_slope_accel_score(df, 'bid_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_ask_side_liquidity': self.helper._get_mtf_slope_accel_score(df, 'ask_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_retail_panic_surrender': self.helper._get_mtf_slope_accel_score(df, 'retail_panic_surrender_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_activity_ratio': self.helper._get_mtf_slope_accel_score(df, 'main_force_activity_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_conviction_index': self.helper._get_mtf_slope_accel_score(df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_peak_mass_transfer_rate': self.helper._get_mtf_slope_accel_score(df, 'peak_mass_transfer_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_mf_cost_zone_defense_intent': self.helper._get_mtf_slope_accel_score(df, 'mf_cost_zone_defense_intent_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_bid_side_liquidity': self.helper._get_mtf_slope_accel_score(df, 'bid_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_ask_side_liquidity': self.helper._get_mtf_slope_accel_score(df, 'ask_side_liquidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_retail_panic_surrender': self.helper._get_mtf_slope_accel_score(df, 'retail_panic_surrender_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_main_force_activity_ratio': self.helper._get_mtf_slope_accel_score(df, 'main_force_activity_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_main_force_conviction_index': self.helper._get_mtf_slope_accel_score(df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_main_force_execution_alpha': self.helper._get_mtf_slope_accel_score(df, 'main_force_execution_alpha_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_main_force_flow_directionality': self.helper._get_mtf_slope_accel_score(df, 'main_force_flow_directionality_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_main_force_on_peak_buy_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_buy_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_on_peak_sell_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_sell_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_t0_efficiency': self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_main_force_t0_sell_efficiency': self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_sell_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_main_force_on_peak_buy_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_buy_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_main_force_on_peak_sell_flow': self.helper._get_mtf_slope_accel_score(df, 'main_force_on_peak_sell_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_main_force_t0_efficiency': self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_main_force_t0_sell_efficiency': self.helper._get_mtf_slope_accel_score(df, 'main_force_t0_sell_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_main_force_vwap_down_guidance': self.helper._get_mtf_slope_accel_score(df, 'main_force_vwap_down_guidance_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_main_force_vwap_up_guidance': self.helper._get_mtf_slope_accel_score(df, 'main_force_vwap_up_guidance_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_market_impact_cost': self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_opening_buy_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_buy_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_opening_sell_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_sell_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_closing_strength_index': self.helper._get_mtf_slope_accel_score(df, 'closing_strength_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_total_buy_amount_calibrated': self.helper._get_mtf_slope_accel_score(df, 'total_buy_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_total_sell_amount_calibrated': self.helper._get_mtf_slope_accel_score(df, 'total_sell_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_wash_trade_intensity': self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_market_impact_cost': self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_opening_buy_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_buy_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_opening_sell_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_sell_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_closing_strength_index': self.helper._get_mtf_slope_accel_score(df, 'closing_strength_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_total_buy_amount_calibrated': self.helper._get_mtf_slope_accel_score(df, 'total_buy_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_total_sell_amount_calibrated': self.helper._get_mtf_slope_accel_score(df, 'total_sell_amount_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_wash_trade_intensity': self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_winner_profit_margin_avg': self.helper._get_mtf_slope_accel_score(df, 'winner_profit_margin_avg_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_loser_loss_margin_avg': self.helper._get_mtf_slope_accel_score(df, 'loser_loss_margin_avg_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_total_winner_rate': self.helper._get_mtf_slope_accel_score(df, 'total_winner_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_total_loser_rate': self.helper._get_mtf_slope_accel_score(df, 'total_loser_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_impulse_quality_ratio': self.helper._get_mtf_slope_accel_score(df, 'impulse_quality_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_thrust_efficiency_score': self.helper._get_mtf_slope_accel_score(df, 'thrust_efficiency_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_platform_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'platform_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_platform_high': self.helper._get_mtf_slope_accel_score(df, 'platform_high_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_platform_low': self.helper._get_mtf_slope_accel_score(df, 'platform_low_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_breakout_quality_score': self.helper._get_mtf_slope_accel_score(df, 'breakout_quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_breakout_readiness_score': self.helper._get_mtf_slope_accel_score(df, 'breakout_readiness_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_breakthrough_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'breakthrough_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_defense_solidity_score': self.helper._get_mtf_slope_accel_score(df, 'defense_solidity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_support_validation_strength': self.helper._get_mtf_slope_accel_score(df, 'support_validation_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_covert_accumulation_signal': self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_suppressive_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_deception_index': self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_deception_lure_long_intensity': self.helper._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_equilibrium_compression_index': self.helper._get_mtf_slope_accel_score(df, 'equilibrium_compression_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_final_charge_intensity': self.helper._get_mtf_slope_accel_score(df, 'final_charge_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_floating_chip_cleansing_efficiency': self.helper._get_mtf_slope_accel_score(df, 'floating_chip_cleansing_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_hidden_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_internal_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'internal_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_intraday_posture_score': self.helper._get_mtf_slope_accel_score(df, 'intraday_posture_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_opening_gap_defense_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_gap_defense_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_panic_buy_absorption_contribution': self.helper._get_mtf_slope_accel_score(df, 'panic_buy_absorption_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_panic_sell_volume_contribution': self.helper._get_mtf_slope_accel_score(df, 'panic_sell_volume_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_panic_selling_cascade': self.helper._get_mtf_slope_accel_score(df, 'panic_selling_cascade_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_peak_control_transfer': self.helper._get_mtf_slope_accel_score(df, 'peak_control_transfer_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_peak_separation_ratio': self.helper._get_mtf_slope_accel_score(df, 'peak_separation_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_total_winner_rate': self.helper._get_mtf_slope_accel_score(df, 'total_winner_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_total_loser_rate': self.helper._get_mtf_slope_accel_score(df, 'total_loser_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_impulse_quality_ratio': self.helper._get_mtf_slope_accel_score(df, 'impulse_quality_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_thrust_efficiency_score': self.helper._get_mtf_slope_accel_score(df, 'thrust_efficiency_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_platform_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'platform_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_platform_high': self.helper._get_mtf_slope_accel_score(df, 'platform_high_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_platform_low': self.helper._get_mtf_slope_accel_score(df, 'platform_low_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_breakout_quality_score': self.helper._get_mtf_slope_accel_score(df, 'breakout_quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_breakout_readiness_score': self.helper._get_mtf_slope_accel_score(df, 'breakout_readiness_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_breakthrough_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'breakthrough_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_defense_solidity_score': self.helper._get_mtf_slope_accel_score(df, 'defense_solidity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_support_validation_strength': self.helper._get_mtf_slope_accel_score(df, 'support_validation_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_covert_accumulation_signal': self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_suppressive_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_deception_index': self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_deception_lure_long_intensity': self.helper._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_equilibrium_compression_index': self.helper._get_mtf_slope_accel_score(df, 'equilibrium_compression_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_final_charge_intensity': self.helper._get_mtf_slope_accel_score(df, 'final_charge_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_floating_chip_cleansing_efficiency': self.helper._get_mtf_slope_accel_score(df, 'floating_chip_cleansing_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_hidden_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_internal_accumulation_intensity': self.helper._get_mtf_slope_accel_score(df, 'internal_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_intraday_posture_score': self.helper._get_mtf_slope_accel_score(df, 'intraday_posture_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_opening_gap_defense_strength': self.helper._get_mtf_slope_accel_score(df, 'opening_gap_defense_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_panic_buy_absorption_contribution': self.helper._get_mtf_slope_accel_score(df, 'panic_buy_absorption_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_panic_sell_volume_contribution': self.helper._get_mtf_slope_accel_score(df, 'panic_sell_volume_contribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_panic_selling_cascade': self.helper._get_mtf_slope_accel_score(df, 'panic_selling_cascade_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_peak_control_transfer': self.helper._get_mtf_slope_accel_score(df, 'peak_control_transfer_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_peak_separation_ratio': self.helper._get_mtf_slope_accel_score(df, 'peak_separation_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_price_reversion_velocity': self.helper._get_mtf_slope_accel_score(df, 'price_reversion_velocity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_pullback_depth_ratio': self.helper._get_mtf_slope_accel_score(df, 'pullback_depth_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_quality_score': self.helper._get_mtf_slope_accel_score(df, 'quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_reversal_conviction_rate': self.helper._get_mtf_slope_accel_score(df, 'reversal_conviction_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_reversal_power_index': self.helper._get_mtf_slope_accel_score(df, 'reversal_power_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_reversal_recovery_rate': self.helper._get_mtf_slope_accel_score(df, 'reversal_recovery_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_pullback_depth_ratio': self.helper._get_mtf_slope_accel_score(df, 'pullback_depth_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_quality_score': self.helper._get_mtf_slope_accel_score(df, 'quality_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_reversal_conviction_rate': self.helper._get_mtf_slope_accel_score(df, 'reversal_conviction_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_reversal_power_index': self.helper._get_mtf_slope_accel_score(df, 'reversal_power_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_reversal_recovery_rate': self.helper._get_mtf_slope_accel_score(df, 'reversal_recovery_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_risk_reward_profile': self.helper._get_mtf_slope_accel_score(df, 'risk_reward_profile_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_shock_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'shock_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_strategic_phase_score': self.helper._get_mtf_slope_accel_score(df, 'strategic_phase_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_shock_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'shock_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_strategic_phase_score': self.helper._get_mtf_slope_accel_score(df, 'strategic_phase_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_structural_entropy_change': self.helper._get_mtf_slope_accel_score(df, 'structural_entropy_change_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_structural_leverage': self.helper._get_mtf_slope_accel_score(df, 'structural_leverage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_structural_node_count': self.helper._get_mtf_slope_accel_score(df, 'structural_node_count_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_structural_potential_score': self.helper._get_mtf_slope_accel_score(df, 'structural_potential_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_support_validation_score': self.helper._get_mtf_slope_accel_score(df, 'support_validation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_supportive_distribution_intensity': self.helper._get_mtf_slope_accel_score(df, 'supportive_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_trend_acceleration_score': self.helper._get_mtf_slope_accel_score(df, 'trend_acceleration_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_trend_alignment_index': self.helper._get_mtf_slope_accel_score(df, 'trend_alignment_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_structural_leverage': self.helper._get_mtf_slope_accel_score(df, 'structural_leverage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_structural_node_count': self.helper._get_mtf_slope_accel_score(df, 'structural_node_count_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_structural_potential_score': self.helper._get_mtf_slope_accel_score(df, 'structural_potential_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_support_validation_score': self.helper._get_mtf_slope_accel_score(df, 'support_validation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_supportive_distribution_intensity': self.helper._get_mtf_slope_accel_score(df, 'supportive_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_trend_acceleration_score': self.helper._get_mtf_slope_accel_score(df, 'trend_acceleration_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_trend_alignment_index': self.helper._get_mtf_slope_accel_score(df, 'trend_alignment_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_trend_asymmetry_index': self.helper._get_mtf_slope_accel_score(df, 'trend_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_trend_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'trend_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_trend_conviction_score': self.helper._get_mtf_slope_accel_score(df, 'trend_conviction_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_value_area_migration': self.helper._get_mtf_slope_accel_score(df, 'value_area_migration_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_value_area_overlap_pct': self.helper._get_mtf_slope_accel_score(df, 'value_area_overlap_pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_value_area_overlap_pct': self.helper._get_mtf_slope_accel_score(df, 'value_area_overlap_pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_volatility_asymmetry_index': self.helper._get_mtf_slope_accel_score(df, 'volatility_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_volume_burstiness_index': self.helper._get_mtf_slope_accel_score(df, 'volume_burstiness_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_volume_burstiness_index': self.helper._get_mtf_slope_accel_score(df, 'volume_burstiness_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_volume_structure_skew': self.helper._get_mtf_slope_accel_score(df, 'volume_structure_skew_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vpin_score': self.helper._get_mtf_slope_accel_score(df, 'vpin_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_vwap_control_strength': self.helper._get_mtf_slope_accel_score(df, 'vwap_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_vwap_cross_down_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_down_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_vwap_cross_up_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_up_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_vwap_crossing_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_crossing_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            'mtf_vpin_score': self.helper._get_mtf_slope_accel_score(df, 'vpin_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_vwap_control_strength': self.helper._get_mtf_slope_accel_score(df, 'vwap_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_vwap_cross_down_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_down_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_vwap_cross_up_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_cross_up_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_vwap_crossing_intensity': self.helper._get_mtf_slope_accel_score(df, 'vwap_crossing_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
             'mtf_vwap_mean_reversion_corr': self.helper._get_mtf_slope_accel_score(df, 'vwap_mean_reversion_corr_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            'mtf_vwap_sell_control_strength': self.helper._get_mtf_slope_accel_score(df, 'vwap_sell_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_winner_stability_index': self.helper._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            'mtf_absorption_of_distribution_intensity': self.helper._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+            'mtf_vwap_sell_control_strength': self.helper._get_mtf_slope_accel_score(df, 'vwap_sell_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_winner_stability_index': self.helper._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            'mtf_absorption_of_distribution_intensity': self.helper._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         }
         return mtf_signals
 
@@ -499,11 +470,9 @@ class CalculateMainForceRallyIntent:
         chip_concentration_stability_modulator_factor = get_param_value(params.get('chip_concentration_stability_modulator_factor'), 0.05)
         long_term_trend_modulator_factor = get_param_value(params.get('long_term_trend_modulator_factor'), 0.15)
         hc_mtf_weights_medium = get_param_value(params.get('mtf_weights_medium'), {"21": 0.4, "34": 0.3, "55": 0.3})
-
         mtf_cumulative_mf_flow = pd.Series(0.0, index=df_index, dtype=np.float32)
         mtf_chip_concentration_stability = pd.Series(0.5, index=df_index, dtype=np.float32)
         mtf_long_term_trend_strength = pd.Series(0.0, index=df_index, dtype=np.float32)
-
         if hc_enabled:
             cumulative_mf_flow_long = raw_signals['main_force_net_flow'].rolling(window=cumulative_mf_flow_window, min_periods=int(cumulative_mf_flow_window * 0.5)).sum()
             mtf_cumulative_mf_flow = get_adaptive_mtf_normalized_score(
@@ -520,7 +489,6 @@ class CalculateMainForceRallyIntent:
                 raw_signals['long_term_trend_slope'], df_index, hc_mtf_weights_medium, ascending=True,
                 debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_long_term_trend_strength")
             )
-        
         _temp_debug_values["MTF融合信号"].update({
             "mtf_cumulative_mf_flow": mtf_cumulative_mf_flow,
             "mtf_chip_concentration_stability": mtf_chip_concentration_stability,
@@ -688,14 +656,11 @@ class CalculateMainForceRallyIntent:
         """
         rs_modulator_proxy = (mtf_signals['mtf_price_trend'].clip(lower=0) * 0.4 + mtf_signals['mtf_trend_vitality'] * 0.3 + mtf_signals['mtf_breakout_quality_score'] * 0.3).clip(0,1)
         rs_modulator = (1 + rs_modulator_proxy * config.get('relative_strength_amplifier', 0.0))
-        
         capital_modulator_proxy = (mtf_signals['mtf_mf_net_flow'].clip(lower=0) * 0.2 + normalized_signals['main_force_flow_gini_inverted_norm'] * 0.15 + mtf_signals['mtf_main_force_buy_ofi'] * 0.15 +
                                    mtf_signals['mtf_main_force_t0_buy_efficiency'] * 0.1 + normalized_signals['main_force_activity_ratio_norm'] * 0.1 + normalized_signals['main_force_conviction_index_norm'] * 0.1 +
                                    mtf_signals['mtf_main_force_execution_alpha'].clip(lower=0) * 0.1 + mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0) * 0.1).clip(0,1)
         capital_modulator = (1 + capital_modulator_proxy * config.get('capital_signature_modulator_weight', 0.0))
-        
         market_sentiment_proxy = (mtf_signals['mtf_market_sentiment'].clip(lower=0) * 0.4 + mtf_signals['mtf_retail_fomo'] * 0.3 + (1 - mtf_signals['mtf_retail_panic_surrender']) * 0.3).clip(0,1)
-        
         liquidity_tide_proxy = (mtf_signals['mtf_order_book_liquidity_supply'] * 0.3 + mtf_signals['mtf_liquidity_slope'].clip(lower=0) * 0.3 +
                                 mtf_signals['mtf_bid_side_liquidity'] * 0.2 + (1 - mtf_signals['mtf_ask_side_liquidity']) * 0.2).clip(0,1)
         return {
@@ -765,52 +730,52 @@ class CalculateMainForceRallyIntent:
         计算攻击性分数。
         """
         aggressiveness_components = {
-            "mtf_price_trend": mtf_signals['mtf_price_trend'].clip(lower=0),
-            "mtf_mf_net_flow": mtf_signals['mtf_mf_net_flow'].clip(lower=0),
-            "price_impact_norm": normalized_signals['price_impact_norm'].clip(lower=0),
-            "impulse_purity_norm": normalized_signals['impulse_purity_norm'].clip(lower=0),
-            "volume_ratio_norm": normalized_signals['volume_ratio_norm'].clip(lower=0),
-            "flow_credibility_norm": normalized_signals['flow_credibility_norm'],
-            "chip_health_norm": normalized_signals['chip_health_norm'],
-            "mtf_buy_sweep_intensity": mtf_signals['mtf_buy_sweep_intensity'],
-            "mtf_main_force_buy_ofi": mtf_signals['mtf_main_force_buy_ofi'],
-            "mtf_main_force_t0_buy_efficiency": mtf_signals['mtf_main_force_t0_buy_efficiency'],
-            "order_book_imbalance_positive_norm": normalized_signals['order_book_imbalance_positive_norm'],
-            "micro_price_impact_asymmetry_positive_norm": normalized_signals['micro_price_impact_asymmetry_positive_norm'],
-            "constructive_turnover_norm": normalized_signals['constructive_turnover_norm'],
-            "mtf_upward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'],
-            "mtf_order_book_clearing_rate": mtf_signals['mtf_order_book_clearing_rate'],
-            "sell_sweep_intensity_inverted_norm": normalized_signals['sell_sweep_intensity_inverted_norm'],
-            "microstructure_efficiency_norm": normalized_signals['microstructure_efficiency_norm'],
-            "imbalance_effectiveness_norm": normalized_signals['imbalance_effectiveness_norm'],
-            "mtf_auction_showdown": mtf_signals['mtf_auction_showdown'],
-            "mtf_closing_conviction": mtf_signals['mtf_closing_conviction'],
-            "mtf_intraday_energy_density": mtf_signals['mtf_intraday_energy_density'],
-            "mtf_intraday_thrust_purity": mtf_signals['mtf_intraday_thrust_purity'],
-            "mtf_buy_flow_efficiency": mtf_signals['mtf_buy_flow_efficiency'],
-            "mtf_sell_flow_efficiency_inverted": (1 - mtf_signals['mtf_sell_flow_efficiency']), # 卖方效率低，买方攻击性强
-            "mtf_auction_closing_position_positive": mtf_signals['mtf_auction_closing_position'].clip(lower=0), # 集合竞价收盘位置偏高
-            "mtf_auction_impact_score": mtf_signals['mtf_auction_impact_score'],
-            "mtf_auction_intent_signal": mtf_signals['mtf_auction_intent_signal'],
-            "mtf_opening_buy_strength": mtf_signals['mtf_opening_buy_strength'],
-            "mtf_closing_strength_index": mtf_signals['mtf_closing_strength_index'],
-            "mtf_total_buy_amount_calibrated": mtf_signals['mtf_total_buy_amount_calibrated'],
-            "mtf_main_force_vwap_up_guidance": mtf_signals['mtf_main_force_vwap_up_guidance'].clip(lower=0),
-            "mtf_impulse_quality_ratio": mtf_signals['mtf_impulse_quality_ratio'],
-            "mtf_thrust_efficiency_score": mtf_signals['mtf_thrust_efficiency_score'],
-            "mtf_breakout_quality_score": mtf_signals['mtf_breakout_quality_score'],
-            "mtf_breakout_readiness_score": mtf_signals['mtf_breakout_readiness_score'],
-            "mtf_breakthrough_conviction_score": mtf_signals['mtf_breakthrough_conviction_score'],
-            "mtf_final_charge_intensity": mtf_signals['mtf_final_charge_intensity'],
-            "mtf_hidden_accumulation_intensity": mtf_signals['mtf_hidden_accumulation_intensity'],
-            "mtf_internal_accumulation_intensity": mtf_signals['mtf_internal_accumulation_intensity'],
-            "mtf_intraday_posture_score": mtf_signals['mtf_intraday_posture_score'],
-            "mtf_panic_buy_absorption_contribution": mtf_signals['mtf_panic_buy_absorption_contribution'],
-            "mtf_reversal_power_index": mtf_signals['mtf_reversal_power_index'],
-            "mtf_trend_acceleration_score": mtf_signals['mtf_trend_acceleration_score'],
-            "mtf_trend_conviction_score": mtf_signals['mtf_trend_conviction_score'],
-            "mtf_vwap_cross_up_intensity": mtf_signals['mtf_vwap_cross_up_intensity'],
-            "mtf_absorption_of_distribution_intensity": mtf_signals['mtf_absorption_of_distribution_intensity'] # 新增：派发吸收强度作为攻击性的一部分
+            "mtf_price_trend": mtf_signals['mtf_price_trend'].clip(lower=0), # 价格趋势向上
+            "mtf_mf_net_flow": mtf_signals['mtf_mf_net_flow'].clip(lower=0), # 主力净流量向上
+            "price_impact_norm": normalized_signals['price_impact_norm'].clip(lower=0), # 价格冲击正向
+            "impulse_purity_norm": normalized_signals['impulse_purity_norm'].clip(lower=0), # 向上脉冲纯度
+            "volume_ratio_norm": normalized_signals['volume_ratio_norm'].clip(lower=0), # 放量
+            "flow_credibility_norm": normalized_signals['flow_credibility_norm'], # 资金流可信度
+            "chip_health_norm": normalized_signals['chip_health_norm'], # 筹码健康度
+            "mtf_buy_sweep_intensity": mtf_signals['mtf_buy_sweep_intensity'].clip(lower=0), # 买入扫单强度趋势向上
+            "mtf_main_force_buy_ofi": mtf_signals['mtf_main_force_buy_ofi'].clip(lower=0), # 主力买入订单流趋势向上
+            "mtf_main_force_t0_buy_efficiency": mtf_signals['mtf_main_force_t0_buy_efficiency'].clip(lower=0), # 主力T0买入效率趋势向上
+            "order_book_imbalance_positive_norm": normalized_signals['order_book_imbalance_positive_norm'], # 订单簿买方不平衡
+            "micro_price_impact_asymmetry_positive_norm": normalized_signals['micro_price_impact_asymmetry_positive_norm'], # 微观价格冲击买方不对称
+            "constructive_turnover_norm": normalized_signals['constructive_turnover_norm'], # 建设性换手率
+            "mtf_upward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'].clip(lower=0), # 向上脉冲强度趋势向上
+            "mtf_order_book_clearing_rate": mtf_signals['mtf_order_book_clearing_rate'].clip(lower=0), # 订单簿清算率趋势向上
+            "sell_flow_efficiency_inverted_norm": (1 - normalized_signals['sell_flow_efficiency_norm']), # 卖方效率低，买方攻击性强
+            "microstructure_efficiency_norm": normalized_signals['microstructure_efficiency_norm'], # 微观结构效率
+            "imbalance_effectiveness_norm": normalized_signals['imbalance_effectiveness_norm'], # 不平衡有效性
+            "mtf_auction_showdown": mtf_signals['mtf_auction_showdown'].clip(lower=0), # 集合竞价摊牌趋势向上
+            "mtf_closing_conviction": mtf_signals['mtf_closing_conviction'].clip(lower=0), # 收盘信念趋势向上
+            "mtf_intraday_energy_density": mtf_signals['mtf_intraday_energy_density'].clip(lower=0), # 日内能量密度趋势向上
+            "mtf_intraday_thrust_purity": mtf_signals['mtf_intraday_thrust_purity'].clip(lower=0), # 日内推力纯度趋势向上
+            "mtf_buy_flow_efficiency": mtf_signals['mtf_buy_flow_efficiency'].clip(lower=0), # 买方资金流效率趋势向上
+            "mtf_sell_flow_efficiency_inverted": (1 - mtf_signals['mtf_sell_flow_efficiency'].clip(lower=0)), # 卖方效率低，买方攻击性强
+            "mtf_auction_closing_position_positive": mtf_signals['mtf_auction_closing_position'].clip(lower=0), # 集合竞价收盘位置偏高趋势向上
+            "mtf_auction_impact_score": mtf_signals['mtf_auction_impact_score'].clip(lower=0), # 集合竞价冲击分趋势向上
+            "mtf_auction_intent_signal": mtf_signals['mtf_auction_intent_signal'].clip(lower=0), # 集合竞价意图信号趋势向上
+            "mtf_opening_buy_strength": mtf_signals['mtf_opening_buy_strength'].clip(lower=0), # 开盘买入强度趋势向上
+            "mtf_closing_strength_index": mtf_signals['mtf_closing_strength_index'].clip(lower=0), # 收盘强度指数趋势向上
+            "mtf_total_buy_amount_calibrated": mtf_signals['mtf_total_buy_amount_calibrated'].clip(lower=0), # 总买入金额趋势向上
+            "mtf_main_force_vwap_up_guidance": mtf_signals['mtf_main_force_vwap_up_guidance'].clip(lower=0), # 主力VWAP向上引导趋势向上
+            "mtf_impulse_quality_ratio": mtf_signals['mtf_impulse_quality_ratio'].clip(lower=0), # 脉冲质量比趋势向上
+            "mtf_thrust_efficiency_score": mtf_signals['mtf_thrust_efficiency_score'].clip(lower=0), # 推力效率分趋势向上
+            "mtf_breakout_quality_score": mtf_signals['mtf_breakout_quality_score'].clip(lower=0), # 突破质量分趋势向上
+            "mtf_breakout_readiness_score": mtf_signals['mtf_breakout_readiness_score'].clip(lower=0), # 突破准备度趋势向上
+            "mtf_breakthrough_conviction_score": mtf_signals['mtf_breakthrough_conviction_score'].clip(lower=0), # 突破信念分趋势向上
+            "mtf_final_charge_intensity": mtf_signals['mtf_final_charge_intensity'].clip(lower=0), # 最终冲刺强度趋势向上
+            "mtf_hidden_accumulation_intensity": mtf_signals['mtf_hidden_accumulation_intensity'].clip(lower=0), # 隐藏吸筹强度趋势向上
+            "mtf_internal_accumulation_intensity": mtf_signals['mtf_internal_accumulation_intensity'].clip(lower=0), # 内部吸筹强度趋势向上
+            "mtf_intraday_posture_score": mtf_signals['mtf_intraday_posture_score'].clip(lower=0), # 日内姿态分趋势向上
+            "mtf_panic_buy_absorption_contribution": mtf_signals['mtf_panic_buy_absorption_contribution'].clip(lower=0), # 恐慌买入吸收贡献趋势向上
+            "mtf_reversal_power_index": mtf_signals['mtf_reversal_power_index'].clip(lower=0), # 反转力量指数趋势向上
+            "mtf_trend_acceleration_score": mtf_signals['mtf_trend_acceleration_score'].clip(lower=0), # 趋势加速度分趋势向上
+            "mtf_trend_conviction_score": mtf_signals['mtf_trend_conviction_score'].clip(lower=0), # 趋势信念分趋势向上
+            "mtf_vwap_cross_up_intensity": mtf_signals['mtf_vwap_cross_up_intensity'].clip(lower=0), # VWAP向上穿越强度趋势向上
+            "mtf_absorption_of_distribution_intensity": mtf_signals['mtf_absorption_of_distribution_intensity'].clip(lower=0) # 新增：派发吸收强度作为攻击性的一部分
         }
         aggressiveness_weights = {
             "mtf_price_trend": 0.04, "mtf_mf_net_flow": 0.04, "price_impact_norm": 0.03,
@@ -819,7 +784,7 @@ class CalculateMainForceRallyIntent:
             "mtf_main_force_t0_buy_efficiency": 0.05, "order_book_imbalance_positive_norm": 0.03,
             "micro_price_impact_asymmetry_positive_norm": 0.03, "constructive_turnover_norm": 0.03,
             "mtf_upward_impulse_strength": 0.03, "mtf_order_book_clearing_rate": 0.02,
-            "sell_sweep_intensity_inverted_norm": 0.02, "microstructure_efficiency_norm": 0.02,
+            "sell_flow_efficiency_inverted_norm": 0.02, "microstructure_efficiency_norm": 0.02,
             "imbalance_effectiveness_norm": 0.02, "mtf_auction_showdown": 0.01,
             "mtf_closing_conviction": 0.01, "mtf_intraday_energy_density": 0.01,
             "mtf_intraday_thrust_purity": 0.01, "mtf_buy_flow_efficiency": 0.02,
@@ -837,6 +802,7 @@ class CalculateMainForceRallyIntent:
             "mtf_absorption_of_distribution_intensity": 0.05 # 提高权重，从0.03调整为0.05
         }
         aggressiveness_score = _robust_geometric_mean(aggressiveness_components, aggressiveness_weights, df_index).clip(0, 1)
+        _temp_debug_values["aggressiveness_components_debug"] = aggressiveness_components # 增加组件调试输出
         _temp_debug_values["攻击性"] = {
             "aggressiveness_score": aggressiveness_score
         }
@@ -847,29 +813,29 @@ class CalculateMainForceRallyIntent:
         计算控制力分数。
         """
         control_components = {
-            "control_solidity_norm": normalized_signals['control_solidity_norm'].clip(lower=0),
-            "cost_advantage_norm": normalized_signals['cost_advantage_norm'].clip(lower=0),
-            "concentration_slope_norm": normalized_signals['concentration_slope_norm'].clip(lower=0),
-            "peak_solidity_norm": normalized_signals['peak_solidity_norm'].clip(lower=0),
-            "mtf_vwap_buy_control_strength": mtf_signals['mtf_vwap_buy_control_strength'],
-            "mtf_mf_cost_zone_buy_intent": mtf_signals['mtf_mf_cost_zone_buy_intent'],
-            "chip_fault_blockage_ratio_inverted_norm": normalized_signals['chip_fault_blockage_ratio_inverted_norm'],
-            "main_force_flow_gini_inverted_norm": normalized_signals['main_force_flow_gini_inverted_norm'],
+            "control_solidity_norm": normalized_signals['control_solidity_norm'].clip(lower=0), # 控盘坚实度
+            "cost_advantage_norm": normalized_signals['cost_advantage_norm'].clip(lower=0), # 成本优势
+            "concentration_slope_norm": normalized_signals['concentration_slope_norm'].clip(lower=0), # 集中度斜率向上
+            "peak_solidity_norm": normalized_signals['peak_solidity_norm'].clip(lower=0), # 筹码峰坚实度
+            "mtf_vwap_buy_control_strength": mtf_signals['mtf_vwap_buy_control_strength'].clip(lower=0), # VWAP买方控制强度趋势向上
+            "mtf_mf_cost_zone_buy_intent": mtf_signals['mtf_mf_cost_zone_buy_intent'].clip(lower=0), # 主力成本区买入意图趋势向上
+            "chip_fault_blockage_ratio_inverted_norm": normalized_signals['chip_fault_blockage_ratio_inverted_norm'], # 筹码断层堵塞比率低
+            "main_force_flow_gini_inverted_norm": normalized_signals['main_force_flow_gini_inverted_norm'], # 主力资金流基尼系数低（更均匀，控盘好）
             "mtf_cost_structure_skewness_positive": mtf_signals['mtf_cost_structure_skewness'].clip(lower=0), # 成本结构偏度正向
-            "cost_gini_coefficient_norm": normalized_signals['cost_gini_coefficient_norm'],
+            "cost_gini_coefficient_norm": normalized_signals['cost_gini_coefficient_norm'], # 成本基尼系数
             "mtf_mf_vpoc_premium_positive": mtf_signals['mtf_mf_vpoc_premium'].clip(lower=0), # VPOC溢价正向
-            "mtf_mf_cost_zone_defense_intent_inverted": (1 - mtf_signals['mtf_mf_cost_zone_defense_intent']), # 成本区防守意图低，控盘强
-            "mtf_main_force_activity_ratio": mtf_signals['mtf_main_force_activity_ratio'],
-            "mtf_main_force_conviction_index": mtf_signals['mtf_main_force_conviction_index'],
-            "mtf_main_force_execution_alpha": mtf_signals['mtf_main_force_execution_alpha'].clip(lower=0),
-            "mtf_main_force_flow_directionality": mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0),
-            "mtf_main_force_on_peak_buy_flow": mtf_signals['mtf_main_force_on_peak_buy_flow'],
-            "mtf_main_force_t0_efficiency": mtf_signals['mtf_main_force_t0_efficiency'],
-            "mtf_main_force_vwap_up_guidance": mtf_signals['mtf_main_force_vwap_up_guidance'].clip(lower=0),
-            "mtf_platform_conviction_score": mtf_signals['mtf_platform_conviction_score'],
-            "mtf_peak_control_transfer": mtf_signals['mtf_peak_control_transfer'],
-            "mtf_vwap_control_strength": mtf_signals['mtf_vwap_control_strength'],
-            "mtf_winner_stability_index": mtf_signals['mtf_winner_stability_index']
+            "mtf_mf_cost_zone_defense_intent_inverted": (1 - mtf_signals['mtf_mf_cost_zone_defense_intent'].clip(lower=0)), # 成本区防守意图低，控盘强
+            "mtf_main_force_activity_ratio": mtf_signals['mtf_main_force_activity_ratio'].clip(lower=0), # 主力活跃度趋势向上
+            "mtf_main_force_conviction_index": mtf_signals['mtf_main_force_conviction_index'].clip(lower=0), # 主力信念指数趋势向上
+            "mtf_main_force_execution_alpha": mtf_signals['mtf_main_force_execution_alpha'].clip(lower=0), # 主力执行Alpha趋势向上
+            "mtf_main_force_flow_directionality": mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0), # 主力资金流向性趋势向上
+            "mtf_main_force_on_peak_buy_flow": mtf_signals['mtf_main_force_on_peak_buy_flow'].clip(lower=0), # 主力峰值买入流趋势向上
+            "mtf_main_force_t0_efficiency": mtf_signals['mtf_main_force_t0_efficiency'].clip(lower=0), # 主力T0效率趋势向上
+            "mtf_main_force_vwap_up_guidance": mtf_signals['mtf_main_force_vwap_up_guidance'].clip(lower=0), # 主力VWAP向上引导趋势向上
+            "mtf_platform_conviction_score": mtf_signals['mtf_platform_conviction_score'].clip(lower=0), # 平台信念分趋势向上
+            "mtf_peak_control_transfer": mtf_signals['mtf_peak_control_transfer'].clip(lower=0), # 峰值控制转移趋势向上
+            "mtf_vwap_control_strength": mtf_signals['mtf_vwap_control_strength'].clip(lower=0), # VWAP控制强度趋势向上
+            "mtf_winner_stability_index": mtf_signals['mtf_winner_stability_index'].clip(lower=0) # 赢家稳定性指数趋势向上
         }
         control_weights = {
             "control_solidity_norm": 0.08, "cost_advantage_norm": 0.07, "concentration_slope_norm": 0.07,
@@ -888,6 +854,7 @@ class CalculateMainForceRallyIntent:
         # V11.1: 应用筹码集中度稳定性调节器
         if historical_context['hc_enabled']:
             control_score = (control_score * (1 + historical_context['mtf_chip_concentration_stability'] * historical_context['chip_concentration_stability_modulator_factor'])).clip(0, 1)
+        _temp_debug_values["control_components_debug"] = control_components # 增加组件调试输出
         _temp_debug_values["控制力"] = {
             "control_score": control_score
         }
@@ -898,28 +865,28 @@ class CalculateMainForceRallyIntent:
         计算障碍清除分数。
         """
         obstacle_clearance_components = {
-            "buying_support_norm": normalized_signals['buying_support_norm'].clip(lower=0),
-            "pressure_rejection_norm": normalized_signals['pressure_rejection_norm'].clip(lower=0),
-            "profit_absorption_norm": normalized_signals['profit_absorption_norm'].clip(lower=0),
-            "mtf_vacuum_traversal_efficiency": mtf_signals['mtf_vacuum_traversal_efficiency'],
-            "vacuum_zone_magnitude_norm": normalized_signals['vacuum_zone_magnitude_norm'],
-            "mtf_dip_buy_absorption_strength": mtf_signals['mtf_dip_buy_absorption_strength'],
-            "rally_buy_support_weakness_inverted_norm": normalized_signals['rally_buy_support_weakness_inverted_norm'],
+            "buying_support_norm": normalized_signals['buying_support_norm'].clip(lower=0), # 积极买入支撑
+            "pressure_rejection_norm": normalized_signals['pressure_rejection_norm'].clip(lower=0), # 压力拒绝强度
+            "profit_absorption_norm": normalized_signals['profit_absorption_norm'].clip(lower=0), # 利润吸收能力
+            "mtf_vacuum_traversal_efficiency": mtf_signals['mtf_vacuum_traversal_efficiency'].clip(lower=0), # 真空区穿越效率趋势向上
+            "vacuum_zone_magnitude_norm": normalized_signals['vacuum_zone_magnitude_norm'], # 真空区幅度
+            "mtf_dip_buy_absorption_strength": mtf_signals['mtf_dip_buy_absorption_strength'].clip(lower=0), # 逢低买入吸收强度趋势向上
+            "rally_buy_support_weakness_inverted_norm": (1 - normalized_signals['rally_buy_support_weakness_inverted_norm']), # 拉升买入支撑弱点低
             "mtf_price_thrust_divergence_positive": mtf_signals['mtf_price_thrust_divergence'].clip(lower=0), # 价格推力正向
-            "mtf_trend_efficiency_ratio": mtf_signals['mtf_trend_efficiency_ratio'],
-            "mtf_order_book_liquidity_supply": mtf_signals['mtf_order_book_liquidity_supply'],
+            "mtf_trend_efficiency_ratio": mtf_signals['mtf_trend_efficiency_ratio'].clip(lower=0), # 趋势效率比趋势向上
+            "mtf_order_book_liquidity_supply": mtf_signals['mtf_order_book_liquidity_supply'].clip(lower=0), # 订单簿流动性供给趋势向上
             "mtf_liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0), # 流动性斜率正向
-            "bid_side_liquidity_norm": normalized_signals['bid_side_liquidity_norm'],
-            "ask_side_liquidity_inverted_norm": (1 - normalized_signals['ask_side_liquidity_norm']),
-            "mtf_defense_solidity_score": mtf_signals['mtf_defense_solidity_score'],
-            "mtf_support_validation_strength": mtf_signals['mtf_support_validation_strength'],
-            "mtf_floating_chip_cleansing_efficiency": mtf_signals['mtf_floating_chip_cleansing_efficiency'],
-            "mtf_opening_gap_defense_strength": mtf_signals['mtf_opening_gap_defense_strength'],
-            "mtf_peak_separation_ratio": mtf_signals['mtf_peak_separation_ratio'],
-            "mtf_pullback_depth_ratio_inverted": (1 - mtf_signals['mtf_pullback_depth_ratio']),
-            "mtf_support_validation_score": mtf_signals['mtf_support_validation_score'],
-            "mtf_value_area_migration_positive": mtf_signals['mtf_value_area_migration'].clip(lower=0),
-            "mtf_value_area_overlap_pct": mtf_signals['mtf_value_area_overlap_pct']
+            "bid_side_liquidity_norm": normalized_signals['bid_side_liquidity_norm'], # 买方流动性
+            "ask_side_liquidity_inverted_norm": (1 - normalized_signals['ask_side_liquidity_norm']), # 卖方流动性低
+            "mtf_defense_solidity_score": mtf_signals['mtf_defense_solidity_score'].clip(lower=0), # 防守坚实度趋势向上
+            "mtf_support_validation_strength": mtf_signals['mtf_support_validation_strength'].clip(lower=0), # 支撑验证强度趋势向上
+            "mtf_floating_chip_cleansing_efficiency": mtf_signals['mtf_floating_chip_cleansing_efficiency'].clip(lower=0), # 浮筹清洗效率趋势向上
+            "mtf_opening_gap_defense_strength": mtf_signals['mtf_opening_gap_defense_strength'].clip(lower=0), # 开盘缺口防守强度趋势向上
+            "mtf_peak_separation_ratio": mtf_signals['mtf_peak_separation_ratio'].clip(lower=0), # 筹码峰分离比率趋势向上
+            "mtf_pullback_depth_ratio_inverted": (1 - mtf_signals['mtf_pullback_depth_ratio'].clip(lower=0)), # 回调深度比率低
+            "mtf_support_validation_score": mtf_signals['mtf_support_validation_score'].clip(lower=0), # 支撑验证分趋势向上
+            "mtf_value_area_migration_positive": mtf_signals['mtf_value_area_migration'].clip(lower=0), # 价值区域向上迁移
+            "mtf_value_area_overlap_pct": mtf_signals['mtf_value_area_overlap_pct'].clip(lower=0) # 价值区域重叠百分比趋势向上
         }
         obstacle_clearance_weights = {
             "buying_support_norm": 0.08, "pressure_rejection_norm": 0.07, "profit_absorption_norm": 0.07,
@@ -935,6 +902,7 @@ class CalculateMainForceRallyIntent:
             "mtf_value_area_overlap_pct": 0.03
         }
         obstacle_clearance_score = _robust_geometric_mean(obstacle_clearance_components, obstacle_clearance_weights, df_index).clip(0, 1)
+        _temp_debug_values["obstacle_clearance_components_debug"] = obstacle_clearance_components # 增加组件调试输出
         _temp_debug_values["障碍清除"] = {
             "obstacle_clearance_score": obstacle_clearance_score
         }
@@ -946,7 +914,6 @@ class CalculateMainForceRallyIntent:
         """
         # V11.1: 引入长期趋势强度上下文调节器
         long_term_trend_strength_modulator = (1 + historical_context['mtf_long_term_trend_strength'] * historical_context['long_term_trend_modulator_factor']) # 长期趋势越强，看涨意图越受加成
-
         # 攻击性、控制力、障碍清除的加权平均
         bullish_intent_base = (
             (aggressiveness_score * dynamic_weights["aggressiveness"] +
@@ -956,17 +923,18 @@ class CalculateMainForceRallyIntent:
         )
         # V11.3: 强化 mtf_absorption_of_distribution_intensity 的积极作用，直接贡献于看涨意图
         # 承接强度越高，看涨意图越强，这里使用一个较小的系数，避免过度放大
-        bullish_intent = (bullish_intent_base + mtf_signals['mtf_absorption_of_distribution_intensity'] * 0.1).clip(0, 1)
-
+        # 引入“净吸收强度”作为直接加成项
+        net_absorption_strength = (mtf_signals['mtf_absorption_of_distribution_intensity'].clip(lower=0) - mtf_signals['mtf_covert_distribution'].clip(lower=0)).clip(lower=0)
+        bullish_intent = (bullish_intent_base + net_absorption_strength * 0.2).clip(0, 1) # 提高净吸收强度的贡献权重
         # V11.1: 应用长期趋势强度调节
         bullish_intent = (bullish_intent * long_term_trend_strength_modulator).clip(0, 1)
-
         # 幂平均，放大高分，抑制低分
         power_mean_exponent = get_param_value(rally_intent_synthesis_params.get('power_mean_exponent'), 2.0)
         bullish_intent = bullish_intent.pow(power_mean_exponent)
         _temp_debug_values["基础看涨意图"] = {
             "power_mean_exponent": power_mean_exponent,
             "bullish_intent_base": bullish_intent_base, # 增加基础看涨意图的调试输出
+            "net_absorption_strength": net_absorption_strength, # 增加净吸收强度调试输出
             "bullish_intent": bullish_intent
         }
         return bullish_intent
@@ -978,35 +946,72 @@ class CalculateMainForceRallyIntent:
         # V11.1: 引入主力资金累计记忆调节器
         # 历史累计资金流入强劲 (mtf_cumulative_mf_flow > 0)，削弱看跌意图
         mf_flow_memory_anti_bearish_modulator = (1 - historical_context['mtf_cumulative_mf_flow'].clip(lower=0) * historical_context['cumulative_mf_flow_modulator_factor']).clip(0, 1)
-
-        # 看跌意图的计算
-        distribution_intensity_norm = normalized_signals['distribution_intensity_norm']
-        upper_shadow_selling_pressure_norm = normalized_signals['upper_shadow_selling_pressure_norm']
-        flow_credibility_norm_inverted = (1 - normalized_signals['flow_credibility_norm']) # 信用度低，看跌
-        
+        # 引入“净派发压力”
+        # 派发强度 - 吸收强度，取正值
+        net_distribution_pressure = (normalized_signals['distribution_intensity_norm'] - normalized_signals['absorption_of_distribution_intensity_norm']).clip(lower=0)
         # V11.2: 引入派发情境衰减器 (Distribution Context Dampener)
         # 当日涨幅越大，对派发强度的看跌解读越弱
         # 使用 tanh 函数将涨幅映射到 [0, 1] 范围内的衰减因子
-        # 例如，pct_change = 7% -> tanh(0.07 * 10) = tanh(0.7) = 0.6，衰减因子为 1 - 0.6 = 0.4
-        # pct_change = 0% -> tanh(0) = 0，衰减因子为 1
-        # pct_change = -5% -> tanh(-0.5) = -0.46，衰减因子为 1 - (-0.46) = 1.46 (负涨幅反而增强派发风险)
-        # 确保衰减因子在合理范围，例如 [0.1, 1.5]
-        distribution_dampener = (1 - np.tanh(raw_signals['pct_change'] / 100 * 10)).clip(0.1, 1.5) # 涨幅越大，dampener越小，削弱派发影响
-
-        # 修正 bearish_score 的计算逻辑：它应该是一个正值，表示看跌意图的强度，然后乘以 -1 转换为双极性。
-        # 并且 mf_flow_memory_anti_bearish_modulator 应该削弱看跌意图，而不是使其变得更负。
-        bearish_score_raw = (
-            (distribution_intensity_norm * distribution_dampener * 0.4 + # 应用衰减器
-             upper_shadow_selling_pressure_norm * 0.3 +
-             flow_credibility_norm_inverted * 0.3)
-        ).clip(0, 1) # 确保原始看跌分数在 [0, 1] 之间
-
+        # 涨幅为正时，衰减因子 < 1，削弱派发影响；涨幅为负时，衰减因子 > 1，增强派发影响
+        # 调整 tanh 的敏感度，使其在小涨幅时衰减不那么剧烈，大涨幅时衰减更明显
+        # pct_change_scaled = raw_signals['pct_change'] / 100 * 5 # 调整敏感度
+        # distribution_dampener = (1 - np.tanh(pct_change_scaled)).clip(0.1, 1.5)
+        # 修正：涨幅越大，dampener 越小，削弱派发影响。
+        # 涨幅为0时，dampener为1。涨幅为10%时，tanh(1)=0.76，dampener=0.24。
+        # 涨幅为-10%时，tanh(-1)=-0.76，dampener=1.76。
+        distribution_dampener = (1 - np.tanh(raw_signals['pct_change'] / 100 * 10)).clip(0.1, 2.0) # 调整clip上限
+        # 看跌意图的计算
+        bearish_score_components = {
+            "net_distribution_pressure": net_distribution_pressure * distribution_dampener, # 应用衰减器
+            "upper_shadow_selling_pressure_norm": normalized_signals['upper_shadow_selling_pressure_norm'],
+            "flow_credibility_norm_inverted": (1 - normalized_signals['flow_credibility_norm']), # 信用度低，看跌
+            "mtf_mf_net_flow_negative": mtf_signals['mtf_mf_net_flow'].clip(upper=0).abs(), # 主力净流出趋势
+            "mtf_deception_index": mtf_signals['mtf_deception_index'].clip(lower=0), # 欺骗指数趋势向上
+            "mtf_deception_lure_long_intensity": mtf_signals['mtf_deception_lure_long_intensity'].clip(lower=0), # 诱多强度趋势向上
+            "mtf_rally_distribution_pressure": mtf_signals['mtf_rally_distribution_pressure'].clip(lower=0), # 拉升派发压力趋势向上
+            "mtf_exhaustion_risk": mtf_signals['mtf_exhaustion_risk'].clip(lower=0), # 衰竭风险趋势向上
+            "mtf_asymmetric_friction": mtf_signals['mtf_asymmetric_friction'].clip(lower=0), # 非对称摩擦趋势向上
+            "mtf_volatility_expansion": mtf_signals['mtf_volatility_expansion'].clip(lower=0), # 波动率扩张趋势向上
+            "mtf_loser_concentration_90pct": mtf_signals['mtf_loser_concentration_90pct'].clip(lower=0), # 输家集中度趋势向上
+            "mtf_winner_loser_momentum_negative": mtf_signals['mtf_winner_loser_momentum'].clip(upper=0).abs(), # 赢家动量减弱，输家动量增强
+            "mtf_sell_flow_efficiency": mtf_signals['mtf_sell_flow_efficiency'].clip(lower=0), # 卖方效率高，看跌
+            "mtf_sell_sweep_intensity": mtf_signals['mtf_sell_sweep_intensity'].clip(lower=0), # 卖出扫单强度高，看跌
+            "mtf_peak_mass_transfer_rate": mtf_signals['mtf_peak_mass_transfer_rate'].clip(lower=0), # 筹码转移率高，看跌
+            "mtf_main_force_on_peak_sell_flow": mtf_signals['mtf_main_force_on_peak_sell_flow'].clip(lower=0), # 主力峰值卖出流趋势向上
+            "mtf_main_force_t0_sell_efficiency": mtf_signals['mtf_main_force_t0_sell_efficiency'].clip(lower=0), # 主力T0卖出效率趋势向上
+            "mtf_main_force_vwap_down_guidance_negative": mtf_signals['mtf_main_force_vwap_down_guidance'].clip(upper=0).abs(), # 主力VWAP向下引导趋势
+            "mtf_market_impact_cost": mtf_signals['mtf_market_impact_cost'].clip(lower=0), # 市场冲击成本趋势向上
+            "mtf_opening_sell_strength": mtf_signals['mtf_opening_sell_strength'].clip(lower=0), # 开盘卖出强度趋势向上
+            "mtf_total_sell_amount_calibrated": mtf_signals['mtf_total_sell_amount_calibrated'].clip(lower=0), # 总卖出金额趋势向上
+            "mtf_wash_trade_intensity": mtf_signals['mtf_wash_trade_intensity'].clip(lower=0), # 洗盘强度趋势向上
+            "mtf_winner_profit_margin_avg_negative": mtf_signals['mtf_winner_profit_margin_avg'].clip(upper=0).abs(), # 赢家利润均值下降
+            "mtf_loser_loss_margin_avg_positive": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0), # 输家亏损均值扩大
+            "mtf_total_winner_rate_inverted": (1 - mtf_signals['mtf_total_winner_rate'].clip(lower=0)), # 赢家比例下降
+            "mtf_total_loser_rate": mtf_signals['mtf_total_loser_rate'].clip(lower=0) # 输家比例上升
+        }
+        bearish_weights = {
+            "net_distribution_pressure": 0.15, "upper_shadow_selling_pressure_norm": 0.1,
+            "flow_credibility_norm_inverted": 0.08, "mtf_mf_net_flow_negative": 0.08,
+            "mtf_deception_index": 0.05, "mtf_deception_lure_long_intensity": 0.05,
+            "mtf_rally_distribution_pressure": 0.05, "mtf_exhaustion_risk": 0.03,
+            "mtf_asymmetric_friction": 0.03, "mtf_volatility_expansion": 0.03,
+            "mtf_loser_concentration_90pct": 0.03, "mtf_winner_loser_momentum_negative": 0.03,
+            "mtf_sell_flow_efficiency": 0.03, "mtf_sell_sweep_intensity": 0.03,
+            "mtf_peak_mass_transfer_rate": 0.02, "mtf_main_force_on_peak_sell_flow": 0.02,
+            "mtf_main_force_t0_sell_efficiency": 0.02, "mtf_main_force_vwap_down_guidance_negative": 0.02,
+            "mtf_market_impact_cost": 0.02, "mtf_opening_sell_strength": 0.02,
+            "mtf_total_sell_amount_calibrated": 0.02, "mtf_wash_trade_intensity": 0.02,
+            "mtf_winner_profit_margin_avg_negative": 0.02, "mtf_loser_loss_margin_avg_positive": 0.02,
+            "mtf_total_winner_rate_inverted": 0.02, "mtf_total_loser_rate": 0.02
+        }
+        bearish_score_raw = _robust_geometric_mean(bearish_score_components, bearish_weights, df_index).clip(0, 1)
         # V11.1: 应用主力资金累计记忆调节，削弱看跌意图
         bearish_score_modulated = (bearish_score_raw * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
-        
         # 转换为负值，表示看跌
         bearish_score = -bearish_score_modulated
+        _temp_debug_values["bearish_score_components_debug"] = bearish_score_components # 增加组件调试输出
         _temp_debug_values["看跌意图"] = {
+            "net_distribution_pressure": net_distribution_pressure, # 增加净派发压力调试输出
             "distribution_dampener": distribution_dampener, # 增加衰减器调试输出
             "bearish_score_raw": bearish_score_raw, # 增加原始看跌分数的调试输出
             "mf_flow_memory_anti_bearish_modulator": mf_flow_memory_anti_bearish_modulator, # 增加调节器的调试输出
@@ -1019,68 +1024,69 @@ class CalculateMainForceRallyIntent:
         """
         风险审判模块。
         """
+        # 引入“净派发压力”
+        net_distribution_pressure = (normalized_signals['distribution_intensity_norm'] - normalized_signals['absorption_of_distribution_intensity_norm']).clip(lower=0)
         # 6.1. 派发风险 (Distribution Risk)
         mf_outflow_divergence = mtf_signals['mtf_mf_net_flow'].clip(upper=0).abs()
         distribution_risk_components = {
-            "distribution_intensity_norm": normalized_signals['distribution_intensity_norm'],
-            "mtf_upper_shadow_pressure": mtf_signals['mtf_upper_shadow_pressure'],
-            "mf_outflow_divergence": mf_outflow_divergence,
-            "mtf_retail_fomo": mtf_signals['mtf_retail_fomo'],
-            "mtf_covert_distribution": mtf_signals['mtf_covert_distribution'],
-            "mtf_deception_lure_short": mtf_signals['mtf_deception_lure_short'],
-            "mtf_rally_distribution_pressure": mtf_signals['mtf_rally_distribution_pressure'],
-            "mtf_exhaustion_risk": mtf_signals['mtf_exhaustion_risk'],
-            "mtf_asymmetric_friction": mtf_signals['mtf_asymmetric_friction'],
-            "mtf_volatility_expansion": mtf_signals['mtf_volatility_expansion'],
-            "mtf_loser_concentration_90pct": mtf_signals['mtf_loser_concentration_90pct'],
+            "net_distribution_pressure": net_distribution_pressure, # 核心：净派发压力
+            "mtf_upper_shadow_pressure": mtf_signals['mtf_upper_shadow_pressure'].clip(lower=0), # 上影线抛压趋势向上
+            "mf_outflow_divergence": mf_outflow_divergence, # 主力净流出背离
+            "mtf_retail_fomo": mtf_signals['mtf_retail_fomo'].clip(lower=0), # 散户FOMO情绪趋势向上
+            "mtf_covert_distribution": mtf_signals['mtf_covert_distribution'].clip(lower=0), # 隐蔽派发趋势向上
+            "mtf_deception_lure_short": mtf_signals['mtf_deception_lure_short'].clip(lower=0), # 诱空强度趋势向上
+            "mtf_rally_distribution_pressure": mtf_signals['mtf_rally_distribution_pressure'].clip(lower=0), # 拉升派发压力趋势向上
+            "mtf_exhaustion_risk": mtf_signals['mtf_exhaustion_risk'].clip(lower=0), # 衰竭风险趋势向上
+            "mtf_asymmetric_friction": mtf_signals['mtf_asymmetric_friction'].clip(lower=0), # 非对称摩擦趋势向上
+            "mtf_volatility_expansion": mtf_signals['mtf_volatility_expansion'].clip(lower=0), # 波动率扩张趋势向上
+            "mtf_loser_concentration_90pct": mtf_signals['mtf_loser_concentration_90pct'].clip(lower=0), # 输家集中度趋势向上
             "mtf_winner_loser_momentum_negative": mtf_signals['mtf_winner_loser_momentum'].clip(upper=0).abs(), # 赢家动量减弱，输家动量增强
-            "mtf_sell_flow_efficiency": mtf_signals['mtf_sell_flow_efficiency'], # 卖方效率高，派发风险高
-            "mtf_sell_sweep_intensity": mtf_signals['mtf_sell_sweep_intensity'], # 卖出扫单强度高，派发风险高
-            "mtf_peak_mass_transfer_rate": mtf_signals['mtf_peak_mass_transfer_rate'], # 筹码转移率高，派发风险高
-            "mtf_main_force_on_peak_sell_flow": mtf_signals['mtf_main_force_on_peak_sell_flow'],
-            "mtf_main_force_t0_sell_efficiency": mtf_signals['mtf_main_force_t0_sell_efficiency'],
-            "mtf_main_force_vwap_down_guidance": mtf_signals['mtf_main_force_vwap_down_guidance'].clip(upper=0).abs(),
-            "mtf_market_impact_cost": mtf_signals['mtf_market_impact_cost'],
-            "mtf_opening_sell_strength": mtf_signals['mtf_opening_sell_strength'],
-            "mtf_total_sell_amount_calibrated": mtf_signals['mtf_total_sell_amount_calibrated'],
-            "mtf_wash_trade_intensity": mtf_signals['mtf_wash_trade_intensity'],
-            "mtf_winner_profit_margin_avg_negative": mtf_signals['mtf_winner_profit_margin_avg'].clip(upper=0).abs(),
-            "mtf_loser_loss_margin_avg_positive": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0),
-            "mtf_total_winner_rate_inverted": (1 - mtf_signals['mtf_total_winner_rate']),
-            "mtf_total_loser_rate": mtf_signals['mtf_total_loser_rate'],
-            "mtf_deception_index": mtf_signals['mtf_deception_index'],
-            "mtf_deception_lure_long_intensity": mtf_signals['mtf_deception_lure_long_intensity'],
-            "mtf_panic_sell_volume_contribution": mtf_signals['mtf_panic_sell_volume_contribution'],
-            "mtf_panic_selling_cascade": mtf_signals['mtf_panic_selling_cascade'],
-            "mtf_price_reversion_velocity_negative": mtf_signals['mtf_price_reversion_velocity'].clip(upper=0).abs(),
-            "mtf_pullback_depth_ratio": mtf_signals['mtf_pullback_depth_ratio'],
-            "mtf_risk_reward_profile_negative": mtf_signals['mtf_risk_reward_profile'].clip(upper=0).abs(),
-            "mtf_shock_conviction_score": mtf_signals['mtf_shock_conviction_score'],
-            "mtf_structural_entropy_change_positive": mtf_signals['mtf_structural_entropy_change'].clip(lower=0),
-            "mtf_structural_leverage": mtf_signals['mtf_structural_leverage'],
-            "mtf_structural_node_count": mtf_signals['mtf_structural_node_count'],
-            "mtf_structural_potential_score": mtf_signals['mtf_structural_potential_score'],
-            "mtf_supportive_distribution_intensity": mtf_signals['mtf_supportive_distribution_intensity'],
-            "mtf_trend_asymmetry_index_negative": mtf_signals['mtf_trend_asymmetry_index'].clip(upper=0).abs(),
-            "mtf_value_area_migration_negative": mtf_signals['mtf_value_area_migration'].clip(upper=0).abs(),
-            "mtf_volatility_asymmetry_index_positive": mtf_signals['mtf_volatility_asymmetry_index'].clip(lower=0),
-            "mtf_volume_burstiness_index": mtf_signals['mtf_volume_burstiness_index'],
-            "mtf_volume_structure_skew_positive": mtf_signals['mtf_volume_structure_skew'].clip(lower=0),
-            "mtf_vpin_score": mtf_signals['mtf_vpin_score'],
-            "mtf_vwap_cross_down_intensity": mtf_signals['mtf_vwap_cross_down_intensity'],
-            "mtf_vwap_sell_control_strength": mtf_signals['mtf_vwap_sell_control_strength'],
-            "mtf_absorption_of_distribution_intensity_inverted": (1 - mtf_signals['mtf_absorption_of_distribution_intensity']) # 新增：派发吸收强度反向，承接越强，风险越低
+            "mtf_sell_flow_efficiency": mtf_signals['mtf_sell_flow_efficiency'].clip(lower=0), # 卖方效率高，派发风险高
+            "mtf_sell_sweep_intensity": mtf_signals['mtf_sell_sweep_intensity'].clip(lower=0), # 卖出扫单强度高，派发风险高
+            "mtf_peak_mass_transfer_rate": mtf_signals['mtf_peak_mass_transfer_rate'].clip(lower=0), # 筹码转移率高，派发风险高
+            "mtf_main_force_on_peak_sell_flow": mtf_signals['mtf_main_force_on_peak_sell_flow'].clip(lower=0), # 主力峰值卖出流趋势向上
+            "mtf_main_force_t0_sell_efficiency": mtf_signals['mtf_main_force_t0_sell_efficiency'].clip(lower=0), # 主力T0卖出效率趋势向上
+            "mtf_main_force_vwap_down_guidance_negative": mtf_signals['mtf_main_force_vwap_down_guidance'].clip(upper=0).abs(), # 主力VWAP向下引导趋势
+            "mtf_market_impact_cost": mtf_signals['mtf_market_impact_cost'].clip(lower=0), # 市场冲击成本趋势向上
+            "mtf_opening_sell_strength": mtf_signals['mtf_opening_sell_strength'].clip(lower=0), # 开盘卖出强度趋势向上
+            "mtf_total_sell_amount_calibrated": mtf_signals['mtf_total_sell_amount_calibrated'].clip(lower=0), # 总卖出金额趋势向上
+            "mtf_wash_trade_intensity": mtf_signals['mtf_wash_trade_intensity'].clip(lower=0), # 洗盘强度趋势向上
+            "mtf_winner_profit_margin_avg_negative": mtf_signals['mtf_winner_profit_margin_avg'].clip(upper=0).abs(), # 赢家利润均值下降
+            "mtf_loser_loss_margin_avg_positive": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0), # 输家亏损均值扩大
+            "mtf_total_winner_rate_inverted": (1 - mtf_signals['mtf_total_winner_rate'].clip(lower=0)), # 赢家比例下降
+            "mtf_total_loser_rate": mtf_signals['mtf_total_loser_rate'].clip(lower=0), # 输家比例上升
+            "mtf_deception_index": mtf_signals['mtf_deception_index'].clip(lower=0), # 欺骗指数趋势向上
+            "mtf_deception_lure_long_intensity": mtf_signals['mtf_deception_lure_long_intensity'].clip(lower=0), # 诱多强度趋势向上
+            "mtf_panic_sell_volume_contribution": mtf_signals['mtf_panic_sell_volume_contribution'].clip(lower=0), # 恐慌卖出量贡献趋势向上
+            "mtf_panic_selling_cascade": mtf_signals['mtf_panic_selling_cascade'].clip(lower=0), # 恐慌抛售级联趋势向上
+            "mtf_price_reversion_velocity_negative": mtf_signals['mtf_price_reversion_velocity'].clip(upper=0).abs(), # 价格回归速度负向
+            "mtf_pullback_depth_ratio": mtf_signals['mtf_pullback_depth_ratio'].clip(lower=0), # 回调深度比率趋势向上
+            "mtf_risk_reward_profile_negative": mtf_signals['mtf_risk_reward_profile'].clip(upper=0).abs(), # 风险回报比负向
+            "mtf_shock_conviction_score": mtf_signals['mtf_shock_conviction_score'].clip(lower=0), # 冲击信念分趋势向上
+            "mtf_structural_entropy_change_positive": mtf_signals['mtf_structural_entropy_change'].clip(lower=0), # 结构熵变正向
+            "mtf_structural_leverage": mtf_signals['mtf_structural_leverage'].clip(lower=0), # 结构杠杆趋势向上
+            "mtf_structural_node_count": mtf_signals['mtf_structural_node_count'].clip(lower=0), # 结构节点计数趋势向上
+            "mtf_structural_potential_score": mtf_signals['mtf_structural_potential_score'].clip(lower=0), # 结构势能分趋势向上
+            "mtf_supportive_distribution_intensity": mtf_signals['mtf_supportive_distribution_intensity'].clip(lower=0), # 支撑性派发强度趋势向上
+            "mtf_trend_asymmetry_index_negative": mtf_signals['mtf_trend_asymmetry_index'].clip(upper=0).abs(), # 趋势不对称指数负向
+            "mtf_value_area_migration_negative": mtf_signals['mtf_value_area_migration'].clip(upper=0).abs(), # 价值区域向下迁移
+            "mtf_volatility_asymmetry_index_positive": mtf_signals['mtf_volatility_asymmetry_index'].clip(lower=0), # 波动率不对称指数正向
+            "mtf_volume_burstiness_index": mtf_signals['mtf_volume_burstiness_index'].clip(lower=0), # 成交量爆发指数趋势向上
+            "mtf_volume_structure_skew_positive": mtf_signals['mtf_volume_structure_skew'].clip(lower=0), # 成交量结构偏度正向
+            "mtf_vpin_score": mtf_signals['mtf_vpin_score'].clip(lower=0), # VPIN分趋势向上
+            "mtf_vwap_cross_down_intensity": mtf_signals['mtf_vwap_cross_down_intensity'].clip(lower=0), # VWAP向下穿越强度趋势向上
+            "mtf_vwap_sell_control_strength": mtf_signals['mtf_vwap_sell_control_strength'].clip(lower=0) # VWAP卖方控制强度趋势向上
         }
         distribution_risk_weights = {
-            "distribution_intensity_norm": 0.03, "mtf_upper_shadow_pressure": 0.03,
-            "mf_outflow_divergence": 0.03, "mtf_retail_fomo": 0.02,
-            "mtf_covert_distribution": 0.03, "mtf_deception_lure_short": 0.03,
-            "mtf_rally_distribution_pressure": 0.03, "mtf_exhaustion_risk": 0.02,
+            "net_distribution_pressure": 0.15, "mtf_upper_shadow_pressure": 0.05,
+            "mf_outflow_divergence": 0.05, "mtf_retail_fomo": 0.03,
+            "mtf_covert_distribution": 0.05, "mtf_deception_lure_short": 0.03,
+            "mtf_rally_distribution_pressure": 0.05, "mtf_exhaustion_risk": 0.03,
             "mtf_asymmetric_friction": 0.02, "mtf_volatility_expansion": 0.02,
             "mtf_loser_concentration_90pct": 0.02, "mtf_winner_loser_momentum_negative": 0.02,
             "mtf_sell_flow_efficiency": 0.02, "mtf_sell_sweep_intensity": 0.02,
             "mtf_peak_mass_transfer_rate": 0.02, "mtf_main_force_on_peak_sell_flow": 0.02,
-            "mtf_main_force_t0_sell_efficiency": 0.02, "mtf_main_force_vwap_down_guidance": 0.02,
+            "mtf_main_force_t0_sell_efficiency": 0.02, "mtf_main_force_vwap_down_guidance_negative": 0.02,
             "mtf_market_impact_cost": 0.02, "mtf_opening_sell_strength": 0.02,
             "mtf_total_sell_amount_calibrated": 0.02, "mtf_wash_trade_intensity": 0.02,
             "mtf_winner_profit_margin_avg_negative": 0.02, "mtf_loser_loss_margin_avg_positive": 0.02,
@@ -1095,11 +1101,12 @@ class CalculateMainForceRallyIntent:
             "mtf_value_area_migration_negative": 0.02, "mtf_volatility_asymmetry_index_positive": 0.02,
             "mtf_volume_burstiness_index": 0.02, "mtf_volume_structure_skew_positive": 0.02,
             "mtf_vpin_score": 0.02, "mtf_vwap_cross_down_intensity": 0.02,
-            "mtf_vwap_sell_control_strength": 0.02,
-            "mtf_absorption_of_distribution_intensity_inverted": 0.05 # 提高权重，从0.03调整为0.05
+            "mtf_vwap_sell_control_strength": 0.02
         }
         distribution_risk_score = _robust_geometric_mean(distribution_risk_components, distribution_risk_weights, df_index).clip(0, 1)
+        _temp_debug_values["distribution_risk_components_debug"] = distribution_risk_components # 增加组件调试输出
         _temp_debug_values["派发风险"] = {
+            "net_distribution_pressure": net_distribution_pressure, # 增加净派发压力调试输出
             "distribution_risk_score": distribution_risk_score
         }
         # 6.2. 前置下跌风险 (Pre-Drop Risk) - 深度情境感知
@@ -1112,7 +1119,7 @@ class CalculateMainForceRallyIntent:
         norm_accel_21_neg = self.helper._normalize_series(raw_signals['accel_21_close'].clip(upper=0).abs(), df_index, bipolar=False)
         norm_slope_34_neg = self.helper._normalize_series(raw_signals['slope_34_close'].clip(upper=0).abs(), df_index, bipolar=False)
         norm_accel_34_neg = self.helper._normalize_series(raw_signals['accel_34_close'].clip(upper=0).abs(), df_index, bipolar=False)
-        medium_term_downtrend_strength = (norm_slope_21_neg * 0.3 + norm_accel_21_neg * 0.2 + 
+        medium_term_downtrend_strength = (norm_slope_21_neg * 0.3 + norm_accel_21_neg * 0.2 +
                                           norm_slope_34_neg * 0.3 + norm_accel_34_neg * 0.2).clip(0, 1)
         high_21d = raw_signals['close_price'].rolling(window=21).max()
         fall_from_peak_21d = (1 - raw_signals['close_price'] / high_21d).clip(lower=0).fillna(0)
@@ -1124,24 +1131,24 @@ class CalculateMainForceRallyIntent:
             "medium_term_downtrend_strength": medium_term_downtrend_strength,
             "norm_fall_from_peak_21d": norm_fall_from_peak_21d,
             "mtf_price_thrust_divergence_negative": mtf_signals['mtf_price_thrust_divergence'].clip(upper=0).abs(), # 价格推力负向
-            "mtf_trend_efficiency_ratio_inverted": (1 - mtf_signals['mtf_trend_efficiency_ratio']), # 趋势效率低，风险高
-            "mtf_loser_concentration_90pct": mtf_signals['mtf_loser_concentration_90pct'], # 输家集中度高，风险高
-            "mtf_main_force_vwap_down_guidance_negative": mtf_signals['mtf_main_force_vwap_down_guidance'].clip(upper=0).abs(),
-            "mtf_platform_high": mtf_signals['mtf_platform_high'],
-            "mtf_platform_low_inverted": (1 - mtf_signals['mtf_platform_low']),
-            "mtf_pullback_depth_ratio": mtf_signals['mtf_pullback_depth_ratio'],
-            "mtf_reversal_conviction_rate_inverted": (1 - mtf_signals['mtf_reversal_conviction_rate']),
-            "mtf_reversal_recovery_rate_inverted": (1 - mtf_signals['mtf_reversal_recovery_rate']),
-            "mtf_risk_reward_profile_negative": mtf_signals['mtf_risk_reward_profile'].clip(upper=0).abs(),
-            "mtf_shock_conviction_score": mtf_signals['mtf_shock_conviction_score'],
-            "mtf_structural_entropy_change_negative": mtf_signals['mtf_structural_entropy_change'].clip(upper=0).abs(),
-            "mtf_structural_leverage": mtf_signals['mtf_structural_leverage'],
-            "mtf_structural_node_count": mtf_signals['mtf_structural_node_count'],
-            "mtf_structural_potential_score": mtf_signals['mtf_structural_potential_score'],
-            "mtf_trend_alignment_index_inverted": (1 - mtf_signals['mtf_trend_alignment_index']),
-            "mtf_trend_asymmetry_index_negative": mtf_signals['mtf_trend_asymmetry_index'].clip(upper=0).abs(),
-            "mtf_vwap_cross_down_intensity": mtf_signals['mtf_vwap_cross_down_intensity'],
-            "mtf_vwap_mean_reversion_corr_negative": mtf_signals['mtf_vwap_mean_reversion_corr'].clip(upper=0).abs()
+            "mtf_trend_efficiency_ratio_inverted": (1 - mtf_signals['mtf_trend_efficiency_ratio'].clip(lower=0)), # 趋势效率低，风险高
+            "mtf_loser_concentration_90pct": mtf_signals['mtf_loser_concentration_90pct'].clip(lower=0), # 输家集中度高，风险高
+            "mtf_main_force_vwap_down_guidance_negative": mtf_signals['mtf_main_force_vwap_down_guidance'].clip(upper=0).abs(), # 主力VWAP向下引导趋势
+            "mtf_platform_high": mtf_signals['mtf_platform_high'].clip(lower=0), # 平台高点趋势向上
+            "mtf_platform_low_inverted": (1 - mtf_signals['mtf_platform_low'].clip(lower=0)), # 平台低点趋势向下
+            "mtf_pullback_depth_ratio": mtf_signals['mtf_pullback_depth_ratio'].clip(lower=0), # 回调深度比率趋势向上
+            "mtf_reversal_conviction_rate_inverted": (1 - mtf_signals['mtf_reversal_conviction_rate'].clip(lower=0)), # 反转信念率低
+            "mtf_reversal_recovery_rate_inverted": (1 - mtf_signals['mtf_reversal_recovery_rate'].clip(lower=0)), # 反转恢复率低
+            "mtf_risk_reward_profile_negative": mtf_signals['mtf_risk_reward_profile'].clip(upper=0).abs(), # 风险回报比负向
+            "mtf_shock_conviction_score": mtf_signals['mtf_shock_conviction_score'].clip(lower=0), # 冲击信念分趋势向上
+            "mtf_structural_entropy_change_negative": mtf_signals['mtf_structural_entropy_change'].clip(upper=0).abs(), # 结构熵变负向
+            "mtf_structural_leverage": mtf_signals['mtf_structural_leverage'].clip(lower=0), # 结构杠杆趋势向上
+            "mtf_structural_node_count": mtf_signals['mtf_structural_node_count'].clip(lower=0), # 结构节点计数趋势向上
+            "mtf_structural_potential_score": mtf_signals['mtf_structural_potential_score'].clip(lower=0), # 结构势能分趋势向上
+            "mtf_trend_alignment_index_inverted": (1 - mtf_signals['mtf_trend_alignment_index'].clip(lower=0)), # 趋势对齐指数低
+            "mtf_trend_asymmetry_index_negative": mtf_signals['mtf_trend_asymmetry_index'].clip(upper=0).abs(), # 趋势不对称指数负向
+            "mtf_vwap_cross_down_intensity": mtf_signals['mtf_vwap_cross_down_intensity'].clip(lower=0), # VWAP向下穿越强度趋势向上
+            "mtf_vwap_mean_reversion_corr_negative": mtf_signals['mtf_vwap_mean_reversion_corr'].clip(upper=0).abs() # VWAP均值回归相关性负向
         }
         pre_drop_risk_weights = {
             "single_day_drop_risk": 0.08, "norm_pre_drop_5d": 0.08, "norm_pre_drop_13d": 0.05,
@@ -1159,6 +1166,7 @@ class CalculateMainForceRallyIntent:
             "mtf_vwap_mean_reversion_corr_negative": 0.04
         }
         pre_drop_risk_factor = _robust_geometric_mean(pre_drop_risk_components, pre_drop_risk_weights, df_index).clip(0, 1) * 0.7 # 整体风险因子权重
+        _temp_debug_values["pre_drop_risk_components_debug"] = pre_drop_risk_components # 增加组件调试输出
         _temp_debug_values["前置下跌风险"] = {
             "pre_5day_pct_change": pre_5day_pct_change,
             "pre_13day_pct_change": pre_13day_pct_change,
@@ -1197,20 +1205,24 @@ class CalculateMainForceRallyIntent:
         """
         # rs_modulator 和 capital_modulator 已在上方使用代理信号计算
         # V10.0 情境调节器 (基于原始MTF信号)
-        market_sentiment_modulator = (1 + mtf_signals['mtf_market_sentiment'] * 0.1) # 市场情绪越好，意图越强
-        structural_tension_modulator = (1 - mtf_signals['mtf_structural_tension'] * 0.1) # 结构张力越大，意图越弱
-        trend_vitality_modulator = (1 + mtf_signals['mtf_trend_vitality'] * 0.1) # 趋势活力越强，意图越强
-        liquidity_authenticity_modulator = (1 + mtf_signals['mtf_liquidity_authenticity'] * 0.05) # 流动性越真实，意图越强
+        # 市场情绪越好（正向），意图越强
+        market_sentiment_modulator = (1 + mtf_signals['mtf_market_sentiment'].clip(lower=0) * 0.1)
+        # 结构张力越大（正向），可能预示着突破，意图越强 (修正为正向贡献)
+        structural_tension_modulator = (1 + mtf_signals['mtf_structural_tension'].clip(lower=0) * 0.1)
+        # 趋势活力越强，意图越强
+        trend_vitality_modulator = (1 + mtf_signals['mtf_trend_vitality'].clip(lower=0) * 0.1)
+        # 流动性越真实，意图越强
+        liquidity_authenticity_modulator = (1 + mtf_signals['mtf_liquidity_authenticity'].clip(lower=0) * 0.05)
         # V10.0 行为心理调节器 (基于原始MTF信号)
-        character_score_modulator = (1 + mtf_signals['mtf_character_score'] * 0.05)
-        signal_conviction_modulator = (1 + mtf_signals['mtf_signal_conviction_score'] * 0.05)
-        touch_conviction_modulator = (1 + mtf_signals['mtf_touch_conviction_score'] * 0.05)
-        gathering_by_chasing_modulator = (1 + mtf_signals['mtf_gathering_by_chasing'] * 0.05)
-        gathering_by_support_modulator = (1 + mtf_signals['mtf_gathering_by_support'] * 0.05)
+        character_score_modulator = (1 + mtf_signals['mtf_character_score'].clip(lower=0) * 0.05)
+        signal_conviction_modulator = (1 + mtf_signals['mtf_signal_conviction_score'].clip(lower=0) * 0.05)
+        touch_conviction_modulator = (1 + mtf_signals['mtf_touch_conviction_score'].clip(lower=0) * 0.05)
+        gathering_by_chasing_modulator = (1 + mtf_signals['mtf_gathering_by_chasing'].clip(lower=0) * 0.05)
+        gathering_by_support_modulator = (1 + mtf_signals['mtf_gathering_by_support'].clip(lower=0) * 0.05)
         # V10.0 微观结构调节器 (基于原始MTF信号)
-        microstructure_efficiency_modulator = (1 + mtf_signals['mtf_microstructure_efficiency'] * 0.05)
-        imbalance_effectiveness_modulator = (1 + mtf_signals['mtf_imbalance_effectiveness'] * 0.05)
-        auction_intent_modulator = (1 + mtf_signals['mtf_auction_intent_signal'] * 0.05) # 集合竞价意图
+        microstructure_efficiency_modulator = (1 + mtf_signals['mtf_microstructure_efficiency'].clip(lower=0) * 0.05)
+        imbalance_effectiveness_modulator = (1 + mtf_signals['mtf_imbalance_effectiveness'].clip(lower=0) * 0.05)
+        auction_intent_modulator = (1 + mtf_signals['mtf_auction_intent_signal'].clip(lower=0) * 0.05) # 集合竞价意图
         final_rally_intent = (final_rally_intent * proxy_signals['rs_modulator'] * proxy_signals['capital_modulator'] *
                               market_sentiment_modulator * structural_tension_modulator *
                               trend_vitality_modulator * liquidity_authenticity_modulator *
@@ -1266,14 +1278,26 @@ class CalculateMainForceRallyIntent:
             for key, series in _temp_debug_values["动态权重"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 攻击性组件 ---"] = ""
+            for comp_name, comp_series in _temp_debug_values["aggressiveness_components_debug"].items():
+                val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
+                debug_output[f"        {comp_name}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 攻击性 ---"] = ""
             for key, series in _temp_debug_values["攻击性"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 控制力组件 ---"] = ""
+            for comp_name, comp_series in _temp_debug_values["control_components_debug"].items():
+                val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
+                debug_output[f"        {comp_name}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 控制力 ---"] = ""
             for key, series in _temp_debug_values["控制力"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 障碍清除组件 ---"] = ""
+            for comp_name, comp_series in _temp_debug_values["obstacle_clearance_components_debug"].items():
+                val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
+                debug_output[f"        {comp_name}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 障碍清除 ---"] = ""
             for key, series in _temp_debug_values["障碍清除"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -1285,20 +1309,26 @@ class CalculateMainForceRallyIntent:
                     debug_output[f"        {key}: {val:.4f}"] = ""
                 else: # 如果是标量，直接输出
                     debug_output[f"        {key}: {value:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看跌意图组件 ---"] = ""
+            for comp_name, comp_series in _temp_debug_values["bearish_score_components_debug"].items():
+                val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
+                debug_output[f"        {comp_name}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看跌意图 ---"] = ""
             for key, series in _temp_debug_values["看跌意图"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发风险组件 ---"] = ""
+            for comp_name, comp_series in _temp_debug_values["distribution_risk_components_debug"].items():
+                val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
+                debug_output[f"        {comp_name}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发风险 ---"] = ""
-            # 增加对 distribution_risk_components 的调试输出
-            if "distribution_risk_components_debug" in _temp_debug_values:
-                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发风险组件 ---"] = ""
-                for comp_name, comp_series in _temp_debug_values["distribution_risk_components_debug"].items():
-                    val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
-                    debug_output[f"        {comp_name}: {val:.4f}"] = ""
             for key, series in _temp_debug_values["派发风险"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 前置下跌风险组件 ---"] = ""
+            for comp_name, comp_series in _temp_debug_values["pre_drop_risk_components_debug"].items():
+                val = comp_series.loc[probe_ts] if probe_ts in comp_series.index else np.nan
+                debug_output[f"        {comp_name}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 前置下跌风险 ---"] = ""
             for key, series in _temp_debug_values["前置下跌风险"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -1332,8 +1362,8 @@ class CalculateMainForceRallyIntent:
             'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
             'main_force_cost_advantage_D', 'SLOPE_5_winner_concentration_90pct_D',
             'dominant_peak_solidity_D', 'active_buying_support_D', 'pressure_rejection_strength_D',
-            'profit_realization_quality_D', 
-            'distribution_at_peak_intensity_D', 'upper_shadow_selling_pressure_D', 
+            'profit_realization_quality_D',
+            'distribution_at_peak_intensity_D', 'upper_shadow_selling_pressure_D',
             'flow_credibility_index_D', 'chip_health_score_D', 'retail_fomo_premium_index_D',
             'SLOPE_21_close_D', 'ACCEL_21_close_D', 'SLOPE_34_close_D', 'ACCEL_34_close_D',
             'buy_sweep_intensity_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
@@ -1398,11 +1428,17 @@ class CalculateMainForceRallyIntent:
             'absorption_of_distribution_intensity_D' # 新增：派发吸收强度
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
+        # 过滤掉已经包含在 required_signals 中的斜率和加速度信号，避免重复
         base_signals_for_mtf = [s.replace('_D', '') for s in required_signals if not s.startswith(('SLOPE_', 'ACCEL_')) and s.endswith('_D')]
         for base_sig_name in base_signals_for_mtf:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig_name}_D')
+                slope_col_name = f'SLOPE_{period_str}_{base_sig_name}_D'
+                if slope_col_name not in required_signals:
+                    required_signals.append(slope_col_name)
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig_name}_D')
+                accel_col_name = f'ACCEL_{period_str}_{base_sig_name}_D'
+                if accel_col_name not in required_signals:
+                    required_signals.append(accel_col_name)
         return required_signals
+
 

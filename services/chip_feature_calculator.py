@@ -1534,40 +1534,80 @@ class ChipFeatureCalculator:
         - 核心升维: 引入“零强度”原则。当股价未进入特定区域（如未跌破主峰区）时，
                      相关的行为强度指标（如吸筹烈度）不再返回NaN，而是返回0.0，
                      代表该行为“零发生”，从而消除信息黑洞，使指标体系在逻辑上彻底完备。
+        - 核心新增: 植入详细探针，用于调试 `distribution_at_peak_intensity` 的计算过程。
         """
-        # [修改的代码块] 将默认值从 np.nan 修改为 0.0
+        # 将默认值从 np.nan 修改为 0.0
         metrics = {
             'distribution_at_peak_intensity': 0.0,
             'absorption_at_peak_intensity': 0.0,
-            'absorption_of_distribution_intensity': 0.0, # 新增：派发吸收强度
+            'absorption_of_distribution_intensity': 0.0,
             'breakthrough_of_peak_quality': 0.0,
             'defense_of_peak_quality': 0.0,
         }
+        # 获取调试参数
+        debug_params = context.get('debug_params', {})
+        enable_probe = debug_params.get('enable_contextual_action_probe', False)
+        probe_dates = debug_params.get('probe_dates', [])
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"\n[探针 C.1 - {stock_code} - {trade_date}] _compute_contextual_action_metrics 启动。")
+            print(f"  - 原始输入: context keys: {context.keys()}")
         raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
         hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = common_data.get('atr')
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 C.1.1 - {stock_code} - {trade_date}] 准备行为数据。")
+            print(f"    - raw_hf_df.empty: {raw_hf_df.empty}, hf_analysis_df.empty: {hf_analysis_df.empty}")
+            print(f"    - dominant_peak_cost: {dominant_peak_cost}, atr: {atr}")
         if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.2 - {stock_code} - {trade_date}] 前置条件不满足，返回默认指标。")
             return metrics
         peak_battle_zone_radius = 0.5 * atr
         peak_zone_upper = dominant_peak_cost + peak_battle_zone_radius
         peak_zone_lower = dominant_peak_cost - peak_battle_zone_radius
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 C.1.3 - {stock_code} - {trade_date}] 峰区定义: upper={peak_zone_upper}, lower={peak_zone_lower}")
         above_peak_zone_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
         below_peak_zone_df = hf_analysis_df[hf_analysis_df['price'] < peak_zone_lower]
         # 1. 计算主峰区派发烈度
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 C.1.4 - {stock_code} - {trade_date}] 检查 'above_peak_zone_df' 是否为空: {above_peak_zone_df.empty}")
         if not above_peak_zone_df.empty:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.5 - {stock_code} - {trade_date}] 开始计算 distribution_at_peak_intensity。")
+                print(f"    - above_peak_zone_df.shape: {above_peak_zone_df.shape}")
+                print(f"    - hf_analysis_df.shape: {hf_analysis_df.shape}")
             focus_numerator = above_peak_zone_df['main_force_ofi'].abs().sum()
             focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
             focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - focus_numerator (above_peak_zone_df['main_force_ofi'].abs().sum()): {focus_numerator}")
+                print(f"    - focus_denominator (hf_analysis_df['main_force_ofi'].abs().sum()): {focus_denominator}")
+                print(f"    - focus_component: {focus_component}")
             intent_numerator = above_peak_zone_df['main_force_ofi'].clip(upper=0).abs().sum()
             intent_denominator = above_peak_zone_df['main_force_ofi'].abs().sum()
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - intent_numerator (above_peak_zone_df['main_force_ofi'].clip(upper=0).abs().sum()): {intent_numerator}")
+                print(f"    - intent_denominator (above_peak_zone_df['main_force_ofi'].abs().sum()): {intent_denominator}")
+                print(f"    - intent_component: {intent_component}")
             price_start = above_peak_zone_df['price'].iloc[0]
             price_end = above_peak_zone_df['price'].iloc[-1]
             # 修正派发成果的计算逻辑：价格上涨为正成果，因为派发通常发生在拉升过程中
-            outcome_component = np.tanh((price_end - price_start) / atr)
+            price_change_for_outcome = (price_end - price_start)
+            outcome_component = np.tanh(price_change_for_outcome / atr)
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - price_start (above_peak_zone_df['price'].iloc[0]): {price_start}")
+                print(f"    - price_end (above_peak_zone_df['price'].iloc[-1]): {price_end}")
+                print(f"    - price_change_for_outcome: {price_change_for_outcome}")
+                print(f"    - atr: {atr}")
+                print(f"    - outcome_component (np.tanh(price_change_for_outcome / atr)): {outcome_component}")
             metrics['distribution_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
-
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - 最终 distribution_at_peak_intensity: {metrics['distribution_at_peak_intensity']}")
             # 1.1 新增：计算主峰区派发吸收强度
             # 关注在高于主峰区时，主力资金的买入意图和实际买入行为的强度
             absorption_intent_numerator = above_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
@@ -1576,7 +1616,9 @@ class ChipFeatureCalculator:
             # 吸收的成果也应与价格上涨正相关
             absorption_outcome_component = np.tanh((price_end - price_start) / atr)
             metrics['absorption_of_distribution_intensity'] = np.clip((focus_component * absorption_intent_component * (1 + absorption_outcome_component)) * 100, 0, 100)
-
+        else:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.5 - {stock_code} - {trade_date}] 'above_peak_zone_df' 为空，distribution_at_peak_intensity 保持默认值 {metrics['distribution_at_peak_intensity']}。")
         # 2. 计算主峰区吸筹烈度
         if not below_peak_zone_df.empty:
             focus_numerator = below_peak_zone_df['main_force_ofi'].abs().sum()

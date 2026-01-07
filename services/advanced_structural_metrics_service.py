@@ -1697,7 +1697,6 @@ class ThematicMetricsCalculators:
         prev_vpoc = prev_day_metrics.get('vpoc')
         if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc, day_high_qfq, day_low_qfq, total_volume_safe]):
             if day_high_qfq <= prev_high and day_low_qfq >= prev_low:
-
                 prev_range = prev_high - prev_low
                 today_range = day_high_qfq - day_low_qfq
                 if prev_range > 0 and prev_volume > 0:

@@ -34,7 +34,6 @@ class ProcessIntelligence:
         self.helper = ProcessIntelligenceHelper(strategy_instance)
         # 实例化主力拉升意图计算器
         self.calculate_main_force_rally_intent_processor = CalculateMainForceRallyIntent(strategy_instance, self.helper)
-
         # 从 helper 获取参数
         self.params = self.helper.params
         self.score_type_map = self.helper.score_type_map
@@ -46,7 +45,6 @@ class ProcessIntelligence:
         self.diagnostics_config = self.helper.diagnostics_config
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-
         # 确保 atomic_states 存在
         if not hasattr(self.strategy, 'atomic_states'):
             self.strategy.atomic_states = {}
