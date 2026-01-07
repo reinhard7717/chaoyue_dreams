@@ -674,7 +674,8 @@ class CalculateMainForceRallyIntent:
             'vwap_mean_reversion_corr_norm': self.helper._normalize_series(raw_signals['vwap_mean_reversion_corr'], df_index, bipolar=True),
             'vwap_sell_control_strength_norm': self.helper._normalize_series(raw_signals['vwap_sell_control_strength'], df_index, bipolar=False),
             'winner_stability_index_norm': self.helper._normalize_series(raw_signals['winner_stability_index'], df_index, bipolar=False),
-            'absorption_of_distribution_intensity_norm': self.helper._normalize_series(raw_signals['absorption_of_distribution_intensity'], df_index, bipolar=False)
+            'absorption_of_distribution_intensity_norm': self.helper._normalize_series(raw_signals['absorption_of_distribution_intensity'], df_index, bipolar=False),
+            'distribution_intensity_norm': self.helper._normalize_series(raw_signals['distribution_at_peak_intensity'], df_index, bipolar=False)
         }
         return normalized_signals
 
