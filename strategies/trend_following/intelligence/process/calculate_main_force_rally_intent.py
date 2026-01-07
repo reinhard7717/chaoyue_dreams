@@ -675,7 +675,10 @@ class CalculateMainForceRallyIntent:
             'vwap_sell_control_strength_norm': self.helper._normalize_series(raw_signals['vwap_sell_control_strength'], df_index, bipolar=False),
             'winner_stability_index_norm': self.helper._normalize_series(raw_signals['winner_stability_index'], df_index, bipolar=False),
             'absorption_of_distribution_intensity_norm': self.helper._normalize_series(raw_signals['absorption_of_distribution_intensity'], df_index, bipolar=False),
-            'distribution_intensity_norm': self.helper._normalize_series(raw_signals['distribution_at_peak_intensity'], df_index, bipolar=False)
+            # 修复：添加缺失的 'distribution_intensity_norm'
+            'distribution_intensity_norm': self.helper._normalize_series(raw_signals['distribution_at_peak_intensity'], df_index, bipolar=False),
+            # 修复：添加缺失的 'upper_shadow_selling_pressure_norm'
+            'upper_shadow_selling_pressure_norm': self.helper._normalize_series(raw_signals['upper_shadow_selling_pressure'], df_index, bipolar=False)
         }
         return normalized_signals
 
