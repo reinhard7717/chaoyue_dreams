@@ -1525,11 +1525,12 @@ class ChipFeatureCalculator:
 
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
         """
-        【V12.7 · 零强度原则版】
+        【V12.8 · 派发吸筹逻辑修正版】
+        - 核心修复: 修正了“主峰区派发烈度”和“主峰区吸筹烈度”中 `outcome_component` 的计算逻辑。
+                     派发烈度应与价格上涨幅度正相关，吸筹烈度应与价格下跌幅度正相关，以更准确地反映主力行为。
         - 核心升维: 引入“零强度”原则。当股价未进入特定区域（如未跌破主峰区）时，
                      相关的行为强度指标（如吸筹烈度）不再返回NaN，而是返回0.0，
                      代表该行为“零发生”，从而消除信息黑洞，使指标体系在逻辑上彻底完备。
-        - 核心修复: 修正了“主峰区派发烈度”中对战术成果的计算逻辑。
         """
         # [修改的代码块] 将默认值从 np.nan 修改为 0.0
         metrics = {
@@ -1559,21 +1560,22 @@ class ChipFeatureCalculator:
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
             price_start = above_peak_zone_df['price'].iloc[0]
             price_end = above_peak_zone_df['price'].iloc[-1]
-            # 修正派发成果的计算逻辑，价格下跌为正成果
-            outcome_component = np.tanh((price_start - price_end) / atr)
-            metrics['distribution_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
+            # 修正派发成果的计算逻辑：价格上涨为正成果，因为派发通常发生在拉升过程中
+            outcome_component = np.tanh((price_end - price_start) / atr) # 修正此处逻辑
+            metrics['distribution_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
         # 2. 计算主峰区吸筹烈度
         if not below_peak_zone_df.empty:
             focus_numerator = below_peak_zone_df['main_force_ofi'].abs().sum()
             focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
             focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
             intent_numerator = below_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
-            intent_denominator = below_peak_zone_df['main_force_ofi'].abs().sum() # 修改：将 below_analysis_df 更正为 below_peak_zone_df
+            intent_denominator = below_peak_zone_df['main_force_ofi'].abs().sum()
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
             price_start = below_peak_zone_df['price'].iloc[0]
             price_end = below_peak_zone_df['price'].iloc[-1]
-            outcome_component = np.tanh((price_end - price_start) / atr)
-            metrics['absorption_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
+            # 修正吸筹成果的计算逻辑：价格下跌为正成果，因为吸筹通常发生在打压过程中
+            outcome_component = np.tanh((price_start - price_end) / atr) # 修正此处逻辑
+            metrics['absorption_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
         # 3. 计算突破主峰质量
         breakthrough_event_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
         if not breakthrough_event_df.empty:
@@ -1584,7 +1586,7 @@ class ChipFeatureCalculator:
             efficiency_numerator = breakthrough_event_df['mid_price_delta'].sum()
             efficiency_denominator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
             efficiency_component = np.tanh(efficiency_numerator / (efficiency_denominator * 1e-6)) if efficiency_denominator > 0 else 0
-            metrics['breakthrough_of_peak_quality'] = np.clip((magnitude_component * conviction_component * efficiency_component) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
+            metrics['breakthrough_of_peak_quality'] = np.clip((magnitude_component * conviction_component * efficiency_component) * 100, 0, 100)
         # 4. 计算防守主峰质量
         day_low = common_data.get('day_low')
         day_close = common_data.get('day_close')
@@ -1597,7 +1599,7 @@ class ChipFeatureCalculator:
                 recovery_conviction_num = recovery_df['main_force_ofi'].clip(lower=0).sum()
                 recovery_conviction_den = recovery_df['main_force_ofi'].abs().sum()
                 recovery_conviction = recovery_conviction_num / recovery_conviction_den if recovery_conviction_den > 0 else 0
-                metrics['defense_of_peak_quality'] = np.clip((recovery_magnitude * recovery_conviction) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
+                metrics['defense_of_peak_quality'] = np.clip((recovery_magnitude * recovery_conviction) * 100, 0, 100)
         return metrics
 
 
