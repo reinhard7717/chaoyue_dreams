@@ -1448,6 +1448,7 @@ class ChipFeatureCalculator:
         - 核心职责: 从上下文中提取日线数据和原始高频数据(tick, level5, realtime)，
                      准备并返回高频计算所需的通用数据字典和合并后的原始高频DataFrame。
         - 核心新增: 植入详细探针，用于调试高频数据的加载和合并过程。
+        - 核心修复: 增加 `pd.merge_asof` 前的 `trade_time` 列 `dtype` 检查探针。
         """
         import numpy as np
         # 获取调试参数
@@ -1480,14 +1481,22 @@ class ChipFeatureCalculator:
                 print(f"    - level5_data columns: {level5_data.columns.tolist()}")
         raw_hf_df = pd.DataFrame()
         if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
-            # 确保索引是DatetimeIndex，并且已排序
+            # tick_data 和 level5_data 此时已经是经过 _process_intraday_df_to_map 处理过的，
+            # 它们的索引是 DatetimeIndex 类型的 'trade_time'。
             tick_data_sorted = tick_data.sort_index()
             level5_data_sorted = level5_data.sort_index()
+            # Reset index to make 'trade_time' a column for merge_asof
+            tick_df_for_merge = tick_data_sorted.reset_index()
+            level5_df_for_merge = level5_data_sorted.reset_index()
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 E.1.5 - {stock_code} - {trade_date}] merge_asof 前的 trade_time dtypes:")
+                print(f"    - tick_df_for_merge['trade_time'].dtype: {tick_df_for_merge['trade_time'].dtype}")
+                print(f"    - level5_df_for_merge['trade_time'].dtype: {level5_df_for_merge['trade_time'].dtype}")
             merged_hf = pd.merge_asof(
-                tick_data_sorted.reset_index(), level5_data_sorted.reset_index(),
+                tick_df_for_merge, level5_df_for_merge,
                 on='trade_time',
                 direction='backward'
-            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume']) # 确保关键列不为空
+            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
             if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
                 print(f"  [探针 E.1.2 - {stock_code} - {trade_date}] tick_data 和 level5_data 合并结果 (merged_hf):")
                 print(f"    - merged_hf.empty: {merged_hf.empty}")

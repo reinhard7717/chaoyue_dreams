@@ -524,13 +524,15 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     # 核心修正：返回新的三级窗口日期
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
-async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
+async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager, debug_params: dict = None):
     """
     【V53.0 · 源头备粮】
     - 核心修正: 在数据加载总枢纽中，对 Level-5 盘口数据进行预处理，新增了计算订单流失衡(OFI)
                  的逻辑，并将其作为 `ofi` 列附加到 `stock_level5_data` DataFrame 中。
                  此举确保了下游指标（如 `midday_consolidation_level`）能够获取到必要的输入数据，
                  从根本上解决了因缺少预处理而导致的指标计算失效问题。
+    - 核心修复: 确保 `tick_data` 和 `level5_data` 中的 `trade_time` 列在合并前统一为 `datetime` 类型。
+    - 核心新增: 引入 `debug_params` 参数，用于控制内部探针的输出。
     """
     import pytz
     from utils.model_helpers import (
@@ -542,6 +544,11 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     from datetime import time, datetime, timedelta
     from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
     from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+
+    # Extract debug parameters
+    enable_probe = debug_params.get('should_probe', False) if debug_params else False
+    probe_dates = debug_params.get('probe_dates', []) if debug_params else []
+
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
@@ -591,15 +598,38 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     for single_date in dates_in_chunk.normalize().unique().date:
         df_tick = await realtime_dao.get_daily_real_ticks(stock_info.stock_code, single_date.strftime('%Y-%m-%d'))
         if df_tick is not None and not df_tick.empty:
-            tick_data_df_list.append(df_tick.reset_index())
+            # Ensure 'trade_time' is a column (if it was index, reset it)
+            if isinstance(df_tick.index, pd.DatetimeIndex):
+                df_tick = df_tick.reset_index()
+            # Explicitly convert 'trade_time' column to datetime, handling potential errors
+            df_tick['trade_time'] = pd.to_datetime(df_tick['trade_time'], errors='coerce')
+            tick_data_df_list.append(df_tick)
+            if enable_probe and (not probe_dates or str(single_date) in probe_dates):
+                print(f"  [Probe L.1 - {stock_info.stock_code} - {single_date}] df_tick 'trade_time' dtype after processing: {df_tick['trade_time'].dtype}")
         df_realtime, df_level5 = await realtime_dao._get_single_stock_quotes_and_level5_from_db(stock_info.stock_code, single_date)
         if df_realtime is not None and not df_realtime.empty:
-            realtime_data_df_list.append(df_realtime.reset_index())
+            # Ensure 'trade_time' is a column (if it was index, reset it)
+            if isinstance(df_realtime.index, pd.DatetimeIndex):
+                df_realtime = df_realtime.reset_index()
+            df_realtime['trade_time'] = pd.to_datetime(df_realtime['trade_time'], errors='coerce')
+            realtime_data_df_list.append(df_realtime)
         if df_level5 is not None and not df_level5.empty:
-            level5_data_df_list.append(df_level5.reset_index())
+            # Ensure 'trade_time' is a column (if it was index, reset it)
+            if isinstance(df_level5.index, pd.DatetimeIndex):
+                df_level5 = df_level5.reset_index()
+            # Explicitly convert 'trade_time' column to datetime, handling potential errors
+            df_level5['trade_time'] = pd.to_datetime(df_level5['trade_time'], errors='coerce')
+            level5_data_df_list.append(df_level5)
+            if enable_probe and (not probe_dates or str(single_date) in probe_dates):
+                print(f"  [Probe L.2 - {stock_info.stock_code} - {single_date}] df_level5 'trade_time' dtype after processing: {df_level5['trade_time'].dtype}")
         df_minute = await time_trade_dao.get_intraday_kline_by_date(stock_info.stock_code, single_date, '1')
         if df_minute is not None and not df_minute.empty:
-            minute_data_df_list.append(df_minute.reset_index())
+            # Ensure 'trade_time' is a column (if it was index, reset it)
+            if isinstance(df_minute.index, pd.DatetimeIndex):
+                df_minute = df_minute.reset_index()
+            df_minute['trade_time'] = pd.to_datetime(df_minute['trade_time'], errors='coerce')
+            minute_data_df_list.append(df_minute)
+
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
@@ -793,6 +823,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     """
     【V37.1 · 诊断驾驶舱升级版】
     - 核心升级: 引入 M-系列 (Main Task) 探针，监控任务入口、原始数据加载和对服务的调用。
+    - 核心修复: 将 `debug_params` 传递给 `_load_all_sources_unified` 方法。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -851,6 +882,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             trade_time__lte=dates_to_process.max()
         ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'pre_close_qfq', 'vol').order_by('trade_time')
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
+        if all_daily_data_for_lookback_df.empty:
+            logger.error(f"[{stock_code}] [结构指标任务] 无法加载必要的日线数据，任务终止。")
+            return 0
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
         all_daily_data_for_lookback_df.ta.atr(length=14, append=True)
@@ -912,7 +946,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
         if seed_date:
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
-            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates, cache_manager)
+            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates, cache_manager, debug_params) # Pass debug_params here
             if not seed_data_dfs["daily_data"].empty and not seed_data_dfs["daily_basic"].empty:
                 seed_daily_df = seed_data_dfs["daily_data"].set_index(pd.to_datetime(seed_data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
                 seed_daily_basic_df = seed_data_dfs["daily_basic"].set_index(pd.to_datetime(seed_data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
@@ -956,7 +990,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
             print(f"[探针 T.1 - {stock_code}] 开始处理第 {i // CHUNK_SIZE + 1} 数据块, 日期范围: {chunk_dates.min().date()} to {chunk_dates.max().date()}, 共 {len(chunk_dates)} 天。")
-            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager)
+            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager, debug_params) # Pass debug_params here
             # 修改：更新【M.2 - 原始数据审计探针】逻辑
             if should_probe and probe_dates: # 检查是否启用探针且有指定日期
                 # 遍历当前数据块中的每个日期
