@@ -1262,7 +1262,6 @@ class ProcessIntelligence:
         mtf_winner_stability_index = self._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # V11.2 新增MTF融合信号
         mtf_absorption_of_distribution_intensity = self._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-
         _temp_debug_values["MTF融合信号"] = {
             "mtf_price_trend": mtf_price_trend,
             "mtf_mf_net_flow": mtf_mf_net_flow,
@@ -1400,9 +1399,6 @@ class ProcessIntelligence:
             "mtf_vwap_mean_reversion_corr": mtf_vwap_mean_reversion_corr,
             "mtf_vwap_sell_control_strength": mtf_vwap_sell_control_strength,
             "mtf_winner_stability_index": mtf_winner_stability_index,
-            "mtf_cumulative_mf_flow": mtf_cumulative_mf_flow,
-            "mtf_chip_concentration_stability": mtf_chip_concentration_stability,
-            "mtf_long_term_trend_strength": mtf_long_term_trend_strength,
             "mtf_absorption_of_distribution_intensity": mtf_absorption_of_distribution_intensity # V11.2
         }
         # --- V11.1: 引入历史记忆与上下文机制 ---
