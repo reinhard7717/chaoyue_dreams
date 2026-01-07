@@ -1525,7 +1525,10 @@ class ChipFeatureCalculator:
 
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
         """
-        【V12.8 · 派发吸筹逻辑修正版】
+        【V12.9 · 派发吸筹承接版】
+        - 核心新增: 引入 `absorption_of_distribution_intensity` (派发吸收强度) 指标。
+                     该指标旨在衡量在价格高于主峰区时，主力资金的买入意图和实际买入行为的强度，
+                     以对冲 `distribution_at_peak_intensity` 带来的负面影响，更全面地反映市场承接能力。
         - 核心修复: 修正了“主峰区派发烈度”和“主峰区吸筹烈度”中 `outcome_component` 的计算逻辑。
                      派发烈度应与价格上涨幅度正相关，吸筹烈度应与价格下跌幅度正相关，以更准确地反映主力行为。
         - 核心升维: 引入“零强度”原则。当股价未进入特定区域（如未跌破主峰区）时，
@@ -1536,8 +1539,9 @@ class ChipFeatureCalculator:
         metrics = {
             'distribution_at_peak_intensity': 0.0,
             'absorption_at_peak_intensity': 0.0,
-            'breakthrough_of_peak_quality': 0.0, # 修改：从 np.nan 变为 0.0
-            'defense_of_peak_quality': 0.0,      # 修改：从 np.nan 变为 0.0
+            'absorption_of_distribution_intensity': 0.0, # 新增：派发吸收强度
+            'breakthrough_of_peak_quality': 0.0,
+            'defense_of_peak_quality': 0.0,
         }
         raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
         hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
@@ -1561,8 +1565,18 @@ class ChipFeatureCalculator:
             price_start = above_peak_zone_df['price'].iloc[0]
             price_end = above_peak_zone_df['price'].iloc[-1]
             # 修正派发成果的计算逻辑：价格上涨为正成果，因为派发通常发生在拉升过程中
-            outcome_component = np.tanh((price_end - price_start) / atr) # 修正此处逻辑
+            outcome_component = np.tanh((price_end - price_start) / atr)
             metrics['distribution_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
+
+            # 1.1 新增：计算主峰区派发吸收强度
+            # 关注在高于主峰区时，主力资金的买入意图和实际买入行为的强度
+            absorption_intent_numerator = above_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
+            absorption_intent_denominator = above_peak_zone_df['main_force_ofi'].abs().sum()
+            absorption_intent_component = absorption_intent_numerator / absorption_intent_denominator if absorption_intent_denominator > 0 else 0
+            # 吸收的成果也应与价格上涨正相关
+            absorption_outcome_component = np.tanh((price_end - price_start) / atr)
+            metrics['absorption_of_distribution_intensity'] = np.clip((focus_component * absorption_intent_component * (1 + absorption_outcome_component)) * 100, 0, 100)
+
         # 2. 计算主峰区吸筹烈度
         if not below_peak_zone_df.empty:
             focus_numerator = below_peak_zone_df['main_force_ofi'].abs().sum()
@@ -1574,7 +1588,7 @@ class ChipFeatureCalculator:
             price_start = below_peak_zone_df['price'].iloc[0]
             price_end = below_peak_zone_df['price'].iloc[-1]
             # 修正吸筹成果的计算逻辑：价格下跌为正成果，因为吸筹通常发生在打压过程中
-            outcome_component = np.tanh((price_start - price_end) / atr) # 修正此处逻辑
+            outcome_component = np.tanh((price_start - price_end) / atr)
             metrics['absorption_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
         # 3. 计算突破主峰质量
         breakthrough_event_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]

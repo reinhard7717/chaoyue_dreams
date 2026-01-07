@@ -116,6 +116,7 @@ class BaseAdvancedChipMetrics(models.Model):
     CONTEXTUAL_ACTION_METRICS = {
         'distribution_at_peak_intensity': '主峰区派发烈度',
         'absorption_at_peak_intensity': '主峰区吸筹烈度',
+        'absorption_of_distribution_intensity': '主峰区派发承接强度', # 新增
         'breakthrough_of_peak_quality': '突破主峰质量',
         'defense_of_peak_quality': '防守主峰质量',
     }
@@ -180,6 +181,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'supportive_distribution_intensity',
         'distribution_at_peak_intensity',
         'absorption_at_peak_intensity',
+        'absorption_of_distribution_intensity',
         'breakthrough_of_peak_quality',
         'defense_of_peak_quality',
         'upward_impulse_strength',
