@@ -1444,19 +1444,23 @@ class ChipFeatureCalculator:
 
     def _prepare_behavioral_data_for_chips(self, context: dict) -> tuple:
         """
-        【V12.5 · 新增】高频数据准备器。
+        【V12.10 · 高频数据类型与时区终极修复版】
         - 核心职责: 从上下文中提取日线数据和原始高频数据(tick, level5, realtime)，
                      准备并返回高频计算所需的通用数据字典和合并后的原始高频DataFrame。
         - 核心新增: 植入详细探针，用于调试高频数据的加载和合并过程。
-        - 核心修复: 增加 `pd.merge_asof` 前的 `trade_time` 列 `dtype` 检查探针。
+        - 核心修复: 增加 `pd.merge_asof` 前的 `trade_time` 列 `dtype` 检查探针，并确保时区一致性。
+        - 核心修复: 确保在合并 `realtime_data` 时，`merged_hf` 具有正确的 `DatetimeIndex`。
         """
         import numpy as np
+        import pytz # Import pytz for timezone operations
         # 获取调试参数
         debug_params = self.ctx.get('debug_params', {})
         enable_probe = debug_params.get('should_probe', False)
         probe_dates = debug_params.get('probe_dates', [])
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        target_tz = pytz.timezone('Asia/Shanghai') # Define target timezone
+
         if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
             print(f"\n[探针 E.1 - {stock_code} - {trade_date}] _prepare_behavioral_data_for_chips 启动。")
         daily_total_volume = context.get('daily_turnover_volume', 0)
@@ -1476,18 +1480,32 @@ class ChipFeatureCalculator:
             if tick_data is not None and not tick_data.empty:
                 print(f"    - tick_data head:\n{tick_data.head()}")
                 print(f"    - tick_data columns: {tick_data.columns.tolist()}")
+                print(f"    - tick_data index dtype: {tick_data.index.dtype}")
             if level5_data is not None and not level5_data.empty:
                 print(f"    - level5_data head:\n{level5_data.head()}")
                 print(f"    - level5_data columns: {level5_data.columns.tolist()}")
+                print(f"    - level5_data index dtype: {level5_data.index.dtype}")
         raw_hf_df = pd.DataFrame()
         if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
-            # tick_data 和 level5_data 此时已经是经过 _process_intraday_df_to_map 处理过的，
-            # 它们的索引是 DatetimeIndex 类型的 'trade_time'。
             tick_data_sorted = tick_data.sort_index()
             level5_data_sorted = level5_data.sort_index()
-            # Reset index to make 'trade_time' a column for merge_asof
             tick_df_for_merge = tick_data_sorted.reset_index()
             level5_df_for_merge = level5_data_sorted.reset_index()
+
+            # --- 核心修复开始：强制确保 'trade_time' 列为 datetime64[ns, Asia/Shanghai] 类型 ---
+            for df_to_check in [tick_df_for_merge, level5_df_for_merge]:
+                if 'trade_time' in df_to_check.columns:
+                    # 强制转换为 datetime64[ns]
+                    df_to_check['trade_time'] = pd.to_datetime(df_to_check['trade_time'], errors='coerce')
+                    # 确保时区为 Asia/Shanghai
+                    if df_to_check['trade_time'].dt.tz is None:
+                        df_to_check['trade_time'] = df_to_check['trade_time'].dt.tz_localize(target_tz, ambiguous='infer')
+                    else:
+                        df_to_check['trade_time'] = df_to_check['trade_time'].dt.tz_convert(target_tz)
+                    # 移除转换后可能产生的 NaT 值
+                    df_to_check.dropna(subset=['trade_time'], inplace=True)
+            # --- 核心修复结束 ---
+
             if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
                 print(f"  [探针 E.1.5 - {stock_code} - {trade_date}] merge_asof 前的 trade_time dtypes:")
                 print(f"    - tick_df_for_merge['trade_time'].dtype: {tick_df_for_merge['trade_time'].dtype}")
@@ -1504,9 +1522,34 @@ class ChipFeatureCalculator:
                     print(f"    - merged_hf head:\n{merged_hf.head()}")
                     print(f"    - merged_hf tail:\n{merged_hf.tail()}")
                     print(f"    - merged_hf columns: {merged_hf.columns.tolist()}")
+            
+            # --- 核心修复：在合并 realtime_data 之前，将 merged_hf 的 'trade_time' 列设置为索引 ---
+            if not merged_hf.empty and 'trade_time' in merged_hf.columns:
+                merged_hf.set_index('trade_time', inplace=True)
+                # 确保索引是 datetime64[ns, Asia/Shanghai]
+                if not pd.api.types.is_datetime64_any_dtype(merged_hf.index):
+                    if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                        print(f"  [探针 E.1.9 - {stock_code} - {trade_date}] 强制转换 merged_hf.index 从 {merged_hf.index.dtype} 到 datetime64[ns] (before realtime merge)。")
+                    merged_hf.index = pd.to_datetime(merged_hf.index, errors='coerce')
+                if merged_hf.index.tz is None:
+                    merged_hf.index = merged_hf.index.tz_localize(target_tz, ambiguous='infer')
+                else:
+                    merged_hf.index = merged_hf.index.tz_convert(target_tz)
+                merged_hf = merged_hf[merged_hf.index.notna()] # Drop NaT from index
+
             if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
                 realtime_prepped = realtime_data[['volume']].copy()
-                realtime_prepped['snapshot_time'] = realtime_prepped.index
+                # 确保 realtime_prepped 索引是 datetime64[ns, Asia/Shanghai]
+                if not pd.api.types.is_datetime64_any_dtype(realtime_prepped.index):
+                    if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                        print(f"  [探针 E.1.8 - {stock_code} - {trade_date}] 强制转换 realtime_prepped.index 从 {realtime_prepped.index.dtype} 到 datetime64[ns]。")
+                    realtime_prepped.index = pd.to_datetime(realtime_prepped.index, errors='coerce')
+                if realtime_prepped.index.tz is None:
+                    realtime_prepped.index = realtime_prepped.index.tz_localize(target_tz, ambiguous='infer')
+                else:
+                    realtime_prepped.index = realtime_prepped.index.tz_convert(target_tz)
+                realtime_prepped = realtime_prepped[realtime_prepped.index.notna()]
+
                 merged_hf = pd.merge_asof(
                     merged_hf, realtime_prepped, left_index=True, right_index=True,
                     direction='backward', suffixes=('_tick', '_realtime')
@@ -1518,9 +1561,16 @@ class ChipFeatureCalculator:
                         print(f"    - merged_hf head:\n{merged_hf.head()}")
                         print(f"    - merged_hf columns: {merged_hf.columns.tolist()}")
             if not merged_hf.empty:
-                # 确保 trade_time 是索引
+                # 确保最终的 raw_hf_df 索引是 datetime64[ns, Asia/Shanghai]
                 if 'trade_time' in merged_hf.columns:
                     merged_hf.set_index('trade_time', inplace=True)
+                if not pd.api.types.is_datetime64_any_dtype(merged_hf.index):
+                    merged_hf.index = pd.to_datetime(merged_hf.index, errors='coerce')
+                if merged_hf.index.tz is None:
+                    merged_hf.index = merged_hf.index.tz_localize(target_tz, ambiguous='infer')
+                else:
+                    merged_hf.index = merged_hf.index.tz_convert(target_tz)
+                merged_hf = merged_hf[merged_hf.index.notna()]
                 merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True) # 确保 volume 列名正确
                 raw_hf_df = merged_hf
         if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
