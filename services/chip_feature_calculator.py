@@ -1311,6 +1311,8 @@ class ChipFeatureCalculator:
         - 核心职责: 利用Tick和Level5数据，锻造订单流失衡(OFI)、扫单强度和盘口流动性斜率等高频博弈指标。
         - 核心优化: 使用Numba优化后的扫单量计算函数。
         - 核心修复: 确保传递给Numba函数的 `trade_types` 数组为数值类型，避免 `pyobject` 错误。
+        - 核心修正: 重新定义 `order_flow_imbalance` 的计算，使其基于逐笔数据 (tick data) 的买卖类型和成交量，
+                     而非 Level-5 盘口数据，以更准确地反映实际成交的订单流失衡。
         """
         from scipy.stats import linregress
         results = {
@@ -1335,12 +1337,17 @@ class ChipFeatureCalculator:
             on='trade_time',
             direction='backward'
         ).set_index('trade_time')
-        if not merged_hf_df.empty and 'buy_price1' in merged_hf_df.columns and 'sell_price1' in merged_hf_df.columns:
-            merged_hf_df.loc[:, 'mid_price'] = (merged_hf_df['buy_price1'] + merged_hf_df['sell_price1']) / 2
-            merged_hf_df.loc[:, 'prev_mid_price'] = merged_hf_df['mid_price'].shift(1)
-            buy_pressure = np.where(merged_hf_df['mid_price'] >= merged_hf_df['prev_mid_price'], merged_hf_df['buy_volume1'].shift(1), 0)
-            sell_pressure = np.where(merged_hf_df['mid_price'] <= merged_hf_df['prev_mid_price'], merged_hf_df['sell_volume1'].shift(1), 0)
-            merged_hf_df.loc[:, 'ofi'] = buy_pressure - sell_pressure
+        if not merged_hf_df.empty and 'type' in merged_hf_df.columns and 'volume' in merged_hf_df.columns:
+            # 核心修正：根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
+            conditions = [
+                merged_hf_df['type'] == 'B',
+                merged_hf_df['type'] == 'S'
+            ]
+            choices = [
+                merged_hf_df['volume'],
+                -merged_hf_df['volume']
+            ]
+            merged_hf_df.loc[:, 'ofi'] = np.select(conditions, choices, default=0)
             results['order_flow_imbalance'] = merged_hf_df['ofi'].sum() / total_volume
         min_sweep_len = 3
         # 准备Numba函数所需的NumPy数组

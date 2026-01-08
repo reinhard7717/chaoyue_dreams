@@ -1008,7 +1008,6 @@ class AdvancedFundFlowMetricsService:
                 sell_price_col = f'sell_price{i}'
                 buy_vol = row.get(buy_vol_col, 0)
                 sell_vol = row.get(sell_vol_col, 0)
-                
                 # 确保价格有效，避免0价格导致的问题
                 buy_price = row.get(buy_price_col, 0)
                 sell_price = row.get(sell_price_col, 0)
@@ -1017,7 +1016,6 @@ class AdvancedFundFlowMetricsService:
                         main_force_bid_pressure += buy_vol * weights[i-1]
                     else:
                         retail_bid_pressure += buy_vol * weights[i-1]
-                
                 if sell_vol > 0 and sell_price > 0:
                     if sell_vol >= Q_threshold:
                         main_force_ask_pressure += sell_vol * weights[i-1]

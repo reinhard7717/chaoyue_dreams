@@ -1257,10 +1257,8 @@ class FusionIntelligence:
                     comp = comp_raw.clip(upper=0).abs()
                 else: # 默认情况，直接使用
                     comp = comp_raw
-                
                 # 确保所有组件在贡献给加权和之前都被裁剪到 [0, 1] 范围
                 comp = comp.clip(0, 1) # 添加此行
-                
                 # 确保组件是Series且索引对齐，并填充NaN为0，避免NaN传播
                 comp_aligned = comp.reindex(index).fillna(0.0)
                 raw_sum += comp_aligned * weight
@@ -1883,13 +1881,11 @@ class FusionIntelligence:
                     is_strong_price_increase,
                     dynamic_weights_series['intraday_control_weakness'] - dynamic_fusion_params.get('intraday_control_weakness_decay', 0.1)
                 ).clip(lower=0)
-                
                 # 归一化动态权重，确保总和为1
                 sum_dynamic_weights = dynamic_weights_series.sum(axis=1)
                 # 避免除以零，对于 sum_dynamic_weights 为 0 的情况，保持原始权重或设为 0
                 sum_dynamic_weights_safe = sum_dynamic_weights.replace(0, 1e-9)
                 normalized_dynamic_weights = dynamic_weights_series.div(sum_dynamic_weights_safe, axis=0)
-                
                 # 将 Series 形式的权重转换为字典形式，以便后续使用
                 # 注意：这里需要为每个时间点应用不同的权重，所以不能直接用一个字典
                 # 而是需要根据 is_strong_price_increase 来选择使用哪组权重
