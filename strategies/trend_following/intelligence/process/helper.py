@@ -163,13 +163,10 @@ class ProcessIntelligenceHelper:
             # 协同性分数需要反映方向，所以这里 bipolar=True
             fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, ascending=True, bipolar=True)
             all_fused_mtf_scores[base_signal_name] = fused_score
-
         if not all_fused_mtf_scores:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-
         # 将所有融合分数转换为DataFrame
         fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
-
         # 计算每个时间点上（axis=1）不同信号之间的标准差 (离散度)
         # 标准差越小，协同性越高
         min_periods_std = max(1, int(self.meta_window * 0.5))
@@ -177,7 +174,6 @@ class ProcessIntelligenceHelper:
         
         # 对标准差进行平滑处理
         smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(0.0)
-
         # 计算每个时间点上，不同信号的平均值 (代表整体方向)
         instant_mean = fused_scores_df.mean(axis=1)
         
@@ -193,7 +189,6 @@ class ProcessIntelligenceHelper:
         # 使用 np.sign() 获取方向，并乘以强度
         # 注意：当 instant_mean 为 0 时，np.sign(0) 为 0，这会导致 bipolar_cohesion_score 为 0，符合预期（无明确方向）
         bipolar_cohesion_score = cohesion_magnitude * np.sign(instant_mean)
-
         # 最终归一化到 -1 到 1 范围
         # 这里使用 _normalize_series 再次归一化，确保其在 [-1, 1] 范围内，并处理可能的极端值
         return self._normalize_series(bipolar_cohesion_score, df_index, bipolar=True)
