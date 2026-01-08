@@ -1852,36 +1852,37 @@ def run_top_n_performance_analysis(
 # =================== 4. 数据维护任务 ==================
 # =================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.archive_historical_trade_data', queue='celery')
-def archive_historical_trade_data(self, days_to_keep: int = 650):
+def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: int = 30):
     """
     归档含有 'trade_time' 字段的表的历史数据。
     - 保留最近 `days_to_keep` 个交易日的数据。
-    - 将此之前的数据导出为独立的 SQL 文件。
+    - 将此之前的数据按 `segment_days` 分段导出为独立的 SQL 文件。
     - 使用 xz -9 进行最高级别压缩。
     - 成功归档后从数据库中删除对应数据。
     """
     import os
     import subprocess
-    from datetime import timedelta
+    import logging
+    from datetime import timedelta, date
     from django.conf import settings
     from django.apps import apps
     from django.db.models import Min
-    logger.info(f"====== [历史数据归档任务] 启动，保留最近 {days_to_keep} 个交易日的数据 ======")
-    # 1. 计算截止日期
+    from django.db import transaction
+    from .models import TradeCalendar
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"====== [历史数据归档任务] 启动，保留最近 {days_to_keep} 个交易日的数据，每 {segment_days} 天分段处理 ======")
     try:
-        # 获取最近 days_to_keep 个交易日
         latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=days_to_keep)
         if not latest_trade_dates or len(latest_trade_dates) < days_to_keep:
             logger.error(f"无法获取足够的交易日历数据 ({len(latest_trade_dates)}/{days_to_keep})，任务终止。")
             return {"status": "failed", "reason": "Insufficient trade calendar data."}
-        # 保留数据的起始日期是第450个交易日，所以归档日期是这个日期之前的所有日期
-        cutoff_date = latest_trade_dates[-1]
-        logger.info(f"数据保留的起始日期为: {cutoff_date}。此日期之前的数据将被归档。")
-        print(f"调试信息: 数据归档截止日期 (不含当天): {cutoff_date}")
+        overall_cutoff_date = latest_trade_dates[-1]
+        logger.info(f"数据保留的起始日期为: {overall_cutoff_date}。此日期之前的数据将被分段归档。")
+        print(f"调试信息: 数据归档整体截止日期 (不含当天): {overall_cutoff_date}")
     except Exception as e:
         logger.error(f"计算归档截止日期时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": "Error calculating cutoff date."}
-    # 2. 准备归档目录和数据库配置
     archive_dir = os.path.join(settings.BASE_DIR, 'db_archives')
     os.makedirs(archive_dir, exist_ok=True)
     logger.info(f"归档文件将保存至: {archive_dir}")
@@ -1891,13 +1892,10 @@ def archive_historical_trade_data(self, days_to_keep: int = 650):
     db_host = db_config['HOST']
     db_port = str(db_config.get('PORT', 3306))
     db_name = db_config['NAME']
-    # 3. 动态查找所有带 'trade_time' 字段的模型
     target_models = []
     all_models = apps.get_models()
     for model in all_models:
-        # 检查模型是否有 'trade_time' 字段，并且不是抽象模型
         if hasattr(model, '_meta') and not model._meta.abstract and 'trade_time' in [f.name for f in model._meta.get_fields()]:
-            # 排除没有数据的模型
             if model.objects.exists():
                 target_models.append(model)
     if not target_models:
@@ -1905,84 +1903,85 @@ def archive_historical_trade_data(self, days_to_keep: int = 650):
         return {"status": "skipped", "reason": "No target tables found."}
     logger.info(f"发现 {len(target_models)} 个目标模型需要处理。")
     print(f"调试信息: 待处理的模型列表: {[m._meta.db_table for m in target_models]}")
-    # 4. 遍历模型，执行归档和删除
     success_count = 0
     failure_count = 0
     for model in target_models:
         table_name = model._meta.db_table
         logger.info(f"--- 开始处理表: {table_name} ---")
         try:
-            # 检查是否有需要归档的数据
-            min_date_obj = model.objects.filter(trade_time__lt=cutoff_date).aggregate(min_date=Min('trade_time'))
-            min_date = min_date_obj.get('min_date')
-            if not min_date:
-                logger.info(f"表 {table_name} 中没有早于 {cutoff_date} 的数据，跳过。")
+            min_date_to_archive_obj = model.objects.filter(trade_time__lt=overall_cutoff_date).aggregate(min_date=Min('trade_time'))
+            min_date_to_archive = min_date_to_archive_obj.get('min_date')
+            if not min_date_to_archive:
+                logger.info(f"表 {table_name} 中没有早于 {overall_cutoff_date} 的数据需要归档，跳过。")
                 continue
-            # 格式化日期
-            min_date_str = min_date.strftime('%Y%m%d')
-            cutoff_date_str_for_file = (cutoff_date - timedelta(days=1)).strftime('%Y%m%d')
-            # 构建文件名和命令
-            archive_filename = f"{table_name}_{min_date_str}_to_{cutoff_date_str_for_file}.sql.xz"
-            archive_filepath = os.path.join(archive_dir, archive_filename)
-            where_clause = f"trade_time < '{cutoff_date.strftime('%Y-%m-%d')}'"
-            # mysqldump 命令
-            dump_cmd = [
-                'mysqldump',
-                f'--user={db_user}',
-                f'--password={db_password}',
-                f'--host={db_host}',
-                f'--port={db_port}',
-                '--single-transaction',
-                '--skip-lock-tables',
-                '--quick',
-                db_name,
-                table_name,
-                f'--where={where_clause}'
-            ]
-            # xz 压缩命令
-            compress_cmd = ['xz', '-9', '-c']
-            logger.info(f"正在导出并压缩表 {table_name} 的数据...")
-            print(f"调试信息: 导出命令 (密码已隐藏): mysqldump --user={db_user} ... --where=\"{where_clause}\"")
-            with open(archive_filepath, 'wb') as f_out:
-                # 使用管道连接 mysqldump 和 xz
-                dump_process = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                compress_process = subprocess.Popen(compress_cmd, stdin=dump_process.stdout, stdout=f_out, stderr=subprocess.PIPE)
-                # 等待 mysqldump 完成，并关闭其 stdout
-                dump_process.stdout.close()
-                # 获取 stderr 输出
-                dump_stderr = dump_process.stderr.read().decode('utf-8')
-                compress_stderr = compress_process.stderr.read().decode('utf-8')
-                # 等待压缩进程完成
-                compress_process.wait()
-                dump_process.wait()
-                if dump_process.returncode != 0:
-                    logger.error(f"导出表 {table_name} 时 mysqldump 失败。返回码: {dump_process.returncode}。错误: {dump_stderr}")
-                    os.remove(archive_filepath) # 删除不完整的文件
+            current_segment_start_date = min_date_to_archive.date()
+            while current_segment_start_date < overall_cutoff_date:
+                current_segment_end_date = min(current_segment_start_date + timedelta(days=segment_days), overall_cutoff_date)
+                logger.info(f"正在处理表 {table_name} 的数据段: 从 {current_segment_start_date} 到 {current_segment_end_date} (不含)。")
+                print(f"调试信息: 表 {table_name} 当前处理段: {current_segment_start_date} to {current_segment_end_date}")
+                segment_start_str = current_segment_start_date.strftime('%Y%m%d')
+                segment_end_str = current_segment_end_date.strftime('%Y%m%d')
+                archive_filename = f"{table_name}_{segment_start_str}_to_{segment_end_str}.sql.xz"
+                archive_filepath = os.path.join(archive_dir, archive_filename)
+                where_clause = f"trade_time >= '{current_segment_start_date.strftime('%Y-%m-%d')}' AND trade_time < '{current_segment_end_date.strftime('%Y-%m-%d')}'"
+                dump_cmd = [
+                    'mysqldump',
+                    f'--user={db_user}',
+                    f'--password={db_password}',
+                    f'--host={db_host}',
+                    f'--port={db_port}',
+                    '--single-transaction',
+                    '--skip-lock-tables',
+                    '--quick',
+                    db_name,
+                    table_name,
+                    f'--where={where_clause}'
+                ]
+                compress_cmd = ['xz', '-9', '-c']
+                logger.info(f"正在导出并压缩表 {table_name} 的数据段 [{current_segment_start_date} - {current_segment_end_date})...")
+                print(f"调试信息: 导出命令 (密码已隐藏): mysqldump --user={db_user} ... --where=\"{where_clause}\"")
+                try:
+                    with open(archive_filepath, 'wb') as f_out:
+                        dump_process = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        compress_process = subprocess.Popen(compress_cmd, stdin=dump_process.stdout, stdout=f_out, stderr=subprocess.PIPE)
+                        dump_process.stdout.close()
+                        dump_stderr = dump_process.stderr.read().decode('utf-8')
+                        compress_stderr = compress_process.stderr.read().decode('utf-8')
+                        compress_process.wait()
+                        dump_process.wait()
+                        if dump_process.returncode != 0:
+                            logger.error(f"导出表 {table_name} 数据段 [{current_segment_start_date} - {current_segment_end_date}) 时 mysqldump 失败。返回码: {dump_process.returncode}。错误: {dump_stderr}")
+                            if os.path.exists(archive_filepath):
+                                os.remove(archive_filepath)
+                            raise Exception(f"mysqldump failed for segment {current_segment_start_date} to {current_segment_end_date}")
+                        if compress_process.returncode != 0:
+                            logger.error(f"压缩表 {table_name} 数据段 [{current_segment_start_date} - {current_segment_end_date}) 的导出文件时 xz 失败。返回码: {compress_process.returncode}。错误: {compress_stderr}")
+                            if os.path.exists(archive_filepath):
+                                os.remove(archive_filepath)
+                            raise Exception(f"xz compression failed for segment {current_segment_start_date} to {current_segment_end_date}")
+                    if not os.path.exists(archive_filepath) or os.path.getsize(archive_filepath) == 0:
+                        logger.error(f"归档文件 {archive_filepath} 创建失败或为空。")
+                        raise Exception(f"Archive file {archive_filepath} is empty or not created.")
+                    logger.info(f"成功归档数据段到: {archive_filepath}")
+                    logger.info(f"准备从表 {table_name} 中删除数据段 [{current_segment_start_date} - {current_segment_end_date}) 的记录...")
+                    with transaction.atomic():
+                        deleted_count, _ = model.objects.filter(
+                            trade_time__gte=current_segment_start_date,
+                            trade_time__lt=current_segment_end_date
+                        ).delete()
+                        logger.info(f"成功从表 {table_name} 中删除了 {deleted_count} 条记录。")
+                    success_count += 1
+                except Exception as segment_e:
+                    logger.error(f"处理表 {table_name} 的数据段 [{current_segment_start_date} - {current_segment_end_date}) 时发生错误: {segment_e}", exc_info=True)
                     failure_count += 1
-                    continue
-                if compress_process.returncode != 0:
-                    logger.error(f"压缩表 {table_name} 的导出文件时 xz 失败。返回码: {compress_process.returncode}。错误: {compress_stderr}")
-                    os.remove(archive_filepath) # 删除不完整的文件
-                    failure_count += 1
-                    continue
-            # 验证文件
-            if not os.path.exists(archive_filepath) or os.path.getsize(archive_filepath) == 0:
-                logger.error(f"归档文件 {archive_filepath} 创建失败或为空。")
-                failure_count += 1
-                continue
-            logger.info(f"成功归档数据到: {archive_filepath}")
-            # 删除数据
-            logger.info(f"准备从表 {table_name} 中删除早于 {cutoff_date} 的数据...")
-            with transaction.atomic():
-                deleted_count, _ = model.objects.filter(trade_time__lt=cutoff_date).delete()
-                logger.info(f"成功从表 {table_name} 中删除了 {deleted_count} 条历史记录。")
-            success_count += 1
+                finally:
+                    current_segment_start_date = current_segment_end_date
         except Exception as e:
             logger.error(f"处理表 {table_name} 时发生意外错误: {e}", exc_info=True)
             failure_count += 1
             continue
     logger.info("====== [历史数据归档任务] 完成 ======")
-    logger.info(f"成功处理: {success_count} 个表, 失败: {failure_count} 个表。")
+    logger.info(f"成功处理: {success_count} 个数据段, 失败: {failure_count} 个数据段。")
     return {"status": "completed", "success": success_count, "failed": failure_count}
 
 
