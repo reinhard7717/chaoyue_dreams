@@ -185,7 +185,212 @@
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
                 "efficiency_baseline": 0.15,
-                "description": "【V3.1 · 质效校准版】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。引入“效率基准线”实现赏罚分明。"
+                "description": "【V4.1 · 数据层强化与周期性考量版】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。引入“效率基准线”实现赏罚分明。",
+                "split_order_accumulation_params": {
+                    "dynamic_efficiency_baseline_params": {
+                        "base_baseline": 0.15,
+                        "sentiment_impact": 0.1,
+                        "volatility_impact": 0.05,
+                        "consolidation_impact": 0.05
+                    },
+                    "preliminary_score_params": {
+                        "price_suppression_weights": {
+                            "price_trend_negative": 0.3,
+                            "is_consolidating": 0.3,
+                            "consolidation_duration": 0.2,
+                            "upward_purity_inverted": 0.2
+                        },
+                        "strategic_context_weights": {
+                            "stability": 0.4,
+                            "deception_lure_long_inverted": 0.3,
+                            "deception_lure_short": 0.3
+                        },
+                        "fusion_weights": {
+                            "mtf_intensity": 0.4,
+                            "price_suppression": 0.3,
+                            "strategic_context": 0.3
+                        },
+                        "momentum_weight": 0.3
+                    },
+                    "holographic_validation_params": {
+                        "state_fusion_weights": {
+                            "flow": 0.4,
+                            "structure": 0.3,
+                            "potential": 0.3
+                        },
+                        "trend_fusion_weights": {
+                            "flow_trend": 0.4,
+                            "structure_trend": 0.3,
+                            "potential_trend": 0.3
+                        },
+                        "overall_fusion_weights": {
+                            "state": 0.6,
+                            "trend": 0.4
+                        }
+                    },
+                    "data_flow_composite_weights": {
+                        "daily_mf_net_flow": 0.25,
+                        "mf_net_flow_13d_avg": 0.25,
+                        "daily_hidden_acc_intensity": 0.15,
+                        "hidden_acc_13d_avg": 0.15,
+                        "smart_money_net_buy": 0.1,
+                        "conviction_flow": 0.1
+                    },
+                    "data_structure_composite_weights": {
+                        "daily_chip_health": 0.3,
+                        "chip_health_13d_avg": 0.2,
+                        "daily_structural_potential": 0.2,
+                        "structural_potential_13d_avg": 0.1,
+                        "control_solidity": 0.2
+                    },
+                    "data_potential_composite_weights": {
+                        "ma_potential_orderliness": 0.4,
+                        "structural_potential": 0.3,
+                        "trend_vitality": 0.3
+                    },
+                    "data_sentiment_composite_weights": {
+                        "daily_theme_hotness": 0.6,
+                        "theme_hotness_13d_avg": 0.4
+                    },
+                    "mtf_slope_accel_weights": {
+                        "description": "多时间框架斜率和加速度的融合权重，包含5日、13日、21日周期。",
+                        "slope_periods": {"5": 0.3, "13": 0.4, "21": 0.3},
+                        "accel_periods": {"5": 0.5, "13": 0.5}
+                    },
+                    "mtf_cohesion_base_signals": [
+                        "hidden_accumulation_intensity_D",
+                        "main_force_net_flow_calibrated_D",
+                        "chip_health_score_D",
+                        "structural_potential_score_D",
+                        "close_D"
+                    ],
+                    "mtf_cohesion_weights": {
+                        "cohesion_score": 1.0
+                    }
+                }
+            },
+            {
+                "name": "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "efficiency_baseline": 0.15,
+                "description": "【V4.2 · RDI增强版】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。引入“效率基准线”实现赏罚分明，并集成共振、背离、拐点（RDI）分析。",
+                "split_order_accumulation_params": {
+                    "dynamic_efficiency_baseline_params": {
+                        "base_baseline": 0.15,
+                        "sentiment_impact": 0.1,
+                        "volatility_impact": 0.05,
+                        "consolidation_impact": 0.05
+                    },
+                    "preliminary_score_params": {
+                        "price_suppression_weights": {
+                            "price_trend_negative": 0.3,
+                            "is_consolidating": 0.3,
+                            "consolidation_duration": 0.2,
+                            "upward_purity_inverted": 0.2
+                        },
+                        "strategic_context_weights": {
+                            "stability": 0.4,
+                            "deception_lure_long_inverted": 0.3,
+                            "deception_lure_short": 0.3
+                        },
+                        "fusion_weights": {
+                            "mtf_intensity": 0.4,
+                            "price_suppression": 0.3,
+                            "strategic_context": 0.3
+                        },
+                        "momentum_weight": 0.3
+                    },
+                    "holographic_validation_params": {
+                        "state_fusion_weights": {
+                            "flow": 0.4,
+                            "structure": 0.3,
+                            "potential": 0.3
+                        },
+                        "trend_fusion_weights": {
+                            "flow_trend": 0.4,
+                            "structure_trend": 0.3,
+                            "potential_trend": 0.3
+                        },
+                        "overall_fusion_weights": {
+                            "state": 0.6,
+                            "trend": 0.4
+                        }
+                    },
+                    "data_flow_composite_weights": {
+                        "daily_mf_net_flow": 0.2,
+                        "mf_net_flow_5d_avg": 0.15,
+                        "mf_net_flow_13d_avg": 0.15,
+                        "daily_hidden_acc_intensity": 0.1,
+                        "hidden_acc_5d_avg": 0.1,
+                        "hidden_acc_13d_avg": 0.1,
+                        "smart_money_net_buy": 0.1,
+                        "conviction_flow": 0.1
+                    },
+                    "data_structure_composite_weights": {
+                        "daily_chip_health": 0.25,
+                        "chip_health_5d_avg": 0.15,
+                        "chip_health_13d_avg": 0.15,
+                        "daily_structural_potential": 0.15,
+                        "structural_potential_5d_avg": 0.1,
+                        "structural_potential_13d_avg": 0.1,
+                        "control_solidity": 0.1
+                    },
+                    "data_potential_composite_weights": {
+                        "ma_potential_orderliness": 0.4,
+                        "structural_potential": 0.3,
+                        "trend_vitality": 0.3
+                    },
+                    "data_sentiment_composite_weights": {
+                        "daily_theme_hotness": 0.5,
+                        "theme_hotness_5d_avg": 0.3,
+                        "theme_hotness_13d_avg": 0.2
+                    },
+                    "mtf_slope_accel_weights": {
+                        "description": "多时间框架斜率和加速度的融合权重，包含5日、13日、21日周期。",
+                        "slope_periods": {"5": 0.3, "13": 0.4, "21": 0.3},
+                        "accel_periods": {"5": 0.5, "13": 0.5}
+                    },
+                    "rdi_params": {
+                        "description": "共振 (Resonance)、背离 (Divergence) 和拐点 (Inflection) 信号的参数。",
+                        "resonance_reward_factor": 0.1,
+                        "divergence_penalty_factor": 0.15,
+                        "inflection_reward_factor": 0.05,
+                        "flow_resonance_weights": {
+                            "flow_slope_5": 0.4,
+                            "flow_slope_13": 0.3,
+                            "flow_slope_21": 0.3
+                        },
+                        "structure_resonance_weights": {
+                            "structure_slope_5": 0.4,
+                            "structure_slope_13": 0.3,
+                            "structure_slope_21": 0.3
+                        },
+                        "potential_resonance_weights": {
+                            "potential_slope_5": 0.4,
+                            "potential_slope_13": 0.3,
+                            "potential_slope_21": 0.3
+                        },
+                        "overall_resonance_weights": {
+                            "price_slope_5": 0.25,
+                            "flow_outcome": 0.25,
+                            "structure_outcome": 0.25,
+                            "potential_outcome": 0.25
+                        }
+                    },
+                    "mtf_cohesion_base_signals": [
+                        "hidden_accumulation_intensity_D",
+                        "main_force_net_flow_calibrated_D",
+                        "chip_health_score_D",
+                        "structural_potential_score_D",
+                        "close_D"
+                    ],
+                    "mtf_cohesion_weights": {
+                        "cohesion_score": 1.0
+                    }
+                }
             },
             {
                 "name": "PROCESS_META_PF_REL_BULLISH_TURN",

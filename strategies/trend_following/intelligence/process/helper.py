@@ -284,3 +284,41 @@ class ProcessIntelligenceHelper:
             fused_score += score * weight
             total_weight += weight
         return (fused_score / total_weight) if total_weight > 0 else pd.Series(0.0, index=df_index, dtype=np.float32)
+
+    def _calculate_slope_series(self, series: pd.Series, period: int) -> pd.Series:
+        """
+        计算给定Series的斜率。
+        参数:
+            series (pd.Series): 输入Series。
+            period (int): 计算斜率的周期。
+        返回:
+            pd.Series: 斜率Series。
+        """
+        if period <= 1:
+            return pd.Series(0.0, index=series.index, dtype=np.float32)
+        # 使用线性回归计算斜率
+        # 这里的实现可以简化为 diff(period) / period，或者更复杂的线性回归
+        # 为了保持一致性，我们假设斜率是预计算的，或者这里使用一个简单的近似
+        # 考虑到我们已经有SLOPE_X_signal_D，这里可以模拟其行为
+        # 简单实现：(当前值 - period周期前的值) / period
+        return (series - series.shift(period)).fillna(0.0) / period
+
+    def _calculate_accel_series(self, series: pd.Series, period: int) -> pd.Series:
+        """
+        计算给定Series的加速度。
+        加速度是斜率的斜率。
+        参数:
+            series (pd.Series): 输入Series。
+            period (int): 计算加速度的周期。
+        返回:
+            pd.Series: 加速度Series。
+        """
+        if period <= 2: # 加速度至少需要3个点 (2个斜率)
+            return pd.Series(0.0, index=series.index, dtype=np.float32)
+        # 计算period周期的斜率
+        slope = self._calculate_slope_series(series, period)
+        # 计算斜率的period周期斜率作为加速度
+        return self._calculate_slope_series(slope, period)
+
+
+

@@ -108,11 +108,12 @@ class CalculateSplitOrderAccumulation:
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V4.1 · 数据层强化与周期性考量版】
+        【V4.2 · RDI增强版】
         获取并归一化所有拆单吸筹强度计算所需的原始信号。
         - 核心修正: 移除对情报层原子信号的依赖，完全基于数据层原始数据。
-        - 核心增强: 引入关键数据层信号的13日/21日历史平均值，以捕捉周期性累积特征。
+        - 核心增强: 引入关键数据层信号的5日、13日和21日移动平均值，以捕捉周期性累积特征。
         - 核心构建: 将多个数据层信号融合成新的“数据层复合原子信号” (data_flow_outcome, data_structure_outcome, data_potential_outcome, data_market_sentiment)。
+        - 新增: 计算数据层复合信号的5日、13日、21日斜率和加速度，为RDI分析做准备。
         返回: (raw_signals, normalized_signals, mtf_signals, context_signals)
         """
         df_index = df.index
@@ -154,14 +155,19 @@ class CalculateSplitOrderAccumulation:
         for col in raw_df_columns:
             raw_signals_dict[col] = self.helper._get_safe_series(df, col, 0.0, method_name=method_name)
         
-        # 引入历史周期性考量：计算关键信号的13日和21日移动平均
+        # 引入历史周期性考量：计算关键信号的5日、13日和21日移动平均
         # 这些平均值将作为新的“原始”信号参与后续的归一化和复合
+        raw_signals_dict['hidden_accumulation_intensity_MA5_D'] = raw_signals_dict['hidden_accumulation_intensity_D'].rolling(5).mean().fillna(0.0)
         raw_signals_dict['hidden_accumulation_intensity_MA13_D'] = raw_signals_dict['hidden_accumulation_intensity_D'].rolling(13).mean().fillna(0.0)
         raw_signals_dict['hidden_accumulation_intensity_MA21_D'] = raw_signals_dict['hidden_accumulation_intensity_D'].rolling(21).mean().fillna(0.0)
+        raw_signals_dict['main_force_net_flow_calibrated_MA5_D'] = raw_signals_dict['main_force_net_flow_calibrated_D'].rolling(5).mean().fillna(0.0)
         raw_signals_dict['main_force_net_flow_calibrated_MA13_D'] = raw_signals_dict['main_force_net_flow_calibrated_D'].rolling(13).mean().fillna(0.0)
         raw_signals_dict['main_force_net_flow_calibrated_MA21_D'] = raw_signals_dict['main_force_net_flow_calibrated_D'].rolling(21).mean().fillna(0.0)
+        raw_signals_dict['chip_health_score_MA5_D'] = raw_signals_dict['chip_health_score_D'].rolling(5).mean().fillna(0.0)
         raw_signals_dict['chip_health_score_MA13_D'] = raw_signals_dict['chip_health_score_D'].rolling(13).mean().fillna(0.0)
+        raw_signals_dict['structural_potential_score_MA5_D'] = raw_signals_dict['structural_potential_score_D'].rolling(5).mean().fillna(0.0)
         raw_signals_dict['structural_potential_score_MA13_D'] = raw_signals_dict['structural_potential_score_D'].rolling(13).mean().fillna(0.0)
+        raw_signals_dict['THEME_HOTNESS_SCORE_MA5_D'] = raw_signals_dict['THEME_HOTNESS_SCORE_D'].rolling(5).mean().fillna(0.0)
         raw_signals_dict['THEME_HOTNESS_SCORE_MA13_D'] = raw_signals_dict['THEME_HOTNESS_SCORE_D'].rolling(13).mean().fillna(0.0)
 
         # 归一化处理 (针对原始信号或其简单衍生)
@@ -177,84 +183,110 @@ class CalculateSplitOrderAccumulation:
         # 构建新的数据层复合“原子信号”
         # 1. 数据层资金流 (data_flow_outcome)
         norm_mf_net_flow = self.helper._normalize_series(raw_signals_dict['main_force_net_flow_calibrated_D'], df_index, bipolar=True)
+        norm_mf_net_flow_ma5 = self.helper._normalize_series(raw_signals_dict['main_force_net_flow_calibrated_MA5_D'], df_index, bipolar=True)
         norm_mf_net_flow_ma13 = self.helper._normalize_series(raw_signals_dict['main_force_net_flow_calibrated_MA13_D'], df_index, bipolar=True)
         norm_hidden_acc_intensity = self.helper._normalize_series(raw_signals_dict['hidden_accumulation_intensity_D'], df_index, bipolar=False)
+        norm_hidden_acc_intensity_ma5 = self.helper._normalize_series(raw_signals_dict['hidden_accumulation_intensity_MA5_D'], df_index, bipolar=False)
         norm_hidden_acc_intensity_ma13 = self.helper._normalize_series(raw_signals_dict['hidden_accumulation_intensity_MA13_D'], df_index, bipolar=False)
         norm_smart_money_net_buy = self.helper._normalize_series(raw_signals_dict['SMART_MONEY_INST_NET_BUY_D'], df_index, bipolar=True)
         norm_conviction_flow = self.helper._normalize_series(raw_signals_dict['conviction_flow_index_D'], df_index, bipolar=False)
 
+        flow_weights = get_param_value(self.params.get('data_flow_composite_weights'), {
+            'daily_mf_net_flow': 0.2, 'mf_net_flow_5d_avg': 0.15, 'mf_net_flow_13d_avg': 0.15,
+            'daily_hidden_acc_intensity': 0.1, 'hidden_acc_5d_avg': 0.1, 'hidden_acc_13d_avg': 0.1,
+            'smart_money_net_buy': 0.1, 'conviction_flow': 0.1
+        })
         data_flow_components = {
             "daily_mf_net_flow": norm_mf_net_flow,
+            "mf_net_flow_5d_avg": norm_mf_net_flow_ma5,
             "mf_net_flow_13d_avg": norm_mf_net_flow_ma13,
             "daily_hidden_acc_intensity": norm_hidden_acc_intensity,
+            "hidden_acc_5d_avg": norm_hidden_acc_intensity_ma5,
             "hidden_acc_13d_avg": norm_hidden_acc_intensity_ma13,
             "smart_money_net_buy": norm_smart_money_net_buy,
             "conviction_flow": norm_conviction_flow,
         }
-        # 默认权重，可在config中覆盖
-        flow_weights = get_param_value(self.params.get('data_flow_composite_weights'), {
-            'daily_mf_net_flow': 0.25, 'mf_net_flow_13d_avg': 0.25,
-            'daily_hidden_acc_intensity': 0.15, 'hidden_acc_13d_avg': 0.15,
-            'smart_money_net_buy': 0.1, 'conviction_flow': 0.1
-        })
         normalized_signals["data_flow_outcome"] = _robust_geometric_mean(data_flow_components, flow_weights, df_index).fillna(0.0)
 
         # 2. 数据层筹码结构 (data_structure_outcome)
         norm_chip_health = self.helper._normalize_series(raw_signals_dict['chip_health_score_D'], df_index, bipolar=False)
+        norm_chip_health_ma5 = self.helper._normalize_series(raw_signals_dict['chip_health_score_MA5_D'], df_index, bipolar=False)
         norm_chip_health_ma13 = self.helper._normalize_series(raw_signals_dict['chip_health_score_MA13_D'], df_index, bipolar=False)
         norm_structural_potential = self.helper._normalize_series(raw_signals_dict['structural_potential_score_D'], df_index, bipolar=False)
+        norm_structural_potential_ma5 = self.helper._normalize_series(raw_signals_dict['structural_potential_score_MA5_D'], df_index, bipolar=False)
         norm_structural_potential_ma13 = self.helper._normalize_series(raw_signals_dict['structural_potential_score_MA13_D'], df_index, bipolar=False)
         norm_control_solidity = self.helper._normalize_series(raw_signals_dict['control_solidity_index_D'], df_index, bipolar=False)
 
+        structure_weights = get_param_value(self.params.get('data_structure_composite_weights'), {
+            'daily_chip_health': 0.25, 'chip_health_5d_avg': 0.15, 'chip_health_13d_avg': 0.15,
+            'daily_structural_potential': 0.15, 'structural_potential_5d_avg': 0.1, 'structural_potential_13d_avg': 0.1,
+            'control_solidity': 0.1
+        })
         data_structure_components = {
             "daily_chip_health": norm_chip_health,
+            "chip_health_5d_avg": norm_chip_health_ma5,
             "chip_health_13d_avg": norm_chip_health_ma13,
             "daily_structural_potential": norm_structural_potential,
+            "structural_potential_5d_avg": norm_structural_potential_ma5,
             "structural_potential_13d_avg": norm_structural_potential_ma13,
             "control_solidity": norm_control_solidity,
         }
-        structure_weights = get_param_value(self.params.get('data_structure_composite_weights'), {
-            'daily_chip_health': 0.3, 'chip_health_13d_avg': 0.2,
-            'daily_structural_potential': 0.2, 'structural_potential_13d_avg': 0.1,
-            'control_solidity': 0.2
-        })
         normalized_signals["data_structure_outcome"] = _robust_geometric_mean(data_structure_components, structure_weights, df_index).fillna(0.0)
 
         # 3. 数据层动态潜力 (data_potential_outcome)
         norm_ma_potential_orderliness = self.helper._normalize_series(raw_signals_dict['MA_POTENTIAL_ORDERLINESS_SCORE_D'], df_index, bipolar=False)
         norm_trend_vitality = self.helper._normalize_series(raw_signals_dict['trend_vitality_index_D'], df_index, bipolar=False)
         
+        potential_weights = get_param_value(self.params.get('data_potential_composite_weights'), {
+            'ma_potential_orderliness': 0.4, 'structural_potential': 0.3, 'trend_vitality': 0.3
+        })
         data_potential_components = {
             "ma_potential_orderliness": norm_ma_potential_orderliness,
             "structural_potential": norm_structural_potential, # 复用上面的归一化结构潜力
             "trend_vitality": norm_trend_vitality,
         }
-        potential_weights = get_param_value(self.params.get('data_potential_composite_weights'), {
-            'ma_potential_orderliness': 0.4, 'structural_potential': 0.3, 'trend_vitality': 0.3
-        })
         normalized_signals["data_potential_outcome"] = _robust_geometric_mean(data_potential_components, potential_weights, df_index).fillna(0.0)
+
+        # --- 新增: 计算数据层复合信号的斜率和加速度，用于RDI分析 ---
+        rdi_periods = [5, 13, 21]
+        composite_signals_for_rdi = {
+            "data_flow_outcome": normalized_signals["data_flow_outcome"],
+            "data_structure_outcome": normalized_signals["data_structure_outcome"],
+            "data_potential_outcome": normalized_signals["data_potential_outcome"]
+        }
+
+        for sig_name, sig_series in composite_signals_for_rdi.items():
+            for period in rdi_periods:
+                # 计算斜率
+                slope_series = self.helper._calculate_slope_series(sig_series, period)
+                normalized_signals[f'SLOPE_{period}_{sig_name}'] = self.helper._normalize_series(slope_series, df_index, bipolar=True)
+                # 计算加速度
+                accel_series = self.helper._calculate_accel_series(sig_series, period)
+                normalized_signals[f'ACCEL_{period}_{sig_name}'] = self.helper._normalize_series(accel_series, df_index, bipolar=True)
 
         # MTF信号 (仅针对数据层原始信号)
         mtf_signals = {
             "mtf_hidden_accumulation_intensity": self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            "mtf_price_trend": self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
+            "mtf_price_trend": self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, periods=[5, 13, 21]), # 使用更丰富的周期
             "mtf_deception_index": self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True),
-            # 新增更长周期的MTF价格趋势
-            "mtf_price_trend_13": self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, periods=[13]), # 假设mtf_slope_accel_weights支持单周期
+            "mtf_price_trend_5": self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, periods=[5]),
+            "mtf_price_trend_13": self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, periods=[13]),
             "mtf_price_trend_21": self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, periods=[21]),
         }
 
         # 情境信号 (使用新的数据层情绪信号)
         norm_theme_hotness = self.helper._normalize_series(raw_signals_dict['THEME_HOTNESS_SCORE_D'], df_index, bipolar=False)
+        norm_theme_hotness_ma5 = self.helper._normalize_series(raw_signals_dict['THEME_HOTNESS_SCORE_MA5_D'], df_index, bipolar=False)
         norm_theme_hotness_ma13 = self.helper._normalize_series(raw_signals_dict['THEME_HOTNESS_SCORE_MA13_D'], df_index, bipolar=False)
         
+        sentiment_weights = get_param_value(self.params.get('data_sentiment_composite_weights'), {
+            'daily_theme_hotness': 0.5, 'theme_hotness_5d_avg': 0.3, 'theme_hotness_13d_avg': 0.2
+        })
         data_sentiment_components = {
             "daily_theme_hotness": norm_theme_hotness,
+            "theme_hotness_5d_avg": norm_theme_hotness_ma5,
             "theme_hotness_13d_avg": norm_theme_hotness_ma13,
         }
-        sentiment_weights = get_param_value(self.params.get('data_sentiment_composite_weights'), {
-            'daily_theme_hotness': 0.6, 'theme_hotness_13d_avg': 0.4
-        })
         context_signals["market_sentiment_norm"] = _robust_geometric_mean(data_sentiment_components, sentiment_weights, df_index).fillna(0.0)
 
         context_signals["volatility_instability_norm"] = self.helper._normalize_series(raw_signals_dict['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, bipolar=False)
@@ -378,9 +410,10 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V4.1 · 数据层强化与周期性考量版】
+        【V4.2 · RDI增强版】
         计算全息验证分数。
         - 核心修正: 完全移除对情报层原子信号的依赖，转而使用数据层复合信号。
+        - 核心增强: 引入共振、背离、拐点 (RDI) 信号，并根据其性质对全息验证分数进行奖励或惩罚。
         """
         holographic_debug_values = {}
         params = config.get('holographic_validation_params', {})
@@ -463,6 +496,33 @@ class CalculateSplitOrderAccumulation:
         holographic_debug_values["holographic_trend_score_components"] = holographic_trend_components
         holographic_debug_values["holographic_trend_score"] = holographic_trend_score
 
+        # --- 新增: 计算 RDI 信号并应用奖励/惩罚 ---
+        rdi_signals = self._calculate_rdi_signals(normalized_signals, df_index, config)
+        holographic_debug_values["rdi_signals"] = rdi_signals
+
+        rdi_params = config.get('rdi_params', {})
+        resonance_reward_factor = get_param_value(rdi_params.get('resonance_reward_factor'), 0.1)
+        divergence_penalty_factor = get_param_value(rdi_params.get('divergence_penalty_factor'), 0.15)
+        inflection_reward_factor = get_param_value(rdi_params.get('inflection_reward_factor'), 0.05)
+
+        # 应用共振奖励
+        total_positive_resonance = (rdi_signals["overall_positive_resonance"] + rdi_signals["positive_flow_resonance"] + rdi_signals["positive_structure_resonance"] + rdi_signals["positive_potential_resonance"]) / 4
+        holographic_state_score = holographic_state_score * (1 + total_positive_resonance * resonance_reward_factor)
+        holographic_trend_score = holographic_trend_score * (1 + total_positive_resonance * resonance_reward_factor)
+
+        # 应用背离惩罚
+        total_divergence_penalty = (rdi_signals["price_flow_divergence"] + rdi_signals["price_structure_divergence"] + rdi_signals["internal_divergence"]) / 3
+        holographic_state_score = holographic_state_score * (1 - total_divergence_penalty * divergence_penalty_factor)
+        holographic_trend_score = holographic_trend_score * (1 - total_divergence_penalty * divergence_penalty_factor)
+
+        # 应用拐点奖励 (主要影响趋势)
+        total_inflection_reward = (rdi_signals["flow_inflection"] + rdi_signals["structure_inflection"] + rdi_signals["potential_inflection"]) / 3
+        holographic_trend_score = holographic_trend_score * (1 + total_inflection_reward * inflection_reward_factor)
+
+        # 确保分数仍在合理范围
+        holographic_state_score = holographic_state_score.clip(0, 1)
+        holographic_trend_score = holographic_trend_score.clip(0, 1)
+
         # 整体融合
         overall_holographic_components = {
             "state": holographic_state_score,
@@ -530,3 +590,129 @@ class CalculateSplitOrderAccumulation:
                     debug_output[f"        {key}: {series_or_value}"] = ""
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 拆单吸筹强度诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
         self.helper._print_debug_output(debug_output)
+
+    def _calculate_rdi_signals(self, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V4.2 · RDI增强版】
+        计算共振 (Resonance)、背离 (Divergence) 和拐点 (Inflection) 信号。
+        这些信号将用于对全息验证分数进行奖励或惩罚。
+        """
+        rdi_signals = {}
+        params = config.get('rdi_params', {})
+        rdi_periods = [5, 13, 21]
+        
+        # 获取数据层复合信号
+        data_flow_outcome = normalized_signals["data_flow_outcome"]
+        data_structure_outcome = normalized_signals["data_structure_outcome"]
+        data_potential_outcome = normalized_signals["data_potential_outcome"]
+        
+        # 获取价格趋势信号 (来自mtf_signals，但这里我们直接用normalized_signals中的SLOPE_X_close_D)
+        price_slope_5 = normalized_signals["price_trend_norm"] # 实际上是SLOPE_5_close_D的归一化
+        price_slope_13 = self.helper._normalize_series(normalized_signals["SLOPE_13_close_D"], df_index, bipolar=True)
+        price_slope_21 = self.helper._normalize_series(normalized_signals["SLOPE_21_close_D"], df_index, bipolar=True)
+
+        # --- 共振信号 (Resonance) ---
+        # 当多个时间框架的复合信号方向一致且强度较高时，视为共振
+        # 1. 资金流共振
+        flow_slopes = {
+            f'SLOPE_{p}_data_flow_outcome': normalized_signals[f'SLOPE_{p}_data_flow_outcome'] for p in rdi_periods
+        }
+        flow_accels = {
+            f'ACCEL_{p}_data_flow_outcome': normalized_signals[f'ACCEL_{p}_data_flow_outcome'] for p in rdi_periods
+        }
+        
+        # 资金流多周期同向性 (例如，所有周期斜率都为正且强度高)
+        positive_flow_resonance_components = [s.clip(lower=0) for s in flow_slopes.values()]
+        rdi_signals["positive_flow_resonance"] = _robust_geometric_mean(
+            {f'flow_slope_{p}': s for p, s in zip(rdi_periods, positive_flow_resonance_components)},
+            get_param_value(params.get('flow_resonance_weights'), {"flow_slope_5": 0.4, "flow_slope_13": 0.3, "flow_slope_21": 0.3}),
+            df_index
+        )
+
+        # 2. 结构共振
+        structure_slopes = {
+            f'SLOPE_{p}_data_structure_outcome': normalized_signals[f'SLOPE_{p}_data_structure_outcome'] for p in rdi_periods
+        }
+        positive_structure_resonance_components = [s.clip(lower=0) for s in structure_slopes.values()]
+        rdi_signals["positive_structure_resonance"] = _robust_geometric_mean(
+            {f'structure_slope_{p}': s for p, s in zip(rdi_periods, positive_structure_resonance_components)},
+            get_param_value(params.get('structure_resonance_weights'), {"structure_slope_5": 0.4, "structure_slope_13": 0.3, "structure_slope_21": 0.3}),
+            df_index
+        )
+
+        # 3. 潜力共振
+        potential_slopes = {
+            f'SLOPE_{p}_data_potential_outcome': normalized_signals[f'SLOPE_{p}_data_potential_outcome'] for p in rdi_periods
+        }
+        positive_potential_resonance_components = [s.clip(lower=0) for s in potential_slopes.values()]
+        rdi_signals["positive_potential_resonance"] = _robust_geometric_mean(
+            {f'potential_slope_{p}': s for p, s in zip(rdi_periods, positive_potential_resonance_components)},
+            get_param_value(params.get('potential_resonance_weights'), {"potential_slope_5": 0.4, "potential_slope_13": 0.3, "potential_slope_21": 0.3}),
+            df_index
+        )
+
+        # 4. 价格与复合信号共振 (例如，价格上涨，资金流、结构、潜力也都在改善)
+        price_flow_structure_potential_resonance_components = {
+            "price_slope_5": price_slope_5.clip(lower=0),
+            "flow_outcome": data_flow_outcome.clip(lower=0),
+            "structure_outcome": data_structure_outcome.clip(lower=0),
+            "potential_outcome": data_potential_outcome.clip(lower=0)
+        }
+        rdi_signals["overall_positive_resonance"] = _robust_geometric_mean(
+            price_flow_structure_potential_resonance_components,
+            get_param_value(params.get('overall_resonance_weights'), {"price_slope_5": 0.25, "flow_outcome": 0.25, "structure_outcome": 0.25, "potential_outcome": 0.25}),
+            df_index
+        )
+
+        # --- 背离信号 (Divergence) ---
+        # 1. 价格与资金流背离 (价格上涨，资金流出；或价格下跌，资金流入)
+        rdi_signals["price_flow_divergence"] = self.helper._normalize_series(
+            (price_slope_5 * -1 * data_flow_outcome).clip(lower=0), # 价格负向，资金流正向，或价格正向，资金流负向
+            df_index, bipolar=False
+        )
+
+        # 2. 价格与结构背离 (价格上涨，结构恶化；或价格下跌，结构改善)
+        rdi_signals["price_structure_divergence"] = self.helper._normalize_series(
+            (price_slope_5 * -1 * data_structure_outcome).clip(lower=0),
+            df_index, bipolar=False
+        )
+
+        # 3. 复合信号内部背离 (例如，资金流积极，但结构恶化)
+        rdi_signals["internal_divergence"] = self.helper._normalize_series(
+            (data_flow_outcome * -1 * data_structure_outcome).clip(lower=0) + # 资金流正，结构负
+            (data_flow_outcome * -1 * data_potential_outcome).clip(lower=0) + # 资金流正，潜力负
+            (data_structure_outcome * -1 * data_potential_outcome).clip(lower=0), # 结构正，潜力负
+            df_index, bipolar=False
+        )
+
+        # --- 拐点信号 (Inflection) ---
+        # 拐点通常通过加速度的显著变化或斜率的穿越来识别
+        # 1. 资金流拐点 (加速度从负转正，或斜率从负转正)
+        flow_accel_5 = normalized_signals['ACCEL_5_data_flow_outcome']
+        flow_slope_5 = normalized_signals['SLOPE_5_data_flow_outcome']
+        rdi_signals["flow_inflection"] = self.helper._normalize_series(
+            (flow_accel_5.clip(lower=0) * (flow_slope_5.shift(1) < 0).astype(float)).fillna(0), # 加速度转正，且前一日斜率为负
+            df_index, bipolar=False
+        )
+
+        # 2. 结构拐点
+        structure_accel_5 = normalized_signals['ACCEL_5_data_structure_outcome']
+        structure_slope_5 = normalized_signals['SLOPE_5_data_structure_outcome']
+        rdi_signals["structure_inflection"] = self.helper._normalize_series(
+            (structure_accel_5.clip(lower=0) * (structure_slope_5.shift(1) < 0).astype(float)).fillna(0),
+            df_index, bipolar=False
+        )
+
+        # 3. 潜力拐点
+        potential_accel_5 = normalized_signals['ACCEL_5_data_potential_outcome']
+        potential_slope_5 = normalized_signals['SLOPE_5_data_potential_outcome']
+        rdi_signals["potential_inflection"] = self.helper._normalize_series(
+            (potential_accel_5.clip(lower=0) * (potential_slope_5.shift(1) < 0).astype(float)).fillna(0),
+            df_index, bipolar=False
+        )
+
+        return rdi_signals
+
+
+
+
