@@ -610,63 +610,69 @@ class CalculatePriceVolumeDynamics:
         micro_structure_resonance_components = get_param_value(pvd_params.get('micro_structure_resonance_components'), {})
         quality_efficiency_resonance_components = get_param_value(pvd_params.get('quality_efficiency_resonance_components'), {})
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
+
         # 3.1 价格-成交量共振
         dynamic_pv_resonance_weights = self._get_dynamic_weights(price_volume_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         price_volume_resonance_components_dict = {
-            "lower_shadow_absorption": mtf_signals['mtf_lower_shadow_absorption'],
-            "active_buying_support": mtf_signals['mtf_active_buying_support'],
-            "volume_burstiness": mtf_signals['mtf_volume_burstiness'],
-            "VPA_EFFICIENCY": mtf_signals['mtf_vpa_efficiency'].clip(lower=0),
-            "volume_profile_entropy_inverted": (1 - mtf_signals['mtf_volume_profile_entropy']),
-            "volume_ratio_positive": mtf_signals['mtf_volume_ratio'].clip(lower=0),
-            "upward_impulse_strength": mtf_signals['mtf_upward_impulse_strength']
+            "lower_shadow_absorption": mtf_signals.get('mtf_lower_shadow_absorption', pd.Series(0.0, index=df_index)),
+            "active_buying_support": mtf_signals.get('mtf_active_buying_support', pd.Series(0.0, index=df_index)),
+            "volume_burstiness": mtf_signals.get('mtf_volume_burstiness', pd.Series(0.0, index=df_index)),
+            "VPA_EFFICIENCY": mtf_signals.get('mtf_vpa_efficiency', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "volume_profile_entropy_inverted": (1 - mtf_signals.get('mtf_volume_profile_entropy', pd.Series(0.0, index=df_index))),
+            "volume_ratio_positive": mtf_signals.get('mtf_volume_ratio', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "upward_impulse_strength": mtf_signals.get('mtf_upward_impulse_strength', pd.Series(0.0, index=df_index))
         }
         price_volume_resonance = _robust_geometric_mean(price_volume_resonance_components_dict, dynamic_pv_resonance_weights, df_index).clip(0, 1)
+
         # 3.2 主力-筹码共振
         dynamic_mc_resonance_weights = self._get_dynamic_weights(main_chip_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         main_chip_resonance_components_dict = {
-            "power_transfer_positive": mtf_signals['mtf_power_transfer'].clip(lower=0),
-            "main_force_conviction_positive": mtf_signals['mtf_main_force_conviction'].clip(lower=0),
-            "main_force_flow_directionality_positive": mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0),
-            "chip_strategic_posture": mtf_signals['mtf_chip_strategic_posture'].clip(lower=0),
-            "chip_fault_blockage_ratio_inverted": (1 - mtf_signals['mtf_chip_fault_blockage_ratio']),
-            "main_force_cost_advantage_positive": mtf_signals['mtf_main_force_cost_advantage'].clip(lower=0),
-            "SMART_MONEY_HM_COORDINATED_ATTACK": mtf_signals['mtf_smart_money_coordinated_attack']
+            "power_transfer_positive": mtf_signals.get('mtf_power_transfer', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "main_force_conviction_positive": mtf_signals.get('mtf_main_force_conviction', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "main_force_flow_directionality_positive": mtf_signals.get('mtf_main_force_flow_directionality', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "chip_strategic_posture": mtf_signals.get('mtf_chip_strategic_posture', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "chip_fault_blockage_ratio_inverted": (1 - mtf_signals.get('mtf_chip_fault_blockage_ratio', pd.Series(0.0, index=df_index))),
+            "main_force_cost_advantage_positive": mtf_signals.get('mtf_main_force_cost_advantage', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "SMART_MONEY_HM_COORDINATED_ATTACK": mtf_signals.get('mtf_smart_money_coordinated_attack', pd.Series(0.0, index=df_index))
         }
         main_chip_resonance = _robust_geometric_mean(main_chip_resonance_components_dict, dynamic_mc_resonance_weights, df_index).clip(0, 1)
+
         # 3.3 市场情绪-流动性共振
         dynamic_sl_resonance_weights = self._get_dynamic_weights(sentiment_liquidity_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         sentiment_liquidity_resonance_components_dict = {
             "market_sentiment_positive": raw_signals['market_sentiment_score_D'].clip(lower=0),
-            "retail_panic_surrender_inverted": (1 - mtf_signals['mtf_retail_panic_surrender']),
-            "bid_side_liquidity": mtf_signals['mtf_bid_side_liquidity'],
-            "liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0),
-            "order_flow_imbalance_positive": mtf_signals['mtf_order_flow_imbalance_score'].clip(lower=0),
-            "loser_pain_index_inverted": (1 - mtf_signals['mtf_loser_pain_index'])
+            "retail_panic_surrender_inverted": (1 - mtf_signals.get('mtf_retail_panic_surrender', pd.Series(0.0, index=df_index))),
+            "bid_side_liquidity": mtf_signals.get('mtf_bid_side_liquidity', pd.Series(0.0, index=df_index)),
+            "liquidity_slope_positive": mtf_signals.get('mtf_liquidity_slope', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "order_flow_imbalance_positive": mtf_signals.get('mtf_order_flow_imbalance_score', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "loser_pain_index_inverted": (1 - mtf_signals.get('mtf_loser_pain_index', pd.Series(0.0, index=df_index)))
         }
         sentiment_liquidity_resonance = _robust_geometric_mean(sentiment_liquidity_resonance_components_dict, dynamic_sl_resonance_weights, df_index).clip(0, 1)
+
         # 3.4 微观结构共振
         dynamic_ms_resonance_weights = self._get_dynamic_weights(micro_structure_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         micro_structure_resonance_components_dict = {
-            "order_book_imbalance_positive": mtf_signals['mtf_order_book_imbalance'].clip(lower=0),
-            "micro_price_impact_asymmetry_positive": mtf_signals['mtf_micro_price_impact_asymmetry'].clip(lower=0),
-            "intraday_energy_density": mtf_signals['mtf_intraday_energy_density'],
-            "vpin_score_inverted": (1 - mtf_signals['mtf_vpin_score']),
-            "micro_impact_elasticity_positive": mtf_signals['mtf_micro_impact_elasticity'].clip(lower=0),
-            "order_book_clearing_rate": mtf_signals['mtf_order_book_clearing_rate'],
-            "closing_acceptance_type_positive": mtf_signals['mtf_closing_acceptance_type'].clip(lower=0)
+            "order_book_imbalance_positive": mtf_signals.get('mtf_order_book_imbalance', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "micro_price_impact_asymmetry_positive": mtf_signals.get('mtf_micro_price_impact_asymmetry', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "intraday_energy_density": mtf_signals.get('mtf_intraday_energy_density', pd.Series(0.0, index=df_index)),
+            "vpin_score_inverted": (1 - mtf_signals.get('mtf_vpin_score', pd.Series(0.0, index=df_index))),
+            "micro_impact_elasticity_positive": mtf_signals.get('mtf_micro_impact_elasticity', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "order_book_clearing_rate": mtf_signals.get('mtf_order_book_clearing_rate', pd.Series(0.0, index=df_index)),
+            "closing_acceptance_type_positive": mtf_signals.get('mtf_closing_acceptance_type', pd.Series(0.0, index=df_index)).clip(lower=0)
         }
         micro_structure_resonance = _robust_geometric_mean(micro_structure_resonance_components_dict, dynamic_ms_resonance_weights, df_index).clip(0, 1)
+
         # 3.5 质量与效率共振
         dynamic_qe_resonance_weights = self._get_dynamic_weights(quality_efficiency_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         quality_efficiency_resonance_components_dict = {
-            "upward_impulse_purity": mtf_signals['mtf_upward_impulse_purity'],
-            "flow_credibility_index": mtf_signals['mtf_flow_credibility_index'],
-            "profit_realization_quality": mtf_signals['mtf_profit_realization_quality'],
-            "active_volume_price_efficiency": mtf_signals['mtf_active_volume_price_efficiency'].clip(lower=0),
-            "constructive_turnover_ratio": mtf_signals['mtf_constructive_turnover_ratio']
+            "upward_impulse_purity": mtf_signals.get('mtf_upward_impulse_purity', pd.Series(0.0, index=df_index)),
+            "flow_credibility_index": mtf_signals.get('mtf_flow_credibility_index', pd.Series(0.0, index=df_index)), # 使用安全获取的值
+            "profit_realization_quality": mtf_signals.get('mtf_profit_realization_quality', pd.Series(0.0, index=df_index)),
+            "active_volume_price_efficiency": mtf_signals.get('mtf_active_volume_price_efficiency', pd.Series(0.0, index=df_index)).clip(lower=0),
+            "constructive_turnover_ratio": mtf_signals.get('mtf_constructive_turnover_ratio', pd.Series(0.0, index=df_index))
         }
         quality_efficiency_resonance = _robust_geometric_mean(quality_efficiency_resonance_components_dict, dynamic_qe_resonance_weights, df_index).clip(0, 1)
+
         # 3.6 融合所有多层级共振因子
         multi_level_resonance_factor_dict = {
             "price_volume_resonance": price_volume_resonance,
