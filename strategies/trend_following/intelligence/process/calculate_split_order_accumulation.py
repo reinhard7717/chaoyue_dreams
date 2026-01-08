@@ -55,46 +55,66 @@ class CalculateSplitOrderAccumulation:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算拆单吸筹强度..."] = ""
-
         df_index = df.index
         efficiency_baseline = config.get('efficiency_baseline', 0.15)
-
         # 1. 获取并归一化所有信号
         raw_signals, normalized_signals = self._get_and_normalize_signals(df, method_name)
         _temp_debug_values["原始信号值"] = raw_signals
         _temp_debug_values["归一化处理"] = normalized_signals
-
         # 2. 计算初步分数 (dynamic_preliminary_score)
         dynamic_preliminary_score = self._calculate_preliminary_score(normalized_signals, df_index, config)
         _temp_debug_values["初步计算"] = {
+            "normalized_score": normalized_signals["normalized_score"],
+            "price_trend_norm": normalized_signals["price_trend_norm"],
+            "price_suppression_factor": (1 - normalized_signals["price_trend_norm"].clip(lower=0) * (1 - normalized_signals["upward_purity"])).clip(0, 1),
+            "deception_norm": normalized_signals["deception_norm"],
+            "strategic_context_factor": (normalized_signals["potential_outcome"] * 0.5 + normalized_signals["deception_norm"].clip(lower=0) * 0.5).clip(0, 1),
+            "preliminary_score": (normalized_signals["normalized_score"] * (1 - normalized_signals["price_trend_norm"].clip(lower=0) * (1 - normalized_signals["upward_purity"])).clip(0, 1) * (normalized_signals["potential_outcome"] * 0.5 + normalized_signals["deception_norm"].clip(lower=0) * 0.5).clip(0, 1)).pow(1/3).fillna(0.0),
+            "tactical_momentum_score": self.helper._normalize_series((normalized_signals["normalized_score"] * (1 - normalized_signals["price_trend_norm"].clip(lower=0) * (1 - normalized_signals["upward_purity"])).clip(0, 1) * (normalized_signals["potential_outcome"] * 0.5 + normalized_signals["deception_norm"].clip(lower=0) * 0.5).clip(0, 1)).pow(1/3).fillna(0.0).diff(1).fillna(0), df_index, bipolar=False),
             "dynamic_preliminary_score": dynamic_preliminary_score
         }
-
         # 3. 计算全息验证分数 (holographic_validation_score)
         holographic_validation_score = self._calculate_holographic_validation(df, normalized_signals, df_index, config)
+        stability_score = normalized_signals["potential_outcome"]
+        weight_flow = 1 - stability_score
+        weight_structure = stability_score
+        total_weight = weight_flow + weight_structure + 0.2
+        total_weight = total_weight.replace(0, 1e-9)
+        w_f = weight_flow / total_weight
+        w_s = weight_structure / total_weight
+        w_p = 0.2 / total_weight
+        holographic_state_score = (normalized_signals["flow_outcome"] * w_f + normalized_signals["structure_outcome"] * w_s + normalized_signals["potential_outcome"] * w_p)
+        flow_trend = self.helper._normalize_series(normalized_signals["flow_outcome"].diff(3).fillna(0), df_index, bipolar=True)
+        structure_trend = self.helper._normalize_series(normalized_signals["structure_outcome"].diff(3).fillna(0), df_index, bipolar=True)
+        potential_trend = self.helper._normalize_series(normalized_signals["potential_outcome"].diff(3).fillna(0), df_index, bipolar=True)
+        holographic_trend_score = (flow_trend * w_f + structure_trend * w_s + potential_trend * w_p)
         _temp_debug_values["全息验证"] = {
+            "stability_score": stability_score,
+            "weight_flow": weight_flow,
+            "weight_structure": weight_structure,
+            "total_weight": total_weight,
+            "w_f": w_f,
+            "w_s": w_s,
+            "w_p": w_p,
+            "holographic_state_score": holographic_state_score,
+            "flow_trend": flow_trend,
+            "structure_trend": structure_trend,
+            "potential_trend": potential_trend,
+            "holographic_trend_score": holographic_trend_score,
             "holographic_validation_score": holographic_validation_score
         }
-
         # 4. 应用质效校准并计算最终分数
         final_score = self._apply_quality_efficiency_calibration(dynamic_preliminary_score, holographic_validation_score, efficiency_baseline)
+        calibrated_holographic_score = holographic_validation_score - efficiency_baseline
+        quality_efficiency_modulator = (1 - calibrated_holographic_score).clip(0.1, 2.0)
         _temp_debug_values["最终分数"] = {
+            "calibrated_holographic_score": calibrated_holographic_score,
+            "quality_efficiency_modulator": quality_efficiency_modulator,
             "final_score": final_score
         }
-
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
-            for section, values in _temp_debug_values.items():
-                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {section} ---"] = ""
-                for key, series_or_value in values.items():
-                    if isinstance(series_or_value, pd.Series):
-                        val = series_or_value.loc[probe_ts] if probe_ts in series_or_value.index else np.nan
-                        debug_output[f"        {key}: {val:.4f}"] = ""
-                    else:
-                        debug_output[f"        {key}: {series_or_value}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 拆单吸筹强度诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            self.helper._print_debug_output(debug_output) # 使用 helper 的打印方法
-
+            self._print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, final_score)
         return final_score.astype(np.float32)
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
@@ -110,7 +130,6 @@ class CalculateSplitOrderAccumulation:
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return {}, {} # 如果验证失败，返回空字典
-
         # 原始数据获取
         raw_intensity = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
         price_trend_raw = self.helper._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
@@ -119,7 +138,6 @@ class CalculateSplitOrderAccumulation:
         flow_outcome = self.helper._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
         structure_outcome = self.helper._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         potential_outcome = self.helper._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
-
         raw_signals = {
             "hidden_accumulation_intensity_D": raw_intensity,
             "SLOPE_5_close_D": price_trend_raw,
@@ -129,13 +147,11 @@ class CalculateSplitOrderAccumulation:
             "SCORE_CHIP_STRATEGIC_POSTURE": structure_outcome,
             "SCORE_DYN_AXIOM_STABILITY": potential_outcome
         }
-
         # 归一化处理
         normalized_score = (raw_intensity / 100).clip(0, 1)
         price_trend_norm = self.helper._normalize_series(price_trend_raw, df_index, bipolar=True)
         upward_purity = self.helper._normalize_series(upward_purity_raw, df_index, bipolar=False)
         deception_norm = self.helper._normalize_series(deception_index, df_index, bipolar=True)
-
         normalized_signals = {
             "normalized_score": normalized_score,
             "price_trend_norm": price_trend_norm,
@@ -156,14 +172,11 @@ class CalculateSplitOrderAccumulation:
         upward_purity = normalized_signals["upward_purity"]
         deception_norm = normalized_signals["deception_norm"]
         potential_outcome = normalized_signals["potential_outcome"]
-
         price_suppression_factor = (1 - price_trend_norm.clip(lower=0) * (1 - upward_purity)).clip(0, 1)
         strategic_context_factor = (potential_outcome * 0.5 + deception_norm.clip(lower=0) * 0.5).clip(0, 1)
-
         preliminary_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
         tactical_momentum_score = self.helper._normalize_series(preliminary_score.diff(1).fillna(0), df_index, bipolar=False)
         dynamic_preliminary_score = (preliminary_score * 0.7 + tactical_momentum_score * 0.3).clip(0, 1)
-
         return dynamic_preliminary_score
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> pd.Series:
@@ -173,27 +186,21 @@ class CalculateSplitOrderAccumulation:
         flow_outcome = normalized_signals["flow_outcome"]
         structure_outcome = normalized_signals["structure_outcome"]
         potential_outcome = normalized_signals["potential_outcome"] # 这就是 stability_score
-
         stability_score = potential_outcome # 为清晰起见重命名，与原始代码保持一致
         weight_flow = 1 - stability_score
         weight_structure = stability_score
         total_weight = weight_flow + weight_structure + 0.2 # 0.2 是 potential_outcome 的权重
         # 确保 total_weight 不为零以避免除以零错误
         total_weight = total_weight.replace(0, 1e-9)
-
         w_f = weight_flow / total_weight
         w_s = weight_structure / total_weight
         w_p = 0.2 / total_weight # potential_outcome 的固定权重
-
         holographic_state_score = (flow_outcome * w_f + structure_outcome * w_s + potential_outcome * w_p)
-
         flow_trend = self.helper._normalize_series(flow_outcome.diff(3).fillna(0), df_index, bipolar=True)
         structure_trend = self.helper._normalize_series(structure_outcome.diff(3).fillna(0), df_index, bipolar=True)
         potential_trend = self.helper._normalize_series(potential_outcome.diff(3).fillna(0), df_index, bipolar=True)
-
         holographic_trend_score = (flow_trend * w_f + structure_trend * w_s + potential_trend * w_p)
         holographic_validation_score = (holographic_state_score * 0.6 + holographic_trend_score * 0.4).clip(-1, 1)
-
         return holographic_validation_score
 
     def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, efficiency_baseline: float) -> pd.Series:
@@ -203,5 +210,19 @@ class CalculateSplitOrderAccumulation:
         calibrated_holographic_score = holographic_validation_score - efficiency_baseline
         quality_efficiency_modulator = (1 - calibrated_holographic_score).clip(0.1, 2.0)
         final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1).fillna(0.0)
-
         return final_score
+
+    def _print_debug_info(self, method_name: str, probe_ts: pd.Timestamp, debug_output: Dict, _temp_debug_values: Dict, final_score: pd.Series):
+        """
+        统一打印调试信息。
+        """
+        for section, values in _temp_debug_values.items():
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {section} ---"] = ""
+            for key, series_or_value in values.items():
+                if isinstance(series_or_value, pd.Series):
+                    val = series_or_value.loc[probe_ts] if probe_ts in series_or_value.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {series_or_value}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 拆单吸筹强度诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        self.helper._print_debug_output(debug_output)
