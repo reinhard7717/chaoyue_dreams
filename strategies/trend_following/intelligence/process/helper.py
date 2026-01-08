@@ -143,9 +143,11 @@ class ProcessIntelligenceHelper:
 
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
         """
-        【V1.2 · 修复Rolling.std()的axis参数错误】计算多时间框架信号的协同性分数。
+        【V1.3 · 协同性双极化增强版】计算多时间框架信号的协同性分数。
         此方法将对多个基础信号计算其MTF斜率和加速度融合分数，然后评估这些融合分数之间的离散度，
         离散度越低（即越协同），分数越高。
+        - 核心增强: 协同性分数现在是双极性的 (-1到1)。当多个信号在多时间框架上协同向上时，分数趋近于1；
+                    协同向下时，分数趋近于-1；不协同或无明显方向时，分数趋近于0。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             base_signal_names (List[str]): 基础信号名称列表，例如 ['close_D', 'volume_D']。
@@ -157,26 +159,44 @@ class ProcessIntelligenceHelper:
         """
         all_fused_mtf_scores = {}
         for base_signal_name in base_signal_names:
-            # 调用已有的 _get_mtf_slope_accel_score 来获取每个信号的融合MTF分数
-            # Cohesion score should be unipolar, so bipolar=False
-            fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, ascending=True, bipolar=False)
+            # 调用 _get_mtf_slope_accel_score 来获取每个信号的融合MTF分数
+            # 协同性分数需要反映方向，所以这里 bipolar=True
+            fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, ascending=True, bipolar=True)
             all_fused_mtf_scores[base_signal_name] = fused_score
+
         if not all_fused_mtf_scores:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
+
         # 将所有融合分数转换为DataFrame
         fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
-        # 直接计算每个时间点上（axis=1）不同信号之间的标准差
-        # 然后对这个标准差进行滚动平均，以平滑协同性度量
+
+        # 计算每个时间点上（axis=1）不同信号之间的标准差 (离散度)
+        # 标准差越小，协同性越高
         min_periods_std = max(1, int(self.meta_window * 0.5))
-        # 计算每个时间点上，不同信号之间的标准差
         instant_std = fused_scores_df.std(axis=1)
-        # 对这个标准差进行滚动平均，以获得更平滑的协同性度量
-        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean()
-        # 将标准差转换为协同性分数：标准差越小，分数越高
-        # 确保 smoothed_std 不为0，避免除以零。填充NaN为均值，避免极端值
-        smoothed_std_safe = smoothed_std.replace(0, np.nan).fillna(smoothed_std.mean())
-        cohesion_score = self._normalize_series(smoothed_std_safe, df_index, ascending=False) # 标准差越小，分数越高
-        return cohesion_score.clip(0, 1)
+        
+        # 对标准差进行平滑处理
+        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(0.0)
+
+        # 计算每个时间点上，不同信号的平均值 (代表整体方向)
+        instant_mean = fused_scores_df.mean(axis=1)
+        
+        # 将标准差转换为协同性强度 (0到1，标准差越小，强度越大)
+        # 避免除以零，并处理全为零的情况
+        max_std = smoothed_std.max()
+        cohesion_magnitude = pd.Series(0.0, index=df_index, dtype=np.float32)
+        if max_std > 0:
+            cohesion_magnitude = (1 - (smoothed_std / max_std)).clip(0, 1)
+        
+        # 结合方向和强度，生成双极性协同性分数
+        # 方向由平均值决定，强度由 (1 - 归一化标准差) 决定
+        # 使用 np.sign() 获取方向，并乘以强度
+        # 注意：当 instant_mean 为 0 时，np.sign(0) 为 0，这会导致 bipolar_cohesion_score 为 0，符合预期（无明确方向）
+        bipolar_cohesion_score = cohesion_magnitude * np.sign(instant_mean)
+
+        # 最终归一化到 -1 到 1 范围
+        # 这里使用 _normalize_series 再次归一化，确保其在 [-1, 1] 范围内，并处理可能的极端值
+        return self._normalize_series(bipolar_cohesion_score, df_index, bipolar=True)
 
     def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False, ascending: bool = True) -> pd.Series:
         """
