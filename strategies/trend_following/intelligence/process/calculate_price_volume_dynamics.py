@@ -887,12 +887,16 @@ class CalculatePriceVolumeDynamics:
             dynamic_context_modulator_weights,
             df_index
         )
+        # 防御性地获取 'mtf_microstructure_efficiency_index'，避免 KeyError
+        mtf_microstructure_efficiency_index = mtf_signals.get('mtf_microstructure_efficiency_index', pd.Series(0.0, index=df_index, dtype=np.float32))
+        if 'mtf_microstructure_efficiency_index' not in mtf_signals:
+            print(f"DEBUG: {method_name} - 警告: 'mtf_microstructure_efficiency_index' 在 mtf_signals 中缺失。使用默认的零值 Series。")
         dynamic_final_exponent_components = {
             "volatility_inverse": norm_volatility_inverse,
             "trend_vitality": norm_trend_vitality,
-            "market_sentiment": norm_market_sentiment.clip(lower=0),
-            "liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0),
-            "microstructure_efficiency_index": mtf_signals['mtf_microstructure_efficiency_index'],
+            "market_sentiment": norm_market_sentiment.clip(lower=0), # 情绪积极时放大
+            "liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0), # 流动性斜率积极时放大
+            "microstructure_efficiency_index": mtf_microstructure_efficiency_index, # 使用安全获取的值
             "reversal_potential_score": historical_context['reversal_potential_score']
         }
         dynamic_exponent_modulator = _robust_geometric_mean(dynamic_final_exponent_components, dynamic_exponent_modulator_weights, df_index)
