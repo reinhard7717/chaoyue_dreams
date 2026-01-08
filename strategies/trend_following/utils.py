@@ -1197,58 +1197,54 @@ def load_external_json_config(file_path: str, default_return: Any = None) -> dic
 
 def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, Any], df_index: pd.Index) -> pd.Series:
         """
-        【V2.0 · NumPy优化版】计算健壮的加权几何平均分数。
-        - 核心优化: 将内部计算从创建多个中间 Pandas DataFrame 转换为直接在 NumPy 数组上进行操作，
-                      显著减少内存分配和 Python 解释器开销，提高计算效率。
-        - 逻辑不变: 保持原始业务逻辑不变，即值为0（或接近0）的分数将被视为缺失，并从计算中排除，
-                      同时调整总权重。如果某个日期所有组件都为0，则结果为0。
+        【V2.1 · 健壮性修复版】计算健壮的加权几何平均分数。
+        - 核心修复: 修正了累积加权对数和与有效权重的逻辑，确保两者同步更新，
+                      解决了当所有输入分数都为正时，函数错误返回0.0的bug。
+        - 核心优化: 保持内部计算在NumPy数组上进行，以提高效率。
+        - 逻辑不变: 值为0（或接近0）的分数将被视为缺失，并从计算中排除，同时调整总权重。
+                      如果某个日期所有组件都为0，则结果为0。
         """
         # 初始化用于累积加权对数和有效权重的NumPy数组
-        # Initialize NumPy arrays for accumulating weighted log sums and effective weights
-        log_sum_weighted_log_scores = np.zeros(len(df_index), dtype=np.float32)
-        sum_of_effective_weights = np.zeros(len(df_index), dtype=np.float32)
+        # 为每个日期初始化累积的加权对数和，以及累积的有效权重
+        log_sum_weighted_log_scores_per_date = np.zeros(len(df_index), dtype=np.float32)
+        sum_of_effective_weights_per_date = np.zeros(len(df_index), dtype=np.float32)
+
         # 遍历每个分数序列及其对应的权重
-        # Iterate through each score series and its corresponding weight
         for name, score_series in scores_dict.items():
             # 确保分数序列与目标索引对齐，填充缺失值，并转换为NumPy数组
-            # Ensure score series is aligned with target index, fill NaNs, and convert to NumPy array
             aligned_score_values = score_series.reindex(df_index).fillna(0.0).values
+            
             # 获取权重值，如果权重是Series，则进行对齐和填充；否则，创建常数NumPy数组
-            # Get weight value; if it's a Series, align and fill; otherwise, create a constant NumPy array
             weight_val = weights_dict.get(name, 0.0)
             if isinstance(weight_val, pd.Series):
                 aligned_weight_values = weight_val.reindex(df_index).fillna(0.0).values
             else:
                 aligned_weight_values = np.full_like(aligned_score_values, weight_val, dtype=np.float32)
-            # 识别有效的分数（大于一个很小的正数，避免log(0)）
-            # Identify valid scores (greater than a small positive number to avoid log(0))
-            is_valid_mask = (aligned_score_values > 1e-9)
-            # 计算有效分数的对数
-            # Calculate logarithm of valid scores
-            log_score_col = np.full_like(aligned_score_values, np.nan, dtype=np.float32)
-            log_score_col[is_valid_mask] = np.log(aligned_score_values[is_valid_mask])
-            # 累加加权对数和，处理NaN值（np.nansum会忽略NaN）
-            # Accumulate weighted log sums, handling NaN values (np.nansum ignores NaNs)
-            # 使用 np.nansum 确保在有 NaN 的情况下也能正确累加
-            log_sum_weighted_log_scores = np.nansum([log_sum_weighted_log_scores, log_score_col * aligned_weight_values], axis=0)
-            # 累加有效权重
-            # Accumulate effective weights
-            sum_of_effective_weights[is_valid_mask] += aligned_weight_values[is_valid_mask]
+            
+            # 识别有效的分数：分数大于一个很小的正数（避免log(0)），且权重也大于0
+            is_valid_mask = (aligned_score_values > 1e-9) & (aligned_weight_values > 0)
+            
+            # 仅对有效的分数和权重进行累积
+            # 使用布尔索引直接更新对应位置的值，避免np.nansum可能带来的混淆
+            log_sum_weighted_log_scores_per_date[is_valid_mask] += np.log(aligned_score_values[is_valid_mask]) * aligned_weight_values[is_valid_mask]
+            sum_of_effective_weights_per_date[is_valid_mask] += aligned_weight_values[is_valid_mask]
+
         # 处理总有效权重为零或接近零的情况，避免除以零
-        # Handle cases where total effective weights are zero or close to zero, to avoid division by zero
-        # 修正：当 sum_of_effective_weights 为 0 时，直接将 exponent 设为 0，避免 nan 传播
-        sum_of_effective_weights_safe = np.where(np.isclose(sum_of_effective_weights, 0), 1e-9, sum_of_effective_weights) # 避免除以零
+        # 如果某个日期的总有效权重为0，则将其替换为一个非常小的正数，以避免除以零，但最终结果会通过后续步骤设为0
+        sum_of_effective_weights_safe = np.where(np.isclose(sum_of_effective_weights_per_date, 0), 1e-9, sum_of_effective_weights_per_date)
+        
         # 计算指数部分
-        # Calculate the exponent part
-        exponent = log_sum_weighted_log_scores / sum_of_effective_weights_safe
-        # 计算最终结果，并填充NaN为0.0
-        # Calculate the final result, and fill NaNs with 0.0
+        exponent = log_sum_weighted_log_scores_per_date / sum_of_effective_weights_safe
+        
+        # 计算最终结果
         result_values = np.exp(exponent)
-        # 修正：如果 sum_of_effective_weights 原始为 0，则结果应为 0
-        result_values[np.isclose(sum_of_effective_weights, 0)] = 0.0
+        
+        # 修正：如果 sum_of_effective_weights_per_date 原始为 0，则结果应为 0
+        result_values[np.isclose(sum_of_effective_weights_per_date, 0)] = 0.0
+        # 填充可能出现的NaN值（例如，如果log_sum_weighted_log_scores_per_date为负无穷，exp后可能为0，但如果出现其他NaN，则填充0）
         result_values[np.isnan(result_values)] = 0.0 
+        
         # 将NumPy数组转换为Pandas Series并返回
-        # Convert NumPy array to Pandas Series and return
         return pd.Series(result_values, index=df_index, dtype=np.float32)
 
 @numba.njit(cache=True)
