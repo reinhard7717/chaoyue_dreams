@@ -393,7 +393,7 @@
                 },
                 "rally_intent_synthesis_params": {
                     "description": "主力拉升意图合成参数。",
-                    "power_mean_exponent": 2.0,
+                    "power_mean_exponent": 1.0,
                     "risk_sensitivity": 2.5,
                     "sigmoid_center": 0.6
                 }
@@ -1069,7 +1069,8 @@
             "total_winner_rate_D": 0.5,
             "total_loser_rate_D": 0.5,
             "impulse_quality_ratio_D": 0.5,
-            "thrust_efficiency_score_D": 0.5
+            "thrust_efficiency_score_D": 0.5,
+            "absorption_at_peak_intensity_D": 0.0
         }
     }
 }

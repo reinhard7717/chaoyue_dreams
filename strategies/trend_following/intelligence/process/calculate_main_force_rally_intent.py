@@ -76,30 +76,33 @@ class CalculateMainForceRallyIntent:
         # 5. 归一化原始信号
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals, method_name)
         _temp_debug_values["归一化处理"] = normalized_signals
-        # 6. 构建代理信号
+        # 6. 计算派发/吸收动态信号
+        distribution_absorption_dynamics = self._calculate_distribution_absorption_dynamics(df_index, raw_signals, mtf_signals, normalized_signals, _temp_debug_values)
+        _temp_debug_values["派发吸收动态"] = distribution_absorption_dynamics # 存储到调试信息中
+        # 7. 构建代理信号
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
         _temp_debug_values["代理信号"] = proxy_signals
-        # 7. 计算动态权重
+        # 8. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, _temp_debug_values)
-        # 8. 计算攻击性
+        # 9. 计算攻击性
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
-        # 9. 计算控制力
+        # 10. 计算控制力
         control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
-        # 10. 计算障碍清除
+        # 11. 计算障碍清除
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_obstacle_clearance"] = obstacle_clearance_score
-        # 11. 合成基础看涨意图
-        bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, dynamic_weights, historical_context, rally_intent_synthesis_params, _temp_debug_values)
+        # 12. 合成基础看涨意图
+        bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, distribution_absorption_dynamics, dynamic_weights, historical_context, rally_intent_synthesis_params, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
-        # 12. 计算看跌意图
-        bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context, _temp_debug_values)
+        # 13. 计算看跌意图
+        bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, distribution_absorption_dynamics, historical_context, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_bearish_score"] = bearish_score
-        # 13. 风险审判模块
-        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, rally_intent_synthesis_params, _temp_debug_values)
+        # 14. 风险审判模块
+        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, distribution_absorption_dynamics, dynamic_weights, aggressiveness_score, rally_intent_synthesis_params, _temp_debug_values)
         self.strategy.atomic_states["_DEBUG_rally_total_risk_penalty"] = total_risk_penalty
-        # 14. 最终意图合成
+        # 15. 最终意图合成
         penalized_bullish_part = bullish_intent * (1 - total_risk_penalty)
         final_rally_intent = (penalized_bullish_part + bearish_score).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (total_risk_penalty > 0.5), final_rally_intent * (1 - total_risk_penalty))
@@ -108,9 +111,9 @@ class CalculateMainForceRallyIntent:
             "penalized_bullish_part": penalized_bullish_part,
             "final_rally_intent_before_mod": final_rally_intent
         }
-        # 15. 应用情境调节器
+        # 16. 应用情境调节器
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, _temp_debug_values)
-        # 16. 输出调试信息
+        # 17. 输出调试信息
         self._output_debug_info(is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values, final_rally_intent, method_name)
         return final_rally_intent.astype(np.float32)
 
@@ -170,6 +173,7 @@ class CalculateMainForceRallyIntent:
             'pressure_rejection': self.helper._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name=method_name),
             'profit_realization_quality': self.helper._get_safe_series(df, 'profit_realization_quality_D', 0.5, method_name=method_name),
             'distribution_at_peak_intensity': self.helper._get_safe_series(df, 'distribution_at_peak_intensity_D', 0.0, method_name=method_name),
+            'absorption_at_peak_intensity': self.helper._get_safe_series(df, 'absorption_at_peak_intensity_D', 0.0, method_name=method_name), # 新增
             'upper_shadow_selling_pressure': self.helper._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name=method_name),
             'flow_credibility': self.helper._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name),
             'chip_health': self.helper._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name),
@@ -353,7 +357,7 @@ class CalculateMainForceRallyIntent:
             'mtf_volatility_expansion': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_market_sentiment': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_structural_tension': pd.Series(0.0, index=df_index, dtype=np.float32),
-            'mtf_trend_vitality': pd.Series(0.0, index=df_index, dtype=np.float32), # 确保此键存在
+            'mtf_trend_vitality': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_liquidity_authenticity': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_order_book_clearing_rate': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_sell_sweep_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
@@ -467,7 +471,8 @@ class CalculateMainForceRallyIntent:
             'mtf_vwap_mean_reversion_corr': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_vwap_sell_control_strength': pd.Series(0.0, index=df_index, dtype=np.float32),
             'mtf_winner_stability_index': pd.Series(0.0, index=df_index, dtype=np.float32),
-            'mtf_absorption_of_distribution_intensity': pd.Series(0.0, index=df_index, dtype=np.float32)
+            'mtf_absorption_of_distribution_intensity': pd.Series(0.0, index=df_index, dtype=np.float32),
+            'mtf_absorption_at_peak_intensity': pd.Series(0.0, index=df_index, dtype=np.float32)
         }
         # 逐一计算并更新MTF信号
         mtf_signals['mtf_price_trend'] = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -492,7 +497,7 @@ class CalculateMainForceRallyIntent:
         mtf_signals['mtf_volatility_expansion'] = self.helper._get_mtf_slope_accel_score(df, 'volatility_expansion_ratio_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_market_sentiment'] = self.helper._get_mtf_slope_accel_score(df, 'market_sentiment_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_structural_tension'] = self.helper._get_mtf_slope_accel_score(df, 'structural_tension_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_signals['mtf_trend_vitality'] = self.helper._get_mtf_slope_accel_score(df, 'trend_vitality_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 确保此键被赋值
+        mtf_signals['mtf_trend_vitality'] = self.helper._get_mtf_slope_accel_score(df, 'trend_vitality_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_liquidity_authenticity'] = self.helper._get_mtf_slope_accel_score(df, 'liquidity_authenticity_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_order_book_clearing_rate'] = self.helper._get_mtf_slope_accel_score(df, 'order_book_clearing_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_sell_sweep_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'sell_sweep_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -607,6 +612,7 @@ class CalculateMainForceRallyIntent:
         mtf_signals['mtf_vwap_sell_control_strength'] = self.helper._get_mtf_slope_accel_score(df, 'vwap_sell_control_strength_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_winner_stability_index'] = self.helper._get_mtf_slope_accel_score(df, 'winner_stability_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_absorption_of_distribution_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'absorption_of_distribution_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_absorption_at_peak_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'absorption_at_peak_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 新增
         return mtf_signals
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
@@ -792,10 +798,9 @@ class CalculateMainForceRallyIntent:
             'vwap_mean_reversion_corr_norm': self.helper._normalize_series(raw_signals['vwap_mean_reversion_corr'], df_index, bipolar=True),
             'vwap_sell_control_strength_norm': self.helper._normalize_series(raw_signals['vwap_sell_control_strength'], df_index, bipolar=False),
             'winner_stability_index_norm': self.helper._normalize_series(raw_signals['winner_stability_index'], df_index, bipolar=False),
-            'absorption_of_distribution_intensity_norm': self.helper._normalize_series(raw_signals['absorption_of_distribution_intensity'], df_index, bipolar=False),
-            # 修复：添加缺失的 'distribution_intensity_norm'
-            'distribution_intensity_norm': self.helper._normalize_series(raw_signals['distribution_at_peak_intensity'], df_index, bipolar=False),
-            # 修复：添加缺失的 'upper_shadow_selling_pressure_norm'
+            'absorption_of_distribution_intensity_norm': (raw_signals['absorption_of_distribution_intensity'] / 100).clip(0, 1), # 直接除以100
+            'distribution_intensity_norm': (raw_signals['distribution_at_peak_intensity'] / 100).clip(0, 1), # 直接除以100
+            'absorption_at_peak_intensity_norm': (raw_signals['absorption_at_peak_intensity'] / 100).clip(0, 1), # 新增，直接除以100
             'upper_shadow_selling_pressure_norm': self.helper._normalize_series(raw_signals['upper_shadow_selling_pressure'], df_index, bipolar=False)
         }
         return normalized_signals
@@ -819,6 +824,35 @@ class CalculateMainForceRallyIntent:
             "market_sentiment_proxy": market_sentiment_proxy,
             "liquidity_tide_proxy": liquidity_tide_proxy
         }
+
+    def _calculate_distribution_absorption_dynamics(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
+        """
+        【新增】计算派发/吸收动态信号。
+        融合峰值派发/吸收的净意图、整体吸收强度和隐蔽派发趋势，生成一个双极性信号。
+        正值表示净吸收意图，负值表示净派发意图。
+        """
+        # 1. 峰值派发与吸收的净意图
+        # 峰值吸收强度 - 峰值派发强度，归一化到 [-1, 1]
+        peak_net_intent_raw = normalized_signals['absorption_at_peak_intensity_norm'] - normalized_signals['distribution_intensity_norm']
+        # 2. 整体吸收强度 (MTF趋势)
+        overall_absorption_mtf = mtf_signals['mtf_absorption_of_distribution_intensity']
+        # 3. 隐蔽派发趋势 (MTF趋势，取负向贡献)
+        covert_distribution_mtf_inverted = -mtf_signals['mtf_covert_distribution']
+        # 4. 融合各项，生成双极性信号
+        # 赋予不同权重，强调峰值意图和整体吸收的积极作用，以及隐蔽派发的负面作用
+        # 权重可以根据实际回测效果进行调整
+        distribution_absorption_dynamics = (
+            peak_net_intent_raw * 0.4 +
+            overall_absorption_mtf * 0.3 +
+            covert_distribution_mtf_inverted * 0.3
+        ).clip(-1, 1)
+        _temp_debug_values["派发吸收动态"] = {
+            "peak_net_intent_raw": peak_net_intent_raw,
+            "overall_absorption_mtf": overall_absorption_mtf,
+            "covert_distribution_mtf_inverted": covert_distribution_mtf_inverted,
+            "distribution_absorption_dynamics": distribution_absorption_dynamics
+        }
+        return distribution_absorption_dynamics
 
     def _calculate_dynamic_weights(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
@@ -1058,7 +1092,7 @@ class CalculateMainForceRallyIntent:
         }
         return obstacle_clearance_score
 
-    def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], rally_intent_synthesis_params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], distribution_absorption_dynamics: pd.Series, dynamic_weights: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], rally_intent_synthesis_params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
         合成基础看涨意图。
         """
@@ -1073,46 +1107,38 @@ class CalculateMainForceRallyIntent:
         )
         # V11.3: 强化 mtf_absorption_of_distribution_intensity 的积极作用，直接贡献于看涨意图
         # 承接强度越高，看涨意图越强，这里使用一个较小的系数，避免过度放大
-        # 引入“净吸收强度”作为直接加成项
+        # 引入“净吸收强度”作为直接加成项 (基于MTF信号)
         net_absorption_strength = (mtf_signals['mtf_absorption_of_distribution_intensity'].clip(lower=0) - mtf_signals['mtf_covert_distribution'].clip(lower=0)).clip(lower=0)
-        bullish_intent = (bullish_intent_base + net_absorption_strength * 0.2).clip(0, 1) # 提高净吸收强度的贡献权重
+        # 新增：基于派发/吸收动态信号的正向部分
+        absorption_dynamics_positive = distribution_absorption_dynamics.clip(lower=0)
+        # 融合所有看涨贡献
+        bullish_intent = (bullish_intent_base + net_absorption_strength * 0.2 + absorption_dynamics_positive * 0.15).clip(0, 1) # 调整权重
         # V11.1: 应用长期趋势强度调节
         bullish_intent = (bullish_intent * long_term_trend_strength_modulator).clip(0, 1)
         # 幂平均，放大高分，抑制低分
-        power_mean_exponent = get_param_value(rally_intent_synthesis_params.get('power_mean_exponent'), 2.0)
+        power_mean_exponent = get_param_value(rally_intent_synthesis_params.get('power_mean_exponent'), 1.0) # 调整为1.0，避免惩罚
         bullish_intent = bullish_intent.pow(power_mean_exponent)
         _temp_debug_values["基础看涨意图"] = {
             "power_mean_exponent": power_mean_exponent,
             "bullish_intent_base": bullish_intent_base, # 增加基础看涨意图的调试输出
             "net_absorption_strength": net_absorption_strength, # 增加净吸收强度调试输出
+            "absorption_dynamics_positive": absorption_dynamics_positive, # 新增调试输出
             "bullish_intent": bullish_intent
         }
         return bullish_intent
 
-    def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], distribution_absorption_dynamics: pd.Series, historical_context: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
         计算看跌意图。
         """
         # V11.1: 引入主力资金累计记忆调节器
         # 历史累计资金流入强劲 (mtf_cumulative_mf_flow > 0)，削弱看跌意图
         mf_flow_memory_anti_bearish_modulator = (1 - historical_context['mtf_cumulative_mf_flow'].clip(lower=0) * historical_context['cumulative_mf_flow_modulator_factor']).clip(0, 1)
-        # 引入“净派发压力”
-        # 派发强度 - 吸收强度，取正值
-        net_distribution_pressure = (normalized_signals['distribution_intensity_norm'] - normalized_signals['absorption_of_distribution_intensity_norm']).clip(lower=0)
-        # V11.2: 引入派发情境衰减器 (Distribution Context Dampener)
-        # 当日涨幅越大，对派发强度的看跌解读越弱
-        # 使用 tanh 函数将涨幅映射到 [0, 1] 范围内的衰减因子
-        # 涨幅为正时，衰减因子 < 1，削弱派发影响；涨幅为负时，衰减因子 > 1，增强派发影响
-        # 调整 tanh 的敏感度，使其在小涨幅时衰减不那么剧烈，大涨幅时衰减更明显
-        # pct_change_scaled = raw_signals['pct_change'] / 100 * 5 # 调整敏感度
-        # distribution_dampener = (1 - np.tanh(pct_change_scaled)).clip(0.1, 1.5)
-        # 修正：涨幅越大，dampener 越小，削弱派发影响。
-        # 涨幅为0时，dampener为1。涨幅为10%时，tanh(1)=0.76，dampener=0.24。
-        # 涨幅为-10%时，tanh(-1)=-0.76，dampener=1.76。
+        # 引入“派发情境衰减器” (Distribution Context Dampener)
         distribution_dampener = (1 - np.tanh(raw_signals['pct_change'] / 100 * 10)).clip(0.1, 2.0) # 调整clip上限
         # 看跌意图的计算
         bearish_score_components = {
-            "net_distribution_pressure": net_distribution_pressure * distribution_dampener, # 应用衰减器
+            "distribution_absorption_dynamics_negative": distribution_absorption_dynamics.clip(upper=0).abs() * distribution_dampener, # 派发/吸收动态的负向部分，应用衰减器
             "upper_shadow_selling_pressure_norm": normalized_signals['upper_shadow_selling_pressure_norm'],
             "flow_credibility_norm_inverted": (1 - normalized_signals['flow_credibility_norm']), # 信用度低，看跌
             "mtf_mf_net_flow_negative": mtf_signals['mtf_mf_net_flow'].clip(upper=0).abs(), # 主力净流出趋势
@@ -1140,7 +1166,8 @@ class CalculateMainForceRallyIntent:
             "mtf_total_loser_rate": mtf_signals['mtf_total_loser_rate'].clip(lower=0) # 输家比例上升
         }
         bearish_weights = {
-            "net_distribution_pressure": 0.15, "upper_shadow_selling_pressure_norm": 0.1,
+            "distribution_absorption_dynamics_negative": 0.15, # 核心权重
+            "upper_shadow_selling_pressure_norm": 0.1,
             "flow_credibility_norm_inverted": 0.08, "mtf_mf_net_flow_negative": 0.08,
             "mtf_deception_index": 0.05, "mtf_deception_lure_long_intensity": 0.05,
             "mtf_rally_distribution_pressure": 0.05, "mtf_exhaustion_risk": 0.03,
@@ -1154,6 +1181,10 @@ class CalculateMainForceRallyIntent:
             "mtf_winner_profit_margin_avg_negative": 0.02, "mtf_loser_loss_margin_avg_positive": 0.02,
             "mtf_total_winner_rate_inverted": 0.02, "mtf_total_loser_rate": 0.02
         }
+        # 重新归一化权重，确保总和为1
+        total_weight = sum(bearish_weights.values())
+        if total_weight > 0:
+            bearish_weights = {k: v / total_weight for k, v in bearish_weights.items()}
         bearish_score_raw = _robust_geometric_mean(bearish_score_components, bearish_weights, df_index).clip(0, 1)
         # V11.1: 应用主力资金累计记忆调节，削弱看跌意图
         bearish_score_modulated = (bearish_score_raw * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
@@ -1161,7 +1192,6 @@ class CalculateMainForceRallyIntent:
         bearish_score = -bearish_score_modulated
         _temp_debug_values["bearish_score_components_debug"] = bearish_score_components # 增加组件调试输出
         _temp_debug_values["看跌意图"] = {
-            "net_distribution_pressure": net_distribution_pressure, # 增加净派发压力调试输出
             "distribution_dampener": distribution_dampener, # 增加衰减器调试输出
             "bearish_score_raw": bearish_score_raw, # 增加原始看跌分数的调试输出
             "mf_flow_memory_anti_bearish_modulator": mf_flow_memory_anti_bearish_modulator, # 增加调节器的调试输出
@@ -1170,16 +1200,14 @@ class CalculateMainForceRallyIntent:
         }
         return bearish_score
 
-    def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], rally_intent_synthesis_params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], distribution_absorption_dynamics: pd.Series, dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, rally_intent_synthesis_params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
         风险审判模块。
         """
-        # 引入“净派发压力”
-        net_distribution_pressure = (normalized_signals['distribution_intensity_norm'] - normalized_signals['absorption_of_distribution_intensity_norm']).clip(lower=0)
         # 6.1. 派发风险 (Distribution Risk)
         mf_outflow_divergence = mtf_signals['mtf_mf_net_flow'].clip(upper=0).abs()
         distribution_risk_components = {
-            "net_distribution_pressure": net_distribution_pressure, # 核心：净派发压力
+            "distribution_absorption_dynamics_negative": distribution_absorption_dynamics.clip(upper=0).abs(), # 派发/吸收动态的负向部分
             "mtf_upper_shadow_pressure": mtf_signals['mtf_upper_shadow_pressure'].clip(lower=0), # 上影线抛压趋势向上
             "mf_outflow_divergence": mf_outflow_divergence, # 主力净流出背离
             "mtf_retail_fomo": mtf_signals['mtf_retail_fomo'].clip(lower=0), # 散户FOMO情绪趋势向上
@@ -1228,7 +1256,8 @@ class CalculateMainForceRallyIntent:
             "mtf_vwap_sell_control_strength": mtf_signals['mtf_vwap_sell_control_strength'].clip(lower=0) # VWAP卖方控制强度趋势向上
         }
         distribution_risk_weights = {
-            "net_distribution_pressure": 0.15, "mtf_upper_shadow_pressure": 0.05,
+            "distribution_absorption_dynamics_negative": 0.15, # 核心权重
+            "mtf_upper_shadow_pressure": 0.05,
             "mf_outflow_divergence": 0.05, "mtf_retail_fomo": 0.03,
             "mtf_covert_distribution": 0.05, "mtf_deception_lure_short": 0.03,
             "mtf_rally_distribution_pressure": 0.05, "mtf_exhaustion_risk": 0.03,
@@ -1253,10 +1282,13 @@ class CalculateMainForceRallyIntent:
             "mtf_vpin_score": 0.02, "mtf_vwap_cross_down_intensity": 0.02,
             "mtf_vwap_sell_control_strength": 0.02
         }
+        # 重新归一化权重，确保总和为1
+        total_weight = sum(distribution_risk_weights.values())
+        if total_weight > 0:
+            distribution_risk_weights = {k: v / total_weight for k, v in distribution_risk_weights.items()}
         distribution_risk_score = _robust_geometric_mean(distribution_risk_components, distribution_risk_weights, df_index).clip(0, 1)
         _temp_debug_values["distribution_risk_components_debug"] = distribution_risk_components # 增加组件调试输出
         _temp_debug_values["派发风险"] = {
-            "net_distribution_pressure": net_distribution_pressure, # 增加净派发压力调试输出
             "distribution_risk_score": distribution_risk_score
         }
         # 6.2. 前置下跌风险 (Pre-Drop Risk) - 深度情境感知
@@ -1315,6 +1347,10 @@ class CalculateMainForceRallyIntent:
             "mtf_vwap_cross_down_intensity": 0.04,
             "mtf_vwap_mean_reversion_corr_negative": 0.04
         }
+        # 重新归一化权重，确保总和为1
+        total_weight = sum(pre_drop_risk_weights.values())
+        if total_weight > 0:
+            pre_drop_risk_weights = {k: v / total_weight for k, v in pre_drop_risk_weights.items()}
         pre_drop_risk_factor = _robust_geometric_mean(pre_drop_risk_components, pre_drop_risk_weights, df_index).clip(0, 1) * 0.7 # 整体风险因子权重
         _temp_debug_values["pre_drop_risk_components_debug"] = pre_drop_risk_components # 增加组件调试输出
         _temp_debug_values["前置下跌风险"] = {
@@ -1335,19 +1371,22 @@ class CalculateMainForceRallyIntent:
         }
         # 6.3. 综合风险惩罚因子 - V10.0 非线性惩罚优化
         # 风险权重根据动态权重调整
-        risk_sensitivity = get_param_value(rally_intent_synthesis_params.get('risk_sensitivity'), 5.0)
-        sigmoid_center = get_param_value(rally_intent_synthesis_params.get('sigmoid_center'), 0.3)
+        risk_sensitivity = get_param_value(rally_intent_synthesis_params.get('risk_sensitivity'), 2.5)
+        sigmoid_center = get_param_value(rally_intent_synthesis_params.get('sigmoid_center'), 0.6)
         total_risk_penalty_raw = (distribution_risk_score * dynamic_weights["risk"] + pre_drop_risk_factor * (1 - dynamic_weights["risk"])).clip(0, 1)
         # 应用Sigmoid函数进行非线性惩罚
         # V11.3: 进一步调整 risk_sensitivity 和 sigmoid_center
         total_risk_penalty = 1 / (1 + np.exp(risk_sensitivity * (total_risk_penalty_raw - sigmoid_center)))
         # 归一化为惩罚因子，高风险对应高惩罚 (1-sigmoid_output)
         total_risk_penalty = (1 - total_risk_penalty).clip(0, 1)
+        # 新增：根据攻击性分数动态调节风险惩罚
+        total_risk_penalty_modulated = total_risk_penalty * (1 - aggressiveness_score * 0.3) # 攻击性越强，风险惩罚越低
         _temp_debug_values["综合风险惩罚因子"] = {
             "total_risk_penalty_raw": total_risk_penalty_raw,
-            "total_risk_penalty": total_risk_penalty
+            "total_risk_penalty": total_risk_penalty,
+            "total_risk_penalty_modulated": total_risk_penalty_modulated # 新增调试输出
         }
-        return total_risk_penalty
+        return total_risk_penalty_modulated
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
@@ -1420,6 +1459,13 @@ class CalculateMainForceRallyIntent:
             for key, series in _temp_debug_values["归一化处理"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发吸收动态 ---"] = ""
+            for key, value in _temp_debug_values["派发吸收动态"].items():
+                if isinstance(value, pd.Series):
+                    val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else: # 如果是标量，直接输出
+                    debug_output[f"        {key}: {value:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 代理信号 ---"] = ""
             for key, series in _temp_debug_values["代理信号"].items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -1513,7 +1559,7 @@ class CalculateMainForceRallyIntent:
             'main_force_cost_advantage_D', 'SLOPE_5_winner_concentration_90pct_D',
             'dominant_peak_solidity_D', 'active_buying_support_D', 'pressure_rejection_strength_D',
             'profit_realization_quality_D',
-            'distribution_at_peak_intensity_D', 'upper_shadow_selling_pressure_D',
+            'distribution_at_peak_intensity_D', 'absorption_at_peak_intensity_D', 'upper_shadow_selling_pressure_D', # 新增 absorption_at_peak_intensity_D
             'flow_credibility_index_D', 'chip_health_score_D', 'retail_fomo_premium_index_D',
             'SLOPE_21_close_D', 'ACCEL_21_close_D', 'SLOPE_34_close_D', 'ACCEL_34_close_D',
             'buy_sweep_intensity_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
@@ -1575,7 +1621,7 @@ class CalculateMainForceRallyIntent:
             'winner_stability_index_D', # 赢家稳定性
             'winner_concentration_90pct_D', # 用于筹码集中度稳定性
             f'SLOPE_{long_term_trend_slope_period}_close_D', # 长期趋势斜率，现在是21日
-            'absorption_of_distribution_intensity_D' # 新增：派发吸收强度
+            'absorption_of_distribution_intensity_D' # 派发吸收强度
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         # 过滤掉已经包含在 required_signals 中的斜率和加速度信号，避免重复
