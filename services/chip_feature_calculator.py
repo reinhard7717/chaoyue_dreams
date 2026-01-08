@@ -1593,6 +1593,8 @@ class ChipFeatureCalculator:
                      导致下游 `_compute_contextual_action_metrics` 方法在尝试访问该列时
                      因 `KeyError` 而崩溃。
         - 核心新增: 植入详细探针，用于调试 `main_force_ofi` 的计算过程。
+        - 核心修正: 重新定义 `ofi` 的计算，使其基于逐笔数据 (tick data) 的买卖类型和成交量，
+                     而非 Level-5 盘口数据，以更准确地反映实际成交的订单流失衡。
         """
         import numpy as np
         features = {
@@ -1627,15 +1629,28 @@ class ChipFeatureCalculator:
             print(f"    - mid_price (前5个): {hf_analysis_df['mid_price'].head().tolist()}")
             print(f"    - prev_mid_price (前5个): {hf_analysis_df['prev_mid_price'].head().tolist()}")
             print(f"    - mid_price_delta (前5个): {hf_analysis_df['mid_price_delta'].head().tolist()}")
-        buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
-        sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
-        hf_analysis_df['ofi'] = buy_pressure - sell_pressure
+            print(f"    - hf_analysis_df['type'] (前5个): {hf_analysis_df['type'].head().tolist()}")
+            print(f"    - hf_analysis_df['volume'] (前5个): {hf_analysis_df['volume'].head().tolist()}")
+
+        # 核心修正：根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
+        # 'type' 列来自 tick_data，'volume' 列也来自 tick_data (在 merge_asof 后被重命名为 'volume_tick' 然后又被 rename 为 'volume')
+        conditions = [
+            hf_analysis_df['type'] == 'B',
+            hf_analysis_df['type'] == 'S'
+        ]
+        choices = [
+            hf_analysis_df['volume'],
+            -hf_analysis_df['volume']
+        ]
+        hf_analysis_df['ofi'] = np.select(conditions, choices, default=0)
+
         if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 D.1.3 - {stock_code} - {trade_date}] 原始OFI计算完成。")
-            print(f"    - buy_pressure (总和): {buy_pressure.sum()}")
-            print(f"    - sell_pressure (总和): {sell_pressure.sum()}")
+            print(f"  [探针 D.1.3 - {stock_code} - {trade_date}] 原始OFI (基于Tick数据) 计算完成。")
             print(f"    - ofi (总和): {hf_analysis_df['ofi'].sum()}")
             print(f"    - ofi (前5个): {hf_analysis_df['ofi'].head().tolist()}")
+            print(f"    - ofi (正值总和 - 买盘OFI): {hf_analysis_df['ofi'].clip(lower=0).sum()}")
+            print(f"    - ofi (负值总和 - 卖盘OFI): {hf_analysis_df['ofi'].clip(upper=0).sum()}")
+
         main_force_threshold = 200000 # 20万元
         is_main_force_trade = hf_analysis_df['amount'] > main_force_threshold
         if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
@@ -1645,14 +1660,16 @@ class ChipFeatureCalculator:
             print(f"    - 主力交易笔数: {is_main_force_trade.sum()}")
             print(f"    - amount (前5个): {hf_analysis_df['amount'].head().tolist()}")
             print(f"    - is_main_force_trade (前5个): {is_main_force_trade.head().tolist()}")
+
         hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['ofi'], 0)
         if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
             print(f"  [探针 D.1.5 - {stock_code} - {trade_date}] 最终 main_force_ofi 计算完成。")
             print(f"    - main_force_ofi (总和): {hf_analysis_df['main_force_ofi'].sum()}")
             print(f"    - main_force_ofi (前5个): {hf_analysis_df['main_force_ofi'].head().tolist()}")
             print(f"    - main_force_ofi (后5个): {hf_analysis_df['main_force_ofi'].tail().tolist()}")
-            print(f"    - main_force_ofi (正值总和 - 主力买入): {hf_analysis_df['main_force_ofi'].clip(lower=0).sum()}")
-            print(f"    - main_force_ofi (负值总和 - 主力卖出): {hf_analysis_df['main_force_ofi'].clip(upper=0).sum()}")
+            print(f"    - main_force_ofi (正值总和 - 主力买入OFI): {hf_analysis_df['main_force_ofi'].clip(lower=0).sum()}")
+            print(f"    - main_force_ofi (负值总和 - 主力卖出OFI): {hf_analysis_df['main_force_ofi'].clip(upper=0).sum()}")
+
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
             if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
