@@ -44,9 +44,9 @@ class CalculateSplitOrderAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.2 · 拆单吸筹强度 · 探针强化与问题暴露版】计算“拆单吸筹强度”的专属信号。
-        - 核心修正: 严格区分原始数据及其MTF衍生与原子信号。原子信号的趋势通过直接diff()计算，
-                    避免在df中查找不存在的MTF衍生列。
+        【V4.0.3 · 拆单吸筹强度 · 探针激活版】计算“拆单吸筹强度”的专属信号。
+        - 核心修正: 确保调试信息 (is_debug_enabled_for_method, probe_ts) 被正确传递到
+                    _calculate_holographic_validation 方法，从而激活 _robust_geometric_mean 内部的探针。
         - 核心升级: 引入动态效率基准线，增强价格行为捕捉，精细化欺诈意图识别，MTF核心信号增强，
                     情境自适应权重调整，非线性融合强化，趋势动量diff()化。
         - 探针强化: 增加关键中间计算节点的详细探针，特别是针对_robust_geometric_mean的输入和输出，
@@ -90,7 +90,8 @@ class CalculateSplitOrderAccumulation:
         _temp_debug_values["初步计算"]["dynamic_preliminary_score"] = dynamic_preliminary_score
 
         # 4. 计算全息验证分数 (holographic_validation_score)
-        holographic_validation_score, holographic_debug_values = self._calculate_holographic_validation(df, raw_signals, normalized_signals, context_signals, df_index, config) # 传递raw_signals以获取原子信号的原始Series
+        # 传递 is_debug_enabled_for_method 和 probe_ts
+        holographic_validation_score, holographic_debug_values = self._calculate_holographic_validation(df, raw_signals, normalized_signals, context_signals, df_index, config, is_debug_enabled_for_method, probe_ts)
         _temp_debug_values["全息验证"] = holographic_debug_values
         _temp_debug_values["全息验证"]["holographic_validation_score"] = holographic_validation_score
 
@@ -335,7 +336,7 @@ class CalculateSplitOrderAccumulation:
 
         return dynamic_preliminary_score, preliminary_debug_values
 
-    def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
+    def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
         计算全息验证分数。
         """
@@ -385,10 +386,14 @@ class CalculateSplitOrderAccumulation:
         holographic_state_components_pre_gm = {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_state_components.items()}
         holographic_debug_values["holographic_state_components_pre_gm_values"] = holographic_state_components_pre_gm
         
+        # 构建 debug_info_for_gm
+        debug_info_for_gm = (is_debug_enabled_for_method, probe_ts, "CalculateSplitOrderAccumulation._calculate_holographic_validation")
+
         holographic_state_score = _robust_geometric_mean(
             holographic_state_components_pre_gm, # 确保输入为正
             dynamic_state_fusion_weights,
-            df_index
+            df_index,
+            debug_info=debug_info_for_gm # 传递调试信息
         )
         holographic_debug_values["holographic_state_score_components"] = holographic_state_components
         holographic_debug_values["holographic_state_score"] = holographic_state_score
@@ -414,7 +419,8 @@ class CalculateSplitOrderAccumulation:
         holographic_trend_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_trend_components.items()}, # 确保输入为正
             trend_fusion_weights,
-            df_index
+            df_index,
+            debug_info=debug_info_for_gm # 传递调试信息
         )
         holographic_debug_values["holographic_trend_score_components"] = holographic_trend_components
         holographic_debug_values["holographic_trend_score"] = holographic_trend_score
@@ -427,7 +433,8 @@ class CalculateSplitOrderAccumulation:
         holographic_validation_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in overall_holographic_components.items()}, # 确保输入为正
             overall_fusion_weights,
-            df_index
+            df_index,
+            debug_info=debug_info_for_gm # 传递调试信息
         )
         # 将几何平均结果映射回 [-1, 1] 区间，通过乘以原始状态和趋势的平均符号
         weighted_avg_direction = (flow_outcome_raw * dynamic_state_fusion_weights["flow"] + 
