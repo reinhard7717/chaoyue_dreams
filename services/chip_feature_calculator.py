@@ -1447,22 +1447,13 @@ class ChipFeatureCalculator:
         【V12.10 · 高频数据类型与时区终极修复版】
         - 核心职责: 从上下文中提取日线数据和原始高频数据(tick, level5, realtime)，
                      准备并返回高频计算所需的通用数据字典和合并后的原始高频DataFrame。
-        - 核心新增: 植入详细探针，用于调试高频数据的加载和合并过程。
         - 核心修复: 增加 `pd.merge_asof` 前的 `trade_time` 列 `dtype` 检查探针，并确保时区一致性。
         - 核心修复: 确保在合并 `realtime_data` 时，`merged_hf` 具有正确的 `DatetimeIndex`。
+        - 核心清理: 移除所有调试探针。
         """
         import numpy as np
         import pytz # Import pytz for timezone operations
-        # 获取调试参数
-        debug_params = self.ctx.get('debug_params', {})
-        enable_probe = debug_params.get('should_probe', False)
-        probe_dates = debug_params.get('probe_dates', [])
-        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
-        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
         target_tz = pytz.timezone('Asia/Shanghai') # Define target timezone
-
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"\n[探针 E.1 - {stock_code} - {trade_date}] _prepare_behavioral_data_for_chips 启动。")
         daily_total_volume = context.get('daily_turnover_volume', 0)
         daily_total_amount = pd.to_numeric(context.get('amount'), errors='coerce') * 1000 if 'amount' in context else 0
         daily_vwap = daily_total_amount / daily_total_volume if daily_total_volume > 0 else np.nan
@@ -1472,26 +1463,12 @@ class ChipFeatureCalculator:
         tick_data = context.get('tick_data')
         level5_data = context.get('level5_data')
         realtime_data = context.get('realtime_data')
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 E.1.1 - {stock_code} - {trade_date}] 原始高频数据加载状态:")
-            print(f"    - tick_data.empty: {tick_data.empty if tick_data is not None else True}")
-            print(f"    - level5_data.empty: {level5_data.empty if level5_data is not None else True}")
-            print(f"    - realtime_data.empty: {realtime_data.empty if realtime_data is not None else True}")
-            if tick_data is not None and not tick_data.empty:
-                print(f"    - tick_data head:\n{tick_data.head()}")
-                print(f"    - tick_data columns: {tick_data.columns.tolist()}")
-                print(f"    - tick_data index dtype: {tick_data.index.dtype}")
-            if level5_data is not None and not level5_data.empty:
-                print(f"    - level5_data head:\n{level5_data.head()}")
-                print(f"    - level5_data columns: {level5_data.columns.tolist()}")
-                print(f"    - level5_data index dtype: {level5_data.index.dtype}")
         raw_hf_df = pd.DataFrame()
         if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
             tick_data_sorted = tick_data.sort_index()
             level5_data_sorted = level5_data.sort_index()
             tick_df_for_merge = tick_data_sorted.reset_index()
             level5_df_for_merge = level5_data_sorted.reset_index()
-
             # --- 核心修复开始：强制确保 'trade_time' 列为 datetime64[ns, Asia/Shanghai] 类型 ---
             for df_to_check in [tick_df_for_merge, level5_df_for_merge]:
                 if 'trade_time' in df_to_check.columns:
@@ -1505,61 +1482,36 @@ class ChipFeatureCalculator:
                     # 移除转换后可能产生的 NaT 值
                     df_to_check.dropna(subset=['trade_time'], inplace=True)
             # --- 核心修复结束 ---
-
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 E.1.5 - {stock_code} - {trade_date}] merge_asof 前的 trade_time dtypes:")
-                print(f"    - tick_df_for_merge['trade_time'].dtype: {tick_df_for_merge['trade_time'].dtype}")
-                print(f"    - level5_df_for_merge['trade_time'].dtype: {level5_df_for_merge['trade_time'].dtype}")
             merged_hf = pd.merge_asof(
                 tick_df_for_merge, level5_df_for_merge,
                 on='trade_time',
                 direction='backward'
             ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 E.1.2 - {stock_code} - {trade_date}] tick_data 和 level5_data 合并结果 (merged_hf):")
-                print(f"    - merged_hf.empty: {merged_hf.empty}")
-                if not merged_hf.empty:
-                    print(f"    - merged_hf head:\n{merged_hf.head()}")
-                    print(f"    - merged_hf tail:\n{merged_hf.tail()}")
-                    print(f"    - merged_hf columns: {merged_hf.columns.tolist()}")
-            
             # --- 核心修复：在合并 realtime_data 之前，将 merged_hf 的 'trade_time' 列设置为索引 ---
             if not merged_hf.empty and 'trade_time' in merged_hf.columns:
                 merged_hf.set_index('trade_time', inplace=True)
                 # 确保索引是 datetime64[ns, Asia/Shanghai]
                 if not pd.api.types.is_datetime64_any_dtype(merged_hf.index):
-                    if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                        print(f"  [探针 E.1.9 - {stock_code} - {trade_date}] 强制转换 merged_hf.index 从 {merged_hf.index.dtype} 到 datetime64[ns] (before realtime merge)。")
                     merged_hf.index = pd.to_datetime(merged_hf.index, errors='coerce')
                 if merged_hf.index.tz is None:
                     merged_hf.index = merged_hf.index.tz_localize(target_tz, ambiguous='infer')
                 else:
                     merged_hf.index = merged_hf.index.tz_convert(target_tz)
                 merged_hf = merged_hf[merged_hf.index.notna()] # Drop NaT from index
-
             if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
                 realtime_prepped = realtime_data[['volume']].copy()
                 # 确保 realtime_prepped 索引是 datetime64[ns, Asia/Shanghai]
                 if not pd.api.types.is_datetime64_any_dtype(realtime_prepped.index):
-                    if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                        print(f"  [探针 E.1.8 - {stock_code} - {trade_date}] 强制转换 realtime_prepped.index 从 {realtime_prepped.index.dtype} 到 datetime64[ns]。")
                     realtime_prepped.index = pd.to_datetime(realtime_prepped.index, errors='coerce')
                 if realtime_prepped.index.tz is None:
                     realtime_prepped.index = realtime_prepped.index.tz_localize(target_tz, ambiguous='infer')
                 else:
                     realtime_prepped.index = realtime_prepped.index.tz_convert(target_tz)
                 realtime_prepped = realtime_prepped[realtime_prepped.index.notna()]
-
                 merged_hf = pd.merge_asof(
                     merged_hf, realtime_prepped, left_index=True, right_index=True,
                     direction='backward', suffixes=('_tick', '_realtime')
                 )
-                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                    print(f"  [探针 E.1.3 - {stock_code} - {trade_date}] 合并 realtime_data 后的结果 (merged_hf):")
-                    print(f"    - merged_hf.empty: {merged_hf.empty}")
-                    if not merged_hf.empty:
-                        print(f"    - merged_hf head:\n{merged_hf.head()}")
-                        print(f"    - merged_hf columns: {merged_hf.columns.tolist()}")
             if not merged_hf.empty:
                 # 确保最终的 raw_hf_df 索引是 datetime64[ns, Asia/Shanghai]
                 if 'trade_time' in merged_hf.columns:
@@ -1573,12 +1525,6 @@ class ChipFeatureCalculator:
                 merged_hf = merged_hf[merged_hf.index.notna()]
                 merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True) # 确保 volume 列名正确
                 raw_hf_df = merged_hf
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 E.1.4 - {stock_code} - {trade_date}] 最终 raw_hf_df 状态:")
-            print(f"    - raw_hf_df.empty: {raw_hf_df.empty}")
-            if not raw_hf_df.empty:
-                print(f"    - raw_hf_df head:\n{raw_hf_df.head()}")
-                print(f"    - raw_hf_df columns: {raw_hf_df.columns.tolist()}")
         common_data = {
             'daily_total_volume': daily_total_volume, 'daily_total_amount': daily_total_amount,
             'daily_vwap': daily_vwap, 'atr': atr, 'day_open': day_open, 'day_close': day_close,
@@ -1592,10 +1538,9 @@ class ChipFeatureCalculator:
         - 核心修复: 补全了 `mid_price_delta` 列的计算逻辑。此前的版本遗漏了这一关键步骤，
                      导致下游 `_compute_contextual_action_metrics` 方法在尝试访问该列时
                      因 `KeyError` 而崩溃。
-        - 核心新增: 植入详细探针，用于调试 `main_force_ofi` 的计算过程。
         - 核心修正: 重新定义 `ofi` 的计算，使其基于逐笔数据 (tick data) 的买卖类型和成交量，
                      而非 Level-5 盘口数据，以更准确地反映实际成交的订单流失衡。
-        - 核心新增: 显式计算 `main_force_buy_ofi` 和 `main_force_sell_ofi` 列。
+        - 核心清理: 移除所有调试探针。
         """
         import numpy as np
         features = {
@@ -1604,18 +1549,7 @@ class ChipFeatureCalculator:
             'mf_buy_vol': 0.0, 'mf_sell_vol': 0.0, 'offensive_volume': 0.0,
             'passive_volume': 0.0, 'hf_mf_buy_vwap': np.nan, 'hf_mf_sell_vwap': np.nan,
         }
-        # 获取调试参数
-        debug_params = self.ctx.get('debug_params', {})
-        enable_probe = debug_params.get('should_probe', False)
-        probe_dates = debug_params.get('probe_dates', [])
-        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
-        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"\n[探针 D.1 - {stock_code} - {trade_date}] _engineer_hf_features_for_chips 启动。")
-            print(f"  - raw_hf_df.empty: {raw_hf_df.empty}")
         if raw_hf_df is None or raw_hf_df.empty:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 D.1.1 - {stock_code} - {trade_date}] raw_hf_df 为空，返回默认特征。")
             return pd.DataFrame(), features
         hf_analysis_df = raw_hf_df.copy()
         # 确保数值类型以便进行计算
@@ -1625,16 +1559,8 @@ class ChipFeatureCalculator:
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
         hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff()
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 D.1.2 - {stock_code} - {trade_date}] 中间价计算完成。")
-            print(f"    - mid_price (前5个): {hf_analysis_df['mid_price'].head().tolist()}")
-            print(f"    - prev_mid_price (前5个): {hf_analysis_df['prev_mid_price'].head().tolist()}")
-            print(f"    - mid_price_delta (前5个): {hf_analysis_df['mid_price_delta'].head().tolist()}")
-            print(f"    - hf_analysis_df['type'] (前5个): {hf_analysis_df['type'].head().tolist()}")
-            print(f"    - hf_analysis_df['volume'] (前5个): {hf_analysis_df['volume'].head().tolist()}")
-
         # 核心修正：根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
-        # 'type' 列来自 tick_data, 'volume' 列也来自 tick_data (在 merge_asof 后被重命名为 'volume_tick' 然后又被 rename 为 'volume')
+        # 'type' 列来自 tick_data，'volume' 列也来自 tick_data (在 merge_asof 后被重命名为 'volume_tick' 然后又被 rename 为 'volume')
         conditions = [
             hf_analysis_df['type'] == 'B',
             hf_analysis_df['type'] == 'S'
@@ -1644,47 +1570,11 @@ class ChipFeatureCalculator:
             -hf_analysis_df['volume']
         ]
         hf_analysis_df['ofi'] = np.select(conditions, choices, default=0)
-
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 D.1.3 - {stock_code} - {trade_date}] 原始OFI (基于Tick数据) 计算完成。")
-            print(f"    - ofi (总和): {hf_analysis_df['ofi'].sum()}")
-            print(f"    - ofi (前5个): {hf_analysis_df['ofi'].head().tolist()}")
-            print(f"    - ofi (正值总和 - 买盘OFI): {hf_analysis_df['ofi'].clip(lower=0).sum()}")
-            print(f"    - ofi (负值总和 - 卖盘OFI): {hf_analysis_df['ofi'].clip(upper=0).sum()}")
-
         main_force_threshold = 200000 # 20万元
         is_main_force_trade = hf_analysis_df['amount'] > main_force_threshold
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 D.1.4 - {stock_code} - {trade_date}] 主力交易识别完成。")
-            print(f"    - main_force_threshold: {main_force_threshold}")
-            print(f"    - 总交易笔数: {len(hf_analysis_df)}")
-            print(f"    - 主力交易笔数: {is_main_force_trade.sum()}")
-            print(f"    - amount (前5个): {hf_analysis_df['amount'].head().tolist()}")
-            print(f"    - is_main_force_trade (前5个): {is_main_force_trade.head().tolist()}")
-
         hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['ofi'], 0)
-        # 核心新增：显式计算 main_force_buy_ofi 和 main_force_sell_ofi
-        hf_analysis_df['main_force_buy_ofi'] = hf_analysis_df['main_force_ofi'].clip(lower=0)
-        hf_analysis_df['main_force_sell_ofi'] = hf_analysis_df['main_force_ofi'].clip(upper=0)
-
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 D.1.5 - {stock_code} - {trade_date}] 最终 main_force_ofi 计算完成。")
-            print(f"    - main_force_ofi (总和): {hf_analysis_df['main_force_ofi'].sum()}")
-            print(f"    - main_force_ofi (前5个): {hf_analysis_df['main_force_ofi'].head().tolist()}")
-            print(f"    - main_force_ofi (后5个): {hf_analysis_df['main_force_ofi'].tail().tolist()}")
-            print(f"    - main_force_ofi (正值总和 - 主力买入OFI): {hf_analysis_df['main_force_ofi'].clip(lower=0).sum()}")
-            print(f"    - main_force_ofi (负值总和 - 主力卖出OFI): {hf_analysis_df['main_force_ofi'].clip(upper=0).sum()}")
-            print(f"  [探针 D.1.5.1 - {stock_code} - {trade_date}] 显式 main_force_buy_ofi 和 main_force_sell_ofi 计算完成。")
-            print(f"    - main_force_buy_ofi (总和): {hf_analysis_df['main_force_buy_ofi'].sum()}")
-            print(f"    - main_force_buy_ofi (前5个): {hf_analysis_df['main_force_buy_ofi'].head().tolist()}")
-            print(f"    - main_force_sell_ofi (总和): {hf_analysis_df['main_force_sell_ofi'].sum()}")
-            print(f"    - main_force_sell_ofi (前5个): {hf_analysis_df['main_force_sell_ofi'].head().tolist()}")
-
-
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 D.1.6 - {stock_code} - {trade_date}] mf_trades 为空，返回默认特征。")
             return hf_analysis_df, features
         features['mf_trades'] = mf_trades
         buy_trades_mask = mf_trades['type'] == 'B'
@@ -1696,11 +1586,6 @@ class ChipFeatureCalculator:
         if total_mf_vol > 0:
             features['mf_buy_vol'] = mf_trades[buy_trades_mask]['volume'].sum()
             features['mf_sell_vol'] = mf_trades[sell_trades_mask]['volume'].sum()
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 D.1.7 - {stock_code} - {trade_date}] 主力买卖量计算完成。")
-                print(f"    - total_mf_vol: {total_mf_vol}")
-                print(f"    - mf_buy_vol: {features['mf_buy_vol']}")
-                print(f"    - mf_sell_vol: {features['mf_sell_vol']}")
         return hf_analysis_df, features
 
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
@@ -1714,7 +1599,7 @@ class ChipFeatureCalculator:
         - 核心升维: 引入“零强度”原则。当股价未进入特定区域（如未跌破主峰区）时，
                      相关的行为强度指标（如吸筹烈度）不再返回NaN，而是返回0.0，
                      代表该行为“零发生”，从而消除信息黑洞，使指标体系在逻辑上彻底完备。
-        - 核心新增: 植入详细探针，用于调试 `distribution_at_peak_intensity` 和 `absorption_of_distribution_intensity` 的计算过程。
+        - 核心清理: 移除所有调试探针。
         """
         # 将默认值从 np.nan 修改为 0.0
         metrics = {
@@ -1724,93 +1609,41 @@ class ChipFeatureCalculator:
             'breakthrough_of_peak_quality': 0.0,
             'defense_of_peak_quality': 0.0,
         }
-        # 获取调试参数
-        debug_params = context.get('debug_params', {})
-        enable_probe = debug_params.get('should_probe', False)
-        probe_dates = debug_params.get('probe_dates', [])
-        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
-        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"\n[探针 C.1 - {stock_code} - {trade_date}] _compute_contextual_action_metrics 启动。")
-            print(f"  - 原始输入: context keys: {context.keys()}")
         raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
         hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = common_data.get('atr')
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 C.1.1 - {stock_code} - {trade_date}] 准备行为数据。")
-            print(f"    - raw_hf_df.empty: {raw_hf_df.empty}, hf_analysis_df.empty: {hf_analysis_df.empty}")
-            print(f"    - dominant_peak_cost: {dominant_peak_cost}, atr: {atr}")
         if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.2 - {stock_code} - {trade_date}] 前置条件不满足，返回默认指标。")
             return metrics
         peak_battle_zone_radius = 0.5 * atr
         peak_zone_upper = dominant_peak_cost + peak_battle_zone_radius
         peak_zone_lower = dominant_peak_cost - peak_battle_zone_radius
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 C.1.3 - {stock_code} - {trade_date}] 峰区定义: upper={peak_zone_upper}, lower={peak_zone_lower}")
         above_peak_zone_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
         below_peak_zone_df = hf_analysis_df[hf_analysis_df['price'] < peak_zone_lower]
         # 1. 计算主峰区派发烈度
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 C.1.4 - {stock_code} - {trade_date}] 检查 'above_peak_zone_df' 是否为空: {above_peak_zone_df.empty}")
         if not above_peak_zone_df.empty:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.5 - {stock_code} - {trade_date}] 开始计算 distribution_at_peak_intensity。")
-                print(f"    - above_peak_zone_df.shape: {above_peak_zone_df.shape}")
-                print(f"    - hf_analysis_df.shape: {hf_analysis_df.shape}")
             focus_numerator = above_peak_zone_df['main_force_ofi'].abs().sum()
             focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
             focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - focus_numerator (above_peak_zone_df['main_force_ofi'].abs().sum()): {focus_numerator}")
-                print(f"    - focus_denominator (hf_analysis_df['main_force_ofi'].abs().sum()): {focus_denominator}")
-                print(f"    - focus_component: {focus_component}")
             intent_numerator = above_peak_zone_df['main_force_ofi'].clip(upper=0).abs().sum()
             intent_denominator = above_peak_zone_df['main_force_ofi'].abs().sum()
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - intent_numerator (above_peak_zone_df['main_force_ofi'].clip(upper=0).abs().sum()): {intent_numerator}")
-                print(f"    - intent_denominator (above_peak_zone_df['main_force_ofi'].abs().sum()): {intent_denominator}")
-                print(f"    - intent_component: {intent_component}")
             price_start = above_peak_zone_df['price'].iloc[0]
             price_end = above_peak_zone_df['price'].iloc[-1]
             # 修正派发成果的计算逻辑：价格上涨为正成果，因为派发通常发生在拉升过程中
             price_change_for_outcome = (price_end - price_start)
             outcome_component = np.tanh(price_change_for_outcome / atr)
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - price_start (above_peak_zone_df['price'].iloc[0]): {price_start}")
-                print(f"    - price_end (above_peak_zone_df['price'].iloc[-1]): {price_end}")
-                print(f"    - price_change_for_outcome: {price_change_for_outcome}")
-                print(f"    - atr: {atr}")
-                print(f"    - outcome_component (np.tanh(price_change_for_outcome / atr)): {outcome_component}")
             metrics['distribution_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - 最终 distribution_at_peak_intensity: {metrics['distribution_at_peak_intensity']}")
             # 1.1 新增：计算主峰区派发吸收强度
             # 关注在高于主峰区时，主力资金的买入意图和实际买入行为的强度
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.6 - {stock_code} - {trade_date}] 开始计算 absorption_of_distribution_intensity。")
             absorption_intent_numerator = above_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
             absorption_intent_denominator = above_peak_zone_df['main_force_ofi'].abs().sum()
             absorption_intent_component = absorption_intent_numerator / absorption_intent_denominator if absorption_intent_denominator > 0 else 0
             # 吸收的成果也应与价格上涨正相关
             absorption_outcome_component = np.tanh((price_end - price_start) / atr)
             metrics['absorption_of_distribution_intensity'] = np.clip((focus_component * absorption_intent_component * (1 + absorption_outcome_component)) * 100, 0, 100)
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - absorption_intent_numerator (above_peak_zone_df['main_force_ofi'].clip(lower=0).sum()): {absorption_intent_numerator}")
-                print(f"    - absorption_intent_denominator (above_peak_zone_df['main_force_ofi'].abs().sum()): {absorption_intent_denominator}")
-                print(f"    - absorption_intent_component: {absorption_intent_component}")
-                print(f"    - absorption_outcome_component (np.tanh((price_end - price_start) / atr)): {absorption_outcome_component}")
-                print(f"    - 最终 absorption_of_distribution_intensity: {metrics['absorption_of_distribution_intensity']}")
-        else:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.5 - {stock_code} - {trade_date}] 'above_peak_zone_df' 为空，distribution_at_peak_intensity 和 absorption_of_distribution_intensity 保持默认值 {metrics['distribution_at_peak_intensity']}。")
         # 2. 计算主峰区吸筹烈度
         if not below_peak_zone_df.empty:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.7 - {stock_code} - {trade_date}] 开始计算 absorption_at_peak_intensity。")
             focus_numerator = below_peak_zone_df['main_force_ofi'].abs().sum()
             focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
             focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
@@ -1822,19 +1655,9 @@ class ChipFeatureCalculator:
             # 修正吸筹成果的计算逻辑：价格下跌为正成果，因为吸筹通常发生在打压过程中
             outcome_component = np.tanh((price_start - price_end) / atr)
             metrics['absorption_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - focus_component: {focus_component}")
-                print(f"    - intent_component: {intent_component}")
-                print(f"    - outcome_component: {outcome_component}")
-                print(f"    - 最终 absorption_at_peak_intensity: {metrics['absorption_at_peak_intensity']}")
-        else:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.7 - {stock_code} - {trade_date}] 'below_peak_zone_df' 为空，absorption_at_peak_intensity 保持默认值 {metrics['absorption_at_peak_intensity']}。")
         # 3. 计算突破主峰质量
         breakthrough_event_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
         if not breakthrough_event_df.empty:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.8 - {stock_code} - {trade_date}] 开始计算 breakthrough_of_peak_quality。")
             magnitude_component = (breakthrough_event_df['price'].max() - peak_zone_upper) / atr
             conviction_numerator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
             conviction_denominator = breakthrough_event_df['main_force_ofi'].abs().sum()
@@ -1843,44 +1666,19 @@ class ChipFeatureCalculator:
             efficiency_denominator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
             efficiency_component = np.tanh(efficiency_numerator / (efficiency_denominator * 1e-6)) if efficiency_denominator > 0 else 0
             metrics['breakthrough_of_peak_quality'] = np.clip((magnitude_component * conviction_component * efficiency_component) * 100, 0, 100)
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - magnitude_component: {magnitude_component}")
-                print(f"    - conviction_component: {conviction_component}")
-                print(f"    - efficiency_component: {efficiency_component}")
-                print(f"    - 最终 breakthrough_of_peak_quality: {metrics['breakthrough_of_peak_quality']}")
-        else:
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.8 - {stock_code} - {trade_date}] 'breakthrough_event_df' 为空，breakthrough_of_peak_quality 保持默认值 {metrics['breakthrough_of_peak_quality']}。")
         # 4. 计算防守主峰质量
         day_low = common_data.get('day_low')
         day_close = common_data.get('day_close')
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 C.1.9 - {stock_code} - {trade_date}] 开始计算 defense_of_peak_quality。")
-            print(f"    - day_low: {day_low}, peak_zone_lower: {peak_zone_lower}")
         if day_low >= peak_zone_lower:
             metrics['defense_of_peak_quality'] = 100.0
-            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"    - day_low >= peak_zone_lower，defense_of_peak_quality: {metrics['defense_of_peak_quality']}")
         else:
             recovery_df = hf_analysis_df[hf_analysis_df['price'] < peak_zone_lower]
             if not recovery_df.empty and pd.notna(day_close):
-                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                    print(f"    - day_low < peak_zone_lower 且存在 recovery_df。")
                 recovery_magnitude = (day_close - day_low) / atr
                 recovery_conviction_num = recovery_df['main_force_ofi'].clip(lower=0).sum()
                 recovery_conviction_den = recovery_df['main_force_ofi'].abs().sum()
                 recovery_conviction = recovery_conviction_num / recovery_conviction_den if recovery_conviction_den > 0 else 0
                 metrics['defense_of_peak_quality'] = np.clip((recovery_magnitude * recovery_conviction) * 100, 0, 100)
-                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                    print(f"    - recovery_magnitude: {recovery_magnitude}")
-                    print(f"    - recovery_conviction: {recovery_conviction}")
-                    print(f"    - 最终 defense_of_peak_quality: {metrics['defense_of_peak_quality']}")
-            else:
-                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                    print(f"    - day_low < peak_zone_lower 但 recovery_df 为空或 day_close 为NaN，defense_of_peak_quality 保持默认值 {metrics['defense_of_peak_quality']}。")
-        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-            print(f"  [探针 C.1.10 - {stock_code} - {trade_date}] _compute_contextual_action_metrics 结束。")
-            print(f"    - 最终 metrics: {metrics}")
         return metrics
 
 

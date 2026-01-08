@@ -530,9 +530,9 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     - 核心修复: 在 `pd.concat` 之后，以及在调用 `_process_intraday_df_to_map` 之前，
                  强制将所有高频数据 DataFrame 的 `trade_time` 列转换为 `datetime64[ns]` 类型。
                  此举作为最终防线，确保 `pd.merge_asof` 不会因类型不匹配而失败。
-    - 核心新增: 增加详细探针，追踪 `trade_time` 列在 `pd.concat` 之后和强制转换后的数据类型。
     - 核心增强: 在从 DAO 加载数据后，对 `trade_time` 列进行 `pd.to_datetime` 转换前，
                  增加列存在性检查，提高代码健壮性。
+    - 核心清理: 移除所有调试探针。
     """
     import pytz
     from utils.model_helpers import (
@@ -544,12 +544,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     from datetime import time, datetime, timedelta
     from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
     from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
-
-    # Extract debug parameters
-    enable_probe = debug_params.get('should_probe', False) if debug_params else False
-    probe_dates = debug_params.get('probe_dates', []) if debug_params else []
-    stock_code = stock_info.stock_code # For probe logging
-
+    stock_code = stock_info.stock_code # For logging
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
@@ -596,24 +591,15 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     minute_data_df_list = []
     realtime_data_df_list = []
     for single_date in dates_in_chunk.normalize().unique().date:
-        current_probe_date_str = str(single_date)
-        if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-            print(f"\n[Probe L.0 - {stock_code} - {current_probe_date_str}] 开始加载高频数据。")
-
         df_tick = await realtime_dao.get_daily_real_ticks(stock_info.stock_code, single_date.strftime('%Y-%m-%d'))
         if df_tick is not None and not df_tick.empty:
-            if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-                print(f"  [Probe L.1.1 - {stock_code} - {current_probe_date_str}] df_tick 原始索引类型: {df_tick.index.dtype}")
             if isinstance(df_tick.index, pd.DatetimeIndex):
                 df_tick = df_tick.reset_index()
             if 'trade_time' in df_tick.columns: # 增强健壮性：检查列是否存在
                 df_tick['trade_time'] = pd.to_datetime(df_tick['trade_time'], errors='coerce')
-                if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-                    print(f"  [Probe L.1.2 - {stock_code} - {current_probe_date_str}] df_tick 'trade_time' 列类型 (after to_datetime): {df_tick['trade_time'].dtype}")
             else:
-                logger.warning(f"[{stock_code}] [{current_probe_date_str}] df_tick 缺少 'trade_time' 列，跳过日期时间转换。")
+                logger.warning(f"[{stock_code}] [{single_date}] df_tick 缺少 'trade_time' 列，跳过日期时间转换。")
             tick_data_df_list.append(df_tick)
-
         df_realtime, df_level5 = await realtime_dao._get_single_stock_quotes_and_level5_from_db(stock_info.stock_code, single_date)
         if df_realtime is not None and not df_realtime.empty:
             if isinstance(df_realtime.index, pd.DatetimeIndex):
@@ -621,22 +607,16 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             if 'trade_time' in df_realtime.columns: # 增强健壮性：检查列是否存在
                 df_realtime['trade_time'] = pd.to_datetime(df_realtime['trade_time'], errors='coerce')
             else:
-                logger.warning(f"[{stock_code}] [{current_probe_date_str}] df_realtime 缺少 'trade_time' 列，跳过日期时间转换。")
+                logger.warning(f"[{stock_code}] [{single_date}] df_realtime 缺少 'trade_time' 列，跳过日期时间转换。")
             realtime_data_df_list.append(df_realtime)
-
         if df_level5 is not None and not df_level5.empty:
-            if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-                print(f"  [Probe L.2.1 - {stock_code} - {current_probe_date_str}] df_level5 原始索引类型: {df_level5.index.dtype}")
             if isinstance(df_level5.index, pd.DatetimeIndex):
                 df_level5 = df_level5.reset_index()
             if 'trade_time' in df_level5.columns: # 增强健壮性：检查列是否存在
                 df_level5['trade_time'] = pd.to_datetime(df_level5['trade_time'], errors='coerce')
-                if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-                    print(f"  [Probe L.2.2 - {stock_code} - {current_probe_date_str}] df_level5 'trade_time' 列类型 (after to_datetime): {df_level5['trade_time'].dtype}")
             else:
-                logger.warning(f"[{stock_code}] [{current_probe_date_str}] df_level5 缺少 'trade_time' 列，跳过日期时间转换。")
+                logger.warning(f"[{stock_code}] [{single_date}] df_level5 缺少 'trade_time' 列，跳过日期时间转换。")
             level5_data_df_list.append(df_level5)
-
         df_minute = await time_trade_dao.get_intraday_kline_by_date(stock_info.stock_code, single_date, '1')
         if df_minute is not None and not df_minute.empty:
             if isinstance(df_minute.index, pd.DatetimeIndex):
@@ -644,38 +624,20 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             if 'trade_time' in df_minute.columns: # 增强健壮性：检查列是否存在
                 df_minute['trade_time'] = pd.to_datetime(df_minute['trade_time'], errors='coerce')
             else:
-                logger.warning(f"[{stock_code}] [{current_probe_date_str}] df_minute 缺少 'trade_time' 列，跳过日期时间转换。")
+                logger.warning(f"[{stock_code}] [{single_date}] df_minute 缺少 'trade_time' 列，跳过日期时间转换。")
             minute_data_df_list.append(df_minute)
-
     # Concatenate all individual DataFrames
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
-
-    # Add probes for concatenated DataFrames
-    if enable_probe and (not probe_dates or current_probe_date_str in probe_dates): # Use the last single_date for logging
-        if not data_dfs["stock_tick_data"].empty:
-            print(f"  [Probe L.3.1 - {stock_code} - {current_probe_date_str}] Concatenated stock_tick_data 'trade_time' dtype: {data_dfs['stock_tick_data']['trade_time'].dtype}")
-        if not data_dfs["stock_level5_data"].empty:
-            print(f"  [Probe L.3.2 - {stock_code} - {current_probe_date_str}] Concatenated stock_level5_data 'trade_time' dtype: {data_dfs['stock_level5_data']['trade_time'].dtype}")
-        if not data_dfs["stock_minute_data"].empty:
-            print(f"  [Probe L.3.3 - {stock_code} - {current_probe_date_str}] Concatenated stock_minute_data 'trade_time' dtype: {data_dfs['stock_minute_data']['trade_time'].dtype}")
-        if not data_dfs["stock_realtime_data"].empty:
-            print(f"  [Probe L.3.4 - {stock_code} - {current_probe_date_str}] Concatenated stock_realtime_data 'trade_time' dtype: {data_dfs['stock_realtime_data']['trade_time'].dtype}")
-
     # Explicitly ensure 'trade_time' column is datetime64[ns] after concatenation
     # This is a critical safeguard against pd.concat type coercion issues
     for key in ["stock_tick_data", "stock_level5_data", "stock_minute_data", "stock_realtime_data"]:
         if not data_dfs[key].empty and 'trade_time' in data_dfs[key].columns:
             # Only convert if it's not already the correct dtype
             if not pd.api.types.is_datetime64_any_dtype(data_dfs[key]['trade_time']):
-                if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-                    print(f"  [Probe L.3.5 - {stock_code} - {current_probe_date_str}] Forcing {key} 'trade_time' from {data_dfs[key]['trade_time'].dtype} to datetime64[ns].")
                 data_dfs[key]['trade_time'] = pd.to_datetime(data_dfs[key]['trade_time'], errors='coerce')
-                if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-                    print(f"  [Probe L.3.6 - {stock_code} - {current_probe_date_str}] {key} 'trade_time' dtype after force: {data_dfs[key]['trade_time'].dtype}")
-
     if not data_dfs["stock_level5_data"].empty and len(data_dfs["stock_level5_data"]) > 1:
         level5_df = data_dfs["stock_level5_data"].sort_values('trade_time').reset_index(drop=True)
         df_prev = level5_df.shift(1)
@@ -696,23 +658,12 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
                     df[col] = pd.to_numeric(df[col], errors='coerce')
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict:
         if df.empty: return {}
-        
-        # Probe before conversion
-        if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-            print(f"  [Probe L.4.1 - {stock_code_for_log} - {current_probe_date_str}] {data_source_name} 'trade_time' dtype (before map conversion): {df['trade_time'].dtype}")
-
         # Ensure 'trade_time' is datetime before setting as index
         df['trade_time'] = pd.to_datetime(df['trade_time'], errors='coerce')
-
-        # Probe after conversion
-        if enable_probe and (not probe_dates or current_probe_date_str in probe_dates):
-            print(f"  [Probe L.4.2 - {stock_code_for_log} - {current_probe_date_str}] {data_source_name} 'trade_time' dtype (after map conversion): {df['trade_time'].dtype}")
-
         # If for some reason it's still not datetime, it's a critical issue.
         if not pd.api.types.is_datetime64_any_dtype(df['trade_time']):
             logger.error(f"[{stock_code_for_log}] [{data_source_name}] CRITICAL: 'trade_time' column is not datetime64[ns] after conversion. Current dtype: {df['trade_time'].dtype}. This will likely cause merge errors.")
             return {}
-
         target_tz = pytz.timezone('Asia/Shanghai')
         if df['trade_time'].dt.tz is None:
             df['trade_time'] = df['trade_time'].dt.tz_localize(target_tz, ambiguous='infer')
