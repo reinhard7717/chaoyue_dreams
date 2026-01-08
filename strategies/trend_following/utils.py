@@ -1206,30 +1206,24 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
                       如果某个日期所有组件都为0，则结果为0。
         """
         is_debug_enabled, probe_ts, calling_method_name = debug_info if debug_info else (False, None, "Unknown")
-
         # 初始化用于累积加权对数和有效权重的NumPy数组
         log_sum_weighted_log_scores_per_date = np.zeros(len(df_index), dtype=np.float32)
         sum_of_effective_weights_per_date = np.zeros(len(df_index), dtype=np.float32)
-
         # 遍历每个分数序列及其对应的权重
         for name, score_series in scores_dict.items():
             # 确保分数序列与目标索引对齐，填充缺失值，并转换为NumPy数组
             aligned_score_values = score_series.reindex(df_index).fillna(0.0).values
-            
             # 获取权重值，如果权重是Series，则进行对齐和填充；否则，创建常数NumPy数组
             weight_val = weights_dict.get(name, 0.0)
             if isinstance(weight_val, pd.Series):
                 aligned_weight_values = weight_val.reindex(df_index).fillna(0.0).values
             else:
                 aligned_weight_values = np.full_like(aligned_score_values, weight_val, dtype=np.float32)
-            
             # 识别有效的分数：分数大于一个很小的正数（避免log(0)），且权重也大于0
             is_valid_mask = (aligned_score_values > 1e-9) & (aligned_weight_values > 0)
-            
             # 仅对有效的分数和权重进行累积
             log_sum_weighted_log_scores_per_date[is_valid_mask] += np.log(aligned_score_values[is_valid_mask]) * aligned_weight_values[is_valid_mask]
             sum_of_effective_weights_per_date[is_valid_mask] += aligned_weight_values[is_valid_mask]
-
             if is_debug_enabled and probe_ts and probe_ts in df_index:
                 probe_idx = df_index.get_loc(probe_ts)
                 print(f"         [探针] {calling_method_name} -> _robust_geometric_mean: 信号 '{name}' @ {probe_ts.strftime('%Y-%m-%d')}")
@@ -1238,33 +1232,26 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
                 print(f"           - is_valid_mask: {is_valid_mask[probe_idx]}")
                 if is_valid_mask[probe_idx]:
                     print(f"           - log_score * weight: {np.log(aligned_score_values[probe_idx]) * aligned_weight_values[probe_idx]:.4f}")
-
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             probe_idx = df_index.get_loc(probe_ts)
             print(f"         [探针] {calling_method_name} -> _robust_geometric_mean: 累积结果 @ {probe_ts.strftime('%Y-%m-%d')}")
             print(f"           - log_sum_weighted_log_scores_per_date: {log_sum_weighted_log_scores_per_date[probe_idx]:.4f}")
             print(f"           - sum_of_effective_weights_per_date: {sum_of_effective_weights_per_date[probe_idx]:.4f}")
-
         # 处理总有效权重为零或接近零的情况，避免除以零
         sum_of_effective_weights_safe = np.where(np.isclose(sum_of_effective_weights_per_date, 0), 1e-9, sum_of_effective_weights_per_date)
-        
         # 计算指数部分
         exponent = log_sum_weighted_log_scores_per_date / sum_of_effective_weights_safe
-        
         # 计算最终结果
         result_values = np.exp(exponent)
-        
         # 修正：如果 sum_of_effective_weights_per_date 原始为 0，则结果应为 0
         result_values[np.isclose(sum_of_effective_weights_per_date, 0)] = 0.0
         result_values[np.isnan(result_values)] = 0.0 
-        
         if is_debug_enabled and probe_ts and probe_ts in df_index:
             probe_idx = df_index.get_loc(probe_ts)
             print(f"         [探针] {calling_method_name} -> _robust_geometric_mean: 最终计算 @ {probe_ts.strftime('%Y-%m-%d')}")
             print(f"           - exponent: {exponent[probe_idx]:.4f}")
             print(f"           - result_values (before final clip/nan fill): {np.exp(exponent[probe_idx]):.4f}")
             print(f"           - final_result_value: {result_values[probe_idx]:.4f}")
-
         # 将NumPy数组转换为Pandas Series并返回
         return pd.Series(result_values, index=df_index, dtype=np.float32)
 

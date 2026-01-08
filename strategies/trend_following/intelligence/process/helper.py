@@ -103,11 +103,9 @@ class ProcessIntelligenceHelper:
         accel_periods_weights = get_param_value(mtf_weights_config.get('accel_periods'), {"5": 0.6, "13": 0.4})
         all_scores_components = []
         total_combined_weight = 0.0
-
         # 过滤周期
         filtered_slope_periods_weights = {p: w for p, w in slope_periods_weights.items() if periods is None or int(p) in periods}
         filtered_accel_periods_weights = {p: w for p, w in accel_periods_weights.items() if periods is None or int(p) in periods}
-
         # 处理斜率
         for period_str, weight in filtered_slope_periods_weights.items():
             try:
@@ -122,7 +120,6 @@ class ProcessIntelligenceHelper:
             norm_score = self._normalize_series(slope_raw, df_index, bipolar=bipolar, ascending=ascending)
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
-        
         # 处理加速度
         for period_str, weight in filtered_accel_periods_weights.items():
             try:
@@ -137,11 +134,9 @@ class ProcessIntelligenceHelper:
             norm_score = self._normalize_series(accel_raw, df_index, bipolar=bipolar, ascending=ascending)
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
-        
         if not all_scores_components or total_combined_weight == 0:
             # 如果没有任何有效组件分数，返回一个填充了0.0的Series
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        
         fused_score = sum(all_scores_components) / total_combined_weight
         # 根据 bipolar 参数进行裁剪
         return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
