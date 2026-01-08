@@ -385,7 +385,7 @@
         "trend_vitality_index_D": [5, 13, 21, 34, 55],
         "strategic_phase_score_D": [5, 13, 21, 34, 55],
         "说明_platform_feature": "--- 为平台特征提供支持 ---",
-        "platform_conviction_score_D": [5, 13, 21],
+        "platform_conviction_score_D": [5, 13, 21, 34],
         "quality_score_D": [5, 13, 21],
         "duration_D": [5, 13, 21],
         "platform_high_D": [5, 13, 21],
@@ -393,7 +393,7 @@
         "vpoc_D": [5, 13, 21],
         "total_volume_D": [5, 13, 21],
         "breakout_readiness_score_D": [5, 13, 21, 34],
-        "goodness_of_fit_score_D": [5, 13, 21]
+        "goodness_of_fit_score_D": [5, 13, 21, 34]
       }
     },
     "accel_params": {

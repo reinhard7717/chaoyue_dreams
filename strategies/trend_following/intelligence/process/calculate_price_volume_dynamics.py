@@ -115,11 +115,12 @@ class CalculatePriceVolumeDynamics:
             'reversal_power_index_D', 'reversal_recovery_rate_D', 'volatility_asymmetry_index_D',
             'mean_reversion_frequency_D',
             'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'SCORE_MICRO_STRATEGY_STEALTH_OPS',
-            'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
+            # 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', # 移除此行
+            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
             'SCORE_DYN_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
             'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION',
-            'goodness_of_fit_score_D', 'platform_conviction_score_D', # 这些信号可能不存在，但需要检查
-            'ADX_14_D' # For regime modulator
+            'goodness_of_fit_score_D', 'platform_conviction_score_D',
+            'ADX_14_D', 'hidden_accumulation_intensity_D' # 确保 hidden_accumulation_intensity_D 在列中
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         base_signals_for_mtf_raw = []
@@ -174,6 +175,7 @@ class CalculatePriceVolumeDynamics:
         raw_signals['chip_fault_blockage_ratio_D'] = self.helper._get_safe_series(df, 'chip_fault_blockage_ratio_D', 0.0, method_name=method_name)
         raw_signals['winner_loser_momentum_D'] = self.helper._get_safe_series(df, 'winner_loser_momentum_D', 0.0, method_name=method_name)
         raw_signals['chip_fatigue_index_D'] = self.helper._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
+        raw_signals['hidden_accumulation_intensity_D'] = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name) # 确保获取此原始信号
         # Market Context
         raw_signals['market_sentiment_score_D'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
@@ -250,7 +252,7 @@ class CalculatePriceVolumeDynamics:
         raw_signals['SCORE_STRUCT_AXIOM_TENSION'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
         raw_signals['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
         raw_signals['SCORE_MICRO_STRATEGY_STEALTH_OPS'] = self.helper._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        raw_signals['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = self.helper._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
+        # raw_signals['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = self.helper._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', np.nan) # 移除此行
         raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         raw_signals['SCORE_DYN_AXIOM_STABILITY'] = self.helper._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
         raw_signals['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
@@ -458,9 +460,11 @@ class CalculatePriceVolumeDynamics:
             'liquidity_authenticity_positive': liquidity_authenticity_positive
         }
         main_force_flow_ambiguity = _robust_geometric_mean(ambiguity_components, ambiguity_weights, df_index)
+        # 修正：split_order_accum_score 应使用原始指标 hidden_accumulation_intensity_D
+        split_order_accum_score = self.helper._normalize_series(raw_signals['hidden_accumulation_intensity_D'], df_index, ascending=True)
         components = {
             'stealth_ops': raw_signals['SCORE_MICRO_STRATEGY_STEALTH_OPS'],
-            'split_order_accum': raw_signals['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'],
+            'split_order_accum': split_order_accum_score, # 使用修正后的 split_order_accum_score
             'mf_net_flow_positive': raw_signals['main_force_net_flow_calibrated_D'].clip(lower=0),
             'mf_cost_advantage_positive': raw_signals['main_force_cost_advantage_D'].clip(lower=0),
             'mf_buy_ofi_positive': raw_signals['main_force_buy_ofi_D'],

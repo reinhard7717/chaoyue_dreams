@@ -331,7 +331,6 @@ class CalculateSplitOrderAccumulation:
             "liquidity_supply_5d_avg": norm_liquidity_supply_ma5,
         }
         normalized_signals["data_liquidity_outcome"] = _robust_geometric_mean(data_liquidity_components, liquidity_weights, df_index).fillna(0.0)
-
         # --- 计算数据层复合信号的斜率和加速度，用于RDI分析 ---
         rdi_periods = [5, 13, 21]
         composite_signals_for_rdi = {
