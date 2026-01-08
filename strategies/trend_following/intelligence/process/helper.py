@@ -80,18 +80,36 @@ class ProcessIntelligenceHelper:
         # 填充NaN值
         return series.fillna(current_default_value)
 
-    def _get_mtf_slope_accel_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, ascending: bool = True, bipolar: bool = False) -> pd.Series:
+    def _get_mtf_slope_accel_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, ascending: bool = True, bipolar: bool = False, periods: Optional[List[int]] = None) -> pd.Series:
         """
-        【V1.1 · 统一归一化调用版】计算多时间框架斜率和加速度的融合分数。
+        【V1.2 · 周期过滤与统一归一化调用版】计算多时间框架斜率和加速度的融合分数。
+        - 核心修正: 增加 `periods` 参数，允许指定要计算的特定周期，从而支持更灵活的MTF信号构建。
         - 核心修正: 统一调用 `_normalize_series` 进行归一化，利用其多时间框架加权能力。
         - 健壮性增强: 确保即使没有有效组件分数，也能返回一个填充了默认值（0.0）的Series。
+        参数:
+            df (pd.DataFrame): 包含所有原始数据的DataFrame。
+            base_signal_name (str): 基础信号的名称，例如 'close_D'。
+            mtf_weights_config (Dict): 包含 'slope_periods' 和 'accel_periods' 权重的配置字典。
+            df_index (pd.Index): DataFrame的索引。
+            method_name (str): 调用此方法的名称，用于日志输出。
+            ascending (bool): 归一化时是否升序处理 (True表示值越大分数越高)。
+            bipolar (bool): 归一化是否为双极性 (-1到1)。
+            periods (Optional[List[int]]): 可选参数，如果提供，则只计算这些周期内的斜率和加速度。
+                                          例如 [13] 表示只计算13周期的斜率和加速度。
+        返回:
+            pd.Series: 融合后的MTF斜率和加速度分数。
         """
         slope_periods_weights = get_param_value(mtf_weights_config.get('slope_periods'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
         accel_periods_weights = get_param_value(mtf_weights_config.get('accel_periods'), {"5": 0.6, "13": 0.4})
         all_scores_components = []
         total_combined_weight = 0.0
+
+        # 过滤周期
+        filtered_slope_periods_weights = {p: w for p, w in slope_periods_weights.items() if periods is None or int(p) in periods}
+        filtered_accel_periods_weights = {p: w for p, w in accel_periods_weights.items() if periods is None or int(p) in periods}
+
         # 处理斜率
-        for period_str, weight in slope_periods_weights.items():
+        for period_str, weight in filtered_slope_periods_weights.items():
             try:
                 period = int(period_str)
             except ValueError:
@@ -100,12 +118,13 @@ class ProcessIntelligenceHelper:
             slope_raw = self._get_safe_series(df, slope_col, np.nan, method_name=method_name)
             if slope_raw.isnull().all(): # 如果原始斜率数据全为NaN，则跳过此组件
                 continue
-            # 使用 _normalize_series 进行归一化，它会处理多时间框架的加权
+            # 使用 _normalize_series 进行归一化
             norm_score = self._normalize_series(slope_raw, df_index, bipolar=bipolar, ascending=ascending)
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
+        
         # 处理加速度
-        for period_str, weight in accel_periods_weights.items():
+        for period_str, weight in filtered_accel_periods_weights.items():
             try:
                 period = int(period_str)
             except ValueError:
@@ -118,9 +137,11 @@ class ProcessIntelligenceHelper:
             norm_score = self._normalize_series(accel_raw, df_index, bipolar=bipolar, ascending=ascending)
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
+        
         if not all_scores_components or total_combined_weight == 0:
             # 如果没有任何有效组件分数，返回一个填充了0.0的Series
             return pd.Series(0.0, index=df_index, dtype=np.float32)
+        
         fused_score = sum(all_scores_components) / total_combined_weight
         # 根据 bipolar 参数进行裁剪
         return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
