@@ -13,6 +13,7 @@ from strategies.trend_following.utils import (
 )
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 from strategies.trend_following.intelligence.process.calculate_main_force_rally_intent import CalculateMainForceRallyIntent
+from strategies.trend_following.intelligence.process.calculate_split_order_accumulation import CalculateSplitOrderAccumulation
 
 class ProcessIntelligence:
     """
@@ -34,6 +35,8 @@ class ProcessIntelligence:
         self.helper = ProcessIntelligenceHelper(strategy_instance)
         # 实例化主力拉升意图计算器
         self.calculate_main_force_rally_intent_processor = CalculateMainForceRallyIntent(strategy_instance, self.helper)
+        # 实例化拆单吸筹强度计算器
+        self.calculate_split_order_accumulation_processor = CalculateSplitOrderAccumulation(strategy_instance, self.helper)
         # 从 helper 获取参数
         self.params = self.helper.params
         self.score_type_map = self.helper.score_type_map
@@ -528,7 +531,7 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION':
             meta_score = self._calculate_deceptive_accumulation(df, config)
         elif signal_name == 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
-            meta_score = self._calculate_split_order_accumulation(df, config)
+            meta_score = self.calculate_split_order_accumulation_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT':
             meta_score = self._calculate_upthrust_washout(df, config)
         elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION':
@@ -2829,138 +2832,6 @@ class ProcessIntelligence:
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
-        return final_score.astype(np.float32)
-
-    def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V3.2 · 质效校准版】计算“拆单吸筹强度”的专属信号。
-        - 核心升级: 引入“效率基准线”(efficiency_baseline)概念。在计算“质效调节指数”前，
-                      先对“全息验证综合分”进行校准。这使得任何低于基准线的战果（即使为正）
-                      都会被视为负向贡献，从而受到惩罚性抑制，为模型注入了赏罚分明的“主帅”逻辑。
-        """
-        method_name = "_calculate_split_order_accumulation"
-        # --- 调试信息构建 ---
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        debug_output = {}
-        _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算拆单吸筹强度..."] = ""
-        required_signals = [
-            'hidden_accumulation_intensity_D', 'SLOPE_5_close_D', 'deception_index_D',
-            'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER',
-            'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_DYN_AXIOM_STABILITY'
-        ]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self._print_debug_output(debug_output)
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        efficiency_baseline = config.get('efficiency_baseline', 0.15)
-        raw_intensity = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
-        price_trend_raw = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
-        deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-        upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name), df_index, bipolar=False)
-        flow_outcome = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        structure_outcome = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        potential_outcome = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
-        _temp_debug_values["原始信号值"] = {
-            "hidden_accumulation_intensity_D": raw_intensity,
-            "SLOPE_5_close_D": price_trend_raw,
-            "deception_index_D": deception_index,
-            "upward_impulse_purity_D": upward_purity,
-            "PROCESS_META_POWER_TRANSFER": flow_outcome,
-            "SCORE_CHIP_STRATEGIC_POSTURE": structure_outcome,
-            "SCORE_DYN_AXIOM_STABILITY": potential_outcome
-        }
-        normalized_score = (raw_intensity / 100).clip(0, 1)
-        price_trend_norm = self._normalize_series(price_trend_raw, df_index, bipolar=True)
-        price_suppression_factor = (1 - price_trend_norm.clip(lower=0) * (1 - upward_purity)).clip(0, 1)
-        deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
-        strategic_context_factor = (potential_outcome * 0.5 + deception_norm.clip(lower=0) * 0.5).clip(0, 1)
-        preliminary_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
-        tactical_momentum_score = self._normalize_series(preliminary_score.diff(1).fillna(0), df_index, bipolar=False)
-        dynamic_preliminary_score = (preliminary_score * 0.7 + tactical_momentum_score * 0.3).clip(0, 1)
-        _temp_debug_values["初步计算"] = {
-            "normalized_score": normalized_score,
-            "price_trend_norm": price_trend_norm,
-            "price_suppression_factor": price_suppression_factor,
-            "deception_norm": deception_norm,
-            "strategic_context_factor": strategic_context_factor,
-            "preliminary_score": preliminary_score,
-            "tactical_momentum_score": tactical_momentum_score,
-            "dynamic_preliminary_score": dynamic_preliminary_score
-        }
-        stability_score = potential_outcome
-        weight_flow = 1 - stability_score
-        weight_structure = stability_score
-        total_weight = weight_flow + weight_structure + 0.2
-        w_f = weight_flow / total_weight
-        w_s = weight_structure / total_weight
-        w_p = 0.2 / total_weight
-        holographic_state_score = (flow_outcome * w_f + structure_outcome * w_s + potential_outcome * w_p)
-        flow_trend = self._normalize_series(flow_outcome.diff(3).fillna(0), df_index, bipolar=True)
-        structure_trend = self._normalize_series(structure_outcome.diff(3).fillna(0), df_index, bipolar=True)
-        potential_trend = self._normalize_series(potential_outcome.diff(3).fillna(0), df_index, bipolar=True)
-        holographic_trend_score = (flow_trend * w_f + structure_trend * w_s + potential_trend * w_p)
-        holographic_validation_score = (holographic_state_score * 0.6 + holographic_trend_score * 0.4).clip(-1, 1)
-        _temp_debug_values["全息验证"] = {
-            "stability_score": stability_score,
-            "weight_flow": weight_flow,
-            "weight_structure": weight_structure,
-            "total_weight": total_weight,
-            "w_f": w_f,
-            "w_s": w_s,
-            "w_p": w_p,
-            "holographic_state_score": holographic_state_score,
-            "flow_trend": flow_trend,
-            "structure_trend": structure_trend,
-            "potential_trend": potential_trend,
-            "holographic_trend_score": holographic_trend_score,
-            "holographic_validation_score": holographic_validation_score
-        }
-        calibrated_holographic_score = holographic_validation_score - efficiency_baseline
-        quality_efficiency_modulator = (1 - calibrated_holographic_score).clip(0.1, 2.0)
-        final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1)
-        _temp_debug_values["最终分数"] = {
-            "calibrated_holographic_score": calibrated_holographic_score,
-            "quality_efficiency_modulator": quality_efficiency_modulator,
-            "final_score": final_score
-        }
-        # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 初步计算 ---"] = ""
-            for key, series in _temp_debug_values["初步计算"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 全息验证 ---"] = ""
-            for key, series in _temp_debug_values["全息验证"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
-            for key, series in _temp_debug_values["最终分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 拆单吸筹强度诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
             for key, value in debug_output.items():
                 if value:
                     print(f"{key}: {value}")

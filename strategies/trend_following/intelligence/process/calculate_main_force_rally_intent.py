@@ -114,7 +114,7 @@ class CalculateMainForceRallyIntent:
         # 16. 应用情境调节器
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, _temp_debug_values)
         # 17. 输出调试信息
-        self._output_debug_info(is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values, final_rally_intent, method_name)
+        # self._output_debug_info(is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values, final_rally_intent, method_name)
         return final_rally_intent.astype(np.float32)
 
     def _setup_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
