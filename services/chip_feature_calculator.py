@@ -1595,6 +1595,7 @@ class ChipFeatureCalculator:
         - 核心新增: 植入详细探针，用于调试 `main_force_ofi` 的计算过程。
         - 核心修正: 重新定义 `ofi` 的计算，使其基于逐笔数据 (tick data) 的买卖类型和成交量，
                      而非 Level-5 盘口数据，以更准确地反映实际成交的订单流失衡。
+        - 核心新增: 显式计算 `main_force_buy_ofi` 和 `main_force_sell_ofi` 列。
         """
         import numpy as np
         features = {
@@ -1633,7 +1634,7 @@ class ChipFeatureCalculator:
             print(f"    - hf_analysis_df['volume'] (前5个): {hf_analysis_df['volume'].head().tolist()}")
 
         # 核心修正：根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
-        # 'type' 列来自 tick_data，'volume' 列也来自 tick_data (在 merge_asof 后被重命名为 'volume_tick' 然后又被 rename 为 'volume')
+        # 'type' 列来自 tick_data, 'volume' 列也来自 tick_data (在 merge_asof 后被重命名为 'volume_tick' 然后又被 rename 为 'volume')
         conditions = [
             hf_analysis_df['type'] == 'B',
             hf_analysis_df['type'] == 'S'
@@ -1662,6 +1663,10 @@ class ChipFeatureCalculator:
             print(f"    - is_main_force_trade (前5个): {is_main_force_trade.head().tolist()}")
 
         hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['ofi'], 0)
+        # 核心新增：显式计算 main_force_buy_ofi 和 main_force_sell_ofi
+        hf_analysis_df['main_force_buy_ofi'] = hf_analysis_df['main_force_ofi'].clip(lower=0)
+        hf_analysis_df['main_force_sell_ofi'] = hf_analysis_df['main_force_ofi'].clip(upper=0)
+
         if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
             print(f"  [探针 D.1.5 - {stock_code} - {trade_date}] 最终 main_force_ofi 计算完成。")
             print(f"    - main_force_ofi (总和): {hf_analysis_df['main_force_ofi'].sum()}")
@@ -1669,6 +1674,12 @@ class ChipFeatureCalculator:
             print(f"    - main_force_ofi (后5个): {hf_analysis_df['main_force_ofi'].tail().tolist()}")
             print(f"    - main_force_ofi (正值总和 - 主力买入OFI): {hf_analysis_df['main_force_ofi'].clip(lower=0).sum()}")
             print(f"    - main_force_ofi (负值总和 - 主力卖出OFI): {hf_analysis_df['main_force_ofi'].clip(upper=0).sum()}")
+            print(f"  [探针 D.1.5.1 - {stock_code} - {trade_date}] 显式 main_force_buy_ofi 和 main_force_sell_ofi 计算完成。")
+            print(f"    - main_force_buy_ofi (总和): {hf_analysis_df['main_force_buy_ofi'].sum()}")
+            print(f"    - main_force_buy_ofi (前5个): {hf_analysis_df['main_force_buy_ofi'].head().tolist()}")
+            print(f"    - main_force_sell_ofi (总和): {hf_analysis_df['main_force_sell_ofi'].sum()}")
+            print(f"    - main_force_sell_ofi (前5个): {hf_analysis_df['main_force_sell_ofi'].head().tolist()}")
+
 
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
@@ -1703,7 +1714,7 @@ class ChipFeatureCalculator:
         - 核心升维: 引入“零强度”原则。当股价未进入特定区域（如未跌破主峰区）时，
                      相关的行为强度指标（如吸筹烈度）不再返回NaN，而是返回0.0，
                      代表该行为“零发生”，从而消除信息黑洞，使指标体系在逻辑上彻底完备。
-        - 核心新增: 植入详细探针，用于调试 `distribution_at_peak_intensity` 的计算过程。
+        - 核心新增: 植入详细探针，用于调试 `distribution_at_peak_intensity` 和 `absorption_of_distribution_intensity` 的计算过程。
         """
         # 将默认值从 np.nan 修改为 0.0
         metrics = {
@@ -1717,8 +1728,8 @@ class ChipFeatureCalculator:
         debug_params = context.get('debug_params', {})
         enable_probe = debug_params.get('should_probe', False)
         probe_dates = debug_params.get('probe_dates', [])
-        stock_code = context.get('stock_code', 'UNKNOWN')
-        trade_date = context.get('trade_date', 'UNKNOWN')
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
         if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
             print(f"\n[探针 C.1 - {stock_code} - {trade_date}] _compute_contextual_action_metrics 启动。")
             print(f"  - 原始输入: context keys: {context.keys()}")
@@ -1779,17 +1790,27 @@ class ChipFeatureCalculator:
                 print(f"    - 最终 distribution_at_peak_intensity: {metrics['distribution_at_peak_intensity']}")
             # 1.1 新增：计算主峰区派发吸收强度
             # 关注在高于主峰区时，主力资金的买入意图和实际买入行为的强度
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.6 - {stock_code} - {trade_date}] 开始计算 absorption_of_distribution_intensity。")
             absorption_intent_numerator = above_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
             absorption_intent_denominator = above_peak_zone_df['main_force_ofi'].abs().sum()
             absorption_intent_component = absorption_intent_numerator / absorption_intent_denominator if absorption_intent_denominator > 0 else 0
             # 吸收的成果也应与价格上涨正相关
             absorption_outcome_component = np.tanh((price_end - price_start) / atr)
             metrics['absorption_of_distribution_intensity'] = np.clip((focus_component * absorption_intent_component * (1 + absorption_outcome_component)) * 100, 0, 100)
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - absorption_intent_numerator (above_peak_zone_df['main_force_ofi'].clip(lower=0).sum()): {absorption_intent_numerator}")
+                print(f"    - absorption_intent_denominator (above_peak_zone_df['main_force_ofi'].abs().sum()): {absorption_intent_denominator}")
+                print(f"    - absorption_intent_component: {absorption_intent_component}")
+                print(f"    - absorption_outcome_component (np.tanh((price_end - price_start) / atr)): {absorption_outcome_component}")
+                print(f"    - 最终 absorption_of_distribution_intensity: {metrics['absorption_of_distribution_intensity']}")
         else:
             if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
-                print(f"  [探针 C.1.5 - {stock_code} - {trade_date}] 'above_peak_zone_df' 为空，distribution_at_peak_intensity 保持默认值 {metrics['distribution_at_peak_intensity']}。")
+                print(f"  [探针 C.1.5 - {stock_code} - {trade_date}] 'above_peak_zone_df' 为空，distribution_at_peak_intensity 和 absorption_of_distribution_intensity 保持默认值 {metrics['distribution_at_peak_intensity']}。")
         # 2. 计算主峰区吸筹烈度
         if not below_peak_zone_df.empty:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.7 - {stock_code} - {trade_date}] 开始计算 absorption_at_peak_intensity。")
             focus_numerator = below_peak_zone_df['main_force_ofi'].abs().sum()
             focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
             focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
@@ -1801,9 +1822,19 @@ class ChipFeatureCalculator:
             # 修正吸筹成果的计算逻辑：价格下跌为正成果，因为吸筹通常发生在打压过程中
             outcome_component = np.tanh((price_start - price_end) / atr)
             metrics['absorption_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100)
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - focus_component: {focus_component}")
+                print(f"    - intent_component: {intent_component}")
+                print(f"    - outcome_component: {outcome_component}")
+                print(f"    - 最终 absorption_at_peak_intensity: {metrics['absorption_at_peak_intensity']}")
+        else:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.7 - {stock_code} - {trade_date}] 'below_peak_zone_df' 为空，absorption_at_peak_intensity 保持默认值 {metrics['absorption_at_peak_intensity']}。")
         # 3. 计算突破主峰质量
         breakthrough_event_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
         if not breakthrough_event_df.empty:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.8 - {stock_code} - {trade_date}] 开始计算 breakthrough_of_peak_quality。")
             magnitude_component = (breakthrough_event_df['price'].max() - peak_zone_upper) / atr
             conviction_numerator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
             conviction_denominator = breakthrough_event_df['main_force_ofi'].abs().sum()
@@ -1812,19 +1843,44 @@ class ChipFeatureCalculator:
             efficiency_denominator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
             efficiency_component = np.tanh(efficiency_numerator / (efficiency_denominator * 1e-6)) if efficiency_denominator > 0 else 0
             metrics['breakthrough_of_peak_quality'] = np.clip((magnitude_component * conviction_component * efficiency_component) * 100, 0, 100)
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - magnitude_component: {magnitude_component}")
+                print(f"    - conviction_component: {conviction_component}")
+                print(f"    - efficiency_component: {efficiency_component}")
+                print(f"    - 最终 breakthrough_of_peak_quality: {metrics['breakthrough_of_peak_quality']}")
+        else:
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"  [探针 C.1.8 - {stock_code} - {trade_date}] 'breakthrough_event_df' 为空，breakthrough_of_peak_quality 保持默认值 {metrics['breakthrough_of_peak_quality']}。")
         # 4. 计算防守主峰质量
         day_low = common_data.get('day_low')
         day_close = common_data.get('day_close')
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 C.1.9 - {stock_code} - {trade_date}] 开始计算 defense_of_peak_quality。")
+            print(f"    - day_low: {day_low}, peak_zone_lower: {peak_zone_lower}")
         if day_low >= peak_zone_lower:
             metrics['defense_of_peak_quality'] = 100.0
+            if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                print(f"    - day_low >= peak_zone_lower，defense_of_peak_quality: {metrics['defense_of_peak_quality']}")
         else:
             recovery_df = hf_analysis_df[hf_analysis_df['price'] < peak_zone_lower]
             if not recovery_df.empty and pd.notna(day_close):
+                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                    print(f"    - day_low < peak_zone_lower 且存在 recovery_df。")
                 recovery_magnitude = (day_close - day_low) / atr
                 recovery_conviction_num = recovery_df['main_force_ofi'].clip(lower=0).sum()
                 recovery_conviction_den = recovery_df['main_force_ofi'].abs().sum()
                 recovery_conviction = recovery_conviction_num / recovery_conviction_den if recovery_conviction_den > 0 else 0
                 metrics['defense_of_peak_quality'] = np.clip((recovery_magnitude * recovery_conviction) * 100, 0, 100)
+                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                    print(f"    - recovery_magnitude: {recovery_magnitude}")
+                    print(f"    - recovery_conviction: {recovery_conviction}")
+                    print(f"    - 最终 defense_of_peak_quality: {metrics['defense_of_peak_quality']}")
+            else:
+                if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+                    print(f"    - day_low < peak_zone_lower 但 recovery_df 为空或 day_close 为NaN，defense_of_peak_quality 保持默认值 {metrics['defense_of_peak_quality']}。")
+        if enable_probe and (not probe_dates or str(trade_date) in probe_dates):
+            print(f"  [探针 C.1.10 - {stock_code} - {trade_date}] _compute_contextual_action_metrics 结束。")
+            print(f"    - 最终 metrics: {metrics}")
         return metrics
 
 
