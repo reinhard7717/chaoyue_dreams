@@ -402,6 +402,7 @@ class CalculateSplitOrderAccumulation:
         - 核心修正: 完全移除对情报层原子信号的依赖，转而使用数据层复合信号。
         - 核心增强: 引入共振、背离、拐点 (RDI) 信号，并根据其性质对全息验证分数进行奖励或惩罚。
         - 新增: 集成多时间框架协同性分数 (mtf_cohesion_score) 作为额外的奖励因子。
+        - 修复: 修正了 `mtf_cohesion_score` 的获取来源，从 `mtf_signals` 而非 `normalized_signals` 获取。
         """
         holographic_debug_values = {}
         params = config.get('holographic_validation_params', {})
@@ -509,7 +510,8 @@ class CalculateSplitOrderAccumulation:
         holographic_trend_score = holographic_trend_score * (1 + total_inflection_reward * inflection_reward_factor)
 
         # 新增：应用MTF协同性奖励
-        mtf_cohesion_score = normalized_signals["mtf_cohesion_score"] # 从 normalized_signals 获取，因为 _get_and_normalize_signals 已经计算并放入
+        # 修复：从 mtf_signals 获取 mtf_cohesion_score
+        mtf_cohesion_score = mtf_signals["mtf_cohesion_score"] 
         holographic_debug_values["mtf_cohesion_score"] = mtf_cohesion_score
         holographic_state_score = holographic_state_score * (1 + mtf_cohesion_score * cohesion_reward_factor)
         holographic_trend_score = holographic_trend_score * (1 + mtf_cohesion_score * cohesion_reward_factor)
