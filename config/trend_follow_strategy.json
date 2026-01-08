@@ -152,7 +152,7 @@
         "panic_selling_cascade_D": [5, 13, 21, 34, 55],
         "rally_distribution_pressure_D": [5, 13, 21, 34, 55],
         "main_force_flow_gini_D": [5, 13, 21, 34, 55],
-        "hidden_accumulation_intensity_D": [5, 13],
+        "hidden_accumulation_intensity_D": [5, 13, 21, 34],
         "large_order_pressure_D":[5, 13],
         "exhaustion_risk_index_D":[5, 13],
         "absorption_of_distribution_intensity_D":[5, 13],
