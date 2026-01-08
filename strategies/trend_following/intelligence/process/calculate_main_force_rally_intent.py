@@ -799,7 +799,7 @@ class CalculateMainForceRallyIntent:
             'vwap_sell_control_strength_norm': self.helper._normalize_series(raw_signals['vwap_sell_control_strength'], df_index, bipolar=False),
             'winner_stability_index_norm': self.helper._normalize_series(raw_signals['winner_stability_index'], df_index, bipolar=False),
             'absorption_of_distribution_intensity_norm': (raw_signals['absorption_of_distribution_intensity'] / 100).clip(0, 1), # 直接除以100
-            'distribution_intensity_norm': (raw_signals['distribution_at_peak_intensity'] / 100).clip(0, 1), # 直接除以100
+            'distribution_at_peak_intensity_norm': (raw_signals['distribution_at_peak_intensity'] / 100).clip(0, 1), # 直接除以100，重命名
             'absorption_at_peak_intensity_norm': (raw_signals['absorption_at_peak_intensity'] / 100).clip(0, 1), # 新增，直接除以100
             'upper_shadow_selling_pressure_norm': self.helper._normalize_series(raw_signals['upper_shadow_selling_pressure'], df_index, bipolar=False)
         }
@@ -827,27 +827,27 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_distribution_absorption_dynamics(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【新增】计算派发/吸收动态信号。
-        融合峰值派发/吸收的净意图、整体吸收强度和隐蔽派发趋势，生成一个双极性信号。
-        正值表示净吸收意图，负值表示净派发意图。
+        【重构】计算高位区域的派发/吸收动态信号。
+        融合高位吸收派发强度、高位派发强度和隐蔽派发趋势，生成一个双极性信号。
+        正值表示高位净吸收意图，负值表示高位净派发意图。
         """
-        # 1. 峰值派发与吸收的净意图
-        # 峰值吸收强度 - 峰值派发强度，归一化到 [-1, 1]
-        peak_net_intent_raw = normalized_signals['absorption_at_peak_intensity_norm'] - normalized_signals['distribution_intensity_norm']
-        # 2. 整体吸收强度 (MTF趋势)
+        # 1. 高位吸收派发与高位派发的净意图
+        # absorption_of_distribution_intensity_norm: 股价高于主峰区上沿时，对派发的吸收强度
+        # distribution_at_peak_intensity_norm: 股价高于主峰区上沿时，派发强度
+        high_level_net_flow_raw = normalized_signals['absorption_of_distribution_intensity_norm'] - normalized_signals['distribution_at_peak_intensity_norm']
+        # 2. 整体吸收强度 (MTF趋势) - 这里的mtf_absorption_of_distribution_intensity也主要反映高位吸收
         overall_absorption_mtf = mtf_signals['mtf_absorption_of_distribution_intensity']
         # 3. 隐蔽派发趋势 (MTF趋势，取负向贡献)
         covert_distribution_mtf_inverted = -mtf_signals['mtf_covert_distribution']
         # 4. 融合各项，生成双极性信号
-        # 赋予不同权重，强调峰值意图和整体吸收的积极作用，以及隐蔽派发的负面作用
-        # 权重可以根据实际回测效果进行调整
+        # 赋予不同权重，强调高位吸收的积极作用，以及高位派发和隐蔽派发的负面作用
         distribution_absorption_dynamics = (
-            peak_net_intent_raw * 0.4 +
-            overall_absorption_mtf * 0.3 +
-            covert_distribution_mtf_inverted * 0.3
+            high_level_net_flow_raw * 0.4 + # 高位净流向
+            overall_absorption_mtf * 0.3 + # MTF层面的高位吸收趋势
+            covert_distribution_mtf_inverted * 0.3 # MTF层面的隐蔽派发趋势
         ).clip(-1, 1)
         _temp_debug_values["派发吸收动态"] = {
-            "peak_net_intent_raw": peak_net_intent_raw,
+            "high_level_net_flow_raw": high_level_net_flow_raw,
             "overall_absorption_mtf": overall_absorption_mtf,
             "covert_distribution_mtf_inverted": covert_distribution_mtf_inverted,
             "distribution_absorption_dynamics": distribution_absorption_dynamics
@@ -1105,14 +1105,14 @@ class CalculateMainForceRallyIntent:
              obstacle_clearance_score * dynamic_weights["obstacle_clearance"]) /
             (dynamic_weights["aggressiveness"] + dynamic_weights["control"] + dynamic_weights["obstacle_clearance"])
         )
-        # V11.3: 强化 mtf_absorption_of_distribution_intensity 的积极作用，直接贡献于看涨意图
-        # 承接强度越高，看涨意图越强，这里使用一个较小的系数，避免过度放大
         # 引入“净吸收强度”作为直接加成项 (基于MTF信号)
         net_absorption_strength = (mtf_signals['mtf_absorption_of_distribution_intensity'].clip(lower=0) - mtf_signals['mtf_covert_distribution'].clip(lower=0)).clip(lower=0)
-        # 新增：基于派发/吸收动态信号的正向部分
+        # 新增：基于派发/吸收动态信号的正向部分 (高位净吸收)
         absorption_dynamics_positive = distribution_absorption_dynamics.clip(lower=0)
+        # 新增：基于下方吸筹强度的贡献
+        below_peak_absorption_contribution = normalized_signals['absorption_at_peak_intensity_norm']
         # 融合所有看涨贡献
-        bullish_intent = (bullish_intent_base + net_absorption_strength * 0.2 + absorption_dynamics_positive * 0.15).clip(0, 1) # 调整权重
+        bullish_intent = (bullish_intent_base * 0.5 + net_absorption_strength * 0.2 + absorption_dynamics_positive * 0.15 + below_peak_absorption_contribution * 0.15).clip(0, 1) # 调整权重
         # V11.1: 应用长期趋势强度调节
         bullish_intent = (bullish_intent * long_term_trend_strength_modulator).clip(0, 1)
         # 幂平均，放大高分，抑制低分
@@ -1122,7 +1122,8 @@ class CalculateMainForceRallyIntent:
             "power_mean_exponent": power_mean_exponent,
             "bullish_intent_base": bullish_intent_base, # 增加基础看涨意图的调试输出
             "net_absorption_strength": net_absorption_strength, # 增加净吸收强度调试输出
-            "absorption_dynamics_positive": absorption_dynamics_positive, # 新增调试输出
+            "absorption_dynamics_positive": absorption_dynamics_positive, # 新增调试输出 (高位净吸收)
+            "below_peak_absorption_contribution": below_peak_absorption_contribution, # 新增调试输出 (下方吸筹)
             "bullish_intent": bullish_intent
         }
         return bullish_intent
@@ -1138,7 +1139,7 @@ class CalculateMainForceRallyIntent:
         distribution_dampener = (1 - np.tanh(raw_signals['pct_change'] / 100 * 10)).clip(0.1, 2.0) # 调整clip上限
         # 看跌意图的计算
         bearish_score_components = {
-            "distribution_absorption_dynamics_negative": distribution_absorption_dynamics.clip(upper=0).abs() * distribution_dampener, # 派发/吸收动态的负向部分，应用衰减器
+            "distribution_absorption_dynamics_negative": distribution_absorption_dynamics.clip(upper=0).abs() * distribution_dampener, # 派发/吸收动态的负向部分，应用衰减器 (现在更纯粹地代表高位派发)
             "upper_shadow_selling_pressure_norm": normalized_signals['upper_shadow_selling_pressure_norm'],
             "flow_credibility_norm_inverted": (1 - normalized_signals['flow_credibility_norm']), # 信用度低，看跌
             "mtf_mf_net_flow_negative": mtf_signals['mtf_mf_net_flow'].clip(upper=0).abs(), # 主力净流出趋势
@@ -1166,7 +1167,7 @@ class CalculateMainForceRallyIntent:
             "mtf_total_loser_rate": mtf_signals['mtf_total_loser_rate'].clip(lower=0) # 输家比例上升
         }
         bearish_weights = {
-            "distribution_absorption_dynamics_negative": 0.15, # 核心权重
+            "distribution_absorption_dynamics_negative": 0.15, # 核心权重 (现在更纯粹地代表高位派发)
             "upper_shadow_selling_pressure_norm": 0.1,
             "flow_credibility_norm_inverted": 0.08, "mtf_mf_net_flow_negative": 0.08,
             "mtf_deception_index": 0.05, "mtf_deception_lure_long_intensity": 0.05,
@@ -1207,7 +1208,7 @@ class CalculateMainForceRallyIntent:
         # 6.1. 派发风险 (Distribution Risk)
         mf_outflow_divergence = mtf_signals['mtf_mf_net_flow'].clip(upper=0).abs()
         distribution_risk_components = {
-            "distribution_absorption_dynamics_negative": distribution_absorption_dynamics.clip(upper=0).abs(), # 派发/吸收动态的负向部分
+            "distribution_absorption_dynamics_negative": distribution_absorption_dynamics.clip(upper=0).abs(), # 派发/吸收动态的负向部分 (现在更纯粹地代表高位派发)
             "mtf_upper_shadow_pressure": mtf_signals['mtf_upper_shadow_pressure'].clip(lower=0), # 上影线抛压趋势向上
             "mf_outflow_divergence": mf_outflow_divergence, # 主力净流出背离
             "mtf_retail_fomo": mtf_signals['mtf_retail_fomo'].clip(lower=0), # 散户FOMO情绪趋势向上
@@ -1256,7 +1257,7 @@ class CalculateMainForceRallyIntent:
             "mtf_vwap_sell_control_strength": mtf_signals['mtf_vwap_sell_control_strength'].clip(lower=0) # VWAP卖方控制强度趋势向上
         }
         distribution_risk_weights = {
-            "distribution_absorption_dynamics_negative": 0.15, # 核心权重
+            "distribution_absorption_dynamics_negative": 0.15, # 核心权重 (现在更纯粹地代表高位派发)
             "mtf_upper_shadow_pressure": 0.05,
             "mf_outflow_divergence": 0.05, "mtf_retail_fomo": 0.03,
             "mtf_covert_distribution": 0.05, "mtf_deception_lure_short": 0.03,
