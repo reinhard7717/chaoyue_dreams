@@ -14,11 +14,13 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateSplitOrderAccumulation:
     """
-    【V4.0.1 · 拆单吸筹强度 · 信号依赖修正版】
+    【V4.0.2 · 拆单吸筹强度 · 探针强化与问题暴露版】
     - 核心修正: 严格区分原始数据及其MTF衍生与原子信号。原子信号的趋势通过直接diff()计算，
                 避免在df中查找不存在的MTF衍生列。
     - 核心升级: 引入动态效率基准线，增强价格行为捕捉，精细化欺诈意图识别，MTF核心信号增强，
                 情境自适应权重调整，非线性融合强化，趋势动量diff()化。
+    - 探针强化: 增加关键中间计算节点的详细探针，特别是针对_robust_geometric_mean的输入和输出，
+                以及最终pow()操作的精确值，以暴露潜在的计算偏差或bug。
     """
     def __init__(self, strategy_instance, helper: ProcessIntelligenceHelper):
         """
@@ -42,11 +44,13 @@ class CalculateSplitOrderAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.1 · 拆单吸筹强度 · 信号依赖修正版】计算“拆单吸筹强度”的专属信号。
+        【V4.0.2 · 拆单吸筹强度 · 探针强化与问题暴露版】计算“拆单吸筹强度”的专属信号。
         - 核心修正: 严格区分原始数据及其MTF衍生与原子信号。原子信号的趋势通过直接diff()计算，
                     避免在df中查找不存在的MTF衍生列。
         - 核心升级: 引入动态效率基准线，增强价格行为捕捉，精细化欺诈意图识别，MTF核心信号增强，
                     情境自适应权重调整，非线性融合强化，趋势动量diff()化。
+        - 探针强化: 增加关键中间计算节点的详细探针，特别是针对_robust_geometric_mean的输入和输出，
+                    以及最终pow()操作的精确值，以暴露潜在的计算偏差或bug。
         """
         method_name = "calculate_split_order_accumulation"
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
@@ -91,7 +95,7 @@ class CalculateSplitOrderAccumulation:
         _temp_debug_values["全息验证"]["holographic_validation_score"] = holographic_validation_score
 
         # 5. 应用质效校准并计算最终分数
-        final_score, final_score_debug_values = self._apply_quality_efficiency_calibration(dynamic_preliminary_score, holographic_validation_score, dynamic_efficiency_baseline)
+        final_score, final_score_debug_values = self._apply_quality_efficiency_calibration(dynamic_preliminary_score, holographic_validation_score, dynamic_efficiency_baseline, probe_ts)
         _temp_debug_values["最终分数"] = final_score_debug_values
         _temp_debug_values["最终分数"]["final_score"] = final_score
 
@@ -376,8 +380,13 @@ class CalculateSplitOrderAccumulation:
             "structure_outcome": structure_outcome_raw,
             "potential_outcome": potential_outcome_raw
         }
+        
+        # --- 探针强化: 打印传递给 _robust_geometric_mean 的实际值 ---
+        holographic_state_components_pre_gm = {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_state_components.items()}
+        holographic_debug_values["holographic_state_components_pre_gm_values"] = holographic_state_components_pre_gm
+        
         holographic_state_score = _robust_geometric_mean(
-            {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_state_components.items()}, # 确保输入为正
+            holographic_state_components_pre_gm, # 确保输入为正
             dynamic_state_fusion_weights,
             df_index
         )
@@ -428,7 +437,7 @@ class CalculateSplitOrderAccumulation:
 
         return holographic_validation_score.clip(-1, 1), holographic_debug_values
 
-    def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, dynamic_efficiency_baseline: pd.Series) -> Tuple[pd.Series, Dict[str, pd.Series]]:
+    def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, dynamic_efficiency_baseline: pd.Series, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
         应用质效校准并计算最终分数。
         """
@@ -445,6 +454,12 @@ class CalculateSplitOrderAccumulation:
 
         final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1).fillna(0.0)
 
+        # --- 探针强化: 打印pow()操作的精确值 ---
+        if probe_ts is not None and probe_ts in dynamic_preliminary_score.index and probe_ts in quality_efficiency_modulator.index:
+            final_score_debug_values["dynamic_preliminary_score_at_probe_ts"] = dynamic_preliminary_score.loc[probe_ts]
+            final_score_debug_values["quality_efficiency_modulator_at_probe_ts"] = quality_efficiency_modulator.loc[probe_ts]
+            final_score_debug_values["calculated_pow_result_at_probe_ts"] = dynamic_preliminary_score.loc[probe_ts] ** quality_efficiency_modulator.loc[probe_ts]
+        
         return final_score, final_score_debug_values
 
     def _print_debug_info(self, method_name: str, probe_ts: pd.Timestamp, debug_output: Dict, _temp_debug_values: Dict, final_score: pd.Series):
