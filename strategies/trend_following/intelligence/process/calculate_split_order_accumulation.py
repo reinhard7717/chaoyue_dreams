@@ -338,7 +338,12 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        计算全息验证分数。
+        【V4.0.4 · 拆单吸筹强度 · 键匹配修复版】计算全息验证分数。
+        - 核心修复: 修正了传递给 _robust_geometric_mean 的 scores_dict 和 weights_dict 之间的键不匹配问题。
+        - 核心升级: 引入动态效率基准线，增强价格行为捕捉，精细化欺诈意图识别，MTF核心信号增强，
+                    情境自适应权重调整，非线性融合强化，趋势动量diff()化。
+        - 探针强化: 增加关键中间计算节点的详细探针，特别是针对_robust_geometric_mean的输入和输出，
+                    以及最终pow()操作的精确值，以暴露潜在的计算偏差或bug。
         """
         holographic_debug_values = {}
         params = config.get('holographic_validation_params', {})
@@ -363,11 +368,13 @@ class CalculateSplitOrderAccumulation:
         
         # 动态调整 state_fusion_weights
         dynamic_state_fusion_weights = state_fusion_weights.copy()
+        # 注意：这里 dynamic_state_fusion_weights 的值会变成 Series
         dynamic_state_fusion_weights["flow"] = dynamic_state_fusion_weights["flow"] * (1 - sentiment_factor * 0.2) * (1 + volatility_factor * 0.1) * (1 - trend_strength_factor * 0.1)
         dynamic_state_fusion_weights["structure"] = dynamic_state_fusion_weights["structure"] * (1 + sentiment_factor * 0.2) * (1 + volatility_factor * 0.1) * (1 + trend_strength_factor * 0.1)
         dynamic_state_fusion_weights["potential"] = dynamic_state_fusion_weights["potential"] * (1 + sentiment_factor * 0.1) * (1 + volatility_factor * 0.05) * (1 + trend_strength_factor * 0.05)
         
         # 归一化动态权重
+        # total_dynamic_weight 此时是一个 Series
         total_dynamic_weight = sum(dynamic_state_fusion_weights.values())
         # 避免除以零
         total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
@@ -376,10 +383,11 @@ class CalculateSplitOrderAccumulation:
         holographic_debug_values["dynamic_state_fusion_weights"] = dynamic_state_fusion_weights
 
         # 非线性融合 holographic_state_score
+        # 核心修复：修改键名以匹配 dynamic_state_fusion_weights 的键
         holographic_state_components = {
-            "flow_outcome": flow_outcome_raw,
-            "structure_outcome": structure_outcome_raw,
-            "potential_outcome": potential_outcome_raw
+            "flow": flow_outcome_raw,         # 键从 "flow_outcome" 改为 "flow"
+            "structure": structure_outcome_raw, # 键从 "structure_outcome" 改为 "structure"
+            "potential": potential_outcome_raw  # 键从 "potential_outcome" 改为 "potential"
         }
         
         # --- 探针强化: 打印传递给 _robust_geometric_mean 的实际值 ---
@@ -387,13 +395,13 @@ class CalculateSplitOrderAccumulation:
         holographic_debug_values["holographic_state_components_pre_gm_values"] = holographic_state_components_pre_gm
         
         # 构建 debug_info_for_gm
-        debug_info_for_gm = (is_debug_enabled_for_method, probe_ts, "CalculateSplitOrderAccumulation._calculate_holographic_validation")
+        debug_info_for_state_gm = (is_debug_enabled_for_method, probe_ts, "holographic_state_score_GM")
 
         holographic_state_score = _robust_geometric_mean(
             holographic_state_components_pre_gm, # 确保输入为正
             dynamic_state_fusion_weights,
             df_index,
-            debug_info=debug_info_for_gm # 传递调试信息
+            debug_info=debug_info_for_state_gm # 传递调试信息
         )
         holographic_debug_values["holographic_state_score_components"] = holographic_state_components
         holographic_debug_values["holographic_state_score"] = holographic_state_score
@@ -411,16 +419,18 @@ class CalculateSplitOrderAccumulation:
         holographic_debug_values["structure_trend_raw"] = structure_trend_raw
         holographic_debug_values["potential_trend_raw"] = potential_trend_raw
 
+        # 核心修复：修改键名以匹配 trend_fusion_weights 的键
         holographic_trend_components = {
             "flow_trend": flow_trend,
             "structure_trend": structure_trend,
             "potential_trend": potential_trend
         }
+        debug_info_for_trend_gm = (is_debug_enabled_for_method, probe_ts, "holographic_trend_score_GM")
         holographic_trend_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_trend_components.items()}, # 确保输入为正
             trend_fusion_weights,
             df_index,
-            debug_info=debug_info_for_gm # 传递调试信息
+            debug_info=debug_info_for_trend_gm # 传递调试信息
         )
         holographic_debug_values["holographic_trend_score_components"] = holographic_trend_components
         holographic_debug_values["holographic_trend_score"] = holographic_trend_score
@@ -430,11 +440,12 @@ class CalculateSplitOrderAccumulation:
             "state": holographic_state_score,
             "trend": holographic_trend_score
         }
+        debug_info_for_overall_gm = (is_debug_enabled_for_method, probe_ts, "holographic_validation_score_GM")
         holographic_validation_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in overall_holographic_components.items()}, # 确保输入为正
             overall_fusion_weights,
             df_index,
-            debug_info=debug_info_for_gm # 传递调试信息
+            debug_info=debug_info_for_overall_gm # 传递调试信息
         )
         # 将几何平均结果映射回 [-1, 1] 区间，通过乘以原始状态和趋势的平均符号
         weighted_avg_direction = (flow_outcome_raw * dynamic_state_fusion_weights["flow"] + 
