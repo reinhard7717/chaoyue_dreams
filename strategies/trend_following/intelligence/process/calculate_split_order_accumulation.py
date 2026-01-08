@@ -14,9 +14,11 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateSplitOrderAccumulation:
     """
-    【V4.0.0 · 拆单吸筹强度 · 全息动态校准版】
+    【V4.0.1 · 拆单吸筹强度 · 信号依赖修正版】
+    - 核心修正: 严格区分原始数据及其MTF衍生与原子信号。原子信号的趋势通过直接diff()计算，
+                避免在df中查找不存在的MTF衍生列。
     - 核心升级: 引入动态效率基准线，增强价格行为捕捉，精细化欺诈意图识别，MTF核心信号增强，
-                情境自适应权重调整，非线性融合强化，趋势动量MTF化。
+                情境自适应权重调整，非线性融合强化，趋势动量diff()化。
     """
     def __init__(self, strategy_instance, helper: ProcessIntelligenceHelper):
         """
@@ -40,9 +42,11 @@ class CalculateSplitOrderAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.0 · 拆单吸筹强度 · 全息动态校准版】计算“拆单吸筹强度”的专属信号。
+        【V4.0.1 · 拆单吸筹强度 · 信号依赖修正版】计算“拆单吸筹强度”的专属信号。
+        - 核心修正: 严格区分原始数据及其MTF衍生与原子信号。原子信号的趋势通过直接diff()计算，
+                    避免在df中查找不存在的MTF衍生列。
         - 核心升级: 引入动态效率基准线，增强价格行为捕捉，精细化欺诈意图识别，MTF核心信号增强，
-                    情境自适应权重调整，非线性融合强化，趋势动量MTF化。
+                    情境自适应权重调整，非线性融合强化，趋势动量diff()化。
         """
         method_name = "calculate_split_order_accumulation"
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
@@ -60,34 +64,41 @@ class CalculateSplitOrderAccumulation:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算拆单吸筹强度..."] = ""
+
         df_index = df.index
-        # 获取配置中的MTF权重，如果config中没有，则使用默认值
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', self.default_mtf_slope_accel_weights)
+        
         # 1. 获取并归一化所有信号
         raw_signals, normalized_signals, mtf_signals, context_signals = self._get_and_normalize_signals(df, mtf_slope_accel_weights, method_name)
         _temp_debug_values["原始信号值"] = raw_signals
         _temp_debug_values["归一化处理"] = normalized_signals
         _temp_debug_values["MTF信号"] = mtf_signals
         _temp_debug_values["情境信号"] = context_signals
+
         # 2. 动态效率基准线
         dynamic_efficiency_baseline, baseline_debug_values = self._calculate_dynamic_efficiency_baseline(context_signals, df_index, config)
         _temp_debug_values["动态效率基准线"] = baseline_debug_values
         _temp_debug_values["动态效率基准线"]["dynamic_efficiency_baseline"] = dynamic_efficiency_baseline
+
         # 3. 计算初步分数 (dynamic_preliminary_score)
         dynamic_preliminary_score, preliminary_debug_values = self._calculate_preliminary_score(normalized_signals, mtf_signals, context_signals, df_index, config)
         _temp_debug_values["初步计算"] = preliminary_debug_values
         _temp_debug_values["初步计算"]["dynamic_preliminary_score"] = dynamic_preliminary_score
+
         # 4. 计算全息验证分数 (holographic_validation_score)
-        holographic_validation_score, holographic_debug_values = self._calculate_holographic_validation(df, normalized_signals, mtf_signals, context_signals, df_index, config)
+        holographic_validation_score, holographic_debug_values = self._calculate_holographic_validation(df, raw_signals, normalized_signals, context_signals, df_index, config) # 传递raw_signals以获取原子信号的原始Series
         _temp_debug_values["全息验证"] = holographic_debug_values
         _temp_debug_values["全息验证"]["holographic_validation_score"] = holographic_validation_score
+
         # 5. 应用质效校准并计算最终分数
         final_score, final_score_debug_values = self._apply_quality_efficiency_calibration(dynamic_preliminary_score, holographic_validation_score, dynamic_efficiency_baseline)
         _temp_debug_values["最终分数"] = final_score_debug_values
         _temp_debug_values["最终分数"]["final_score"] = final_score
+
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             self._print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, final_score)
+
         return final_score.astype(np.float32)
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
@@ -96,32 +107,42 @@ class CalculateSplitOrderAccumulation:
         返回: (raw_signals, normalized_signals, mtf_signals, context_signals)
         """
         df_index = df.index
-        required_signals = [
+        
+        # 明确列出所有需要从 df 中获取的原始数据列
+        raw_df_columns = [
             'hidden_accumulation_intensity_D', 'SLOPE_5_close_D', 'deception_index_D',
-            'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER',
-            'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_DYN_AXIOM_STABILITY',
-            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'upward_impulse_purity_D', 'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'ADX_14_D', 'is_consolidating_D', 'dynamic_consolidation_duration_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
-            'trend_vitality_index_D', 'close_D' # close_D用于MTF price trend
+            'trend_vitality_index_D', 'close_D'
         ]
-        # 动态添加MTF斜率和加速度信号到required_signals
-        base_signals_for_mtf = [
+        
+        # 明确列出所有需要从 atomic_states 中获取的原子信号
+        atomic_state_signals = [
+            'PROCESS_META_POWER_TRANSFER', 'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_DYN_AXIOM_STABILITY'
+        ]
+
+        # 构建 required_signals 列表，用于验证
+        required_signals = list(raw_df_columns) + list(atomic_state_signals)
+
+        # 动态添加数据层原始信号的MTF斜率和加速度到required_signals
+        # 这些MTF信号是预期在df中作为预计算列存在的
+        base_signals_for_mtf_from_df = [
             'hidden_accumulation_intensity_D', 'close_D', 'deception_index_D',
-            'PROCESS_META_POWER_TRANSFER', 'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_DYN_AXIOM_STABILITY',
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
             'trend_vitality_index_D'
         ]
-        for base_sig in base_signals_for_mtf:
-            # _get_mtf_slope_accel_score 会从df中查找SLOPE_X_SIGNAL_NAME，所以这里只需要确保原始信号名是正确的
+        for base_sig in base_signals_for_mtf_from_df:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return {}, {}, {}, {}
+
         # 原始数据获取
         raw_intensity = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
         price_trend_raw = self.helper._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
@@ -138,6 +159,7 @@ class CalculateSplitOrderAccumulation:
         deception_lure_long_raw = self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name)
         deception_lure_short_raw = self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
         trend_vitality_raw = self.helper._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
+
         raw_signals = {
             "hidden_accumulation_intensity_D": raw_intensity,
             "SLOPE_5_close_D": price_trend_raw,
@@ -155,14 +177,16 @@ class CalculateSplitOrderAccumulation:
             "deception_lure_short_intensity_D": deception_lure_short_raw,
             "trend_vitality_index_D": trend_vitality_raw
         }
-        # 归一化处理
+
+        # 归一化处理 (针对原始信号或其简单衍生)
         normalized_score = (raw_intensity / 100).clip(0, 1)
         price_trend_norm = self.helper._normalize_series(price_trend_raw, df_index, bipolar=True)
         upward_purity = self.helper._normalize_series(upward_purity_raw, df_index, bipolar=False)
         deception_norm = self.helper._normalize_series(deception_index_raw, df_index, bipolar=True)
-        flow_outcome = flow_outcome_raw # 已经是分数
-        structure_outcome = structure_outcome_raw # 已经是分数
-        potential_outcome = potential_outcome_raw # 已经是分数
+        # 原子信号直接使用，它们已经是归一化分数
+        flow_outcome = flow_outcome_raw
+        structure_outcome = structure_outcome_raw
+        potential_outcome = potential_outcome_raw
         market_sentiment_norm = self.helper._normalize_series(market_sentiment_raw, df_index, bipolar=True)
         volatility_instability_norm = self.helper._normalize_series(volatility_instability_raw, df_index, bipolar=False)
         adx_norm = self.helper._normalize_series(adx_raw, df_index, bipolar=False)
@@ -171,6 +195,7 @@ class CalculateSplitOrderAccumulation:
         deception_lure_long_norm = self.helper._normalize_series(deception_lure_long_raw, df_index, bipolar=False)
         deception_lure_short_norm = self.helper._normalize_series(deception_lure_short_raw, df_index, bipolar=False)
         trend_vitality_norm = self.helper._normalize_series(trend_vitality_raw, df_index, bipolar=False)
+
         normalized_signals = {
             "normalized_score": normalized_score,
             "price_trend_norm": price_trend_norm,
@@ -180,21 +205,18 @@ class CalculateSplitOrderAccumulation:
             "structure_outcome": structure_outcome,
             "potential_outcome": potential_outcome
         }
-        # MTF信号
+
+        # MTF信号 (仅针对数据层原始信号)
         mtf_hidden_accumulation_intensity = self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_price_trend = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_deception_index = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_flow_outcome_trend = self.helper._get_mtf_slope_accel_score(df, 'PROCESS_META_POWER_TRANSFER', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_structure_outcome_trend = self.helper._get_mtf_slope_accel_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_potential_outcome_trend = self.helper._get_mtf_slope_accel_score(df, 'SCORE_DYN_AXIOM_STABILITY', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+
         mtf_signals = {
             "mtf_hidden_accumulation_intensity": mtf_hidden_accumulation_intensity,
             "mtf_price_trend": mtf_price_trend,
-            "mtf_deception_index": mtf_deception_index,
-            "mtf_flow_outcome_trend": mtf_flow_outcome_trend,
-            "mtf_structure_outcome_trend": mtf_structure_outcome_trend,
-            "mtf_potential_outcome_trend": mtf_potential_outcome_trend
+            "mtf_deception_index": mtf_deception_index
         }
+
         # 情境信号
         context_signals = {
             "market_sentiment_norm": market_sentiment_norm,
@@ -206,6 +228,7 @@ class CalculateSplitOrderAccumulation:
             "deception_lure_short_norm": deception_lure_short_norm,
             "trend_vitality_norm": trend_vitality_norm
         }
+
         return raw_signals, normalized_signals, mtf_signals, context_signals
 
     def _calculate_dynamic_efficiency_baseline(self, context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
@@ -218,9 +241,11 @@ class CalculateSplitOrderAccumulation:
         sentiment_impact = get_param_value(params.get('sentiment_impact'), 0.1)
         volatility_impact = get_param_value(params.get('volatility_impact'), 0.05)
         consolidation_impact = get_param_value(params.get('consolidation_impact'), 0.05)
+
         market_sentiment_norm = context_signals["market_sentiment_norm"]
         volatility_instability_norm = context_signals["volatility_instability_norm"]
         is_consolidating_norm = context_signals["is_consolidating_norm"]
+
         # 情绪越积极，基准线越高 (要求更高)
         # 波动率越低 (稳定性越高)，基准线越高 (要求更高)
         # 处于盘整期，基准线可以适当降低 (吸筹难度大)
@@ -229,10 +254,12 @@ class CalculateSplitOrderAccumulation:
                            (volatility_instability_norm * volatility_impact) - \
                            (is_consolidating_norm * consolidation_impact)
         dynamic_baseline = dynamic_baseline.clip(0.05, 0.3) # 限制基准线范围
+
         baseline_debug_values["base_baseline"] = base_baseline
         baseline_debug_values["sentiment_impact_term"] = market_sentiment_norm.clip(lower=0) * sentiment_impact
         baseline_debug_values["volatility_impact_term"] = volatility_instability_norm * volatility_impact
         baseline_debug_values["consolidation_impact_term"] = is_consolidating_norm * consolidation_impact
+
         return dynamic_baseline, baseline_debug_values
 
     def _calculate_preliminary_score(self, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
@@ -245,6 +272,7 @@ class CalculateSplitOrderAccumulation:
         strategic_context_weights = get_param_value(params.get('strategic_context_weights'), {"stability": 0.4, "deception_lure_long_inverted": 0.3, "deception_lure_short": 0.3})
         fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.4, "price_suppression": 0.3, "strategic_context": 0.3})
         momentum_weight = get_param_value(params.get('momentum_weight'), 0.3)
+
         normalized_score = normalized_signals["normalized_score"]
         price_trend_norm = normalized_signals["price_trend_norm"]
         upward_purity = normalized_signals["upward_purity"]
@@ -254,9 +282,11 @@ class CalculateSplitOrderAccumulation:
         mtf_hidden_accumulation_intensity = mtf_signals["mtf_hidden_accumulation_intensity"]
         is_consolidating_norm = context_signals["is_consolidating_norm"]
         dynamic_consolidation_duration_norm = context_signals["dynamic_consolidation_duration_norm"]
+        
         # 增强价格行为捕捉 (price_suppression_factor)
         price_trend_negative = price_trend_norm.clip(upper=0).abs() # 价格下跌的强度
         upward_purity_inverted = 1 - upward_purity # 上涨纯度越低越好
+
         price_suppression_components = {
             "price_trend_negative": price_trend_negative,
             "is_consolidating": is_consolidating_norm,
@@ -264,19 +294,26 @@ class CalculateSplitOrderAccumulation:
             "upward_purity_inverted": upward_purity_inverted
         }
         price_suppression_factor = _robust_geometric_mean(price_suppression_components, price_suppression_weights, df_index).clip(0, 1)
+        preliminary_debug_values["price_trend_negative"] = price_trend_negative
+        preliminary_debug_values["upward_purity_inverted"] = upward_purity_inverted
         preliminary_debug_values["price_suppression_factor_components"] = price_suppression_components
         preliminary_debug_values["price_suppression_factor"] = price_suppression_factor
+
         # 精细化欺诈意图识别 (strategic_context_factor)
         deception_lure_long_inverted = 1 - deception_lure_long_norm # 诱多越少越好
         deception_lure_short = deception_lure_short_norm # 诱空越多越好 (主力震仓)
+
         strategic_context_components = {
             "stability": potential_outcome,
             "deception_lure_long_inverted": deception_lure_long_inverted,
             "deception_lure_short": deception_lure_short
         }
         strategic_context_factor = _robust_geometric_mean(strategic_context_components, strategic_context_weights, df_index).clip(0, 1)
+        preliminary_debug_values["deception_lure_long_inverted"] = deception_lure_long_inverted
+        preliminary_debug_values["deception_lure_short"] = deception_lure_short
         preliminary_debug_values["strategic_context_factor_components"] = strategic_context_components
         preliminary_debug_values["strategic_context_factor"] = strategic_context_factor
+
         # MTF 核心信号增强
         preliminary_components = {
             "mtf_intensity": mtf_hidden_accumulation_intensity,
@@ -286,12 +323,15 @@ class CalculateSplitOrderAccumulation:
         preliminary_score = _robust_geometric_mean(preliminary_components, fusion_weights, df_index).fillna(0.0)
         preliminary_debug_values["preliminary_score_components"] = preliminary_components
         preliminary_debug_values["preliminary_score"] = preliminary_score
+
         tactical_momentum_score = self.helper._normalize_series(preliminary_score.diff(1).fillna(0), df_index, bipolar=False)
         preliminary_debug_values["tactical_momentum_score"] = tactical_momentum_score
+
         dynamic_preliminary_score = (preliminary_score * (1 - momentum_weight) + tactical_momentum_score * momentum_weight).clip(0, 1)
+
         return dynamic_preliminary_score, preliminary_debug_values
 
-    def _calculate_holographic_validation(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
+    def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
         计算全息验证分数。
         """
@@ -300,32 +340,41 @@ class CalculateSplitOrderAccumulation:
         state_fusion_weights = get_param_value(params.get('state_fusion_weights'), {"flow": 0.4, "structure": 0.3, "potential": 0.3})
         trend_fusion_weights = get_param_value(params.get('trend_fusion_weights'), {"flow_trend": 0.4, "structure_trend": 0.3, "potential_trend": 0.3})
         overall_fusion_weights = get_param_value(params.get('overall_fusion_weights'), {"state": 0.6, "trend": 0.4})
-        flow_outcome = normalized_signals["flow_outcome"]
-        structure_outcome = normalized_signals["structure_outcome"]
-        potential_outcome = normalized_signals["potential_outcome"] # stability_score
+        
+        # 直接使用原始原子信号Series
+        flow_outcome_raw = raw_signals["PROCESS_META_POWER_TRANSFER"]
+        structure_outcome_raw = raw_signals["SCORE_CHIP_STRATEGIC_POSTURE"]
+        potential_outcome_raw = raw_signals["SCORE_DYN_AXIOM_STABILITY"]
+
         # 情境自适应权重调整
         market_sentiment_norm = context_signals["market_sentiment_norm"]
         volatility_instability_norm = context_signals["volatility_instability_norm"]
         adx_norm = context_signals["adx_norm"] # 趋势强度
+        
         # 示例：在市场情绪积极且波动率低时，更看重结构和潜力；在趋势强劲时，更看重趋势
         sentiment_factor = (market_sentiment_norm + 1) / 2 # [0, 1]
         volatility_factor = 1 - volatility_instability_norm # [0, 1] (稳定性)
         trend_strength_factor = adx_norm # [0, 1]
+        
         # 动态调整 state_fusion_weights
         dynamic_state_fusion_weights = state_fusion_weights.copy()
         dynamic_state_fusion_weights["flow"] = dynamic_state_fusion_weights["flow"] * (1 - sentiment_factor * 0.2) * (1 + volatility_factor * 0.1) * (1 - trend_strength_factor * 0.1)
         dynamic_state_fusion_weights["structure"] = dynamic_state_fusion_weights["structure"] * (1 + sentiment_factor * 0.2) * (1 + volatility_factor * 0.1) * (1 + trend_strength_factor * 0.1)
         dynamic_state_fusion_weights["potential"] = dynamic_state_fusion_weights["potential"] * (1 + sentiment_factor * 0.1) * (1 + volatility_factor * 0.05) * (1 + trend_strength_factor * 0.05)
+        
         # 归一化动态权重
         total_dynamic_weight = sum(dynamic_state_fusion_weights.values())
+        # 避免除以零
+        total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
         for k in dynamic_state_fusion_weights:
             dynamic_state_fusion_weights[k] /= total_dynamic_weight
         holographic_debug_values["dynamic_state_fusion_weights"] = dynamic_state_fusion_weights
+
         # 非线性融合 holographic_state_score
         holographic_state_components = {
-            "flow_outcome": flow_outcome,
-            "structure_outcome": structure_outcome,
-            "potential_outcome": potential_outcome
+            "flow_outcome": flow_outcome_raw,
+            "structure_outcome": structure_outcome_raw,
+            "potential_outcome": potential_outcome_raw
         }
         holographic_state_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_state_components.items()}, # 确保输入为正
@@ -334,14 +383,24 @@ class CalculateSplitOrderAccumulation:
         )
         holographic_debug_values["holographic_state_score_components"] = holographic_state_components
         holographic_debug_values["holographic_state_score"] = holographic_state_score
-        # 趋势动量 MTF 化
-        mtf_flow_outcome_trend = mtf_signals["mtf_flow_outcome_trend"]
-        mtf_structure_outcome_trend = mtf_signals["mtf_structure_outcome_trend"]
-        mtf_potential_outcome_trend = mtf_signals["mtf_potential_outcome_trend"]
+
+        # 趋势动量 diff() 化 (针对原子信号)
+        flow_trend_raw = flow_outcome_raw.diff(3).fillna(0)
+        structure_trend_raw = structure_outcome_raw.diff(3).fillna(0)
+        potential_trend_raw = potential_outcome_raw.diff(3).fillna(0)
+
+        flow_trend = self.helper._normalize_series(flow_trend_raw, df_index, bipolar=True)
+        structure_trend = self.helper._normalize_series(structure_trend_raw, df_index, bipolar=True)
+        potential_trend = self.helper._normalize_series(potential_trend_raw, df_index, bipolar=True)
+
+        holographic_debug_values["flow_trend_raw"] = flow_trend_raw
+        holographic_debug_values["structure_trend_raw"] = structure_trend_raw
+        holographic_debug_values["potential_trend_raw"] = potential_trend_raw
+
         holographic_trend_components = {
-            "flow_trend": mtf_flow_outcome_trend,
-            "structure_trend": mtf_structure_outcome_trend,
-            "potential_trend": mtf_potential_outcome_trend
+            "flow_trend": flow_trend,
+            "structure_trend": structure_trend,
+            "potential_trend": potential_trend
         }
         holographic_trend_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_trend_components.items()}, # 确保输入为正
@@ -350,6 +409,7 @@ class CalculateSplitOrderAccumulation:
         )
         holographic_debug_values["holographic_trend_score_components"] = holographic_trend_components
         holographic_debug_values["holographic_trend_score"] = holographic_trend_score
+
         # 整体融合
         overall_holographic_components = {
             "state": holographic_state_score,
@@ -361,16 +421,11 @@ class CalculateSplitOrderAccumulation:
             df_index
         )
         # 将几何平均结果映射回 [-1, 1] 区间，通过乘以原始状态和趋势的平均符号
-        # 这里需要更精确的符号判断，例如，如果flow_outcome, structure_outcome, potential_outcome 多数为负，则整体应为负
-        # 简单取平均符号可能不够鲁棒，可以考虑加权平均符号或多数投票
-        # 为了保持非线性融合的纯粹性，这里可以先不强制映射回[-1,1]，而是让其保持[0,1]的强度，
-        # 并在最终校准时，根据原始信号的整体方向来赋予符号。
-        # 但为了保持与原始逻辑的[-1,1]输出一致，我们仍然需要一个方向性。
-        # 我们可以使用 flow_outcome, structure_outcome, potential_outcome 的加权平均作为方向性
-        weighted_avg_direction = (flow_outcome * dynamic_state_fusion_weights["flow"] + 
-                                  structure_outcome * dynamic_state_fusion_weights["structure"] + 
-                                  potential_outcome * dynamic_state_fusion_weights["potential"])
+        weighted_avg_direction = (flow_outcome_raw * dynamic_state_fusion_weights["flow"] + 
+                                  structure_outcome_raw * dynamic_state_fusion_weights["structure"] + 
+                                  potential_outcome_raw * dynamic_state_fusion_weights["potential"])
         holographic_validation_score = holographic_validation_score * weighted_avg_direction.apply(np.sign).replace(0, 1) # 确保符号一致，0时视为正向
+
         return holographic_validation_score.clip(-1, 1), holographic_debug_values
 
     def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, dynamic_efficiency_baseline: pd.Series) -> Tuple[pd.Series, Dict[str, pd.Series]]:
@@ -378,14 +433,18 @@ class CalculateSplitOrderAccumulation:
         应用质效校准并计算最终分数。
         """
         final_score_debug_values = {}
+        
         calibrated_holographic_score = holographic_validation_score - dynamic_efficiency_baseline
         final_score_debug_values["calibrated_holographic_score"] = calibrated_holographic_score
+
         # 确保 quality_efficiency_modulator 始终为正，且在合理范围内
         # 如果 calibrated_holographic_score 很高，modulator 应该小 (放大 preliminary_score)
         # 如果 calibrated_holographic_score 很低，modulator 应该大 (惩罚 preliminary_score)
         quality_efficiency_modulator = (1 - calibrated_holographic_score).clip(0.1, 2.0)
         final_score_debug_values["quality_efficiency_modulator"] = quality_efficiency_modulator
+
         final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1).fillna(0.0)
+
         return final_score, final_score_debug_values
 
     def _print_debug_info(self, method_name: str, probe_ts: pd.Timestamp, debug_output: Dict, _temp_debug_values: Dict, final_score: pd.Series):
