@@ -509,19 +509,24 @@ class CalculateProcessCovertAccumulation:
 
     def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_flow_weights: Dict, cumulative_acc_windows: List[int], cumulative_acc_weights: Dict) -> pd.Series:
         """
-        【V2.7 · 累积周期增强版】计算隐蔽行动分数。
-        - 核心修改: 引入上下文感知的资金流和隐蔽吸筹强度分数，结合了当日MTF和多周期累积数据。
+        【V2.8 · 动态派生信号计算版】计算隐蔽行动分数。
+        - 核心修改: 修复了标量 `clip` 方法的调用错误，确保 `cum_flow` 的非负性处理正确。
         """
         mtf_suppressive_accum_score = self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow_score = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 保持双极性，正为流入，负为流出
         mtf_deception_lure_long_score = self.helper._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        
         stealth_ops_normalized = self.helper._normalize_series(raw_signals['covert_accumulation_signal_raw'], df_index, bipolar=False)
+        
         mtf_hidden_accumulation_intensity = self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        
         chip_historical_potential_normalized = self.helper._normalize_series(raw_signals['structural_potential_score_raw'].clip(lower=0), df_index, bipolar=False)
+        
         mtf_mf_buy_ofi_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_mf_cost_advantage_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_mf_flow_slope_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True).clip(lower=0)
         mtf_suppressive_accum_slope_normalized = self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True).clip(lower=0)
+
         internal_accumulation_score = self.helper._normalize_series(raw_signals['internal_accumulation_raw'], df_index, bipolar=False)
         gathering_by_support_score = self.helper._normalize_series(raw_signals['gathering_by_support_raw'], df_index, bipolar=False)
         main_force_flow_gini_inverted_score = self.helper._normalize_series(raw_signals['main_force_flow_gini_raw'], df_index, ascending=False)
@@ -532,12 +537,14 @@ class CalculateProcessCovertAccumulation:
         dip_buy_absorption_score = self.helper._normalize_series(raw_signals['dip_buy_absorption_raw'], df_index, bipolar=False)
         main_force_slippage_inverted_score = self.helper._normalize_series(raw_signals['main_force_slippage_raw'], df_index, ascending=False)
         micro_impact_elasticity_inverted_score = self.helper._normalize_series(raw_signals['micro_impact_elasticity_raw'], df_index, ascending=False)
+
         # --- 累积资金流和吸筹强度计算 ---
         cumulative_mf_flow_scores = []
         for window in cumulative_flow_windows:
             cumulative_mf_flow_raw = raw_signals[f'cumulative_mf_flow_{window}d_raw']
             # 累积资金流需要归一化到 [-1, 1] 区间，负值表示累积流出，正值表示累积流入
             cumulative_mf_flow_scores.append(self.helper._normalize_series(cumulative_mf_flow_raw, df_index, bipolar=True))
+        
         # 加权平均累积资金流
         cumulative_mf_flow_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_flow_weight = sum(cumulative_flow_weights.values())
@@ -545,6 +552,7 @@ class CalculateProcessCovertAccumulation:
             for i, window in enumerate(cumulative_flow_windows):
                 weight = cumulative_flow_weights.get(str(window), 0.0)
                 cumulative_mf_flow_score += cumulative_mf_flow_scores[i] * (weight / total_flow_weight)
+        
         # 上下文感知的资金流：
         # 如果长期累积是正向的，即使短期有小幅流出，也应降低其负面影响，甚至视为正常洗盘
         # 如果长期累积是负向的，短期流出则加剧负面影响
@@ -552,12 +560,14 @@ class CalculateProcessCovertAccumulation:
         for date in df_index:
             daily_flow = mtf_main_force_flow_score.loc[date]
             cum_flow = cumulative_mf_flow_score.loc[date]
+
             if pd.isna(daily_flow) or pd.isna(cum_flow):
                 contextualized_main_force_flow_score.loc[date] = np.nan
                 continue
+
             if daily_flow >= 0: # 短期流入或持平
                 # 长期累积越强，短期流入越被强化
-                contextualized_main_force_flow_score.loc[date] = daily_flow * (1 + cum_flow.clip(lower=0))
+                contextualized_main_force_flow_score.loc[date] = daily_flow * (1 + max(0, cum_flow)) # 修改点：cum_flow.clip(lower=0) -> max(0, cum_flow)
             else: # 短期流出
                 if cum_flow > 0: # 长期累积是正向的，短期流出被视为“缓冲”或“洗盘”
                     # 长期累积越强，短期流出的负面影响越小 (接近0)
@@ -565,29 +575,35 @@ class CalculateProcessCovertAccumulation:
                 else: # 长期累积也是负向的，短期流出加剧负面影响
                     contextualized_main_force_flow_score.loc[date] = daily_flow * (1 + abs(cum_flow)) # 负值乘以大于1的因子，绝对值变大
         contextualized_main_force_flow_score = self.helper._normalize_series(contextualized_main_force_flow_score, df_index, bipolar=False) # 最终归一化到 [0,1]
+
         # 累积隐蔽吸筹强度
         cumulative_hidden_acc_scores = []
         for window in cumulative_acc_windows:
             cumulative_hidden_acc_raw = raw_signals[f'cumulative_hidden_acc_{window}d_raw']
             cumulative_hidden_acc_scores.append(self.helper._normalize_series(cumulative_hidden_acc_raw, df_index, bipolar=False))
+        
         cumulative_hidden_acc_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_acc_weight = sum(cumulative_acc_weights.values())
         if total_acc_weight > 0:
             for i, window in enumerate(cumulative_acc_windows):
                 weight = cumulative_acc_weights.get(str(window), 0.0)
                 cumulative_hidden_acc_score += cumulative_hidden_acc_scores[i] * (weight / total_acc_weight)
+
         # 上下文感知的隐蔽吸筹强度：
         # 如果长期累积吸筹强度高，短期吸筹强度也高，则强化信号
         contextualized_hidden_accumulation_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         for date in df_index:
             daily_acc = mtf_hidden_accumulation_intensity.loc[date]
             cum_acc = cumulative_hidden_acc_score.loc[date]
+
             if pd.isna(daily_acc) or pd.isna(cum_acc):
                 contextualized_hidden_accumulation_score.loc[date] = np.nan
                 continue
+            
             # 长期累积吸筹越强，短期吸筹的有效性越高，进行强化
             contextualized_hidden_accumulation_score.loc[date] = daily_acc * (1 + cum_acc)
         contextualized_hidden_accumulation_score = self.helper._normalize_series(contextualized_hidden_accumulation_score, df_index, bipolar=False) # 最终归一化到 [0,1]
+
 
         covert_action_scores_dict = {
             "suppressive_accum": mtf_suppressive_accum_score,
@@ -626,7 +642,7 @@ class CalculateProcessCovertAccumulation:
             "mtf_mf_buy_ofi_normalized": mtf_mf_buy_ofi_normalized,
             "mtf_mf_cost_advantage_normalized": mtf_mf_cost_advantage_normalized,
             "mtf_mf_flow_slope_normalized": mtf_mf_flow_slope_normalized,
-            "mtf_suppressive_accum_slope_normalized": mtf_suppressive_accum_slope_normalized,
+            "suppressive_accum_slope_normalized": mtf_suppressive_accum_slope_normalized,
             "internal_accumulation_score": internal_accumulation_score,
             "gathering_by_support_score": gathering_by_support_score,
             "main_force_flow_gini_inverted_score": main_force_flow_gini_inverted_score,
