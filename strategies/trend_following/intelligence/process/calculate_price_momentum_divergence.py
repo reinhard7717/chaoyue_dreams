@@ -61,7 +61,7 @@ class CalculatePriceMomentumDivergence:
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V1.1 · 模块化与增强版"""
         method_name = "_calculate_price_momentum_divergence"
-        is_debug_enabled_for_method = self.helper.get_param_value(self.helper.debug_params.get('enabled'), False) and self.helper.get_param_value(self.helper.debug_params.get('should_probe'), False)
+        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug_enabled_for_method and self.helper.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
@@ -111,23 +111,23 @@ class CalculatePriceMomentumDivergence:
 
     def _get_pmd_params(self, config: Dict) -> Dict:
         """V1.1 · 参数扩展版"""
-        params = self.helper.get_param_value(config.get('price_momentum_divergence_params'), {})
+        params = get_param_value(config.get('price_momentum_divergence_params'), {})
         return {
-            "price_components_weights": self.helper.get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2}),
-            "momentum_components_weights": self.helper.get_param_value(params.get('momentum_components_weights'), {"MACDh_13_34_8_D": 0.5, "RSI_13_D": 0.3, "ROC_13_D": 0.2, "momentum_quality": 0.2}),
-            "mtf_slope_weights": self.helper.get_param_value(params.get('mtf_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1}),
-            "mtf_accel_weights": self.helper.get_param_value(params.get('mtf_accel_weights'), {"5": 0.6, "13": 0.4}),
-            "volume_confirmation_weights": self.helper.get_param_value(params.get('volume_confirmation_weights'), {"volume_slope": 0.5, "volume_burst": 0.2, "volume_atrophy": 0.3, "constructive_turnover": 0.1, "volume_structure_skew_inverted": 0.1, "volume_profile_entropy_inverted": 0.05}),
-            "dynamic_volume_confirmation_modulators": self.helper.get_param_value(params.get('dynamic_volume_confirmation_modulators'), {"enabled": False}),
-            "main_force_confirmation_weights": self.helper.get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1, "mf_buy_ofi_positive": 0.05, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "main_force_slippage_inverted": 0.05, "winner_concentration_positive": 0.05, "loser_pain_positive": 0.05}),
-            "dynamic_main_force_confirmation_modulators": self.helper.get_param_value(params.get('dynamic_main_force_confirmation_modulators'), {"enabled": False}),
-            "context_modulator_weights": self.helper.get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15, "mean_reversion_inverse": 0.05, "trend_alignment": 0.05}),
-            "divergence_quality_weights": self.helper.get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15, "divergence_purity": 0.1}),
-            "final_fusion_exponent": self.helper.get_param_value(params.get('final_fusion_exponent'), 1.5),
-            "synergy_threshold": self.helper.get_param_value(params.get('synergy_threshold'), 0.6),
-            "synergy_bonus_factor": self.helper.get_param_value(params.get('synergy_bonus_factor'), 0.1),
-            "conflict_penalty_factor": self.helper.get_param_value(params.get('conflict_penalty_factor'), 0.15),
-            "dynamic_fusion_weights_params": self.helper.get_param_value(params.get('dynamic_fusion_weights_params'), {"enabled": False})
+            "price_components_weights": get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2}),
+            "momentum_components_weights": get_param_value(params.get('momentum_components_weights'), {"MACDh_13_34_8_D": 0.5, "RSI_13_D": 0.3, "ROC_13_D": 0.2, "momentum_quality": 0.2}),
+            "mtf_slope_weights": get_param_value(params.get('mtf_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1}),
+            "mtf_accel_weights": get_param_value(params.get('mtf_accel_weights'), {"5": 0.6, "13": 0.4}),
+            "volume_confirmation_weights": get_param_value(params.get('volume_confirmation_weights'), {"volume_slope": 0.5, "volume_burst": 0.2, "volume_atrophy": 0.3, "constructive_turnover": 0.1, "volume_structure_skew_inverted": 0.1, "volume_profile_entropy_inverted": 0.05}),
+            "dynamic_volume_confirmation_modulators": get_param_value(params.get('dynamic_volume_confirmation_modulators'), {"enabled": False}),
+            "main_force_confirmation_weights": get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1, "mf_buy_ofi_positive": 0.05, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "main_force_slippage_inverted": 0.05, "winner_concentration_positive": 0.05, "loser_pain_positive": 0.05}),
+            "dynamic_main_force_confirmation_modulators": get_param_value(params.get('dynamic_main_force_confirmation_modulators'), {"enabled": False}),
+            "context_modulator_weights": get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15, "mean_reversion_inverse": 0.05, "trend_alignment": 0.05}),
+            "divergence_quality_weights": get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15, "divergence_purity": 0.1}),
+            "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.5),
+            "synergy_threshold": get_param_value(params.get('synergy_threshold'), 0.6),
+            "synergy_bonus_factor": get_param_value(params.get('synergy_bonus_factor'), 0.1),
+            "conflict_penalty_factor": get_param_value(params.get('conflict_penalty_factor'), 0.15),
+            "dynamic_fusion_weights_params": get_param_value(params.get('dynamic_fusion_weights_params'), {"enabled": False})
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
@@ -288,7 +288,7 @@ class CalculatePriceMomentumDivergence:
         # 新增：量能轮廓熵反向归一化，熵越低（结构越清晰）分数越高
         volume_profile_entropy_inverted_norm = self.helper._normalize_series(raw_data['volume_profile_entropy_raw'], df_index, ascending=False)
         current_volume_confirmation_weights = volume_confirmation_weights.copy()
-        if self.helper.get_param_value(dynamic_volume_confirmation_modulators.get('enabled'), False):
+        if get_param_value(dynamic_volume_confirmation_modulators.get('enabled'), False):
             modulator_signal_raw = self.helper._get_atomic_score(df, dynamic_volume_confirmation_modulators['modulator_signal'], 0.0)
             modulator_signal = self.helper._normalize_series(modulator_signal_raw, df_index, bipolar=True)
             sensitivity = dynamic_volume_confirmation_modulators['sensitivity']
@@ -507,7 +507,7 @@ class CalculatePriceMomentumDivergence:
             "divergence_quality": divergence_quality_score,
             "context_modulator": context_modulator
         }
-        final_fusion_weights_dict = self.helper.get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
+        final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
             "base_divergence": 0.3,
             "volume_confirmation": 0.2,
             "main_force_confirmation": 0.25,
@@ -521,7 +521,7 @@ class CalculatePriceMomentumDivergence:
             "divergence_quality": divergence_quality_score,
             "context_modulator": context_modulator
         }
-        if self.helper.get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
+        if get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
             modulator_signal_1_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_1'], 0.0) # 市场张力
             modulator_signal_2_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_2'], 0.0) # 流动性潮汐
             # 新增调制信号：市场机制
@@ -549,7 +549,7 @@ class CalculatePriceMomentumDivergence:
             if (total_dynamic_weight > 0).all():
                 final_fusion_weights_dict = (adjusted_weights_series.div(total_dynamic_weight, axis=0)).to_dict('series')
             else:
-                final_fusion_weights_dict = self.helper.get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
+                final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
                     "base_divergence": 0.3, "volume_confirmation": 0.2, "main_force_confirmation": 0.25, "divergence_quality": 0.15, "context_modulator": 0.1
                 })
             _temp_debug_values["动态融合权重调整"] = {
