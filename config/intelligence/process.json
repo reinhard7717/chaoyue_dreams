@@ -78,7 +78,6 @@
                         "constructive_turnover_ratio": 0.15
                     },
                     "liquidity_health_components": {
-                        "comment": "流动性健康度维度组件权重。",
                         "bid_side_liquidity_positive": 0.2,
                         "ask_side_liquidity_inverted": 0.15,
                         "order_book_liquidity_supply_positive": 0.15,
@@ -88,7 +87,6 @@
                         "vpin_score_inverted": 0.1
                     },
                     "main_force_order_flow_depth_components": {
-                        "comment": "主力订单流深度维度组件权重。",
                         "mf_buy_ofi_positive": 0.2,
                         "mf_level5_buy_ofi_positive": 0.2,
                         "mf_level5_ofi_positive": 0.15,
