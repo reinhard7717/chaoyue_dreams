@@ -115,23 +115,28 @@ class CalculatePriceVolumeDynamics:
             'reversal_power_index_D', 'reversal_recovery_rate_D', 'volatility_asymmetry_index_D',
             'mean_reversion_frequency_D',
             'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'SCORE_MICRO_STRATEGY_STEALTH_OPS',
-            # 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', # 移除此行
             'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
             'SCORE_DYN_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
             'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION',
             'goodness_of_fit_score_D', 'platform_conviction_score_D',
-            'ADX_14_D', 'hidden_accumulation_intensity_D' # 确保 hidden_accumulation_intensity_D 在列中
+            'ADX_14_D', 'hidden_accumulation_intensity_D',
+            # 新增的信号
+            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
+            'main_force_buy_ofi_D'
         ]
+
         # 动态添加MTF斜率和加速度信号到required_signals
         base_signals_for_mtf_raw = []
         for s in required_signals:
             if not s.startswith(('SLOPE_', 'ACCEL_')) and s.endswith('_D'):
                 base_signals_for_mtf_raw.append(s.rsplit('_', 1)[0])
+
         for base_sig_name in base_signals_for_mtf_raw:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig_name}_D')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig_name}_D')
+
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled and probe_ts:
                 print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
@@ -150,6 +155,7 @@ class CalculatePriceVolumeDynamics:
         raw_signals['high_D'] = self.helper._get_safe_series(df, 'high_D', method_name=method_name)
         raw_signals['low_D'] = self.helper._get_safe_series(df, 'low_D', method_name=method_name)
         raw_signals['pct_change_D'] = self.helper._get_safe_series(df, 'pct_change_D', method_name=method_name)
+
         # Main Force and Behavior
         raw_signals['main_force_conviction_index_D'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         raw_signals['wash_trade_intensity_D'] = self.helper._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
@@ -164,6 +170,11 @@ class CalculatePriceVolumeDynamics:
         raw_signals['net_xl_amount_calibrated_D'] = self.helper._get_safe_series(df, 'net_xl_amount_calibrated_D', 0.0, method_name=method_name)
         raw_signals['upward_impulse_strength_D'] = self.helper._get_safe_series(df, 'upward_impulse_strength_D', 0.0, method_name=method_name)
         raw_signals['price_thrust_divergence_D'] = self.helper._get_safe_series(df, 'price_thrust_divergence_D', 0.0, method_name=method_name)
+        # 新增的信号
+        raw_signals['deception_lure_long_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name)
+        raw_signals['deception_lure_short_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
+        raw_signals['main_force_buy_ofi_D'] = self.helper._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name)
+
         # Chips and Health
         raw_signals['winner_concentration_90pct_D'] = self.helper._get_safe_series(df, 'winner_concentration_90pct_D', 0.0, method_name=method_name)
         raw_signals['loser_concentration_90pct_D'] = self.helper._get_safe_series(df, 'loser_concentration_90pct_D', 0.0, method_name=method_name)
@@ -176,6 +187,7 @@ class CalculatePriceVolumeDynamics:
         raw_signals['winner_loser_momentum_D'] = self.helper._get_safe_series(df, 'winner_loser_momentum_D', 0.0, method_name=method_name)
         raw_signals['chip_fatigue_index_D'] = self.helper._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
         raw_signals['hidden_accumulation_intensity_D'] = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name) # 确保获取此原始信号
+
         # Market Context
         raw_signals['market_sentiment_score_D'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
@@ -248,17 +260,18 @@ class CalculatePriceVolumeDynamics:
         raw_signals['sell_quote_exhaustion_rate_D'] = self.helper._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
         raw_signals['goodness_of_fit_score_D'] = self.helper._get_safe_series(df, 'goodness_of_fit_score_D', 0.0, method_name=method_name)
         raw_signals['platform_conviction_score_D'] = self.helper._get_safe_series(df, 'platform_conviction_score_D', 0.0, method_name=method_name)
+
         # Atomic Scores
         raw_signals['SCORE_STRUCT_AXIOM_TENSION'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
         raw_signals['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
         raw_signals['SCORE_MICRO_STRATEGY_STEALTH_OPS'] = self.helper._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        # raw_signals['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = self.helper._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', np.nan) # 移除此行
         raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         raw_signals['SCORE_DYN_AXIOM_STABILITY'] = self.helper._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
         raw_signals['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
         raw_signals['SCORE_STRUCT_BREAKOUT_READINESS'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', 0.0)
         raw_signals['SCORE_STRUCT_PLATFORM_FOUNDATION'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', 0.0)
         raw_signals['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
+
         return raw_signals
 
     def _get_mtf_signals(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str) -> Dict[str, pd.Series]:
@@ -499,19 +512,62 @@ class CalculatePriceVolumeDynamics:
         """
         计算主力隐蔽意图维度分数。
         """
+        # 防御性地获取所有原始信号，避免 KeyError
+        main_force_flow_directionality_raw = raw_signals.get('main_force_flow_directionality_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        mf_net_flow_calibrated_raw = raw_signals.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        deception_index_raw = raw_signals.get('deception_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        wash_trade_intensity_raw = raw_signals.get('wash_trade_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_conviction_index_raw = raw_signals.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        deception_lure_long_intensity_raw = raw_signals.get('deception_lure_long_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        deception_lure_short_intensity_raw = raw_signals.get('deception_lure_short_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        covert_accumulation_signal_raw = raw_signals.get('covert_accumulation_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        covert_distribution_signal_raw = raw_signals.get('covert_distribution_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_slippage_index_raw = raw_signals.get('main_force_slippage_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_flow_gini_raw = raw_signals.get('main_force_flow_gini_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        micro_impact_elasticity_raw = raw_signals.get('micro_impact_elasticity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        order_flow_imbalance_score_raw = raw_signals.get('order_flow_imbalance_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        liquidity_authenticity_score_raw = raw_signals.get('liquidity_authenticity_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        hidden_accumulation_intensity_raw = raw_signals.get('hidden_accumulation_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        score_micro_strategy_stealth_ops_raw = raw_signals.get('SCORE_MICRO_STRATEGY_STEALTH_OPS', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_cost_advantage_raw = raw_signals.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_buy_ofi_raw = raw_signals.get('main_force_buy_ofi_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_t0_buy_efficiency_raw = raw_signals.get('main_force_t0_buy_efficiency_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        order_book_imbalance_raw = raw_signals.get('order_book_imbalance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        micro_price_impact_asymmetry_raw = raw_signals.get('micro_price_impact_asymmetry_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_vwap_up_guidance_raw = raw_signals.get('main_force_vwap_up_guidance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_vwap_down_guidance_raw = raw_signals.get('main_force_vwap_down_guidance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        vwap_buy_control_strength_raw = raw_signals.get('vwap_buy_control_strength_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        vwap_sell_control_strength_raw = raw_signals.get('vwap_sell_control_strength_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        observed_large_order_size_avg_raw = raw_signals.get('observed_large_order_size_avg_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        market_impact_cost_raw = raw_signals.get('market_impact_cost_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+
+        # 打印警告信息
+        for sig_name in ['main_force_flow_directionality_D', 'main_force_net_flow_calibrated_D', 'deception_index_D',
+                         'wash_trade_intensity_D', 'main_force_conviction_index_D', 'deception_lure_long_intensity_D',
+                         'deception_lure_short_intensity_D', 'covert_accumulation_signal_D', 'covert_distribution_signal_D',
+                         'main_force_slippage_index_D', 'main_force_flow_gini_D', 'micro_impact_elasticity_D',
+                         'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D', 'hidden_accumulation_intensity_D',
+                         'SCORE_MICRO_STRATEGY_STEALTH_OPS', 'main_force_cost_advantage_D', 'main_force_buy_ofi_D',
+                         'main_force_t0_buy_efficiency_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D',
+                         'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D', 'vwap_buy_control_strength_D',
+                         'vwap_sell_control_strength_D', 'observed_large_order_size_avg_D', 'market_impact_cost_D']:
+            if sig_name not in raw_signals:
+                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 raw_signals 中缺失。使用默认的零值 Series。")
+
         # Main Force Flow Ambiguity components
-        main_force_flow_directionality_neutrality = 1 - self.helper._normalize_series(raw_signals['main_force_flow_directionality_D'].abs(), df_index, ascending=True)
-        mf_net_flow_near_zero = 1 - self.helper._normalize_series(raw_signals['main_force_net_flow_calibrated_D'].abs(), df_index, ascending=True)
-        deception_score = self.helper._normalize_series(raw_signals['deception_index_D'], df_index, ascending=True)
-        wash_trade_score = self.helper._normalize_series(raw_signals['wash_trade_intensity_D'], df_index, ascending=True)
-        mf_conviction_neutrality = 1 - self.helper._normalize_series(raw_signals['main_force_conviction_index_D'].abs(), df_index, ascending=True)
-        deception_lure_neutrality = 1 - self.helper._normalize_series(raw_signals['deception_lure_long_intensity_D'].abs() + raw_signals['deception_lure_short_intensity_D'].abs(), df_index, ascending=True)
-        covert_action_score = (1 - (self.helper._normalize_series(raw_signals['covert_accumulation_signal_D'], df_index, ascending=True) + self.helper._normalize_series(raw_signals['covert_distribution_signal_D'], df_index, ascending=True)).clip(0,1))
-        main_force_slippage_inverted = self.helper._normalize_series(raw_signals['main_force_slippage_index_D'], df_index, ascending=False)
-        main_force_flow_gini_inverted = self.helper._normalize_series(raw_signals['main_force_flow_gini_D'], df_index, ascending=False)
-        micro_impact_elasticity_positive = self.helper._normalize_series(raw_signals['micro_impact_elasticity_D'], df_index, ascending=True)
-        order_flow_imbalance_neutrality = 1 - self.helper._normalize_series(raw_signals['order_flow_imbalance_score_D'].abs(), df_index, ascending=True)
-        liquidity_authenticity_positive = self.helper._normalize_series(raw_signals['liquidity_authenticity_score_D'], df_index, ascending=True)
+        main_force_flow_directionality_neutrality = 1 - self.helper._normalize_series(main_force_flow_directionality_raw.abs(), df_index, ascending=True)
+        mf_net_flow_near_zero = 1 - self.helper._normalize_series(mf_net_flow_calibrated_raw.abs(), df_index, ascending=True)
+        deception_score = self.helper._normalize_series(deception_index_raw, df_index, ascending=True)
+        wash_trade_score = self.helper._normalize_series(wash_trade_intensity_raw, df_index, ascending=True)
+        mf_conviction_neutrality = 1 - self.helper._normalize_series(main_force_conviction_index_raw.abs(), df_index, ascending=True)
+        deception_lure_neutrality = 1 - self.helper._normalize_series(deception_lure_long_intensity_raw.abs() + deception_lure_short_intensity_raw.abs(), df_index, ascending=True)
+        covert_action_score = (1 - (self.helper._normalize_series(covert_accumulation_signal_raw, df_index, ascending=True) + self.helper._normalize_series(covert_distribution_signal_raw, df_index, ascending=True)).clip(0,1))
+        main_force_slippage_inverted = self.helper._normalize_series(main_force_slippage_index_raw, df_index, ascending=False)
+        main_force_flow_gini_inverted = self.helper._normalize_series(main_force_flow_gini_raw, df_index, ascending=False)
+        micro_impact_elasticity_positive = self.helper._normalize_series(micro_impact_elasticity_raw, df_index, ascending=True)
+        order_flow_imbalance_neutrality = 1 - self.helper._normalize_series(order_flow_imbalance_score_raw.abs(), df_index, ascending=True)
+        liquidity_authenticity_positive = self.helper._normalize_series(liquidity_authenticity_score_raw, df_index, ascending=True)
+
         ambiguity_components = {
             'directionality_neutrality': main_force_flow_directionality_neutrality,
             'net_flow_near_zero': mf_net_flow_near_zero,
@@ -527,23 +583,25 @@ class CalculatePriceVolumeDynamics:
             'liquidity_authenticity_positive': liquidity_authenticity_positive
         }
         main_force_flow_ambiguity = _robust_geometric_mean(ambiguity_components, ambiguity_weights, df_index)
+
         # 修正：split_order_accum_score 应使用原始指标 hidden_accumulation_intensity_D
-        split_order_accum_score = self.helper._normalize_series(raw_signals['hidden_accumulation_intensity_D'], df_index, ascending=True)
+        split_order_accum_score = self.helper._normalize_series(hidden_accumulation_intensity_raw, df_index, ascending=True)
+
         components = {
-            'stealth_ops': raw_signals['SCORE_MICRO_STRATEGY_STEALTH_OPS'],
+            'stealth_ops': score_micro_strategy_stealth_ops_raw,
             'split_order_accum': split_order_accum_score, # 使用修正后的 split_order_accum_score
-            'mf_net_flow_positive': raw_signals['main_force_net_flow_calibrated_D'].clip(lower=0),
-            'mf_cost_advantage_positive': raw_signals['main_force_cost_advantage_D'].clip(lower=0),
-            'mf_buy_ofi_positive': raw_signals['main_force_buy_ofi_D'],
-            'mf_t0_buy_efficiency_positive': raw_signals['main_force_t0_buy_efficiency_D'],
-            'mf_net_flow_slope_positive': mtf_signals['mf_net_flow_slope_positive'],
-            'order_book_imbalance_positive': raw_signals['order_book_imbalance_D'].clip(lower=0),
-            'micro_price_impact_asymmetry_positive': raw_signals['micro_price_impact_asymmetry_D'].clip(lower=0),
-            'mf_vwap_guidance_neutrality': 1 - (raw_signals['main_force_vwap_up_guidance_D'] - raw_signals['main_force_vwap_down_guidance_D']).abs(),
-            'vwap_control_neutrality': 1 - (raw_signals['vwap_buy_control_strength_D'] - raw_signals['vwap_sell_control_strength_D']).abs(),
-            'observed_large_order_size_avg_inverted': raw_signals['observed_large_order_size_avg_D'],
-            'market_impact_cost_inverted': raw_signals['market_impact_cost_D'],
-            'main_force_net_flow_volatility_inverted': raw_signals['main_force_net_flow_calibrated_D'].rolling(window=21, min_periods=1).std(), # Assuming 21 is default
+            'mf_net_flow_positive': mf_net_flow_calibrated_raw.clip(lower=0),
+            'mf_cost_advantage_positive': main_force_cost_advantage_raw.clip(lower=0),
+            'mf_buy_ofi_positive': main_force_buy_ofi_raw,
+            'mf_t0_buy_efficiency_positive': main_force_t0_buy_efficiency_raw,
+            'mf_net_flow_slope_positive': mtf_signals.get('mf_net_flow_slope_positive', pd.Series(0.0, index=df_index, dtype=np.float32)), # 防御性获取
+            'order_book_imbalance_positive': order_book_imbalance_raw.clip(lower=0),
+            'micro_price_impact_asymmetry_positive': micro_price_impact_asymmetry_raw.clip(lower=0),
+            'mf_vwap_guidance_neutrality': 1 - (main_force_vwap_up_guidance_raw - main_force_vwap_down_guidance_raw).abs(),
+            'vwap_control_neutrality': 1 - (vwap_buy_control_strength_raw - vwap_sell_control_strength_raw).abs(),
+            'observed_large_order_size_avg_inverted': observed_large_order_size_avg_raw,
+            'market_impact_cost_inverted': market_impact_cost_raw,
+            'main_force_net_flow_volatility_inverted': mf_net_flow_calibrated_raw.rolling(window=21, min_periods=1).std(), # Assuming 21 is default
             'main_force_flow_ambiguity': main_force_flow_ambiguity
         }
         return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
