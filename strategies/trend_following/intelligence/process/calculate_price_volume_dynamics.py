@@ -413,23 +413,85 @@ class CalculatePriceVolumeDynamics:
         """
         计算量能枯竭维度分数。
         """
+        # 防御性地获取相关信号，避免 KeyError
+        turnover_rate_f_raw = raw_signals.get('turnover_rate_f_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        turnover_rate_raw = raw_signals.get('turnover_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        counterparty_exhaustion_raw = raw_signals.get('counterparty_exhaustion_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        order_book_liquidity_raw = raw_signals.get('order_book_liquidity_supply_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        buy_quote_exhaustion_raw = raw_signals.get('buy_quote_exhaustion_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        sell_quote_exhaustion_raw = raw_signals.get('sell_quote_exhaustion_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        order_book_imbalance_raw = raw_signals.get('order_book_imbalance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        micro_price_impact_asymmetry_raw = raw_signals.get('micro_price_impact_asymmetry_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        bid_side_liquidity_raw = raw_signals.get('bid_side_liquidity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        ask_side_liquidity_raw = raw_signals.get('ask_side_liquidity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        vpin_score_raw = raw_signals.get('vpin_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        bid_liquidity_sample_entropy_raw = raw_signals.get('BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        volume_structure_skew_raw = raw_signals.get('volume_structure_skew_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        volume_profile_entropy_raw = raw_signals.get('volume_profile_entropy_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+
+        # 打印警告信息
+        if 'buy_quote_exhaustion_rate_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'buy_quote_exhaustion_rate_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'sell_quote_exhaustion_rate_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'sell_quote_exhaustion_rate_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'order_book_liquidity_supply_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'order_book_liquidity_supply_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'counterparty_exhaustion_index_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'counterparty_exhaustion_index_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'turnover_rate_f_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'turnover_rate_f_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'turnover_rate_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'turnover_rate_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'order_book_imbalance_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'order_book_imbalance_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'micro_price_impact_asymmetry_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'micro_price_impact_asymmetry_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'bid_side_liquidity_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'bid_side_liquidity_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'ask_side_liquidity_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'ask_side_liquidity_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'vpin_score_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'vpin_score_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'volume_structure_skew_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'volume_structure_skew_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        if 'volume_profile_entropy_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'volume_profile_entropy_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+
+
+        turnover_rate_inverted_score = self.helper._normalize_series(turnover_rate_f_raw, target_index=df_index, ascending=False)
+        turnover_rate_raw_inverted = self.helper._normalize_series(turnover_rate_raw, target_index=df_index, ascending=False)
+        counterparty_exhaustion_score = self.helper._normalize_series(counterparty_exhaustion_raw, target_index=df_index, ascending=True)
+        order_book_liquidity_inverted_score = self.helper._normalize_series(order_book_liquidity_raw, target_index=df_index, ascending=False)
+        buy_quote_exhaustion_score = self.helper._normalize_series(buy_quote_exhaustion_raw, target_index=df_index, ascending=True)
+        sell_quote_exhaustion_score = self.helper._normalize_series(sell_quote_exhaustion_raw, target_index=df_index, ascending=True)
+        order_book_imbalance_inverted = self.helper._normalize_series(order_book_imbalance_raw.abs(), target_index=df_index, ascending=False)
+        micro_price_impact_asymmetry_inverted = self.helper._normalize_series(micro_price_impact_asymmetry_raw.abs(), target_index=df_index, ascending=False)
+        bid_side_liquidity_inverted = self.helper._normalize_series(bid_side_liquidity_raw, target_index=df_index, ascending=False)
+        ask_side_liquidity_inverted = self.helper._normalize_series(ask_side_liquidity_raw, target_index=df_index, ascending=False)
+        vpin_score_inverted = self.helper._normalize_series(vpin_score_raw, target_index=df_index, ascending=False)
+        bid_liquidity_sample_entropy_inverted = self.helper._normalize_series(bid_liquidity_sample_entropy_raw, target_index=df_index, ascending=False)
+        volume_structure_skew_inverted = self.helper._normalize_series(volume_structure_skew_raw.abs(), target_index=df_index, ascending=False)
+        volume_profile_entropy_inverted = self.helper._normalize_series(volume_profile_entropy_raw, target_index=df_index, ascending=False)
+
         components = {
             'volume_atrophy': raw_signals['SCORE_BEHAVIOR_VOLUME_ATROPHY'],
-            'turnover_rate_inverted': raw_signals['turnover_rate_f_D'],
-            'counterparty_exhaustion': raw_signals['counterparty_exhaustion_index_D'],
-            'order_book_liquidity_inverted': raw_signals['order_book_liquidity_supply_D'],
-            'buy_quote_exhaustion': raw_signals['buy_quote_exhaustion_rate_D'],
-            'sell_quote_exhaustion': raw_signals['sell_quote_exhaustion_rate_D'],
-            'turnover_rate_slope_inverted': mtf_signals['turnover_rate_slope_inverted_score'],
-            'order_book_imbalance_inverted': raw_signals['order_book_imbalance_D'].abs(),
-            'micro_price_impact_asymmetry_inverted': raw_signals['micro_price_impact_asymmetry_D'].abs(),
-            'bid_side_liquidity_inverted': raw_signals['bid_side_liquidity_D'],
-            'ask_side_liquidity_inverted': raw_signals['ask_side_liquidity_D'],
-            'vpin_score_inverted': raw_signals['vpin_score_D'],
-            'bid_liquidity_sample_entropy_inverted': raw_signals['BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D'],
-            'volume_structure_skew_inverted': raw_signals['volume_structure_skew_D'].abs(),
-            'volume_profile_entropy_inverted': raw_signals['volume_profile_entropy_D'],
-            'turnover_rate_raw_inverted': raw_signals['turnover_rate_D']
+            'turnover_rate_inverted': turnover_rate_inverted_score,
+            'counterparty_exhaustion': counterparty_exhaustion_score,
+            'order_book_liquidity_inverted': order_book_liquidity_inverted_score,
+            'buy_quote_exhaustion': buy_quote_exhaustion_score,
+            'sell_quote_exhaustion': sell_quote_exhaustion_score,
+            'turnover_rate_slope_inverted': mtf_signals.get('turnover_rate_slope_inverted_score', pd.Series(0.0, index=df_index)), # 防御性获取
+            'order_book_imbalance_inverted': order_book_imbalance_inverted,
+            'micro_price_impact_asymmetry_inverted': micro_price_impact_asymmetry_inverted,
+            'bid_side_liquidity_inverted': bid_side_liquidity_inverted,
+            'ask_side_liquidity_inverted': ask_side_liquidity_inverted,
+            'vpin_score_inverted': vpin_score_inverted,
+            'bid_liquidity_sample_entropy_inverted': bid_liquidity_sample_entropy_inverted,
+            'volume_structure_skew_inverted': volume_structure_skew_inverted,
+            'volume_profile_entropy_inverted': volume_profile_entropy_inverted,
+            'turnover_rate_raw_inverted': turnover_rate_raw_inverted
         }
         return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
 
