@@ -509,7 +509,7 @@ class CalculatePriceMomentumDivergence:
             "divergence_quality": divergence_quality_score,
             "context_modulator": context_modulator
         }
-        final_fusion_weights_dict = self.helper.get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
+        final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
             "base_divergence": 0.3,
             "volume_confirmation": 0.2,
             "main_force_confirmation": 0.25,
@@ -524,7 +524,7 @@ class CalculatePriceMomentumDivergence:
             "divergence_quality": divergence_quality_score,
             "context_modulator": context_modulator
         }
-        if self.helper.get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
+        if get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
             modulator_signal_1_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_1'], 0.0) # 市场张力
             modulator_signal_2_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_2'], 0.0) # 流动性潮汐
             # 新增调制信号：市场机制
@@ -552,7 +552,7 @@ class CalculatePriceMomentumDivergence:
             if (total_dynamic_weight > 0).all():
                 final_fusion_weights_dict = (adjusted_weights_series.div(total_dynamic_weight, axis=0)).to_dict('series')
             else:
-                final_fusion_weights_dict = self.helper.get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
+                final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
                     "base_divergence": 0.3, "volume_confirmation": 0.2, "main_force_confirmation": 0.25, "divergence_quality": 0.15, "context_modulator": 0.1
                 })
             _temp_debug_values["动态融合权重调整"] = {
@@ -600,7 +600,7 @@ class CalculatePriceMomentumDivergence:
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V1.1 · 模块化与增强版"""
         method_name = "_calculate_price_momentum_divergence"
-        is_debug_enabled_for_method = self.helper.get_param_value(self.helper.debug_params.get('enabled'), False) and self.helper.get_param_value(self.helper.debug_params.get('should_probe'), False)
+        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug_enabled_for_method and self.helper.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
