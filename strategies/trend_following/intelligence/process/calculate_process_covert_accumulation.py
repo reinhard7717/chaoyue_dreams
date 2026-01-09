@@ -176,6 +176,7 @@ class CalculateProcessCovertAccumulation:
             'price_volume_entropy_D',
             'FRACTAL_DIMENSION_89d_D',
             'HURST_144d_D',
+            'is_consolidating_D',
             'dynamic_consolidation_duration_D',
             'volume_burstiness_index_D',
             'market_impact_cost_D',
@@ -218,7 +219,7 @@ class CalculateProcessCovertAccumulation:
                 period = int(period_str)
                 slope_col_name = f'SLOPE_{period}_{base_sig}'
                 if slope_col_name not in df.columns:
-                    df[slope_col_name] = ta.trend.slope(df[base_sig], length=period)
+                    df[slope_col_name] = ta.slope(df[base_sig], length=period) # 修改点：ta.trend.slope -> ta.slope
             
             # 计算加速度 (斜率的斜率)
             # 假设使用第一个斜率周期作为加速度的基准斜率
@@ -230,7 +231,7 @@ class CalculateProcessCovertAccumulation:
                         period = int(period_str)
                         accel_col_name = f'ACCEL_{period}_{base_sig}'
                         if accel_col_name not in df.columns:
-                            df[accel_col_name] = ta.trend.slope(df[base_slope_col], length=period)
+                            df[accel_col_name] = ta.slope(df[base_slope_col], length=period) # 修改点：ta.trend.slope -> ta.slope
                 else:
                     # 如果基准斜率不存在，则加速度也无法计算
                     for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
