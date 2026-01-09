@@ -20,8 +20,8 @@ class CalculateProcessCovertAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.11 · 信号丰富与共振机制版】计算“隐蔽吸筹”的专属信号。
-        - 核心升级: 引入新的原始信号，新增主力吸筹共振机制，提供更全面和协同的隐蔽吸筹判断。
+        【V2.12 · 微观订单流与结构共振版】计算“隐蔽吸筹”的专属信号。
+        - 核心升级: 引入更多微观订单流和市场结构信号，新增微观订单流共振机制，提供更全面和协同的隐蔽吸筹判断。
         """
         method_name = "_calculate_process_covert_accumulation"
         # --- 调试信息构建 ---
@@ -47,38 +47,34 @@ class CalculateProcessCovertAccumulation:
         neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, \
         cumulative_acc_windows, cumulative_acc_weights, \
         daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, \
-        new_raw_signals_weights, main_force_accumulation_resonance_weight = self._get_covert_accumulation_config(config)
+        new_raw_signals_weights, main_force_accumulation_resonance_weight, \
+        new_raw_signals_weights_v2, covert_order_flow_resonance_weight = self._get_covert_accumulation_config(config)
         
         df_index = df.index
-
         # 2. 校验并获取原始信号 (此方法内部会先计算所有派生信号)
         raw_signals = self._validate_and_get_raw_signals(df, method_name, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, is_debug_enabled_for_method, probe_ts, _temp_debug_values, cumulative_flow_windows, cumulative_acc_windows)
         if raw_signals is None:
             return pd.Series(0.0, index=df.index)
-
         # 3. 计算维度一：市场背景 (Market Context)
         market_context_score = self._calculate_market_context_score(df, df_index, raw_signals, mtf_slope_accel_weights, market_context_weights, price_weakness_slope_window, low_volatility_bbw_window, method_name, _temp_debug_values, neutral_range_threshold)
-
         # 4. 计算维度二：隐蔽行动 (Covert Action)
-        covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, mtf_slope_accel_weights, covert_action_weights, method_name, _temp_debug_values, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight)
-
+        covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, mtf_slope_accel_weights, covert_action_weights, method_name, _temp_debug_values, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight, new_raw_signals_weights_v2, covert_order_flow_resonance_weight)
         # 5. 计算维度三：筹码优化 (Chip Optimization)
         chip_optimization_score = self._calculate_chip_optimization_score(df, df_index, raw_signals, mtf_slope_accel_weights, chip_optimization_weights, method_name, _temp_debug_values)
         
         # 6. 最终合成：三维融合
         final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
         _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
-
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
             
         return final_score
 
-    def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float]:
+    def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
         """
-        【V2.11 · 信号丰富与共振机制版】获取隐蔽吸筹计算所需的所有配置参数。
-        - 核心修改: 引入新的原始信号权重，新增主力吸筹共振信号权重，并更新隐蔽行动的默认权重。
+        【V2.12 · 微观订单流与结构共振版】获取隐蔽吸筹计算所需的所有配置参数。
+        - 核心修改: 引入新的原始信号权重，新增微观订单流共振信号权重，并更新隐蔽行动和市场背景的默认权重。
         """
         covert_accum_params = get_param_value(self.helper.params.get('covert_accumulation_params'), {})
         fusion_weights = get_param_value(covert_accum_params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
@@ -90,9 +86,12 @@ class CalculateProcessCovertAccumulation:
             "hurst_inverted": 0.05, "is_consolidating": 0.05, "dynamic_consolidation_duration": 0.05,
             "volume_burstiness_inverted": 0.05, "market_impact_cost_inverted": 0.05,
             "liquidity_authenticity": 0.05, "order_book_imbalance_neutral": 0.05,
-            "micro_price_impact_asymmetry_neutral": 0.05
+            "micro_price_impact_asymmetry_neutral": 0.05,
+            # 新增市场背景信号权重
+            "order_book_liquidity_supply": 0.05,
+            "is_high_potential_consolidation": 0.05
         })
-        # 新增的原始信号权重
+        # 新增的原始信号权重 (V2.11)
         new_raw_signals_weights = get_param_value(covert_accum_params.get('new_raw_signals_weights'), {
             "ask_side_liquidity_inverted": 0.03,
             "mf_level5_buy_ofi": 0.05,
@@ -101,9 +100,17 @@ class CalculateProcessCovertAccumulation:
             "smart_money_inst_net_buy": 0.05,
             "microstructure_efficiency": 0.03
         })
+        # 新增的原始信号权重 (V2.12)
+        new_raw_signals_weights_v2 = get_param_value(covert_accum_params.get('new_raw_signals_weights_v2'), {
+            "buy_flow_efficiency": 0.05,
+            "sell_flow_efficiency_inverted": 0.03,
+            "main_force_vwap_up_guidance": 0.05,
+            "observed_large_order_size_avg_inverted": 0.03
+        })
         # 主力吸筹共振信号权重
         main_force_accumulation_resonance_weight = get_param_value(covert_accum_params.get('main_force_accumulation_resonance_weight'), 0.1)
-
+        # 微观订单流共振信号权重
+        covert_order_flow_resonance_weight = get_param_value(covert_accum_params.get('covert_order_flow_resonance_weight'), 0.08)
         covert_action_weights = get_param_value(covert_accum_params.get('covert_action_weights'), {
             "suppressive_accum": 0.08, "contextualized_main_force_flow": 0.15, "deception_lure_long": 0.1,
             "stealth_ops": 0.1, "contextualized_hidden_accumulation": 0.15, "chip_historical_potential": 0.05,
@@ -114,14 +121,20 @@ class CalculateProcessCovertAccumulation:
             "buy_quote_exhaustion_inverted": 0.05, "bid_side_liquidity": 0.05,
             "net_lg_amount": 0.05, "dip_buy_absorption": 0.05, "mf_slippage_inverted": 0.05,
             "micro_impact_elasticity_inverted": 0.05,
-            # 新增信号的默认权重
+            # V2.11新增信号的默认权重
             "ask_side_liquidity_inverted": new_raw_signals_weights["ask_side_liquidity_inverted"],
             "mf_level5_buy_ofi": new_raw_signals_weights["mf_level5_buy_ofi"],
             "mf_buy_execution_alpha": new_raw_signals_weights["mf_buy_execution_alpha"],
             "upper_shadow_selling_pressure_inverted": new_raw_signals_weights["upper_shadow_selling_pressure_inverted"],
             "smart_money_inst_net_buy": new_raw_signals_weights["smart_money_inst_net_buy"],
             "microstructure_efficiency": new_raw_signals_weights["microstructure_efficiency"],
-            "main_force_accumulation_resonance": main_force_accumulation_resonance_weight # 主力吸筹共振信号
+            "main_force_accumulation_resonance": main_force_accumulation_resonance_weight,
+            # V2.12新增信号的默认权重
+            "buy_flow_efficiency": new_raw_signals_weights_v2["buy_flow_efficiency"],
+            "sell_flow_efficiency_inverted": new_raw_signals_weights_v2["sell_flow_efficiency_inverted"],
+            "main_force_vwap_up_guidance": new_raw_signals_weights_v2["main_force_vwap_up_guidance"],
+            "observed_large_order_size_avg_inverted": new_raw_signals_weights_v2["observed_large_order_size_avg_inverted"],
+            "covert_order_flow_resonance": covert_order_flow_resonance_weight
         })
         chip_optimization_weights = get_param_value(covert_accum_params.get('chip_optimization_weights'), {
             "chip_fatigue": 0.15, "loser_pain": 0.15, "holder_sentiment_inverted": 0.1,
@@ -135,34 +148,31 @@ class CalculateProcessCovertAccumulation:
         low_volatility_bbw_window = get_param_value(covert_accum_params.get('low_volatility_bbw_window'), 21)
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         neutral_range_threshold = get_param_value(covert_accum_params.get('neutral_range_threshold'), 0.1)
-
         cumulative_flow_windows = get_param_value(covert_accum_params.get('cumulative_flow_windows'), [13, 21])
         cumulative_flow_weights = get_param_value(covert_accum_params.get('cumulative_flow_weights'), {"13": 0.6, "21": 0.4})
         cumulative_acc_windows = get_param_value(covert_accum_params.get('cumulative_acc_windows'), [13, 21])
         cumulative_acc_weights = get_param_value(covert_accum_params.get('cumulative_acc_weights'), {"13": 0.6, "21": 0.4})
-
         daily_mf_flow_weight = get_param_value(covert_accum_params.get('daily_mf_flow_weight'), 0.4)
         cumulative_mf_flow_weight = get_param_value(covert_accum_params.get('cumulative_mf_flow_weight'), 0.6)
         daily_acc_weight = get_param_value(covert_accum_params.get('daily_acc_weight'), 0.4)
         cumulative_acc_weight = get_param_value(covert_accum_params.get('cumulative_acc_weight'), 0.6)
-
         return fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, \
                price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, \
                neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, \
                cumulative_acc_windows, cumulative_acc_weights, \
                daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, \
-               new_raw_signals_weights, main_force_accumulation_resonance_weight
+               new_raw_signals_weights, main_force_accumulation_resonance_weight, \
+               new_raw_signals_weights_v2, covert_order_flow_resonance_weight
 
     def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]):
         """
-        【V2.11 · 信号丰富与共振机制版】计算所有派生信号（累积求和、斜率、加速度）并添加到DataFrame中。
+        【V2.12 · 微观订单流与结构共振版】计算所有派生信号（累积求和、斜率、加速度）并添加到DataFrame中。
         - 核心修改: 增加了新引入原始信号的MTF斜率和加速度计算。
         """
         # 1. 计算累积求和信号
         mf_flow_base = 'main_force_net_flow_calibrated_D'
         hidden_acc_base = 'hidden_accumulation_intensity_D'
         suppressive_acc_base = 'suppressive_accumulation_intensity_D'
-        # 确保原始列存在，否则无法计算滚动和
         if mf_flow_base in df.columns:
             for window in cumulative_flow_windows:
                 col_name = f'{mf_flow_base}_{window}d_sum'
@@ -178,7 +188,6 @@ class CalculateProcessCovertAccumulation:
                 col_name_suppressive = f'{suppressive_acc_base}_{window}d_sum'
                 if col_name_suppressive not in df.columns:
                     df[col_name_suppressive] = df[suppressive_acc_base].rolling(window, min_periods=1).sum()
-
         # 2. 定义所有需要计算MTF斜率和加速度的基准信号
         mtf_base_signals_for_calculation = [
             'close_D', # For price_weakness
@@ -230,13 +239,20 @@ class CalculateProcessCovertAccumulation:
             'lower_shadow_absorption_strength_D',
             'panic_sell_volume_contribution_D',
             'profit_realization_quality_D',
-            # 新增的原始信号
+            # V2.11新增的原始信号
             'ask_side_liquidity_D',
             'main_force_level5_buy_ofi_D',
             'main_force_buy_execution_alpha_D',
             'upper_shadow_selling_pressure_D',
-            'SMART_MONEY_INST_NET_BUY_D',
-            'microstructure_efficiency_index_D'
+            'SMART_MONEY_INST_NET_BUY_D', # 已修正为大写
+            'microstructure_efficiency_index_D',
+            # V2.12新增的原始信号
+            'buy_flow_efficiency_index_D',
+            'sell_flow_efficiency_index_D',
+            'order_book_liquidity_supply_D',
+            'main_force_vwap_up_guidance_D',
+            'observed_large_order_size_avg_D',
+            'is_high_potential_consolidation_D'
         ]
         # 添加累积求和信号到MTF基准信号列表
         for window in cumulative_flow_windows:
@@ -244,20 +260,15 @@ class CalculateProcessCovertAccumulation:
         for window in cumulative_acc_windows:
             mtf_base_signals_for_calculation.append(f'{hidden_acc_base}_{window}d_sum')
             mtf_base_signals_for_calculation.append(f'{suppressive_acc_base}_{window}d_sum')
-
         # 3. 计算所有MTF斜率和加速度信号并添加到df
         for base_sig in mtf_base_signals_for_calculation:
             if base_sig not in df.columns:
-                continue # 如果基准信号不存在，则跳过其斜率/加速度计算
-            
-            # 计算斜率
+                continue
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 period = int(period_str)
                 slope_col_name = f'SLOPE_{period}_{base_sig}'
                 if slope_col_name not in df.columns:
                     df[slope_col_name] = ta.slope(df[base_sig], length=period)
-            
-            # 计算加速度 (斜率的斜率)
             if mtf_slope_accel_weights.get('slope_periods'):
                 first_slope_period_str = list(mtf_slope_accel_weights['slope_periods'].keys())[0]
                 base_slope_col = f'SLOPE_{first_slope_period_str}_{base_sig}'
@@ -268,18 +279,16 @@ class CalculateProcessCovertAccumulation:
                         if accel_col_name not in df.columns:
                             df[accel_col_name] = ta.slope(df[base_slope_col], length=period)
                 else:
-                    # 如果基准斜率不存在，则加速度也无法计算
                     for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                         df[f'ACCEL_{period_str}_{base_sig}'] = np.nan
 
     def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, price_weakness_slope_window: int, low_volatility_bbw_window: int, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]) -> Optional[Dict[str, pd.Series]]:
         """
-        【V2.11 · 信号丰富与共振机制版】校验所需信号并获取所有原始数据。
+        【V2.12 · 微观订单流与结构共振版】校验所需信号并获取所有原始数据。
         - 核心修改: 增加了新引入原始信号的校验和获取。
         """
         # 0. 动态计算所有派生信号 (累积求和、斜率、加速度)
         self._calculate_derived_signals(df, mtf_slope_accel_weights, cumulative_flow_windows, cumulative_acc_windows)
-
         # 1. 定义所有需要校验的原始信号列名
         required_df_columns = [
             'retail_panic_surrender_index_D', f'SLOPE_{price_weakness_slope_window}_close_D', f'BBW_{low_volatility_bbw_window}_2.0_D',
@@ -324,15 +333,21 @@ class CalculateProcessCovertAccumulation:
             'lower_shadow_absorption_strength_D',
             'panic_sell_volume_contribution_D',
             'profit_realization_quality_D',
-            # 新增的原始信号
+            # V2.11新增的原始信号
             'ask_side_liquidity_D',
             'main_force_level5_buy_ofi_D',
             'main_force_buy_execution_alpha_D',
             'upper_shadow_selling_pressure_D',
-            'SMART_MONEY_INST_NET_BUY_D',
-            'microstructure_efficiency_index_D'
+            'SMART_MONEY_INST_NET_BUY_D', # 已修正为大写
+            'microstructure_efficiency_index_D',
+            # V2.12新增的原始信号
+            'buy_flow_efficiency_index_D',
+            'sell_flow_efficiency_index_D',
+            'order_book_liquidity_supply_D',
+            'main_force_vwap_up_guidance_D',
+            'observed_large_order_size_avg_D',
+            'is_high_potential_consolidation_D'
         ]
-
         # 添加累积求和信号的列名
         mf_flow_base = 'main_force_net_flow_calibrated_D'
         hidden_acc_base = 'hidden_accumulation_intensity_D'
@@ -342,7 +357,6 @@ class CalculateProcessCovertAccumulation:
         for window in cumulative_acc_windows:
             required_df_columns.append(f'{hidden_acc_base}_{window}d_sum')
             required_df_columns.append(f'{suppressive_acc_base}_{window}d_sum')
-
         # 添加所有MTF斜率和加速度信号的列名
         mtf_base_signals_for_required_check = [
             'close_D', # For price_weakness
@@ -393,13 +407,20 @@ class CalculateProcessCovertAccumulation:
             'lower_shadow_absorption_strength_D',
             'panic_sell_volume_contribution_D',
             'profit_realization_quality_D',
-            # 新增的原始信号
+            # V2.11新增的原始信号
             'ask_side_liquidity_D',
             'main_force_level5_buy_ofi_D',
             'main_force_buy_execution_alpha_D',
             'upper_shadow_selling_pressure_D',
-            'SMART_MONEY_INST_NET_BUY_D',
-            'microstructure_efficiency_index_D'
+            'SMART_MONEY_INST_NET_BUY_D', # 已修正为大写
+            'microstructure_efficiency_index_D',
+            # V2.12新增的原始信号
+            'buy_flow_efficiency_index_D',
+            'sell_flow_efficiency_index_D',
+            'order_book_liquidity_supply_D',
+            'main_force_vwap_up_guidance_D',
+            'observed_large_order_size_avg_D',
+            'is_high_potential_consolidation_D'
         ]
         for base_sig in mtf_base_signals_for_required_check:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
@@ -413,7 +434,6 @@ class CalculateProcessCovertAccumulation:
                 debug_output = {f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。": ""}
                 self.helper._print_debug_output(debug_output)
             return None
-
         # 2. 获取所有原始信号 (包括新计算的累积求和信号)
         raw_signals = {
             'retail_panic_raw': self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name),
@@ -467,52 +487,56 @@ class CalculateProcessCovertAccumulation:
             'lower_shadow_absorption_raw': self.helper._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name=method_name),
             'panic_sell_volume_contribution_raw': self.helper._get_safe_series(df, 'panic_sell_volume_contribution_D', 0.0, method_name=method_name),
             'profit_realization_quality_raw': self.helper._get_safe_series(df, 'profit_realization_quality_D', 0.0, method_name=method_name),
-            # 新增的原始信号
+            # V2.11新增的原始信号
             'ask_side_liquidity_raw': self.helper._get_safe_series(df, 'ask_side_liquidity_D', 0.0, method_name=method_name),
             'mf_level5_buy_ofi_raw': self.helper._get_safe_series(df, 'main_force_level5_buy_ofi_D', 0.0, method_name=method_name),
             'mf_buy_execution_alpha_raw': self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name=method_name),
             'upper_shadow_selling_pressure_raw': self.helper._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name=method_name),
-            'smart_money_inst_net_buy_raw': self.helper._get_safe_series(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0, method_name=method_name),
-            'microstructure_efficiency_raw': self.helper._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name)
+            'smart_money_inst_net_buy_raw': self.helper._get_safe_series(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0, method_name=method_name), # 已修正为大写
+            'microstructure_efficiency_raw': self.helper._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name),
+            # V2.12新增的原始信号
+            'buy_flow_efficiency_raw': self.helper._get_safe_series(df, 'buy_flow_efficiency_index_D', 0.0, method_name=method_name),
+            'sell_flow_efficiency_raw': self.helper._get_safe_series(df, 'sell_flow_efficiency_index_D', 0.0, method_name=method_name),
+            'order_book_liquidity_supply_raw': self.helper._get_safe_series(df, 'order_book_liquidity_supply_D', 0.0, method_name=method_name),
+            'main_force_vwap_up_guidance_raw': self.helper._get_safe_series(df, 'main_force_vwap_up_guidance_D', 0.0, method_name=method_name),
+            'observed_large_order_size_avg_raw': self.helper._get_safe_series(df, 'observed_large_order_size_avg_D', 0.0, method_name=method_name),
+            'is_high_potential_consolidation_raw': self.helper._get_safe_series(df, 'is_high_potential_consolidation_D', 0.0, method_name=method_name)
         }
-
         # 获取累积信号的原始数据 (这些列现在已在df中)
         for window in cumulative_flow_windows:
             raw_signals[f'cumulative_mf_flow_{window}d_raw'] = self.helper._get_safe_series(df, f'{mf_flow_base}_{window}d_sum', 0.0, method_name=method_name)
         for window in cumulative_acc_windows:
             raw_signals[f'cumulative_hidden_acc_{window}d_raw'] = self.helper._get_safe_series(df, f'{hidden_acc_base}_{window}d_sum', 0.0, method_name=method_name)
             raw_signals[f'cumulative_suppressive_acc_{window}d_raw'] = self.helper._get_safe_series(df, f'{suppressive_acc_base}_{window}d_sum', 0.0, method_name=method_name)
-
         _temp_debug_values["原始信号值"] = {k: v for k, v in raw_signals.items()}
         return raw_signals
 
     def _calculate_market_context_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, market_context_weights: Dict, price_weakness_slope_window: int, low_volatility_bbw_window: int, method_name: str, _temp_debug_values: Dict, neutral_range_threshold: float) -> pd.Series:
         """
-        【V2.6 · 原始数据层适配版】计算隐蔽吸筹的市场背景分数。
-        - 核心修改: 引入更多市场背景信号，并调整部分信号的归一化逻辑。
+        【V2.12 · 微观订单流与结构共振版】计算隐蔽吸筹的市场背景分数。
+        - 核心修改: 引入新的市场背景信号。
         """
         retail_panic_score = self.helper._normalize_series(raw_signals['retail_panic_raw'], df_index, bipolar=False)
         mtf_price_weakness_score = self.helper._get_mtf_slope_accel_score(df, f'close_D', mtf_slope_accel_weights, df_index, method_name, ascending=False, bipolar=False)
         low_volatility_score = self.helper._normalize_series(raw_signals['bbw_raw'], df_index, ascending=False)
-        # 替换 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM
         sentiment_pendulum_inverted_score = (1 - self.helper._normalize_series(raw_signals['market_sentiment_raw'], df_index, bipolar=True).clip(lower=0))
-        # 替换 SCORE_STRUCT_AXIOM_TENSION
         tension_inverted_score = (1 - self.helper._normalize_series(raw_signals['structural_tension_index_raw'], df_index, bipolar=False))
         market_sentiment_inverted_score = self.helper._normalize_series(raw_signals['market_sentiment_raw'], df_index, ascending=False)
         volatility_instability_inverted_score = self.helper._normalize_series(raw_signals['volatility_instability_raw'], df_index, ascending=False)
-        # 新增市场背景信号
         equilibrium_compression_score = self.helper._normalize_series(raw_signals['equilibrium_compression_raw'], df_index, bipolar=False)
         price_volume_entropy_inverted_score = self.helper._normalize_series(raw_signals['price_volume_entropy_raw'], df_index, ascending=False)
-        fractal_dimension_inverted_score = self.helper._normalize_series(raw_signals['fractal_dimension_raw'], df_index, ascending=False) # 奖励非趋势性
-        hurst_inverted_score = self.helper._normalize_series(raw_signals['hurst_raw'], df_index, ascending=False) # 奖励均值回归
+        fractal_dimension_inverted_score = self.helper._normalize_series(raw_signals['fractal_dimension_raw'], df_index, ascending=False)
+        hurst_inverted_score = self.helper._normalize_series(raw_signals['hurst_raw'], df_index, ascending=False)
         is_consolidating_score = self.helper._normalize_series(raw_signals['is_consolidating_raw'], df_index, bipolar=False)
         dynamic_consolidation_duration_score = self.helper._normalize_series(raw_signals['dynamic_consolidation_duration_raw'], df_index, bipolar=False)
         volume_burstiness_inverted_score = self.helper._normalize_series(raw_signals['volume_burstiness_raw'], df_index, ascending=False)
         market_impact_cost_inverted_score = self.helper._normalize_series(raw_signals['market_impact_cost_raw'], df_index, ascending=False)
         liquidity_authenticity_score = self.helper._normalize_series(raw_signals['liquidity_authenticity_raw'], df_index, bipolar=False)
-        # 订单簿不平衡和微观价格冲击不对称性，奖励中性（接近0）
         order_book_imbalance_neutral_score = (1 - self.helper._normalize_series(raw_signals['order_book_imbalance_raw'].abs(), df_index, bipolar=False)).clip(0,1)
         micro_price_impact_asymmetry_neutral_score = (1 - self.helper._normalize_series(raw_signals['micro_price_impact_asymmetry_raw'].abs(), df_index, bipolar=False)).clip(0,1)
+        # V2.12新增市场背景信号
+        order_book_liquidity_supply_score = self.helper._normalize_series(raw_signals['order_book_liquidity_supply_raw'], df_index, bipolar=False)
+        is_high_potential_consolidation_score = self.helper._normalize_series(raw_signals['is_high_potential_consolidation_raw'], df_index, bipolar=False)
         market_context_scores_dict = {
             "retail_panic": retail_panic_score,
             "price_weakness": mtf_price_weakness_score,
@@ -531,7 +555,10 @@ class CalculateProcessCovertAccumulation:
             "market_impact_cost_inverted": market_impact_cost_inverted_score,
             "liquidity_authenticity": liquidity_authenticity_score,
             "order_book_imbalance_neutral": order_book_imbalance_neutral_score,
-            "micro_price_impact_asymmetry_neutral": micro_price_impact_asymmetry_neutral_score
+            "micro_price_impact_asymmetry_neutral": micro_price_impact_asymmetry_neutral_score,
+            # V2.12新增市场背景信号
+            "order_book_liquidity_supply": order_book_liquidity_supply_score,
+            "is_high_potential_consolidation": is_high_potential_consolidation_score
         }
         market_context_score = _robust_geometric_mean(market_context_scores_dict, market_context_weights, df_index)
         _temp_debug_values["市场背景"] = {
@@ -553,17 +580,20 @@ class CalculateProcessCovertAccumulation:
             "liquidity_authenticity_score": liquidity_authenticity_score,
             "order_book_imbalance_neutral_score": order_book_imbalance_neutral_score,
             "micro_price_impact_asymmetry_neutral_score": micro_price_impact_asymmetry_neutral_score,
+            # V2.12新增市场背景信号
+            "order_book_liquidity_supply_score": order_book_liquidity_supply_score,
+            "is_high_potential_consolidation_score": is_high_potential_consolidation_score,
             "market_context_score": market_context_score
         }
         return market_context_score
 
-    def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_flow_weights: Dict, cumulative_acc_windows: List[int], cumulative_acc_weights: Dict, daily_mf_flow_weight: float, cumulative_mf_flow_weight: float, daily_acc_weight: float, cumulative_acc_weight: float, new_raw_signals_weights: Dict, main_force_accumulation_resonance_weight: float) -> pd.Series:
+    def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_flow_weights: Dict, cumulative_acc_windows: List[int], cumulative_acc_weights: Dict, daily_mf_flow_weight: float, cumulative_mf_flow_weight: float, daily_acc_weight: float, cumulative_acc_weight: float, new_raw_signals_weights: Dict, main_force_accumulation_resonance_weight: float, new_raw_signals_weights_v2: Dict, covert_order_flow_resonance_weight: float) -> pd.Series:
         """
-        【V2.11 · 信号丰富与共振机制版】计算隐蔽行动分数。
-        - 核心修改: 引入新的原始信号及其归一化分数，并新增主力吸筹共振信号。
+        【V2.12 · 微观订单流与结构共振版】计算隐蔽行动分数。
+        - 核心修改: 引入新的原始信号及其归一化分数，并新增微观订单流共振信号。
         """
         mtf_suppressive_accum_score = self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_main_force_flow_score = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 保持双极性，正为流入，负为流出
+        mtf_main_force_flow_score = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_deception_lure_long_score = self.helper._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         stealth_ops_normalized = self.helper._normalize_series(raw_signals['covert_accumulation_signal_raw'], df_index, bipolar=False)
         mtf_hidden_accumulation_intensity = self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
@@ -582,15 +612,18 @@ class CalculateProcessCovertAccumulation:
         dip_buy_absorption_score = self.helper._normalize_series(raw_signals['dip_buy_absorption_raw'], df_index, bipolar=False)
         main_force_slippage_inverted_score = self.helper._normalize_series(raw_signals['main_force_slippage_raw'], df_index, ascending=False)
         micro_impact_elasticity_inverted_score = self.helper._normalize_series(raw_signals['micro_impact_elasticity_raw'], df_index, ascending=False)
-
-        # --- 新增原始信号的归一化分数 ---
+        # V2.11新增原始信号的归一化分数
         ask_side_liquidity_inverted_score = self.helper._normalize_series(raw_signals['ask_side_liquidity_raw'], df_index, ascending=False)
         mf_level5_buy_ofi_score = self.helper._normalize_series(raw_signals['mf_level5_buy_ofi_raw'], df_index, bipolar=False)
         mf_buy_execution_alpha_score = self.helper._normalize_series(raw_signals['mf_buy_execution_alpha_raw'], df_index, bipolar=False)
         upper_shadow_selling_pressure_inverted_score = self.helper._normalize_series(raw_signals['upper_shadow_selling_pressure_raw'], df_index, ascending=False)
         smart_money_inst_net_buy_score = self.helper._normalize_series(raw_signals['smart_money_inst_net_buy_raw'], df_index, bipolar=False)
         microstructure_efficiency_score = self.helper._normalize_series(raw_signals['microstructure_efficiency_raw'], df_index, bipolar=False)
-
+        # V2.12新增原始信号的归一化分数
+        buy_flow_efficiency_score = self.helper._normalize_series(raw_signals['buy_flow_efficiency_raw'], df_index, bipolar=False)
+        sell_flow_efficiency_inverted_score = self.helper._normalize_series(raw_signals['sell_flow_efficiency_raw'], df_index, ascending=False)
+        main_force_vwap_up_guidance_score = self.helper._normalize_series(raw_signals['main_force_vwap_up_guidance_raw'], df_index, bipolar=False)
+        observed_large_order_size_avg_inverted_score = self.helper._normalize_series(raw_signals['observed_large_order_size_avg_raw'], df_index, ascending=False)
         # --- 累积资金流和吸筹强度计算 ---
         cumulative_mf_flow_scores = []
         for window in cumulative_flow_windows:
@@ -606,7 +639,6 @@ class CalculateProcessCovertAccumulation:
         
         blended_mf_flow_score = (mtf_main_force_flow_score * daily_mf_flow_weight + cumulative_mf_flow_score * cumulative_mf_flow_weight) / (daily_mf_flow_weight + cumulative_mf_flow_weight)
         contextualized_main_force_flow_score = (blended_mf_flow_score + 1) / 2
-
         # 累积隐蔽吸筹强度
         cumulative_hidden_acc_scores = []
         for window in cumulative_acc_windows:
@@ -619,11 +651,9 @@ class CalculateProcessCovertAccumulation:
             for i, window in enumerate(cumulative_acc_windows):
                 weight = cumulative_acc_weights.get(str(window), 0.0)
                 cumulative_hidden_acc_score += cumulative_hidden_acc_scores[i] * (weight / total_acc_weight_cum)
-
         blended_hidden_acc_score = (mtf_hidden_accumulation_intensity * daily_acc_weight + cumulative_hidden_acc_score * cumulative_acc_weight) / (daily_acc_weight + cumulative_acc_weight)
         contextualized_hidden_accumulation_score = blended_hidden_acc_score
-
-        # --- 主力吸筹共振信号 ---
+        # --- 主力吸筹共振信号 (V2.11) ---
         main_force_accumulation_resonance_base_signals = [
             'main_force_net_flow_calibrated_D',
             'hidden_accumulation_intensity_D',
@@ -632,10 +662,17 @@ class CalculateProcessCovertAccumulation:
         main_force_accumulation_resonance_score_bipolar = self.helper._get_mtf_resonance_score(
             df, main_force_accumulation_resonance_base_signals, mtf_slope_accel_weights, df_index, method_name
         )
-        # 将双极性共振分数映射到 [0, 1] 范围，以便与几何平均融合
         main_force_accumulation_resonance_score = (main_force_accumulation_resonance_score_bipolar + 1) / 2
-
-
+        # --- 微观订单流共振信号 (V2.12) ---
+        covert_order_flow_resonance_base_signals = [
+            'main_force_buy_ofi_D',
+            'main_force_level5_buy_ofi_D',
+            'buy_flow_efficiency_index_D'
+        ]
+        covert_order_flow_resonance_score_bipolar = self.helper._get_mtf_resonance_score(
+            df, covert_order_flow_resonance_base_signals, mtf_slope_accel_weights, df_index, method_name
+        )
+        covert_order_flow_resonance_score = (covert_order_flow_resonance_score_bipolar + 1) / 2
         covert_action_scores_dict = {
             "suppressive_accum": mtf_suppressive_accum_score,
             "contextualized_main_force_flow": contextualized_main_force_flow_score,
@@ -657,15 +694,20 @@ class CalculateProcessCovertAccumulation:
             "dip_buy_absorption": dip_buy_absorption_score,
             "main_force_slippage_inverted": main_force_slippage_inverted_score,
             "micro_impact_elasticity_inverted": micro_impact_elasticity_inverted_score,
-            # 新增信号
+            # V2.11新增信号
             "ask_side_liquidity_inverted": ask_side_liquidity_inverted_score,
             "mf_level5_buy_ofi": mf_level5_buy_ofi_score,
             "mf_buy_execution_alpha": mf_buy_execution_alpha_score,
             "upper_shadow_selling_pressure_inverted": upper_shadow_selling_pressure_inverted_score,
             "smart_money_inst_net_buy": smart_money_inst_net_buy_score,
             "microstructure_efficiency": microstructure_efficiency_score,
-            # 主力吸筹共振信号
-            "main_force_accumulation_resonance": main_force_accumulation_resonance_score
+            "main_force_accumulation_resonance": main_force_accumulation_resonance_score,
+            # V2.12新增信号
+            "buy_flow_efficiency": buy_flow_efficiency_score,
+            "sell_flow_efficiency_inverted": sell_flow_efficiency_inverted_score,
+            "main_force_vwap_up_guidance": main_force_vwap_up_guidance_score,
+            "observed_large_order_size_avg_inverted": observed_large_order_size_avg_inverted_score,
+            "covert_order_flow_resonance": covert_order_flow_resonance_score
         }
         covert_action_score = _robust_geometric_mean(covert_action_scores_dict, covert_action_weights, df_index)
         _temp_debug_values["隐蔽行动"] = {
@@ -695,16 +737,22 @@ class CalculateProcessCovertAccumulation:
             "dip_buy_absorption_score": dip_buy_absorption_score,
             "main_force_slippage_inverted_score": main_force_slippage_inverted_score,
             "micro_impact_elasticity_inverted_score": micro_impact_elasticity_inverted_score,
-            # 新增信号
+            # V2.11新增信号
             "ask_side_liquidity_inverted_score": ask_side_liquidity_inverted_score,
             "mf_level5_buy_ofi_score": mf_level5_buy_ofi_score,
             "mf_buy_execution_alpha_score": mf_buy_execution_alpha_score,
             "upper_shadow_selling_pressure_inverted_score": upper_shadow_selling_pressure_inverted_score,
             "smart_money_inst_net_buy_score": smart_money_inst_net_buy_score,
             "microstructure_efficiency_score": microstructure_efficiency_score,
-            # 主力吸筹共振信号
             "main_force_accumulation_resonance_score_bipolar": main_force_accumulation_resonance_score_bipolar,
             "main_force_accumulation_resonance_score": main_force_accumulation_resonance_score,
+            # V2.12新增信号
+            "buy_flow_efficiency_score": buy_flow_efficiency_score,
+            "sell_flow_efficiency_inverted_score": sell_flow_efficiency_inverted_score,
+            "main_force_vwap_up_guidance_score": main_force_vwap_up_guidance_score,
+            "observed_large_order_size_avg_inverted_score": observed_large_order_size_avg_inverted_score,
+            "covert_order_flow_resonance_score_bipolar": covert_order_flow_resonance_score_bipolar,
+            "covert_order_flow_resonance_score": covert_order_flow_resonance_score,
             "covert_action_score": covert_action_score
         }
         return covert_action_score
@@ -784,7 +832,7 @@ class CalculateProcessCovertAccumulation:
 
     def _print_debug_info(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         """
-        【V2.11 · 信号丰富与共振机制版】统一打印隐蔽吸筹计算的调试信息。
+        【V2.12 · 微观订单流与结构共振版】统一打印隐蔽吸筹计算的调试信息。
         - 核心修改: 确保能够正确打印新加入的原始信号和共振信号的调试信息。
         """
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""

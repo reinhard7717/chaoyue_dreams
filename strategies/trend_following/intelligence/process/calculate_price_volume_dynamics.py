@@ -1328,7 +1328,6 @@ class CalculatePriceVolumeDynamics:
         main_force_order_flow_depth_dimension = self._calculate_main_force_order_flow_depth_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_order_flow_depth_components'), {}), method_name)
         main_force_flow_contextualized_dimension = mtf_signals['mtf_main_force_net_flow_contextualized']
         market_structure_clarity_dimension = self._calculate_market_structure_clarity_dimension(df_index, mtf_signals, get_param_value(pvd_params.get('market_structure_clarity_components'), {}), method_name) # 新增
-
         _temp_debug_values["维度分数"] = {
             "energy_compression_score": energy_compression_score,
             "volume_exhaustion_score": volume_exhaustion_score,
@@ -1340,7 +1339,6 @@ class CalculatePriceVolumeDynamics:
             "main_force_flow_contextualized_dimension": main_force_flow_contextualized_dimension,
             "market_structure_clarity_dimension": market_structure_clarity_dimension # 新增
         }
-
         # Calculate Multi-Level Resonance Factor - 传入所有维度分数
         multi_level_resonance_factor = self._calculate_multi_level_resonance_factor(
             df, df_index, raw_signals, mtf_signals, pvd_params, context_modulator_score_for_weights,

@@ -29,7 +29,7 @@
                         "main_chip_resonance": 0.15,
                         "sentiment_liquidity_resonance": 0.1,
                         "micro_structure_resonance": 0.1,
-                        "quality_efficiency_resonance": 0.1,
+                        "quality_efficiency_resonance": 0.05,
                         "liquidity_health_dimension": 0.05,
                         "main_force_order_flow_depth_dimension": 0.05,
                         "main_force_flow_contextualized_dimension": 0.05,
