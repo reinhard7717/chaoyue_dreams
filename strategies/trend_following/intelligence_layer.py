@@ -96,28 +96,28 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
-        # update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
-        # update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
-        # update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        # # 重构日内引擎的调用逻辑
-        # try:
-        #     intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
-        #     update_states(intraday_results)
-        # except Exception as e:
-        #     print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
-        # update_states(self.foundation_intel.run_foundation_analysis_command(df))
-        # chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
-        # update_states(chip_states_from_intel)
-        # update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        # update_states(self.structural_intel.diagnose_structural_states(df))
-        # update_states(self.mechanics_engine.run_dynamic_analysis_command(df))
-        # update_states(self.pattern_intel.run_pattern_analysis_command(df))
+        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
+        update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
+        update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
+        # 重构日内引擎的调用逻辑
+        try:
+            intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
+            update_states(intraday_results)
+        except Exception as e:
+            print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
+        update_states(self.foundation_intel.run_foundation_analysis_command(df))
+        chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
+        update_states(chip_states_from_intel)
+        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
+        update_states(self.structural_intel.diagnose_structural_states(df))
+        update_states(self.mechanics_engine.run_dynamic_analysis_command(df))
+        update_states(self.pattern_intel.run_pattern_analysis_command(df))
         # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
         update_states(self.process_intel.run_process_diagnostics(df, task_type_filter=None))
         # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
-        # update_states(self.fusion_intel.run_fusion_diagnostics(df))
+        update_states(self.fusion_intel.run_fusion_diagnostics(df))
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
-        # self._ignite_relational_dynamics_engine()
+        self._ignite_relational_dynamics_engine()
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
         # 修复指挥链，在所有诊断完成后部署法医探针
