@@ -842,28 +842,67 @@ class CalculatePriceVolumeDynamics:
         quadrant_weights = get_param_value(pvd_params.get('quadrant_weights'), {})
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
 
-        # 价格和成交量信号
-        close_D = raw_signals['close_D']
-        volume_D = raw_signals['volume_D']
+        # 防御性地获取所有原始信号，避免 KeyError
+        close_D = raw_signals.get('close_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        volume_D = raw_signals.get('volume_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        adx_14_D = raw_signals.get('ADX_14_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        trend_vitality_index_D = raw_signals.get('trend_vitality_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        trend_conviction_score_D = raw_signals.get('trend_conviction_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        trend_acceleration_score_D = raw_signals.get('trend_acceleration_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        market_sentiment_score_D = raw_signals.get('market_sentiment_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        liquidity_authenticity_score_D = raw_signals.get('liquidity_authenticity_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        breakout_readiness_score_D = raw_signals.get('breakout_readiness_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        platform_conviction_score_D = raw_signals.get('platform_conviction_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        goodness_of_fit_score_D = raw_signals.get('goodness_of_fit_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        upward_impulse_purity_D = raw_signals.get('upward_impulse_purity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        vpa_efficiency_D = raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        is_consolidating_D = raw_signals.get('is_consolidating_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        dynamic_consolidation_duration_D = raw_signals.get('dynamic_consolidation_duration_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        equilibrium_compression_index_D = raw_signals.get('equilibrium_compression_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        hidden_accumulation_intensity_D = raw_signals.get('hidden_accumulation_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        covert_accumulation_signal_D = raw_signals.get('covert_accumulation_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        reversal_power_index_D = raw_signals.get('reversal_power_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        reversal_recovery_rate_D = raw_signals.get('reversal_recovery_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        volatility_asymmetry_index_D = raw_signals.get('volatility_asymmetry_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        mean_reversion_frequency_D = raw_signals.get('mean_reversion_frequency_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        loser_pain_index_D = raw_signals.get('loser_pain_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        holistic_cmf_D = raw_signals.get('holistic_cmf_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        main_force_net_flow_calibrated_D = raw_signals.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        covert_distribution_signal_D = raw_signals.get('covert_distribution_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        panic_selling_cascade_D = raw_signals.get('panic_selling_cascade_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+
+        # 打印警告信息
+        for sig_name in ['close_D', 'volume_D', 'ADX_14_D', 'trend_vitality_index_D', 'trend_conviction_score_D',
+                         'trend_acceleration_score_D', 'market_sentiment_score_D', 'liquidity_authenticity_score_D',
+                         'breakout_readiness_score_D', 'platform_conviction_score_D', 'goodness_of_fit_score_D',
+                         'upward_impulse_purity_D', 'VPA_EFFICIENCY_D', 'is_consolidating_D',
+                         'dynamic_consolidation_duration_D', 'equilibrium_compression_index_D',
+                         'hidden_accumulation_intensity_D', 'covert_accumulation_signal_D',
+                         'reversal_power_index_D', 'reversal_recovery_rate_D', 'volatility_asymmetry_index_D',
+                         'mean_reversion_frequency_D', 'loser_pain_index_D', 'holistic_cmf_D',
+                         'main_force_net_flow_calibrated_D', 'covert_distribution_signal_D',
+                         'panic_selling_cascade_D']:
+            if sig_name not in raw_signals:
+                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 raw_signals 中缺失。使用默认的零值 Series。")
 
         # 趋势强度和方向
-        adx_score = self.helper._normalize_series(raw_signals['ADX_14_D'], df_index, bipolar=False)
-        trend_vitality_score = self.helper._normalize_series(raw_signals['trend_vitality_index_D'], df_index, bipolar=False)
-        trend_conviction_score = self.helper._normalize_series(raw_signals['trend_conviction_score_D'], df_index, bipolar=False)
-        trend_acceleration_score = self.helper._normalize_series(raw_signals['trend_acceleration_score_D'], df_index, bipolar=False)
+        adx_score = self.helper._normalize_series(adx_14_D, df_index, bipolar=False)
+        trend_vitality_score = self.helper._normalize_series(trend_vitality_index_D, df_index, bipolar=False)
+        trend_conviction_score = self.helper._normalize_series(trend_conviction_score_D, df_index, bipolar=False)
+        trend_acceleration_score = self.helper._normalize_series(trend_acceleration_score_D, df_index, bipolar=False)
 
         # 市场情绪和流动性
-        market_sentiment_score = self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=True)
-        liquidity_authenticity_score = self.helper._normalize_series(raw_signals['liquidity_authenticity_score_D'], df_index, bipolar=False)
+        market_sentiment_score = self.helper._normalize_series(market_sentiment_score_D, df_index, bipolar=True)
+        liquidity_authenticity_score = self.helper._normalize_series(liquidity_authenticity_score_D, df_index, bipolar=False)
 
         # 突破准备度
-        breakout_readiness_score = self.helper._normalize_series(raw_signals['breakout_readiness_score_D'], df_index, bipolar=False)
-        platform_conviction_score = self.helper._normalize_series(raw_signals['platform_conviction_score_D'], df_index, bipolar=False)
-        goodness_of_fit_score = self.helper._normalize_series(raw_signals['goodness_of_fit_score_D'], df_index, bipolar=False)
+        breakout_readiness_score = self.helper._normalize_series(breakout_readiness_score_D, df_index, bipolar=False)
+        platform_conviction_score = self.helper._normalize_series(platform_conviction_score_D, df_index, bipolar=False)
+        goodness_of_fit_score = self.helper._normalize_series(goodness_of_fit_score_D, df_index, bipolar=False)
 
         # 动量和效率
-        upward_impulse_purity_score = self.helper._normalize_series(raw_signals['upward_impulse_purity_D'], df_index, bipolar=False)
-        vpa_efficiency_score = self.helper._normalize_series(raw_signals['VPA_EFFICIENCY_D'], df_index, bipolar=False)
+        upward_impulse_purity_score = self.helper._normalize_series(upward_impulse_purity_D, df_index, bipolar=False)
+        vpa_efficiency_score = self.helper._normalize_series(vpa_efficiency_D, df_index, bipolar=False)
 
         # 象限判断条件
         is_price_rising = (close_D > dynamic_price_threshold).astype(float)
@@ -895,11 +934,11 @@ class CalculatePriceVolumeDynamics:
         accumulation_consolidation_components = {
             "price_stable_or_mild_rising": (1 - is_price_rising.clip(upper=0.5)), # 价格不强劲上涨
             "volume_contracting_or_stable": (1 - is_volume_expanding.clip(upper=0.5)), # 量能不强劲放大
-            "is_consolidating": self.helper._normalize_series(raw_signals['is_consolidating_D'], df_index, bipolar=False),
-            "dynamic_consolidation_duration": self.helper._normalize_series(raw_signals['dynamic_consolidation_duration_D'], df_index, bipolar=False),
-            "equilibrium_compression": self.helper._normalize_series(raw_signals['equilibrium_compression_index_D'], df_index, bipolar=False),
-            "hidden_accumulation_intensity": self.helper._normalize_series(raw_signals['hidden_accumulation_intensity_D'], df_index, bipolar=False),
-            "covert_accumulation_signal": self.helper._normalize_series(raw_signals['covert_accumulation_signal_D'], df_index, bipolar=False),
+            "is_consolidating": self.helper._normalize_series(is_consolidating_D, df_index, bipolar=False),
+            "dynamic_consolidation_duration": self.helper._normalize_series(dynamic_consolidation_duration_D, df_index, bipolar=False),
+            "equilibrium_compression": self.helper._normalize_series(equilibrium_compression_index_D, df_index, bipolar=False),
+            "hidden_accumulation_intensity": self.helper._normalize_series(hidden_accumulation_intensity_D, df_index, bipolar=False),
+            "covert_accumulation_signal": self.helper._normalize_series(covert_accumulation_signal_D, df_index, bipolar=False),
             "liquidity_authenticity": liquidity_authenticity_score,
             "market_sentiment_neutral_or_positive": market_sentiment_score.clip(lower=-0.5) + 0.5 # 情绪不悲观
         }
@@ -909,11 +948,11 @@ class CalculatePriceVolumeDynamics:
         bottoming_reversal_components = {
             "price_stable_or_mild_falling": (1 - is_price_rising), # 价格不涨
             "volume_contracting_or_stable": (1 - is_volume_expanding), # 量能不放大
-            "reversal_power_index": self.helper._normalize_series(raw_signals['reversal_power_index_D'], df_index, bipolar=False),
-            "reversal_recovery_rate": self.helper._normalize_series(raw_signals['reversal_recovery_rate_D'], df_index, bipolar=False),
-            "volatility_asymmetry_positive": self.helper._normalize_series(raw_signals['volatility_asymmetry_index_D'], df_index, bipolar=False), # 波动率不对称性，倾向于上涨
-            "mean_reversion_frequency": self.helper._normalize_series(raw_signals['mean_reversion_frequency_D'], df_index, bipolar=False),
-            "loser_pain_index_high": self.helper._normalize_series(raw_signals['loser_pain_index_D'], df_index, bipolar=False),
+            "reversal_power_index": self.helper._normalize_series(reversal_power_index_D, df_index, bipolar=False),
+            "reversal_recovery_rate": self.helper._normalize_series(reversal_recovery_rate_D, df_index, bipolar=False),
+            "volatility_asymmetry_positive": self.helper._normalize_series(volatility_asymmetry_index_D, df_index, bipolar=False), # 波动率不对称性，倾向于上涨
+            "mean_reversion_frequency": self.helper._normalize_series(mean_reversion_frequency_D, df_index, bipolar=False),
+            "loser_pain_index_high": self.helper._normalize_series(loser_pain_index_D, df_index, bipolar=False),
             "market_sentiment_negative_or_neutral": market_sentiment_score.clip(upper=0.5) + 0.5 # 情绪不乐观
         }
         bottoming_reversal_score = _robust_geometric_mean(bottoming_reversal_components, quadrant_weights.get('bottoming_reversal', {}), df_index)
@@ -922,11 +961,11 @@ class CalculatePriceVolumeDynamics:
         weak_downtrend_components = {
             "price_falling": (1 - is_price_rising),
             "volume_expanding_or_stable": is_volume_expanding, # 下跌放量或缩量
-            "holistic_cmf_negative": self.helper._normalize_series(raw_signals['holistic_cmf_D'], df_index, bipolar=True).clip(upper=0).abs(),
-            "main_force_net_flow_negative": self.helper._normalize_series(raw_signals['main_force_net_flow_calibrated_D'], df_index, bipolar=True).clip(upper=0).abs(),
-            "covert_distribution_signal": self.helper._normalize_series(raw_signals['covert_distribution_signal_D'], df_index, bipolar=False),
+            "holistic_cmf_negative": self.helper._normalize_series(holistic_cmf_D, df_index, bipolar=True).clip(upper=0).abs(),
+            "main_force_net_flow_negative": self.helper._normalize_series(main_force_net_flow_calibrated_D, df_index, bipolar=True).clip(upper=0).abs(),
+            "covert_distribution_signal": self.helper._normalize_series(covert_distribution_signal_D, df_index, bipolar=False),
             "market_sentiment_negative": market_sentiment_score.clip(upper=0).abs(),
-            "panic_selling_cascade": self.helper._normalize_series(raw_signals['panic_selling_cascade_D'], df_index, bipolar=False)
+            "panic_selling_cascade": self.helper._normalize_series(panic_selling_cascade_D, df_index, bipolar=False)
         }
         weak_downtrend_score = _robust_geometric_mean(weak_downtrend_components, quadrant_weights.get('weak_downtrend', {}), df_index)
 
