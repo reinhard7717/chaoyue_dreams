@@ -25,15 +25,20 @@
                         "Q4_selling_exhaustion": 0.3
                     },
                     "multi_level_resonance_weights": {
-                        "price_volume_resonance": 0.2,
-                        "main_chip_resonance": 0.2,
-                        "sentiment_liquidity_resonance": 0.15,
-                        "micro_structure_resonance": 0.15,
+                        "price_volume_resonance": 0.15,
+                        "main_chip_resonance": 0.15,
+                        "sentiment_liquidity_resonance": 0.1,
+                        "micro_structure_resonance": 0.1,
                         "quality_efficiency_resonance": 0.1,
                         "liquidity_health_dimension": 0.05,
                         "main_force_order_flow_depth_dimension": 0.05,
                         "main_force_flow_contextualized_dimension": 0.05,
-                        "market_structure_clarity_dimension": 0.05
+                        "market_structure_clarity_dimension": 0.05,
+                        "energy_compression_score": 0.05,
+                        "volume_exhaustion_score": 0.05,
+                        "main_force_covert_intent_score": 0.05,
+                        "subdued_market_sentiment_score": 0.05,
+                        "breakout_readiness_score": 0.05
                     },
                     "price_volume_resonance_components": {
                         "lower_shadow_absorption": 0.2,

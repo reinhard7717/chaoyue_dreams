@@ -327,5 +327,54 @@ class ProcessIntelligenceHelper:
         # 计算斜率的period周期斜率作为加速度
         return self._calculate_slope_series(slope, period)
 
+    def _get_mtf_resonance_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
+        """
+        【V1.4 · 新增】计算多个信号在多时间框架上的共振分数。
+        该方法将对多个基础信号计算其MTF斜率和加速度融合分数（双极性），
+        然后评估这些融合分数之间的方向一致性和强度，生成一个双极性共振分数。
+        - 核心逻辑:
+            1. 获取每个基础信号的双极性MTF斜率/加速度融合分数。
+            2. 计算这些融合分数的平均值，代表整体方向和强度。
+            3. 计算这些融合分数的标准差，代表离散度（不一致性）。
+            4. 将离散度转换为一致性强度（1-归一化标准差）。
+            5. 最终共振分数 = 整体方向和强度 * 一致性强度。
+        参数:
+            df (pd.DataFrame): 包含所有原始数据的DataFrame。
+            base_signal_names (List[str]): 基础信号名称列表。
+            mtf_weights_config (Dict): 包含 'slope_periods' 和 'accel_periods' 权重的配置字典。
+            df_index (pd.Index): DataFrame的索引。
+            method_name (str): 调用此方法的名称，用于日志输出。
+        返回:
+            pd.Series: 融合后的MTF共振分数 (范围 [-1, 1])。
+        """
+        if not base_signal_names or len(base_signal_names) < 2:
+            # 至少需要两个信号才能计算共振
+            print(f"    -> [过程情报警告] {method_name}: 计算MTF共振分数至少需要2个信号，当前提供 {len(base_signal_names)} 个。返回0.0。")
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        all_fused_mtf_scores = {}
+        for base_signal_name in base_signal_names:
+            # 获取每个信号的双极性MTF斜率/加速度融合分数
+            fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, bipolar=True)
+            all_fused_mtf_scores[base_signal_name] = fused_score
+        # 将所有融合分数转换为DataFrame
+        fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
+        # 计算每个时间点上（axis=1）不同信号的平均值 (代表整体方向和强度)
+        mean_scores = fused_scores_df.mean(axis=1)
+        # 计算每个时间点上（axis=1）不同信号之间的标准差 (离散度)
+        # 标准差越小，一致性越高
+        std_scores = fused_scores_df.std(axis=1).fillna(0.0)
+        # 将标准差归一化到 [0, 1] 范围，并转换为一致性强度
+        # 理论上，对于 [-1, 1] 范围的N个信号，最大标准差发生在 N/2 个 -1 和 N/2 个 1 的情况下
+        # 例如，对于2个信号，最大标准差是 std([-1, 1]) = 1
+        # 对于3个信号，std([-1, -1, 1]) = sqrt(8/9)约0.94，std([-1, 0, 1]) = 1
+        # 简单起见，我们可以将标准差裁剪到 [0, 1] 范围，并用 1 减去它来表示一致性
+        max_possible_std = fused_scores_df.max(axis=1) - fused_scores_df.min(axis=1) # 实际最大可能范围
+        max_possible_std = max_possible_std.replace(0, 1) # 避免除以0
+        normalized_std = (std_scores / max_possible_std).clip(0, 1)
+        consistency_strength = (1 - normalized_std).fillna(0.0)
+        # 最终共振分数 = 整体方向和强度 * 一致性强度
+        # 结果范围 [-1, 1]
+        resonance_score = mean_scores * consistency_strength
+        return resonance_score.clip(-1, 1).astype(np.float32)
 
 
