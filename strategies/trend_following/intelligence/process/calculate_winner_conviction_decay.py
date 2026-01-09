@@ -32,9 +32,9 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 class CalculateWinnerConvictionDecay:
-    def __init__(self, strategy_instance, helper):
+    def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
-        self.helper = helper
+        self.helper = helper_instance
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """

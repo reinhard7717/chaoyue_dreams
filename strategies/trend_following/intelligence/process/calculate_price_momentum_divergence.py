@@ -13,9 +13,10 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 class CalculatePriceMomentumDivergence:
-    def __init__(self, strategy_instance, helper):
+    def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
-        self.helper = helper
+        self.helper = helper_instance
+
 
     def _print_debug_output_pmd(self, debug_output: Dict, probe_ts: pd.Timestamp, method_name: str, final_score: pd.Series):
         if not debug_output:
