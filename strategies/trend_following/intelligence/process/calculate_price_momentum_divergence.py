@@ -495,7 +495,7 @@ class CalculatePriceMomentumDivergence:
         }
         return context_modulator, debug_values
 
-    def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series) -> Tuple[pd.Series, Dict]:
+    def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
         """V1.1 · 动态融合权重增强版"""
         final_fusion_exponent = pmd_params['final_fusion_exponent']
         synergy_threshold = pmd_params['synergy_threshold']
@@ -509,26 +509,27 @@ class CalculatePriceMomentumDivergence:
             "divergence_quality": divergence_quality_score,
             "context_modulator": context_modulator
         }
-        final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
+        final_fusion_weights_dict = self.helper.get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
             "base_divergence": 0.3,
             "volume_confirmation": 0.2,
             "main_force_confirmation": 0.25,
             "divergence_quality": 0.15,
             "context_modulator": 0.1
         })
-        debug_values = {
+        # debug_values 局部变量不再需要，直接更新 _temp_debug_values
+        _temp_debug_values["最终融合组件"] = {
             "base_divergence_abs": base_divergence_score.abs(),
             "volume_confirmation_abs": volume_confirmation_score.abs(),
             "main_force_confirmation_abs": main_force_confirmation_score.abs(),
             "divergence_quality": divergence_quality_score,
             "context_modulator": context_modulator
         }
-        if get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
+        if self.helper.get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
             modulator_signal_1_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_1'], 0.0) # 市场张力
             modulator_signal_2_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_2'], 0.0) # 流动性潮汐
             # 新增调制信号：市场机制
-            modulator_signal_3_raw = raw_data['mean_reversion_frequency_raw'] # 均值回归频率
-            modulator_signal_4_raw = raw_data['trend_alignment_index_raw'] # 趋势对齐指数
+            modulator_signal_3_raw = raw_data.get('mean_reversion_frequency_raw', pd.Series(0.0, index=df_index)) # 均值回归频率
+            modulator_signal_4_raw = raw_data.get('trend_alignment_index_raw', pd.Series(0.0, index=df_index)) # 趋势对齐指数
             modulator_signal_1 = self.helper._normalize_series(modulator_signal_1_raw, df_index, bipolar=True)
             modulator_signal_2 = self.helper._normalize_series(modulator_signal_2_raw, df_index, bipolar=True)
             modulator_signal_3 = self.helper._normalize_series(modulator_signal_3_raw, df_index, bipolar=True, ascending=False) # 均值回归频率越高，趋势性越差，负向调制
@@ -551,7 +552,7 @@ class CalculatePriceMomentumDivergence:
             if (total_dynamic_weight > 0).all():
                 final_fusion_weights_dict = (adjusted_weights_series.div(total_dynamic_weight, axis=0)).to_dict('series')
             else:
-                final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
+                final_fusion_weights_dict = self.helper.get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
                     "base_divergence": 0.3, "volume_confirmation": 0.2, "main_force_confirmation": 0.25, "divergence_quality": 0.15, "context_modulator": 0.1
                 })
             _temp_debug_values["动态融合权重调整"] = {
@@ -563,7 +564,7 @@ class CalculatePriceMomentumDivergence:
                 "final_fusion_weights_dict_dynamic": final_fusion_weights_dict
             }
         raw_fused_score = _robust_geometric_mean(final_components, final_fusion_weights_dict, df_index)
-        debug_values["原始融合分数"] = {
+        _temp_debug_values["原始融合分数"] = {
             "raw_fused_score": raw_fused_score
         }
         synergy_conflict_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
@@ -582,7 +583,7 @@ class CalculatePriceMomentumDivergence:
         final_score = raw_fused_score_modulated * base_divergence_score.apply(np.sign)
         final_score = np.sign(final_score) * (final_score.abs().pow(final_fusion_exponent))
         final_score = final_score.clip(-1, 1).fillna(0.0)
-        debug_values["协同/冲突与最终分数"] = {
+        _temp_debug_values["协同/冲突与最终分数"] = {
             "sign_base": sign_base,
             "sign_vol": sign_vol,
             "sign_mf": sign_mf,
@@ -594,7 +595,59 @@ class CalculatePriceMomentumDivergence:
             "raw_fused_score_modulated": raw_fused_score_modulated,
             "final_score": final_score
         }
-        return final_score, debug_values
+        return final_score, _temp_debug_values # 返回 _temp_debug_values
+
+    def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """V1.1 · 模块化与增强版"""
+        method_name = "_calculate_price_momentum_divergence"
+        is_debug_enabled_for_method = self.helper.get_param_value(self.helper.debug_params.get('enabled'), False) and self.helper.get_param_value(self.helper.debug_params.get('should_probe'), False)
+        probe_ts = None
+        if is_debug_enabled_for_method and self.helper.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
+            for date in reversed(df.index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        if probe_ts is None:
+            is_debug_enabled_for_method = False
+        debug_output = {}
+        _temp_debug_values = {} # 确保在这里定义
+        if is_debug_enabled_for_method and probe_ts:
+            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价势背离..."] = ""
+        df_index = df.index
+        pmd_params = self._get_pmd_params(config)
+        if not self._validate_pmd_signals(df, pmd_params, method_name):
+            if is_debug_enabled_for_method and probe_ts:
+                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
+                self._print_debug_output_pmd(debug_output, probe_ts, method_name, pd.Series(0.0, index=df.index, dtype=np.float32))
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        raw_data = self._get_pmd_raw_data(df, pmd_params, method_name)
+        _temp_debug_values["原始信号值"] = raw_data
+        fused_price_direction, debug_price_direction = self._calculate_fused_price_direction(df, df_index, raw_data, pmd_params, method_name)
+        _temp_debug_values["融合价格方向"] = debug_price_direction
+        fused_momentum_direction, debug_momentum_direction = self._calculate_fused_momentum_direction(df, df_index, raw_data, pmd_params, method_name)
+        _temp_debug_values["融合动量方向"] = debug_momentum_direction
+        base_divergence_score = (fused_price_direction - fused_momentum_direction).clip(-1, 1)
+        _temp_debug_values["基础背离分数"] = {"base_divergence_score": base_divergence_score}
+        volume_confirmation_score, debug_volume_confirmation = self._calculate_volume_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
+        _temp_debug_values["量能确认分数"] = debug_volume_confirmation
+        main_force_confirmation_score, debug_mf_confirmation = self._calculate_main_force_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
+        _temp_debug_values["主力/筹码确认分数"] = debug_mf_confirmation
+        divergence_quality_score, debug_divergence_quality = self._calculate_divergence_quality_score(df_index, raw_data, pmd_params, base_divergence_score, fused_price_direction, fused_momentum_direction)
+        _temp_debug_values["背离质量分数"] = debug_divergence_quality
+        context_modulator, debug_context_modulator = self._calculate_context_modulator(df_index, raw_data, pmd_params)
+        _temp_debug_values["情境调制器"] = debug_context_modulator
+        final_score, debug_final_fusion = self._perform_pmd_final_fusion(
+            df, df_index, raw_data, pmd_params,
+            base_divergence_score, volume_confirmation_score, main_force_confirmation_score,
+            divergence_quality_score, context_modulator, debug_price_direction['price_momentum_quality_score'],
+            _temp_debug_values # 传递 _temp_debug_values
+        )
+        # _temp_debug_values.update(debug_final_fusion) # debug_final_fusion 已经直接更新了 _temp_debug_values，不需要再次 update
+        if is_debug_enabled_for_method and probe_ts:
+            self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
+        return final_score.astype(np.float32)
 
 
 
