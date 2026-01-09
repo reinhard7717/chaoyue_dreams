@@ -122,7 +122,9 @@ class CalculatePriceVolumeDynamics:
             'ADX_14_D', 'hidden_accumulation_intensity_D',
             # 新增的信号
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
-            'main_force_buy_ofi_D'
+            'main_force_buy_ofi_D',
+            'BBW_21_2.0_D', # 新增：布林带宽度
+            'buy_quote_exhaustion_rate_D' # 新增：买方报价枯竭率
         ]
 
         # 动态添加MTF斜率和加速度信号到required_signals
@@ -156,6 +158,19 @@ class CalculatePriceVolumeDynamics:
         raw_signals['low_D'] = self.helper._get_safe_series(df, 'low_D', method_name=method_name)
         raw_signals['pct_change_D'] = self.helper._get_safe_series(df, 'pct_change_D', method_name=method_name)
 
+        # 计算布林带宽度 (BBW_21_2.0_D)
+        # 确保 close_D 存在且不是全 NaN
+        if not raw_signals['close_D'].isnull().all():
+            bbands = ta.bbands(raw_signals['close_D'], length=21, std=2.0)
+            if bbands is not None and f'BBB_21_2.0' in bbands.columns:
+                raw_signals['BBW_21_2.0_D'] = bbands[f'BBB_21_2.0'].fillna(0.0)
+            else:
+                raw_signals['BBW_21_2.0_D'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+                print(f"DEBUG: {method_name} - 警告: 无法计算或获取 'BBW_21_2.0_D'。使用默认零值 Series。")
+        else:
+            raw_signals['BBW_21_2.0_D'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+            print(f"DEBUG: {method_name} - 警告: 'close_D' 缺失或全为 NaN，无法计算 'BBW_21_2.0_D'。使用默认零值 Series。")
+
         # Main Force and Behavior
         raw_signals['main_force_conviction_index_D'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         raw_signals['wash_trade_intensity_D'] = self.helper._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
@@ -174,6 +189,7 @@ class CalculatePriceVolumeDynamics:
         raw_signals['deception_lure_long_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name)
         raw_signals['deception_lure_short_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
         raw_signals['main_force_buy_ofi_D'] = self.helper._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name)
+        raw_signals['buy_quote_exhaustion_rate_D'] = self.helper._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name) # 新增
 
         # Chips and Health
         raw_signals['winner_concentration_90pct_D'] = self.helper._get_safe_series(df, 'winner_concentration_90pct_D', 0.0, method_name=method_name)
@@ -383,6 +399,9 @@ class CalculatePriceVolumeDynamics:
         mtf_signals['mtf_reversal_recovery_rate'] = self.helper._get_mtf_slope_accel_score(df, 'reversal_recovery_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_volatility_asymmetry_index'] = self.helper._get_mtf_slope_accel_score(df, 'volatility_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_mean_reversion_frequency'] = self.helper._get_mtf_slope_accel_score(df, 'mean_reversion_frequency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        # 新增 MTF 信号生成
+        mtf_signals['mtf_market_sentiment_score'] = self.helper._get_mtf_slope_accel_score(df, 'market_sentiment_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_trend_alignment_index'] = self.helper._get_mtf_slope_accel_score(df, 'trend_alignment_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         return mtf_signals
 
     def _normalize_and_fuse_dimension(self, df_index: pd.Index, components: Dict[str, pd.Series], weights: Dict[str, float], method_name: str, bipolar: bool = False) -> pd.Series:
