@@ -235,7 +235,7 @@ class CalculateProcessCovertAccumulation:
             'main_force_level5_buy_ofi_D',
             'main_force_buy_execution_alpha_D',
             'upper_shadow_selling_pressure_D',
-            'smart_money_inst_net_buy_D',
+            'SMART_MONEY_INST_NET_BUY_D',
             'microstructure_efficiency_index_D'
         ]
         # 添加累积求和信号到MTF基准信号列表
@@ -329,7 +329,7 @@ class CalculateProcessCovertAccumulation:
             'main_force_level5_buy_ofi_D',
             'main_force_buy_execution_alpha_D',
             'upper_shadow_selling_pressure_D',
-            'smart_money_inst_net_buy_D',
+            'SMART_MONEY_INST_NET_BUY_D',
             'microstructure_efficiency_index_D'
         ]
 
@@ -398,7 +398,7 @@ class CalculateProcessCovertAccumulation:
             'main_force_level5_buy_ofi_D',
             'main_force_buy_execution_alpha_D',
             'upper_shadow_selling_pressure_D',
-            'smart_money_inst_net_buy_D',
+            'SMART_MONEY_INST_NET_BUY_D',
             'microstructure_efficiency_index_D'
         ]
         for base_sig in mtf_base_signals_for_required_check:
@@ -472,7 +472,7 @@ class CalculateProcessCovertAccumulation:
             'mf_level5_buy_ofi_raw': self.helper._get_safe_series(df, 'main_force_level5_buy_ofi_D', 0.0, method_name=method_name),
             'mf_buy_execution_alpha_raw': self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name=method_name),
             'upper_shadow_selling_pressure_raw': self.helper._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name=method_name),
-            'smart_money_inst_net_buy_raw': self.helper._get_safe_series(df, 'smart_money_inst_net_buy_D', 0.0, method_name=method_name),
+            'smart_money_inst_net_buy_raw': self.helper._get_safe_series(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0, method_name=method_name),
             'microstructure_efficiency_raw': self.helper._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name)
         }
 
