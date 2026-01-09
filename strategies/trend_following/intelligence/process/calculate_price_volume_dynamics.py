@@ -123,8 +123,9 @@ class CalculatePriceVolumeDynamics:
             # 新增的信号
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
             'main_force_buy_ofi_D',
-            'BBW_21_2.0_D', # 新增：布林带宽度
-            'buy_quote_exhaustion_rate_D' # 新增：买方报价枯竭率
+            # 之前日志中报告缺失的信号
+            'BBW_21_2.0_D',
+            'buy_quote_exhaustion_rate_D'
         ]
 
         # 动态添加MTF斜率和加速度信号到required_signals
@@ -158,19 +159,6 @@ class CalculatePriceVolumeDynamics:
         raw_signals['low_D'] = self.helper._get_safe_series(df, 'low_D', method_name=method_name)
         raw_signals['pct_change_D'] = self.helper._get_safe_series(df, 'pct_change_D', method_name=method_name)
 
-        # 计算布林带宽度 (BBW_21_2.0_D)
-        # 确保 close_D 存在且不是全 NaN
-        if not raw_signals['close_D'].isnull().all():
-            bbands = ta.bbands(raw_signals['close_D'], length=21, std=2.0)
-            if bbands is not None and f'BBB_21_2.0' in bbands.columns:
-                raw_signals['BBW_21_2.0_D'] = bbands[f'BBB_21_2.0'].fillna(0.0)
-            else:
-                raw_signals['BBW_21_2.0_D'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-                print(f"DEBUG: {method_name} - 警告: 无法计算或获取 'BBW_21_2.0_D'。使用默认零值 Series。")
-        else:
-            raw_signals['BBW_21_2.0_D'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-            print(f"DEBUG: {method_name} - 警告: 'close_D' 缺失或全为 NaN，无法计算 'BBW_21_2.0_D'。使用默认零值 Series。")
-
         # Main Force and Behavior
         raw_signals['main_force_conviction_index_D'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         raw_signals['wash_trade_intensity_D'] = self.helper._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
@@ -189,7 +177,10 @@ class CalculatePriceVolumeDynamics:
         raw_signals['deception_lure_long_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name)
         raw_signals['deception_lure_short_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
         raw_signals['main_force_buy_ofi_D'] = self.helper._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name)
-        raw_signals['buy_quote_exhaustion_rate_D'] = self.helper._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name) # 新增
+        # 之前日志中报告缺失的信号
+        raw_signals['BBW_21_2.0_D'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name=method_name)
+        raw_signals['buy_quote_exhaustion_rate_D'] = self.helper._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
+        raw_signals['main_force_flow_directionality_D'] = self.helper._get_safe_series(df, 'main_force_flow_directionality_D', 0.0, method_name=method_name)
 
         # Chips and Health
         raw_signals['winner_concentration_90pct_D'] = self.helper._get_safe_series(df, 'winner_concentration_90pct_D', 0.0, method_name=method_name)
@@ -276,6 +267,12 @@ class CalculatePriceVolumeDynamics:
         raw_signals['sell_quote_exhaustion_rate_D'] = self.helper._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name=method_name)
         raw_signals['goodness_of_fit_score_D'] = self.helper._get_safe_series(df, 'goodness_of_fit_score_D', 0.0, method_name=method_name)
         raw_signals['platform_conviction_score_D'] = self.helper._get_safe_series(df, 'platform_conviction_score_D', 0.0, method_name=method_name)
+        raw_signals['order_book_imbalance_D'] = self.helper._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name=method_name)
+        raw_signals['micro_price_impact_asymmetry_D'] = self.helper._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name=method_name)
+        raw_signals['bid_side_liquidity_D'] = self.helper._get_safe_series(df, 'bid_side_liquidity_D', 0.0, method_name=method_name)
+        raw_signals['ask_side_liquidity_D'] = self.helper._get_safe_series(df, 'ask_side_liquidity_D', 0.0, method_name=method_name)
+        raw_signals['vpin_score_D'] = self.helper._get_safe_series(df, 'vpin_score_D', 0.0, method_name=method_name)
+        raw_signals['loser_pain_index_D'] = self.helper._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
 
         # Atomic Scores
         raw_signals['SCORE_STRUCT_AXIOM_TENSION'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
@@ -419,22 +416,17 @@ class CalculatePriceVolumeDynamics:
         """
         计算能量压缩维度分数。
         """
-        # 防御性地获取 'BBW_21_2.0_D'，避免 KeyError
-        bbw_raw = raw_signals.get('BBW_21_2.0_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        if 'BBW_21_2.0_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'BBW_21_2.0_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-
         components = {
             'tension': raw_signals['SCORE_STRUCT_AXIOM_TENSION'],
-            'bbw_inverted': bbw_raw, # 使用安全获取的值
+            'bbw_inverted': raw_signals['BBW_21_2.0_D'], # 直接访问
             'vol_instability_inverted': raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'],
             'equilibrium_compression': raw_signals['equilibrium_compression_index_D'],
-            'bbw_slope_inverted': mtf_signals.get('bbw_slope_inverted_score', pd.Series(0.0, index=df_index)), # 同样防御性获取
-            'vol_instability_slope_inverted': mtf_signals.get('vol_instability_slope_inverted_score', pd.Series(0.0, index=df_index)), # 同样防御性获取
+            'bbw_slope_inverted': mtf_signals['bbw_slope_inverted_score'], # 直接访问
+            'vol_instability_slope_inverted': mtf_signals['vol_instability_slope_inverted_score'], # 直接访问
             'dyn_stability': raw_signals['SCORE_DYN_AXIOM_STABILITY'],
             'market_tension': raw_signals['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'],
             'price_sample_entropy_inverted': raw_signals['SAMPLE_ENTROPY_13d_D'],
-            'price_volume_entropy_inverted': raw_signals['volume_profile_entropy_D'], # 原始信号中没有 price_volume_entropy_D，这里假设是 volume_profile_entropy_D
+            'price_volume_entropy_inverted': raw_signals['volume_profile_entropy_D'],
             'price_fractal_dimension_calm': (1 - (raw_signals['FRACTAL_DIMENSION_89d_D'] - 1.5).abs() / 0.5).clip(0, 1),
             'volume_structure_skew_inverted': raw_signals['volume_structure_skew_D'].abs(),
             'volume_profile_entropy_inverted': raw_signals['volume_profile_entropy_D']
@@ -445,52 +437,20 @@ class CalculatePriceVolumeDynamics:
         """
         计算量能枯竭维度分数。
         """
-        # 防御性地获取相关信号，避免 KeyError
-        turnover_rate_f_raw = raw_signals.get('turnover_rate_f_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        turnover_rate_raw = raw_signals.get('turnover_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        counterparty_exhaustion_raw = raw_signals.get('counterparty_exhaustion_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        order_book_liquidity_raw = raw_signals.get('order_book_liquidity_supply_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        buy_quote_exhaustion_raw = raw_signals.get('buy_quote_exhaustion_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        sell_quote_exhaustion_raw = raw_signals.get('sell_quote_exhaustion_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        order_book_imbalance_raw = raw_signals.get('order_book_imbalance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        micro_price_impact_asymmetry_raw = raw_signals.get('micro_price_impact_asymmetry_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        bid_side_liquidity_raw = raw_signals.get('bid_side_liquidity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        ask_side_liquidity_raw = raw_signals.get('ask_side_liquidity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        vpin_score_raw = raw_signals.get('vpin_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        bid_liquidity_sample_entropy_raw = raw_signals.get('BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        volume_structure_skew_raw = raw_signals.get('volume_structure_skew_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        volume_profile_entropy_raw = raw_signals.get('volume_profile_entropy_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-
-        # 打印警告信息
-        if 'buy_quote_exhaustion_rate_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'buy_quote_exhaustion_rate_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'sell_quote_exhaustion_rate_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'sell_quote_exhaustion_rate_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'order_book_liquidity_supply_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'order_book_liquidity_supply_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'counterparty_exhaustion_index_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'counterparty_exhaustion_index_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'turnover_rate_f_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'turnover_rate_f_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'turnover_rate_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'turnover_rate_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'order_book_imbalance_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'order_book_imbalance_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'micro_price_impact_asymmetry_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'micro_price_impact_asymmetry_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'bid_side_liquidity_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'bid_side_liquidity_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'ask_side_liquidity_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'ask_side_liquidity_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'vpin_score_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'vpin_score_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'volume_structure_skew_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'volume_structure_skew_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-        if 'volume_profile_entropy_D' not in raw_signals:
-            print(f"DEBUG: {method_name} - 警告: 'volume_profile_entropy_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
-
+        turnover_rate_f_raw = raw_signals['turnover_rate_f_D']
+        turnover_rate_raw = raw_signals['turnover_rate_D']
+        counterparty_exhaustion_raw = raw_signals['counterparty_exhaustion_index_D']
+        order_book_liquidity_raw = raw_signals['order_book_liquidity_supply_D']
+        buy_quote_exhaustion_raw = raw_signals['buy_quote_exhaustion_rate_D']
+        sell_quote_exhaustion_raw = raw_signals['sell_quote_exhaustion_rate_D']
+        order_book_imbalance_raw = raw_signals['order_book_imbalance_D']
+        micro_price_impact_asymmetry_raw = raw_signals['micro_price_impact_asymmetry_D']
+        bid_side_liquidity_raw = raw_signals['bid_side_liquidity_D']
+        ask_side_liquidity_raw = raw_signals['ask_side_liquidity_D']
+        vpin_score_raw = raw_signals['vpin_score_D']
+        bid_liquidity_sample_entropy_raw = raw_signals['BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D']
+        volume_structure_skew_raw = raw_signals['volume_structure_skew_D']
+        volume_profile_entropy_raw = raw_signals['volume_profile_entropy_D']
 
         turnover_rate_inverted_score = self.helper._normalize_series(turnover_rate_f_raw, target_index=df_index, ascending=False)
         turnover_rate_raw_inverted = self.helper._normalize_series(turnover_rate_raw, target_index=df_index, ascending=False)
@@ -514,7 +474,7 @@ class CalculatePriceVolumeDynamics:
             'order_book_liquidity_inverted': order_book_liquidity_inverted_score,
             'buy_quote_exhaustion': buy_quote_exhaustion_score,
             'sell_quote_exhaustion': sell_quote_exhaustion_score,
-            'turnover_rate_slope_inverted': mtf_signals.get('turnover_rate_slope_inverted_score', pd.Series(0.0, index=df_index)), # 防御性获取
+            'turnover_rate_slope_inverted': mtf_signals['turnover_rate_slope_inverted_score'], # 直接访问
             'order_book_imbalance_inverted': order_book_imbalance_inverted,
             'micro_price_impact_asymmetry_inverted': micro_price_impact_asymmetry_inverted,
             'bid_side_liquidity_inverted': bid_side_liquidity_inverted,
@@ -531,47 +491,33 @@ class CalculatePriceVolumeDynamics:
         """
         计算主力隐蔽意图维度分数。
         """
-        # 防御性地获取所有原始信号，避免 KeyError
-        main_force_flow_directionality_raw = raw_signals.get('main_force_flow_directionality_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        mf_net_flow_calibrated_raw = raw_signals.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        deception_index_raw = raw_signals.get('deception_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        wash_trade_intensity_raw = raw_signals.get('wash_trade_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_conviction_index_raw = raw_signals.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        deception_lure_long_intensity_raw = raw_signals.get('deception_lure_long_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        deception_lure_short_intensity_raw = raw_signals.get('deception_lure_short_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        covert_accumulation_signal_raw = raw_signals.get('covert_accumulation_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        covert_distribution_signal_raw = raw_signals.get('covert_distribution_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_slippage_index_raw = raw_signals.get('main_force_slippage_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_flow_gini_raw = raw_signals.get('main_force_flow_gini_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        micro_impact_elasticity_raw = raw_signals.get('micro_impact_elasticity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        order_flow_imbalance_score_raw = raw_signals.get('order_flow_imbalance_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        liquidity_authenticity_score_raw = raw_signals.get('liquidity_authenticity_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        hidden_accumulation_intensity_raw = raw_signals.get('hidden_accumulation_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        score_micro_strategy_stealth_ops_raw = raw_signals.get('SCORE_MICRO_STRATEGY_STEALTH_OPS', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_cost_advantage_raw = raw_signals.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_buy_ofi_raw = raw_signals.get('main_force_buy_ofi_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_t0_buy_efficiency_raw = raw_signals.get('main_force_t0_buy_efficiency_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        order_book_imbalance_raw = raw_signals.get('order_book_imbalance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        micro_price_impact_asymmetry_raw = raw_signals.get('micro_price_impact_asymmetry_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_vwap_up_guidance_raw = raw_signals.get('main_force_vwap_up_guidance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_vwap_down_guidance_raw = raw_signals.get('main_force_vwap_down_guidance_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        vwap_buy_control_strength_raw = raw_signals.get('vwap_buy_control_strength_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        vwap_sell_control_strength_raw = raw_signals.get('vwap_sell_control_strength_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        observed_large_order_size_avg_raw = raw_signals.get('observed_large_order_size_avg_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        market_impact_cost_raw = raw_signals.get('market_impact_cost_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-
-        # 打印警告信息
-        for sig_name in ['main_force_flow_directionality_D', 'main_force_net_flow_calibrated_D', 'deception_index_D',
-                         'wash_trade_intensity_D', 'main_force_conviction_index_D', 'deception_lure_long_intensity_D',
-                         'deception_lure_short_intensity_D', 'covert_accumulation_signal_D', 'covert_distribution_signal_D',
-                         'main_force_slippage_index_D', 'main_force_flow_gini_D', 'micro_impact_elasticity_D',
-                         'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D', 'hidden_accumulation_intensity_D',
-                         'SCORE_MICRO_STRATEGY_STEALTH_OPS', 'main_force_cost_advantage_D', 'main_force_buy_ofi_D',
-                         'main_force_t0_buy_efficiency_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D',
-                         'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D', 'vwap_buy_control_strength_D',
-                         'vwap_sell_control_strength_D', 'observed_large_order_size_avg_D', 'market_impact_cost_D']:
-            if sig_name not in raw_signals:
-                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        main_force_flow_directionality_raw = raw_signals['main_force_flow_directionality_D']
+        mf_net_flow_calibrated_raw = raw_signals['main_force_net_flow_calibrated_D']
+        deception_index_raw = raw_signals['deception_index_D']
+        wash_trade_intensity_raw = raw_signals['wash_trade_intensity_D']
+        main_force_conviction_index_raw = raw_signals['main_force_conviction_index_D']
+        deception_lure_long_intensity_raw = raw_signals['deception_lure_long_intensity_D']
+        deception_lure_short_intensity_raw = raw_signals['deception_lure_short_intensity_D']
+        covert_accumulation_signal_raw = raw_signals['covert_accumulation_signal_D']
+        covert_distribution_signal_raw = raw_signals['covert_distribution_signal_D']
+        main_force_slippage_index_raw = raw_signals['main_force_slippage_index_D']
+        main_force_flow_gini_raw = raw_signals['main_force_flow_gini_D']
+        micro_impact_elasticity_raw = raw_signals['micro_impact_elasticity_D']
+        order_flow_imbalance_score_raw = raw_signals['order_flow_imbalance_score_D']
+        liquidity_authenticity_score_raw = raw_signals['liquidity_authenticity_score_D']
+        hidden_accumulation_intensity_raw = raw_signals['hidden_accumulation_intensity_D']
+        score_micro_strategy_stealth_ops_raw = raw_signals['SCORE_MICRO_STRATEGY_STEALTH_OPS']
+        main_force_cost_advantage_raw = raw_signals['main_force_cost_advantage_D']
+        main_force_buy_ofi_raw = raw_signals['main_force_buy_ofi_D']
+        main_force_t0_buy_efficiency_raw = raw_signals['main_force_t0_buy_efficiency_D']
+        order_book_imbalance_raw = raw_signals['order_book_imbalance_D']
+        micro_price_impact_asymmetry_raw = raw_signals['micro_price_impact_asymmetry_D']
+        main_force_vwap_up_guidance_raw = raw_signals['main_force_vwap_up_guidance_D']
+        main_force_vwap_down_guidance_raw = raw_signals['main_force_vwap_down_guidance_D']
+        vwap_buy_control_strength_raw = raw_signals['vwap_buy_control_strength_D']
+        vwap_sell_control_strength_raw = raw_signals['vwap_sell_control_strength_D']
+        observed_large_order_size_avg_raw = raw_signals['observed_large_order_size_avg_D']
+        market_impact_cost_raw = raw_signals['market_impact_cost_D']
 
         # Main Force Flow Ambiguity components
         main_force_flow_directionality_neutrality = 1 - self.helper._normalize_series(main_force_flow_directionality_raw.abs(), df_index, ascending=True)
@@ -608,19 +554,19 @@ class CalculatePriceVolumeDynamics:
 
         components = {
             'stealth_ops': score_micro_strategy_stealth_ops_raw,
-            'split_order_accum': split_order_accum_score, # 使用修正后的 split_order_accum_score
+            'split_order_accum': split_order_accum_score,
             'mf_net_flow_positive': mf_net_flow_calibrated_raw.clip(lower=0),
             'mf_cost_advantage_positive': main_force_cost_advantage_raw.clip(lower=0),
             'mf_buy_ofi_positive': main_force_buy_ofi_raw,
             'mf_t0_buy_efficiency_positive': main_force_t0_buy_efficiency_raw,
-            'mf_net_flow_slope_positive': mtf_signals.get('mf_net_flow_slope_positive', pd.Series(0.0, index=df_index, dtype=np.float32)), # 防御性获取
+            'mf_net_flow_slope_positive': mtf_signals['mf_net_flow_slope_positive'], # 直接访问
             'order_book_imbalance_positive': order_book_imbalance_raw.clip(lower=0),
             'micro_price_impact_asymmetry_positive': micro_price_impact_asymmetry_raw.clip(lower=0),
             'mf_vwap_guidance_neutrality': 1 - (main_force_vwap_up_guidance_raw - main_force_vwap_down_guidance_raw).abs(),
             'vwap_control_neutrality': 1 - (vwap_buy_control_strength_raw - vwap_sell_control_strength_raw).abs(),
             'observed_large_order_size_avg_inverted': observed_large_order_size_avg_raw,
             'market_impact_cost_inverted': market_impact_cost_raw,
-            'main_force_net_flow_volatility_inverted': mf_net_flow_calibrated_raw.rolling(window=21, min_periods=1).std(), # Assuming 21 is default
+            'main_force_net_flow_volatility_inverted': mf_net_flow_calibrated_raw.rolling(window=21, min_periods=1).std(),
             'main_force_flow_ambiguity': main_force_flow_ambiguity
         }
         return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
@@ -629,35 +575,20 @@ class CalculatePriceVolumeDynamics:
         """
         计算市场情绪低迷维度分数。
         """
-        # 防御性地获取所有原始信号，避免 KeyError
-        loser_pain_index_raw = raw_signals.get('loser_pain_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        market_sentiment_score_raw = raw_signals.get('market_sentiment_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        retail_panic_surrender_index_raw = raw_signals.get('retail_panic_surrender_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        total_loser_rate_raw = raw_signals.get('total_loser_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        total_winner_rate_raw = raw_signals.get('total_winner_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        mean_reversion_frequency_raw = raw_signals.get('mean_reversion_frequency_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        trend_alignment_index_raw = raw_signals.get('trend_alignment_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        score_foundation_axiom_sentiment_pendulum_raw = raw_signals.get('SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', pd.Series(0.0, index=df_index, dtype=np.float32))
+        loser_pain_index_raw = raw_signals['loser_pain_index_D']
+        market_sentiment_score_raw = raw_signals['market_sentiment_score_D']
+        retail_panic_surrender_index_raw = raw_signals['retail_panic_surrender_index_D']
+        total_loser_rate_raw = raw_signals['total_loser_rate_D']
+        total_winner_rate_raw = raw_signals['total_winner_rate_D']
+        mean_reversion_frequency_raw = raw_signals['mean_reversion_frequency_D']
+        trend_alignment_index_raw = raw_signals['trend_alignment_index_D']
+        score_foundation_axiom_sentiment_pendulum_raw = raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM']
 
-        # 打印警告信息
-        for sig_name in ['loser_pain_index_D', 'market_sentiment_score_D', 'retail_panic_surrender_index_D',
-                         'total_loser_rate_D', 'total_winner_rate_D', 'mean_reversion_frequency_D',
-                         'trend_alignment_index_D', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM']:
-            if sig_name not in raw_signals:
-                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 raw_signals 中缺失。使用默认的零值 Series。")
-
-        # 防御性地获取所有MTF信号，避免 KeyError
-        mtf_loser_pain_index = mtf_signals.get('mtf_loser_pain_index', pd.Series(0.0, index=df_index, dtype=np.float32))
-        mtf_retail_panic_surrender = mtf_signals.get('mtf_retail_panic_surrender', pd.Series(0.0, index=df_index, dtype=np.float32))
-        mtf_market_sentiment_score = mtf_signals.get('mtf_market_sentiment_score', pd.Series(0.0, index=df_index, dtype=np.float32))
-        mtf_mean_reversion_frequency = mtf_signals.get('mtf_mean_reversion_frequency', pd.Series(0.0, index=df_index, dtype=np.float32))
-        mtf_trend_alignment_index = mtf_signals.get('mtf_trend_alignment_index', pd.Series(0.0, index=df_index, dtype=np.float32))
-
-        # 打印MTF信号警告信息
-        for sig_name in ['mtf_loser_pain_index', 'mtf_retail_panic_surrender', 'mtf_market_sentiment_score',
-                         'mtf_mean_reversion_frequency', 'mtf_trend_alignment_index']:
-            if sig_name not in mtf_signals:
-                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 mtf_signals 中缺失。使用默认的零值 Series。")
+        mtf_loser_pain_index = mtf_signals['mtf_loser_pain_index']
+        mtf_retail_panic_surrender = mtf_signals['mtf_retail_panic_surrender']
+        mtf_market_sentiment_score = mtf_signals['mtf_market_sentiment_score']
+        mtf_mean_reversion_frequency = mtf_signals['mtf_mean_reversion_frequency']
+        mtf_trend_alignment_index = mtf_signals['mtf_trend_alignment_index']
 
         loser_pain_positive = self.helper._normalize_series(loser_pain_index_raw, df_index, ascending=True)
         market_sentiment_negative = self.helper._normalize_series(market_sentiment_score_raw, df_index, ascending=False)
@@ -768,26 +699,26 @@ class CalculatePriceVolumeDynamics:
         # 3.1 价格-成交量共振
         dynamic_pv_resonance_weights = self._get_dynamic_weights(price_volume_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         price_volume_resonance_components_dict = {
-            "lower_shadow_absorption": mtf_signals.get('mtf_lower_shadow_absorption', pd.Series(0.0, index=df_index)),
-            "active_buying_support": mtf_signals.get('mtf_active_buying_support', pd.Series(0.0, index=df_index)),
-            "volume_burstiness": mtf_signals.get('mtf_volume_burstiness', pd.Series(0.0, index=df_index)),
-            "VPA_EFFICIENCY": mtf_signals.get('mtf_vpa_efficiency', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "volume_profile_entropy_inverted": (1 - mtf_signals.get('mtf_volume_profile_entropy', pd.Series(0.0, index=df_index))),
-            "volume_ratio_positive": mtf_signals.get('mtf_volume_ratio', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "upward_impulse_strength": mtf_signals.get('mtf_upward_impulse_strength', pd.Series(0.0, index=df_index))
+            "lower_shadow_absorption": mtf_signals['mtf_lower_shadow_absorption'], # 直接访问
+            "active_buying_support": mtf_signals['mtf_active_buying_support'], # 直接访问
+            "volume_burstiness": mtf_signals['mtf_volume_burstiness'], # 直接访问
+            "VPA_EFFICIENCY": mtf_signals['mtf_vpa_efficiency'].clip(lower=0), # 直接访问
+            "volume_profile_entropy_inverted": (1 - mtf_signals['mtf_volume_profile_entropy']), # 直接访问
+            "volume_ratio_positive": mtf_signals['mtf_volume_ratio'].clip(lower=0), # 直接访问
+            "upward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'] # 直接访问
         }
         price_volume_resonance = _robust_geometric_mean(price_volume_resonance_components_dict, dynamic_pv_resonance_weights, df_index).clip(0, 1)
 
         # 3.2 主力-筹码共振
         dynamic_mc_resonance_weights = self._get_dynamic_weights(main_chip_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         main_chip_resonance_components_dict = {
-            "power_transfer_positive": mtf_signals.get('mtf_power_transfer', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "main_force_conviction_positive": mtf_signals.get('mtf_main_force_conviction', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "main_force_flow_directionality_positive": mtf_signals.get('mtf_main_force_flow_directionality', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "chip_strategic_posture": mtf_signals.get('mtf_chip_strategic_posture', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "chip_fault_blockage_ratio_inverted": (1 - mtf_signals.get('mtf_chip_fault_blockage_ratio', pd.Series(0.0, index=df_index))),
-            "main_force_cost_advantage_positive": mtf_signals.get('mtf_main_force_cost_advantage', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "SMART_MONEY_HM_COORDINATED_ATTACK": mtf_signals.get('mtf_smart_money_coordinated_attack', pd.Series(0.0, index=df_index))
+            "power_transfer_positive": mtf_signals['mtf_power_transfer'].clip(lower=0), # 直接访问
+            "main_force_conviction_positive": mtf_signals['mtf_main_force_conviction'].clip(lower=0), # 直接访问
+            "main_force_flow_directionality_positive": mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0), # 直接访问
+            "chip_strategic_posture": mtf_signals['mtf_chip_strategic_posture'].clip(lower=0), # 直接访问
+            "chip_fault_blockage_ratio_inverted": (1 - mtf_signals['mtf_chip_fault_blockage_ratio']), # 直接访问
+            "main_force_cost_advantage_positive": mtf_signals['mtf_main_force_cost_advantage'].clip(lower=0), # 直接访问
+            "SMART_MONEY_HM_COORDINATED_ATTACK": mtf_signals['mtf_smart_money_coordinated_attack'] # 直接访问
         }
         main_chip_resonance = _robust_geometric_mean(main_chip_resonance_components_dict, dynamic_mc_resonance_weights, df_index).clip(0, 1)
 
@@ -795,35 +726,35 @@ class CalculatePriceVolumeDynamics:
         dynamic_sl_resonance_weights = self._get_dynamic_weights(sentiment_liquidity_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         sentiment_liquidity_resonance_components_dict = {
             "market_sentiment_positive": raw_signals['market_sentiment_score_D'].clip(lower=0),
-            "retail_panic_surrender_inverted": (1 - mtf_signals.get('mtf_retail_panic_surrender', pd.Series(0.0, index=df_index))),
-            "bid_side_liquidity": mtf_signals.get('mtf_bid_side_liquidity', pd.Series(0.0, index=df_index)),
-            "liquidity_slope_positive": mtf_signals.get('mtf_liquidity_slope', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "order_flow_imbalance_positive": mtf_signals.get('mtf_order_flow_imbalance_score', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "loser_pain_index_inverted": (1 - mtf_signals.get('mtf_loser_pain_index', pd.Series(0.0, index=df_index)))
+            "retail_panic_surrender_inverted": (1 - mtf_signals['mtf_retail_panic_surrender']), # 直接访问
+            "bid_side_liquidity": mtf_signals['mtf_bid_side_liquidity'], # 直接访问
+            "liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0), # 直接访问
+            "order_flow_imbalance_positive": mtf_signals['mtf_order_flow_imbalance_score'].clip(lower=0), # 直接访问
+            "loser_pain_index_inverted": (1 - mtf_signals['mtf_loser_pain_index']) # 直接访问
         }
         sentiment_liquidity_resonance = _robust_geometric_mean(sentiment_liquidity_resonance_components_dict, dynamic_sl_resonance_weights, df_index).clip(0, 1)
 
         # 3.4 微观结构共振
         dynamic_ms_resonance_weights = self._get_dynamic_weights(micro_structure_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         micro_structure_resonance_components_dict = {
-            "order_book_imbalance_positive": mtf_signals.get('mtf_order_book_imbalance', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "micro_price_impact_asymmetry_positive": mtf_signals.get('mtf_micro_price_impact_asymmetry', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "intraday_energy_density": mtf_signals.get('mtf_intraday_energy_density', pd.Series(0.0, index=df_index)),
-            "vpin_score_inverted": (1 - mtf_signals.get('mtf_vpin_score', pd.Series(0.0, index=df_index))),
-            "micro_impact_elasticity_positive": mtf_signals.get('mtf_micro_impact_elasticity', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "order_book_clearing_rate": mtf_signals.get('mtf_order_book_clearing_rate', pd.Series(0.0, index=df_index)),
-            "closing_acceptance_type_positive": mtf_signals.get('mtf_closing_acceptance_type', pd.Series(0.0, index=df_index)).clip(lower=0)
+            "order_book_imbalance_positive": mtf_signals['mtf_order_book_imbalance'].clip(lower=0), # 直接访问
+            "micro_price_impact_asymmetry_positive": mtf_signals['mtf_micro_price_impact_asymmetry'].clip(lower=0), # 直接访问
+            "intraday_energy_density": mtf_signals['mtf_intraday_energy_density'], # 直接访问
+            "vpin_score_inverted": (1 - mtf_signals['mtf_vpin_score']), # 直接访问
+            "micro_impact_elasticity_positive": mtf_signals['mtf_micro_impact_elasticity'].clip(lower=0), # 直接访问
+            "order_book_clearing_rate": mtf_signals['mtf_order_book_clearing_rate'], # 直接访问
+            "closing_acceptance_type_positive": mtf_signals['mtf_closing_acceptance_type'].clip(lower=0) # 直接访问
         }
         micro_structure_resonance = _robust_geometric_mean(micro_structure_resonance_components_dict, dynamic_ms_resonance_weights, df_index).clip(0, 1)
 
         # 3.5 质量与效率共振
         dynamic_qe_resonance_weights = self._get_dynamic_weights(quality_efficiency_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         quality_efficiency_resonance_components_dict = {
-            "upward_impulse_purity": mtf_signals.get('mtf_upward_impulse_purity', pd.Series(0.0, index=df_index)),
-            "flow_credibility_index": mtf_signals.get('mtf_flow_credibility_index', pd.Series(0.0, index=df_index)), # 使用安全获取的值
-            "profit_realization_quality": mtf_signals.get('mtf_profit_realization_quality', pd.Series(0.0, index=df_index)),
-            "active_volume_price_efficiency": mtf_signals.get('mtf_active_volume_price_efficiency', pd.Series(0.0, index=df_index)).clip(lower=0),
-            "constructive_turnover_ratio": mtf_signals.get('mtf_constructive_turnover_ratio', pd.Series(0.0, index=df_index))
+            "upward_impulse_purity": mtf_signals['mtf_upward_impulse_purity'], # 直接访问
+            "flow_credibility_index": mtf_signals['mtf_flow_credibility_index'], # 直接访问
+            "profit_realization_quality": mtf_signals['mtf_profit_realization_quality'], # 直接访问
+            "active_volume_price_efficiency": mtf_signals['mtf_active_volume_price_efficiency'].clip(lower=0), # 直接访问
+            "constructive_turnover_ratio": mtf_signals['mtf_constructive_turnover_ratio'] # 直接访问
         }
         quality_efficiency_resonance = _robust_geometric_mean(quality_efficiency_resonance_components_dict, dynamic_qe_resonance_weights, df_index).clip(0, 1)
 
@@ -861,67 +792,28 @@ class CalculatePriceVolumeDynamics:
         quadrant_weights = get_param_value(pvd_params.get('quadrant_weights'), {})
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
 
-        # 防御性地获取所有原始信号，避免 KeyError
-        close_D = raw_signals.get('close_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        volume_D = raw_signals.get('volume_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        adx_14_D = raw_signals.get('ADX_14_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        trend_vitality_index_D = raw_signals.get('trend_vitality_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        trend_conviction_score_D = raw_signals.get('trend_conviction_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        trend_acceleration_score_D = raw_signals.get('trend_acceleration_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        market_sentiment_score_D = raw_signals.get('market_sentiment_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        liquidity_authenticity_score_D = raw_signals.get('liquidity_authenticity_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        breakout_readiness_score_D = raw_signals.get('breakout_readiness_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        platform_conviction_score_D = raw_signals.get('platform_conviction_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        goodness_of_fit_score_D = raw_signals.get('goodness_of_fit_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        upward_impulse_purity_D = raw_signals.get('upward_impulse_purity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        vpa_efficiency_D = raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        is_consolidating_D = raw_signals.get('is_consolidating_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        dynamic_consolidation_duration_D = raw_signals.get('dynamic_consolidation_duration_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        equilibrium_compression_index_D = raw_signals.get('equilibrium_compression_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        hidden_accumulation_intensity_D = raw_signals.get('hidden_accumulation_intensity_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        covert_accumulation_signal_D = raw_signals.get('covert_accumulation_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        reversal_power_index_D = raw_signals.get('reversal_power_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        reversal_recovery_rate_D = raw_signals.get('reversal_recovery_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        volatility_asymmetry_index_D = raw_signals.get('volatility_asymmetry_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        mean_reversion_frequency_D = raw_signals.get('mean_reversion_frequency_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        loser_pain_index_D = raw_signals.get('loser_pain_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        holistic_cmf_D = raw_signals.get('holistic_cmf_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        main_force_net_flow_calibrated_D = raw_signals.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        covert_distribution_signal_D = raw_signals.get('covert_distribution_signal_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-        panic_selling_cascade_D = raw_signals.get('panic_selling_cascade_D', pd.Series(0.0, index=df_index, dtype=np.float32))
-
-        # 打印警告信息
-        for sig_name in ['close_D', 'volume_D', 'ADX_14_D', 'trend_vitality_index_D', 'trend_conviction_score_D',
-                         'trend_acceleration_score_D', 'market_sentiment_score_D', 'liquidity_authenticity_score_D',
-                         'breakout_readiness_score_D', 'platform_conviction_score_D', 'goodness_of_fit_score_D',
-                         'upward_impulse_purity_D', 'VPA_EFFICIENCY_D', 'is_consolidating_D',
-                         'dynamic_consolidation_duration_D', 'equilibrium_compression_index_D',
-                         'hidden_accumulation_intensity_D', 'covert_accumulation_signal_D',
-                         'reversal_power_index_D', 'reversal_recovery_rate_D', 'volatility_asymmetry_index_D',
-                         'mean_reversion_frequency_D', 'loser_pain_index_D', 'holistic_cmf_D',
-                         'main_force_net_flow_calibrated_D', 'covert_distribution_signal_D',
-                         'panic_selling_cascade_D']:
-            if sig_name not in raw_signals:
-                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 raw_signals 中缺失。使用默认的零值 Series。")
+        # 价格和成交量信号
+        close_D = raw_signals['close_D']
+        volume_D = raw_signals['volume_D']
 
         # 趋势强度和方向
-        adx_score = self.helper._normalize_series(adx_14_D, df_index, bipolar=False)
-        trend_vitality_score = self.helper._normalize_series(trend_vitality_index_D, df_index, bipolar=False)
-        trend_conviction_score = self.helper._normalize_series(trend_conviction_score_D, df_index, bipolar=False)
-        trend_acceleration_score = self.helper._normalize_series(trend_acceleration_score_D, df_index, bipolar=False)
+        adx_score = self.helper._normalize_series(raw_signals['ADX_14_D'], df_index, bipolar=False)
+        trend_vitality_score = self.helper._normalize_series(raw_signals['trend_vitality_index_D'], df_index, bipolar=False)
+        trend_conviction_score = self.helper._normalize_series(raw_signals['trend_conviction_score_D'], df_index, bipolar=False)
+        trend_acceleration_score = self.helper._normalize_series(raw_signals['trend_acceleration_score_D'], df_index, bipolar=False)
 
         # 市场情绪和流动性
-        market_sentiment_score = self.helper._normalize_series(market_sentiment_score_D, df_index, bipolar=True)
-        liquidity_authenticity_score = self.helper._normalize_series(liquidity_authenticity_score_D, df_index, bipolar=False)
+        market_sentiment_score = self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=True)
+        liquidity_authenticity_score = self.helper._normalize_series(raw_signals['liquidity_authenticity_score_D'], df_index, bipolar=False)
 
         # 突破准备度
-        breakout_readiness_score = self.helper._normalize_series(breakout_readiness_score_D, df_index, bipolar=False)
-        platform_conviction_score = self.helper._normalize_series(platform_conviction_score_D, df_index, bipolar=False)
-        goodness_of_fit_score = self.helper._normalize_series(goodness_of_fit_score_D, df_index, bipolar=False)
+        breakout_readiness_score = self.helper._normalize_series(raw_signals['breakout_readiness_score_D'], df_index, bipolar=False)
+        platform_conviction_score = self.helper._normalize_series(raw_signals['platform_conviction_score_D'], df_index, bipolar=False)
+        goodness_of_fit_score = self.helper._normalize_series(raw_signals['goodness_of_fit_score_D'], df_index, bipolar=False)
 
         # 动量和效率
-        upward_impulse_purity_score = self.helper._normalize_series(upward_impulse_purity_D, df_index, bipolar=False)
-        vpa_efficiency_score = self.helper._normalize_series(vpa_efficiency_D, df_index, bipolar=False)
+        upward_impulse_purity_score = self.helper._normalize_series(raw_signals['upward_impulse_purity_D'], df_index, bipolar=False)
+        vpa_efficiency_score = self.helper._normalize_series(raw_signals['VPA_EFFICIENCY_D'], df_index, bipolar=False)
 
         # 象限判断条件
         is_price_rising = (close_D > dynamic_price_threshold).astype(float)
@@ -929,11 +821,6 @@ class CalculatePriceVolumeDynamics:
 
         # 趋势增强因子 (用于放大趋势象限的信号)
         trend_reward_enhancement = (adx_score + trend_vitality_score + trend_conviction_score + trend_acceleration_score) / 4
-
-        # 防御性地获取 mtf_flow_credibility_index
-        mtf_flow_credibility_index = mtf_signals.get('mtf_flow_credibility_index', pd.Series(0.0, index=df_index, dtype=np.float32))
-        if 'mtf_flow_credibility_index' not in mtf_signals:
-            print(f"DEBUG: {method_name} - 警告: 'mtf_flow_credibility_index' 在 mtf_signals 中缺失。使用默认的零值 Series。")
 
         # 1. 强势突破 (Strong Breakout)
         strong_breakout_components = {
@@ -944,7 +831,7 @@ class CalculatePriceVolumeDynamics:
             "goodness_of_fit": goodness_of_fit_score,
             "upward_impulse_purity": upward_impulse_purity_score,
             "vpa_efficiency": vpa_efficiency_score,
-            "flow_credibility_index": mtf_flow_credibility_index * (1 + trend_reward_enhancement), # 使用安全获取的值
+            "flow_credibility_index": mtf_signals['mtf_flow_credibility_index'] * (1 + trend_reward_enhancement), # 直接访问
             "market_sentiment_positive": market_sentiment_score.clip(lower=0)
         }
         strong_breakout_score = _robust_geometric_mean(strong_breakout_components, quadrant_weights.get('strong_breakout', {}), df_index)
@@ -953,11 +840,11 @@ class CalculatePriceVolumeDynamics:
         accumulation_consolidation_components = {
             "price_stable_or_mild_rising": (1 - is_price_rising.clip(upper=0.5)), # 价格不强劲上涨
             "volume_contracting_or_stable": (1 - is_volume_expanding.clip(upper=0.5)), # 量能不强劲放大
-            "is_consolidating": self.helper._normalize_series(is_consolidating_D, df_index, bipolar=False),
-            "dynamic_consolidation_duration": self.helper._normalize_series(dynamic_consolidation_duration_D, df_index, bipolar=False),
-            "equilibrium_compression": self.helper._normalize_series(equilibrium_compression_index_D, df_index, bipolar=False),
-            "hidden_accumulation_intensity": self.helper._normalize_series(hidden_accumulation_intensity_D, df_index, bipolar=False),
-            "covert_accumulation_signal": self.helper._normalize_series(covert_accumulation_signal_D, df_index, bipolar=False),
+            "is_consolidating": self.helper._normalize_series(raw_signals['is_consolidating_D'], df_index, bipolar=False),
+            "dynamic_consolidation_duration": self.helper._normalize_series(raw_signals['dynamic_consolidation_duration_D'], df_index, bipolar=False),
+            "equilibrium_compression": self.helper._normalize_series(raw_signals['equilibrium_compression_index_D'], df_index, bipolar=False),
+            "hidden_accumulation_intensity": self.helper._normalize_series(raw_signals['hidden_accumulation_intensity_D'], df_index, bipolar=False),
+            "covert_accumulation_signal": self.helper._normalize_series(raw_signals['covert_accumulation_signal_D'], df_index, bipolar=False),
             "liquidity_authenticity": liquidity_authenticity_score,
             "market_sentiment_neutral_or_positive": market_sentiment_score.clip(lower=-0.5) + 0.5 # 情绪不悲观
         }
@@ -967,11 +854,11 @@ class CalculatePriceVolumeDynamics:
         bottoming_reversal_components = {
             "price_stable_or_mild_falling": (1 - is_price_rising), # 价格不涨
             "volume_contracting_or_stable": (1 - is_volume_expanding), # 量能不放大
-            "reversal_power_index": self.helper._normalize_series(reversal_power_index_D, df_index, bipolar=False),
-            "reversal_recovery_rate": self.helper._normalize_series(reversal_recovery_rate_D, df_index, bipolar=False),
-            "volatility_asymmetry_positive": self.helper._normalize_series(volatility_asymmetry_index_D, df_index, bipolar=False), # 波动率不对称性，倾向于上涨
-            "mean_reversion_frequency": self.helper._normalize_series(mean_reversion_frequency_D, df_index, bipolar=False),
-            "loser_pain_index_high": self.helper._normalize_series(loser_pain_index_D, df_index, bipolar=False),
+            "reversal_power_index": self.helper._normalize_series(raw_signals['reversal_power_index_D'], df_index, bipolar=False),
+            "reversal_recovery_rate": self.helper._normalize_series(raw_signals['reversal_recovery_rate_D'], df_index, bipolar=False),
+            "volatility_asymmetry_positive": self.helper._normalize_series(raw_signals['volatility_asymmetry_index_D'], df_index, bipolar=False), # 波动率不对称性，倾向于上涨
+            "mean_reversion_frequency": self.helper._normalize_series(raw_signals['mean_reversion_frequency_D'], df_index, bipolar=False),
+            "loser_pain_index_high": self.helper._normalize_series(raw_signals['loser_pain_index_D'], df_index, bipolar=False),
             "market_sentiment_negative_or_neutral": market_sentiment_score.clip(upper=0.5) + 0.5 # 情绪不乐观
         }
         bottoming_reversal_score = _robust_geometric_mean(bottoming_reversal_components, quadrant_weights.get('bottoming_reversal', {}), df_index)
@@ -980,11 +867,11 @@ class CalculatePriceVolumeDynamics:
         weak_downtrend_components = {
             "price_falling": (1 - is_price_rising),
             "volume_expanding_or_stable": is_volume_expanding, # 下跌放量或缩量
-            "holistic_cmf_negative": self.helper._normalize_series(holistic_cmf_D, df_index, bipolar=True).clip(upper=0).abs(),
-            "main_force_net_flow_negative": self.helper._normalize_series(main_force_net_flow_calibrated_D, df_index, bipolar=True).clip(upper=0).abs(),
-            "covert_distribution_signal": self.helper._normalize_series(covert_distribution_signal_D, df_index, bipolar=False),
+            "holistic_cmf_negative": self.helper._normalize_series(raw_signals['holistic_cmf_D'], df_index, bipolar=True).clip(upper=0).abs(),
+            "main_force_net_flow_negative": self.helper._normalize_series(raw_signals['main_force_net_flow_calibrated_D'], df_index, bipolar=True).clip(upper=0).abs(),
+            "covert_distribution_signal": self.helper._normalize_series(raw_signals['covert_distribution_signal_D'], df_index, bipolar=False),
             "market_sentiment_negative": market_sentiment_score.clip(upper=0).abs(),
-            "panic_selling_cascade": self.helper._normalize_series(panic_selling_cascade_D, df_index, bipolar=False)
+            "panic_selling_cascade": self.helper._normalize_series(raw_signals['panic_selling_cascade_D'], df_index, bipolar=False)
         }
         weak_downtrend_score = _robust_geometric_mean(weak_downtrend_components, quadrant_weights.get('weak_downtrend', {}), df_index)
 
@@ -1028,16 +915,13 @@ class CalculatePriceVolumeDynamics:
             dynamic_context_modulator_weights,
             df_index
         )
-        # 防御性地获取 'mtf_microstructure_efficiency_index'，避免 KeyError
-        mtf_microstructure_efficiency_index = mtf_signals.get('mtf_microstructure_efficiency_index', pd.Series(0.0, index=df_index, dtype=np.float32))
-        if 'mtf_microstructure_efficiency_index' not in mtf_signals:
-            print(f"DEBUG: {method_name} - 警告: 'mtf_microstructure_efficiency_index' 在 mtf_signals 中缺失。使用默认的零值 Series。")
+        mtf_microstructure_efficiency_index = mtf_signals['mtf_microstructure_efficiency_index'] # 直接访问
         dynamic_final_exponent_components = {
             "volatility_inverse": norm_volatility_inverse,
             "trend_vitality": norm_trend_vitality,
             "market_sentiment": norm_market_sentiment.clip(lower=0), # 情绪积极时放大
             "liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0), # 流动性斜率积极时放大
-            "microstructure_efficiency_index": mtf_microstructure_efficiency_index, # 使用安全获取的值
+            "microstructure_efficiency_index": mtf_microstructure_efficiency_index, # 直接访问
             "reversal_potential_score": historical_context['reversal_potential_score']
         }
         dynamic_exponent_modulator = _robust_geometric_mean(dynamic_final_exponent_components, dynamic_exponent_modulator_weights, df_index)
