@@ -403,6 +403,8 @@ class CalculatePriceVolumeDynamics:
         mtf_signals['mtf_flow_credibility_index'] = self.helper._get_mtf_slope_accel_score(df, 'flow_credibility_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['bbw_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'BBW_21_2.0_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['vol_instability_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['turnover_rate_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'turnover_rate_f_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+
         return mtf_signals
 
     def _normalize_and_fuse_dimension(self, df_index: pd.Index, components: Dict[str, pd.Series], weights: Dict[str, float], method_name: str, bipolar: bool = False) -> pd.Series:
