@@ -794,108 +794,193 @@ class CalculatePriceVolumeDynamics:
 
     def _calculate_quadrant_scores(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], pvd_params: Dict, context_modulator_score_for_weights: pd.Series, dynamic_price_threshold: pd.Series, dynamic_volume_threshold: pd.Series, method_name: str) -> Dict[str, pd.Series]:
         """
-        计算四个象限的分数：强势突破、蓄势待发、震荡筑底、弱势下跌。
+        计算四个象限的分数：Q1健康上涨、Q2看跌背离、Q3恐慌派发、Q4卖压枯竭。
         """
-        quadrant_weights = get_param_value(pvd_params.get('quadrant_weights'), {})
+        quadrant_scores = {}
+        Q1_reward_weights = get_param_value(pvd_params.get('Q1_reward_weights'), {})
+        Q1_penalty_weights = get_param_value(pvd_params.get('Q1_penalty_weights'), {})
+        Q2_divergence_penalty_weights = get_param_value(pvd_params.get('Q2_divergence_penalty_weights'), {})
+        Q3_reward_weights = get_param_value(pvd_params.get('Q3_reward_weights'), {})
+        Q3_penalty_weights = get_param_value(pvd_params.get('Q3_penalty_weights'), {})
+        Q4_reward_weights = get_param_value(pvd_params.get('Q4_reward_weights'), {})
+        Q4_penalty_weights = get_param_value(pvd_params.get('Q4_penalty_weights'), {})
+        context_impact_modulators = get_param_value(pvd_params.get('context_impact_modulators'), {})
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
 
-        # 价格和成交量信号
-        close_D = raw_signals['close_D']
-        volume_D = raw_signals['volume_D']
+        p_mom = mtf_signals['mtf_price_momentum']
+        v_mom = mtf_signals['mtf_volume_momentum']
 
-        # 趋势强度和方向
-        adx_score = self.helper._normalize_series(raw_signals['ADX_14_D'], df_index, bipolar=False)
-        trend_vitality_score = self.helper._normalize_series(raw_signals['trend_vitality_index_D'], df_index, bipolar=False)
-        trend_conviction_score = self.helper._normalize_series(raw_signals['trend_conviction_score_D'], df_index, bipolar=False)
-        trend_acceleration_score = self.helper._normalize_series(raw_signals['trend_acceleration_score_D'], df_index, bipolar=False)
+        # V16.0 Signal Impact Modulators (从 historical_context 中获取)
+        accumulation_strength_modulator = (historical_context['cumulative_flow_balance'] + 1) / 2
+        trend_strength_modulator = historical_context['market_regime_strength']
+        bullish_persistence_modulator = historical_context['quadrant_persistence_Q1_Q4']
+        bearish_persistence_modulator = historical_context['quadrant_persistence_Q2_Q3']
 
-        # 市场情绪和流动性
-        market_sentiment_score = self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=True)
-        liquidity_authenticity_score = self.helper._normalize_series(raw_signals['liquidity_authenticity_score_D'], df_index, bipolar=False)
+        # Q1: Healthy Rally (价涨量增)
+        deception_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
+        trend_reward_enhancement = trend_strength_modulator * context_impact_modulators.get("trend_reward_enhancement_factor", 0.2)
 
-        # 突破准备度
-        breakout_readiness_score = self.helper._normalize_series(raw_signals['breakout_readiness_score_D'], df_index, bipolar=False)
-        platform_conviction_score = self.helper._normalize_series(raw_signals['platform_conviction_score_D'], df_index, bipolar=False)
-        goodness_of_fit_score = self.helper._normalize_series(raw_signals['goodness_of_fit_score_D'], df_index, bipolar=False)
+        mtf_wash_trade_intensity_adjusted = mtf_signals['mtf_wash_trade_intensity'] * (1 - deception_impact_reduction)
+        mtf_deception_index_adjusted = mtf_signals['mtf_deception_index'] * (1 - deception_impact_reduction)
+        mtf_main_force_t0_sell_efficiency_adjusted = mtf_signals['mtf_main_force_t0_sell_efficiency'] * (1 - deception_impact_reduction)
+        mtf_ask_side_liquidity_adjusted = mtf_signals['mtf_ask_side_liquidity'] * (1 - trend_reward_enhancement)
+        mtf_profit_realization_quality_low_adjusted = (1 - mtf_signals['mtf_profit_realization_quality']) * (1 - trend_reward_enhancement)
 
-        # 动量和效率
-        upward_impulse_purity_score = self.helper._normalize_series(raw_signals['upward_impulse_purity_D'], df_index, bipolar=False)
-        vpa_efficiency_score = self.helper._normalize_series(raw_signals['VPA_EFFICIENCY_D'], df_index, bipolar=False)
-
-        # 象限判断条件
-        is_price_rising = (close_D > dynamic_price_threshold).astype(float)
-        is_volume_expanding = (volume_D > dynamic_volume_threshold).astype(float)
-
-        # 趋势增强因子 (用于放大趋势象限的信号)
-        trend_reward_enhancement = (adx_score + trend_vitality_score + trend_conviction_score + trend_acceleration_score) / 4
-
-        # 1. 强势突破 (Strong Breakout)
-        strong_breakout_components = {
-            "price_rising": is_price_rising,
-            "volume_expanding": is_volume_expanding,
-            "breakout_readiness": breakout_readiness_score,
-            "platform_conviction": platform_conviction_score,
-            "goodness_of_fit": goodness_of_fit_score,
-            "upward_impulse_purity": upward_impulse_purity_score,
-            "vpa_efficiency": vpa_efficiency_score,
-            "flow_credibility_index": mtf_signals['mtf_flow_credibility_index'] * (1 + trend_reward_enhancement), # 直接访问
-            "market_sentiment_positive": market_sentiment_score.clip(lower=0)
+        dynamic_Q1_reward_weights = self._get_dynamic_weights(Q1_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        Q1_reward_components_dict = {
+            "p_mom": p_mom.clip(lower=0),
+            "v_mom": v_mom.clip(lower=0),
+            "upward_purity": mtf_signals['mtf_upward_impulse_purity'] * (1 + trend_reward_enhancement),
+            "main_force_conviction_positive": mtf_signals['mtf_main_force_conviction'].clip(lower=0) * (1 + trend_reward_enhancement),
+            "main_force_flow_directionality_positive": mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0) * (1 + trend_reward_enhancement),
+            "VPA_BUY_EFFICIENCY": mtf_signals['mtf_vpa_buy_efficiency'] * (1 + trend_reward_enhancement),
+            "main_force_execution_alpha": mtf_signals['mtf_main_force_execution_alpha'].clip(lower=0) * (1 + trend_reward_enhancement),
+            "order_flow_imbalance_positive": mtf_signals['mtf_order_flow_imbalance_score'].clip(lower=0) * (1 + trend_reward_enhancement),
+            "main_force_vwap_up_guidance_positive": mtf_signals['mtf_main_force_vwap_up_guidance'].clip(lower=0) * (1 + trend_reward_enhancement),
+            "upward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'] * (1 + trend_reward_enhancement),
+            "flow_credibility_index": mtf_signals['mtf_flow_credibility_index'] * (1 + trend_reward_enhancement)
         }
-        strong_breakout_score = _robust_geometric_mean(strong_breakout_components, quadrant_weights.get('strong_breakout', {}), df_index)
+        score1_reward = _robust_geometric_mean(Q1_reward_components_dict, dynamic_Q1_reward_weights, df_index).clip(0, 1)
 
-        # 2. 蓄势待发 (Accumulation & Consolidation)
-        accumulation_consolidation_components = {
-            "price_stable_or_mild_rising": (1 - is_price_rising.clip(upper=0.5)), # 价格不强劲上涨
-            "volume_contracting_or_stable": (1 - is_volume_expanding.clip(upper=0.5)), # 量能不强劲放大
-            "is_consolidating": self.helper._normalize_series(raw_signals['is_consolidating_D'], df_index, bipolar=False),
-            "dynamic_consolidation_duration": self.helper._normalize_series(raw_signals['dynamic_consolidation_duration_D'], df_index, bipolar=False),
-            "equilibrium_compression": self.helper._normalize_series(raw_signals['equilibrium_compression_index_D'], df_index, bipolar=False),
-            "hidden_accumulation_intensity": self.helper._normalize_series(raw_signals['hidden_accumulation_intensity_D'], df_index, bipolar=False),
-            "covert_accumulation_signal": self.helper._normalize_series(raw_signals['covert_accumulation_signal_D'], df_index, bipolar=False),
-            "liquidity_authenticity": liquidity_authenticity_score,
-            "market_sentiment_neutral_or_positive": market_sentiment_score.clip(lower=-0.5) + 0.5 # 情绪不悲观
+        dynamic_Q1_penalty_weights = self._get_dynamic_weights(Q1_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        Q1_penalty_components_dict = {
+            "wash_trade": mtf_wash_trade_intensity_adjusted,
+            "deception_index": mtf_deception_index_adjusted,
+            "main_force_t0_sell_efficiency": mtf_main_force_t0_sell_efficiency_adjusted,
+            "ask_side_liquidity_high": mtf_ask_side_liquidity_adjusted,
+            "profit_realization_quality_low": mtf_profit_realization_quality_low_adjusted
         }
-        accumulation_consolidation_score = _robust_geometric_mean(accumulation_consolidation_components, quadrant_weights.get('accumulation_consolidation', {}), df_index)
+        false_rally_penalty = _robust_geometric_mean(Q1_penalty_components_dict, dynamic_Q1_penalty_weights, df_index).clip(0, 1)
+        quadrant_scores['score1'] = score1_reward * (1 - false_rally_penalty)
 
-        # 3. 震荡筑底 (Bottoming & Reversal Potential)
-        bottoming_reversal_components = {
-            "price_stable_or_mild_falling": (1 - is_price_rising), # 价格不涨
-            "volume_contracting_or_stable": (1 - is_volume_expanding), # 量能不放大
-            "reversal_power_index": self.helper._normalize_series(raw_signals['reversal_power_index_D'], df_index, bipolar=False),
-            "reversal_recovery_rate": self.helper._normalize_series(raw_signals['reversal_recovery_rate_D'], df_index, bipolar=False),
-            "volatility_asymmetry_positive": self.helper._normalize_series(raw_signals['volatility_asymmetry_index_D'], df_index, bipolar=False), # 波动率不对称性，倾向于上涨
-            "mean_reversion_frequency": self.helper._normalize_series(raw_signals['mean_reversion_frequency_D'], df_index, bipolar=False),
-            "loser_pain_index_high": self.helper._normalize_series(raw_signals['loser_pain_index_D'], df_index, bipolar=False),
-            "market_sentiment_negative_or_neutral": market_sentiment_score.clip(upper=0.5) + 0.5 # 情绪不乐观
+        # Q2: Bearish Divergence (价涨量缩)
+        divergence_penalty_enhancement = bullish_persistence_modulator * context_impact_modulators.get("divergence_penalty_enhancement_factor", 0.3)
+        deception_impact_reduction_Q2 = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
+
+        mtf_retail_fomo_adjusted = mtf_signals['mtf_retail_fomo_premium_index'] * (1 - deception_impact_reduction_Q2)
+        mtf_wash_trade_adjusted_Q2 = mtf_signals['mtf_wash_trade_intensity'] * (1 - deception_impact_reduction_Q2)
+        mtf_deception_index_adjusted_Q2 = mtf_signals['mtf_deception_index'] * (1 - deception_impact_reduction_Q2)
+        mtf_vpin_score_high_adjusted = mtf_signals['mtf_vpin_score'] * (1 + divergence_penalty_enhancement)
+        mtf_winner_loser_momentum_negative_adjusted = mtf_signals['mtf_winner_loser_momentum'].clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
+        mtf_price_thrust_divergence_negative_adjusted = mtf_signals['mtf_price_thrust_divergence'].clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
+
+        price_up_volume_not_up = (p_mom > dynamic_price_threshold) & (v_mom < dynamic_volume_threshold) & (mtf_signals['mtf_main_force_flow_directionality'] < 0)
+        dynamic_Q2_divergence_penalty_weights = self._get_dynamic_weights(Q2_divergence_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        Q2_divergence_penalty_components_dict = {
+            "retail_fomo": mtf_retail_fomo_adjusted,
+            "wash_trade": mtf_wash_trade_adjusted_Q2,
+            "deception_index": mtf_deception_index_adjusted_Q2,
+            "vpin_score_high": mtf_vpin_score_high_adjusted,
+            "winner_loser_momentum_negative": mtf_winner_loser_momentum_negative_adjusted,
+            "price_thrust_divergence_negative": mtf_price_thrust_divergence_negative_adjusted
         }
-        bottoming_reversal_score = _robust_geometric_mean(bottoming_reversal_components, quadrant_weights.get('bottoming_reversal', {}), df_index)
+        divergence_penalty_factor = _robust_geometric_mean(Q2_divergence_penalty_components_dict, dynamic_Q2_divergence_penalty_weights, df_index).clip(0, 1)
 
-        # 4. 弱势下跌 (Weak Downtrend)
-        weak_downtrend_components = {
-            "price_falling": (1 - is_price_rising),
-            "volume_expanding_or_stable": is_volume_expanding, # 下跌放量或缩量
-            "holistic_cmf_negative": self.helper._normalize_series(raw_signals['holistic_cmf_D'], df_index, bipolar=True).clip(upper=0).abs(),
-            "main_force_net_flow_negative": self.helper._normalize_series(raw_signals['main_force_net_flow_calibrated_D'], df_index, bipolar=True).clip(upper=0).abs(),
-            "covert_distribution_signal": self.helper._normalize_series(raw_signals['covert_distribution_signal_D'], df_index, bipolar=False),
-            "market_sentiment_negative": market_sentiment_score.clip(upper=0).abs(),
-            "panic_selling_cascade": self.helper._normalize_series(raw_signals['panic_selling_cascade_D'], df_index, bipolar=False)
+        score2_magnitude = _robust_geometric_mean(
+            {"p_mom_positive": p_mom.clip(lower=0), "v_mom_negative_abs": v_mom.clip(upper=0).abs()},
+            {"p_mom_positive": 0.5, "v_mom_negative_abs": 0.5},
+            df_index
+        )
+        score2_base = -(score2_magnitude * (1 + divergence_penalty_factor)).clip(0, 1)
+        score2_base = score2_base.where(price_up_volume_not_up, 0.0)
+        quadrant_scores['score2'] = score2_base - score2_base.abs() * bullish_persistence_modulator * 0.5
+
+        # Q3: Panic Distribution (价跌量增)
+        panic_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("panic_impact_reduction_factor", 0.4)
+        absorption_reward_enhancement = historical_context['cumulative_flow_balance'].clip(lower=0) * context_impact_modulators.get("absorption_reward_enhancement_factor", 0.3)
+        blockage_penalty_enhancement = bearish_persistence_modulator * context_impact_modulators.get("blockage_penalty_enhancement_factor", 0.3)
+
+        mtf_retail_panic_surrender_adjusted = mtf_signals['mtf_retail_panic_surrender'] * (1 - panic_impact_reduction)
+        mtf_panic_selling_cascade_adjusted = mtf_signals['mtf_panic_selling_cascade'] * (1 - panic_impact_reduction)
+        mtf_chip_fault_blockage_ratio_adjusted = mtf_signals['mtf_chip_fault_blockage_ratio'] * (1 + blockage_penalty_enhancement)
+        mtf_structural_tension_index_adjusted = mtf_signals['mtf_structural_tension_index'] * (1 + blockage_penalty_enhancement)
+
+        Q3_panic_evidence_components = {
+            "retail_panic_surrender": mtf_retail_panic_surrender_adjusted,
+            "chip_strategic_posture_negative": mtf_signals['mtf_chip_strategic_posture'].clip(upper=0).abs(),
+            "loser_loss_margin_avg_positive": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0),
+            "total_loser_rate_positive": mtf_signals['mtf_total_loser_rate'],
+            "panic_selling_cascade": mtf_panic_selling_cascade_adjusted
         }
-        weak_downtrend_score = _robust_geometric_mean(weak_downtrend_components, quadrant_weights.get('weak_downtrend', {}), df_index)
+        Q3_panic_evidence_weights_internal = {"retail_panic_surrender": 0.25, "chip_strategic_posture_negative": 0.2, "loser_loss_margin_avg_positive": 0.2, "total_loser_rate_positive": 0.15, "panic_selling_cascade": 0.2}
+        panic_evidence_factor = _robust_geometric_mean(Q3_panic_evidence_components, Q3_panic_evidence_weights_internal, df_index).clip(0, 1)
 
-        # 归一化象限分数，使其和为1
-        total_score = strong_breakout_score + accumulation_consolidation_score + bottoming_reversal_score + weak_downtrend_score
-        total_score = total_score.replace(0, 1e-9) # 避免除以零
-        strong_breakout_score /= total_score
-        accumulation_consolidation_score /= total_score
-        bottoming_reversal_score /= total_score
-        weak_downtrend_score /= total_score
+        score3_magnitude = _robust_geometric_mean(
+            {"p_mom_negative_abs": p_mom.clip(upper=0).abs(), "v_mom_positive": v_mom.clip(lower=0)},
+            {"p_mom_negative_abs": 0.5, "v_mom_positive": 0.5},
+            df_index
+        )
+        score3_base = -(score3_magnitude * (1 + panic_evidence_factor)).clip(0, 1)
 
-        return {
-            "strong_breakout_score": strong_breakout_score,
-            "accumulation_consolidation_score": accumulation_consolidation_score,
-            "bottoming_reversal_score": bottoming_reversal_score,
-            "weak_downtrend_score": weak_downtrend_score
+        dynamic_Q3_reward_weights = self._get_dynamic_weights(Q3_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        Q3_reward_components_dict = {
+            "lower_shadow_absorption": mtf_signals['mtf_lower_shadow_absorption'] * (1 + absorption_reward_enhancement),
+            "active_buying_support": mtf_signals['mtf_active_buying_support'] * (1 + absorption_reward_enhancement),
+            "main_force_flow_directionality_positive": mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0) * (1 + absorption_reward_enhancement),
+            "main_force_t0_buy_efficiency": mtf_signals['mtf_main_force_t0_buy_efficiency'] * (1 + absorption_reward_enhancement),
+            "capitulation_absorption_index": self.helper._get_mtf_slope_accel_score(df, 'capitulation_absorption_index_D', pvd_params.get('mtf_slope_accel_weights', {}), df_index, method_name, bipolar=False) * (1 + absorption_reward_enhancement)
         }
+        absorption_reward = _robust_geometric_mean(Q3_reward_components_dict, dynamic_Q3_reward_weights, df_index).clip(0, 1)
+
+        dynamic_Q3_penalty_weights = self._get_dynamic_weights(Q3_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        Q3_penalty_components_dict = {
+            "loser_loss_margin_avg_expanding": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0),
+            "panic_selling_cascade": mtf_panic_selling_cascade_adjusted,
+            "chip_fault_blockage_ratio": mtf_chip_fault_blockage_ratio_adjusted,
+            "downward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'].clip(upper=0).abs(),
+            "structural_tension_index": mtf_structural_tension_index_adjusted
+        }
+        blockage_penalty = _robust_geometric_mean(Q3_penalty_components_dict, dynamic_Q3_penalty_weights, df_index).clip(0, 1)
+        quadrant_scores['score3'] = score3_base * (1 - absorption_reward) * (1 + blockage_penalty)
+        quadrant_scores['score3'] -= quadrant_scores['score3'].abs() * bearish_persistence_modulator * 0.5
+
+        # Q4: Selling Exhaustion (价跌量缩)
+        exhaustion_reward_enhancement = bearish_persistence_modulator * context_impact_modulators.get("exhaustion_reward_enhancement_factor", 0.3)
+        false_bottom_penalty_reduction = accumulation_strength_modulator * context_impact_modulators.get("false_bottom_penalty_reduction_factor", 0.4)
+
+        mtf_volume_atrophy_adjusted = mtf_signals['mtf_volume_atrophy'] * (1 + exhaustion_reward_enhancement)
+        mtf_retail_panic_surrender_adjusted_Q4 = mtf_signals['mtf_retail_panic_surrender'] * (1 + exhaustion_reward_enhancement)
+        mtf_loser_pain_index_high_adjusted = mtf_signals['mtf_loser_pain_index'].clip(lower=0) * (1 + exhaustion_reward_enhancement)
+        mtf_price_reversion_velocity_negative_adjusted = mtf_signals['mtf_price_reversion_velocity'].clip(upper=0).abs() * (1 - false_bottom_penalty_reduction)
+        mtf_structural_entropy_change_positive_adjusted = mtf_signals['mtf_structural_entropy_change'].clip(lower=0) * (1 - false_bottom_penalty_reduction)
+        mtf_main_force_vwap_down_guidance_positive_adjusted = mtf_signals['mtf_main_force_vwap_down_guidance'].clip(lower=0) * (1 - false_bottom_penalty_reduction)
+        mtf_chip_fatigue_index_low_adjusted = (1 - mtf_signals['mtf_chip_fatigue_index']) * (1 - false_bottom_penalty_reduction)
+
+        dynamic_Q4_reward_weights = self._get_dynamic_weights(Q4_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        Q4_exhaustion_evidence_components_dict = {
+            "volume_atrophy": mtf_volume_atrophy_adjusted,
+            "retail_panic_surrender": mtf_retail_panic_surrender_adjusted_Q4,
+            "lower_shadow_absorption": mtf_signals['mtf_lower_shadow_absorption'],
+            "chip_health": mtf_signals['mtf_chip_strategic_posture'].clip(lower=0),
+            "bid_side_liquidity": mtf_signals['mtf_bid_side_liquidity'],
+            "vpin_score_low": (1 - mtf_signals['mtf_vpin_score']),
+            "volume_profile_entropy_inverted": (1 - mtf_signals['mtf_volume_profile_entropy']),
+            "FRACTAL_DIMENSION_calm": (1 - (mtf_signals['mtf_fractal_dimension'] - 1.5).abs() / 0.5).clip(0, 1),
+            "loser_pain_index_high": mtf_loser_pain_index_high_adjusted,
+            "equilibrium_compression_index": mtf_signals['mtf_equilibrium_compression_index']
+        }
+        exhaustion_evidence_factor = _robust_geometric_mean(Q4_exhaustion_evidence_components_dict, dynamic_Q4_reward_weights, df_index).clip(0, 1)
+
+        score4_magnitude = _robust_geometric_mean(
+            {"p_mom_negative_abs": p_mom.clip(upper=0).abs(), "v_mom_negative_abs": v_mom.clip(upper=0).abs()},
+            {"p_mom_negative_abs": 0.5, "v_mom_negative_abs": 0.5},
+            df_index
+        )
+        score4_base = (score4_magnitude * exhaustion_evidence_factor - score4_magnitude * (1 - exhaustion_evidence_factor)).clip(-1, 1)
+
+        dynamic_Q4_penalty_weights = self._get_dynamic_weights(Q4_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        Q4_penalty_components_dict = {
+            "price_reversion_velocity_negative": mtf_price_reversion_velocity_negative_adjusted,
+            "structural_entropy_change_positive": mtf_structural_entropy_change_positive_adjusted,
+            "main_force_vwap_down_guidance_positive": mtf_main_force_vwap_down_guidance_positive_adjusted,
+            "chip_fatigue_index_low": mtf_chip_fatigue_index_low_adjusted
+        }
+        false_bottom_penalty = _robust_geometric_mean(Q4_penalty_components_dict, dynamic_Q4_penalty_weights, df_index).clip(0, 1)
+        quadrant_scores['score4'] = score4_base * (1 - false_bottom_penalty)
+        quadrant_scores['score4'] += historical_context['phase_transition_Q4_to_Q1'] * 0.3
+        quadrant_scores['score4'] += bullish_persistence_modulator * 0.2
+
+        return quadrant_scores
 
     def _calculate_dynamic_modulators(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
