@@ -1863,10 +1863,10 @@ def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: i
     import os
     import subprocess
     import logging
-    from datetime import timedelta, date
+    from datetime import timedelta, date, datetime # 导入 datetime 模块
     from django.conf import settings
     from django.apps import apps
-    from django.db.models import Min
+    from django.db.models import Min, DateField, DateTimeField # 导入 DateField 和 DateTimeField
     from django.db import transaction
     logger = logging.getLogger(__name__)
     logger.info(f"====== [历史数据归档任务] 启动，保留最近 {days_to_keep} 个交易日的数据，每 {segment_days} 天分段处理 ======")
@@ -1875,7 +1875,7 @@ def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: i
         if not latest_trade_dates or len(latest_trade_dates) < days_to_keep:
             logger.error(f"无法获取足够的交易日历数据 ({len(latest_trade_dates)}/{days_to_keep})，任务终止。")
             return {"status": "failed", "reason": "Insufficient trade calendar data."}
-        overall_cutoff_date = latest_trade_dates[-1]
+        overall_cutoff_date = latest_trade_dates[-1] # 这是一个 datetime.date 对象
         logger.info(f"数据保留的起始日期为: {overall_cutoff_date}。此日期之前的数据将被分段归档。")
         print(f"调试信息: 数据归档整体截止日期 (不含当天): {overall_cutoff_date}")
     except Exception as e:
@@ -1907,22 +1907,40 @@ def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: i
         table_name = model._meta.db_table
         logger.info(f"--- 开始处理表: {table_name} ---")
         try:
-            min_date_to_archive_obj = model.objects.filter(trade_time__lt=overall_cutoff_date).aggregate(min_date=Min('trade_time'))
+            # 确定当前模型的 'trade_time' 字段类型
+            trade_time_field = model._meta.get_field('trade_time')
+            is_datetime_field = isinstance(trade_time_field, DateTimeField)
+            # 根据字段类型调整用于比较的截止日期
+            effective_cutoff_for_comparison = overall_cutoff_date
+            if is_datetime_field:
+                # 如果是 DateTimeField，将 overall_cutoff_date 转换为当天的零点 datetime.datetime
+                effective_cutoff_for_comparison = datetime.combine(overall_cutoff_date, datetime.min.time())
+            min_date_to_archive_obj = model.objects.filter(trade_time__lt=effective_cutoff_for_comparison).aggregate(min_date=Min('trade_time'))
             min_date_to_archive = min_date_to_archive_obj.get('min_date')
             if not min_date_to_archive:
-                logger.info(f"表 {table_name} 中没有早于 {overall_cutoff_date} 的数据需要归档，跳过。")
+                logger.info(f"表 {table_name} 中没有早于 {effective_cutoff_for_comparison} 的数据需要归档，跳过。")
                 continue
-            # 修正：min_date_to_archive 已经是 datetime.date 对象，无需再次调用 .date()
+            # current_segment_start_date 将根据 min_date_to_archive 的类型自动匹配 (datetime.date 或 datetime.datetime)
             current_segment_start_date = min_date_to_archive
-            while current_segment_start_date < overall_cutoff_date:
-                current_segment_end_date = min(current_segment_start_date + timedelta(days=segment_days), overall_cutoff_date)
+            # 循环条件现在比较的是一致的类型
+            while current_segment_start_date < effective_cutoff_for_comparison:
+                # 计算 current_segment_end_date，确保类型一致性
+                # 如果 current_segment_start_date 是 datetime.datetime，则加上 timedelta 结果仍是 datetime.datetime
+                # 如果 current_segment_start_date 是 datetime.date，则加上 timedelta 结果仍是 datetime.date
+                # min 函数将比较一致的类型
+                current_segment_end_date = min(current_segment_start_date + timedelta(days=segment_days), effective_cutoff_for_comparison)
                 logger.info(f"正在处理表 {table_name} 的数据段: 从 {current_segment_start_date} 到 {current_segment_end_date} (不含)。")
                 print(f"调试信息: 表 {table_name} 当前处理段: {current_segment_start_date} to {current_segment_end_date}")
-                segment_start_str = current_segment_start_date.strftime('%Y%m%d')
-                segment_end_str = current_segment_end_date.strftime('%Y%m%d')
+                # 根据字段类型选择合适的日期时间格式
+                date_format_for_filename = '%Y%m%d%H%M%S' if is_datetime_field else '%Y%m%d'
+                date_format_for_where_clause = '%Y-%m-%d %H:%M:%S' if is_datetime_field else '%Y-%m-%d'
+                segment_start_str = current_segment_start_date.strftime(date_format_for_filename)
+                segment_end_str = current_segment_end_date.strftime(date_format_for_filename)
                 archive_filename = f"{table_name}_{segment_start_str}_to_{segment_end_str}.sql.xz"
                 archive_filepath = os.path.join(archive_dir, archive_filename)
-                where_clause = f"trade_time >= '{current_segment_start_date.strftime('%Y-%m-%d')}' AND trade_time < '{current_segment_end_date.strftime('%Y-%m-%d')}'"
+                where_clause_start = current_segment_start_date.strftime(date_format_for_where_clause)
+                where_clause_end = current_segment_end_date.strftime(date_format_for_where_clause)
+                where_clause = f"trade_time >= '{where_clause_start}' AND trade_time < '{where_clause_end}'"
                 dump_cmd = [
                     'mysqldump',
                     f'--user={db_user}',
