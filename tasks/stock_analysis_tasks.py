@@ -1868,7 +1868,6 @@ def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: i
     from django.apps import apps
     from django.db.models import Min
     from django.db import transaction
-    from .models import TradeCalendar
 
     logger = logging.getLogger(__name__)
     logger.info(f"====== [历史数据归档任务] 启动，保留最近 {days_to_keep} 个交易日的数据，每 {segment_days} 天分段处理 ======")
