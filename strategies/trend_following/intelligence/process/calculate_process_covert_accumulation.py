@@ -252,7 +252,7 @@ class CalculateProcessCovertAccumulation:
             'order_book_liquidity_supply_D',
             'main_force_vwap_up_guidance_D',
             'observed_large_order_size_avg_D',
-            'is_high_potential_consolidation_D'
+            'IS_HIGH_POTENTIAL_CONSOLIDATION_D'
         ]
         # 添加累积求和信号到MTF基准信号列表
         for window in cumulative_flow_windows:
@@ -346,7 +346,7 @@ class CalculateProcessCovertAccumulation:
             'order_book_liquidity_supply_D',
             'main_force_vwap_up_guidance_D',
             'observed_large_order_size_avg_D',
-            'is_high_potential_consolidation_D'
+            'IS_HIGH_POTENTIAL_CONSOLIDATION_D'
         ]
         # 添加累积求和信号的列名
         mf_flow_base = 'main_force_net_flow_calibrated_D'
@@ -420,7 +420,7 @@ class CalculateProcessCovertAccumulation:
             'order_book_liquidity_supply_D',
             'main_force_vwap_up_guidance_D',
             'observed_large_order_size_avg_D',
-            'is_high_potential_consolidation_D'
+            'IS_HIGH_POTENTIAL_CONSOLIDATION_D'
         ]
         for base_sig in mtf_base_signals_for_required_check:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
@@ -500,7 +500,7 @@ class CalculateProcessCovertAccumulation:
             'order_book_liquidity_supply_raw': self.helper._get_safe_series(df, 'order_book_liquidity_supply_D', 0.0, method_name=method_name),
             'main_force_vwap_up_guidance_raw': self.helper._get_safe_series(df, 'main_force_vwap_up_guidance_D', 0.0, method_name=method_name),
             'observed_large_order_size_avg_raw': self.helper._get_safe_series(df, 'observed_large_order_size_avg_D', 0.0, method_name=method_name),
-            'is_high_potential_consolidation_raw': self.helper._get_safe_series(df, 'is_high_potential_consolidation_D', 0.0, method_name=method_name)
+            'is_high_potential_consolidation_raw': self.helper._get_safe_series(df, 'IS_HIGH_POTENTIAL_CONSOLIDATION_D', 0.0, method_name=method_name)
         }
         # 获取累积信号的原始数据 (这些列现在已在df中)
         for window in cumulative_flow_windows:
