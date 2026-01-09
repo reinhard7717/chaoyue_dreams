@@ -610,48 +610,58 @@ class CalculatePriceVolumeDynamics:
         """
         计算市场情绪低迷维度分数。
         """
-        sentiment_volatility_window = get_param_value(pvd_params.get('sentiment_volatility_window'), 21)
-        long_term_sentiment_window = get_param_value(pvd_params.get('long_term_sentiment_window'), 55)
-        sentiment_neutral_range = get_param_value(pvd_params.get('sentiment_neutral_range'), 1.0)
-        sentiment_pendulum_neutral_range = get_param_value(pvd_params.get('sentiment_pendulum_neutral_range'), 0.2)
-        market_sentiment_std_raw = raw_signals['market_sentiment_score_D'].rolling(window=sentiment_volatility_window, min_periods=1).std()
-        sentiment_pendulum_std_raw = raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'].rolling(window=sentiment_volatility_window, min_periods=1).std()
-        market_sentiment_long_term_mean = raw_signals['market_sentiment_score_D'].rolling(window=long_term_sentiment_window, min_periods=1).mean()
-        sentiment_pendulum_negative = self.helper._normalize_series(raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'], df_index, bipolar=True).clip(upper=0).abs()
-        market_sentiment_inverted = self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, ascending=False)
-        retail_panic_inverted = self.helper._normalize_series(raw_signals['retail_panic_surrender_index_D'], df_index, ascending=False)
-        retail_fomo_inverted = self.helper._normalize_series(raw_signals['retail_fomo_premium_index_D'], df_index, ascending=False)
-        loser_pain_positive = self.helper._normalize_series(raw_signals['loser_pain_index_D'], df_index, ascending=True)
-        liquidity_tide_calm = self.helper._normalize_series(raw_signals['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'].abs(), df_index, ascending=False)
-        hurst_calm = (1 - (raw_signals['HURST_144d_D'] - 0.5).abs() / 0.5).clip(0, 1)
-        sentiment_neutrality = 1 - self.helper._normalize_series(raw_signals['market_sentiment_score_D'].abs(), df_index, ascending=True)
-        sentiment_pendulum_neutrality = 1 - self.helper._normalize_series(raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'].abs(), df_index, bipolar=True).abs()
-        sentiment_volatility_inverted = self.helper._normalize_series(market_sentiment_std_raw, df_index, ascending=False)
-        sentiment_pendulum_volatility_inverted = self.helper._normalize_series(sentiment_pendulum_std_raw, df_index, ascending=False)
-        long_term_sentiment_subdued = self.helper._normalize_series(market_sentiment_long_term_mean - raw_signals['market_sentiment_score_D'], df_index, ascending=True)
-        sentiment_pendulum_not_extreme = (1 - (raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'].abs() - sentiment_pendulum_neutral_range).clip(lower=0) / (raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'].abs().max() - sentiment_pendulum_neutral_range + 1e-9)).clip(0, 1)
-        market_sentiment_not_extreme = (1 - (raw_signals['market_sentiment_score_D'].abs() - sentiment_neutral_range).clip(lower=0) / (raw_signals['market_sentiment_score_D'].abs().max() - sentiment_neutral_range + 1e-9)).clip(0, 1)
-        market_sentiment_boring_score = _robust_geometric_mean({'volatility_inverted': sentiment_volatility_inverted, 'not_extreme': market_sentiment_not_extreme}, {'volatility_inverted': 0.5, 'not_extreme': 0.5}, df_index)
-        price_reversion_velocity_inverted = self.helper._normalize_series(raw_signals['price_reversion_velocity_D'], df_index, ascending=False)
-        structural_entropy_change_inverted = self.helper._normalize_series(raw_signals['structural_entropy_change_D'].abs(), df_index, ascending=False)
-        mean_reversion_frequency_inverted = self.helper._normalize_series(raw_signals['mean_reversion_frequency_D'], df_index, ascending=False)
-        trend_alignment_positive = self.helper._normalize_series(raw_signals['trend_alignment_index_D'], df_index, ascending=True)
+        # 防御性地获取所有原始信号，避免 KeyError
+        loser_pain_index_raw = raw_signals.get('loser_pain_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        market_sentiment_score_raw = raw_signals.get('market_sentiment_score_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        retail_panic_surrender_index_raw = raw_signals.get('retail_panic_surrender_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        total_loser_rate_raw = raw_signals.get('total_loser_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        total_winner_rate_raw = raw_signals.get('total_winner_rate_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        mean_reversion_frequency_raw = raw_signals.get('mean_reversion_frequency_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        trend_alignment_index_raw = raw_signals.get('trend_alignment_index_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        score_foundation_axiom_sentiment_pendulum_raw = raw_signals.get('SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', pd.Series(0.0, index=df_index, dtype=np.float32))
+
+        # 打印警告信息
+        for sig_name in ['loser_pain_index_D', 'market_sentiment_score_D', 'retail_panic_surrender_index_D',
+                         'total_loser_rate_D', 'total_winner_rate_D', 'mean_reversion_frequency_D',
+                         'trend_alignment_index_D', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM']:
+            if sig_name not in raw_signals:
+                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 raw_signals 中缺失。使用默认的零值 Series。")
+
+        # 防御性地获取所有MTF信号，避免 KeyError
+        mtf_loser_pain_index = mtf_signals.get('mtf_loser_pain_index', pd.Series(0.0, index=df_index, dtype=np.float32))
+        mtf_retail_panic_surrender = mtf_signals.get('mtf_retail_panic_surrender', pd.Series(0.0, index=df_index, dtype=np.float32))
+        mtf_market_sentiment_score = mtf_signals.get('mtf_market_sentiment_score', pd.Series(0.0, index=df_index, dtype=np.float32))
+        mtf_mean_reversion_frequency = mtf_signals.get('mtf_mean_reversion_frequency', pd.Series(0.0, index=df_index, dtype=np.float32))
+        mtf_trend_alignment_index = mtf_signals.get('mtf_trend_alignment_index', pd.Series(0.0, index=df_index, dtype=np.float32))
+
+        # 打印MTF信号警告信息
+        for sig_name in ['mtf_loser_pain_index', 'mtf_retail_panic_surrender', 'mtf_market_sentiment_score',
+                         'mtf_mean_reversion_frequency', 'mtf_trend_alignment_index']:
+            if sig_name not in mtf_signals:
+                print(f"DEBUG: {method_name} - 警告: '{sig_name}' 在 mtf_signals 中缺失。使用默认的零值 Series。")
+
+        loser_pain_positive = self.helper._normalize_series(loser_pain_index_raw, df_index, ascending=True)
+        market_sentiment_negative = self.helper._normalize_series(market_sentiment_score_raw, df_index, ascending=False)
+        retail_panic_surrender_positive = self.helper._normalize_series(retail_panic_surrender_index_raw, df_index, ascending=True)
+        total_loser_rate_positive = self.helper._normalize_series(total_loser_rate_raw, df_index, ascending=True)
+        total_winner_rate_negative = self.helper._normalize_series(total_winner_rate_raw, df_index, ascending=False)
+        mean_reversion_frequency_positive = self.helper._normalize_series(mean_reversion_frequency_raw, df_index, ascending=True)
+        trend_alignment_negative = self.helper._normalize_series(trend_alignment_index_raw, df_index, ascending=False)
+
         components = {
-            'sentiment_pendulum_negative': sentiment_pendulum_negative, 'market_sentiment_inverted': market_sentiment_inverted,
-            'retail_panic_inverted': retail_panic_inverted, 'retail_fomo_inverted': retail_fomo_inverted,
             'loser_pain_positive': loser_pain_positive,
-            'liquidity_tide_calm': liquidity_tide_calm, 'hurst_calm': hurst_calm,
-            'sentiment_neutrality': sentiment_neutrality, 'sentiment_pendulum_neutrality': sentiment_pendulum_neutrality,
-            'sentiment_volatility_inverted': sentiment_volatility_inverted,
-            'sentiment_pendulum_volatility_inverted': sentiment_pendulum_volatility_inverted,
-            'long_term_sentiment_subdued': long_term_sentiment_subdued,
-            'market_sentiment_not_extreme': market_sentiment_not_extreme,
-            'sentiment_pendulum_not_extreme': sentiment_pendulum_not_extreme,
-            'market_sentiment_boring_score': market_sentiment_boring_score,
-            'price_reversion_velocity_inverted': price_reversion_velocity_inverted,
-            'structural_entropy_change_inverted': structural_entropy_change_inverted,
-            'mean_reversion_frequency_inverted': mean_reversion_frequency_inverted,
-            'trend_alignment_positive': trend_alignment_positive
+            'market_sentiment_negative': market_sentiment_negative,
+            'retail_panic_surrender_positive': retail_panic_surrender_positive,
+            'total_loser_rate_positive': total_loser_rate_positive,
+            'total_winner_rate_negative': total_winner_rate_negative,
+            'mean_reversion_frequency_positive': mean_reversion_frequency_positive,
+            'trend_alignment_negative': trend_alignment_negative,
+            'sentiment_pendulum_score': score_foundation_axiom_sentiment_pendulum_raw,
+            'mtf_loser_pain_index': mtf_loser_pain_index,
+            'mtf_retail_panic_surrender': mtf_retail_panic_surrender,
+            'mtf_market_sentiment_score_negative': mtf_market_sentiment_score.clip(upper=0).abs(),
+            'mtf_mean_reversion_frequency_positive': mtf_mean_reversion_frequency.clip(lower=0),
+            'mtf_trend_alignment_negative': mtf_trend_alignment_index.clip(upper=0).abs()
         }
         return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
 
