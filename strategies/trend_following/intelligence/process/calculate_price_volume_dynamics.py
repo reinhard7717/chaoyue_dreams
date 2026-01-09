@@ -416,12 +416,10 @@ class CalculatePriceVolumeDynamics:
         mtf_signals['mtf_main_force_level5_sell_ofi'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_level5_sell_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # 修复：添加 mtf_main_force_buy_ofi 的生成
         mtf_signals['mtf_main_force_buy_ofi'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-
         # 新增：主力资金流情境化分数
         mtf_signals['mtf_main_force_net_flow_contextualized'] = self._calculate_main_force_flow_contextualized_score(df_index, raw_signals, self.process_params, method_name)
         # 原始主力净流的斜率和加速度也需要基于情境化后的信号
         mtf_signals['mf_net_flow_slope_positive'] = self.helper._get_mtf_slope_accel_score(df.assign(temp_mf_flow_D=mtf_signals['mtf_main_force_net_flow_contextualized']), 'temp_mf_flow_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        
         return mtf_signals
 
     def _calculate_liquidity_health_dimension(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], weights: Dict[str, float], method_name: str) -> pd.Series:
@@ -1284,7 +1282,6 @@ class CalculatePriceVolumeDynamics:
         _temp_debug_values["最终融合分数"] = {"final_score": final_score}
         if is_debug_enabled_for_method and probe_ts:
             self._print_pvd_debug_output(_temp_debug_values, probe_ts, method_name, "价量动态诊断完成")
-            
         return final_score.astype(np.float32)
 
 

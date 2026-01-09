@@ -2100,7 +2100,6 @@ class FundFlowIntelligence:
             norm_retail_flow_accel_5 * structural_momentum_weights.get('retail_flow_accel_5', -0.05) +
             # 修正 retail_flow_dominance 的计算逻辑
             norm_retail_dominance * structural_momentum_weights.get('retail_flow_dominance', -0.15) # 零售主导越高，结构动能越差，因此直接乘以负权重
-            
         ).clip(-1, 1)
         norm_rally_sell_distribution_intensity = get_adaptive_mtf_normalized_score(raw_data_cache['rally_sell_distribution_intensity_D'], df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_rally_buy_support_weakness = get_adaptive_mtf_normalized_score(raw_data_cache['rally_buy_support_weakness_D'], df_index, ascending=True, tf_weights=tf_weights_ff)

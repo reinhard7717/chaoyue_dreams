@@ -88,7 +88,6 @@ class CalculateWinnerConvictionDecay:
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             self._collect_and_print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, final_score)
-            
         return final_score.astype(np.float32)
 
     def _collect_and_print_debug_info(self, method_name: str, probe_ts: pd.Timestamp, debug_output: Dict, _temp_debug_values: Dict, final_score: pd.Series):

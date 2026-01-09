@@ -84,6 +84,31 @@ class CalculateProcessCovertAccumulation:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算隐蔽吸筹..."] = ""
+        # 1. 获取配置参数
+        fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights = self._get_covert_accumulation_config(config)
+        df_index = df.index
+        # 2. 校验并获取原始信号
+        raw_signals = self._validate_and_get_raw_signals(df, method_name, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, is_debug_enabled_for_method, probe_ts, _temp_debug_values)
+        if raw_signals is None:
+            return pd.Series(0.0, index=df.index)
+        # 3. 计算维度一：市场背景 (Market Context)
+        market_context_score = self._calculate_market_context_score(df, df_index, raw_signals, mtf_slope_accel_weights, market_context_weights, price_weakness_slope_window, low_volatility_bbw_window, method_name, _temp_debug_values)
+        # 4. 计算维度二：隐蔽行动 (Covert Action)
+        covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, mtf_slope_accel_weights, covert_action_weights, method_name, _temp_debug_values)
+        # 5. 计算维度三：筹码优化 (Chip Optimization)
+        chip_optimization_score = self._calculate_chip_optimization_score(df, df_index, raw_signals, mtf_slope_accel_weights, chip_optimization_weights, method_name, _temp_debug_values)
+        # 6. 最终合成：三维融合
+        final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
+        _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
+        # --- 统一输出调试信息 ---
+        if is_debug_enabled_for_method and probe_ts:
+            self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
+        return final_score
+
+    def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict]:
+        """
+        获取隐蔽吸筹计算所需的所有配置参数。
+        """
         covert_accum_params = get_param_value(self.helper.params.get('covert_accumulation_params'), {})
         fusion_weights = get_param_value(covert_accum_params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
         market_context_weights = get_param_value(covert_accum_params.get('market_context_weights'), {"retail_panic": 0.2, "price_weakness": 0.2, "low_volatility": 0.2, "sentiment_pendulum_inverted": 0.15, "tension_inverted": 0.1, "market_sentiment_inverted": 0.1, "volatility_instability_inverted": 0.05})
@@ -92,6 +117,12 @@ class CalculateProcessCovertAccumulation:
         price_weakness_slope_window = get_param_value(covert_accum_params.get('price_weakness_slope_window'), 5)
         low_volatility_bbw_window = get_param_value(covert_accum_params.get('low_volatility_bbw_window'), 21)
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
+        return fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights
+
+    def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, price_weakness_slope_window: int, low_volatility_bbw_window: int, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
+        """
+        校验所需信号并获取所有原始数据。
+        """
         required_df_columns = [
             'retail_panic_surrender_index_D', f'SLOPE_{price_weakness_slope_window}_close_D', f'BBW_{low_volatility_bbw_window}_2.0_D',
             'suppressive_accumulation_intensity_D', 'main_force_net_flow_calibrated_D', 'deception_index_D',
@@ -121,66 +152,48 @@ class CalculateProcessCovertAccumulation:
         all_required_signals = required_df_columns + required_atomic_signals
         if not self.helper._validate_required_signals(df, all_required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
+                debug_output = {f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。": ""}
                 self.helper._print_debug_output(debug_output)
-            return pd.Series(0.0, index=df.index)
-        df_index = df.index
-        retail_panic_raw = self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
-        price_weakness_slope_raw = self.helper._get_safe_series(df, f'SLOPE_{price_weakness_slope_window}_close_D', 0.0, method_name=method_name)
-        bbw_raw = self.helper._get_safe_series(df, f'BBW_{low_volatility_bbw_window}_2.0_D', 0.0, method_name=method_name)
-        suppressive_accum_raw = self.helper._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name=method_name)
-        main_force_flow_raw = self.helper._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
-        deception_raw = self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-        chip_fatigue_raw = self.helper._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
-        loser_pain_raw = self.helper._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
-        deception_lure_long_raw = self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name)
-        deception_lure_short_raw = self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
-        hidden_accumulation_intensity_raw = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
-        sentiment_pendulum_score = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
-        tension_score = self.helper._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
-        market_sentiment_raw = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
-        volatility_instability_raw = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
-        stealth_ops_score = self.helper._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        chip_historical_potential_score = self.helper._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
-        mf_buy_ofi_raw = self.helper._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name)
-        mf_cost_advantage_raw = self.helper._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name=method_name)
-        holder_sentiment_score = self.helper._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        turnover_purity_cost_opt_score = self.helper._get_atomic_score(df, 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION', 0.0)
-        floating_chip_cleansing_raw = self.helper._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name=method_name)
-        total_loser_rate_raw = self.helper._get_safe_series(df, 'total_loser_rate_D', 0.0, method_name=method_name)
-        _temp_debug_values["原始信号值"] = {
-            "retail_panic_surrender_index_D": retail_panic_raw,
-            f"SLOPE_{price_weakness_slope_window}_close_D": price_weakness_slope_raw,
-            f"BBW_{low_volatility_bbw_window}_2.0_D": bbw_raw,
-            "suppressive_accumulation_intensity_D": suppressive_accum_raw,
-            "main_force_net_flow_calibrated_D": main_force_flow_raw,
-            "deception_index_D": deception_raw,
-            "chip_fatigue_index_D": chip_fatigue_raw,
-            "loser_pain_index_D": loser_pain_raw,
-            "deception_lure_long_intensity_D": deception_lure_long_raw,
-            "deception_lure_short_intensity_D": deception_lure_short_raw,
-            "hidden_accumulation_intensity_D": hidden_accumulation_intensity_raw,
-            "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM": sentiment_pendulum_score,
-            "SCORE_STRUCT_AXIOM_TENSION": tension_score,
-            "market_sentiment_score_D": market_sentiment_raw,
-            "VOLATILITY_INSTABILITY_INDEX_21d_D": volatility_instability_raw,
-            "SCORE_MICRO_STRATEGY_STEALTH_OPS": stealth_ops_score,
-            "SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL": chip_historical_potential_score,
-            "main_force_buy_ofi_D": mf_buy_ofi_raw,
-            "main_force_cost_advantage_D": mf_cost_advantage_raw,
-            "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": holder_sentiment_score,
-            "SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION": turnover_purity_cost_opt_score,
-            "floating_chip_cleansing_efficiency_D": floating_chip_cleansing_raw,
-            "total_loser_rate_D": total_loser_rate_raw
+            return None
+        raw_signals = {
+            'retail_panic_raw': self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name),
+            'price_weakness_slope_raw': self.helper._get_safe_series(df, f'SLOPE_{price_weakness_slope_window}_close_D', 0.0, method_name=method_name),
+            'bbw_raw': self.helper._get_safe_series(df, f'BBW_{low_volatility_bbw_window}_2.0_D', 0.0, method_name=method_name),
+            'suppressive_accum_raw': self.helper._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name=method_name),
+            'main_force_flow_raw': self.helper._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name),
+            'deception_raw': self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name),
+            'chip_fatigue_raw': self.helper._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name),
+            'loser_pain_raw': self.helper._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name),
+            'deception_lure_long_raw': self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name),
+            'deception_lure_short_raw': self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name),
+            'hidden_accumulation_intensity_raw': self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name),
+            'sentiment_pendulum_score': self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0),
+            'tension_score': self.helper._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0),
+            'market_sentiment_raw': self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name),
+            'volatility_instability_raw': self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name),
+            'stealth_ops_score': self.helper._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0),
+            'chip_historical_potential_score': self.helper._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0),
+            'mf_buy_ofi_raw': self.helper._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name),
+            'mf_cost_advantage_raw': self.helper._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name=method_name),
+            'holder_sentiment_score': self.helper._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0),
+            'turnover_purity_cost_opt_score': self.helper._get_atomic_score(df, 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION', 0.0),
+            'floating_chip_cleansing_raw': self.helper._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name=method_name),
+            'total_loser_rate_raw': self.helper._get_safe_series(df, 'total_loser_rate_D', 0.0, method_name=method_name)
         }
-        # --- 3. 维度一：市场背景 (Market Context) ---
-        retail_panic_score = self.helper._normalize_series(retail_panic_raw, df_index, bipolar=False)
+        _temp_debug_values["原始信号值"] = {k: v for k, v in raw_signals.items()}
+        return raw_signals
+
+    def _calculate_market_context_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, market_context_weights: Dict, price_weakness_slope_window: int, low_volatility_bbw_window: int, method_name: str, _temp_debug_values: Dict) -> pd.Series:
+        """
+        计算隐蔽吸筹的市场背景分数。
+        """
+        retail_panic_score = self.helper._normalize_series(raw_signals['retail_panic_raw'], df_index, bipolar=False)
         mtf_price_weakness_score = self.helper._get_mtf_slope_accel_score(df, f'close_D', mtf_slope_accel_weights, df_index, method_name, ascending=False, bipolar=False)
-        low_volatility_score = self.helper._normalize_series(bbw_raw, df_index, ascending=False)
-        sentiment_pendulum_inverted_score = (1 - sentiment_pendulum_score.clip(lower=0))
-        tension_inverted_score = (1 - tension_score.clip(lower=0))
-        market_sentiment_inverted_score = self.helper._normalize_series(market_sentiment_raw, df_index, ascending=False)
-        volatility_instability_inverted_score = self.helper._normalize_series(volatility_instability_raw, df_index, ascending=False)
+        low_volatility_score = self.helper._normalize_series(raw_signals['bbw_raw'], df_index, ascending=False)
+        sentiment_pendulum_inverted_score = (1 - raw_signals['sentiment_pendulum_score'].clip(lower=0))
+        tension_inverted_score = (1 - raw_signals['tension_score'].clip(lower=0))
+        market_sentiment_inverted_score = self.helper._normalize_series(raw_signals['market_sentiment_raw'], df_index, ascending=False)
+        volatility_instability_inverted_score = self.helper._normalize_series(raw_signals['volatility_instability_raw'], df_index, ascending=False)
         market_context_scores_dict = {
             "retail_panic": retail_panic_score,
             "price_weakness": mtf_price_weakness_score,
@@ -201,13 +214,18 @@ class CalculateProcessCovertAccumulation:
             "volatility_instability_inverted_score": volatility_instability_inverted_score,
             "market_context_score": market_context_score
         }
-        # --- 4. 维度二：隐蔽行动 (Covert Action) ---
+        return market_context_score
+
+    def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
+        """
+        计算隐蔽行动分数。
+        """
         mtf_suppressive_accum_score = self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow_score = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_deception_lure_long_score = self.helper._get_mtf_slope_accel_score(df, 'deception_lure_long_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        stealth_ops_normalized = self.helper._normalize_series(stealth_ops_score, df_index, bipolar=False)
+        stealth_ops_normalized = self.helper._normalize_series(raw_signals['stealth_ops_score'], df_index, bipolar=False)
         mtf_hidden_accumulation_intensity = self.helper._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        chip_historical_potential_normalized = self.helper._normalize_series(chip_historical_potential_score.clip(lower=0), df_index, bipolar=False)
+        chip_historical_potential_normalized = self.helper._normalize_series(raw_signals['chip_historical_potential_score'].clip(lower=0), df_index, bipolar=False)
         mtf_mf_buy_ofi_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_mf_cost_advantage_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_mf_flow_slope_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True).clip(lower=0)
@@ -238,11 +256,16 @@ class CalculateProcessCovertAccumulation:
             "mtf_suppressive_accum_slope_normalized": mtf_suppressive_accum_slope_normalized,
             "covert_action_score": covert_action_score
         }
-        # --- 5. 维度三：筹码优化 (Chip Optimization) ---
+        return covert_action_score
+
+    def _calculate_chip_optimization_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, chip_optimization_weights: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
+        """
+        计算筹码优化分数。
+        """
         mtf_chip_fatigue_score = self.helper._get_mtf_slope_accel_score(df, 'chip_fatigue_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_loser_pain_score = self.helper._get_mtf_slope_accel_score(df, 'loser_pain_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        holder_sentiment_inverted_score = (1 - holder_sentiment_score).clip(0, 1)
-        turnover_purity_cost_opt_normalized = self.helper._normalize_series(turnover_purity_cost_opt_score.clip(lower=0), df_index, bipolar=False)
+        holder_sentiment_inverted_score = (1 - raw_signals['holder_sentiment_score']).clip(0, 1)
+        turnover_purity_cost_opt_normalized = self.helper._normalize_series(raw_signals['turnover_purity_cost_opt_score'].clip(lower=0), df_index, bipolar=False)
         mtf_floating_chip_cleansing_normalized = self.helper._get_mtf_slope_accel_score(df, 'floating_chip_cleansing_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_total_loser_rate_normalized = self.helper._get_mtf_slope_accel_score(df, 'total_loser_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         chip_optimization_scores_dict = {
@@ -263,7 +286,12 @@ class CalculateProcessCovertAccumulation:
             "mtf_total_loser_rate_normalized": mtf_total_loser_rate_normalized,
             "chip_optimization_score": chip_optimization_score
         }
-        # --- 6. 最终合成：三维融合 ---
+        return chip_optimization_score
+
+    def _fuse_final_score(self, df_index: pd.Index, market_context_score: pd.Series, covert_action_score: pd.Series, chip_optimization_score: pd.Series, fusion_weights: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        将三个维度分数进行最终融合。
+        """
         final_fusion_scores_dict = {
             "market_context": market_context_score,
             "covert_action": covert_action_score,
@@ -273,10 +301,5 @@ class CalculateProcessCovertAccumulation:
         _temp_debug_values["最终合成"] = {
             "covert_accumulation_score": covert_accumulation_score
         }
-        final_score = covert_accumulation_score.clip(0, 1).astype(np.float32)
-        _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
-        # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
-            
-        return final_score
+        return covert_accumulation_score.clip(0, 1).astype(np.float32)
+
