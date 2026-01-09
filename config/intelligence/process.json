@@ -118,6 +118,14 @@
                         "microstructure_efficiency_high": 0.2,
                         "equilibrium_compression_index_high": 0.15
                     },
+                    "breakout_readiness_weights": {
+                        "comment": "突破准备维度组件权重。",
+                        "is_consolidating_inverted": 0.2,
+                        "dynamic_consolidation_duration_positive": 0.2,
+                        "breakout_readiness_score_positive": 0.3,
+                        "trend_acceleration_score_positive": 0.15,
+                        "trend_conviction_score_positive": 0.15
+                    },
                     "Q1_reward_weights": {
                         "price_up_membership": 0.15,
                         "volume_expand_membership": 0.15,
