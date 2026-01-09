@@ -387,17 +387,22 @@ class CalculatePriceVolumeDynamics:
         """
         计算能量压缩维度分数。
         """
+        # 防御性地获取 'BBW_21_2.0_D'，避免 KeyError
+        bbw_raw = raw_signals.get('BBW_21_2.0_D', pd.Series(0.0, index=df_index, dtype=np.float32))
+        if 'BBW_21_2.0_D' not in raw_signals:
+            print(f"DEBUG: {method_name} - 警告: 'BBW_21_2.0_D' 在 raw_signals 中缺失。使用默认的零值 Series。")
+
         components = {
             'tension': raw_signals['SCORE_STRUCT_AXIOM_TENSION'],
-            'bbw_inverted': raw_signals['BBW_21_2.0_D'],
+            'bbw_inverted': bbw_raw, # 使用安全获取的值
             'vol_instability_inverted': raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'],
             'equilibrium_compression': raw_signals['equilibrium_compression_index_D'],
-            'bbw_slope_inverted': mtf_signals['bbw_slope_inverted_score'],
-            'vol_instability_slope_inverted': mtf_signals['vol_instability_slope_inverted_score'],
+            'bbw_slope_inverted': mtf_signals.get('bbw_slope_inverted_score', pd.Series(0.0, index=df_index)), # 同样防御性获取
+            'vol_instability_slope_inverted': mtf_signals.get('vol_instability_slope_inverted_score', pd.Series(0.0, index=df_index)), # 同样防御性获取
             'dyn_stability': raw_signals['SCORE_DYN_AXIOM_STABILITY'],
             'market_tension': raw_signals['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'],
             'price_sample_entropy_inverted': raw_signals['SAMPLE_ENTROPY_13d_D'],
-            'price_volume_entropy_inverted': raw_signals['price_volume_entropy_D'],
+            'price_volume_entropy_inverted': raw_signals['volume_profile_entropy_D'], # 原始信号中没有 price_volume_entropy_D，这里假设是 volume_profile_entropy_D
             'price_fractal_dimension_calm': (1 - (raw_signals['FRACTAL_DIMENSION_89d_D'] - 1.5).abs() / 0.5).clip(0, 1),
             'volume_structure_skew_inverted': raw_signals['volume_structure_skew_D'].abs(),
             'volume_profile_entropy_inverted': raw_signals['volume_profile_entropy_D']
