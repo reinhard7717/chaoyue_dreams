@@ -726,6 +726,9 @@ class CalculatePriceVolumeDynamics:
         historical_context['market_regime_strength'] = self.helper._normalize_series(market_regime_strength_raw, df_index, bipolar=False)
         # Reversal Potential Score (RPS) - 用于动态指数
         historical_context['reversal_potential_score'] = self.helper._normalize_series(mtf_signals['mtf_reversal_power_index'] + mtf_signals['mtf_reversal_recovery_rate'], df_index, bipolar=False)
+        # 新增：市场稳定性分数
+        market_stability_weights = get_param_value(pvd_params.get('market_stability_weights'), {})
+        historical_context['market_stability_score'] = self._calculate_market_stability_score(df_index, mtf_signals, market_stability_weights, method_name)
         return historical_context
 
     def _calculate_multi_level_resonance_factor(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], pvd_params: Dict, context_modulator_score_for_weights: pd.Series, method_name: str) -> pd.Series:
@@ -740,7 +743,8 @@ class CalculatePriceVolumeDynamics:
         quality_efficiency_resonance_components = get_param_value(pvd_params.get('quality_efficiency_resonance_components'), {})
         liquidity_health_components = get_param_value(pvd_params.get('liquidity_health_components'), {})
         main_force_order_flow_depth_components = get_param_value(pvd_params.get('main_force_order_flow_depth_components'), {})
-        main_force_flow_context_components = get_param_value(pvd_params.get('main_force_flow_context_components'), {}) # 新增：主力资金流情境化组件权重
+        main_force_flow_context_components = get_param_value(pvd_params.get('main_force_flow_context_params'), {}) # 注意这里是params，不是components
+        market_structure_clarity_components = get_param_value(pvd_params.get('market_structure_clarity_components'), {}) # 新增：市场结构清晰度组件权重
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
         # 3.1 价格-成交量共振
         dynamic_pv_resonance_weights = self._get_dynamic_weights(price_volume_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
@@ -764,7 +768,7 @@ class CalculatePriceVolumeDynamics:
             "chip_fault_blockage_ratio_inverted": (1 - mtf_signals['mtf_chip_fault_blockage_ratio']),
             "main_force_cost_advantage_positive": mtf_signals['mtf_main_force_cost_advantage'].clip(lower=0),
             "SMART_MONEY_HM_COORDINATED_ATTACK": mtf_signals['mtf_smart_money_coordinated_attack'],
-            "main_force_net_flow_contextualized_positive": mtf_signals['mtf_main_force_net_flow_contextualized'].clip(lower=0) # 使用情境化后的主力净流
+            "main_force_net_flow_contextualized_positive": mtf_signals['mtf_main_force_net_flow_contextualized'].clip(lower=0)
         }
         main_chip_resonance = _robust_geometric_mean(main_chip_resonance_components_dict, dynamic_mc_resonance_weights, df_index).clip(0, 1)
         # 3.3 市场情绪-流动性共振
@@ -806,7 +810,10 @@ class CalculatePriceVolumeDynamics:
         # 3.7 主力订单流深度维度
         dynamic_mfofd_weights = self._get_dynamic_weights(main_force_order_flow_depth_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         main_force_order_flow_depth_dimension = self._calculate_main_force_order_flow_depth_dimension(df_index, raw_signals, mtf_signals, dynamic_mfofd_weights, method_name)
-        # 3.8 融合所有多层级共振因子
+        # 3.8 市场结构清晰度维度
+        dynamic_msc_weights = self._get_dynamic_weights(market_structure_clarity_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
+        market_structure_clarity_dimension = self._calculate_market_structure_clarity_dimension(df_index, mtf_signals, dynamic_msc_weights, method_name)
+        # 3.9 融合所有多层级共振因子
         multi_level_resonance_factor_dict = {
             "price_volume_resonance": price_volume_resonance,
             "main_chip_resonance": main_chip_resonance,
@@ -815,7 +822,8 @@ class CalculatePriceVolumeDynamics:
             "quality_efficiency_resonance": quality_efficiency_resonance,
             "liquidity_health_dimension": liquidity_health_dimension,
             "main_force_order_flow_depth_dimension": main_force_order_flow_depth_dimension,
-            "main_force_flow_contextualized_dimension": mtf_signals['mtf_main_force_net_flow_contextualized'] # 新增：直接使用情境化后的主力净流作为共振因子
+            "main_force_flow_contextualized_dimension": mtf_signals['mtf_main_force_net_flow_contextualized'],
+            "market_structure_clarity_dimension": market_structure_clarity_dimension # 新增
         }
         multi_level_resonance_factor = _robust_geometric_mean(multi_level_resonance_factor_dict, multi_level_resonance_weights, df_index).clip(0, 1)
         return multi_level_resonance_factor
@@ -858,10 +866,12 @@ class CalculatePriceVolumeDynamics:
         trend_strength_modulator = historical_context['market_regime_strength']
         bullish_persistence_modulator = historical_context['quadrant_persistence_Q1_Q4']
         bearish_persistence_modulator = historical_context['quadrant_persistence_Q2_Q3']
+        market_stability_score = historical_context['market_stability_score'] # 获取市场稳定性分数
         # 新增维度作为情境调节器
         liquidity_health_dimension = self._calculate_liquidity_health_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('liquidity_health_components'), {}), method_name)
         main_force_order_flow_depth_dimension = self._calculate_main_force_order_flow_depth_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_order_flow_depth_components'), {}), method_name)
-        main_force_flow_contextualized_score = mtf_signals['mtf_main_force_net_flow_contextualized'] # 获取情境化后的主力净流
+        main_force_flow_contextualized_score = mtf_signals['mtf_main_force_net_flow_contextualized']
+        market_structure_clarity_dimension = self._calculate_market_structure_clarity_dimension(df_index, mtf_signals, get_param_value(pvd_params.get('market_structure_clarity_components'), {}), method_name) # 获取市场结构清晰度
         # 平滑象限判定：使用 Sigmoid 函数将动量转换为隶属度分数
         # 价格上涨隶属度
         price_up_membership = 1 / (1 + np.exp(-(p_mom - dynamic_price_threshold) * 10)) # 10是陡峭度因子
@@ -894,7 +904,8 @@ class CalculatePriceVolumeDynamics:
             "flow_credibility_index": mtf_signals['mtf_flow_credibility_index'] * (1 + trend_reward_enhancement),
             "liquidity_health_dimension": liquidity_health_dimension,
             "main_force_order_flow_depth_dimension": main_force_order_flow_depth_dimension,
-            "main_force_net_flow_contextualized_positive": main_force_flow_contextualized_score.clip(lower=0) # 使用情境化后的主力净流
+            "main_force_net_flow_contextualized_positive": main_force_flow_contextualized_score.clip(lower=0),
+            "market_structure_clarity_dimension": market_structure_clarity_dimension * (1 + trend_reward_enhancement) # 新增：结构清晰度越高，Q1奖励越高
         }
         score1_reward = _robust_geometric_mean(Q1_reward_components_dict, dynamic_Q1_reward_weights, df_index).clip(0, 1)
         dynamic_Q1_penalty_weights = self._get_dynamic_weights(Q1_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
@@ -903,7 +914,8 @@ class CalculatePriceVolumeDynamics:
             "deception_index": mtf_deception_index_adjusted,
             "main_force_t0_sell_efficiency": mtf_main_force_t0_sell_efficiency_adjusted,
             "ask_side_liquidity_high": mtf_ask_side_liquidity_adjusted,
-            "profit_realization_quality_low": mtf_profit_realization_quality_low_adjusted
+            "profit_realization_quality_low": mtf_profit_realization_quality_low_adjusted,
+            "market_structure_clarity_dimension_inverted": (1 - market_structure_clarity_dimension) # 新增：结构不清晰，Q1惩罚越高
         }
         false_rally_penalty = _robust_geometric_mean(Q1_penalty_components_dict, dynamic_Q1_penalty_weights, df_index).clip(0, 1)
         quadrant_scores['score1'] = score1_reward * (1 - false_rally_penalty)
@@ -927,7 +939,8 @@ class CalculatePriceVolumeDynamics:
             "winner_loser_momentum_negative": mtf_winner_loser_momentum_negative_adjusted,
             "price_thrust_divergence_negative": mtf_price_thrust_divergence_negative_adjusted,
             "liquidity_health_dimension_inverted": (1 - liquidity_health_dimension),
-            "main_force_order_flow_depth_dimension_inverted": (1 - main_force_order_flow_depth_dimension)
+            "main_force_order_flow_depth_dimension_inverted": (1 - main_force_order_flow_depth_dimension),
+            "market_structure_clarity_dimension_inverted": (1 - market_structure_clarity_dimension) # 新增：结构不清晰，Q2惩罚越高
         }
         divergence_penalty_factor = _robust_geometric_mean(Q2_divergence_penalty_components_dict, dynamic_Q2_divergence_penalty_weights, df_index).clip(0, 1)
         score2_magnitude = _robust_geometric_mean(
@@ -951,9 +964,10 @@ class CalculatePriceVolumeDynamics:
             "loser_loss_margin_avg_positive": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0),
             "total_loser_rate_positive": mtf_signals['mtf_total_loser_rate'],
             "panic_selling_cascade": mtf_panic_selling_cascade_adjusted,
-            "main_force_net_flow_contextualized_negative": main_force_flow_contextualized_score.clip(upper=0).abs() # 使用情境化后的主力净流
+            "main_force_net_flow_contextualized_negative": main_force_flow_contextualized_score.clip(upper=0).abs(),
+            "market_structure_clarity_dimension_inverted": (1 - market_structure_clarity_dimension) # 新增：结构不清晰，Q3惩罚越高
         }
-        Q3_panic_evidence_weights_internal = {"retail_panic_surrender": 0.25, "chip_strategic_posture_negative": 0.2, "loser_loss_margin_avg_positive": 0.2, "total_loser_rate_positive": 0.15, "panic_selling_cascade": 0.2, "main_force_net_flow_contextualized_negative": 0.1}
+        Q3_panic_evidence_weights_internal = {"retail_panic_surrender": 0.25, "chip_strategic_posture_negative": 0.2, "loser_loss_margin_avg_positive": 0.2, "total_loser_rate_positive": 0.15, "panic_selling_cascade": 0.1, "main_force_net_flow_contextualized_negative": 0.1, "market_structure_clarity_dimension_inverted": 0.05}
         panic_evidence_factor = _robust_geometric_mean(Q3_panic_evidence_components, Q3_panic_evidence_weights_internal, df_index).clip(0, 1)
         # Q3的隶属度：价格下跌且量能放大
         Q3_membership = price_down_membership * volume_expand_membership * mtf_signals['mtf_main_force_flow_directionality'].clip(upper=0).abs() # 主力流向消极
@@ -971,7 +985,8 @@ class CalculatePriceVolumeDynamics:
             "main_force_t0_buy_efficiency": mtf_signals['mtf_main_force_t0_buy_efficiency'] * (1 + absorption_reward_enhancement),
             "capitulation_absorption_index": mtf_signals['mtf_capitulation_absorption_index'] * (1 + absorption_reward_enhancement),
             "liquidity_health_dimension": liquidity_health_dimension,
-            "main_force_order_flow_depth_dimension": main_force_order_flow_depth_dimension
+            "main_force_order_flow_depth_dimension": main_force_order_flow_depth_dimension,
+            "market_structure_clarity_dimension": market_structure_clarity_dimension * (1 + absorption_reward_enhancement) # 新增：结构清晰度越高，Q3奖励越高
         }
         absorption_reward = _robust_geometric_mean(Q3_reward_components_dict, dynamic_Q3_reward_weights, df_index).clip(0, 1)
         dynamic_Q3_penalty_weights = self._get_dynamic_weights(Q3_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
@@ -980,7 +995,7 @@ class CalculatePriceVolumeDynamics:
             "panic_selling_cascade": mtf_panic_selling_cascade_adjusted,
             "chip_fault_blockage_ratio": mtf_chip_fault_blockage_ratio_adjusted,
             "downward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'].clip(upper=0).abs(),
-            "structural_tension_index": mtf_structural_tension_index_adjusted
+            "structural_tension_index": mtf_signals['mtf_structural_tension_index_adjusted'] # 修正：这里应该是mtf_structural_tension_index_adjusted
         }
         blockage_penalty = _robust_geometric_mean(Q3_penalty_components_dict, dynamic_Q3_penalty_weights, df_index).clip(0, 1)
         quadrant_scores['score3'] = score3_base * Q3_membership * (1 - absorption_reward) * (1 + blockage_penalty)
@@ -1008,7 +1023,8 @@ class CalculatePriceVolumeDynamics:
             "loser_pain_index_high": mtf_loser_pain_index_high_adjusted,
             "equilibrium_compression_index": mtf_signals['mtf_equilibrium_compression_index'],
             "liquidity_health_dimension": liquidity_health_dimension,
-            "main_force_order_flow_depth_dimension": main_force_order_flow_depth_dimension
+            "main_force_order_flow_depth_dimension": main_force_order_flow_depth_dimension,
+            "market_structure_clarity_dimension": market_structure_clarity_dimension * (1 + exhaustion_reward_enhancement) # 新增：结构清晰度越高，Q4奖励越高
         }
         exhaustion_evidence_factor = _robust_geometric_mean(Q4_exhaustion_evidence_components_dict, dynamic_Q4_reward_weights, df_index).clip(0, 1)
         # Q4的隶属度：价格下跌且量能萎缩
@@ -1024,7 +1040,8 @@ class CalculatePriceVolumeDynamics:
             "price_reversion_velocity_negative": mtf_price_reversion_velocity_negative_adjusted,
             "structural_entropy_change_positive": mtf_structural_entropy_change_positive_adjusted,
             "main_force_vwap_down_guidance_positive": mtf_main_force_vwap_down_guidance_positive_adjusted,
-            "chip_fatigue_index_low": mtf_chip_fatigue_index_low_adjusted
+            "chip_fatigue_index_low": mtf_chip_fatigue_index_low_adjusted,
+            "market_structure_clarity_dimension_inverted": (1 - market_structure_clarity_dimension) # 新增：结构不清晰，Q4惩罚越高
         }
         false_bottom_penalty = _robust_geometric_mean(Q4_penalty_components_dict, dynamic_Q4_penalty_weights, df_index).clip(0, 1)
         quadrant_scores['score4'] = score4_base * Q4_membership * (1 - false_bottom_penalty)
@@ -1054,41 +1071,40 @@ class CalculatePriceVolumeDynamics:
 
     def _calculate_dynamic_modulators(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
-        计算动态权重和指数调制器。
+        计算动态调节器，包括情境调制分数、调整后的最终指数和市场机制调节器。
         """
         dynamic_context_modulator_weights = get_param_value(pvd_params.get('dynamic_context_modulator_weights'), {})
         dynamic_exponent_modulator_weights = get_param_value(pvd_params.get('dynamic_exponent_modulator_weights'), {})
-        exponent_context_sensitivity = get_param_value(pvd_params.get('exponent_context_sensitivity'), 0.8)
         final_exponent_base = get_param_value(pvd_params.get('final_exponent_base'), 1.0)
+        exponent_context_sensitivity = get_param_value(pvd_params.get('exponent_context_sensitivity'), 0.8)
         regime_modulator_params = get_param_value(pvd_params.get('regime_modulator_params'), {})
-        norm_market_sentiment = self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=True)
-        norm_volatility_inverse = self.helper._normalize_series(raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=False)
-        norm_trend_vitality = self.helper._normalize_series(raw_signals['trend_vitality_index_D'], df_index, bipolar=False)
-        norm_liquidity_authenticity = self.helper._normalize_series(raw_signals['liquidity_authenticity_score_D'], df_index, bipolar=False)
+        # 1. 情境调制分数 (Context Modulator Score for Weights)
         context_modulator_components = {
-            "market_sentiment": norm_market_sentiment,
-            "volatility_inverse": norm_volatility_inverse,
-            "trend_vitality": norm_trend_vitality,
-            "liquidity_authenticity_score": norm_liquidity_authenticity,
-            "market_regime_strength": historical_context['market_regime_strength']
+            "market_sentiment": self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=True),
+            "volatility_inverse": (1 - self.helper._normalize_series(raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, bipolar=False)),
+            "trend_vitality": self.helper._normalize_series(raw_signals['trend_vitality_index_D'], df_index, bipolar=False),
+            "liquidity_authenticity_score": self.helper._normalize_series(raw_signals['liquidity_authenticity_score_D'], df_index, bipolar=False),
+            "market_regime_strength": historical_context['market_regime_strength'],
+            "market_stability_score": historical_context['market_stability_score'] # 新增：市场稳定性分数
         }
-        context_modulator_score_for_weights = _robust_geometric_mean(
-            {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()},
-            dynamic_context_modulator_weights,
-            df_index
-        )
-        mtf_microstructure_efficiency_index = mtf_signals['mtf_microstructure_efficiency_index'] # 直接访问
-        dynamic_final_exponent_components = {
-            "volatility_inverse": norm_volatility_inverse,
-            "trend_vitality": norm_trend_vitality,
-            "market_sentiment": norm_market_sentiment.clip(lower=0), # 情绪积极时放大
-            "liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0), # 流动性斜率积极时放大
-            "microstructure_efficiency_index": mtf_microstructure_efficiency_index, # 直接访问
-            "reversal_potential_score": historical_context['reversal_potential_score']
+        context_modulator_score_for_weights = _robust_geometric_mean(context_modulator_components, dynamic_context_modulator_weights, df_index).clip(0, 1)
+        # 2. 调整后的最终指数 (Adjusted Final Exponent)
+        exponent_modulator_components = {
+            "volatility_inverse": (1 - self.helper._normalize_series(raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, bipolar=False)),
+            "trend_vitality": self.helper._normalize_series(raw_signals['trend_vitality_index_D'], df_index, bipolar=False),
+            "market_sentiment": self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=True),
+            "liquidity_slope_positive": mtf_signals['mtf_liquidity_slope'].clip(lower=0),
+            "microstructure_efficiency_index": mtf_signals['mtf_microstructure_efficiency_index'],
+            "reversal_potential_score": historical_context['reversal_potential_score'],
+            "market_stability_score": historical_context['market_stability_score'] # 新增：市场稳定性分数
         }
-        dynamic_exponent_modulator = _robust_geometric_mean(dynamic_final_exponent_components, dynamic_exponent_modulator_weights, df_index)
-        adjusted_final_exponent = final_exponent_base * (1 - dynamic_exponent_modulator * exponent_context_sensitivity)
-        adjusted_final_exponent = adjusted_final_exponent.clip(0.1, 2.0)
+        exponent_modulator_score = _robust_geometric_mean(exponent_modulator_components, dynamic_exponent_modulator_weights, df_index).clip(0, 1)
+        # 指数调整逻辑：当市场情境越有利（exponent_modulator_score 越高），指数越接近1（线性），信号越强；
+        # 当市场情境越不利（exponent_modulator_score 越低），指数越小（非线性衰减），信号越弱。
+        # 调整后的指数范围应在 (0, 1] 之间，以确保信号的非线性衰减或放大。
+        adjusted_final_exponent = final_exponent_base * (1 - exponent_context_sensitivity) + exponent_modulator_score * exponent_context_sensitivity
+        adjusted_final_exponent = adjusted_final_exponent.clip(0.1, 1.0) # 确保指数在合理范围内
+        # 3. 市场机制调节器 (Market Regime Modulator)
         market_regime_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
         if get_param_value(regime_modulator_params.get('enabled'), False):
             volatility_sensitivity = get_param_value(regime_modulator_params.get('volatility_sensitivity'), 0.5)
@@ -1096,12 +1112,31 @@ class CalculatePriceVolumeDynamics:
             base_modulator_factor = get_param_value(regime_modulator_params.get('base_modulator_factor'), 1.0)
             min_modulator = get_param_value(regime_modulator_params.get('min_modulator'), 0.8)
             max_modulator = get_param_value(regime_modulator_params.get('max_modulator'), 1.2)
-            volatility_norm = self.helper._normalize_series(raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, ascending=False)
-            trend_norm = self.helper._normalize_series(raw_signals['ADX_14_D'], df_index, ascending=False)
-            market_regime_modulator = (
-                base_modulator_factor +
-                (volatility_norm * volatility_sensitivity + trend_norm * trend_sensitivity) / (volatility_sensitivity + trend_sensitivity + 1e-9)
-            ).clip(min_modulator, max_modulator)
+            # 市场稳定性越高，调节器越接近base_modulator_factor
+            # 市场稳定性越低，调节器越偏离base_modulator_factor，可能向min_modulator或max_modulator靠拢
+            # 这里简化为：稳定性越高，调节器越接近1，稳定性越低，调节器越可能放大或缩小
+            # 考虑使用 market_stability_score 来调节
+            stability_factor = historical_context['market_stability_score'] # 0-1, 1表示最稳定
+            # 越稳定，modulator越接近base_modulator_factor
+            # 越不稳定，modulator越可能偏离base_modulator_factor
+            # 假设我们希望在不稳定时，modulator更倾向于放大或缩小，这里我们让它在不稳定时更接近1
+            # 这是一个反向逻辑，如果稳定性高，我们希望信号更可靠，modulator接近1
+            # 如果稳定性低，我们可能希望modulator更保守，或者更激进，取决于具体策略
+            # 暂时保持原有的逻辑，但可以考虑用 stability_factor 进一步调节
+            # 原始逻辑：
+            # norm_volatility = self.helper._normalize_series(raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'], df_index, bipolar=False)
+            # norm_trend_vitality = self.helper._normalize_series(raw_signals['trend_vitality_index_D'], df_index, bipolar=False)
+            # market_regime_modulator = base_modulator_factor + (norm_trend_vitality * trend_sensitivity - norm_volatility * volatility_sensitivity)
+            # market_regime_modulator = market_regime_modulator.clip(min_modulator, max_modulator)
+            # 新逻辑：结合市场稳定性
+            # 市场稳定性越高，我们对信号的信心越强，modulator可以更接近1（或base_modulator_factor）
+            # 市场稳定性越低，我们可能需要更谨慎，modulator可以更保守（例如，接近min_modulator）
+            # 也可以理解为，在稳定市场中，信号的“真实性”更高，可以适当放大；在不稳定市场中，信号可能噪音大，需要抑制。
+            # 这里的 market_regime_modulator 应该是一个放大或抑制最终分数的因子。
+            # 假设 stability_factor 越高，我们越倾向于让信号保持其原始强度或略微放大。
+            # stability_factor 越低，我们越倾向于抑制信号。
+            market_regime_modulator = base_modulator_factor * (1 + (stability_factor - 0.5) * 2 * (max_modulator - base_modulator_factor) / base_modulator_factor)
+            market_regime_modulator = market_regime_modulator.clip(min_modulator, max_modulator)
         return context_modulator_score_for_weights, adjusted_final_exponent, market_regime_modulator
 
     def _fuse_final_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], quadrant_scores: Dict[str, pd.Series], multi_level_resonance_factor: pd.Series, context_modulator_score_for_weights: pd.Series, adjusted_final_exponent: pd.Series, market_regime_modulator: pd.Series, pvd_params: Dict, method_name: str) -> pd.Series:
@@ -1112,7 +1147,6 @@ class CalculatePriceVolumeDynamics:
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
         price_calmness_modulator_params = get_param_value(pvd_params.get('price_calmness_modulator_params'), {})
         main_force_control_adjudicator_params = get_param_value(pvd_params.get('main_force_control_adjudicator'), {})
-        
         # Dynamic Quadrant Weights
         dynamic_quadrant_weights = {}
         for q_name, base_w in quadrant_weights.items():
@@ -1123,14 +1157,12 @@ class CalculatePriceVolumeDynamics:
                 elif "Q2" in q_name or "Q3" in q_name:
                     dynamic_quadrant_weights[q_name] = base_w * (1 + (1 - context_modulator_score_for_weights) * dynamic_weight_sensitivity)
                 dynamic_quadrant_weights[q_name] = dynamic_quadrant_weights[q_name].clip(0.05, 0.5)
-        
         total_dynamic_weight = pd.Series(0.0, index=df_index, dtype=np.float32)
         for key in dynamic_quadrant_weights:
             total_dynamic_weight += dynamic_quadrant_weights[key]
         total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
         for key in dynamic_quadrant_weights:
             dynamic_quadrant_weights[key] = dynamic_quadrant_weights[key] / total_dynamic_weight
-        
         # Final Fusion: Weighted Average
         final_score_raw = (
             quadrant_scores['score1'] * dynamic_quadrant_weights["Q1_healthy_rally"] +
@@ -1138,26 +1170,21 @@ class CalculatePriceVolumeDynamics:
             quadrant_scores['score3'] * dynamic_quadrant_weights["Q3_panic_distribution"] +
             quadrant_scores['score4'] * dynamic_quadrant_weights["Q4_selling_exhaustion"]
         )
-        
         # 应用多层级共振因子和非线性指数
         final_score = final_score_raw * (1 + multi_level_resonance_factor * 0.5)
         final_score = np.sign(final_score) * (final_score.abs().pow(adjusted_final_exponent))
-
         # 应用象限纯度调节器
         quadrant_purity_modulator = quadrant_scores['quadrant_purity']
         final_score *= quadrant_purity_modulator # 纯度越高，信号越强
-
         # Price Calmness Modulator
         # 使用 mtf_price_momentum 代替原始 SLOPE_5_close_D，因为它已经是一个融合的、归一化的动量分数
         price_momentum_bipolar = mtf_signals['mtf_price_momentum']
         pct_change_raw = raw_signals['pct_change_D']
         pct_change_abs_norm_inverted = self.helper._normalize_series(pct_change_raw.abs(), df_index, ascending=False)
-        
         # 价格平静度：动量绝对值越小，平静度越高
         price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_momentum_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1)
         price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('amplifier_factor', 0.5)) # 增加一个amplifier_factor配置
         final_score *= price_calmness_amplifier
-        
         # Main Force Control Adjudicator
         control_solidity_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), 0.0, method_name=method_name) # 默认值改为0.0
         mf_activity_ratio_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), 0.0, method_name=method_name) # 默认值改为0.0
@@ -1169,7 +1196,6 @@ class CalculatePriceVolumeDynamics:
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
         final_score = (final_score * main_force_amplifier).clip(-1, 1).fillna(0.0)
-        
         return final_score
 
     def _calculate_main_force_flow_contextualized_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> pd.Series:
@@ -1212,18 +1238,43 @@ class CalculatePriceVolumeDynamics:
             final_contextualized_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         return final_contextualized_score.clip(-1, 1).fillna(0.0)
 
+    def _calculate_market_stability_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], weights: Dict[str, float], method_name: str) -> pd.Series:
+        """
+        计算市场稳定性分数。
+        结合波动率、均值回归频率和结构熵等MTF信号，评估市场环境的稳定程度。
+        分数越高表示市场越稳定。
+        """
+        components = {
+            'volatility_instability_inverted': (1 - mtf_signals['vol_instability_slope_inverted_score']), # 波动率不稳定指数越低越好
+            'mean_reversion_frequency_inverted': (1 - mtf_signals['mtf_mean_reversion_frequency']), # 均值回归频率越低越好（趋势性越强）
+            'structural_entropy_change_inverted': (1 - mtf_signals['mtf_structural_entropy_change']), # 结构熵变化越小越好（结构越稳定）
+            'volatility_asymmetry_balanced': (1 - mtf_signals['mtf_volatility_asymmetry_index'].abs()), # 波动率不对称性越接近0越好
+            'microstructure_efficiency_positive': mtf_signals['mtf_microstructure_efficiency_index'] # 微观结构效率越高越好
+        }
+        return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
+
+    def _calculate_market_structure_clarity_dimension(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], weights: Dict[str, float], method_name: str) -> pd.Series:
+        """
+        计算市场结构清晰度维度分数。
+        结合分形维数、样本熵和微观结构效率等MTF信号，评估市场结构的清晰度和可预测性。
+        分数越高表示市场结构越清晰。
+        """
+        components = {
+            'fractal_dimension_stable': (1 - (mtf_signals['mtf_fractal_dimension'] - 1.5).abs() / 0.5).clip(0, 1), # 分形维数越接近1.5（随机游走）越好，这里取反，表示偏离随机游走越远越清晰
+            'sample_entropy_low': (1 - mtf_signals['mtf_sample_entropy']), # 样本熵越低越好（越可预测）
+            'structural_entropy_change_low': (1 - mtf_signals['mtf_structural_entropy_change']), # 结构熵变化越小越好
+            'microstructure_efficiency_high': mtf_signals['mtf_microstructure_efficiency_index'], # 微观结构效率越高越好
+            'equilibrium_compression_index_high': mtf_signals['mtf_equilibrium_compression_index'] # 均衡压缩指数越高越好（结构越紧凑）
+        }
+        return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
+
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V18.0 · 深度情境与多维共振版】计算价量动态的专属分数。
-        - 核心升级: 优化非线性指数变换，使其在有利情境下放大信号，并增强情境对动态权重的影响力，确保最终分数更准确反映市场行为。
-        - 核心重构: 优化四象限的数学模型，特别是Q2和Q4，使其更符合价量分析的业务逻辑。
-        - 引入多维共振因子和动态权重，增强信号的鲁棒性和情境感知能力。
-        - 全面探针调试，输出所有关键计算节点。
-        - 新增原始数据：is_consolidating_D, dynamic_consolidation_duration_D, breakout_readiness_score_D,
-                        trend_acceleration_score_D, trend_conviction_score_D, covert_accumulation_signal_D,
-                        covert_distribution_signal_D, holistic_cmf_D, reversal_power_index_D,
-                        reversal_recovery_rate_D, volatility_asymmetry_index_D, mean_reversion_frequency_D。
-        - 优化判定思路：引入动态象限边界，强化多层级共振因子，细化象限内智能逻辑，动态调整非线性指数。
+        【V19.0 · 市场稳定性与结构清晰度增强版】计算价量动态的专属分数。
+        - 核心升级: 引入“市场稳定性”维度，结合波动率、均值回归频率和结构熵，更全面评估市场环境。
+        - 核心升级: 引入“市场结构清晰度”维度，结合分形维数、样本熵和微观结构效率，评估市场结构的清晰度和可预测性。
+        - 增强动态调节器: 将“市场稳定性”整合到非线性指数调整中，使信号在不同市场环境下更智能地放大或抑制。
+        - 优化四象限逻辑: 将“市场结构清晰度”整合到象限的奖励和惩罚中，增强情境感知能力。
         - 修复：MTF信号名称生成逻辑，确保正确处理包含'_D'子串的原始信号名称。
         - 修复：'norm_trend_vitality'等情境因子在被使用前未赋值的错误。
         - 新增：流动性健康度维度 (Liquidity Health Dimension)
@@ -1273,7 +1324,8 @@ class CalculatePriceVolumeDynamics:
         # 新增维度计算
         liquidity_health_dimension = self._calculate_liquidity_health_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('liquidity_health_components'), {}), method_name)
         main_force_order_flow_depth_dimension = self._calculate_main_force_order_flow_depth_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_order_flow_depth_components'), {}), method_name)
-        main_force_flow_contextualized_dimension = mtf_signals['mtf_main_force_net_flow_contextualized'] # 直接从mtf_signals获取
+        main_force_flow_contextualized_dimension = mtf_signals['mtf_main_force_net_flow_contextualized']
+        market_structure_clarity_dimension = self._calculate_market_structure_clarity_dimension(df_index, mtf_signals, get_param_value(pvd_params.get('market_structure_clarity_components'), {}), method_name) # 新增
         _temp_debug_values["维度分数"] = {
             "energy_compression_score": energy_compression_score,
             "volume_exhaustion_score": volume_exhaustion_score,
@@ -1282,7 +1334,8 @@ class CalculatePriceVolumeDynamics:
             "breakout_readiness_score": breakout_readiness_score,
             "liquidity_health_dimension": liquidity_health_dimension,
             "main_force_order_flow_depth_dimension": main_force_order_flow_depth_dimension,
-            "main_force_flow_contextualized_dimension": main_force_flow_contextualized_dimension # 新增
+            "main_force_flow_contextualized_dimension": main_force_flow_contextualized_dimension,
+            "market_structure_clarity_dimension": market_structure_clarity_dimension # 新增
         }
         # Calculate Quadrant Scores
         quadrant_scores = self._calculate_quadrant_scores(df, df_index, raw_signals, mtf_signals, historical_context, pvd_params, context_modulator_score_for_weights, dynamic_price_threshold, dynamic_volume_threshold, method_name)
