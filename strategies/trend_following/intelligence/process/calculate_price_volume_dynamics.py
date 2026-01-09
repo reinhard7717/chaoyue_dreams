@@ -405,6 +405,8 @@ class CalculatePriceVolumeDynamics:
         mtf_signals['vol_instability_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['turnover_rate_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'turnover_rate_f_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mf_net_flow_slope_positive'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        # 修复：添加 mtf_equilibrium_compression_index 的生成
+        mtf_signals['mtf_equilibrium_compression_index'] = self.helper._get_mtf_slope_accel_score(df, 'equilibrium_compression_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         
         return mtf_signals
 

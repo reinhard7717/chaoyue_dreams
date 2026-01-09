@@ -1208,40 +1208,40 @@
             "max_context_bonus_factor": 0.5
         },
         "covert_accumulation_params": {
-            "description": "【V2.4 · 深度情境感知版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
+            "description": "【V2.5 · 深度情境与多维隐蔽行动版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
             "fusion_weights": {
-            "market_context": 0.3,
-            "covert_action": 0.4,
-            "chip_optimization": 0.3
+                "market_context": 0.3,
+                "covert_action": 0.4,
+                "chip_optimization": 0.3
             },
             "market_context_weights": {
-            "retail_panic": 0.2,
-            "price_weakness_inverted": 0.2,
-            "low_volatility": 0.2,
-            "sentiment_pendulum_inverted": 0.15,
-            "tension_inverted": 0.1,
-            "market_sentiment_inverted": 0.1,
-            "volatility_instability_inverted": 0.05
+                "retail_panic": 0.2,
+                "price_weakness": 0.2,
+                "low_volatility": 0.2,
+                "sentiment_pendulum_inverted": 0.15,
+                "tension_inverted": 0.1,
+                "market_sentiment_inverted": 0.1,
+                "volatility_instability_inverted": 0.05
             },
             "covert_action_weights": {
-            "suppressive_accum": 0.15,
-            "main_force_flow": 0.15,
-            "fused_deception": 0.15,
-            "stealth_ops": 0.15,
-            "split_order_accum": 0.1,
-            "chip_historical_potential": 0.1,
-            "mf_buy_ofi": 0.05,
-            "mf_cost_advantage": 0.05,
-            "mf_flow_slope": 0.05,
-            "suppressive_accum_slope": 0.05
+                "suppressive_accum": 0.15,
+                "main_force_flow": 0.15,
+                "deception_lure_long": 0.15,
+                "stealth_ops": 0.15,
+                "hidden_accumulation_intensity": 0.1,
+                "chip_historical_potential": 0.1,
+                "mf_buy_ofi": 0.05,
+                "mf_cost_advantage": 0.05,
+                "mf_flow_slope": 0.05,
+                "suppressive_accum_slope": 0.05
             },
             "chip_optimization_weights": {
-            "chip_fatigue": 0.25,
-            "loser_pain": 0.25,
-            "holder_sentiment_inverted": 0.2,
-            "turnover_purity_cost_opt": 0.15,
-            "floating_chip_cleansing": 0.1,
-            "total_loser_rate": 0.05
+                "chip_fatigue": 0.25,
+                "loser_pain": 0.25,
+                "holder_sentiment_inverted": 0.2,
+                "turnover_purity_cost_opt": 0.15,
+                "floating_chip_cleansing": 0.1,
+                "total_loser_rate": 0.05
             },
             "price_weakness_slope_window": 5,
             "low_volatility_bbw_window": 21
