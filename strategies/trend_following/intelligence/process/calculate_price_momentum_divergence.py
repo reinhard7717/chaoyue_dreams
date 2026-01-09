@@ -342,16 +342,16 @@ class CalculatePriceMomentumDivergence:
         covert_accumulation_norm = self.helper._normalize_series(raw_data['covert_accumulation_score'], df_index, ascending=True)
         chip_divergence_norm = self.helper._normalize_series(raw_data['chip_divergence_score'], df_index, bipolar=True)
         main_force_conviction_norm = self.helper._normalize_series(raw_data['main_force_conviction_raw'], df_index, bipolar=True)
-        chip_health_norm = self.helper._normalize_series(raw_data['chip_health_raw'], df_index, bipolar=False)
+        chip_health_norm = self.helper._normalize_series(raw_data['chip_force_health_raw'], df_index, bipolar=False) # 修正：使用 chip_health_raw
         # 新增：微观订单流与执行质量
-        mf_buy_ofi_positive = self.helper._normalize_series(raw_data['main_force_buy_ofi_raw'], df_index, ascending=True)
-        mf_sell_ofi_negative = self.helper._normalize_series(raw_data['main_force_sell_ofi_raw'], df_index, ascending=False) # 卖出订单流越低越好
-        order_book_imbalance_positive = self.helper._normalize_series(raw_data['order_book_imbalance_raw'].clip(lower=0), df_index, ascending=True)
-        micro_price_impact_asymmetry_positive = self.helper._normalize_series(raw_data['micro_price_impact_asymmetry_raw'].clip(lower=0), df_index, ascending=True)
-        main_force_slippage_inverted = self.helper._normalize_series(raw_data['main_force_slippage_index_raw'], df_index, ascending=False) # 滑点越低越好
+        mf_buy_ofi_positive = self.helper._normalize_series(raw_data.get('main_force_buy_ofi_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
+        mf_sell_ofi_negative = self.helper._normalize_series(raw_data.get('main_force_sell_ofi_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False) # 卖出订单流越低越好
+        order_book_imbalance_positive = self.helper._normalize_series(raw_data.get('order_book_imbalance_raw', pd.Series(0.0, index=df_index)).clip(lower=0), df_index, ascending=True)
+        micro_price_impact_asymmetry_positive = self.helper._normalize_series(raw_data.get('micro_price_impact_asymmetry_raw', pd.Series(0.0, index=df_index)).clip(lower=0), df_index, ascending=True)
+        main_force_slippage_inverted = self.helper._normalize_series(raw_data.get('main_force_slippage_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False) # 滑点越低越好
         # 新增：筹码结构与利润分布
-        winner_concentration_positive = self.helper._normalize_series(raw_data['winner_concentration_90pct_raw'], df_index, ascending=True)
-        loser_pain_positive = self.helper._normalize_series(raw_data['loser_pain_index_raw'], df_index, ascending=True)
+        winner_concentration_positive = self.helper._normalize_series(raw_data.get('winner_concentration_90pct_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
+        loser_pain_positive = self.helper._normalize_series(raw_data.get('loser_pain_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
         current_main_force_confirmation_weights = main_force_confirmation_weights.copy()
         if get_param_value(dynamic_main_force_confirmation_modulators.get('enabled'), False):
             modulator_signal_raw = self.helper._get_atomic_score(df, dynamic_main_force_confirmation_modulators['modulator_signal'], 0.0)
@@ -386,9 +386,9 @@ class CalculatePriceMomentumDivergence:
             "mf_sell_ofi_negative": mf_sell_ofi_negative, # 新增
             "order_book_imbalance_negative": order_book_imbalance_positive.clip(upper=0).abs(), # 订单簿不平衡负向
             "micro_price_impact_asymmetry_negative": micro_price_impact_asymmetry_positive.clip(upper=0).abs(), # 微观价格冲击不对称性负向
-            "main_force_slippage_positive": self.helper._normalize_series(raw_data['main_force_slippage_index_raw'], df_index, ascending=True), # 滑点越高越差
-            "loser_concentration_positive": self.helper._normalize_series(raw_data['loser_concentration_90pct_raw'], df_index, ascending=True), # 输家集中度高
-            "winner_profit_margin_high": self.helper._normalize_series(raw_data['winner_profit_margin_avg_raw'], df_index, ascending=True) # 赢家利润高
+            "main_force_slippage_positive": self.helper._normalize_series(raw_data.get('main_force_slippage_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True), # 滑点越高越差
+            "loser_concentration_positive": self.helper._normalize_series(raw_data.get('loser_concentration_90pct_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True), # 输家集中度高
+            "winner_profit_margin_high": self.helper._normalize_series(raw_data.get('winner_profit_margin_avg_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True) # 赢家利润高
         }
         top_mf_conf = _robust_geometric_mean(top_mf_conf_components, current_main_force_confirmation_weights, df_index)
         bottom_mf_conf = _robust_geometric_mean(bottom_mf_conf_components, current_main_force_confirmation_weights, df_index)
