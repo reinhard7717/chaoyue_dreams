@@ -1868,7 +1868,6 @@ def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: i
     from django.apps import apps
     from django.db.models import Min
     from django.db import transaction
-
     logger = logging.getLogger(__name__)
     logger.info(f"====== [历史数据归档任务] 启动，保留最近 {days_to_keep} 个交易日的数据，每 {segment_days} 天分段处理 ======")
     try:
@@ -1913,7 +1912,8 @@ def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: i
             if not min_date_to_archive:
                 logger.info(f"表 {table_name} 中没有早于 {overall_cutoff_date} 的数据需要归档，跳过。")
                 continue
-            current_segment_start_date = min_date_to_archive.date()
+            # 修正：min_date_to_archive 已经是 datetime.date 对象，无需再次调用 .date()
+            current_segment_start_date = min_date_to_archive
             while current_segment_start_date < overall_cutoff_date:
                 current_segment_end_date = min(current_segment_start_date + timedelta(days=segment_days), overall_cutoff_date)
                 logger.info(f"正在处理表 {table_name} 的数据段: 从 {current_segment_start_date} 到 {current_segment_end_date} (不含)。")
