@@ -61,7 +61,6 @@ class CalculateWinnerConvictionDecay:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算赢家信念衰减..."] = ""
-        
         df_index = df.index
         # 1. 获取所有参数和所需信号列表
         params_dict, all_required_signals = self._get_decay_params_and_signals(config, method_name)
@@ -71,7 +70,6 @@ class CalculateWinnerConvictionDecay:
                 debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
                 self.helper._print_debug_output(debug_output)
             return pd.Series(dtype=np.float32)
-        
         # 3. 获取原始数据
         raw_signals = self._get_raw_signals(df, df_index, params_dict, method_name)
         _temp_debug_values["原始信号值"] = raw_signals # 存储原始信号值用于调试
@@ -139,7 +137,6 @@ class CalculateWinnerConvictionDecay:
         """
         decay_params = get_param_value(self.helper.params.get('winner_conviction_decay_params'), {})
         mtf_slope_accel_weights = get_param_value(decay_params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3}, "accel_periods": {"5": 0.6}})
-        
         belief_decay_components_weights = get_param_value(decay_params.get('belief_decay_components_weights'), {
             "winner_stability_mtf": 0.4, "winner_profit_margin_avg_inverted": 0.2,
             "total_winner_rate_inverted": 0.2, "chip_fatigue": 0.2
@@ -175,7 +172,6 @@ class CalculateWinnerConvictionDecay:
             "context_modulator": 0.1
         })
         final_exponent = get_param_value(decay_params.get('final_exponent'), 1.5)
-        
         # 核心信号名称
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
@@ -279,13 +275,11 @@ class CalculateWinnerConvictionDecay:
         belief_signal_name = params_dict['belief_signal_name']
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
         relative_position_weights = params_dict['relative_position_weights']
-        
         belief_signal_raw = raw_signals["belief_signal_raw"]
         mtf_winner_stability = self.helper._get_mtf_slope_accel_score(df, belief_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         winner_stability_percentile = belief_signal_raw.rank(pct=True).fillna(0.5)
         conviction_strength_score = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) + 
                                      (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6))).clip(-1, 1)
-        
         _temp_debug_values["信念强度"] = {
             "mtf_winner_stability": mtf_winner_stability,
             "winner_stability_percentile": winner_stability_percentile,
@@ -305,7 +299,6 @@ class CalculateWinnerConvictionDecay:
         profit_taking_flow_percentile = (1 - pressure_signal_raw.rank(pct=True)).fillna(0.5)
         pressure_resilience_score = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) + 
                                      (profit_taking_flow_percentile * 2 - 1) * (1 - relative_position_weights.get("profit_taking_flow_low", 0.4))).clip(-1, 1)
-        
         _temp_debug_values["压力韧性"] = {
             "mtf_profit_taking_flow": mtf_profit_taking_flow,
             "profit_taking_flow_percentile": profit_taking_flow_percentile,
@@ -320,7 +313,6 @@ class CalculateWinnerConvictionDecay:
         norm_conviction = (conviction_strength_score + 1) / 2
         norm_resilience = (pressure_resilience_score + 1) / 2
         synergy_factor = (norm_conviction * norm_resilience + (1 - norm_conviction) * (1 - norm_resilience)).clip(0, 1)
-        
         _temp_debug_values["共振与背离因子"] = {
             "norm_conviction": norm_conviction,
             "norm_resilience": norm_resilience,
@@ -337,7 +329,6 @@ class CalculateWinnerConvictionDecay:
         mtf_wash_trade_intensity = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         deception_penalty = (mtf_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
         deception_filter = (1 - deception_penalty).clip(0, 1)
-        
         _temp_debug_values["诡道过滤"] = {
             "mtf_deception_index": mtf_deception_index,
             "mtf_wash_trade_intensity": mtf_wash_trade_intensity,
@@ -364,20 +355,17 @@ class CalculateWinnerConvictionDecay:
         )
         norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
         norm_trend_vitality = self.helper._normalize_series(trend_vitality_raw, df_index, bipolar=False)
-        
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
             "volatility_stability": norm_volatility_stability,
             "trend_vitality": norm_trend_vitality
         }
-        
         context_modulator_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()},
             contextual_modulator_weights,
             df_index
         )
         context_modulator = 0.5 + context_modulator_score
-        
         _temp_debug_values["情境调制"] = {
             "norm_market_sentiment": norm_market_sentiment,
             "volatility_stability_raw": volatility_stability_raw,
@@ -409,17 +397,14 @@ class CalculateWinnerConvictionDecay:
             "deception_filter": deception_filter,
             "context_modulator": context_modulator
         }
-        
         fused_magnitude = _robust_geometric_mean(
             fusion_components_for_gm,
             final_fusion_gm_weights,
             df_index
         )
-        
         final_score = fused_magnitude * overall_direction
         final_score = np.sign(final_score) * (final_score.abs().pow(final_exponent))
         final_score = final_score.clip(-1, 1).fillna(0.0)
-        
         _temp_debug_values["最终融合"] = {
             "direction_weight_conviction": direction_weight_conviction,
             "direction_weight_pressure": direction_weight_pressure,

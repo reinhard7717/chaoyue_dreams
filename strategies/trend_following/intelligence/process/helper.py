@@ -171,19 +171,16 @@ class ProcessIntelligenceHelper:
         # 标准差越小，协同性越高
         min_periods_std = max(1, int(self.meta_window * 0.5))
         instant_std = fused_scores_df.std(axis=1)
-        
         # 对标准差进行平滑处理
         smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(0.0)
         # 计算每个时间点上，不同信号的平均值 (代表整体方向)
         instant_mean = fused_scores_df.mean(axis=1)
-        
         # 将标准差转换为协同性强度 (0到1，标准差越小，强度越大)
         # 避免除以零，并处理全为零的情况
         max_std = smoothed_std.max()
         cohesion_magnitude = pd.Series(0.0, index=df_index, dtype=np.float32)
         if max_std > 0:
             cohesion_magnitude = (1 - (smoothed_std / max_std)).clip(0, 1)
-        
         # 结合方向和强度，生成双极性协同性分数
         # 方向由平均值决定，强度由 (1 - 归一化标准差) 决定
         # 使用 np.sign() 获取方向，并乘以强度

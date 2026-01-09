@@ -84,7 +84,6 @@ class CalculateProcessCovertAccumulation:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算隐蔽吸筹..."] = ""
-        
         covert_accum_params = get_param_value(self.helper.params.get('covert_accumulation_params'), {})
         fusion_weights = get_param_value(covert_accum_params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
         market_context_weights = get_param_value(covert_accum_params.get('market_context_weights'), {"retail_panic": 0.2, "price_weakness": 0.2, "low_volatility": 0.2, "sentiment_pendulum_inverted": 0.15, "tension_inverted": 0.1, "market_sentiment_inverted": 0.1, "volatility_instability_inverted": 0.05})
@@ -92,9 +91,7 @@ class CalculateProcessCovertAccumulation:
         chip_optimization_weights = get_param_value(covert_accum_params.get('chip_optimization_weights'), {"chip_fatigue": 0.25, "loser_pain": 0.25, "holder_sentiment_inverted": 0.2, "turnover_purity_cost_opt": 0.15, "floating_chip_cleansing": 0.1, "total_loser_rate": 0.05})
         price_weakness_slope_window = get_param_value(covert_accum_params.get('price_weakness_slope_window'), 5)
         low_volatility_bbw_window = get_param_value(covert_accum_params.get('low_volatility_bbw_window'), 21)
-        
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        
         required_df_columns = [
             'retail_panic_surrender_index_D', f'SLOPE_{price_weakness_slope_window}_close_D', f'BBW_{low_volatility_bbw_window}_2.0_D',
             'suppressive_accumulation_intensity_D', 'main_force_net_flow_calibrated_D', 'deception_index_D',
@@ -151,7 +148,6 @@ class CalculateProcessCovertAccumulation:
         turnover_purity_cost_opt_score = self.helper._get_atomic_score(df, 'SCORE_CHIP_TURNOVER_PURITY_COST_OPTIMIZATION', 0.0)
         floating_chip_cleansing_raw = self.helper._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name=method_name)
         total_loser_rate_raw = self.helper._get_safe_series(df, 'total_loser_rate_D', 0.0, method_name=method_name)
-        
         _temp_debug_values["原始信号值"] = {
             "retail_panic_surrender_index_D": retail_panic_raw,
             f"SLOPE_{price_weakness_slope_window}_close_D": price_weakness_slope_raw,
@@ -185,7 +181,6 @@ class CalculateProcessCovertAccumulation:
         tension_inverted_score = (1 - tension_score.clip(lower=0))
         market_sentiment_inverted_score = self.helper._normalize_series(market_sentiment_raw, df_index, ascending=False)
         volatility_instability_inverted_score = self.helper._normalize_series(volatility_instability_raw, df_index, ascending=False)
-        
         market_context_scores_dict = {
             "retail_panic": retail_panic_score,
             "price_weakness": mtf_price_weakness_score,
@@ -217,7 +212,6 @@ class CalculateProcessCovertAccumulation:
         mtf_mf_cost_advantage_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_mf_flow_slope_normalized = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True).clip(lower=0)
         mtf_suppressive_accum_slope_normalized = self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True).clip(lower=0)
-        
         covert_action_scores_dict = {
             "suppressive_accum": mtf_suppressive_accum_score,
             "main_force_flow": mtf_main_force_flow_score,
@@ -251,7 +245,6 @@ class CalculateProcessCovertAccumulation:
         turnover_purity_cost_opt_normalized = self.helper._normalize_series(turnover_purity_cost_opt_score.clip(lower=0), df_index, bipolar=False)
         mtf_floating_chip_cleansing_normalized = self.helper._get_mtf_slope_accel_score(df, 'floating_chip_cleansing_efficiency_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_total_loser_rate_normalized = self.helper._get_mtf_slope_accel_score(df, 'total_loser_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        
         chip_optimization_scores_dict = {
             "chip_fatigue": mtf_chip_fatigue_score,
             "loser_pain": mtf_loser_pain_score,

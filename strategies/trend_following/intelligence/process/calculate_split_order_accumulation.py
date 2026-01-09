@@ -160,7 +160,6 @@ class CalculateSplitOrderAccumulation:
         raw_signals_dict = {}
         for col in raw_df_columns:
             raw_signals_dict[col] = self.helper._get_safe_series(df, col, 0.0, method_name=method_name)
-        
         # 引入历史周期性考量：计算关键信号的5日、13日和21日移动平均
         raw_signals_dict['hidden_accumulation_intensity_MA5_D'] = raw_signals_dict['hidden_accumulation_intensity_D'].rolling(5).mean().fillna(0.0)
         raw_signals_dict['hidden_accumulation_intensity_MA13_D'] = raw_signals_dict['hidden_accumulation_intensity_D'].rolling(13).mean().fillna(0.0)
@@ -252,7 +251,6 @@ class CalculateSplitOrderAccumulation:
         # 3. 数据层动态潜力 (data_potential_outcome) - 保持不变
         norm_ma_potential_orderliness = self.helper._normalize_series(raw_signals_dict['MA_POTENTIAL_ORDERLINESS_SCORE_D'], df_index, bipolar=False)
         norm_trend_vitality = self.helper._normalize_series(raw_signals_dict['trend_vitality_index_D'], df_index, bipolar=False)
-        
         potential_weights = get_param_value(self.params.get('data_potential_composite_weights'), {
             'ma_potential_orderliness': 0.4, 'structural_potential': 0.3, 'trend_vitality': 0.3
         })
@@ -316,7 +314,6 @@ class CalculateSplitOrderAccumulation:
         norm_ask_liquidity_inverted_ma5 = self.helper._normalize_series(raw_signals_dict['ask_side_liquidity_MA5_D'], df_index, bipolar=False, ascending=False)
         norm_liquidity_supply = self.helper._normalize_series(raw_signals_dict['order_book_liquidity_supply_D'], df_index, bipolar=False)
         norm_liquidity_supply_ma5 = self.helper._normalize_series(raw_signals_dict['order_book_liquidity_supply_MA5_D'], df_index, bipolar=False)
-        
         liquidity_weights = get_param_value(self.params.get('data_liquidity_composite_weights'), {
             'bid_liquidity': 0.3, 'bid_liquidity_5d_avg': 0.2,
             'ask_liquidity_inverted': 0.2, 'ask_liquidity_inverted_5d_avg': 0.1,
@@ -364,7 +361,6 @@ class CalculateSplitOrderAccumulation:
         norm_theme_hotness = self.helper._normalize_series(raw_signals_dict['THEME_HOTNESS_SCORE_D'], df_index, bipolar=False)
         norm_theme_hotness_ma5 = self.helper._normalize_series(raw_signals_dict['THEME_HOTNESS_SCORE_MA5_D'], df_index, bipolar=False)
         norm_theme_hotness_ma13 = self.helper._normalize_series(raw_signals_dict['THEME_HOTNESS_SCORE_MA13_D'], df_index, bipolar=False)
-        
         sentiment_weights = get_param_value(self.params.get('data_sentiment_composite_weights'), {
             'daily_theme_hotness': 0.5, 'theme_hotness_5d_avg': 0.3, 'theme_hotness_13d_avg': 0.2
         })
@@ -397,7 +393,6 @@ class CalculateSplitOrderAccumulation:
         state_fusion_weights = get_param_value(params.get('state_fusion_weights'), {"flow": 0.2, "structure": 0.2, "potential": 0.2, "order_flow": 0.15, "chip_structure": 0.15, "liquidity": 0.1})
         trend_fusion_weights = get_param_value(params.get('trend_fusion_weights'), {"flow_trend": 0.2, "structure_trend": 0.2, "potential_trend": 0.2, "order_flow_trend": 0.15, "chip_structure_trend": 0.15, "liquidity_trend": 0.1})
         overall_fusion_weights = get_param_value(params.get('overall_fusion_weights'), {"state": 0.6, "trend": 0.4})
-        
         # 使用新的数据层复合信号作为“原子信号”
         data_flow_outcome = normalized_signals["data_flow_outcome"]
         data_structure_outcome = normalized_signals["data_structure_outcome"]
@@ -409,11 +404,9 @@ class CalculateSplitOrderAccumulation:
         market_sentiment_norm = context_signals["market_sentiment_norm"]
         volatility_instability_norm = context_signals["volatility_instability_norm"]
         adx_norm = context_signals["adx_norm"] # 趋势强度
-        
         sentiment_factor = (market_sentiment_norm + 1) / 2 # [0, 1]
         volatility_factor = 1 - volatility_instability_norm # [0, 1] (稳定性)
         trend_strength_factor = adx_norm # [0, 1]
-        
         # 动态调整 state_fusion_weights
         dynamic_state_fusion_weights = state_fusion_weights.copy()
         # 现有信号的动态调整
@@ -439,10 +432,8 @@ class CalculateSplitOrderAccumulation:
             "chip_structure": data_chip_structure_outcome,
             "liquidity": data_liquidity_outcome # 新增
         }
-        
         holographic_state_components_pre_gm = {k: (v + 1) / 2 if v.min() < 0 else v for k, v in holographic_state_components.items()}
         holographic_debug_values["holographic_state_components_pre_gm_values"] = holographic_state_components_pre_gm
-        
         debug_info_for_state_gm = (is_debug_enabled_for_method, probe_ts, "holographic_state_score_GM")
         holographic_state_score = _robust_geometric_mean(
             holographic_state_components_pre_gm, # 确保输入为正
