@@ -127,19 +127,16 @@ class CalculatePriceVolumeDynamics:
             'BBW_21_2.0_D',
             'buy_quote_exhaustion_rate_D'
         ]
-
         # 动态添加MTF斜率和加速度信号到required_signals
         base_signals_for_mtf_raw = []
         for s in required_signals:
             if not s.startswith(('SLOPE_', 'ACCEL_')) and s.endswith('_D'):
                 base_signals_for_mtf_raw.append(s.rsplit('_', 1)[0])
-
         for base_sig_name in base_signals_for_mtf_raw:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig_name}_D')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig_name}_D')
-
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled and probe_ts:
                 print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
@@ -158,7 +155,6 @@ class CalculatePriceVolumeDynamics:
         raw_signals['high_D'] = self.helper._get_safe_series(df, 'high_D', method_name=method_name)
         raw_signals['low_D'] = self.helper._get_safe_series(df, 'low_D', method_name=method_name)
         raw_signals['pct_change_D'] = self.helper._get_safe_series(df, 'pct_change_D', method_name=method_name)
-
         # Main Force and Behavior
         raw_signals['main_force_conviction_index_D'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         raw_signals['wash_trade_intensity_D'] = self.helper._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
@@ -181,7 +177,6 @@ class CalculatePriceVolumeDynamics:
         raw_signals['BBW_21_2.0_D'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name=method_name)
         raw_signals['buy_quote_exhaustion_rate_D'] = self.helper._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
         raw_signals['main_force_flow_directionality_D'] = self.helper._get_safe_series(df, 'main_force_flow_directionality_D', 0.0, method_name=method_name)
-
         # Chips and Health
         raw_signals['winner_concentration_90pct_D'] = self.helper._get_safe_series(df, 'winner_concentration_90pct_D', 0.0, method_name=method_name)
         raw_signals['loser_concentration_90pct_D'] = self.helper._get_safe_series(df, 'loser_concentration_90pct_D', 0.0, method_name=method_name)
@@ -194,7 +189,6 @@ class CalculatePriceVolumeDynamics:
         raw_signals['winner_loser_momentum_D'] = self.helper._get_safe_series(df, 'winner_loser_momentum_D', 0.0, method_name=method_name)
         raw_signals['chip_fatigue_index_D'] = self.helper._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
         raw_signals['hidden_accumulation_intensity_D'] = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name) # 确保获取此原始信号
-
         # Market Context
         raw_signals['market_sentiment_score_D'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
@@ -273,7 +267,6 @@ class CalculatePriceVolumeDynamics:
         raw_signals['ask_side_liquidity_D'] = self.helper._get_safe_series(df, 'ask_side_liquidity_D', 0.0, method_name=method_name)
         raw_signals['vpin_score_D'] = self.helper._get_safe_series(df, 'vpin_score_D', 0.0, method_name=method_name)
         raw_signals['loser_pain_index_D'] = self.helper._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
-
         # Atomic Scores
         raw_signals['SCORE_STRUCT_AXIOM_TENSION'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
         raw_signals['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
@@ -284,7 +277,6 @@ class CalculatePriceVolumeDynamics:
         raw_signals['SCORE_STRUCT_BREAKOUT_READINESS'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', 0.0)
         raw_signals['SCORE_STRUCT_PLATFORM_FOUNDATION'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', 0.0)
         raw_signals['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
-
         return raw_signals
 
     def _get_mtf_signals(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str) -> Dict[str, pd.Series]:
@@ -460,7 +452,6 @@ class CalculatePriceVolumeDynamics:
         bid_liquidity_sample_entropy_raw = raw_signals['BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D']
         volume_structure_skew_raw = raw_signals['volume_structure_skew_D']
         volume_profile_entropy_raw = raw_signals['volume_profile_entropy_D']
-
         turnover_rate_inverted_score = self.helper._normalize_series(turnover_rate_f_raw, target_index=df_index, ascending=False)
         turnover_rate_raw_inverted = self.helper._normalize_series(turnover_rate_raw, target_index=df_index, ascending=False)
         counterparty_exhaustion_score = self.helper._normalize_series(counterparty_exhaustion_raw, target_index=df_index, ascending=True)
@@ -475,7 +466,6 @@ class CalculatePriceVolumeDynamics:
         bid_liquidity_sample_entropy_inverted = self.helper._normalize_series(bid_liquidity_sample_entropy_raw, target_index=df_index, ascending=False)
         volume_structure_skew_inverted = self.helper._normalize_series(volume_structure_skew_raw.abs(), target_index=df_index, ascending=False)
         volume_profile_entropy_inverted = self.helper._normalize_series(volume_profile_entropy_raw, target_index=df_index, ascending=False)
-
         components = {
             'volume_atrophy': raw_signals['SCORE_BEHAVIOR_VOLUME_ATROPHY'],
             'turnover_rate_inverted': turnover_rate_inverted_score,
@@ -527,7 +517,6 @@ class CalculatePriceVolumeDynamics:
         vwap_sell_control_strength_raw = raw_signals['vwap_sell_control_strength_D']
         observed_large_order_size_avg_raw = raw_signals['observed_large_order_size_avg_D']
         market_impact_cost_raw = raw_signals['market_impact_cost_D']
-
         # Main Force Flow Ambiguity components
         main_force_flow_directionality_neutrality = 1 - self.helper._normalize_series(main_force_flow_directionality_raw.abs(), df_index, ascending=True)
         mf_net_flow_near_zero = 1 - self.helper._normalize_series(mf_net_flow_calibrated_raw.abs(), df_index, ascending=True)
@@ -541,7 +530,6 @@ class CalculatePriceVolumeDynamics:
         micro_impact_elasticity_positive = self.helper._normalize_series(micro_impact_elasticity_raw, df_index, ascending=True)
         order_flow_imbalance_neutrality = 1 - self.helper._normalize_series(order_flow_imbalance_score_raw.abs(), df_index, ascending=True)
         liquidity_authenticity_positive = self.helper._normalize_series(liquidity_authenticity_score_raw, df_index, ascending=True)
-
         ambiguity_components = {
             'directionality_neutrality': main_force_flow_directionality_neutrality,
             'net_flow_near_zero': mf_net_flow_near_zero,
@@ -557,10 +545,8 @@ class CalculatePriceVolumeDynamics:
             'liquidity_authenticity_positive': liquidity_authenticity_positive
         }
         main_force_flow_ambiguity = _robust_geometric_mean(ambiguity_components, ambiguity_weights, df_index)
-
         # 修正：split_order_accum_score 应使用原始指标 hidden_accumulation_intensity_D
         split_order_accum_score = self.helper._normalize_series(hidden_accumulation_intensity_raw, df_index, ascending=True)
-
         components = {
             'stealth_ops': score_micro_strategy_stealth_ops_raw,
             'split_order_accum': split_order_accum_score,
@@ -592,13 +578,11 @@ class CalculatePriceVolumeDynamics:
         mean_reversion_frequency_raw = raw_signals['mean_reversion_frequency_D']
         trend_alignment_index_raw = raw_signals['trend_alignment_index_D']
         score_foundation_axiom_sentiment_pendulum_raw = raw_signals['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM']
-
         mtf_loser_pain_index = mtf_signals['mtf_loser_pain_index']
         mtf_retail_panic_surrender = mtf_signals['mtf_retail_panic_surrender']
         mtf_market_sentiment_score = mtf_signals['mtf_market_sentiment_score']
         mtf_mean_reversion_frequency = mtf_signals['mtf_mean_reversion_frequency']
         mtf_trend_alignment_index = mtf_signals['mtf_trend_alignment_index']
-
         loser_pain_positive = self.helper._normalize_series(loser_pain_index_raw, df_index, ascending=True)
         market_sentiment_negative = self.helper._normalize_series(market_sentiment_score_raw, df_index, ascending=False)
         retail_panic_surrender_positive = self.helper._normalize_series(retail_panic_surrender_index_raw, df_index, ascending=True)
@@ -606,7 +590,6 @@ class CalculatePriceVolumeDynamics:
         total_winner_rate_negative = self.helper._normalize_series(total_winner_rate_raw, df_index, ascending=False)
         mean_reversion_frequency_positive = self.helper._normalize_series(mean_reversion_frequency_raw, df_index, ascending=True)
         trend_alignment_negative = self.helper._normalize_series(trend_alignment_index_raw, df_index, ascending=False)
-
         components = {
             'loser_pain_positive': loser_pain_positive,
             'market_sentiment_negative': market_sentiment_negative,
@@ -704,7 +687,6 @@ class CalculatePriceVolumeDynamics:
         micro_structure_resonance_components = get_param_value(pvd_params.get('micro_structure_resonance_components'), {})
         quality_efficiency_resonance_components = get_param_value(pvd_params.get('quality_efficiency_resonance_components'), {})
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
-
         # 3.1 价格-成交量共振
         dynamic_pv_resonance_weights = self._get_dynamic_weights(price_volume_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         price_volume_resonance_components_dict = {
@@ -717,7 +699,6 @@ class CalculatePriceVolumeDynamics:
             "upward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'] # 直接访问
         }
         price_volume_resonance = _robust_geometric_mean(price_volume_resonance_components_dict, dynamic_pv_resonance_weights, df_index).clip(0, 1)
-
         # 3.2 主力-筹码共振
         dynamic_mc_resonance_weights = self._get_dynamic_weights(main_chip_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         main_chip_resonance_components_dict = {
@@ -730,7 +711,6 @@ class CalculatePriceVolumeDynamics:
             "SMART_MONEY_HM_COORDINATED_ATTACK": mtf_signals['mtf_smart_money_coordinated_attack'] # 直接访问
         }
         main_chip_resonance = _robust_geometric_mean(main_chip_resonance_components_dict, dynamic_mc_resonance_weights, df_index).clip(0, 1)
-
         # 3.3 市场情绪-流动性共振
         dynamic_sl_resonance_weights = self._get_dynamic_weights(sentiment_liquidity_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         sentiment_liquidity_resonance_components_dict = {
@@ -742,7 +722,6 @@ class CalculatePriceVolumeDynamics:
             "loser_pain_index_inverted": (1 - mtf_signals['mtf_loser_pain_index']) # 直接访问
         }
         sentiment_liquidity_resonance = _robust_geometric_mean(sentiment_liquidity_resonance_components_dict, dynamic_sl_resonance_weights, df_index).clip(0, 1)
-
         # 3.4 微观结构共振
         dynamic_ms_resonance_weights = self._get_dynamic_weights(micro_structure_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         micro_structure_resonance_components_dict = {
@@ -755,7 +734,6 @@ class CalculatePriceVolumeDynamics:
             "closing_acceptance_type_positive": mtf_signals['mtf_closing_acceptance_type'].clip(lower=0) # 直接访问
         }
         micro_structure_resonance = _robust_geometric_mean(micro_structure_resonance_components_dict, dynamic_ms_resonance_weights, df_index).clip(0, 1)
-
         # 3.5 质量与效率共振
         dynamic_qe_resonance_weights = self._get_dynamic_weights(quality_efficiency_resonance_components, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         quality_efficiency_resonance_components_dict = {
@@ -766,7 +744,6 @@ class CalculatePriceVolumeDynamics:
             "constructive_turnover_ratio": mtf_signals['mtf_constructive_turnover_ratio'] # 直接访问
         }
         quality_efficiency_resonance = _robust_geometric_mean(quality_efficiency_resonance_components_dict, dynamic_qe_resonance_weights, df_index).clip(0, 1)
-
         # 3.6 融合所有多层级共振因子
         multi_level_resonance_factor_dict = {
             "price_volume_resonance": price_volume_resonance,
@@ -808,26 +785,21 @@ class CalculatePriceVolumeDynamics:
         Q4_penalty_weights = get_param_value(pvd_params.get('Q4_penalty_weights'), {})
         context_impact_modulators = get_param_value(pvd_params.get('context_impact_modulators'), {})
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
-
         p_mom = mtf_signals['mtf_price_momentum']
         v_mom = mtf_signals['mtf_volume_momentum']
-
         # V16.0 Signal Impact Modulators (从 historical_context 中获取)
         accumulation_strength_modulator = (historical_context['cumulative_flow_balance'] + 1) / 2
         trend_strength_modulator = historical_context['market_regime_strength']
         bullish_persistence_modulator = historical_context['quadrant_persistence_Q1_Q4']
         bearish_persistence_modulator = historical_context['quadrant_persistence_Q2_Q3']
-
         # Q1: Healthy Rally (价涨量增)
         deception_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
         trend_reward_enhancement = trend_strength_modulator * context_impact_modulators.get("trend_reward_enhancement_factor", 0.2)
-
         mtf_wash_trade_intensity_adjusted = mtf_signals['mtf_wash_trade_intensity'] * (1 - deception_impact_reduction)
         mtf_deception_index_adjusted = mtf_signals['mtf_deception_index'] * (1 - deception_impact_reduction)
         mtf_main_force_t0_sell_efficiency_adjusted = mtf_signals['mtf_main_force_t0_sell_efficiency'] * (1 - deception_impact_reduction)
         mtf_ask_side_liquidity_adjusted = mtf_signals['mtf_ask_side_liquidity'] * (1 - trend_reward_enhancement)
         mtf_profit_realization_quality_low_adjusted = (1 - mtf_signals['mtf_profit_realization_quality']) * (1 - trend_reward_enhancement)
-
         dynamic_Q1_reward_weights = self._get_dynamic_weights(Q1_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q1_reward_components_dict = {
             "p_mom": p_mom.clip(lower=0),
@@ -843,7 +815,6 @@ class CalculatePriceVolumeDynamics:
             "flow_credibility_index": mtf_signals['mtf_flow_credibility_index'] * (1 + trend_reward_enhancement)
         }
         score1_reward = _robust_geometric_mean(Q1_reward_components_dict, dynamic_Q1_reward_weights, df_index).clip(0, 1)
-
         dynamic_Q1_penalty_weights = self._get_dynamic_weights(Q1_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q1_penalty_components_dict = {
             "wash_trade": mtf_wash_trade_intensity_adjusted,
@@ -854,18 +825,15 @@ class CalculatePriceVolumeDynamics:
         }
         false_rally_penalty = _robust_geometric_mean(Q1_penalty_components_dict, dynamic_Q1_penalty_weights, df_index).clip(0, 1)
         quadrant_scores['score1'] = score1_reward * (1 - false_rally_penalty)
-
         # Q2: Bearish Divergence (价涨量缩)
         divergence_penalty_enhancement = bullish_persistence_modulator * context_impact_modulators.get("divergence_penalty_enhancement_factor", 0.3)
         deception_impact_reduction_Q2 = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
-
         mtf_retail_fomo_adjusted = mtf_signals['mtf_retail_fomo_premium_index'] * (1 - deception_impact_reduction_Q2)
         mtf_wash_trade_adjusted_Q2 = mtf_signals['mtf_wash_trade_intensity'] * (1 - deception_impact_reduction_Q2)
         mtf_deception_index_adjusted_Q2 = mtf_signals['mtf_deception_index'] * (1 - deception_impact_reduction_Q2)
         mtf_vpin_score_high_adjusted = mtf_signals['mtf_vpin_score'] * (1 + divergence_penalty_enhancement)
         mtf_winner_loser_momentum_negative_adjusted = mtf_signals['mtf_winner_loser_momentum'].clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
         mtf_price_thrust_divergence_negative_adjusted = mtf_signals['mtf_price_thrust_divergence'].clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
-
         price_up_volume_not_up = (p_mom > dynamic_price_threshold) & (v_mom < dynamic_volume_threshold) & (mtf_signals['mtf_main_force_flow_directionality'] < 0)
         dynamic_Q2_divergence_penalty_weights = self._get_dynamic_weights(Q2_divergence_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q2_divergence_penalty_components_dict = {
@@ -877,7 +845,6 @@ class CalculatePriceVolumeDynamics:
             "price_thrust_divergence_negative": mtf_price_thrust_divergence_negative_adjusted
         }
         divergence_penalty_factor = _robust_geometric_mean(Q2_divergence_penalty_components_dict, dynamic_Q2_divergence_penalty_weights, df_index).clip(0, 1)
-
         score2_magnitude = _robust_geometric_mean(
             {"p_mom_positive": p_mom.clip(lower=0), "v_mom_negative_abs": v_mom.clip(upper=0).abs()},
             {"p_mom_positive": 0.5, "v_mom_negative_abs": 0.5},
@@ -886,17 +853,14 @@ class CalculatePriceVolumeDynamics:
         score2_base = -(score2_magnitude * (1 + divergence_penalty_factor)).clip(0, 1)
         score2_base = score2_base.where(price_up_volume_not_up, 0.0)
         quadrant_scores['score2'] = score2_base - score2_base.abs() * bullish_persistence_modulator * 0.5
-
         # Q3: Panic Distribution (价跌量增)
         panic_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("panic_impact_reduction_factor", 0.4)
         absorption_reward_enhancement = historical_context['cumulative_flow_balance'].clip(lower=0) * context_impact_modulators.get("absorption_reward_enhancement_factor", 0.3)
         blockage_penalty_enhancement = bearish_persistence_modulator * context_impact_modulators.get("blockage_penalty_enhancement_factor", 0.3)
-
         mtf_retail_panic_surrender_adjusted = mtf_signals['mtf_retail_panic_surrender'] * (1 - panic_impact_reduction)
         mtf_panic_selling_cascade_adjusted = mtf_signals['mtf_panic_selling_cascade'] * (1 - panic_impact_reduction)
         mtf_chip_fault_blockage_ratio_adjusted = mtf_signals['mtf_chip_fault_blockage_ratio'] * (1 + blockage_penalty_enhancement)
         mtf_structural_tension_index_adjusted = mtf_signals['mtf_structural_tension_index'] * (1 + blockage_penalty_enhancement)
-
         Q3_panic_evidence_components = {
             "retail_panic_surrender": mtf_retail_panic_surrender_adjusted,
             "chip_strategic_posture_negative": mtf_signals['mtf_chip_strategic_posture'].clip(upper=0).abs(),
@@ -906,14 +870,12 @@ class CalculatePriceVolumeDynamics:
         }
         Q3_panic_evidence_weights_internal = {"retail_panic_surrender": 0.25, "chip_strategic_posture_negative": 0.2, "loser_loss_margin_avg_positive": 0.2, "total_loser_rate_positive": 0.15, "panic_selling_cascade": 0.2}
         panic_evidence_factor = _robust_geometric_mean(Q3_panic_evidence_components, Q3_panic_evidence_weights_internal, df_index).clip(0, 1)
-
         score3_magnitude = _robust_geometric_mean(
             {"p_mom_negative_abs": p_mom.clip(upper=0).abs(), "v_mom_positive": v_mom.clip(lower=0)},
             {"p_mom_negative_abs": 0.5, "v_mom_positive": 0.5},
             df_index
         )
         score3_base = -(score3_magnitude * (1 + panic_evidence_factor)).clip(0, 1)
-
         dynamic_Q3_reward_weights = self._get_dynamic_weights(Q3_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q3_reward_components_dict = {
             "lower_shadow_absorption": mtf_signals['mtf_lower_shadow_absorption'] * (1 + absorption_reward_enhancement),
@@ -923,7 +885,6 @@ class CalculatePriceVolumeDynamics:
             "capitulation_absorption_index": self.helper._get_mtf_slope_accel_score(df, 'capitulation_absorption_index_D', pvd_params.get('mtf_slope_accel_weights', {}), df_index, method_name, bipolar=False) * (1 + absorption_reward_enhancement)
         }
         absorption_reward = _robust_geometric_mean(Q3_reward_components_dict, dynamic_Q3_reward_weights, df_index).clip(0, 1)
-
         dynamic_Q3_penalty_weights = self._get_dynamic_weights(Q3_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q3_penalty_components_dict = {
             "loser_loss_margin_avg_expanding": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0),
@@ -935,11 +896,9 @@ class CalculatePriceVolumeDynamics:
         blockage_penalty = _robust_geometric_mean(Q3_penalty_components_dict, dynamic_Q3_penalty_weights, df_index).clip(0, 1)
         quadrant_scores['score3'] = score3_base * (1 - absorption_reward) * (1 + blockage_penalty)
         quadrant_scores['score3'] -= quadrant_scores['score3'].abs() * bearish_persistence_modulator * 0.5
-
         # Q4: Selling Exhaustion (价跌量缩)
         exhaustion_reward_enhancement = bearish_persistence_modulator * context_impact_modulators.get("exhaustion_reward_enhancement_factor", 0.3)
         false_bottom_penalty_reduction = accumulation_strength_modulator * context_impact_modulators.get("false_bottom_penalty_reduction_factor", 0.4)
-
         mtf_volume_atrophy_adjusted = mtf_signals['mtf_volume_atrophy'] * (1 + exhaustion_reward_enhancement)
         mtf_retail_panic_surrender_adjusted_Q4 = mtf_signals['mtf_retail_panic_surrender'] * (1 + exhaustion_reward_enhancement)
         mtf_loser_pain_index_high_adjusted = mtf_signals['mtf_loser_pain_index'].clip(lower=0) * (1 + exhaustion_reward_enhancement)
@@ -947,7 +906,6 @@ class CalculatePriceVolumeDynamics:
         mtf_structural_entropy_change_positive_adjusted = mtf_signals['mtf_structural_entropy_change'].clip(lower=0) * (1 - false_bottom_penalty_reduction)
         mtf_main_force_vwap_down_guidance_positive_adjusted = mtf_signals['mtf_main_force_vwap_down_guidance'].clip(lower=0) * (1 - false_bottom_penalty_reduction)
         mtf_chip_fatigue_index_low_adjusted = (1 - mtf_signals['mtf_chip_fatigue_index']) * (1 - false_bottom_penalty_reduction)
-
         dynamic_Q4_reward_weights = self._get_dynamic_weights(Q4_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q4_exhaustion_evidence_components_dict = {
             "volume_atrophy": mtf_volume_atrophy_adjusted,
@@ -962,14 +920,12 @@ class CalculatePriceVolumeDynamics:
             "equilibrium_compression_index": mtf_signals['mtf_equilibrium_compression_index']
         }
         exhaustion_evidence_factor = _robust_geometric_mean(Q4_exhaustion_evidence_components_dict, dynamic_Q4_reward_weights, df_index).clip(0, 1)
-
         score4_magnitude = _robust_geometric_mean(
             {"p_mom_negative_abs": p_mom.clip(upper=0).abs(), "v_mom_negative_abs": v_mom.clip(upper=0).abs()},
             {"p_mom_negative_abs": 0.5, "v_mom_negative_abs": 0.5},
             df_index
         )
         score4_base = (score4_magnitude * exhaustion_evidence_factor - score4_magnitude * (1 - exhaustion_evidence_factor)).clip(-1, 1)
-
         dynamic_Q4_penalty_weights = self._get_dynamic_weights(Q4_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q4_penalty_components_dict = {
             "price_reversion_velocity_negative": mtf_price_reversion_velocity_negative_adjusted,
@@ -981,7 +937,6 @@ class CalculatePriceVolumeDynamics:
         quadrant_scores['score4'] = score4_base * (1 - false_bottom_penalty)
         quadrant_scores['score4'] += historical_context['phase_transition_Q4_to_Q1'] * 0.3
         quadrant_scores['score4'] += bullish_persistence_modulator * 0.2
-
         return quadrant_scores
 
     def _calculate_dynamic_modulators(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> Tuple[pd.Series, pd.Series, pd.Series]:

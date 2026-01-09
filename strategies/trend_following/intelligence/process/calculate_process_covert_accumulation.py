@@ -282,7 +282,6 @@ class CalculateProcessCovertAccumulation:
         }
         final_score = covert_accumulation_score.clip(0, 1).astype(np.float32)
         _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
-
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
