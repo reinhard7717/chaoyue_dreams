@@ -659,19 +659,21 @@ class CalculatePriceVolumeDynamics:
         }
         return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
 
-    def _calculate_breakout_readiness_dimension(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], weights: Dict[str, float], method_name: str) -> pd.Series:
+    def _calculate_breakout_readiness_dimension(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], weights: Dict[str, float], method_name: str) -> pd.Series:
         """
         计算突破准备度维度分数。
+        结合MTF信号，评估市场是否处于突破前的蓄势阶段。
         """
-        goodness_of_fit_score = self.helper._normalize_series(raw_signals['goodness_of_fit_score_D'], df_index, ascending=True)
-        platform_conviction_score = self.helper._normalize_series(raw_signals['platform_conviction_score_D'], df_index, ascending=True)
+        # 确保 weights 字典中不包含 'comment' 字段
+        filtered_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
         components = {
-            'struct_breakout_readiness': raw_signals['SCORE_STRUCT_BREAKOUT_READINESS'],
-            'struct_platform_foundation': raw_signals['SCORE_STRUCT_PLATFORM_FOUNDATION'],
-            'goodness_of_fit': goodness_of_fit_score,
-            'platform_conviction': platform_conviction_score
+            'is_consolidating_inverted': (1 - mtf_signals['mtf_is_consolidating']), # 盘整状态越低越好
+            'dynamic_consolidation_duration_positive': mtf_signals['mtf_dynamic_consolidation_duration'], # 盘整持续时间越长越好
+            'breakout_readiness_score_positive': mtf_signals['mtf_breakout_readiness_score'], # 突破准备度分数越高越好
+            'trend_acceleration_score_positive': mtf_signals['mtf_trend_acceleration_score'].clip(lower=0), # 趋势加速分数越高越好 (正向)
+            'trend_conviction_score_positive': mtf_signals['mtf_trend_conviction_score'] # 趋势信念分数越高越好
         }
-        return self._normalize_and_fuse_dimension(df_index, components, weights, method_name)
+        return self._normalize_and_fuse_dimension(df_index, components, filtered_weights, method_name)
 
     def _get_dynamic_weights(self, base_weights: Dict[str, float], context_modulator_score: pd.Series, dynamic_weight_sensitivity: float, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
@@ -694,7 +696,6 @@ class CalculatePriceVolumeDynamics:
         total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9) # 避免除以零
         for key in dynamic_weights:
             dynamic_weights[key] = dynamic_weights[key] / total_dynamic_weight
-        
         return dynamic_weights
 
     def _calculate_historical_context_factors(self, df: pd.DataFrame, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> Dict[str, pd.Series]:
@@ -928,7 +929,6 @@ class CalculatePriceVolumeDynamics:
         mtf_price_thrust_divergence_negative_adjusted = mtf_signals['mtf_price_thrust_divergence'].clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
         # Q2的隶属度：价格上涨且量能萎缩
         Q2_membership = price_up_membership * volume_contract_membership * (1 - mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0)) # 主力流向不积极
-        
         dynamic_Q2_divergence_penalty_weights = self._get_dynamic_weights(Q2_divergence_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q2_divergence_penalty_components_dict = {
             "retail_fomo": mtf_retail_fomo_adjusted,
@@ -1319,7 +1319,8 @@ class CalculatePriceVolumeDynamics:
         volume_exhaustion_score = self._calculate_volume_exhaustion_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('volume_exhaustion_weights'), {}), method_name)
         main_force_covert_intent_score = self._calculate_main_force_covert_intent_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_covert_intent_weights'), {}), ambiguity_components_weights, method_name)
         subdued_market_sentiment_score = self._calculate_subdued_market_sentiment_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('subdued_market_sentiment_weights'), {}), pvd_params, method_name)
-        breakout_readiness_score = self._calculate_breakout_readiness_dimension(df_index, raw_signals, get_param_value(pvd_params.get('breakout_readiness_weights'), {}), method_name)
+        # 修正：传入 mtf_signals
+        breakout_readiness_score = self._calculate_breakout_readiness_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('breakout_readiness_weights'), {}), method_name)
         # 新增维度计算
         liquidity_health_dimension = self._calculate_liquidity_health_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('liquidity_health_components'), {}), method_name)
         main_force_order_flow_depth_dimension = self._calculate_main_force_order_flow_depth_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_order_flow_depth_components'), {}), method_name)
