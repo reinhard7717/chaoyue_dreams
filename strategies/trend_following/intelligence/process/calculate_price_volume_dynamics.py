@@ -675,28 +675,27 @@ class CalculatePriceVolumeDynamics:
 
     def _get_dynamic_weights(self, base_weights: Dict[str, float], context_modulator_score: pd.Series, dynamic_weight_sensitivity: float, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
-        根据情境动态调整权重。
+        根据情境调节分数动态调整权重。
         """
         dynamic_weights = {}
         for key, base_w in base_weights.items():
-            # 简单示例：根据市场情绪调整权重，情绪越好，某些积极信号权重越高
-            # 实际应用中可以根据具体信号和情境设计更复杂的调整逻辑
-            # 这里使用一个简化的逻辑，积极信号在情境分数高时权重增加，消极信号在情境分数低时权重增加
-            # context_modulator_score 范围 [0, 1]
-            if "positive" in key or "inverted" in key or "high" in key or "calm" in key or "efficiency" in key or "purity" in key or "strength" in key or "quality" in key or "attack" in key or "readiness" in key or "recovery" in key or "accumulation" in key:
-                dynamic_weights[key] = base_w * (1 + context_modulator_score * dynamic_weight_sensitivity) # 积极信号在好情境下权重增加
-            elif "negative" in key or "low" in key or "fatigue" in key or "blockage" in key or "penalty" in key or "deception" in key or "wash_trade" in key or "slippage" in key or "pain" in key or "tension" in key or "distribution" in key:
-                dynamic_weights[key] = base_w * (1 + (1 - context_modulator_score) * dynamic_weight_sensitivity) # 消极信号在坏情境下权重增加
-            else:
-                dynamic_weights[key] = pd.Series(base_w, index=df_index)
-        # 归一化动态权重
+            # 检查 base_w 是否为数值类型，忽略非数值类型（如字符串注释）
+            if isinstance(base_w, (int, float)):
+                # 假设 context_modulator_score 是 0 到 1 之间的 Series
+                # 动态调整权重，使其在有利情境下增加，不利情境下减少
+                adjusted_w = base_w * (1 + context_modulator_score * dynamic_weight_sensitivity)
+                dynamic_weights[key] = adjusted_w.clip(0.01, 1.0) # 确保权重在合理范围内
+            # 如果不是数值类型，则跳过，不将其视为权重参与计算
+
+        # 归一化权重，使其总和为 1
         total_dynamic_weight = pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 遍历 dynamic_weights 中实际添加的键
         for key in dynamic_weights:
             total_dynamic_weight += dynamic_weights[key]
-        # 避免除以零
-        total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
+        total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9) # 避免除以零
         for key in dynamic_weights:
             dynamic_weights[key] = dynamic_weights[key] / total_dynamic_weight
+        
         return dynamic_weights
 
     def _calculate_historical_context_factors(self, df: pd.DataFrame, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> Dict[str, pd.Series]:
@@ -859,19 +858,23 @@ class CalculatePriceVolumeDynamics:
         Q4_penalty_weights = get_param_value(pvd_params.get('Q4_penalty_weights'), {})
         context_impact_modulators = get_param_value(pvd_params.get('context_impact_modulators'), {})
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
+
         p_mom = mtf_signals['mtf_price_momentum']
         v_mom = mtf_signals['mtf_volume_momentum']
+
         # V16.0 Signal Impact Modulators (从 historical_context 中获取)
         accumulation_strength_modulator = (historical_context['cumulative_flow_balance'] + 1) / 2
         trend_strength_modulator = historical_context['market_regime_strength']
         bullish_persistence_modulator = historical_context['quadrant_persistence_Q1_Q4']
         bearish_persistence_modulator = historical_context['quadrant_persistence_Q2_Q3']
         market_stability_score = historical_context['market_stability_score'] # 获取市场稳定性分数
+
         # 新增维度作为情境调节器
         liquidity_health_dimension = self._calculate_liquidity_health_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('liquidity_health_components'), {}), method_name)
         main_force_order_flow_depth_dimension = self._calculate_main_force_order_flow_depth_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_order_flow_depth_components'), {}), method_name)
         main_force_flow_contextualized_score = mtf_signals['mtf_main_force_net_flow_contextualized']
         market_structure_clarity_dimension = self._calculate_market_structure_clarity_dimension(df_index, mtf_signals, get_param_value(pvd_params.get('market_structure_clarity_components'), {}), method_name) # 获取市场结构清晰度
+
         # 平滑象限判定：使用 Sigmoid 函数将动量转换为隶属度分数
         # 价格上涨隶属度
         price_up_membership = 1 / (1 + np.exp(-(p_mom - dynamic_price_threshold) * 10)) # 10是陡峭度因子
@@ -881,14 +884,17 @@ class CalculatePriceVolumeDynamics:
         volume_expand_membership = 1 / (1 + np.exp(-(v_mom - dynamic_volume_threshold) * 10))
         # 量能萎缩隶属度
         volume_contract_membership = 1 / (1 + np.exp((v_mom + dynamic_volume_threshold) * 10))
+
         # Q1: Healthy Rally (价涨量增)
         deception_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
         trend_reward_enhancement = trend_strength_modulator * context_impact_modulators.get("trend_reward_enhancement_factor", 0.2)
+
         mtf_wash_trade_intensity_adjusted = mtf_signals['mtf_wash_trade_intensity'] * (1 - deception_impact_reduction)
         mtf_deception_index_adjusted = mtf_signals['mtf_deception_index'] * (1 - deception_impact_reduction)
         mtf_main_force_t0_sell_efficiency_adjusted = mtf_signals['mtf_main_force_t0_sell_efficiency'] * (1 - deception_impact_reduction)
         mtf_ask_side_liquidity_adjusted = mtf_signals['mtf_ask_side_liquidity'] * (1 - trend_reward_enhancement)
         mtf_profit_realization_quality_low_adjusted = (1 - mtf_signals['mtf_profit_realization_quality']) * (1 - trend_reward_enhancement)
+
         dynamic_Q1_reward_weights = self._get_dynamic_weights(Q1_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q1_reward_components_dict = {
             "price_up_membership": price_up_membership,
@@ -908,6 +914,7 @@ class CalculatePriceVolumeDynamics:
             "market_structure_clarity_dimension": market_structure_clarity_dimension * (1 + trend_reward_enhancement) # 新增：结构清晰度越高，Q1奖励越高
         }
         score1_reward = _robust_geometric_mean(Q1_reward_components_dict, dynamic_Q1_reward_weights, df_index).clip(0, 1)
+
         dynamic_Q1_penalty_weights = self._get_dynamic_weights(Q1_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q1_penalty_components_dict = {
             "wash_trade": mtf_wash_trade_intensity_adjusted,
@@ -919,17 +926,21 @@ class CalculatePriceVolumeDynamics:
         }
         false_rally_penalty = _robust_geometric_mean(Q1_penalty_components_dict, dynamic_Q1_penalty_weights, df_index).clip(0, 1)
         quadrant_scores['score1'] = score1_reward * (1 - false_rally_penalty)
+
         # Q2: Bearish Divergence (价涨量缩)
         divergence_penalty_enhancement = bullish_persistence_modulator * context_impact_modulators.get("divergence_penalty_enhancement_factor", 0.3)
         deception_impact_reduction_Q2 = accumulation_strength_modulator * context_impact_modulators.get("deception_impact_reduction_factor", 0.5)
+
         mtf_retail_fomo_adjusted = mtf_signals['mtf_retail_fomo_premium_index'] * (1 - deception_impact_reduction_Q2)
         mtf_wash_trade_adjusted_Q2 = mtf_signals['mtf_wash_trade_intensity'] * (1 - deception_impact_reduction_Q2)
         mtf_deception_index_adjusted_Q2 = mtf_signals['mtf_deception_index'] * (1 - deception_impact_reduction_Q2)
         mtf_vpin_score_high_adjusted = mtf_signals['mtf_vpin_score'] * (1 + divergence_penalty_enhancement)
         mtf_winner_loser_momentum_negative_adjusted = mtf_signals['mtf_winner_loser_momentum'].clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
         mtf_price_thrust_divergence_negative_adjusted = mtf_signals['mtf_price_thrust_divergence'].clip(upper=0).abs() * (1 + divergence_penalty_enhancement)
+
         # Q2的隶属度：价格上涨且量能萎缩
         Q2_membership = price_up_membership * volume_contract_membership * (1 - mtf_signals['mtf_main_force_flow_directionality'].clip(lower=0)) # 主力流向不积极
+        
         dynamic_Q2_divergence_penalty_weights = self._get_dynamic_weights(Q2_divergence_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q2_divergence_penalty_components_dict = {
             "retail_fomo": mtf_retail_fomo_adjusted,
@@ -943,6 +954,7 @@ class CalculatePriceVolumeDynamics:
             "market_structure_clarity_dimension_inverted": (1 - market_structure_clarity_dimension) # 新增：结构不清晰，Q2惩罚越高
         }
         divergence_penalty_factor = _robust_geometric_mean(Q2_divergence_penalty_components_dict, dynamic_Q2_divergence_penalty_weights, df_index).clip(0, 1)
+
         score2_magnitude = _robust_geometric_mean(
             {"price_up_membership": price_up_membership, "volume_contract_membership": volume_contract_membership},
             {"price_up_membership": 0.5, "volume_contract_membership": 0.5},
@@ -950,14 +962,17 @@ class CalculatePriceVolumeDynamics:
         )
         score2_base = -(score2_magnitude * (1 + divergence_penalty_factor)).clip(0, 1)
         quadrant_scores['score2'] = score2_base * Q2_membership - score2_base.abs() * bullish_persistence_modulator * 0.5
+
         # Q3: Panic Distribution (价跌量增)
         panic_impact_reduction = accumulation_strength_modulator * context_impact_modulators.get("panic_impact_reduction_factor", 0.4)
         absorption_reward_enhancement = historical_context['cumulative_flow_balance'].clip(lower=0) * context_impact_modulators.get("absorption_reward_enhancement_factor", 0.3)
         blockage_penalty_enhancement = bearish_persistence_modulator * context_impact_modulators.get("blockage_penalty_enhancement_factor", 0.3)
+
         mtf_retail_panic_surrender_adjusted = mtf_signals['mtf_retail_panic_surrender'] * (1 - panic_impact_reduction)
         mtf_panic_selling_cascade_adjusted = mtf_signals['mtf_panic_selling_cascade'] * (1 - panic_impact_reduction)
         mtf_chip_fault_blockage_ratio_adjusted = mtf_signals['mtf_chip_fault_blockage_ratio'] * (1 + blockage_penalty_enhancement)
         mtf_structural_tension_index_adjusted = mtf_signals['mtf_structural_tension_index'] * (1 + blockage_penalty_enhancement)
+
         Q3_panic_evidence_components = {
             "retail_panic_surrender": mtf_retail_panic_surrender_adjusted,
             "chip_strategic_posture_negative": mtf_signals['mtf_chip_strategic_posture'].clip(upper=0).abs(),
@@ -969,14 +984,17 @@ class CalculatePriceVolumeDynamics:
         }
         Q3_panic_evidence_weights_internal = {"retail_panic_surrender": 0.25, "chip_strategic_posture_negative": 0.2, "loser_loss_margin_avg_positive": 0.2, "total_loser_rate_positive": 0.15, "panic_selling_cascade": 0.1, "main_force_net_flow_contextualized_negative": 0.1, "market_structure_clarity_dimension_inverted": 0.05}
         panic_evidence_factor = _robust_geometric_mean(Q3_panic_evidence_components, Q3_panic_evidence_weights_internal, df_index).clip(0, 1)
+
         # Q3的隶属度：价格下跌且量能放大
         Q3_membership = price_down_membership * volume_expand_membership * mtf_signals['mtf_main_force_flow_directionality'].clip(upper=0).abs() # 主力流向消极
+
         score3_magnitude = _robust_geometric_mean(
             {"price_down_membership": price_down_membership, "volume_expand_membership": volume_expand_membership},
             {"price_down_membership": 0.5, "volume_expand_membership": 0.5},
             df_index
         )
         score3_base = -(score3_magnitude * (1 + panic_evidence_factor)).clip(0, 1)
+
         dynamic_Q3_reward_weights = self._get_dynamic_weights(Q3_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q3_reward_components_dict = {
             "lower_shadow_absorption": mtf_signals['mtf_lower_shadow_absorption'] * (1 + absorption_reward_enhancement),
@@ -989,20 +1007,23 @@ class CalculatePriceVolumeDynamics:
             "market_structure_clarity_dimension": market_structure_clarity_dimension * (1 + absorption_reward_enhancement) # 新增：结构清晰度越高，Q3奖励越高
         }
         absorption_reward = _robust_geometric_mean(Q3_reward_components_dict, dynamic_Q3_reward_weights, df_index).clip(0, 1)
+
         dynamic_Q3_penalty_weights = self._get_dynamic_weights(Q3_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q3_penalty_components_dict = {
             "loser_loss_margin_avg_expanding": mtf_signals['mtf_loser_loss_margin_avg'].clip(lower=0),
             "panic_selling_cascade": mtf_panic_selling_cascade_adjusted,
             "chip_fault_blockage_ratio": mtf_chip_fault_blockage_ratio_adjusted,
             "downward_impulse_strength": mtf_signals['mtf_upward_impulse_strength'].clip(upper=0).abs(),
-            "structural_tension_index": mtf_signals['mtf_structural_tension_index_adjusted'] # 修正：这里应该是mtf_structural_tension_index_adjusted
+            "structural_tension_index": mtf_structural_tension_index_adjusted # 修正：这里应该是mtf_structural_tension_index_adjusted
         }
         blockage_penalty = _robust_geometric_mean(Q3_penalty_components_dict, dynamic_Q3_penalty_weights, df_index).clip(0, 1)
         quadrant_scores['score3'] = score3_base * Q3_membership * (1 - absorption_reward) * (1 + blockage_penalty)
         quadrant_scores['score3'] -= quadrant_scores['score3'].abs() * bearish_persistence_modulator * 0.5
+
         # Q4: Selling Exhaustion (价跌量缩)
         exhaustion_reward_enhancement = bearish_persistence_modulator * context_impact_modulators.get("exhaustion_reward_enhancement_factor", 0.3)
         false_bottom_penalty_reduction = accumulation_strength_modulator * context_impact_modulators.get("false_bottom_penalty_reduction_factor", 0.4)
+
         mtf_volume_atrophy_adjusted = mtf_signals['mtf_volume_atrophy'] * (1 + exhaustion_reward_enhancement)
         mtf_retail_panic_surrender_adjusted_Q4 = mtf_signals['mtf_retail_panic_surrender'] * (1 + exhaustion_reward_enhancement)
         mtf_loser_pain_index_high_adjusted = mtf_signals['mtf_loser_pain_index'].clip(lower=0) * (1 + exhaustion_reward_enhancement)
@@ -1010,6 +1031,7 @@ class CalculatePriceVolumeDynamics:
         mtf_structural_entropy_change_positive_adjusted = mtf_signals['mtf_structural_entropy_change'].clip(lower=0) * (1 - false_bottom_penalty_reduction)
         mtf_main_force_vwap_down_guidance_positive_adjusted = mtf_signals['mtf_main_force_vwap_down_guidance'].clip(lower=0) * (1 - false_bottom_penalty_reduction)
         mtf_chip_fatigue_index_low_adjusted = (1 - mtf_signals['mtf_chip_fatigue_index']) * (1 - false_bottom_penalty_reduction)
+
         dynamic_Q4_reward_weights = self._get_dynamic_weights(Q4_reward_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q4_exhaustion_evidence_components_dict = {
             "volume_atrophy": mtf_volume_atrophy_adjusted,
@@ -1027,14 +1049,17 @@ class CalculatePriceVolumeDynamics:
             "market_structure_clarity_dimension": market_structure_clarity_dimension * (1 + exhaustion_reward_enhancement) # 新增：结构清晰度越高，Q4奖励越高
         }
         exhaustion_evidence_factor = _robust_geometric_mean(Q4_exhaustion_evidence_components_dict, dynamic_Q4_reward_weights, df_index).clip(0, 1)
+
         # Q4的隶属度：价格下跌且量能萎缩
         Q4_membership = price_down_membership * volume_contract_membership
+
         score4_magnitude = _robust_geometric_mean(
             {"price_down_membership": price_down_membership, "volume_contract_membership": volume_contract_membership},
             {"price_down_membership": 0.5, "volume_contract_membership": 0.5},
             df_index
         )
         score4_base = (score4_magnitude * exhaustion_evidence_factor - score4_magnitude * (1 - exhaustion_evidence_factor)).clip(-1, 1)
+
         dynamic_Q4_penalty_weights = self._get_dynamic_weights(Q4_penalty_weights, context_modulator_score_for_weights, dynamic_weight_sensitivity, df_index)
         Q4_penalty_components_dict = {
             "price_reversion_velocity_negative": mtf_price_reversion_velocity_negative_adjusted,
@@ -1047,6 +1072,7 @@ class CalculatePriceVolumeDynamics:
         quadrant_scores['score4'] = score4_base * Q4_membership * (1 - false_bottom_penalty)
         quadrant_scores['score4'] += historical_context['phase_transition_Q4_to_Q1'] * 0.3
         quadrant_scores['score4'] += bullish_persistence_modulator * 0.2
+
         # 计算象限纯度 (Quadrant Purity)
         # 使用熵来衡量四个象限分数分布的均匀性，越均匀则纯度越低
         # 先将所有分数归一化到 [0, 1] 且和为 1
@@ -1056,17 +1082,21 @@ class CalculatePriceVolumeDynamics:
         p2 = quadrant_scores['score2'].abs() / total_quadrant_score
         p3 = quadrant_scores['score3'].abs() / total_quadrant_score
         p4 = quadrant_scores['score4'].abs() / total_quadrant_score
+
         # 避免 log(0)
         p1 = p1.replace(0, 1e-9)
         p2 = p2.replace(0, 1e-9)
         p3 = p3.replace(0, 1e-9)
         p4 = p4.replace(0, 1e-9)
+
         # 计算香农熵
         entropy = -(p1 * np.log2(p1) + p2 * np.log2(p2) + p3 * np.log2(p3) + p4 * np.log2(p4))
         # 归一化熵到 [0, 1]，最大熵为 log2(4) = 2
         max_entropy = np.log2(4)
         quadrant_purity = 1 - (entropy / max_entropy).clip(0, 1) # 熵越低，纯度越高
+
         quadrant_scores['quadrant_purity'] = quadrant_purity
+
         return quadrant_scores
 
     def _calculate_dynamic_modulators(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> Tuple[pd.Series, pd.Series, pd.Series]:

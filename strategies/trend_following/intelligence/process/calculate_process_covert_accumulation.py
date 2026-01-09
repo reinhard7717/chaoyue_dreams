@@ -20,8 +20,8 @@ class CalculateProcessCovertAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.7 · 累积周期增强版】计算“隐蔽吸筹”的专属信号。
-        - 核心升级: 引入多周期累积资金流和吸筹强度，对当日信号进行情境化调制，提供更具历史深度和情境感知的判断。
+        【V2.8 · 动态派生信号计算版】计算“隐蔽吸筹”的专属信号。
+        - 核心升级: 在校验前动态计算所有累积求和信号及其MTF斜率和加速度，确保信号完整性。
         """
         method_name = "_calculate_process_covert_accumulation"
         # --- 调试信息构建 ---
@@ -40,28 +40,37 @@ class CalculateProcessCovertAccumulation:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算隐蔽吸筹..."] = ""
+        
         # 1. 获取配置参数
         fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, \
         price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, \
         neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, \
         cumulative_acc_windows, cumulative_acc_weights = self._get_covert_accumulation_config(config)
+        
         df_index = df.index
-        # 2. 校验并获取原始信号
+
+        # 2. 校验并获取原始信号 (此方法内部会先计算所有派生信号)
         raw_signals = self._validate_and_get_raw_signals(df, method_name, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, is_debug_enabled_for_method, probe_ts, _temp_debug_values, cumulative_flow_windows, cumulative_acc_windows)
         if raw_signals is None:
             return pd.Series(0.0, index=df.index)
+
         # 3. 计算维度一：市场背景 (Market Context)
         market_context_score = self._calculate_market_context_score(df, df_index, raw_signals, mtf_slope_accel_weights, market_context_weights, price_weakness_slope_window, low_volatility_bbw_window, method_name, _temp_debug_values, neutral_range_threshold)
+
         # 4. 计算维度二：隐蔽行动 (Covert Action)
         covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, mtf_slope_accel_weights, covert_action_weights, method_name, _temp_debug_values, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights)
+
         # 5. 计算维度三：筹码优化 (Chip Optimization)
         chip_optimization_score = self._calculate_chip_optimization_score(df, df_index, raw_signals, mtf_slope_accel_weights, chip_optimization_weights, method_name, _temp_debug_values)
+        
         # 6. 最终合成：三维融合
         final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
         _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
+
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
+            
         return final_score
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict]:
@@ -113,11 +122,129 @@ class CalculateProcessCovertAccumulation:
                neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, \
                cumulative_acc_windows, cumulative_acc_weights
 
+    def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]):
+        """
+        【V2.8 · 动态派生信号计算版】计算所有派生信号（累积求和、斜率、加速度）并添加到DataFrame中。
+        """
+        # 1. 计算累积求和信号
+        mf_flow_base = 'main_force_net_flow_calibrated_D'
+        hidden_acc_base = 'hidden_accumulation_intensity_D'
+        suppressive_acc_base = 'suppressive_accumulation_intensity_D'
+        
+        # 确保原始列存在，否则无法计算滚动和
+        if mf_flow_base in df.columns:
+            for window in cumulative_flow_windows:
+                col_name = f'{mf_flow_base}_{window}d_sum'
+                if col_name not in df.columns:
+                    df[col_name] = df[mf_flow_base].rolling(window, min_periods=1).sum()
+        
+        if hidden_acc_base in df.columns:
+            for window in cumulative_acc_windows:
+                col_name_hidden = f'{hidden_acc_base}_{window}d_sum'
+                if col_name_hidden not in df.columns:
+                    df[col_name_hidden] = df[hidden_acc_base].rolling(window, min_periods=1).sum()
+        
+        if suppressive_acc_base in df.columns:
+            for window in cumulative_acc_windows:
+                col_name_suppressive = f'{suppressive_acc_base}_{window}d_sum'
+                if col_name_suppressive not in df.columns:
+                    df[col_name_suppressive] = df[suppressive_acc_base].rolling(window, min_periods=1).sum()
+
+        # 2. 定义所有需要计算MTF斜率和加速度的基准信号
+        mtf_base_signals_for_calculation = [
+            'close_D', # For price_weakness
+            'suppressive_accumulation_intensity_D',
+            'main_force_net_flow_calibrated_D',
+            'deception_lure_long_intensity_D',
+            'hidden_accumulation_intensity_D',
+            'main_force_buy_ofi_D',
+            'main_force_cost_advantage_D',
+            'retail_panic_surrender_index_D',
+            'BBW_21_2.0_D',
+            'market_sentiment_score_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'chip_fatigue_index_D',
+            'loser_pain_index_D',
+            'floating_chip_cleansing_efficiency_D',
+            'total_loser_rate_D',
+            'structural_tension_index_D',
+            'covert_accumulation_signal_D',
+            'structural_potential_score_D',
+            'winner_stability_index_D',
+            'constructive_turnover_ratio_D',
+            'equilibrium_compression_index_D',
+            'price_volume_entropy_D',
+            'FRACTAL_DIMENSION_89d_D',
+            'HURST_144d_D',
+            'dynamic_consolidation_duration_D',
+            'volume_burstiness_index_D',
+            'market_impact_cost_D',
+            'liquidity_authenticity_score_D',
+            'order_book_imbalance_D',
+            'micro_price_impact_asymmetry_D',
+            'internal_accumulation_intensity_D',
+            'gathering_by_support_D',
+            'main_force_flow_gini_D',
+            'main_force_t0_buy_efficiency_D',
+            'buy_quote_exhaustion_rate_D',
+            'bid_side_liquidity_D',
+            'net_lg_amount_calibrated_D',
+            'dip_buy_absorption_strength_D',
+            'main_force_slippage_index_D',
+            'micro_impact_elasticity_D',
+            'winner_concentration_90pct_D',
+            'loser_concentration_90pct_D',
+            'cost_dispersion_index_D',
+            'dominant_peak_solidity_D',
+            'chip_health_score_D',
+            'lower_shadow_absorption_strength_D',
+            'panic_sell_volume_contribution_D',
+            'profit_realization_quality_D'
+        ]
+        # 添加累积求和信号到MTF基准信号列表
+        for window in cumulative_flow_windows:
+            mtf_base_signals_for_calculation.append(f'{mf_flow_base}_{window}d_sum')
+        for window in cumulative_acc_windows:
+            mtf_base_signals_for_calculation.append(f'{hidden_acc_base}_{window}d_sum')
+            mtf_base_signals_for_calculation.append(f'{suppressive_acc_base}_{window}d_sum')
+
+        # 3. 计算所有MTF斜率和加速度信号并添加到df
+        for base_sig in mtf_base_signals_for_calculation:
+            if base_sig not in df.columns:
+                continue # 如果基准信号不存在，则跳过其斜率/加速度计算
+            
+            # 计算斜率
+            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+                period = int(period_str)
+                slope_col_name = f'SLOPE_{period}_{base_sig}'
+                if slope_col_name not in df.columns:
+                    df[slope_col_name] = ta.trend.slope(df[base_sig], length=period)
+            
+            # 计算加速度 (斜率的斜率)
+            # 假设使用第一个斜率周期作为加速度的基准斜率
+            if mtf_slope_accel_weights.get('slope_periods'):
+                first_slope_period_str = list(mtf_slope_accel_weights['slope_periods'].keys())[0]
+                base_slope_col = f'SLOPE_{first_slope_period_str}_{base_sig}'
+                if base_slope_col in df.columns:
+                    for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+                        period = int(period_str)
+                        accel_col_name = f'ACCEL_{period}_{base_sig}'
+                        if accel_col_name not in df.columns:
+                            df[accel_col_name] = ta.trend.slope(df[base_slope_col], length=period)
+                else:
+                    # 如果基准斜率不存在，则加速度也无法计算
+                    for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+                        df[f'ACCEL_{period_str}_{base_sig}'] = np.nan
+
     def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, price_weakness_slope_window: int, low_volatility_bbw_window: int, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]) -> Optional[Dict[str, pd.Series]]:
         """
-        【V2.7 · 累积周期增强版】校验所需信号并获取所有原始数据。
-        - 核心修改: 扩展了 `required_df_columns` 和 `raw_signals`，以包含更多数据层信号和累积信号。
+        【V2.8 · 动态派生信号计算版】校验所需信号并获取所有原始数据。
+        - 核心修改: 在校验前动态计算所有累积求和信号及其MTF斜率和加速度。
         """
+        # 0. 动态计算所有派生信号 (累积求和、斜率、加速度)
+        self._calculate_derived_signals(df, mtf_slope_accel_weights, cumulative_flow_windows, cumulative_acc_windows)
+
+        # 1. 定义所有需要校验的原始信号列名
         required_df_columns = [
             'retail_panic_surrender_index_D', f'SLOPE_{price_weakness_slope_window}_close_D', f'BBW_{low_volatility_bbw_window}_2.0_D',
             'suppressive_accumulation_intensity_D', 'main_force_net_flow_calibrated_D', 'deception_index_D',
@@ -162,54 +289,88 @@ class CalculateProcessCovertAccumulation:
             'panic_sell_volume_contribution_D',
             'profit_realization_quality_D'
         ]
-        # 添加累积信号的列名
+
+        # 添加累积求和信号的列名
+        mf_flow_base = 'main_force_net_flow_calibrated_D'
+        hidden_acc_base = 'hidden_accumulation_intensity_D'
+        suppressive_acc_base = 'suppressive_accumulation_intensity_D'
         for window in cumulative_flow_windows:
-            required_df_columns.append(f'main_force_net_flow_calibrated_D_{window}d_sum')
+            required_df_columns.append(f'{mf_flow_base}_{window}d_sum')
         for window in cumulative_acc_windows:
-            required_df_columns.append(f'hidden_accumulation_intensity_D_{window}d_sum')
-            required_df_columns.append(f'suppressive_accumulation_intensity_D_{window}d_sum')
-        # 动态添加MTF斜率和加速度信号到required_df_columns
-        mtf_base_signals = [
-            'main_force_net_flow_calibrated_D', 'suppressive_accumulation_intensity_D',
-            'deception_lure_long_intensity_D', 'hidden_accumulation_intensity_D',
-            'main_force_buy_ofi_D', 'main_force_cost_advantage_D',
-            'retail_panic_surrender_index_D', 'BBW_21_2.0_D', 'market_sentiment_score_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'chip_fatigue_index_D', 'loser_pain_index_D',
-            'floating_chip_cleansing_efficiency_D', 'total_loser_rate_D',
-            'structural_tension_index_D', 'covert_accumulation_signal_D',
-            'structural_potential_score_D', 'winner_stability_index_D',
-            'constructive_turnover_ratio_D', 'equilibrium_compression_index_D',
-            'price_volume_entropy_D', 'FRACTAL_DIMENSION_89d_D', 'HURST_144d_D',
-            'dynamic_consolidation_duration_D', 'volume_burstiness_index_D',
-            'market_impact_cost_D', 'liquidity_authenticity_score_D',
-            'order_book_imbalance_D', 'micro_price_impact_asymmetry_D',
-            'internal_accumulation_intensity_D', 'gathering_by_support_D',
-            'main_force_flow_gini_D', 'main_force_t0_buy_efficiency_D',
-            'buy_quote_exhaustion_rate_D', 'bid_side_liquidity_D',
-            'net_lg_amount_calibrated_D', 'dip_buy_absorption_strength_D',
-            'main_force_slippage_index_D', 'micro_impact_elasticity_D',
-            'winner_concentration_90pct_D', 'loser_concentration_90pct_D',
-            'cost_dispersion_index_D', 'dominant_peak_solidity_D',
-            'chip_health_score_D', 'lower_shadow_absorption_strength_D',
-            'panic_sell_volume_contribution_D', 'profit_realization_quality_D'
+            required_df_columns.append(f'{hidden_acc_base}_{window}d_sum')
+            required_df_columns.append(f'{suppressive_acc_base}_{window}d_sum')
+
+        # 添加所有MTF斜率和加速度信号的列名
+        mtf_base_signals_for_required_check = [
+            'close_D', # For price_weakness
+            'suppressive_accumulation_intensity_D',
+            'main_force_net_flow_calibrated_D',
+            'deception_lure_long_intensity_D',
+            'hidden_accumulation_intensity_D',
+            'main_force_buy_ofi_D',
+            'main_force_cost_advantage_D',
+            'retail_panic_surrender_index_D',
+            'BBW_21_2.0_D',
+            'market_sentiment_score_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'chip_fatigue_index_D',
+            'loser_pain_index_D',
+            'floating_chip_cleansing_efficiency_D',
+            'total_loser_rate_D',
+            'structural_tension_index_D',
+            'covert_accumulation_signal_D',
+            'structural_potential_score_D',
+            'winner_stability_index_D',
+            'constructive_turnover_ratio_D',
+            'equilibrium_compression_index_D',
+            'price_volume_entropy_D',
+            'FRACTAL_DIMENSION_89d_D',
+            'HURST_144d_D',
+            'dynamic_consolidation_duration_D',
+            'volume_burstiness_index_D',
+            'market_impact_cost_D',
+            'liquidity_authenticity_score_D',
+            'order_book_imbalance_D',
+            'micro_price_impact_asymmetry_D',
+            'internal_accumulation_intensity_D',
+            'gathering_by_support_D',
+            'main_force_flow_gini_D',
+            'main_force_t0_buy_efficiency_D',
+            'buy_quote_exhaustion_rate_D',
+            'bid_side_liquidity_D',
+            'net_lg_amount_calibrated_D',
+            'dip_buy_absorption_strength_D',
+            'main_force_slippage_index_D',
+            'micro_impact_elasticity_D',
+            'winner_concentration_90pct_D',
+            'loser_concentration_90pct_D',
+            'cost_dispersion_index_D',
+            'dominant_peak_solidity_D',
+            'chip_health_score_D',
+            'lower_shadow_absorption_strength_D',
+            'panic_sell_volume_contribution_D',
+            'profit_realization_quality_D'
         ]
-        # 将累积信号也加入MTF基础信号列表，以便计算其斜率和加速度
         for window in cumulative_flow_windows:
-            mtf_base_signals.append(f'main_force_net_flow_calibrated_D_{window}d_sum')
+            mtf_base_signals_for_required_check.append(f'{mf_flow_base}_{window}d_sum')
         for window in cumulative_acc_windows:
-            mtf_base_signals.append(f'hidden_accumulation_intensity_D_{window}d_sum')
-            mtf_base_signals.append(f'suppressive_accumulation_intensity_D_{window}d_sum')
-        for base_sig in mtf_base_signals:
+            mtf_base_signals_for_required_check.append(f'{hidden_acc_base}_{window}d_sum')
+            mtf_base_signals_for_required_check.append(f'{suppressive_acc_base}_{window}d_sum')
+
+        for base_sig in mtf_base_signals_for_required_check:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_df_columns.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_df_columns.append(f'ACCEL_{period_str}_{base_sig}')
+        
         all_required_signals = required_df_columns
         if not self.helper._validate_required_signals(df, all_required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
                 debug_output = {f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。": ""}
                 self.helper._print_debug_output(debug_output)
             return None
+
+        # 2. 获取所有原始信号 (包括新计算的累积求和信号)
         raw_signals = {
             'retail_panic_raw': self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name),
             'price_weakness_slope_raw': self.helper._get_safe_series(df, f'SLOPE_{price_weakness_slope_window}_close_D', 0.0, method_name=method_name),
@@ -263,12 +424,14 @@ class CalculateProcessCovertAccumulation:
             'panic_sell_volume_contribution_raw': self.helper._get_safe_series(df, 'panic_sell_volume_contribution_D', 0.0, method_name=method_name),
             'profit_realization_quality_raw': self.helper._get_safe_series(df, 'profit_realization_quality_D', 0.0, method_name=method_name)
         }
-        # 获取累积信号的原始数据
+
+        # 获取累积信号的原始数据 (这些列现在已在df中)
         for window in cumulative_flow_windows:
-            raw_signals[f'cumulative_mf_flow_{window}d_raw'] = self.helper._get_safe_series(df, f'main_force_net_flow_calibrated_D_{window}d_sum', 0.0, method_name=method_name)
+            raw_signals[f'cumulative_mf_flow_{window}d_raw'] = self.helper._get_safe_series(df, f'{mf_flow_base}_{window}d_sum', 0.0, method_name=method_name)
         for window in cumulative_acc_windows:
-            raw_signals[f'cumulative_hidden_acc_{window}d_raw'] = self.helper._get_safe_series(df, f'hidden_accumulation_intensity_D_{window}d_sum', 0.0, method_name=method_name)
-            raw_signals[f'cumulative_suppressive_acc_{window}d_raw'] = self.helper._get_safe_series(df, f'suppressive_accumulation_intensity_D_{window}d_sum', 0.0, method_name=method_name)
+            raw_signals[f'cumulative_hidden_acc_{window}d_raw'] = self.helper._get_safe_series(df, f'{hidden_acc_base}_{window}d_sum', 0.0, method_name=method_name)
+            raw_signals[f'cumulative_suppressive_acc_{window}d_raw'] = self.helper._get_safe_series(df, f'{suppressive_acc_base}_{window}d_sum', 0.0, method_name=method_name)
+
         _temp_debug_values["原始信号值"] = {k: v for k, v in raw_signals.items()}
         return raw_signals
 
