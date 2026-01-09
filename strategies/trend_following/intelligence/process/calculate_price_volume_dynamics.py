@@ -1112,6 +1112,7 @@ class CalculatePriceVolumeDynamics:
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
         price_calmness_modulator_params = get_param_value(pvd_params.get('price_calmness_modulator_params'), {})
         main_force_control_adjudicator_params = get_param_value(pvd_params.get('main_force_control_adjudicator'), {})
+        
         # Dynamic Quadrant Weights
         dynamic_quadrant_weights = {}
         for q_name, base_w in quadrant_weights.items():
@@ -1122,12 +1123,14 @@ class CalculatePriceVolumeDynamics:
                 elif "Q2" in q_name or "Q3" in q_name:
                     dynamic_quadrant_weights[q_name] = base_w * (1 + (1 - context_modulator_score_for_weights) * dynamic_weight_sensitivity)
                 dynamic_quadrant_weights[q_name] = dynamic_quadrant_weights[q_name].clip(0.05, 0.5)
+        
         total_dynamic_weight = pd.Series(0.0, index=df_index, dtype=np.float32)
         for key in dynamic_quadrant_weights:
             total_dynamic_weight += dynamic_quadrant_weights[key]
         total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
         for key in dynamic_quadrant_weights:
             dynamic_quadrant_weights[key] = dynamic_quadrant_weights[key] / total_dynamic_weight
+        
         # Final Fusion: Weighted Average
         final_score_raw = (
             quadrant_scores['score1'] * dynamic_quadrant_weights["Q1_healthy_rally"] +
@@ -1135,23 +1138,29 @@ class CalculatePriceVolumeDynamics:
             quadrant_scores['score3'] * dynamic_quadrant_weights["Q3_panic_distribution"] +
             quadrant_scores['score4'] * dynamic_quadrant_weights["Q4_selling_exhaustion"]
         )
+        
         # 应用多层级共振因子和非线性指数
         final_score = final_score_raw * (1 + multi_level_resonance_factor * 0.5)
         final_score = np.sign(final_score) * (final_score.abs().pow(adjusted_final_exponent))
+
         # 应用象限纯度调节器
         quadrant_purity_modulator = quadrant_scores['quadrant_purity']
         final_score *= quadrant_purity_modulator # 纯度越高，信号越强
+
         # Price Calmness Modulator
-        price_slope_raw = self.helper._get_safe_series(df, f'SLOPE_{price_calmness_modulator_params.get("slope_period", 5)}_close_D', np.nan, method_name=method_name)
-        pct_change_raw = self.helper._get_safe_series(df, 'pct_change_D', np.nan, method_name=method_name)
-        price_slope_norm_bipolar = self.helper._normalize_series(price_slope_raw, df_index, bipolar=True)
+        # 使用 mtf_price_momentum 代替原始 SLOPE_5_close_D，因为它已经是一个融合的、归一化的动量分数
+        price_momentum_bipolar = mtf_signals['mtf_price_momentum']
+        pct_change_raw = raw_signals['pct_change_D']
         pct_change_abs_norm_inverted = self.helper._normalize_series(pct_change_raw.abs(), df_index, ascending=False)
-        price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_slope_norm_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1)
-        price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('modulator_factor', 0.5))
+        
+        # 价格平静度：动量绝对值越小，平静度越高
+        price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_momentum_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1)
+        price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('amplifier_factor', 0.5)) # 增加一个amplifier_factor配置
         final_score *= price_calmness_amplifier
+        
         # Main Force Control Adjudicator
-        control_solidity_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), np.nan, method_name=method_name)
-        mf_activity_ratio_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), np.nan, method_name=method_name)
+        control_solidity_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), 0.0, method_name=method_name) # 默认值改为0.0
+        mf_activity_ratio_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), 0.0, method_name=method_name) # 默认值改为0.0
         control_solidity_score = self.helper._normalize_series(control_solidity_raw, df_index, bipolar=True)
         mf_activity_ratio_score = self.helper._normalize_series(mf_activity_ratio_raw, df_index, ascending=True)
         veto_threshold = main_force_control_adjudicator_params.get('veto_threshold', -0.2)
@@ -1160,6 +1169,7 @@ class CalculatePriceVolumeDynamics:
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
         final_score = (final_score * main_force_amplifier).clip(-1, 1).fillna(0.0)
+        
         return final_score
 
     def _calculate_main_force_flow_contextualized_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> pd.Series:

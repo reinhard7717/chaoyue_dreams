@@ -210,7 +210,8 @@
                     "historical_window_short": 5,
                     "historical_window_long": 21,
                     "price_calmness_modulator_params": {
-                        "slope_period": 5,
+                        "comment": "价格平静度调节器参数。",
+                        "amplifier_factor": 0.5,
                         "modulator_factor": 0.5
                     },
                     "main_force_control_adjudicator": {
@@ -1268,43 +1269,73 @@
             "max_context_bonus_factor": 0.5
         },
         "covert_accumulation_params": {
-            "description": "【V2.5 · 深度情境与多维隐蔽行动版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
+            "description": "【V2.6 · 深度情境与多维隐蔽行动版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。",
             "fusion_weights": {
                 "market_context": 0.3,
                 "covert_action": 0.4,
                 "chip_optimization": 0.3
             },
             "market_context_weights": {
-                "retail_panic": 0.2,
-                "price_weakness": 0.2,
-                "low_volatility": 0.2,
-                "sentiment_pendulum_inverted": 0.15,
+                "retail_panic": 0.1,
+                "price_weakness": 0.1,
+                "low_volatility": 0.1,
+                "sentiment_pendulum_inverted": 0.1,
                 "tension_inverted": 0.1,
-                "market_sentiment_inverted": 0.1,
-                "volatility_instability_inverted": 0.05
+                "market_sentiment_inverted": 0.05,
+                "volatility_instability_inverted": 0.05,
+                "equilibrium_compression": 0.1,
+                "price_volume_entropy_inverted": 0.05,
+                "fractal_dimension_inverted": 0.05,
+                "hurst_inverted": 0.05,
+                "is_consolidating": 0.05,
+                "dynamic_consolidation_duration": 0.05,
+                "volume_burstiness_inverted": 0.05,
+                "market_impact_cost_inverted": 0.05,
+                "liquidity_authenticity": 0.05,
+                "order_book_imbalance_neutral": 0.05,
+                "micro_price_impact_asymmetry_neutral": 0.05
             },
             "covert_action_weights": {
-                "suppressive_accum": 0.15,
-                "main_force_flow": 0.15,
-                "deception_lure_long": 0.15,
-                "stealth_ops": 0.15,
+                "suppressive_accum": 0.1,
+                "main_force_flow": 0.1,
+                "deception_lure_long": 0.1,
+                "stealth_ops": 0.1,
                 "hidden_accumulation_intensity": 0.1,
-                "chip_historical_potential": 0.1,
+                "chip_historical_potential": 0.05,
                 "mf_buy_ofi": 0.05,
                 "mf_cost_advantage": 0.05,
                 "mf_flow_slope": 0.05,
-                "suppressive_accum_slope": 0.05
+                "suppressive_accum_slope": 0.05,
+                "internal_accumulation": 0.05,
+                "gathering_by_support": 0.05,
+                "main_force_flow_gini_inverted": 0.05,
+                "mf_t0_buy_efficiency": 0.05,
+                "buy_quote_exhaustion_inverted": 0.05,
+                "bid_side_liquidity": 0.05,
+                "net_lg_amount": 0.05,
+                "dip_buy_absorption": 0.05,
+                "mf_slippage_inverted": 0.05,
+                "micro_impact_elasticity_inverted": 0.05
             },
             "chip_optimization_weights": {
-                "chip_fatigue": 0.25,
-                "loser_pain": 0.25,
-                "holder_sentiment_inverted": 0.2,
-                "turnover_purity_cost_opt": 0.15,
+                "chip_fatigue": 0.15,
+                "loser_pain": 0.15,
+                "holder_sentiment_inverted": 0.1,
+                "turnover_purity_cost_opt": 0.1,
                 "floating_chip_cleansing": 0.1,
-                "total_loser_rate": 0.05
+                "total_loser_rate": 0.05,
+                "winner_concentration_inverted": 0.05,
+                "loser_concentration": 0.05,
+                "cost_dispersion_inverted": 0.05,
+                "dominant_peak_solidity": 0.05,
+                "chip_health": 0.05,
+                "lower_shadow_absorption": 0.05,
+                "panic_sell_contribution": 0.05,
+                "profit_realization_inverted": 0.05
             },
             "price_weakness_slope_window": 5,
-            "low_volatility_bbw_window": 21
+            "low_volatility_bbw_window": 21,
+            "neutral_range_threshold": 0.1
         },
         "winner_conviction_decay_params": {
             "description": "【V3.0 · 深度情境与多维共振版】赢家信念衰减信号的专属参数。",
