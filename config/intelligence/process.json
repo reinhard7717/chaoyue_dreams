@@ -939,12 +939,11 @@
                 "name": "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE",
                 "type": "meta_analysis",
                 "task_type": "base",
-                "relationship_type": "custom",
                 "diagnosis_mode": "direct_confirmation",
                 "scoring_mode": "bipolar",
-                "description": "【V4.0 · 深度情境与动态权重版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
+                "description": "【V4.1 · 深度情境与动态权重版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
                 "price_momentum_divergence_params": {
-                    "description": "【V4.0 · 深度情境与动态权重版】价势背离信号的专属参数。",
+                    "description": "【V4.1 · 深度情境与动态权重版】价势背离信号的专属参数。",
                     "price_components_weights": {
                         "description": "价格趋势方向融合权重。",
                         "close_D": 0.6,
@@ -976,7 +975,8 @@
                         "volume_burst": 0.2,
                         "volume_atrophy": 0.3,
                         "constructive_turnover": 0.1,
-                        "volume_structure_skew_inverted": 0.1
+                        "volume_structure_skew_inverted": 0.1,
+                        "volume_profile_entropy_inverted": 0.05
                     },
                     "dynamic_volume_confirmation_modulators": {
                         "enabled": true,
@@ -993,7 +993,13 @@
                         "covert_accumulation": 0.1,
                         "chip_divergence": 0.1,
                         "main_force_conviction": 0.1,
-                        "chip_health": 0.1
+                        "chip_health": 0.1,
+                        "mf_buy_ofi_positive": 0.05,
+                        "order_book_imbalance_positive": 0.05,
+                        "micro_price_impact_asymmetry_positive": 0.05,
+                        "main_force_slippage_inverted": 0.05,
+                        "winner_concentration_positive": 0.05,
+                        "loser_pain_positive": 0.05
                     },
                     "dynamic_main_force_confirmation_modulators": {
                         "enabled": true,
@@ -1008,14 +1014,17 @@
                         "trend_strength_inverse": 0.2,
                         "sentiment_neutrality": 0.2,
                         "liquidity_tide_calm": 0.15,
-                        "market_constitution_neutrality": 0.15
+                        "market_constitution_neutrality": 0.15,
+                        "mean_reversion_inverse": 0.05,
+                        "trend_alignment": 0.05
                     },
                     "description_divergence_quality_weights": "背离品质量化融合权重。",
                     "divergence_quality_weights": {
                         "duration": 0.4,
                         "depth": 0.3,
                         "stability": 0.15,
-                        "chip_potential": 0.15
+                        "chip_potential": 0.15,
+                        "divergence_purity": 0.1
                     },
                     "final_fusion_exponent": 1.5,
                     "comment_final_fusion_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。",
@@ -1029,8 +1038,12 @@
                         "enabled": true,
                         "modulator_signal_1": "SCORE_FOUNDATION_AXIOM_MARKET_TENSION",
                         "modulator_signal_2": "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE",
+                        "modulator_signal_3": "mean_reversion_frequency_D",
+                        "modulator_signal_4": "trend_alignment_index_D",
                         "sensitivity_tension": 0.2,
                         "sensitivity_liquidity": 0.2,
+                        "sensitivity_mean_reversion": 0.1,
+                        "sensitivity_trend_alignment": 0.1,
                         "base_weights": {
                             "base_divergence": 0.3,
                             "volume_confirmation": 0.2,
@@ -1045,6 +1058,16 @@
                         },
                         "liquidity_impact_weights": {
                             "volume_confirmation": 0.1,
+                            "main_force_confirmation": 0.05
+                        },
+                        "mean_reversion_impact_weights": {
+                            "base_divergence": 0.05,
+                            "context_modulator": 0.05,
+                            "divergence_quality": 0.05
+                        },
+                        "trend_alignment_impact_weights": {
+                            "base_divergence": -0.05,
+                            "context_modulator": -0.05,
                             "main_force_confirmation": 0.05
                         }
                     }

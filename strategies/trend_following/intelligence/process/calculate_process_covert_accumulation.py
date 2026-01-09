@@ -40,7 +40,6 @@ class CalculateProcessCovertAccumulation:
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算隐蔽吸筹..."] = ""
-        
         # 1. 获取配置参数
         fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, \
         price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, \
@@ -49,7 +48,6 @@ class CalculateProcessCovertAccumulation:
         daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, \
         new_raw_signals_weights, main_force_accumulation_resonance_weight, \
         new_raw_signals_weights_v2, covert_order_flow_resonance_weight = self._get_covert_accumulation_config(config)
-        
         df_index = df.index
         # 2. 校验并获取原始信号 (此方法内部会先计算所有派生信号)
         raw_signals = self._validate_and_get_raw_signals(df, method_name, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, is_debug_enabled_for_method, probe_ts, _temp_debug_values, cumulative_flow_windows, cumulative_acc_windows)
@@ -61,14 +59,12 @@ class CalculateProcessCovertAccumulation:
         covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, mtf_slope_accel_weights, covert_action_weights, method_name, _temp_debug_values, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight, new_raw_signals_weights_v2, covert_order_flow_resonance_weight)
         # 5. 计算维度三：筹码优化 (Chip Optimization)
         chip_optimization_score = self._calculate_chip_optimization_score(df, df_index, raw_signals, mtf_slope_accel_weights, chip_optimization_weights, method_name, _temp_debug_values)
-        
         # 6. 最终合成：三维融合
         final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
         _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
-            
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
         return final_score
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
@@ -427,7 +423,6 @@ class CalculateProcessCovertAccumulation:
                 required_df_columns.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_df_columns.append(f'ACCEL_{period_str}_{base_sig}')
-        
         all_required_signals = required_df_columns
         if not self.helper._validate_required_signals(df, all_required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
@@ -629,14 +624,12 @@ class CalculateProcessCovertAccumulation:
         for window in cumulative_flow_windows:
             cumulative_mf_flow_raw = raw_signals[f'cumulative_mf_flow_{window}d_raw']
             cumulative_mf_flow_scores.append(self.helper._normalize_series(cumulative_mf_flow_raw, df_index, bipolar=True))
-        
         cumulative_mf_flow_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_flow_weight_cum = sum(cumulative_flow_weights.values())
         if total_flow_weight_cum > 0:
             for i, window in enumerate(cumulative_flow_windows):
                 weight = cumulative_flow_weights.get(str(window), 0.0)
                 cumulative_mf_flow_score += cumulative_mf_flow_scores[i] * (weight / total_flow_weight_cum)
-        
         blended_mf_flow_score = (mtf_main_force_flow_score * daily_mf_flow_weight + cumulative_mf_flow_score * cumulative_mf_flow_weight) / (daily_mf_flow_weight + cumulative_mf_flow_weight)
         contextualized_main_force_flow_score = (blended_mf_flow_score + 1) / 2
         # 累积隐蔽吸筹强度
@@ -644,7 +637,6 @@ class CalculateProcessCovertAccumulation:
         for window in cumulative_acc_windows:
             cumulative_hidden_acc_raw = raw_signals[f'cumulative_hidden_acc_{window}d_raw']
             cumulative_hidden_acc_scores.append(self.helper._normalize_series(cumulative_hidden_acc_raw, df_index, bipolar=False))
-        
         cumulative_hidden_acc_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         total_acc_weight_cum = sum(cumulative_acc_weights.values())
         if total_acc_weight_cum > 0:
