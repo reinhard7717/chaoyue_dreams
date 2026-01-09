@@ -61,8 +61,8 @@ class CalculateProcessCovertAccumulation:
         final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
         _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
+        # if is_debug_enabled_for_method and probe_ts:
+            # self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
         return final_score
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float]:
