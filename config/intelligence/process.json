@@ -941,9 +941,9 @@
                 "task_type": "base",
                 "diagnosis_mode": "direct_confirmation",
                 "scoring_mode": "bipolar",
-                "description": "【V4.1 · 深度情境与动态权重版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
+                "description": "【V4.2 · 深度情境与动态权重及累积资金流版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透（含累积资金流）、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
                 "price_momentum_divergence_params": {
-                    "description": "【V4.1 · 深度情境与动态权重版】价势背离信号的专属参数。",
+                    "description": "【V4.2 · 深度情境与动态权重及累积资金流版】价势背离信号的专属参数。",
                     "price_components_weights": {
                         "description": "价格趋势方向融合权重。",
                         "close_D": 0.6,
@@ -999,7 +999,13 @@
                         "micro_price_impact_asymmetry_positive": 0.05,
                         "main_force_slippage_inverted": 0.05,
                         "winner_concentration_positive": 0.05,
-                        "loser_pain_positive": 0.05
+                        "loser_pain_positive": 0.05,
+                        "cumulative_mf_flow": 0.1
+                    },
+                    "cumulative_mf_flow_periods": {
+                        "description": "累积主力资金流的周期及权重。",
+                        "13": 0.6,
+                        "21": 0.4
                     },
                     "dynamic_main_force_confirmation_modulators": {
                         "enabled": true,
