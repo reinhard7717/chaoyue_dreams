@@ -134,7 +134,8 @@ class CalculateWinnerConvictionDecay:
         """
         获取赢家信念衰减计算所需的所有参数和信号列表。
         """
-        decay_params = get_param_value(self.helper.params.get('winner_conviction_decay_params'), {})
+        # 修正：直接从传入的 config 中获取 winner_conviction_decay_params
+        decay_params = get_param_value(config.get('winner_conviction_decay_params'), {})
         mtf_slope_accel_weights = get_param_value(decay_params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3}, "accel_periods": {"5": 0.6}})
         belief_decay_components_weights = get_param_value(decay_params.get('belief_decay_components_weights'), {
             "winner_stability_mtf": 0.4, "winner_profit_margin_avg_inverted": 0.2,
@@ -161,9 +162,9 @@ class CalculateWinnerConvictionDecay:
             "retail_fomo": 0.2,
             "market_tension": 0.2,
             "sentiment_pendulum_negative": 0.3,
-            "market_sentiment": 0.3,        # 新增
-            "volatility_stability": 0.3,    # 新增
-            "trend_vitality": 0.4           # 新增
+            "market_sentiment": 0.3,
+            "volatility_stability": 0.3,
+            "trend_vitality": 0.4
         })
         dynamic_fusion_exponent_params = get_param_value(decay_params.get('dynamic_fusion_exponent_params'), {"enabled": False, "base_exponent": 1.5})
         price_overextension_composite_weights = get_param_value(decay_params.get('price_overextension_composite_weights'), {"bias_13": 0.3, "bias_21": 0.2, "rsi_13": 0.3, "bbp_21": 0.2})
