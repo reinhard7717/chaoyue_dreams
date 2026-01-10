@@ -23,12 +23,17 @@ def _weighted_sum_fusion(components: Dict[str, pd.Series], weights: Dict[str, Un
     for k, w in weights.items():
         if isinstance(w, (int, float)):
             weight_series_map[k] = pd.Series(w, index=index, dtype=np.float32)
-        else:
+        elif isinstance(w, pd.Series): # 明确检查是否为 Series
             weight_series_map[k] = w.astype(np.float32)
+        else:
+            # 如果遇到非预期的类型（例如字符串），则跳过此权重，并打印警告
+            print(f"  [警告] _weighted_sum_fusion: 权重 '{k}' 的类型为 {type(w)}，不是 float 或 pd.Series，将忽略此权重。")
+            continue # 跳过此权重
     fused_score = pd.Series(0.0, index=index, dtype=np.float32)
     total_effective_weight = pd.Series(0.0, index=index, dtype=np.float32)
+    # 只遍历那些成功添加到 weight_series_map 的组件
     for k, series in components.items():
-        if k not in weight_series_map:
+        if k not in weight_series_map: # 如果权重被忽略，则跳过此组件
             continue
         series = series.astype(np.float32)
         current_weight = weight_series_map[k]
@@ -138,8 +143,16 @@ class CalculatePriceMomentumDivergence:
         return final_score.astype(np.float32)
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V1.6 · 参数精简与替换版 (移除未提供信号，替换语义相近信号，新增RDI参数)"""
+        """V1.7 · 参数精简与替换版 (移除未提供信号，替换语义相近信号，新增RDI参数，修复RDI权重提取)"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
+        # 提取 rdi_params 配置块
+        rdi_config = get_param_value(params.get('rdi_params'), {})
+        # 默认的 rdi_period_weights
+        default_rdi_period_weights = {"1": 0.4, "5": 0.3, "13": 0.2, "21": 0.1}
+        # 从配置中获取 rdi_period_weights，并确保只包含数字键的权重
+        configured_rdi_period_weights = get_param_value(rdi_config.get('rdi_period_weights'), default_rdi_period_weights)
+        # 过滤掉非数字键（例如 "description"）
+        filtered_rdi_period_weights = {k: v for k, v in configured_rdi_period_weights.items() if str(k).isdigit()}
         return {
             "price_components_weights": get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2}),
             "momentum_components_weights": get_param_value(params.get('momentum_components_weights'), {"MACDh_13_34_8_D": 0.5, "RSI_13_D": 0.3, "ROC_13_D": 0.2, "momentum_quality": 0.2}),
@@ -158,15 +171,15 @@ class CalculatePriceMomentumDivergence:
             "dynamic_fusion_weights_params": get_param_value(params.get('dynamic_fusion_weights_params'), {"enabled": False}),
             "dynamic_exponent_params": get_param_value(params.get('dynamic_exponent_params'), {"enabled": False, "modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D", "sensitivity": 0.5, "base_exponent": 1.5, "min_exponent": 1.0, "max_exponent": 2.0}),
             "interaction_terms_weights": get_param_value(params.get('interaction_terms_weights'), {"price_momentum_main_force_synergy": 0.1}),
-            "rdi_params": get_param_value(params.get('rdi_params'), { # 新增RDI参数
-                "enabled": False,
-                "rdi_periods": [1, 5, 13, 21],
-                "resonance_reward_factor": 0.1,
-                "divergence_penalty_factor": 0.15,
-                "inflection_reward_factor": 0.05,
-                "rdi_period_weights": {"1": 0.4, "5": 0.3, "13": 0.2, "21": 0.1},
-                "rdi_modulator_weight": 0.1
-            })
+            "rdi_params": { # 新增RDI参数
+                "enabled": get_param_value(rdi_config.get('enabled'), False),
+                "rdi_periods": get_param_value(rdi_config.get('rdi_periods'), [1, 5, 13, 21]),
+                "resonance_reward_factor": get_param_value(rdi_config.get('resonance_reward_factor'), 0.1),
+                "divergence_penalty_factor": get_param_value(rdi_config.get('divergence_penalty_factor'), 0.15),
+                "inflection_reward_factor": get_param_value(rdi_config.get('inflection_reward_factor'), 0.05),
+                "rdi_period_weights": filtered_rdi_period_weights, # 使用过滤后的权重
+                "rdi_modulator_weight": get_param_value(rdi_config.get('rdi_modulator_weight'), 0.1)
+            }
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
