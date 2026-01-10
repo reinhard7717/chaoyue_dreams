@@ -433,12 +433,12 @@ class CalculateWinnerConvictionDecay:
         # --- 原料数据存在性检查 ---
         required_raw_signals = [
             "market_sentiment_raw", "volatility_instability_raw", "trend_vitality_raw",
-            "upper_shadow_pressure_raw" # 修正：使用 upper_shadow_pressure_raw
+            "upper_shadow_pressure_raw"
         ]
         for sig_name in required_raw_signals:
             if sig_name not in raw_signals or raw_signals[sig_name].empty:
                 print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}'，情境调制计算可能不完整。")
-                return pd.Series(0.5, index=df_index, dtype=np.float32) # 返回中性调制因子
+                return pd.Series(0.5, index=df_index, dtype=np.float32)
         # --- 1. 计算当前情境信号 ---
         norm_market_sentiment = self.helper._normalize_series(raw_signals["market_sentiment_raw"], df_index, bipolar=True)
         # 波动率不稳定性转换为稳定性，并归一化
@@ -451,44 +451,48 @@ class CalculateWinnerConvictionDecay:
         norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
         norm_trend_vitality = self.helper._normalize_series(raw_signals["trend_vitality_raw"], df_index, bipolar=False)
         # 新增：上影线卖压归一化 (卖压越高，信念衰减越严重)
-        norm_upper_shadow_pressure = self.helper._normalize_series(raw_signals["upper_shadow_pressure_raw"], df_index, bipolar=True, ascending=True) # 卖压越高，分数越高，代表负面影响越大
+        # 修正：ascending=False，使高卖压对应低分数（负面影响）
+        norm_upper_shadow_pressure = self.helper._normalize_series(raw_signals["upper_shadow_pressure_raw"], df_index, bipolar=True, ascending=False)
         # --- 2. 计算MTF增强情境信号 ---
         mtf_enhanced_signals = {}
         mtf_signals_for_resonance = [] # 用于计算共振的MTF信号
         for config_key, config_val in contextual_mtf_config.items():
             if isinstance(config_val, dict):
-                base_signal_name_for_mtf = config_val.get('base_signal_name')
+                base_signal_name_from_config = config_val.get('base_signal_name') # e.g., "market_sentiment_score_D"
                 is_bipolar_mtf = config_val.get('bipolar', True)
                 is_inverted_for_stability = config_val.get('inverted_for_stability', False)
-                # 移除 is_inverted_for_decay，因为 upper_shadow_pressure_raw 已经是负面指标，直接使用即可
-                if base_signal_name_for_mtf not in raw_signals:
-                    print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_for_mtf}'。")
+                is_inverted_for_decay = config_val.get('inverted_for_decay', False) # 获取 inverted_for_decay 标志
+                # 获取原始信号 Series，直接从 df 中获取，并检查其有效性
+                raw_series_for_processing = self.helper._get_safe_series(df, base_signal_name_from_config, 0.0, method_name=method_name)
+                if raw_series_for_processing.empty or raw_series_for_processing.isnull().all():
+                    print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_from_config}' 或其值为空。")
                     continue
-                # 如果需要，先将原始信号转换为稳定性
-                processed_base_signal = raw_signals[base_signal_name_for_mtf]
-                if is_inverted_for_stability:
-                    processed_base_signal = 1 - normalize_score(processed_base_signal, df_index, 21, ascending=True)
+                # 确定传递给 _get_mtf_slope_accel_score 的 ascending 参数
+                # 如果是双极性信号且需要反转衰减，则 ascending=False (高值 -> 低分)
+                # 如果是稳定性信号且需要反转，则 ascending=False (不稳定性高 -> 稳定性低)
+                ascending_param_for_mtf = True
+                if is_inverted_for_decay or is_inverted_for_stability:
+                    ascending_param_for_mtf = False
                 # 计算MTF斜率/加速度融合分数
                 mtf_score = self.helper._get_mtf_slope_accel_score(
                     df,
-                    base_signal_name_for_mtf,
+                    base_signal_name_from_config, # 使用原始列名进行 SLOPE/ACCEL 查找
                     mtf_slope_accel_weights,
                     df_index,
                     method_name,
-                    bipolar=is_bipolar_mtf
+                    bipolar=is_bipolar_mtf,
+                    ascending=ascending_param_for_mtf # 传递动态确定的 ascending 参数
                 )
-                
-                norm_mtf_score = mtf_score 
-                
-                mtf_enhanced_signals[f"mtf_{config_key}"] = norm_mtf_score
-                mtf_signals_for_resonance.append(norm_mtf_score)
+                # _get_mtf_slope_accel_score 已经返回归一化后的分数
+                mtf_enhanced_signals[f"mtf_{config_key}"] = mtf_score
+                mtf_signals_for_resonance.append(mtf_score)
         # --- 3. 计算情境共振 ---
         context_mtf_resonance = pd.Series(0.0, index=df_index, dtype=np.float32)
         if len(mtf_signals_for_resonance) >= 2:
-            base_signal_names_for_resonance = [config_val.get('base_signal_name') for config_key, config_val in contextual_mtf_config.items() if isinstance(config_val, dict) and config_val.get('base_signal_name')]
-            context_mtf_resonance = self.helper._get_mtf_resonance_score(
+            # 修正：调用新增的 _get_mtf_resonance_score_from_config，传递完整的 contextual_mtf_config
+            context_mtf_resonance = self.helper._get_mtf_resonance_score_from_config(
                 df,
-                base_signal_names_for_resonance,
+                contextual_mtf_config, # 传递完整的配置字典
                 mtf_slope_accel_weights,
                 df_index,
                 method_name
@@ -500,7 +504,7 @@ class CalculateWinnerConvictionDecay:
             "market_sentiment": norm_market_sentiment,
             "volatility_stability": norm_volatility_stability,
             "trend_vitality": norm_trend_vitality,
-            "upper_shadow_pressure": norm_upper_shadow_pressure, # 修正：使用 upper_shadow_pressure
+            "upper_shadow_pressure": norm_upper_shadow_pressure,
             **mtf_enhanced_signals,
             "context_resonance": context_mtf_resonance
         }
@@ -523,7 +527,7 @@ class CalculateWinnerConvictionDecay:
             "volatility_stability_raw": volatility_stability_raw,
             "norm_volatility_stability": norm_volatility_stability,
             "norm_trend_vitality": norm_trend_vitality,
-            "norm_upper_shadow_pressure": norm_upper_shadow_pressure, # 修正：输出 upper_shadow_pressure
+            "norm_upper_shadow_pressure": norm_upper_shadow_pressure,
             "mtf_enhanced_signals": mtf_enhanced_signals,
             "context_mtf_resonance": context_mtf_resonance,
             "context_modulator_score": context_modulator_score,

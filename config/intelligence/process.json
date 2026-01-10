@@ -1321,7 +1321,8 @@
                         "upper_shadow_pressure": {
                             "base_signal_name": "upper_shadow_selling_pressure_D",
                             "periods": [5, 13, 21],
-                            "bipolar": true
+                            "bipolar": true,
+                            "inverted_for_decay": true
                         }
                     },
                     "price_overextension_composite_weights": {

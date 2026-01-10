@@ -141,6 +141,73 @@ class ProcessIntelligenceHelper:
         # 根据 bipolar 参数进行裁剪
         return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
 
+    def _get_mtf_resonance_score_from_config(self, df: pd.DataFrame, contextual_mtf_config: Dict, mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
+        """
+        【V1.5 · 情境配置驱动版】计算多个信号在多时间框架上的共振分数。
+        此方法将对多个基础信号计算其MTF斜率和加速度融合分数（双极性），
+        然后评估这些融合分数之间的方向一致性和强度，生成一个双极性共振分数。
+        - 核心逻辑:
+            1. 遍历 contextual_mtf_config，为每个信号确定其 MTF 融合时的 bipolar 和 ascending 参数。
+            2. 调用 _get_mtf_slope_accel_score 获取每个信号的双极性MTF斜率/加速度融合分数。
+            3. 计算这些融合分数的平均值，代表整体方向和强度。
+            4. 计算这些融合分数的标准差，代表离散度（不一致性）。
+            5. 将离散度转换为一致性强度（1-归一化标准差）。
+            6. 最终共振分数 = 整体方向和强度 * 一致性强度。
+        参数:
+            df (pd.DataFrame): 包含所有原始数据的DataFrame。
+            contextual_mtf_config (Dict): 包含情境MTF信号配置的字典，用于获取 base_signal_name, bipolar, inverted_for_stability, inverted_for_decay。
+            mtf_weights_config (Dict): 包含 'slope_periods' 和 'accel_periods' 权重的配置字典。
+            df_index (pd.Index): DataFrame的索引。
+            method_name (str): 调用此方法的名称，用于日志输出。
+        返回:
+            pd.Series: 融合后的MTF共振分数 (范围 [-1, 1])。
+        """
+        all_fused_mtf_scores = {}
+        for config_key, config_val in contextual_mtf_config.items():
+            if isinstance(config_val, dict):
+                base_signal_name = config_val.get('base_signal_name')
+                if base_signal_name is None:
+                    continue
+                is_bipolar_mtf = config_val.get('bipolar', True)
+                is_inverted_for_stability = config_val.get('inverted_for_stability', False)
+                is_inverted_for_decay = config_val.get('inverted_for_decay', False)
+                # 确定传递给 _get_mtf_slope_accel_score 的 ascending 参数
+                # 如果是双极性信号且需要反转衰减，则 ascending=False (高值 -> 低分)
+                # 如果是单极性信号且需要反转衰减，则 ascending=False
+                # 如果是稳定性信号且需要反转，则 ascending=False (不稳定性高 -> 稳定性低)
+                ascending_param_for_mtf = True
+                if is_inverted_for_decay or is_inverted_for_stability:
+                    ascending_param_for_mtf = False
+                # 获取每个信号的双极性MTF斜率/加速度融合分数
+                fused_score = self._get_mtf_slope_accel_score(
+                    df,
+                    base_signal_name,
+                    mtf_weights_config,
+                    df_index,
+                    method_name,
+                    bipolar=is_bipolar_mtf,
+                    ascending=ascending_param_for_mtf
+                )
+                # 只有当分数不是全NaN或全0时才加入，避免影响共振计算
+                if not fused_score.isnull().all() and not (fused_score == 0).all():
+                    all_fused_mtf_scores[config_key] = fused_score # 使用 config_key 作为字典键，保持一致性
+        if not all_fused_mtf_scores or len(all_fused_mtf_scores) < 2:
+            print(f"    -> [过程情报警告] {method_name}: 计算MTF共振分数至少需要2个有效信号，当前只有 {len(all_fused_mtf_scores)} 个。返回0.0。")
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
+        # 计算每个时间点上（axis=1）不同信号的平均值 (代表整体方向和强度)
+        mean_scores = fused_scores_df.mean(axis=1)
+        # 计算每个时间点上（axis=1）不同信号之间的标准差 (离散度)
+        std_scores = fused_scores_df.std(axis=1).fillna(0.0)
+        # 将标准差归一化到 [0, 1] 范围，并转换为一致性强度
+        max_possible_std = fused_scores_df.max(axis=1) - fused_scores_df.min(axis=1)
+        max_possible_std = max_possible_std.replace(0, 1)
+        normalized_std = (std_scores / max_possible_std).clip(0, 1)
+        consistency_strength = (1 - normalized_std).fillna(0.0)
+        # 最终共振分数 = 整体方向和强度 * 一致性强度
+        resonance_score = mean_scores * consistency_strength
+        return resonance_score.clip(-1, 1).astype(np.float32)
+
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
         """
         【V1.3 · 协同性双极化增强版】计算多时间框架信号的协同性分数。
