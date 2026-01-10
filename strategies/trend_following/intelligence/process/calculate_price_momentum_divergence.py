@@ -600,7 +600,7 @@ class CalculatePriceMomentumDivergence:
         }
         return context_modulator, debug_values
 
-    def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_mf_net_flow_slope: pd.Series, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
+    def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series, fused_mf_net_flow_slope: pd.Series, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
         """V1.4 · 动态融合权重、动态指数、显式交互项及RDI增强版"""
         final_fusion_exponent_base = pmd_params['final_fusion_exponent']
         synergy_threshold = pmd_params['synergy_threshold']
@@ -609,7 +609,7 @@ class CalculatePriceMomentumDivergence:
         dynamic_fusion_weights_params = pmd_params['dynamic_fusion_weights_params']
         dynamic_exponent_params = pmd_params['dynamic_exponent_params']
         interaction_terms_weights = pmd_params['interaction_terms_weights']
-        rdi_params = pmd_params['rdi_params'] # 获取RDI参数
+        rdi_params = pmd_params['rdi_params']
         final_components = {
             "base_divergence": base_divergence_score.abs(),
             "volume_confirmation": volume_confirmation_score.abs(),
@@ -749,7 +749,7 @@ class CalculatePriceMomentumDivergence:
             "is_conflicting": is_conflicting,
             "synergy_conflict_factor": synergy_conflict_factor,
             "raw_fused_score_modulated": raw_fused_score_modulated,
-            "raw_fused_score_modulated_by_rdi": raw_fused_score_modulated_by_rdi, # 新增
+            "raw_fused_score_modulated_by_rdi": raw_fused_score_modulated_by_rdi,
             "dynamic_fusion_exponent": final_fusion_exponent,
             "final_score": final_score
         }
@@ -797,7 +797,7 @@ class CalculatePriceMomentumDivergence:
         return fused_rdi_score, period_debug_values
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V1.2 · 模块化与增强版"""
+        """V1.3 · 模块化与增强版 (传递 fused_momentum_direction 给最终融合方法)"""
         method_name = "_calculate_price_momentum_divergence"
         is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
@@ -831,7 +831,6 @@ class CalculatePriceMomentumDivergence:
         _temp_debug_values["基础背离分数"] = {"base_divergence_score": base_divergence_score}
         volume_confirmation_score, debug_volume_confirmation = self._calculate_volume_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
         _temp_debug_values["量能确认分数"] = debug_volume_confirmation
-        # 捕获 fused_mf_net_flow_slope
         main_force_confirmation_score, fused_mf_net_flow_slope, debug_mf_confirmation = self._calculate_main_force_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
         _temp_debug_values["主力/筹码确认分数"] = debug_mf_confirmation
         divergence_quality_score, debug_divergence_quality = self._calculate_divergence_quality_score(df_index, raw_data, pmd_params, base_divergence_score, fused_price_direction, fused_momentum_direction)
@@ -840,7 +839,7 @@ class CalculatePriceMomentumDivergence:
         _temp_debug_values["情境调制器"] = debug_context_modulator
         final_score, debug_final_fusion = self._perform_pmd_final_fusion(
             df, df_index, raw_data, pmd_params,
-            fused_price_direction, fused_mf_net_flow_slope, # 新增传递的参数
+            fused_price_direction, fused_momentum_direction, fused_mf_net_flow_slope, # 新增传递 fused_momentum_direction
             base_divergence_score, volume_confirmation_score, main_force_confirmation_score,
             divergence_quality_score, context_modulator, debug_price_direction['price_momentum_quality_score'],
             _temp_debug_values
