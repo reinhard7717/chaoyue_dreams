@@ -1266,7 +1266,42 @@
                 "diagnosis_type": "signal_decay",
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
-                "description": "【V3.0 · 深度情境与多维共振版】诊断赢家信念的衰减。引入多时间框架共振、主力派发确认和情境动态调制，旨在提供一个更全面、更精准的顶部风险预警。"
+                "description": "【V3.0 · 深度情境与多维共振版】诊断赢家信念的衰减。引入多时间框架共振、主力派发确认和情境动态调制，旨在提供一个更全面、更精准的顶部风险预警。",
+                "winner_conviction_decay_params": {
+                    "description": "【V3.0 · 深度情境与多维共振版】赢家信念衰减信号的专属参数。",
+                    "mtf_slope_accel_weights": {
+                    "description": "多时间框架斜率和加速度的融合权重。",
+                    "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
+                    "accel_periods": {"5": 0.6, "13": 0.4}
+                    },
+                    "distribution_confirmation_weights": {
+                    "description": "主力派发确认融合权重。",
+                    "distribution_intent": 0.4,
+                    "chip_distribution_whisper": 0.3,
+                    "upper_shadow_selling_pressure": 0.3
+                    },
+                    "contextual_modulator_weights": {
+                    "description": "情境动态调制器融合权重。",
+                    "price_overextension_composite": 0.3,
+                    "retail_fomo": 0.2,
+                    "market_tension": 0.2,
+                    "sentiment_pendulum_negative": 0.3,
+                    "market_sentiment": 0.3,
+                    "volatility_stability": 0.3,
+                    "trend_vitality": 0.4
+                    },
+                    "price_overextension_composite_weights": {
+                    "description": "价格超买亢奋复合分融合权重。",
+                    "bias_13": 0.3,
+                    "bias_21": 0.2,
+                    "rsi_13": 0.3,
+                    "bbp_21": 0.2
+                    },
+                    "final_fusion_exponent": 1.5,
+                    "comment_final_fusion_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。",
+                    "probe_enabled": true,
+                    "comment_probe_enabled": "是否启用探针输出详细调试信息。"
+                }
             },
             {
                 "name": "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL",
