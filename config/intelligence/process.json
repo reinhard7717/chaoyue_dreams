@@ -1280,7 +1280,7 @@
                         "winner_profit_margin_avg_inverted": 0.2,
                         "total_winner_rate_inverted": 0.2,
                         "chip_fatigue": 0.1,
-                        "winner_concentration_inverted": 0.1
+                        "chip_health_inverted": 0.1
                     },
                     "distribution_confirmation_weights": {
                     "description": "主力派发确认融合权重。",
@@ -1296,9 +1296,8 @@
                     "mtf_market_sentiment": 0.1,
                     "mtf_volatility_stability": 0.1,
                     "mtf_trend_vitality": 0.1,
-                    "cost_dispersion_inverted": 0.1,
-                    "upward_purity_inverted": 0.1,
-                    "mtf_upward_purity_inverted": 0.1,
+                    "upper_shadow_pressure": 0.1,
+                    "mtf_upper_shadow_pressure": 0.1,
                     "context_resonance": 0.2
                     },
                     "contextual_mtf_config": {
@@ -1319,11 +1318,10 @@
                             "periods": [5, 13, 21],
                             "bipolar": true
                         },
-                        "upward_purity_raw": {
-                            "base_signal_name": "upward_purity_index_D",
+                        "upper_shadow_pressure_raw": {
+                            "base_signal_name": "upper_shadow_selling_pressure_D",
                             "periods": [5, 13, 21],
-                            "bipolar": true,
-                            "inverted_for_decay": true
+                            "bipolar": true
                         }
                     },
                     "price_overextension_composite_weights": {
