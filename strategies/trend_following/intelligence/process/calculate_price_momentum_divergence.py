@@ -258,23 +258,33 @@ class CalculatePriceMomentumDivergence:
         return raw_data
 
     def _calculate_fused_price_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
-        """V1.1 · 价格动量品质增强版"""
+        """V1.2 · 价格动量品质增强版 (价格动量品质分数归一化)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         price_components_weights = pmd_params['price_components_weights']
         fused_price_direction_base = self.helper._get_mtf_slope_score(df, 'close_D', mtf_slope_weights, df_index, method_name, bipolar=True)
-        price_momentum_quality_score = pd.Series(0.0, index=df_index, dtype=np.float32)
         # 优化价格动量品质：结合上涨纯度和上涨冲动强度
-        bullish_price_momentum_quality = (raw_data['upward_efficiency_score'] * raw_data['upward_impulse_strength_raw']).pow(0.5)
-        bearish_price_momentum_quality = raw_data['price_downward_momentum_score'] # 沿用旧的下跌动量品质
-        price_momentum_quality_score = bullish_price_momentum_quality.where(fused_price_direction_base > 0, -bearish_price_momentum_quality)
+        # 原始值可能超出 [0, 1] 范围，需要先归一化
+        bullish_price_momentum_quality_raw = (raw_data['upward_efficiency_score'] * raw_data['upward_impulse_strength_raw']).pow(0.5)
+        bearish_price_momentum_quality_raw = raw_data['price_downward_momentum_score'] # 沿用旧的下跌动量品质
+        # 对原始品质分数进行归一化
+        bullish_price_momentum_quality_norm = self.helper._normalize_series(bullish_price_momentum_quality_raw, df_index, ascending=True)
+        bearish_price_momentum_quality_norm = self.helper._normalize_series(bearish_price_momentum_quality_raw, df_index, ascending=True)
+        # 根据价格方向决定使用哪个品质分数，并确保其在 [-1, 1] 范围内
+        price_momentum_quality_score = bullish_price_momentum_quality_norm.where(fused_price_direction_base > 0, -bearish_price_momentum_quality_norm)
+        # 最终确保在 [-1, 1] 范围内
+        price_momentum_quality_score = price_momentum_quality_score.clip(-1, 1)
         fused_price_direction_components = {
             "close_D": fused_price_direction_base,
-            "upward_efficiency": raw_data['upward_efficiency_score'],
+            "upward_efficiency": self.helper._normalize_series(raw_data['upward_efficiency_score'], df_index, ascending=True), # 确保这里也归一化
             "price_momentum_quality": price_momentum_quality_score
         }
         fused_price_direction = _robust_geometric_mean(fused_price_direction_components, price_components_weights, df_index)
         debug_values = {
             "fused_price_direction_base": fused_price_direction_base,
+            "bullish_price_momentum_quality_raw": bullish_price_momentum_quality_raw, # 新增调试信息
+            "bearish_price_momentum_quality_raw": bearish_price_momentum_quality_raw, # 新增调试信息
+            "bullish_price_momentum_quality_norm": bullish_price_momentum_quality_norm, # 新增调试信息
+            "bearish_price_momentum_quality_norm": bearish_price_momentum_quality_norm, # 新增调试信息
             "price_momentum_quality_score": price_momentum_quality_score,
             "fused_price_direction": fused_price_direction
         }

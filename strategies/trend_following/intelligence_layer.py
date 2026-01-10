@@ -115,13 +115,13 @@ class IntelligenceLayer:
         # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
         update_states(self.process_intel.run_process_diagnostics(df, task_type_filter=None))
         # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
-        update_states(self.fusion_intel.run_fusion_diagnostics(df))
+        # update_states(self.fusion_intel.run_fusion_diagnostics(df))
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
-        self._ignite_relational_dynamics_engine()
-        final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
-        self.strategy.playbook_states.update(final_playbook_states)
+        # self._ignite_relational_dynamics_engine()
+        # final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
+        # self.strategy.playbook_states.update(final_playbook_states)
         # 修复指挥链，在所有诊断完成后部署法医探针
-        self.deploy_forensic_probes() # 此方法现在主要负责打印探针报告，而不是设置should_probe和probe_dates_set
+        # self.deploy_forensic_probes() # 此方法现在主要负责打印探针报告，而不是设置should_probe和probe_dates_set
         return self.strategy.atomic_states
 
     def deploy_forensic_probes(self):
