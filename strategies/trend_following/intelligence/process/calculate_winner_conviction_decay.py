@@ -336,16 +336,16 @@ class CalculateWinnerConvictionDecay:
         belief_decay_components_weights = params_dict['belief_decay_components_weights']
         # --- 原料数据存在性检查 ---
         required_raw_signals = [
-            "belief_signal_raw", "chip_health_raw" # 修正：使用 chip_health_raw
+            "belief_signal_raw", "chip_health_raw"
         ]
         for sig_name in required_raw_signals:
-            if sig_name not in raw_signals or raw_signals[sig_name].empty:
-                print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}'，信念强度计算可能不完整。")
-                return pd.Series(0.0, index=df_index, dtype=np.float32) # 返回默认值
+            if sig_name not in raw_signals or raw_signals[sig_name].empty or raw_signals[sig_name].isnull().all(): # 修正：增加对全NaN的检查
+                print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}' 或其值全为NaN，信念强度计算可能不完整。")
+                return pd.Series(np.nan, index=df_index, dtype=np.float32) # 修正：返回np.nan
         belief_signal_raw = raw_signals["belief_signal_raw"]
-        chip_health_raw = raw_signals["chip_health_raw"] # 修正：获取 chip_health_raw
+        chip_health_raw = raw_signals["chip_health_raw"]
         mtf_winner_stability = self.helper._get_mtf_slope_accel_score(df, belief_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        winner_stability_percentile = belief_signal_raw.rank(pct=True).fillna(0.5)
+        winner_stability_percentile = belief_signal_raw.rank(pct=True).fillna(np.nan) # 修正：fillna(np.nan)
         # 新增：归一化筹码健康度（反向，健康度越低，信念衰减越严重）
         norm_chip_health_inverted = self.helper._normalize_series(chip_health_raw, df_index, bipolar=True, ascending=False)
         # 融合信念强度组件
@@ -354,21 +354,26 @@ class CalculateWinnerConvictionDecay:
         w_winner_profit_margin_inverted = belief_decay_components_weights.get("winner_profit_margin_avg_inverted", 0.2)
         w_total_winner_rate_inverted = belief_decay_components_weights.get("total_winner_rate_inverted", 0.2)
         w_chip_fatigue = belief_decay_components_weights.get("chip_fatigue", 0.1)
-        w_chip_health_inverted = belief_decay_components_weights.get("chip_health_inverted", 0.1) # 修正：获取 chip_health_inverted 权重
+        w_chip_health_inverted = belief_decay_components_weights.get("chip_health_inverted", 0.1)
         # 将 winner_stability_percentile 转换为双极性
         winner_stability_percentile_bipolar = (winner_stability_percentile * 2 - 1)
         # 重新构建信念强度融合逻辑，使用配置中的权重进行加权平均
         # 确保所有组件都是双极性 [-1, 1]
-        fused_conviction_score = (
-            mtf_winner_stability * w_mtf_stability +
-            winner_stability_percentile_bipolar * (w_winner_profit_margin_inverted + w_total_winner_rate_inverted) / 2 +
-            norm_chip_health_inverted * w_chip_health_inverted
-        ) / (w_mtf_stability + (w_winner_profit_margin_inverted + w_total_winner_rate_inverted) / 2 + w_chip_health_inverted)
-        conviction_strength_score = fused_conviction_score.clip(-1, 1).fillna(0.0)
+        # 避免除以零，如果所有权重都为0，则结果为NaN
+        total_weights = w_mtf_stability + (w_winner_profit_margin_inverted + w_total_winner_rate_inverted) / 2 + w_chip_health_inverted
+        if total_weights == 0:
+            fused_conviction_score = pd.Series(np.nan, index=df_index, dtype=np.float32)
+        else:
+            fused_conviction_score = (
+                mtf_winner_stability * w_mtf_stability +
+                winner_stability_percentile_bipolar * (w_winner_profit_margin_inverted + w_total_winner_rate_inverted) / 2 +
+                norm_chip_health_inverted * w_chip_health_inverted
+            ) / total_weights
+        conviction_strength_score = fused_conviction_score.clip(-1, 1).fillna(np.nan) # 修正：fillna(np.nan)
         _temp_debug_values["信念强度"] = {
             "mtf_winner_stability": mtf_winner_stability,
             "winner_stability_percentile": winner_stability_percentile,
-            "norm_chip_health_inverted": norm_chip_health_inverted, # 修正：输出 chip_health_inverted
+            "norm_chip_health_inverted": norm_chip_health_inverted,
             "conviction_strength_score": conviction_strength_score
         }
         return conviction_strength_score
@@ -380,9 +385,15 @@ class CalculateWinnerConvictionDecay:
         pressure_signal_name = params_dict['pressure_signal_name']
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
         relative_position_weights = params_dict['relative_position_weights']
+        # --- 原料数据存在性检查 ---
+        required_raw_signals = ["pressure_signal_raw"]
+        for sig_name in required_raw_signals:
+            if sig_name not in raw_signals or raw_signals[sig_name].empty or raw_signals[sig_name].isnull().all():
+                print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}' 或其值全为NaN，压力韧性计算可能不完整。")
+                return pd.Series(np.nan, index=df_index, dtype=np.float32)
         pressure_signal_raw = raw_signals["pressure_signal_raw"]
         mtf_profit_taking_flow = self.helper._get_mtf_slope_accel_score(df, pressure_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        profit_taking_flow_percentile = (1 - pressure_signal_raw.rank(pct=True)).fillna(0.5)
+        profit_taking_flow_percentile = (1 - pressure_signal_raw.rank(pct=True)).fillna(np.nan) # 修正：fillna(np.nan)
         pressure_resilience_score = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) + 
                                      (profit_taking_flow_percentile * 2 - 1) * (1 - relative_position_weights.get("profit_taking_flow_low", 0.4))).clip(-1, 1)
         _temp_debug_values["压力韧性"] = {
@@ -411,8 +422,10 @@ class CalculateWinnerConvictionDecay:
         计算诡道过滤因子。
         """
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
+        # 确保原始信号存在且有效，否则 _get_mtf_slope_accel_score 会返回NaN
         mtf_deception_index = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_wash_trade_intensity = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        # 如果任何一个MTF分数是NaN，则deception_penalty也会是NaN
         deception_penalty = (mtf_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
         deception_filter = (1 - deception_penalty).clip(0, 1)
         _temp_debug_values["诡道过滤"] = {
@@ -436,9 +449,9 @@ class CalculateWinnerConvictionDecay:
             "upper_shadow_pressure_raw"
         ]
         for sig_name in required_raw_signals:
-            if sig_name not in raw_signals or raw_signals[sig_name].empty:
-                print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}'，情境调制计算可能不完整。")
-                return pd.Series(0.5, index=df_index, dtype=np.float32)
+            if sig_name not in raw_signals or raw_signals[sig_name].empty or raw_signals[sig_name].isnull().all(): # 修正：增加对全NaN的检查
+                print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}' 或其值全为NaN，情境调制计算可能不完整。")
+                return pd.Series(np.nan, index=df_index, dtype=np.float32) # 修正：返回np.nan
         # --- 1. 计算当前情境信号 ---
         norm_market_sentiment = self.helper._normalize_series(raw_signals["market_sentiment_raw"], df_index, bipolar=True)
         # 波动率不稳定性转换为稳定性，并归一化
@@ -463,7 +476,7 @@ class CalculateWinnerConvictionDecay:
                 is_inverted_for_stability = config_val.get('inverted_for_stability', False)
                 is_inverted_for_decay = config_val.get('inverted_for_decay', False) # 获取 inverted_for_decay 标志
                 # 获取原始信号 Series，直接从 df 中获取，并检查其有效性
-                raw_series_for_processing = self.helper._get_safe_series(df, base_signal_name_from_config, 0.0, method_name=method_name)
+                raw_series_for_processing = self.helper._get_safe_series(df, base_signal_name_from_config, np.nan, method_name=method_name) # 修正：default_value=np.nan
                 if raw_series_for_processing.empty or raw_series_for_processing.isnull().all():
                     print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_from_config}' 或其值为空。")
                     continue
@@ -487,7 +500,7 @@ class CalculateWinnerConvictionDecay:
                 mtf_enhanced_signals[f"mtf_{config_key}"] = mtf_score
                 mtf_signals_for_resonance.append(mtf_score)
         # --- 3. 计算情境共振 ---
-        context_mtf_resonance = pd.Series(0.0, index=df_index, dtype=np.float32)
+        context_mtf_resonance = pd.Series(np.nan, index=df_index, dtype=np.float32) # 修正：默认值改为np.nan
         if len(mtf_signals_for_resonance) >= 2:
             # 修正：调用新增的 _get_mtf_resonance_score_from_config，传递完整的 contextual_mtf_config
             context_mtf_resonance = self.helper._get_mtf_resonance_score_from_config(
@@ -498,7 +511,7 @@ class CalculateWinnerConvictionDecay:
                 method_name
             )
         else:
-            print(f"    -> [过程情报警告] {method_name}: MTF共振计算至少需要2个信号，当前只有 {len(mtf_signals_for_resonance)} 个。共振分设置为0。")
+            print(f"    -> [过程情报警告] {method_name}: MTF共振计算至少需要2个信号，当前只有 {len(mtf_signals_for_resonance)} 个。共振分设置为np.nan。")
         # --- 4. 融合所有情境因子 ---
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
@@ -546,7 +559,7 @@ class CalculateWinnerConvictionDecay:
         direction_weight_pressure = get_param_value(decay_params.get('direction_weights', {}).get('pressure', 0.4), 0.4)
         overall_direction_raw = (conviction_strength_score * direction_weight_conviction + pressure_resilience_score * direction_weight_pressure)
         overall_direction = np.sign(overall_direction_raw)
-        overall_direction = overall_direction.replace(0, 1)
+        overall_direction = overall_direction.replace(0, np.nan) # 修正：0方向改为NaN
         conviction_magnitude = (conviction_strength_score.abs() + 1) / 2
         pressure_magnitude = (pressure_resilience_score.abs() + 1) / 2
         fusion_components_for_gm = {
@@ -563,7 +576,7 @@ class CalculateWinnerConvictionDecay:
         )
         final_score = fused_magnitude * overall_direction
         final_score = np.sign(final_score) * (final_score.abs().pow(final_exponent))
-        final_score = final_score.clip(-1, 1).fillna(0.0)
+        final_score = final_score.clip(-1, 1).fillna(np.nan) # 修正：fillna(np.nan)
         _temp_debug_values["最终融合"] = {
             "direction_weight_conviction": direction_weight_conviction,
             "direction_weight_pressure": direction_weight_pressure,

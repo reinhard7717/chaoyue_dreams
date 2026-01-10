@@ -59,33 +59,24 @@ class ProcessIntelligenceHelper:
             else:
                 print(key)
 
-    def _get_safe_series(self, df: pd.DataFrame, col_name: str, default_value: float = 0.0, method_name: str = "") -> pd.Series:
+    def _get_safe_series(self, df: pd.DataFrame, col_name: str, default_value: float = np.nan, method_name: str = "") -> pd.Series:
         """
-        安全地从DataFrame中获取Series，如果列不存在或值为NaN，则填充默认值。
-        V11.0: 针对特定信号，当其值为NaN时，提供更具业务含义的默认值（例如0.5表示中性），
-               以适配normalize_score和normalize_to_bipolar的归一化逻辑。
-               neutral_nan_defaults 字典已提取到配置中。
+        安全地从DataFrame中获取Series。如果列不存在，则返回一个填充了np.nan的Series。
+        如果列存在但包含NaN值，则这些NaN值将保留，除非在调用方明确处理。
         """
-        # 从配置中获取 neutral_nan_defaults 字典
-        # get_params_block 函数需要一个 strategy_instance 参数
-        # 这里 self 是 ProcessIntelligenceHelper 实例，self.strategy 是 Strategy 实例
-        process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
-        neutral_nan_defaults = process_params.get('neutral_nan_defaults', {})
-        # 检查是否为需要特殊默认值的信号
-        current_default_value = neutral_nan_defaults.get(col_name, default_value)
         if col_name not in df.columns:
-            # print(f"  [警告] {method_name}: 列 '{col_name}' 不存在，使用默认值 {current_default_value}")
-            return pd.Series(current_default_value, index=df.index, dtype=np.float32)
+            print(f"  [警告] {method_name}: 核心列 '{col_name}' 不存在，返回填充np.nan的Series。")
+            return pd.Series(np.nan, index=df.index, dtype=np.float32)
         series = df[col_name].astype(np.float32)
-        # 填充NaN值
-        return series.fillna(current_default_value)
+        # 不再在此处填充NaN，让NaN值自然传播，以暴露问题
+        return series
 
     def _get_mtf_slope_accel_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, ascending: bool = True, bipolar: bool = False, periods: Optional[List[int]] = None) -> pd.Series:
         """
         【V1.2 · 周期过滤与统一归一化调用版】计算多时间框架斜率和加速度的融合分数。
         - 核心修正: 增加 `periods` 参数，允许指定要计算的特定周期，从而支持更灵活的MTF信号构建。
         - 核心修正: 统一调用 `_normalize_series` 进行归一化，利用其多时间框架加权能力。
-        - 健壮性增强: 确保即使没有有效组件分数，也能返回一个填充了默认值（0.0）的Series。
+        - 健壮性增强: 确保即使没有有效组件分数，也能返回一个填充了np.nan的Series，以暴露问题。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             base_signal_name (str): 基础信号的名称，例如 'close_D'。
@@ -135,8 +126,8 @@ class ProcessIntelligenceHelper:
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
         if not all_scores_components or total_combined_weight == 0:
-            # 如果没有任何有效组件分数，返回一个填充了0.0的Series
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
+            # 如果没有任何有效组件分数，返回一个填充了np.nan的Series，以暴露问题
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
         fused_score = sum(all_scores_components) / total_combined_weight
         # 根据 bipolar 参数进行裁剪
         return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
@@ -173,7 +164,6 @@ class ProcessIntelligenceHelper:
                 is_inverted_for_decay = config_val.get('inverted_for_decay', False)
                 # 确定传递给 _get_mtf_slope_accel_score 的 ascending 参数
                 # 如果是双极性信号且需要反转衰减，则 ascending=False (高值 -> 低分)
-                # 如果是单极性信号且需要反转衰减，则 ascending=False
                 # 如果是稳定性信号且需要反转，则 ascending=False (不稳定性高 -> 稳定性低)
                 ascending_param_for_mtf = True
                 if is_inverted_for_decay or is_inverted_for_stability:
@@ -192,18 +182,18 @@ class ProcessIntelligenceHelper:
                 if not fused_score.isnull().all() and not (fused_score == 0).all():
                     all_fused_mtf_scores[config_key] = fused_score # 使用 config_key 作为字典键，保持一致性
         if not all_fused_mtf_scores or len(all_fused_mtf_scores) < 2:
-            print(f"    -> [过程情报警告] {method_name}: 计算MTF共振分数至少需要2个有效信号，当前只有 {len(all_fused_mtf_scores)} 个。返回0.0。")
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
+            print(f"    -> [过程情报警告] {method_name}: 计算MTF共振分数至少需要2个有效信号，当前只有 {len(all_fused_mtf_scores)} 个。返回np.nan。")
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
         fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
         # 计算每个时间点上（axis=1）不同信号的平均值 (代表整体方向和强度)
         mean_scores = fused_scores_df.mean(axis=1)
         # 计算每个时间点上（axis=1）不同信号之间的标准差 (离散度)
-        std_scores = fused_scores_df.std(axis=1).fillna(0.0)
+        std_scores = fused_scores_df.std(axis=1).fillna(np.nan) # 修正：fillna(np.nan)
         # 将标准差归一化到 [0, 1] 范围，并转换为一致性强度
         max_possible_std = fused_scores_df.max(axis=1) - fused_scores_df.min(axis=1)
         max_possible_std = max_possible_std.replace(0, 1)
         normalized_std = (std_scores / max_possible_std).clip(0, 1)
-        consistency_strength = (1 - normalized_std).fillna(0.0)
+        consistency_strength = (1 - normalized_std).fillna(np.nan) # 修正：fillna(np.nan)
         # 最终共振分数 = 整体方向和强度 * 一致性强度
         resonance_score = mean_scores * consistency_strength
         return resonance_score.clip(-1, 1).astype(np.float32)
@@ -231,7 +221,8 @@ class ProcessIntelligenceHelper:
             fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, ascending=True, bipolar=True)
             all_fused_mtf_scores[base_signal_name] = fused_score
         if not all_fused_mtf_scores:
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
+            # 如果没有任何有效的MTF分数，返回一个填充了np.nan的Series，以暴露问题
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
         # 将所有融合分数转换为DataFrame
         fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
         # 计算每个时间点上（axis=1）不同信号之间的标准差 (离散度)
@@ -239,22 +230,19 @@ class ProcessIntelligenceHelper:
         min_periods_std = max(1, int(self.meta_window * 0.5))
         instant_std = fused_scores_df.std(axis=1)
         # 对标准差进行平滑处理
-        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(0.0)
+        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(np.nan) # 修正：fillna(np.nan)
         # 计算每个时间点上，不同信号的平均值 (代表整体方向)
         instant_mean = fused_scores_df.mean(axis=1)
         # 将标准差转换为协同性强度 (0到1，标准差越小，强度越大)
         # 避免除以零，并处理全为零的情况
         max_std = smoothed_std.max()
-        cohesion_magnitude = pd.Series(0.0, index=df_index, dtype=np.float32)
+        cohesion_magnitude = pd.Series(np.nan, index=df_index, dtype=np.float32) # 修正：默认值改为np.nan
         if max_std > 0:
             cohesion_magnitude = (1 - (smoothed_std / max_std)).clip(0, 1)
         # 结合方向和强度，生成双极性协同性分数
-        # 方向由平均值决定，强度由 (1 - 归一化标准差) 决定
         # 使用 np.sign() 获取方向，并乘以强度
-        # 注意：当 instant_mean 为 0 时，np.sign(0) 为 0，这会导致 bipolar_cohesion_score 为 0，符合预期（无明确方向）
         bipolar_cohesion_score = cohesion_magnitude * np.sign(instant_mean)
         # 最终归一化到 -1 到 1 范围
-        # 这里使用 _normalize_series 再次归一化，确保其在 [-1, 1] 范围内，并处理可能的极端值
         return self._normalize_series(bipolar_cohesion_score, df_index, bipolar=True)
 
     def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False, ascending: bool = True) -> pd.Series:
@@ -283,17 +271,17 @@ class ProcessIntelligenceHelper:
                 tf_weights=actual_mtf_weights
             )
 
-    def _get_atomic_score(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> pd.Series:
+    def _get_atomic_score(self, df: pd.DataFrame, score_name: str, default_value: float = np.nan) -> pd.Series:
         """
         【V1.0 · 原子信号访问器】
         - 核心职责: 提供一个标准的、安全的方法来从 self.strategy.atomic_states 中获取预先计算好的原子信号。
         - 核心逻辑: 尝试从 atomic_states 字典中获取指定的信号 Series。如果不存在，则打印警告并
-                     返回一个与 df 索引对齐的、填充了默认值的 Series，以保证数据流的健壮性。
+                     返回一个与 df 索引对齐的、填充了np.nan的Series，以暴露问题。
         """
         score_series = self.strategy.atomic_states.get(score_name)
         if score_series is None:
-            print(f"    -> [过程情报警告] 依赖的原子信号 '{score_name}' 不存在，使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index)
+            print(f"    -> [过程情报警告] 依赖的原子信号 '{score_name}' 不存在，返回填充np.nan的Series。")
+            return pd.Series(np.nan, index=df.index)
         return score_series
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
