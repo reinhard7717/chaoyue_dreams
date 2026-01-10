@@ -130,7 +130,7 @@ class CalculateWinnerConvictionDecay:
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 赢家信念衰减诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
         self.helper._print_debug_output(debug_output)
 
-    def _get_decay_params_and_signals(self, config: Dict, method_name: str) -> Tuple[Dict, Dict, Dict, List[str], List[str]]:
+    def _get_decay_params_and_signals(self, config: Dict, method_name: str) -> Tuple[Dict, List[str]]:
         """
         获取赢家信念衰减计算所需的所有参数和信号列表。
         """
@@ -155,12 +155,15 @@ class CalculateWinnerConvictionDecay:
             "buy_quote_exhaustion": 0.2, "bid_side_liquidity_inverted": 0.15,
             "main_force_slippage": 0.15
         })
+        # 修正此处的默认值，使其与 process.json 中的最新配置同步
         contextual_modulator_weights = get_param_value(decay_params.get('contextual_modulator_weights'), {
-            "price_overextension_composite": 0.2, "retail_fomo": 0.15,
-            "market_tension": 0.15, "sentiment_pendulum_negative": 0.1,
-            "structural_tension": 0.1, "volatility_expansion": 0.1,
-            "chip_health_inverted": 0.1, "market_impact_cost": 0.05,
-            "buying_resistance_collapse": 0.05
+            "price_overextension_composite": 0.3,
+            "retail_fomo": 0.2,
+            "market_tension": 0.2,
+            "sentiment_pendulum_negative": 0.3,
+            "market_sentiment": 0.3,        # 新增
+            "volatility_stability": 0.3,    # 新增
+            "trend_vitality": 0.4           # 新增
         })
         dynamic_fusion_exponent_params = get_param_value(decay_params.get('dynamic_fusion_exponent_params'), {"enabled": False, "base_exponent": 1.5})
         price_overextension_composite_weights = get_param_value(decay_params.get('price_overextension_composite_weights'), {"bias_13": 0.3, "bias_21": 0.2, "rsi_13": 0.3, "bbp_21": 0.2})
