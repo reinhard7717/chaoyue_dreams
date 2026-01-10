@@ -163,11 +163,13 @@ class CalculateWinnerConvictionDecay:
         获取赢家信念衰减计算所需的所有参数和信号列表。
         """
         decay_params = get_param_value(config.get('winner_conviction_decay_params'), {})
+
         mtf_slope_accel_weights = get_param_value(decay_params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3}, "accel_periods": {"5": 0.6}})
+        
         belief_decay_components_weights = get_param_value(decay_params.get('belief_decay_components_weights'), {
             "winner_stability_mtf": 0.4, "winner_profit_margin_avg_inverted": 0.2,
             "total_winner_rate_inverted": 0.2, "chip_fatigue": 0.1,
-            "winner_concentration_inverted": 0.1 # 新增默认值
+            "winner_concentration_inverted": 0.1
         })
         profit_pressure_components_weights = get_param_value(decay_params.get('profit_pressure_components_weights'), {
             "profit_taking_flow_mtf": 0.3, "active_selling_pressure": 0.2,
@@ -206,9 +208,11 @@ class CalculateWinnerConvictionDecay:
             "context_modulator": 0.1
         })
         final_exponent = get_param_value(decay_params.get('final_exponent'), 1.5)
+        
         # 核心信号名称
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
+
         # 更新所有必需的DF列和原子信号
         required_df_columns = [
             belief_signal_name, pressure_signal_name,
@@ -224,9 +228,9 @@ class CalculateWinnerConvictionDecay:
             'structural_tension_index_D', 'volatility_expansion_ratio_D',
             'chip_health_score_D', 'market_impact_cost_D',
             'trend_vitality_index_D',
-            'cost_dispersion_index_D', # 新增：筹码分散度
-            'winner_concentration_index_D', # 新增：赢家筹码集中度
-            'upward_purity_index_D' # 新增：上涨纯度
+            'cost_dispersion_index_D',
+            'winner_concentration_index_D',
+            'upward_purity_index_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in [belief_signal_name, pressure_signal_name, 'winner_profit_margin_avg_D', 'total_winner_rate_D', 'chip_fatigue_index_D',
@@ -235,24 +239,28 @@ class CalculateWinnerConvictionDecay:
                          'pressure_rejection_strength_D', 'rally_buy_support_weakness_D', 'buy_quote_exhaustion_rate_D',
                          'bid_side_liquidity_D', 'main_force_slippage_index_D', 'structural_tension_index_D',
                          'volatility_expansion_ratio_D', 'chip_health_score_D', 'market_impact_cost_D', 'trend_vitality_index_D',
-                         'cost_dispersion_index_D', 'winner_concentration_index_D', 'upward_purity_index_D']: # 确保新信号也参与MTF信号的动态添加
+                         'cost_dispersion_index_D', 'winner_concentration_index_D', 'upward_purity_index_D']:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_df_columns.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_df_columns.append(f'ACCEL_{period_str}_{base_sig}')
+
         # 根据 contextual_mtf_config 动态添加情境调制器所需的 MTF 信号
         for config_key, config_val in contextual_mtf_config.items():
-            base_signal_name_for_mtf = config_val.get('base_signal_name')
-            if base_signal_name_for_mtf:
-                for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                    required_df_columns.append(f'SLOPE_{period_str}_{base_signal_name_for_mtf}')
-                for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                    required_df_columns.append(f'ACCEL_{period_str}_{base_signal_name_for_mtf}')
+            if isinstance(config_val, dict): # 增加类型检查
+                base_signal_name_for_mtf = config_val.get('base_signal_name')
+                if base_signal_name_for_mtf:
+                    for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+                        required_df_columns.append(f'SLOPE_{period_str}_{base_signal_name_for_mtf}')
+                    for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+                        required_df_columns.append(f'ACCEL_{period_str}_{base_signal_name_for_mtf}')
+
         required_atomic_signals = [
             'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER',
             'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'
         ]
         all_required_signals = required_df_columns + required_atomic_signals
+
         params_dict = {
             'decay_params': decay_params,
             'mtf_slope_accel_weights': mtf_slope_accel_weights,
@@ -280,6 +288,7 @@ class CalculateWinnerConvictionDecay:
         pressure_signal_name = params_dict['pressure_signal_name']
         contextual_mtf_config = params_dict['contextual_mtf_config']
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
+
         raw_signals = {
             "belief_signal_raw": self.helper._get_safe_series(df, belief_signal_name, 0.0, method_name=method_name),
             "pressure_signal_raw": self.helper._get_safe_series(df, pressure_signal_name, 0.0, method_name=method_name),
@@ -314,20 +323,23 @@ class CalculateWinnerConvictionDecay:
             "chip_health_raw": self.helper._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name),
             "market_impact_cost_raw": self.helper._get_safe_series(df, 'market_impact_cost_D', 0.0, method_name=method_name),
             "trend_vitality_raw": self.helper._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name),
-            "cost_dispersion_raw": self.helper._get_safe_series(df, 'cost_dispersion_index_D', 0.0, method_name=method_name), # 新增
-            "winner_concentration_raw": self.helper._get_safe_series(df, 'winner_concentration_index_D', 0.0, method_name=method_name), # 新增
-            "upward_purity_raw": self.helper._get_safe_series(df, 'upward_purity_index_D', 0.0, method_name=method_name) # 新增
+            "cost_dispersion_raw": self.helper._get_safe_series(df, 'cost_dispersion_index_D', 0.0, method_name=method_name),
+            "winner_concentration_raw": self.helper._get_safe_series(df, 'winner_concentration_index_D', 0.0, method_name=method_name),
+            "upward_purity_raw": self.helper._get_safe_series(df, 'upward_purity_index_D', 0.0, method_name=method_name)
         }
+
         # 获取情境调制器所需的 MTF 信号
         for config_key, config_val in contextual_mtf_config.items():
-            base_signal_name_for_mtf = config_val.get('base_signal_name')
-            if base_signal_name_for_mtf:
-                for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                    slope_col = f'SLOPE_{period_str}_{base_signal_name_for_mtf}'
-                    raw_signals[slope_col] = self.helper._get_safe_series(df, slope_col, 0.0, method_name=method_name)
-                for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                    accel_col = f'ACCEL_{period_str}_{base_signal_name_for_mtf}'
-                    raw_signals[accel_col] = self.helper._get_safe_series(df, accel_col, 0.0, method_name=method_name)
+            if isinstance(config_val, dict): # 增加类型检查
+                base_signal_name_for_mtf = config_val.get('base_signal_name')
+                if base_signal_name_for_mtf:
+                    for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+                        slope_col = f'SLOPE_{period_str}_{base_signal_name_for_mtf}'
+                        raw_signals[slope_col] = self.helper._get_safe_series(df, slope_col, 0.0, method_name=method_name)
+                    for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+                        accel_col = f'ACCEL_{period_str}_{base_signal_name_for_mtf}'
+                        raw_signals[accel_col] = self.helper._get_safe_series(df, accel_col, 0.0, method_name=method_name)
+        
         return raw_signals
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
@@ -435,6 +447,7 @@ class CalculateWinnerConvictionDecay:
         contextual_modulator_weights = params_dict['contextual_modulator_weights']
         contextual_mtf_config = params_dict['contextual_mtf_config']
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
+
         # --- 原料数据存在性检查 ---
         required_raw_signals = [
             "market_sentiment_raw", "volatility_instability_raw", "trend_vitality_raw",
@@ -444,8 +457,10 @@ class CalculateWinnerConvictionDecay:
             if sig_name not in raw_signals or raw_signals[sig_name].empty:
                 print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}'，情境调制计算可能不完整。")
                 return pd.Series(0.5, index=df_index, dtype=np.float32) # 返回中性调制因子
+
         # --- 1. 计算当前情境信号 ---
         norm_market_sentiment = self.helper._normalize_series(raw_signals["market_sentiment_raw"], df_index, bipolar=True)
+        
         # 波动率不稳定性转换为稳定性，并归一化
         volatility_stability_raw = 1 - normalize_score(
             raw_signals["volatility_instability_raw"], 
@@ -454,47 +469,56 @@ class CalculateWinnerConvictionDecay:
             ascending=True
         )
         norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
+        
         norm_trend_vitality = self.helper._normalize_series(raw_signals["trend_vitality_raw"], df_index, bipolar=False)
+
         # 新增：筹码分散度反向归一化 (分散度越高，信念衰减越严重)
         norm_cost_dispersion_inverted = self.helper._normalize_series(raw_signals["cost_dispersion_raw"], df_index, bipolar=True, ascending=False)
         # 新增：上涨纯度反向归一化 (纯度越低，信念衰减越严重)
         norm_upward_purity_inverted = self.helper._normalize_series(raw_signals["upward_purity_raw"], df_index, bipolar=True, ascending=False)
+        
         # --- 2. 计算MTF增强情境信号 ---
         mtf_enhanced_signals = {}
         mtf_signals_for_resonance = [] # 用于计算共振的MTF信号
+        
         for config_key, config_val in contextual_mtf_config.items():
-            base_signal_name_for_mtf = config_val.get('base_signal_name')
-            is_bipolar_mtf = config_val.get('bipolar', True)
-            is_inverted_for_stability = config_val.get('inverted_for_stability', False)
-            is_inverted_for_decay = config_val.get('inverted_for_decay', False)
-            if base_signal_name_for_mtf not in raw_signals:
-                print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_for_mtf}'。")
-                continue
-            # 如果需要，先将原始信号转换为稳定性或反向
-            processed_base_signal = raw_signals[base_signal_name_for_mtf]
-            if is_inverted_for_stability:
-                processed_base_signal = 1 - normalize_score(processed_base_signal, df_index, 21, ascending=True)
-            elif is_inverted_for_decay:
-                processed_base_signal = self.helper._normalize_series(processed_base_signal, df_index, bipolar=False, ascending=True)
-                processed_base_signal = 1 - processed_base_signal
-            # 计算MTF斜率/加速度融合分数
-            mtf_score = self.helper._get_mtf_slope_accel_score(
-                df,
-                base_signal_name_for_mtf,
-                mtf_slope_accel_weights,
-                df_index,
-                method_name,
-                bipolar=is_bipolar_mtf
-            )
-            
-            norm_mtf_score = mtf_score 
-            
-            mtf_enhanced_signals[f"mtf_{config_key}"] = norm_mtf_score
-            mtf_signals_for_resonance.append(norm_mtf_score)
+            if isinstance(config_val, dict): # 增加类型检查
+                base_signal_name_for_mtf = config_val.get('base_signal_name')
+                is_bipolar_mtf = config_val.get('bipolar', True)
+                is_inverted_for_stability = config_val.get('inverted_for_stability', False)
+                is_inverted_for_decay = config_val.get('inverted_for_decay', False)
+
+                if base_signal_name_for_mtf not in raw_signals:
+                    print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_for_mtf}'。")
+                    continue
+
+                # 如果需要，先将原始信号转换为稳定性或反向
+                processed_base_signal = raw_signals[base_signal_name_for_mtf]
+                if is_inverted_for_stability:
+                    processed_base_signal = 1 - normalize_score(processed_base_signal, df_index, 21, ascending=True)
+                elif is_inverted_for_decay:
+                    processed_base_signal = self.helper._normalize_series(processed_base_signal, df_index, bipolar=False, ascending=True)
+                    processed_base_signal = 1 - processed_base_signal
+
+                # 计算MTF斜率/加速度融合分数
+                mtf_score = self.helper._get_mtf_slope_accel_score(
+                    df,
+                    base_signal_name_for_mtf,
+                    mtf_slope_accel_weights,
+                    df_index,
+                    method_name,
+                    bipolar=is_bipolar_mtf
+                )
+                
+                norm_mtf_score = mtf_score 
+                
+                mtf_enhanced_signals[f"mtf_{config_key}"] = norm_mtf_score
+                mtf_signals_for_resonance.append(norm_mtf_score)
+
         # --- 3. 计算情境共振 ---
         context_mtf_resonance = pd.Series(0.0, index=df_index, dtype=np.float32)
         if len(mtf_signals_for_resonance) >= 2:
-            base_signal_names_for_resonance = [config_val.get('base_signal_name') for config_key, config_val in contextual_mtf_config.items() if config_val.get('base_signal_name')]
+            base_signal_names_for_resonance = [config_val.get('base_signal_name') for config_key, config_val in contextual_mtf_config.items() if isinstance(config_val, dict) and config_val.get('base_signal_name')]
             context_mtf_resonance = self.helper._get_mtf_resonance_score(
                 df,
                 base_signal_names_for_resonance,
@@ -504,6 +528,7 @@ class CalculateWinnerConvictionDecay:
             )
         else:
             print(f"    -> [过程情报警告] {method_name}: MTF共振计算至少需要2个信号，当前只有 {len(mtf_signals_for_resonance)} 个。共振分设置为0。")
+
         # --- 4. 融合所有情境因子 ---
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
@@ -514,6 +539,7 @@ class CalculateWinnerConvictionDecay:
             **mtf_enhanced_signals,
             "context_resonance": context_mtf_resonance
         }
+        
         # 确保输入 _robust_geometric_mean 的所有分数都是正值
         positive_components = {}
         for k, v in context_modulator_components.items():
@@ -521,12 +547,14 @@ class CalculateWinnerConvictionDecay:
                 positive_components[k] = (v + 1) / 2
             else:
                 positive_components[k] = v
+
         context_modulator_score = _robust_geometric_mean(
             positive_components,
             contextual_modulator_weights,
             df_index
         )
         context_modulator = 0.5 + context_modulator_score
+        
         # --- 探针输出 ---
         _temp_debug_values["情境调制"] = {
             "norm_market_sentiment": norm_market_sentiment,

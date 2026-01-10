@@ -1327,11 +1327,11 @@
                         }
                     },
                     "price_overextension_composite_weights": {
-                    "description": "价格超买亢奋复合分融合权重。",
-                    "bias_13": 0.3,
-                    "bias_21": 0.2,
-                    "rsi_13": 0.3,
-                    "bbp_21": 0.2
+                        "description": "价格超买亢奋复合分融合权重。",
+                        "bias_13": 0.3,
+                        "bias_21": 0.2,
+                        "rsi_13": 0.3,
+                        "bbp_21": 0.2
                     },
                     "final_fusion_exponent": 1.5,
                     "comment_final_fusion_exponent": "最终融合分数的非线性指数，用于放大或平滑结果。",
