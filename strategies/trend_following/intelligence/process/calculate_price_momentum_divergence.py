@@ -616,7 +616,7 @@ class CalculatePriceMomentumDivergence:
         return context_modulator, debug_values
 
     def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series, fused_mf_net_flow_slope: pd.Series, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
-        """V1.5 · 动态融合权重、动态指数、显式交互项及RDI增强版 (新增RDI启用状态调试)"""
+        """V1.6 · 动态融合权重、动态指数、显式交互项及RDI增强版 (修复RDI键匹配问题)"""
         final_fusion_exponent_base = pmd_params['final_fusion_exponent']
         synergy_threshold = pmd_params['synergy_threshold']
         synergy_bonus_factor = pmd_params['synergy_bonus_factor']
@@ -625,8 +625,6 @@ class CalculatePriceMomentumDivergence:
         dynamic_exponent_params = pmd_params['dynamic_exponent_params']
         interaction_terms_weights = pmd_params['interaction_terms_weights']
         rdi_params = pmd_params['rdi_params']
-        # 调试打印：检查RDI是否启用
-        print(f"  [DEBUG] RDI params enabled status: {rdi_params.get('enabled')}")
         final_components = {
             "base_divergence": base_divergence_score.abs(),
             "volume_confirmation": volume_confirmation_score.abs(),
@@ -802,7 +800,8 @@ class CalculatePriceMomentumDivergence:
             inflection_term = ((inflection_A_term + inflection_B_term) / 2).fillna(0)
             # 结合RDI项，背离作为惩罚项
             period_rdi_score = resonance_term - divergence_term + inflection_term
-            all_rdi_scores_by_period[f"rdi_p{p}"] = period_rdi_score
+            # 修复：将键改为 str(p) 以匹配 rdi_period_weights 的键
+            all_rdi_scores_by_period[str(p)] = period_rdi_score
             period_debug_values[f"{pair_name}_tendency_A_p{p}"] = tendency_A
             period_debug_values[f"{pair_name}_tendency_B_p{p}"] = tendency_B
             period_debug_values[f"{pair_name}_resonance_term_p{p}"] = resonance_term
