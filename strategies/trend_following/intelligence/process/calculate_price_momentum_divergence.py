@@ -111,7 +111,7 @@ class CalculatePriceMomentumDivergence:
         return final_score.astype(np.float32)
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V1.2 · 参数扩展版 (新增累积资金流配置)"""
+        """V1.3 · 参数扩展版 (新增累积资金流配置及聪明钱/题材热度权重)"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         return {
             "price_components_weights": get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2}),
@@ -120,10 +120,10 @@ class CalculatePriceMomentumDivergence:
             "mtf_accel_weights": get_param_value(params.get('mtf_accel_weights'), {"5": 0.6, "13": 0.4}),
             "volume_confirmation_weights": get_param_value(params.get('volume_confirmation_weights'), {"volume_slope": 0.5, "volume_burst": 0.2, "volume_atrophy": 0.3, "constructive_turnover": 0.1, "volume_structure_skew_inverted": 0.1, "volume_profile_entropy_inverted": 0.05}),
             "dynamic_volume_confirmation_modulators": get_param_value(params.get('dynamic_volume_confirmation_modulators'), {"enabled": False}),
-            "main_force_confirmation_weights": get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1, "mf_buy_ofi_positive": 0.05, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "main_force_slippage_inverted": 0.05, "winner_concentration_positive": 0.05, "loser_pain_positive": 0.05, "cumulative_mf_flow": 0.1}),
-            "cumulative_mf_flow_periods": get_param_value(params.get('cumulative_mf_flow_periods'), {"13": 0.6, "21": 0.4}), # 新增：累积资金流周期及权重
+            "main_force_confirmation_weights": get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1, "mf_buy_ofi_positive": 0.05, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "main_force_slippage_inverted": 0.05, "winner_concentration_positive": 0.05, "loser_pain_positive": 0.05, "cumulative_mf_flow": 0.1, "smart_money_inst_net_buy": 0.05}), # 新增 smart_money_inst_net_buy
+            "cumulative_mf_flow_periods": get_param_value(params.get('cumulative_mf_flow_periods'), {"13": 0.6, "21": 0.4}),
             "dynamic_main_force_confirmation_modulators": get_param_value(params.get('dynamic_main_force_confirmation_modulators'), {"enabled": False}),
-            "context_modulator_weights": get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15, "mean_reversion_inverse": 0.05, "trend_alignment": 0.05}),
+            "context_modulator_weights": get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15, "mean_reversion_inverse": 0.05, "trend_alignment": 0.05, "theme_hotness": 0.05}), # 新增 theme_hotness
             "divergence_quality_weights": get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15, "divergence_purity": 0.1}),
             "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.5),
             "synergy_threshold": get_param_value(params.get('synergy_threshold'), 0.6),
@@ -133,12 +133,12 @@ class CalculatePriceMomentumDivergence:
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
-        """V1.2 · 信号扩展版 (新增累积资金流信号)"""
+        """V1.3 · 信号扩展版 (新增累积资金流、聪明钱和题材热度信号)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         mtf_accel_weights = pmd_params['mtf_accel_weights']
-        cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods'] # 获取累积资金流周期
+        cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods']
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
-        valid_cumulative_periods = [p_str for p_str in cumulative_mf_flow_periods.keys() if p_str.isdigit()] # 获取有效的累积周期
+        valid_cumulative_periods = [p_str for p_str in cumulative_mf_flow_periods.keys() if p_str.isdigit()]
         required_signals = [
             *[f'SLOPE_{p}_close_D' for p in valid_mtf_periods],
             *[f'SLOPE_{p}_MACDh_13_34_8_D' for p in valid_mtf_periods],
@@ -147,7 +147,7 @@ class CalculatePriceMomentumDivergence:
             *[f'SLOPE_{p}_volume_D' for p in valid_mtf_periods],
             'volume_burstiness_index_D', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
             *[f'SLOPE_{p}_main_force_net_flow_calibrated_D' for p in valid_mtf_periods],
-            *[f'CUM_{p}_main_force_net_flow_calibrated_D' for p in valid_cumulative_periods], # 新增：累积资金流信号
+            *[f'CUM_{p}_main_force_net_flow_calibrated_D' for p in valid_cumulative_periods],
             'deception_index_D', 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_CHIP_AXIOM_DIVERGENCE',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
             'PROCESS_META_COVERT_ACCUMULATION',
@@ -171,7 +171,9 @@ class CalculatePriceMomentumDivergence:
             'main_force_slippage_index_D',
             'winner_concentration_90pct_D', 'loser_concentration_90pct_D',
             'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            'mean_reversion_frequency_D', 'trend_alignment_index_D'
+            'mean_reversion_frequency_D', 'trend_alignment_index_D',
+            'SMART_MONEY_INST_NET_BUY_D', # 新增
+            'THEME_HOTNESS_SCORE_D'       # 新增
         ]
         for p_str in mtf_accel_weights.keys():
             p = int(p_str)
@@ -184,11 +186,11 @@ class CalculatePriceMomentumDivergence:
         return self.helper._validate_required_signals(df, required_signals, method_name)
 
     def _get_pmd_raw_data(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> Dict[str, pd.Series]:
-        """V1.2 · 原始数据扩展版 (新增累积资金流)"""
+        """V1.3 · 原始数据扩展版 (新增累积资金流、聪明钱和题材热度)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
-        cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods'] # 获取累积资金流周期
+        cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods']
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
-        valid_cumulative_periods = [p_str for p_str in cumulative_mf_flow_periods.keys() if p_str.isdigit()] # 获取有效的累积周期
+        valid_cumulative_periods = [p_str for p_str in cumulative_mf_flow_periods.keys() if p_str.isdigit()]
         raw_data = {}
         raw_data['price_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['macdh_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_MACDh_13_34_8_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
@@ -218,7 +220,6 @@ class CalculatePriceMomentumDivergence:
         raw_data['liquidity_tide_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
         raw_data['market_constitution_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
         raw_data['market_tension_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
-        # 新增的原始数据
         raw_data['volume_profile_entropy_raw'] = self.helper._get_safe_series(df, 'volume_profile_entropy_D', 0.0, method_name=method_name)
         raw_data['upward_impulse_strength_raw'] = self.helper._get_safe_series(df, 'upward_impulse_strength_D', 0.0, method_name=method_name)
         raw_data['downward_impulse_strength_raw'] = self.helper._get_safe_series(df, 'downward_impulse_strength_D', 0.0, method_name=method_name)
@@ -233,8 +234,10 @@ class CalculatePriceMomentumDivergence:
         raw_data['loser_loss_margin_avg_raw'] = self.helper._get_safe_series(df, 'loser_loss_margin_avg_D', 0.0, method_name=method_name)
         raw_data['mean_reversion_frequency_raw'] = self.helper._get_safe_series(df, 'mean_reversion_frequency_D', 0.0, method_name=method_name)
         raw_data['trend_alignment_index_raw'] = self.helper._get_safe_series(df, 'trend_alignment_index_D', 0.0, method_name=method_name)
-        # 新增：累积资金流原始数据
         raw_data['cumulative_mf_flow_raw'] = {p: self.helper._get_safe_series(df, f'CUM_{p}_main_force_net_flow_calibrated_D', 0.0, method_name=method_name) for p in valid_cumulative_periods}
+        # 新增：聪明钱和题材热度原始数据
+        raw_data['smart_money_inst_net_buy_raw'] = self.helper._get_atomic_score(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0)
+        raw_data['theme_hotness_raw'] = self.helper._get_atomic_score(df, 'THEME_HOTNESS_SCORE_D', 0.0)
         return raw_data
 
     def _calculate_fused_price_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
@@ -339,10 +342,10 @@ class CalculatePriceMomentumDivergence:
         return volume_confirmation_score, debug_values
 
     def _calculate_main_force_confirmation_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, method_name: str) -> Tuple[pd.Series, Dict]:
-        """V1.3 · 主力微观与筹码结构及累积资金流增强版"""
+        """V1.4 · 主力微观与筹码结构、累积资金流及聪明钱增强版"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         main_force_confirmation_weights = pmd_params['main_force_confirmation_weights']
-        cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods'] # 获取累积资金流周期
+        cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods']
         dynamic_main_force_confirmation_modulators = pmd_params['dynamic_main_force_confirmation_modulators']
         fused_mf_net_flow_slope = self.helper._get_mtf_slope_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_weights, df_index, method_name, bipolar=True)
         deception_index_norm = self.helper._normalize_series(raw_data.get('deception_index_raw', pd.Series(0.0, index=df_index)), df_index, bipolar=True)
@@ -351,21 +354,20 @@ class CalculatePriceMomentumDivergence:
         chip_divergence_norm = self.helper._normalize_series(raw_data.get('chip_divergence_score', pd.Series(0.0, index=df_index)), df_index, bipolar=True)
         main_force_conviction_norm = self.helper._normalize_series(raw_data.get('main_force_conviction_raw', pd.Series(0.0, index=df_index)), df_index, bipolar=True)
         chip_health_norm = self.helper._normalize_series(raw_data.get('chip_health_raw', pd.Series(0.0, index=df_index)), df_index, bipolar=False)
-        # 新增：微观订单流与执行质量
         mf_buy_ofi_positive = self.helper._normalize_series(raw_data.get('main_force_buy_ofi_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
-        mf_sell_ofi_negative = self.helper._normalize_series(raw_data.get('main_force_sell_ofi_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False) # 卖出订单流越低越好
+        mf_sell_ofi_negative = self.helper._normalize_series(raw_data.get('main_force_sell_ofi_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False)
         order_book_imbalance_positive = self.helper._normalize_series(raw_data.get('order_book_imbalance_raw', pd.Series(0.0, index=df_index)).clip(lower=0), df_index, ascending=True)
         micro_price_impact_asymmetry_positive = self.helper._normalize_series(raw_data.get('micro_price_impact_asymmetry_raw', pd.Series(0.0, index=df_index)).clip(lower=0), df_index, ascending=True)
-        main_force_slippage_inverted = self.helper._normalize_series(raw_data.get('main_force_slippage_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False) # 滑点越低越好
-        # 新增：筹码结构与利润分布
+        main_force_slippage_inverted = self.helper._normalize_series(raw_data.get('main_force_slippage_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False)
         winner_concentration_positive = self.helper._normalize_series(raw_data.get('winner_concentration_90pct_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
         loser_pain_positive = self.helper._normalize_series(raw_data.get('loser_pain_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
-        # 新增：融合累积主力资金流
         cumulative_mf_flow_components = {}
         for p_str, weight in cumulative_mf_flow_periods.items():
             cum_flow_raw = raw_data['cumulative_mf_flow_raw'].get(p_str, pd.Series(0.0, index=df_index))
             cumulative_mf_flow_components[f'CUM_{p_str}_mf_flow'] = self.helper._normalize_series(cum_flow_raw, df_index, bipolar=True)
         fused_cumulative_mf_flow = _robust_geometric_mean(cumulative_mf_flow_components, cumulative_mf_flow_periods, df_index)
+        # 新增：聪明钱机构净买入
+        smart_money_inst_net_buy_norm = self.helper._normalize_series(raw_data.get('smart_money_inst_net_buy_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
         current_main_force_confirmation_weights = main_force_confirmation_weights.copy()
         if get_param_value(dynamic_main_force_confirmation_modulators.get('enabled'), False):
             modulator_signal_raw = self.helper._get_atomic_score(df, dynamic_main_force_confirmation_modulators['modulator_signal'], 0.0)
@@ -389,7 +391,8 @@ class CalculatePriceMomentumDivergence:
             "main_force_slippage_inverted": main_force_slippage_inverted,
             "winner_concentration_positive": winner_concentration_positive,
             "loser_pain_positive": loser_pain_positive,
-            "cumulative_mf_flow_positive": fused_cumulative_mf_flow.clip(lower=0) # 新增：累积资金流正向部分
+            "cumulative_mf_flow_positive": fused_cumulative_mf_flow.clip(lower=0),
+            "smart_money_inst_net_buy": smart_money_inst_net_buy_norm # 新增
         }
         bottom_mf_conf_components = {
             "mf_net_flow_slope_positive": fused_mf_net_flow_slope.clip(lower=0),
@@ -404,7 +407,8 @@ class CalculatePriceMomentumDivergence:
             "main_force_slippage_positive": self.helper._normalize_series(raw_data.get('main_force_slippage_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True),
             "loser_concentration_positive": self.helper._normalize_series(raw_data.get('loser_concentration_90pct_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True),
             "winner_profit_margin_high": self.helper._normalize_series(raw_data.get('winner_profit_margin_avg_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True),
-            "cumulative_mf_flow_negative": fused_cumulative_mf_flow.clip(upper=0).abs() # 新增：累积资金流负向部分
+            "cumulative_mf_flow_negative": fused_cumulative_mf_flow.clip(upper=0).abs(),
+            "smart_money_inst_net_buy": smart_money_inst_net_buy_norm # 新增
         }
         top_mf_conf = _robust_geometric_mean(top_mf_conf_components, current_main_force_confirmation_weights, df_index)
         bottom_mf_conf = _robust_geometric_mean(bottom_mf_conf_components, current_main_force_confirmation_weights, df_index)
@@ -427,7 +431,8 @@ class CalculatePriceMomentumDivergence:
             "main_force_slippage_inverted": main_force_slippage_inverted,
             "winner_concentration_positive": winner_concentration_positive,
             "loser_pain_positive": loser_pain_positive,
-            "fused_cumulative_mf_flow": fused_cumulative_mf_flow, # 新增
+            "fused_cumulative_mf_flow": fused_cumulative_mf_flow,
+            "smart_money_inst_net_buy_norm": smart_money_inst_net_buy_norm, # 新增
             "top_mf_conf": top_mf_conf,
             "bottom_mf_conf": bottom_mf_conf,
             "main_force_confirmation_score": main_force_confirmation_score
@@ -479,34 +484,45 @@ class CalculatePriceMomentumDivergence:
         return divergence_quality_score, debug_values
 
     def _calculate_context_modulator(self, df_index: pd.Index, raw_data: Dict, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
-        """V1.1 · 市场机制感知版"""
+        """V1.2 · 市场机制感知版 (新增题材热度及市场情绪动态权重)"""
         context_modulator_weights = pmd_params['context_modulator_weights']
         volatility_instability_norm_inverted = self.helper._normalize_series(raw_data['volatility_instability_raw'], df_index, ascending=False)
         adx_norm_inverted = self.helper._normalize_series(raw_data['adx_raw'], df_index, ascending=False)
         market_sentiment_norm_bipolar = self.helper._normalize_series(raw_data['market_sentiment_raw'], df_index, bipolar=True)
         liquidity_tide_calm_norm = self.helper._normalize_series(raw_data['liquidity_tide_score'].abs(), df_index, ascending=False)
         market_constitution_neutrality_norm = 1 - self.helper._normalize_series(raw_data['market_constitution_score'].abs(), df_index, ascending=True)
-        # 新增：市场机制信号
-        mean_reversion_inverse_norm = self.helper._normalize_series(raw_data['mean_reversion_frequency_raw'], df_index, ascending=False) # 均值回归频率越低越好（趋势性越强）
-        trend_alignment_norm = self.helper._normalize_series(raw_data['trend_alignment_index_raw'], df_index, ascending=True) # 趋势对齐指数越高越好
+        mean_reversion_inverse_norm = self.helper._normalize_series(raw_data['mean_reversion_frequency_raw'], df_index, ascending=False)
+        trend_alignment_norm = self.helper._normalize_series(raw_data['trend_alignment_index_raw'], df_index, ascending=True)
+        # 新增：题材热度
+        theme_hotness_norm = self.helper._normalize_series(raw_data.get('theme_hotness_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
         context_modulator_components = {
             "volatility_inverse": volatility_instability_norm_inverted,
             "trend_strength_inverse": adx_norm_inverted,
             "sentiment_neutrality": 1 - market_sentiment_norm_bipolar.abs(),
             "liquidity_tide_calm": liquidity_tide_calm_norm,
             "market_constitution_neutrality": market_constitution_neutrality_norm,
-            "mean_reversion_inverse": mean_reversion_inverse_norm, # 新增
-            "trend_alignment": trend_alignment_norm # 新增
+            "mean_reversion_inverse": mean_reversion_inverse_norm,
+            "trend_alignment": trend_alignment_norm,
+            "theme_hotness": theme_hotness_norm # 新增
         }
-        context_modulator = _robust_geometric_mean(context_modulator_components, context_modulator_weights, df_index)
+        # 动态调整市场情绪中性度的权重：如果原始市场情绪为0，则其权重也为0
+        dynamic_context_modulator_weights = context_modulator_weights.copy()
+        sentiment_neutrality_base_weight = dynamic_context_modulator_weights.get("sentiment_neutrality", 0.0)
+        dynamic_sentiment_neutrality_weight = pd.Series(sentiment_neutrality_base_weight, index=df_index, dtype=np.float32)
+        is_market_sentiment_raw_zero = (raw_data.get('market_sentiment_raw', pd.Series(0.0, index=df_index)).abs() < 1e-9)
+        dynamic_sentiment_neutrality_weight.loc[is_market_sentiment_raw_zero] = 0.0
+        dynamic_context_modulator_weights["sentiment_neutrality"] = dynamic_sentiment_neutrality_weight # 将权重替换为Series
+        context_modulator = _robust_geometric_mean(context_modulator_components, dynamic_context_modulator_weights, df_index)
         debug_values = {
             "volatility_instability_norm_inverted": volatility_instability_norm_inverted,
             "adx_norm_inverted": adx_norm_inverted,
             "market_sentiment_norm_bipolar": market_sentiment_norm_bipolar,
             "liquidity_tide_calm_norm": liquidity_tide_calm_norm,
             "market_constitution_neutrality_norm": market_constitution_neutrality_norm,
-            "mean_reversion_inverse_norm": mean_reversion_inverse_norm, # 新增
-            "trend_alignment_norm": trend_alignment_norm, # 新增
+            "mean_reversion_inverse_norm": mean_reversion_inverse_norm,
+            "trend_alignment_norm": trend_alignment_norm,
+            "theme_hotness_norm": theme_hotness_norm, # 新增
+            "dynamic_sentiment_neutrality_weight": dynamic_sentiment_neutrality_weight, # 新增调试信息
             "context_modulator": context_modulator
         }
         return context_modulator, debug_values
