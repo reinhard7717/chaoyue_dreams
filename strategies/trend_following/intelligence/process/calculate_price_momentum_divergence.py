@@ -12,6 +12,34 @@ from strategies.trend_following.utils import (
 )
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
+def _weighted_sum_fusion(components: Dict[str, pd.Series], weights: Dict[str, Union[float, pd.Series]], index: pd.Index) -> pd.Series:
+    """
+    计算加权和，对0值进行鲁棒处理。
+    如果某个组件的权重为0，则不计入总和。
+    """
+    if not components:
+        return pd.Series(0.0, index=index, dtype=np.float32)
+    weight_series_map = {}
+    for k, w in weights.items():
+        if isinstance(w, (int, float)):
+            weight_series_map[k] = pd.Series(w, index=index, dtype=np.float32)
+        else:
+            weight_series_map[k] = w.astype(np.float32)
+    fused_score = pd.Series(0.0, index=index, dtype=np.float32)
+    total_effective_weight = pd.Series(0.0, index=index, dtype=np.float32)
+    for k, series in components.items():
+        if k not in weight_series_map:
+            continue
+        series = series.astype(np.float32)
+        current_weight = weight_series_map[k]
+        non_zero_weight_mask = (current_weight.abs() > 1e-9)
+        fused_score.loc[non_zero_weight_mask] += series.loc[non_zero_weight_mask] * current_weight.loc[non_zero_weight_mask]
+        total_effective_weight.loc[non_zero_weight_mask] += current_weight.loc[non_zero_weight_mask]
+    result = pd.Series(0.0, index=index, dtype=np.float32)
+    non_zero_total_weight_mask = (total_effective_weight.abs() > 1e-9)
+    result.loc[non_zero_total_weight_mask] = fused_score.loc[non_zero_total_weight_mask] / total_effective_weight.loc[non_zero_total_weight_mask]
+    return result
+
 class CalculatePriceMomentumDivergence:
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -110,7 +138,7 @@ class CalculatePriceMomentumDivergence:
         return final_score.astype(np.float32)
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V1.5 · 参数精简与替换版 (移除未提供信号，替换语义相近信号)"""
+        """V1.6 · 参数精简与替换版 (移除未提供信号，替换语义相近信号，新增RDI参数)"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         return {
             "price_components_weights": get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2}),
@@ -119,17 +147,26 @@ class CalculatePriceMomentumDivergence:
             "mtf_accel_weights": get_param_value(params.get('mtf_accel_weights'), {"5": 0.6, "13": 0.4}),
             "volume_confirmation_weights": get_param_value(params.get('volume_confirmation_weights'), {"volume_slope": 0.5, "volume_burst": 0.2, "volume_atrophy": 0.3, "constructive_turnover": 0.1, "volume_structure_skew_inverted": 0.1, "volume_profile_entropy_inverted": 0.05}),
             "dynamic_volume_confirmation_modulators": get_param_value(params.get('dynamic_volume_confirmation_modulators'), {"enabled": False}),
-            "main_force_confirmation_weights": get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1, "mf_buy_ofi_positive": 0.05, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "main_force_slippage_inverted": 0.05, "winner_concentration_positive": 0.05, "loser_pain_positive": 0.05, "smart_money_inst_net_buy": 0.05, "intraday_vwap_div_index_inverted": 0.05}), # 移除 cumulative_mf_flow, large_trade_imbalance, 替换 vwap_deviation_inverted
+            "main_force_confirmation_weights": get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1, "mf_buy_ofi_positive": 0.05, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "main_force_slippage_inverted": 0.05, "winner_concentration_positive": 0.05, "loser_pain_positive": 0.05, "smart_money_inst_net_buy": 0.05, "intraday_vwap_div_index_inverted": 0.05}),
             "dynamic_main_force_confirmation_modulators": get_param_value(params.get('dynamic_main_force_confirmation_modulators'), {"enabled": False}),
-            "context_modulator_weights": get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15, "mean_reversion_inverse": 0.05, "trend_alignment": 0.05, "theme_hotness": 0.05, "retail_panic_surrender_inverted": 0.05}), # 替换 retail_panic_inverted
-            "divergence_quality_weights": get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15, "divergence_purity": 0.1}), # 移除 chip_distribution_entropy_inverted
+            "context_modulator_weights": get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15, "mean_reversion_inverse": 0.05, "trend_alignment": 0.05, "theme_hotness": 0.05, "retail_panic_surrender_inverted": 0.05}),
+            "divergence_quality_weights": get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15, "divergence_purity": 0.1}),
             "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.5),
             "synergy_threshold": get_param_value(params.get('synergy_threshold'), 0.6),
             "synergy_bonus_factor": get_param_value(params.get('synergy_bonus_factor'), 0.1),
             "conflict_penalty_factor": get_param_value(params.get('conflict_penalty_factor'), 0.15),
             "dynamic_fusion_weights_params": get_param_value(params.get('dynamic_fusion_weights_params'), {"enabled": False}),
             "dynamic_exponent_params": get_param_value(params.get('dynamic_exponent_params'), {"enabled": False, "modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D", "sensitivity": 0.5, "base_exponent": 1.5, "min_exponent": 1.0, "max_exponent": 2.0}),
-            "interaction_terms_weights": get_param_value(params.get('interaction_terms_weights'), {"price_momentum_main_force_synergy": 0.1})
+            "interaction_terms_weights": get_param_value(params.get('interaction_terms_weights'), {"price_momentum_main_force_synergy": 0.1}),
+            "rdi_params": get_param_value(params.get('rdi_params'), { # 新增RDI参数
+                "enabled": False,
+                "rdi_periods": [1, 5, 13, 21],
+                "resonance_reward_factor": 0.1,
+                "divergence_penalty_factor": 0.15,
+                "inflection_reward_factor": 0.05,
+                "rdi_period_weights": {"1": 0.4, "5": 0.3, "13": 0.2, "21": 0.1},
+                "rdi_modulator_weight": 0.1
+            })
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
@@ -564,7 +601,7 @@ class CalculatePriceMomentumDivergence:
         return context_modulator, debug_values
 
     def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_mf_net_flow_slope: pd.Series, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
-        """V1.3 · 动态融合权重、动态指数及显式交互项增强版 (替换散户恐慌信号)"""
+        """V1.4 · 动态融合权重、动态指数、显式交互项及RDI增强版"""
         final_fusion_exponent_base = pmd_params['final_fusion_exponent']
         synergy_threshold = pmd_params['synergy_threshold']
         synergy_bonus_factor = pmd_params['synergy_bonus_factor']
@@ -572,6 +609,7 @@ class CalculatePriceMomentumDivergence:
         dynamic_fusion_weights_params = pmd_params['dynamic_fusion_weights_params']
         dynamic_exponent_params = pmd_params['dynamic_exponent_params']
         interaction_terms_weights = pmd_params['interaction_terms_weights']
+        rdi_params = pmd_params['rdi_params'] # 获取RDI参数
         final_components = {
             "base_divergence": base_divergence_score.abs(),
             "volume_confirmation": volume_confirmation_score.abs(),
@@ -639,7 +677,6 @@ class CalculatePriceMomentumDivergence:
                 "final_fusion_weights_dict_dynamic": final_fusion_weights_dict
             }
         # --- 显式交互项 ---
-        # 价格动量与主力资金流协同交互项：当价格和主力资金流方向一致时，增强信号
         price_momentum_main_force_synergy = (fused_price_direction.abs() * fused_mf_net_flow_slope.abs()).pow(0.5)
         price_momentum_main_force_synergy = price_momentum_main_force_synergy.where(np.sign(fused_price_direction) == np.sign(fused_mf_net_flow_slope), 0.0)
         if get_param_value(interaction_terms_weights.get('price_momentum_main_force_synergy'), 0.0) > 0:
@@ -663,6 +700,32 @@ class CalculatePriceMomentumDivergence:
         synergy_conflict_factor.loc[is_synergistic] = 1 + synergy_bonus_factor
         synergy_conflict_factor.loc[is_conflicting] = 1 - conflict_penalty_factor
         raw_fused_score_modulated = raw_fused_score * synergy_conflict_factor
+        # --- RDI (共振、背离、拐点) 分析与调制 ---
+        rdi_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
+        if get_param_value(rdi_params.get('enabled'), False):
+            # 1. 价格方向 vs 动量方向 RDI
+            price_momentum_rdi_score, debug_pm_rdi = self._calculate_rdi_for_pair(
+                fused_price_direction, fused_momentum_direction, df_index, rdi_params, "PMD_RDI", "Price_Momentum"
+            )
+            _temp_debug_values["价格-动量RDI"] = debug_pm_rdi
+            # 2. 价格方向 vs 主力资金流斜率 RDI
+            price_mf_rdi_score, debug_pmf_rdi = self._calculate_rdi_for_pair(
+                fused_price_direction, fused_mf_net_flow_slope, df_index, rdi_params, "PMD_RDI", "Price_MainForce"
+            )
+            _temp_debug_values["价格-主力RDI"] = debug_pmf_rdi
+            # 融合两种RDI分数
+            combined_rdi_score = (price_momentum_rdi_score + price_mf_rdi_score) / 2
+            # 将RDI分数转换为调制因子，使其在 [1-weight, 1+weight] 之间
+            rdi_modulator_weight = rdi_params.get('rdi_modulator_weight', 0.1)
+            rdi_modulator = (1 + combined_rdi_score * rdi_modulator_weight).clip(1 - rdi_modulator_weight, 1 + rdi_modulator_weight)
+            _temp_debug_values["RDI调制器"] = {
+                "price_momentum_rdi_score": price_momentum_rdi_score,
+                "price_mf_rdi_score": price_mf_rdi_score,
+                "combined_rdi_score": combined_rdi_score,
+                "rdi_modulator": rdi_modulator
+            }
+        raw_fused_score_modulated_by_rdi = raw_fused_score_modulated * rdi_modulator
+        _temp_debug_values["RDI调制后的分数"] = {"raw_fused_score_modulated_by_rdi": raw_fused_score_modulated_by_rdi}
         # --- 动态融合指数 ---
         final_fusion_exponent = pd.Series(final_fusion_exponent_base, index=df_index, dtype=np.float32)
         if get_param_value(dynamic_exponent_params.get('enabled'), False):
@@ -674,7 +737,7 @@ class CalculatePriceMomentumDivergence:
             max_exponent = dynamic_exponent_params['max_exponent']
             dynamic_exponent_values = base_exponent + (exponent_modulator_signal * sensitivity)
             final_fusion_exponent = dynamic_exponent_values.clip(min_exponent, max_exponent)
-        final_score = np.sign(raw_fused_score_modulated) * (raw_fused_score_modulated.abs().pow(final_fusion_exponent))
+        final_score = np.sign(raw_fused_score_modulated_by_rdi) * (raw_fused_score_modulated_by_rdi.abs().pow(final_fusion_exponent))
         final_score = final_score.clip(-1, 1).fillna(0.0)
         _temp_debug_values["协同/冲突与最终分数"] = {
             "sign_base": sign_base,
@@ -686,10 +749,52 @@ class CalculatePriceMomentumDivergence:
             "is_conflicting": is_conflicting,
             "synergy_conflict_factor": synergy_conflict_factor,
             "raw_fused_score_modulated": raw_fused_score_modulated,
+            "raw_fused_score_modulated_by_rdi": raw_fused_score_modulated_by_rdi, # 新增
             "dynamic_fusion_exponent": final_fusion_exponent,
             "final_score": final_score
         }
         return final_score, _temp_debug_values
+
+    def _calculate_rdi_for_pair(self, series_A: pd.Series, series_B: pd.Series, df_index: pd.Index, rdi_params: Dict, method_name: str, pair_name: str) -> Tuple[pd.Series, Dict]:
+        """
+        计算两个信号在多个时间周期内的共振(Resonance)、背离(Divergence)和拐点(Inflection)分数。
+        共振：两个信号在周期内的趋势方向一致。
+        背离：两个信号在周期内的趋势方向相反。
+        拐点：信号在周期内的趋势方向发生改变。
+        """
+        rdi_periods = rdi_params['rdi_periods']
+        resonance_reward_factor = rdi_params['resonance_reward_factor']
+        divergence_penalty_factor = rdi_params['divergence_penalty_factor']
+        inflection_reward_factor = rdi_params['inflection_reward_factor']
+        rdi_period_weights = rdi_params['rdi_period_weights']
+        all_rdi_scores_by_period = {}
+        period_debug_values = {}
+        for p in rdi_periods:
+            # 计算信号在当前周期内的趋势倾向
+            # 使用 rolling mean 来平滑方向，避免短期噪音
+            tendency_A = series_A.rolling(window=p, min_periods=1).mean().fillna(0)
+            tendency_B = series_B.rolling(window=p, min_periods=1).mean().fillna(0)
+            # 共振：两个信号趋势方向一致且均有方向性
+            resonance_term = ((np.sign(tendency_A) == np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * resonance_reward_factor
+            # 背离：两个信号趋势方向相反且均有方向性
+            divergence_term = ((np.sign(tendency_A) != np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * divergence_penalty_factor
+            # 拐点：信号趋势方向发生改变 (即从正到负或从负到正)
+            # 这里判断的是信号的趋势倾向本身是否发生零轴穿越
+            inflection_A_term = (tendency_A.shift(1) * tendency_A < 0).astype(np.float32) * inflection_reward_factor
+            inflection_B_term = (tendency_B.shift(1) * tendency_B < 0).astype(np.float32) * inflection_reward_factor
+            inflection_term = ((inflection_A_term + inflection_B_term) / 2).fillna(0)
+            # 结合RDI项，背离作为惩罚项
+            period_rdi_score = resonance_term - divergence_term + inflection_term
+            all_rdi_scores_by_period[f"rdi_p{p}"] = period_rdi_score
+            period_debug_values[f"{pair_name}_tendency_A_p{p}"] = tendency_A
+            period_debug_values[f"{pair_name}_tendency_B_p{p}"] = tendency_B
+            period_debug_values[f"{pair_name}_resonance_term_p{p}"] = resonance_term
+            period_debug_values[f"{pair_name}_divergence_term_p{p}"] = divergence_term
+            period_debug_values[f"{pair_name}_inflection_term_p{p}"] = inflection_term
+            period_debug_values[f"{pair_name}_period_rdi_score_p{p}"] = period_rdi_score
+        # 融合不同周期的RDI分数
+        fused_rdi_score = _weighted_sum_fusion(all_rdi_scores_by_period, rdi_period_weights, df_index)
+        return fused_rdi_score, period_debug_values
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V1.2 · 模块化与增强版"""

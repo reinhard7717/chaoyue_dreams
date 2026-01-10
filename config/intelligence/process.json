@@ -941,9 +941,9 @@
                 "task_type": "base",
                 "diagnosis_mode": "direct_confirmation",
                 "scoring_mode": "bipolar",
-                "description": "【V4.5 · 深度情境、动态权重、动态指数及聪明钱、题材热度、微观结构、散户恐慌增强版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透（含聪明钱、日内VWAP偏离）、背离品质量化、情境调节（含题材热度、散户恐慌）和显式交互项六大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
+                "description": "【V4.6 · 深度情境、动态权重、动态指数、RDI及聪明钱、题材热度、微观结构、散户恐慌增强版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透（含聪明钱、日内VWAP偏离）、背离品质量化、情境调节（含题材热度、散户恐慌）、显式交互项和多级别RDI（共振、背离、拐点）七大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
                 "price_momentum_divergence_params": {
-                    "description": "【V4.5 · 深度情境、动态权重、动态指数及聪明钱、题材热度、微观结构、散户恐慌增强版】价势背离信号的专属参数。",
+                    "description": "【V4.6 · 深度情境、动态权重、动态指数、RDI及聪明钱、题材热度、微观结构、散户恐慌增强版】价势背离信号的专属参数。",
                     "price_components_weights": {
                         "description": "价格趋势方向融合权重。",
                         "close_D": 0.6,
@@ -1094,6 +1094,23 @@
                     "interaction_terms_weights": {
                         "description": "显式交互项权重。",
                         "price_momentum_main_force_synergy": 0.1
+                    },
+                    "rdi_params": {
+                        "enabled": true,
+                        "description": "多级别RDI (共振、背离、拐点) 分析参数。",
+                        "rdi_periods": [1, 5, 13, 21],
+                        "resonance_reward_factor": 0.1,
+                        "divergence_penalty_factor": 0.15,
+                        "inflection_reward_factor": 0.05,
+                        "rdi_period_weights": {
+                            "description": "不同RDI周期的融合权重。",
+                            "1": 0.4,
+                            "5": 0.3,
+                            "13": 0.2,
+                            "21": 0.1
+                        },
+                        "rdi_modulator_weight": 0.1,
+                        "comment_rdi_modulator_weight": "RDI分数对最终融合分数的调制强度。"
                     }
                 }
             },
