@@ -941,9 +941,9 @@
                 "task_type": "base",
                 "diagnosis_mode": "direct_confirmation",
                 "scoring_mode": "bipolar",
-                "description": "【V4.3 · 深度情境与动态权重及累积资金流、聪明钱、题材热度版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透（含累积资金流、聪明钱）、背离品质量化和情境调节（含题材热度）五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
+                "description": "【V4.5 · 深度情境、动态权重、动态指数及聪明钱、题材热度、微观结构、散户恐慌增强版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透（含聪明钱、日内VWAP偏离）、背离品质量化、情境调节（含题材热度、散户恐慌）和显式交互项六大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
                 "price_momentum_divergence_params": {
-                    "description": "【V4.3 · 深度情境与动态权重及累积资金流、聪明钱、题材热度版】价势背离信号的专属参数。",
+                    "description": "【V4.5 · 深度情境、动态权重、动态指数及聪明钱、题材热度、微观结构、散户恐慌增强版】价势背离信号的专属参数。",
                     "price_components_weights": {
                         "description": "价格趋势方向融合权重。",
                         "close_D": 0.6,
@@ -1000,14 +1000,10 @@
                         "main_force_slippage_inverted": 0.05,
                         "winner_concentration_positive": 0.05,
                         "loser_pain_positive": 0.05,
-                        "cumulative_mf_flow": 0.1,
-                        "smart_money_inst_net_buy": 0.05
+                        "smart_money_inst_net_buy": 0.05,
+                        "intraday_vwap_div_index_inverted": 0.05
                     },
-                    "cumulative_mf_flow_periods": {
-                        "description": "累积主力资金流的周期及权重。",
-                        "13": 0.6,
-                        "21": 0.4
-                    },
+                    "description_cumulative_mf_flow_periods": "累积主力资金流的周期及权重。(已移除，数据层未提供)",
                     "dynamic_main_force_confirmation_modulators": {
                         "enabled": true,
                         "modulator_signal": "SCORE_FOUNDATION_AXIOM_MARKET_TENSION",
@@ -1024,7 +1020,8 @@
                         "market_constitution_neutrality": 0.15,
                         "mean_reversion_inverse": 0.05,
                         "trend_alignment": 0.05,
-                        "theme_hotness": 0.05
+                        "theme_hotness": 0.05,
+                        "retail_panic_surrender_inverted": 0.05
                     },
                     "description_divergence_quality_weights": "背离品质量化融合权重。",
                     "divergence_quality_weights": {
@@ -1048,10 +1045,12 @@
                         "modulator_signal_2": "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE",
                         "modulator_signal_3": "mean_reversion_frequency_D",
                         "modulator_signal_4": "trend_alignment_index_D",
+                        "modulator_signal_5": "retail_panic_surrender_index_D",
                         "sensitivity_tension": 0.2,
                         "sensitivity_liquidity": 0.2,
                         "sensitivity_mean_reversion": 0.1,
                         "sensitivity_trend_alignment": 0.1,
+                        "sensitivity_retail_panic_surrender": 0.2,
                         "base_weights": {
                             "base_divergence": 0.3,
                             "volume_confirmation": 0.2,
@@ -1077,7 +1076,24 @@
                             "base_divergence": -0.05,
                             "context_modulator": -0.05,
                             "main_force_confirmation": 0.05
+                        },
+                        "retail_panic_surrender_impact_weights": {
+                            "main_force_confirmation": 0.1,
+                            "context_modulator": -0.05
                         }
+                    },
+                    "dynamic_exponent_params": {
+                        "enabled": true,
+                        "description": "动态融合指数参数，根据市场波动率调整最终分数的非线性放大/平滑。",
+                        "modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+                        "sensitivity": 0.5,
+                        "base_exponent": 1.5,
+                        "min_exponent": 1.0,
+                        "max_exponent": 2.0
+                    },
+                    "interaction_terms_weights": {
+                        "description": "显式交互项权重。",
+                        "price_momentum_main_force_synergy": 0.1
                     }
                 }
             },
