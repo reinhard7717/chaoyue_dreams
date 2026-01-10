@@ -130,6 +130,34 @@ class CalculateWinnerConvictionDecay:
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 赢家信念衰减诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
         self.helper._print_debug_output(debug_output)
 
+    def _prepare_norm_market_sentiment(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series]) -> pd.Series:
+        """
+        准备归一化后的市场情绪信号。
+        """
+        market_sentiment_raw = raw_signals["market_sentiment_raw"]
+        return self.helper._normalize_series(market_sentiment_raw, df_index, bipolar=True)
+
+    def _prepare_norm_volatility_stability(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp) -> pd.Series:
+        """
+        准备归一化后的波动率稳定性信号。
+        """
+        volatility_instability_raw = raw_signals["volatility_instability_raw"]
+        volatility_stability_raw = 1 - normalize_score(
+            volatility_instability_raw, 
+            df_index, 
+            21, 
+            ascending=True,
+            debug_info=(is_debug_enabled_for_method, probe_ts, f"{method_name}_volatility_stability_norm")
+        )
+        return self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
+
+    def _prepare_norm_trend_vitality(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series]) -> pd.Series:
+        """
+        准备归一化后的趋势活力信号。
+        """
+        trend_vitality_raw = raw_signals["trend_vitality_raw"]
+        return self.helper._normalize_series(trend_vitality_raw, df_index, bipolar=False)
+
     def _get_decay_params_and_signals(self, config: Dict, method_name: str) -> Tuple[Dict, List[str]]:
         """
         获取赢家信念衰减计算所需的所有参数和信号列表。
@@ -345,34 +373,26 @@ class CalculateWinnerConvictionDecay:
         计算情境调制因子。
         """
         contextual_modulator_weights = params_dict['contextual_modulator_weights']
-        market_sentiment_raw = raw_signals["market_sentiment_raw"]
-        volatility_instability_raw = raw_signals["volatility_instability_raw"]
-        trend_vitality_raw = raw_signals["trend_vitality_raw"]
-        norm_market_sentiment = self.helper._normalize_series(market_sentiment_raw, df_index, bipolar=True)
-        volatility_stability_raw = 1 - normalize_score(
-            volatility_instability_raw, 
-            df_index, 
-            21, 
-            ascending=True,
-            debug_info=(is_debug_enabled_for_method, probe_ts, f"{method_name}_volatility_stability_norm") # 传递debug_info
-        )
-        norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
-        norm_trend_vitality = self.helper._normalize_series(trend_vitality_raw, df_index, bipolar=False)
+        # 准备各个归一化信号
+        norm_market_sentiment = self._prepare_norm_market_sentiment(df_index, raw_signals)
+        norm_volatility_stability = self._prepare_norm_volatility_stability(df_index, raw_signals, method_name, is_debug_enabled_for_method, probe_ts)
+        norm_trend_vitality = self._prepare_norm_trend_vitality(df_index, raw_signals)
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
             "volatility_stability": norm_volatility_stability,
             "trend_vitality": norm_trend_vitality
         }
+        # 确保输入 _robust_geometric_mean 的所有分数都是正值
+        positive_components = {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()}
         context_modulator_score = _robust_geometric_mean(
-            {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()},
+            positive_components,
             contextual_modulator_weights,
-            df_index,
-            debug_info=(is_debug_enabled_for_method, probe_ts, f"{method_name}_context_modulator_score_gm") # 传递debug_info
+            df_index
+            # 移除 debug_info 参数
         )
         context_modulator = 0.5 + context_modulator_score
         _temp_debug_values["情境调制"] = {
             "norm_market_sentiment": norm_market_sentiment,
-            "volatility_stability_raw": volatility_stability_raw,
             "norm_volatility_stability": norm_volatility_stability,
             "norm_trend_vitality": norm_trend_vitality,
             "context_modulator_score": context_modulator_score,
