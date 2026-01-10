@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Union
 
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score,
