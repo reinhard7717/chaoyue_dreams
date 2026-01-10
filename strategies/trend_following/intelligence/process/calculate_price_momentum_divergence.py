@@ -744,8 +744,8 @@ class CalculatePriceMomentumDivergence:
             _temp_debug_values # 传递 _temp_debug_values
         )
         # _temp_debug_values.update(debug_final_fusion) # debug_final_fusion 已经直接更新了 _temp_debug_values，不需要再次 update
-        # if is_debug_enabled_for_method and probe_ts:
-        #     self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
+        if is_debug_enabled_for_method and probe_ts:
+            self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
         return final_score.astype(np.float32)
 
 
