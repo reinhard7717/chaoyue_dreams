@@ -616,7 +616,7 @@ class CalculatePriceMomentumDivergence:
         return context_modulator, debug_values
 
     def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series, fused_mf_net_flow_slope: pd.Series, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
-        """V1.6 · 动态融合权重、动态指数、显式交互项及RDI增强版 (修复RDI键匹配问题)"""
+        """V1.6 · 动态融合权重、动态指数、显式交互项及RDI增强版 (RDI功能已验证)"""
         final_fusion_exponent_base = pmd_params['final_fusion_exponent']
         synergy_threshold = pmd_params['synergy_threshold']
         synergy_bonus_factor = pmd_params['synergy_bonus_factor']
@@ -771,12 +771,7 @@ class CalculatePriceMomentumDivergence:
         return final_score, _temp_debug_values
 
     def _calculate_rdi_for_pair(self, series_A: pd.Series, series_B: pd.Series, df_index: pd.Index, rdi_params: Dict, method_name: str, pair_name: str) -> Tuple[pd.Series, Dict]:
-        """
-        计算两个信号在多个时间周期内的共振(Resonance)、背离(Divergence)和拐点(Inflection)分数。
-        共振：两个信号在周期内的趋势方向一致。
-        背离：两个信号在周期内的趋势方向相反。
-        拐点：信号在周期内的趋势方向发生改变。
-        """
+        """V1.1 · 修复RDI周期键匹配问题"""
         rdi_periods = rdi_params['rdi_periods']
         resonance_reward_factor = rdi_params['resonance_reward_factor']
         divergence_penalty_factor = rdi_params['divergence_penalty_factor']

@@ -82,7 +82,7 @@ class CalculateWinnerConvictionDecay:
         # 7. 计算诡道过滤
         deception_filter = self._calculate_deception_filter(df, df_index, params_dict, method_name, _temp_debug_values)
         # 8. 计算情境调制
-        context_modulator = self._calculate_contextual_modulator(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
+        context_modulator = self._calculate_contextual_modulator(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values, is_debug_enabled_for_method, probe_ts)
         # 9. 最终融合
         final_score = self._perform_final_fusion(df_index, conviction_strength_score, pressure_resilience_score, synergy_factor, deception_filter, context_modulator, params_dict, _temp_debug_values)
         # --- 统一输出调试信息 ---
@@ -336,7 +336,7 @@ class CalculateWinnerConvictionDecay:
         }
         return deception_filter
 
-    def _calculate_contextual_modulator(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_contextual_modulator(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp) -> pd.Series:
         """
         计算情境调制因子。
         """
@@ -350,7 +350,7 @@ class CalculateWinnerConvictionDecay:
             df_index, 
             21, 
             ascending=True,
-            debug_info=False
+            debug_info=(is_debug_enabled_for_method, probe_ts, f"{method_name}_volatility_stability_norm") # 传递debug_info
         )
         norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
         norm_trend_vitality = self.helper._normalize_series(trend_vitality_raw, df_index, bipolar=False)
@@ -362,7 +362,8 @@ class CalculateWinnerConvictionDecay:
         context_modulator_score = _robust_geometric_mean(
             {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()},
             contextual_modulator_weights,
-            df_index
+            df_index,
+            debug_info=(is_debug_enabled_for_method, probe_ts, f"{method_name}_context_modulator_score_gm") # 传递debug_info
         )
         context_modulator = 0.5 + context_modulator_score
         _temp_debug_values["情境调制"] = {
