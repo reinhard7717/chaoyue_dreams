@@ -1274,6 +1274,14 @@
                     "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
                     "accel_periods": {"5": 0.6, "13": 0.4}
                     },
+                    "belief_decay_components_weights": {
+                        "description": "信念衰减组件融合权重。",
+                        "winner_stability_mtf": 0.4,
+                        "winner_profit_margin_avg_inverted": 0.2,
+                        "total_winner_rate_inverted": 0.2,
+                        "chip_fatigue": 0.1,
+                        "winner_concentration_inverted": 0.1
+                    },
                     "distribution_confirmation_weights": {
                     "description": "主力派发确认融合权重。",
                     "distribution_intent": 0.4,
@@ -1282,13 +1290,41 @@
                     },
                     "contextual_modulator_weights": {
                     "description": "情境动态调制器融合权重。",
-                    "price_overextension_composite": 0.3,
-                    "retail_fomo": 0.2,
-                    "market_tension": 0.2,
-                    "sentiment_pendulum_negative": 0.3,
-                    "market_sentiment": 0.3,
-                    "volatility_stability": 0.3,
-                    "trend_vitality": 0.4
+                    "market_sentiment": 0.1,
+                    "volatility_stability": 0.1,
+                    "trend_vitality": 0.1,
+                    "mtf_market_sentiment": 0.1,
+                    "mtf_volatility_stability": 0.1,
+                    "mtf_trend_vitality": 0.1,
+                    "cost_dispersion_inverted": 0.1,
+                    "upward_purity_inverted": 0.1,
+                    "mtf_upward_purity_inverted": 0.1,
+                    "context_resonance": 0.2
+                    },
+                    "contextual_mtf_config": {
+                        "description": "情境调制器中需要进行多时间框架分析的信号配置。",
+                        "market_sentiment_raw": {
+                            "base_signal_name": "market_sentiment_score_D",
+                            "periods": [5, 13, 21],
+                            "bipolar": true
+                        },
+                        "volatility_instability_raw": {
+                            "base_signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+                            "periods": [5, 13, 21],
+                            "bipolar": true,
+                            "inverted_for_stability": true
+                        },
+                        "trend_vitality_raw": {
+                            "base_signal_name": "trend_vitality_index_D",
+                            "periods": [5, 13, 21],
+                            "bipolar": true
+                        },
+                        "upward_purity_raw": {
+                            "base_signal_name": "upward_purity_index_D",
+                            "periods": [5, 13, 21],
+                            "bipolar": true,
+                            "inverted_for_decay": true
+                        }
                     },
                     "price_overextension_composite_weights": {
                     "description": "价格超买亢奋复合分融合权重。",
