@@ -51,6 +51,7 @@ class CalculatePriceMomentumDivergence:
         self.helper = helper_instance
 
     def _print_debug_output_pmd(self, debug_output: Dict, probe_ts: pd.Timestamp, method_name: str, final_score: pd.Series):
+        """V1.1 · 增加RDI调试信息输出"""
         if not debug_output:
             return
         if f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---" in debug_output:
@@ -70,7 +71,8 @@ class CalculatePriceMomentumDivergence:
         sections = [
             "融合价格方向", "融合动量方向", "基础背离分数", "量能确认分数",
             "主力/筹码确认分数", "背离质量分数", "情境调制器", "最终融合组件",
-            "动态融合权重调整", "原始融合分数", "协同/冲突与最终分数"
+            "动态融合权重调整", "原始融合分数", "价格-动量RDI", "价格-主力RDI", "RDI调制器", "RDI调制后的分数", # 新增RDI相关部分
+            "协同/冲突与最终分数"
         ]
         for section in sections:
             if section in debug_output:
@@ -614,7 +616,7 @@ class CalculatePriceMomentumDivergence:
         return context_modulator, debug_values
 
     def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series, fused_mf_net_flow_slope: pd.Series, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
-        """V1.4 · 动态融合权重、动态指数、显式交互项及RDI增强版"""
+        """V1.5 · 动态融合权重、动态指数、显式交互项及RDI增强版 (新增RDI启用状态调试)"""
         final_fusion_exponent_base = pmd_params['final_fusion_exponent']
         synergy_threshold = pmd_params['synergy_threshold']
         synergy_bonus_factor = pmd_params['synergy_bonus_factor']
@@ -623,6 +625,8 @@ class CalculatePriceMomentumDivergence:
         dynamic_exponent_params = pmd_params['dynamic_exponent_params']
         interaction_terms_weights = pmd_params['interaction_terms_weights']
         rdi_params = pmd_params['rdi_params']
+        # 调试打印：检查RDI是否启用
+        print(f"  [DEBUG] RDI params enabled status: {rdi_params.get('enabled')}")
         final_components = {
             "base_divergence": base_divergence_score.abs(),
             "volume_confirmation": volume_confirmation_score.abs(),
