@@ -398,13 +398,18 @@ class ChipFeatureCalculator:
         atr = context.get('atr_14d')
         rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0) # 修正键名
         suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
+        # --- 新增：获取高频数据和主峰区域信息，用于区分“未卖出”和“卖出” ---
+        raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
+        hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
+        dominant_peak_cost = context.get('dominant_peak_cost')
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
             'loser_pain': loser_pain, 'close_price': close_price, 'open_price': open_price,
             'high_price': high_price, 'low_5d': low_5d, 'atr': atr,
             'rally_distribution_pressure': rally_distribution_pressure,
-            'suppressive_accumulation': suppressive_accumulation
+            'suppressive_accumulation': suppressive_accumulation,
+            'dominant_peak_cost': dominant_peak_cost # 新增：确保 dominant_peak_cost 可用
         }
         required_vars = list(required_vars_map.values())
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
@@ -421,7 +426,39 @@ class ChipFeatureCalculator:
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
-        results['control_solidity_index'] = gini * peak_transfer
+        # --- 核心修改：调整 control_solidity_index 的计算逻辑 ---
+        calculated_control_solidity = gini * peak_transfer
+        # 只有当 peak_transfer 为负时，才需要进一步判断是否为“惜售”
+        if peak_transfer < 0 and not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
+            peak_battle_zone_radius = 0.5 * atr # 与 _compute_contextual_action_metrics 保持一致
+            peak_zone_upper = dominant_peak_cost + peak_battle_zone_radius
+            peak_zone_lower = dominant_peak_cost - peak_battle_zone_radius
+            # 过滤出主峰区域内的交易
+            peak_zone_hf_df = hf_analysis_df[(hf_analysis_df['price'] >= peak_zone_lower) & (hf_analysis_df['price'] <= peak_zone_upper)]
+            if not peak_zone_hf_df.empty:
+                # 计算主峰区域内的主力净流量
+                mf_net_vol_in_peak_zone = peak_zone_hf_df['main_force_ofi'].sum()
+                total_vol_in_peak_zone = peak_zone_hf_df['volume'].sum()
+                # 如果主峰区域内主力净流量不为负（即没有明显卖出），则削弱负面影响
+                # 甚至可以将其视为中性或略微积极，代表锁仓惜售
+                if mf_net_vol_in_peak_zone >= 0 and total_vol_in_peak_zone > 0:
+                    # 引入一个“惜售修正因子”
+                    # 例如，如果主力净流量为正，则将 peak_transfer 修正为 0 或一个小的正值
+                    # 如果主力净流量为 0，则将 peak_transfer 修正为 0
+                    # 这里的修正逻辑可以根据实际需求调整
+                    # 简单修正：如果主峰区域内主力没有净卖出，则将 peak_transfer 的负面影响减半
+                    # 或者直接将 peak_transfer 视为 0，表示中性
+                    # 考虑到 gini 已经是非负的，这里直接修正 calculated_control_solidity
+                    # 如果主力在主峰区域没有净卖出，那么即使 peak_vwap < vwap，也不应完全否决
+                    # 我们可以将 control_solidity_index 修正为 0 (中性) 或一个小的正值
+                    # 修正为 0.01 * gini，表示轻微的积极锁仓
+                    calculated_control_solidity = gini * 0.01 # 修正为一个小正值，代表锁仓惜售
+                    # 或者更保守，直接修正为 0，表示中性
+                    # calculated_control_solidity = 0.0
+                # else: 如果 mf_net_vol_in_peak_zone < 0，则保持原有的负面 calculated_control_solidity
+            # else: 如果 peak_zone_hf_df 为空，说明主峰区域内没有高频交易数据，保持原有逻辑
+        results['control_solidity_index'] = calculated_control_solidity
+        # --- 核心修改结束 ---
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)

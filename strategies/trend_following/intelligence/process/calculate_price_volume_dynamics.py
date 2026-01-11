@@ -1184,7 +1184,6 @@ class CalculatePriceVolumeDynamics:
         veto_threshold = main_force_control_adjudicator_params.get('veto_threshold', -0.2)
         amplifier_factor = main_force_control_adjudicator_params.get('amplifier_factor', 0.5)
         combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1)
-
         # --- 调试输出：主力控制裁决器相关变量 ---
         if is_debug_enabled_for_method and probe_ts:
             _temp_debug_values["主力控制裁决器调试"] = {
@@ -1198,7 +1197,6 @@ class CalculatePriceVolumeDynamics:
                 'final_score_before_mask': final_score
             }
         # --- 调试输出结束 ---
-
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
         final_score = (final_score * main_force_amplifier).clip(-1, 1)
@@ -1295,18 +1293,14 @@ class CalculatePriceVolumeDynamics:
         pvd_params = self._get_pvd_params(config)
         mtf_slope_accel_weights = get_param_value(pvd_params.get('mtf_slope_accel_weights'), {})
         ambiguity_components_weights = get_param_value(pvd_params.get('ambiguity_components_weights'), {})
-        
         if not self._validate_all_required_signals(df, pvd_params, mtf_slope_accel_weights, method_name, is_debug_enabled_for_method, probe_ts):
             if is_debug_enabled_for_method and probe_ts:
                 self._print_pvd_debug_output(_temp_debug_values, probe_ts, method_name, "价量动态诊断失败：缺少核心信号。")
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        
         raw_signals = self._get_raw_signals(df, method_name)
         _temp_debug_values["原始信号值"] = raw_signals
-        
         mtf_signals = self._get_mtf_signals(df, raw_signals, mtf_slope_accel_weights, method_name)
         _temp_debug_values["MTF融合信号"] = mtf_signals
-        
         # Calculate Dynamic Modulators
         historical_context = self._calculate_historical_context_factors(df, df_index, mtf_signals, pvd_params, method_name)
         context_modulator_score_for_weights, adjusted_final_exponent, market_regime_modulator = self._calculate_dynamic_modulators(df, df_index, raw_signals, mtf_signals, historical_context, pvd_params, method_name)
@@ -1315,9 +1309,7 @@ class CalculatePriceVolumeDynamics:
             "adjusted_final_exponent": adjusted_final_exponent,
             "market_regime_modulator": market_regime_modulator
         }
-        
         _temp_debug_values["历史情境感知层"] = historical_context
-        
         # Calculate Dimension Scores
         # 传入 historical_context
         energy_compression_score = self._calculate_energy_compression_dimension(df_index, raw_signals, mtf_signals, historical_context, get_param_value(pvd_params.get('energy_compression_weights'), {}), method_name)
@@ -1325,12 +1317,10 @@ class CalculatePriceVolumeDynamics:
         main_force_covert_intent_score = self._calculate_main_force_covert_intent_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_covert_intent_weights'), {}), ambiguity_components_weights, method_name)
         subdued_market_sentiment_score = self._calculate_subdued_market_sentiment_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('subdued_market_sentiment_weights'), {}), pvd_params, method_name)
         breakout_readiness_score = self._calculate_breakout_readiness_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('breakout_readiness_weights'), {}), method_name)
-        
         liquidity_health_dimension = self._calculate_liquidity_health_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('liquidity_health_components'), {}), method_name)
         main_force_order_flow_depth_dimension = self._calculate_main_force_order_flow_depth_dimension(df_index, raw_signals, mtf_signals, get_param_value(pvd_params.get('main_force_order_flow_depth_components'), {}), method_name)
         main_force_flow_contextualized_dimension = mtf_signals['mtf_main_force_net_flow_contextualized']
         market_structure_clarity_dimension = self._calculate_market_structure_clarity_dimension(df_index, mtf_signals, get_param_value(pvd_params.get('market_structure_clarity_components'), {}), method_name) # 新增
-
         _temp_debug_values["维度分数"] = {
             "energy_compression_score": energy_compression_score,
             "volume_exhaustion_score": volume_exhaustion_score,
@@ -1342,7 +1332,6 @@ class CalculatePriceVolumeDynamics:
             "main_force_flow_contextualized_dimension": main_force_flow_contextualized_dimension,
             "market_structure_clarity_dimension": market_structure_clarity_dimension # 新增
         }
-        
         # Calculate Multi-Level Resonance Factor - 传入所有维度分数
         multi_level_resonance_factor = self._calculate_multi_level_resonance_factor(
             df, df_index, raw_signals, mtf_signals, pvd_params, context_modulator_score_for_weights,
@@ -1350,18 +1339,15 @@ class CalculatePriceVolumeDynamics:
             subdued_market_sentiment_score, breakout_readiness_score, method_name
         )
         _temp_debug_values["多层级共振引擎"] = {"multi_level_resonance_factor": multi_level_resonance_factor}
-        
         # Calculate Dynamic Thresholds
         dynamic_price_threshold, dynamic_volume_threshold = self._calculate_dynamic_thresholds(df, df_index, raw_signals, historical_context, pvd_params, method_name)
         _temp_debug_values["动态阈值"] = {
             "dynamic_price_threshold": dynamic_price_threshold,
             "dynamic_volume_threshold": dynamic_volume_threshold
         }
-        
         # Calculate Quadrant Scores
         quadrant_scores = self._calculate_quadrant_scores(df, df_index, raw_signals, mtf_signals, historical_context, pvd_params, context_modulator_score_for_weights, dynamic_price_threshold, dynamic_volume_threshold, method_name)
         _temp_debug_values["四象限分数"] = quadrant_scores
-        
         # Final Fusion
         final_score = self._fuse_final_score(
             df, df_index, raw_signals, mtf_signals, quadrant_scores, multi_level_resonance_factor,
@@ -1369,7 +1355,6 @@ class CalculatePriceVolumeDynamics:
             pvd_params, method_name, is_debug_enabled_for_method, probe_ts, _temp_debug_values # 传递调试参数
         )
         _temp_debug_values["最终融合分数"] = {"final_score": final_score}
-        
         if is_debug_enabled_for_method and probe_ts:
             self._print_pvd_debug_output(_temp_debug_values, probe_ts, method_name, "价量动态诊断完成")
             
