@@ -123,14 +123,22 @@ class CalculatePriceVolumeDynamics:
             # 新增的信号
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
             'main_force_buy_ofi_D',
-            'capitulation_absorption_index_D', # 新增：用于Q3奖励
-            'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', # 新增：用于流动性健康度
-            'main_force_level5_buy_ofi_D', # 新增：用于主力订单流深度
-            'main_force_level5_ofi_D', # 新增：用于主力订单流深度
-            'main_force_level5_sell_ofi_D', # 新增：用于主力订单流深度
+            'capitulation_absorption_index_D',
+            'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D',
+            'main_force_level5_buy_ofi_D',
+            'main_force_level5_ofi_D',
+            'main_force_level5_sell_ofi_D',
             # 之前日志中报告缺失的信号
             'BBW_21_2.0_D',
-            'buy_quote_exhaustion_rate_D'
+            'buy_quote_exhaustion_rate_D',
+            # 新增：用于峰值情境化主力活动调节器
+            'gathering_by_chasing_D',
+            'distribution_at_peak_intensity_D',
+            'absorption_of_distribution_intensity_D',
+            'dominant_peak_cost_D',
+            'ATR_14_D',
+            'absorption_at_peak_intensity_D',
+            'gathering_by_support_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         base_signals_for_mtf_raw = []
@@ -178,11 +186,11 @@ class CalculatePriceVolumeDynamics:
         raw_signals['deception_lure_long_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', 0.0, method_name=method_name)
         raw_signals['deception_lure_short_intensity_D'] = self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', 0.0, method_name=method_name)
         raw_signals['main_force_buy_ofi_D'] = self.helper._get_safe_series(df, 'main_force_buy_ofi_D', 0.0, method_name=method_name)
-        raw_signals['capitulation_absorption_index_D'] = self.helper._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name) # 新增
-        raw_signals['BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D'] = self.helper._get_safe_series(df, 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 0.0, method_name=method_name) # 新增
-        raw_signals['main_force_level5_buy_ofi_D'] = self.helper._get_safe_series(df, 'main_force_level5_buy_ofi_D', 0.0, method_name=method_name) # 新增
-        raw_signals['main_force_level5_ofi_D'] = self.helper._get_safe_series(df, 'main_force_level5_ofi_D', 0.0, method_name=method_name) # 新增
-        raw_signals['main_force_level5_sell_ofi_D'] = self.helper._get_safe_series(df, 'main_force_level5_sell_ofi_D', 0.0, method_name=method_name) # 新增
+        raw_signals['capitulation_absorption_index_D'] = self.helper._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
+        raw_signals['BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D'] = self.helper._get_safe_series(df, 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', 0.0, method_name=method_name)
+        raw_signals['main_force_level5_buy_ofi_D'] = self.helper._get_safe_series(df, 'main_force_level5_buy_ofi_D', 0.0, method_name=method_name)
+        raw_signals['main_force_level5_ofi_D'] = self.helper._get_safe_series(df, 'main_force_level5_ofi_D', 0.0, method_name=method_name)
+        raw_signals['main_force_level5_sell_ofi_D'] = self.helper._get_safe_series(df, 'main_force_level5_sell_ofi_D', 0.0, method_name=method_name)
         # 之前日志中报告缺失的信号
         raw_signals['BBW_21_2.0_D'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name=method_name)
         raw_signals['buy_quote_exhaustion_rate_D'] = self.helper._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name=method_name)
@@ -198,7 +206,17 @@ class CalculatePriceVolumeDynamics:
         raw_signals['chip_fault_blockage_ratio_D'] = self.helper._get_safe_series(df, 'chip_fault_blockage_ratio_D', 0.0, method_name=method_name)
         raw_signals['winner_loser_momentum_D'] = self.helper._get_safe_series(df, 'winner_loser_momentum_D', 0.0, method_name=method_name)
         raw_signals['chip_fatigue_index_D'] = self.helper._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
-        raw_signals['hidden_accumulation_intensity_D'] = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name) # 确保获取此原始信号
+        raw_signals['hidden_accumulation_intensity_D'] = self.helper._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name=method_name)
+        # 新增：用于峰值情境化主力活动调节器
+        raw_signals['gathering_by_chasing_D'] = self.helper._get_safe_series(df, 'gathering_by_chasing_D', 0.0, method_name=method_name)
+        raw_signals['distribution_at_peak_intensity_D'] = self.helper._get_safe_series(df, 'distribution_at_peak_intensity_D', 0.0, method_name=method_name)
+        raw_signals['absorption_of_distribution_intensity_D'] = self.helper._get_safe_series(df, 'absorption_of_distribution_intensity_D', 0.0, method_name=method_name)
+        raw_signals['dominant_peak_cost_D'] = self.helper._get_safe_series(df, 'dominant_peak_cost_D', np.nan, method_name=method_name)
+        raw_signals['ATR_14_D'] = self.helper._get_safe_series(df, 'ATR_14_D', np.nan, method_name=method_name)
+        raw_signals['absorption_at_peak_intensity_D'] = self.helper._get_safe_series(df, 'absorption_at_peak_intensity_D', 0.0, method_name=method_name)
+        raw_signals['gathering_by_support_D'] = self.helper._get_safe_series(df, 'gathering_by_support_D', 0.0, method_name=method_name)
+        raw_signals['main_force_on_peak_buy_flow_D'] = self.helper._get_safe_series(df, 'main_force_on_peak_buy_flow_D', 0.0, method_name=method_name)
+        raw_signals['main_force_on_peak_sell_flow_D'] = self.helper._get_safe_series(df, 'main_force_on_peak_sell_flow_D', 0.0, method_name=method_name)
         # Market Context
         raw_signals['market_sentiment_score_D'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         raw_signals['VOLATILITY_INSTABILITY_INDEX_21d_D'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
@@ -1138,10 +1156,11 @@ class CalculatePriceVolumeDynamics:
         dynamic_weight_sensitivity = get_param_value(pvd_params.get('dynamic_weight_sensitivity'), 0.3)
         price_calmness_modulator_params = get_param_value(pvd_params.get('price_calmness_modulator_params'), {})
         main_force_control_adjudicator_params = get_param_value(pvd_params.get('main_force_control_adjudicator'), {})
+        # 重命名：high_price_activity_modulator -> peak_contextualized_main_force_activity_modulator
+        peak_contextualized_mf_activity_modulator_params = get_param_value(pvd_params.get('peak_contextualized_main_force_activity_modulator'), {})
         # Dynamic Quadrant Weights
         dynamic_quadrant_weights = {}
         for q_name, base_w in quadrant_weights.items():
-            # 确保只处理 Q1, Q2, Q3, Q4 的权重，跳过 quadrant_purity
             if q_name.startswith("Q"):
                 if "Q1" in q_name or "Q4" in q_name:
                     dynamic_quadrant_weights[q_name] = base_w * (1 + context_modulator_score_for_weights * dynamic_weight_sensitivity)
@@ -1151,7 +1170,7 @@ class CalculatePriceVolumeDynamics:
         total_dynamic_weight = pd.Series(0.0, index=df_index, dtype=np.float32)
         for key in dynamic_quadrant_weights:
             total_dynamic_weight += dynamic_quadrant_weights[key]
-        total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9) # 避免除以零
+        total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
         for key in dynamic_quadrant_weights:
             dynamic_quadrant_weights[key] = dynamic_quadrant_weights[key] / total_dynamic_weight
         # Final Fusion: Weighted Average
@@ -1166,38 +1185,118 @@ class CalculatePriceVolumeDynamics:
         final_score = np.sign(final_score) * (final_score.abs().pow(adjusted_final_exponent))
         # 应用象限纯度调节器
         quadrant_purity_modulator = quadrant_scores['quadrant_purity']
-        final_score *= quadrant_purity_modulator # 纯度越高，信号越强
+        final_score *= quadrant_purity_modulator
         # Price Calmness Modulator
-        # 使用 mtf_price_momentum 代替原始 SLOPE_5_close_D，因为它已经是一个融合的、归一化的动量分数
         price_momentum_bipolar = mtf_signals['mtf_price_momentum']
         pct_change_raw = raw_signals['pct_change_D']
         pct_change_abs_norm_inverted = self.helper._normalize_series(pct_change_raw.abs(), df_index, ascending=False)
-        # 价格平静度：动量绝对值越小，平静度越高
         price_calmness_modulator = (price_calmness_modulator_params.get('modulator_factor', 0.5) * (1 - price_momentum_bipolar.abs()) + (1 - price_calmness_modulator_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1)
-        price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('amplifier_factor', 0.5)) # 增加一个amplifier_factor配置
+        price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_modulator_params.get('amplifier_factor', 0.5))
         final_score *= price_calmness_amplifier
         # Main Force Control Adjudicator
-        control_solidity_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), 0.0, method_name=method_name) # 默认值改为0.0
-        mf_activity_ratio_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), 0.0, method_name=method_name) # 默认值改为0.0
+        control_solidity_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('control_signal', 'control_solidity_index_D'), 0.0, method_name=method_name)
+        mf_activity_ratio_raw = self.helper._get_safe_series(df, main_force_control_adjudicator_params.get('activity_signal', 'main_force_activity_ratio_D'), 0.0, method_name=method_name)
         control_solidity_score = self.helper._normalize_series(control_solidity_raw, df_index, bipolar=True)
         mf_activity_ratio_score = self.helper._normalize_series(mf_activity_ratio_raw, df_index, ascending=True)
         veto_threshold = main_force_control_adjudicator_params.get('veto_threshold', -0.2)
         amplifier_factor = main_force_control_adjudicator_params.get('amplifier_factor', 0.5)
         combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1)
-        # --- 调试输出：主力控制裁决器相关变量 ---
-        # if is_debug_enabled_for_method and probe_ts:
-        #     _temp_debug_values["主力控制裁决器调试"] = {
-        #         'control_solidity_raw': control_solidity_raw,
-        #         'mf_activity_ratio_raw': mf_activity_ratio_raw,
-        #         'control_solidity_score': control_solidity_score,
-        #         'mf_activity_ratio_score': mf_activity_ratio_score,
-        #         'combined_control_score': combined_control_score,
-        #         'veto_threshold': veto_threshold,
-        #         'mask_condition_triggered': (combined_control_score < veto_threshold),
-        #         'final_score_before_mask': final_score
-        #     }
-        # --- 调试输出结束 ---
+        # Apply veto
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
+        # --- 新增：峰值情境化主力活动调节器 ---
+        if get_param_value(peak_contextualized_mf_activity_modulator_params.get('enabled'), False):
+            neutral_control_threshold = get_param_value(peak_contextualized_mf_activity_modulator_params.get('neutral_control_threshold'), 0.1)
+            # 仅当主力控盘分数在中性区间时才应用此调节器
+            mask_neutral_control = (control_solidity_score.abs() < neutral_control_threshold)
+            if mask_neutral_control.any():
+                close_price = raw_signals['close_D']
+                dominant_peak_cost = raw_signals['dominant_peak_cost_D']
+                atr = raw_signals['ATR_14_D']
+                # 确保关键信号可用
+                if dominant_peak_cost.isnull().all() or atr.isnull().all():
+                    print(f"  [DEBUG_DEEP] {method_name}: 缺少 dominant_peak_cost_D 或 ATR_14_D，跳过峰值情境化主力活动调节。")
+                else:
+                    peak_proximity_atr_factor = get_param_value(peak_contextualized_mf_activity_modulator_params.get('peak_proximity_atr_factor'), 0.5)
+                    peak_zone_upper = dominant_peak_cost + atr * peak_proximity_atr_factor
+                    peak_zone_lower = dominant_peak_cost - atr * peak_proximity_atr_factor
+                    # 获取所有相关主力活动信号
+                    gathering_by_chasing_raw = raw_signals['gathering_by_chasing_D']
+                    distribution_at_peak_intensity_raw = raw_signals['distribution_at_peak_intensity_D']
+                    absorption_of_distribution_intensity_raw = raw_signals['absorption_of_distribution_intensity_D']
+                    absorption_at_peak_intensity_raw = raw_signals['absorption_at_peak_intensity_D']
+                    gathering_by_support_raw = raw_signals['gathering_by_support_D']
+                    main_force_on_peak_buy_flow_raw = raw_signals['main_force_on_peak_buy_flow_D']
+                    main_force_on_peak_sell_flow_raw = raw_signals['main_force_on_peak_sell_flow_D']
+                    # 归一化所有相关信号
+                    norm_gathering_by_chasing = self.helper._normalize_series(gathering_by_chasing_raw, df_index, ascending=True)
+                    norm_distribution_at_peak = self.helper._normalize_series(distribution_at_peak_intensity_raw, df_index, ascending=True)
+                    norm_absorption_of_distribution = self.helper._normalize_series(absorption_of_distribution_intensity_raw, df_index, ascending=True)
+                    norm_absorption_at_peak = self.helper._normalize_series(absorption_at_peak_intensity_raw, df_index, ascending=True)
+                    norm_gathering_by_support = self.helper._normalize_series(gathering_by_support_raw, df_index, ascending=True)
+                    norm_mf_on_peak_buy_flow = self.helper._normalize_series(main_force_on_peak_buy_flow_raw, df_index, ascending=True)
+                    norm_mf_on_peak_sell_flow = self.helper._normalize_series(main_force_on_peak_sell_flow_raw, df_index, ascending=True)
+                    # 初始化情境化主力活动分数
+                    peak_contextualized_mf_activity_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+                    # 根据价格与成本峰的相对位置，动态计算分数
+                    # 1. 价格高于成本峰区域
+                    mask_above_peak = (close_price > peak_zone_upper)
+                    if mask_above_peak.any():
+                        above_peak_weights = get_param_value(peak_contextualized_mf_activity_modulator_params.get('above_peak_weights'), {})
+                        components_above_peak = {
+                            'gathering_by_chasing_positive': norm_gathering_by_chasing,
+                            'absorption_of_distribution_intensity_positive': norm_absorption_of_distribution,
+                            'main_force_on_peak_buy_flow_positive': norm_mf_on_peak_buy_flow, # 假设on_peak_buy在高位是积极信号
+                            'distribution_at_peak_intensity_negative': -norm_distribution_at_peak # 高位派发是负面信号
+                        }
+                        score_above_peak = _robust_geometric_mean(components_above_peak, above_peak_weights, df_index)
+                        peak_contextualized_mf_activity_score = peak_contextualized_mf_activity_score.mask(mask_above_peak, score_above_peak)
+                    # 2. 价格低于成本峰区域
+                    mask_below_peak = (close_price < peak_zone_lower)
+                    if mask_below_peak.any():
+                        below_peak_weights = get_param_value(peak_contextualized_mf_activity_modulator_params.get('below_peak_weights'), {})
+                        components_below_peak = {
+                            'absorption_at_peak_intensity_positive': norm_absorption_at_peak,
+                            'gathering_by_support_positive': norm_gathering_by_support,
+                            'main_force_on_peak_sell_flow_negative': -norm_mf_on_peak_sell_flow # 假设on_peak_sell在低位是负面信号
+                        }
+                        score_below_peak = _robust_geometric_mean(components_below_peak, below_peak_weights, df_index)
+                        peak_contextualized_mf_activity_score = peak_contextualized_mf_activity_score.mask(mask_below_peak, score_below_peak)
+                    # 3. 价格在成本峰区域内
+                    mask_near_peak = (~mask_above_peak) & (~mask_below_peak) & (close_price.notna()) & (dominant_peak_cost.notna())
+                    if mask_near_peak.any():
+                        near_peak_weights = get_param_value(peak_contextualized_mf_activity_modulator_params.get('near_peak_weights'), {})
+                        components_near_peak = {
+                            'main_force_on_peak_buy_flow_positive': norm_mf_on_peak_buy_flow,
+                            'absorption_at_peak_intensity_positive': norm_absorption_at_peak,
+                            'main_force_on_peak_sell_flow_negative': -norm_mf_on_peak_sell_flow,
+                            'distribution_at_peak_intensity_negative': -norm_distribution_at_peak
+                        }
+                        score_near_peak = _robust_geometric_mean(components_near_peak, near_peak_weights, df_index)
+                        peak_contextualized_mf_activity_score = peak_contextualized_mf_activity_score.mask(mask_near_peak, score_near_peak)
+                    # 将情境化主力活动分数转换为放大器
+                    mf_activity_amplifier_factor = get_param_value(peak_contextualized_mf_activity_modulator_params.get('amplifier_factor'), 0.2)
+                    mf_activity_amplifier = 1 + (peak_contextualized_mf_activity_score * mf_activity_amplifier_factor)
+                    # 仅在 control_solidity_score 处于中性区间时应用此放大器
+                    final_score = final_score.mask(mask_neutral_control, final_score * mf_activity_amplifier)
+                    # --- 调试输出：峰值情境化主力活动调节器相关变量 ---
+                    if is_debug_enabled_for_method and probe_ts:
+                        _temp_debug_values["峰值情境化主力活动调节器调试"] = {
+                            'control_solidity_score': control_solidity_score.loc[probe_ts] if probe_ts in control_solidity_score.index else np.nan,
+                            'neutral_control_threshold': neutral_control_threshold,
+                            'mask_neutral_control_triggered': mask_neutral_control.loc[probe_ts] if probe_ts in mask_neutral_control.index else np.nan,
+                            'close_price': close_price.loc[probe_ts] if probe_ts in close_price.index else np.nan,
+                            'dominant_peak_cost': dominant_peak_cost.loc[probe_ts] if probe_ts in dominant_peak_cost.index else np.nan,
+                            'atr': atr.loc[probe_ts] if probe_ts in atr.index else np.nan,
+                            'peak_zone_upper': peak_zone_upper.loc[probe_ts] if probe_ts in peak_zone_upper.index else np.nan,
+                            'peak_zone_lower': peak_zone_lower.loc[probe_ts] if probe_ts in peak_zone_lower.index else np.nan,
+                            'mask_above_peak_triggered': mask_above_peak.loc[probe_ts] if probe_ts in mask_above_peak.index else np.nan,
+                            'mask_below_peak_triggered': mask_below_peak.loc[probe_ts] if probe_ts in mask_below_peak.index else np.nan,
+                            'mask_near_peak_triggered': mask_near_peak.loc[probe_ts] if probe_ts in mask_near_peak.index else np.nan,
+                            'peak_contextualized_mf_activity_score': peak_contextualized_mf_activity_score.loc[probe_ts] if probe_ts in peak_contextualized_mf_activity_score.index else np.nan,
+                            'mf_activity_amplifier': mf_activity_amplifier.loc[probe_ts] if probe_ts in mf_activity_amplifier.index else np.nan,
+                            'final_score_after_peak_mod': final_score.loc[probe_ts] if probe_ts in final_score.index else np.nan
+                        }
+                    # --- 调试输出结束 ---
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
         final_score = (final_score * main_force_amplifier).clip(-1, 1)
         return final_score

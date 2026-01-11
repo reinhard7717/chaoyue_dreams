@@ -15,7 +15,7 @@
                 "relationship_type": "custom",
                 "scoring_mode": "bipolar",
                 "enable_probe": false,
-                "comment": "【V19.0 · 市场稳定性与结构清晰度增强版】价量关系诊断。核心升级: 引入“市场稳定性”维度，结合波动率、均值回归频率和结构熵，更全面评估市场环境。引入“市场结构清晰度”维度，结合分形维数、样本熵和微观结构效率，评估市场结构的清晰度和可预测性。增强动态调节器: 将“市场稳定性”整合到非线性指数调整中，使信号在不同市场环境下更智能地放大或抑制。优化四象限逻辑: 将“市场结构清晰度”整合到象限的奖励和惩罚中，增强情境感知能力。",
+                "comment": "【V19.2 · 峰值情境化主力活动增强版】价量关系诊断。核心升级: 引入“市场稳定性”维度，结合波动率、均值回归频率和结构熵，更全面评估市场环境。引入“市场结构清晰度”维度，结合分形维数、样本熵和微观结构效率，评估市场结构的清晰度和可预测性。增强动态调节器: 将“市场稳定性”整合到非线性指数调整中，使信号在不同市场环境下更智能地放大或抑制。优化四象限逻辑: 将“市场结构清晰度”整合到象限的奖励和惩罚中，增强情境感知能力。新增：当主力控盘中性时，根据价格与成本峰的相对位置，引入峰值情境化主力活动（追涨买入、派发、承接、吸筹）对最终分数进行调节。",
                 "price_volume_dynamics_params": {
                     "comment": "价量动态分析的专属参数。",
                     "quadrant_weights": {
@@ -102,13 +102,11 @@
                     },
                     "main_force_flow_context_params": {
                         "enabled": true,
-                        "comment": "主力资金流情境化分数参数，融合当日流与累计流。",
                         "cumulative_flow_periods": [13, 21, 55],
                         "daily_flow_base_weight": 0.3,
                         "cumulative_flow_dynamic_weight_factor": 0.7
                     },
                     "market_stability_weights": {
-                        "comment": "市场稳定性维度组件权重。",
                         "volatility_instability_inverted": 0.25,
                         "mean_reversion_frequency_inverted": 0.2,
                         "structural_entropy_change_inverted": 0.2,
@@ -116,7 +114,6 @@
                         "microstructure_efficiency_positive": 0.15
                     },
                     "market_structure_clarity_components": {
-                        "comment": "市场结构清晰度维度组件权重。",
                         "fractal_dimension_stable": 0.25,
                         "sample_entropy_low": 0.2,
                         "structural_entropy_change_low": 0.2,
@@ -124,7 +121,6 @@
                         "equilibrium_compression_index_high": 0.15
                     },
                     "breakout_readiness_weights": {
-                        "comment": "突破准备维度组件权重。",
                         "is_consolidating_inverted": 0.2,
                         "dynamic_consolidation_duration_positive": 0.2,
                         "breakout_readiness_score_positive": 0.3,
@@ -132,7 +128,6 @@
                         "trend_conviction_score_positive": 0.15
                     },
                     "energy_compression_weights": {
-                        "comment": "能量压缩维度组件权重。",
                         "tension": 0.1,
                         "bbw_inverted": 0.1,
                         "vol_instability_inverted": 0.1,
@@ -141,15 +136,14 @@
                         "vol_instability_slope_inverted": 0.1,
                         "dyn_stability": 0.05,
                         "market_tension": 0.05,
-                        "price_sample_entropy_inverted": 0.05,
-                        "price_volume_entropy_inverted": 0.05,
-                        "price_fractal_dimension_calm": 0.05,
-                        "volume_structure_skew_inverted": 0.05,
-                        "volume_profile_entropy_inverted": 0.05
+                        "price_sample_entropy_inverted": 0.025,
+                        "price_volume_entropy_inverted": 0.025,
+                        "price_fractal_dimension_calm": 0.025,
+                        "volume_structure_skew_inverted": 0.025,
+                        "volume_profile_entropy_inverted": 0.025
                     },
                     "volume_exhaustion_weights": {
-                        "comment": "量能枯竭维度组件权重。",
-                        "volume_atrophy": 0.1,
+                        "volume_atrophy": 0.15,
                         "turnover_rate_inverted": 0.1,
                         "counterparty_exhaustion": 0.1,
                         "order_book_liquidity_inverted": 0.1,
@@ -167,7 +161,6 @@
                         "turnover_rate_raw_inverted": 0.05
                     },
                     "main_force_covert_intent_weights": {
-                        "comment": "主力隐蔽意图维度组件权重。",
                         "stealth_ops": 0.1,
                         "split_order_accum": 0.1,
                         "mf_net_flow_positive": 0.1,
@@ -185,7 +178,6 @@
                         "main_force_flow_ambiguity": 0.1
                     },
                     "ambiguity_components_weights": {
-                        "comment": "主力资金流模糊度组件权重。",
                         "directionality_neutrality": 0.15,
                         "net_flow_near_zero": 0.15,
                         "deception_score": 0.1,
@@ -200,7 +192,6 @@
                         "liquidity_authenticity_positive": 0.05
                     },
                     "subdued_market_sentiment_weights": {
-                        "comment": "市场情绪低迷维度组件权重。",
                         "loser_pain_positive": 0.1,
                         "market_sentiment_negative": 0.1,
                         "retail_panic_surrender_positive": 0.1,
@@ -340,6 +331,30 @@
                         "activity_signal": "main_force_activity_ratio_D",
                         "veto_threshold": -0.2,
                         "amplifier_factor": 0.5
+                    },
+                    "peak_contextualized_main_force_activity_modulator": {
+                        "enabled": true,
+                        "comment": "【新增】峰值情境化主力活动调节器。当主力控盘中性时，根据价格与成本峰的相对位置，引入主力活动（追涨买入、派发、承接、吸筹）对最终分数进行调节。",
+                        "neutral_control_threshold": 0.1,
+                        "peak_proximity_atr_factor": 0.5,
+                        "above_peak_weights": {
+                            "gathering_by_chasing_positive": 0.4,
+                            "absorption_of_distribution_intensity_positive": 0.3,
+                            "main_force_on_peak_buy_flow_positive": 0.2,
+                            "distribution_at_peak_intensity_negative": 0.1
+                        },
+                        "below_peak_weights": {
+                            "absorption_at_peak_intensity_positive": 0.4,
+                            "gathering_by_support_positive": 0.3,
+                            "main_force_on_peak_sell_flow_negative": 0.3
+                        },
+                        "near_peak_weights": {
+                            "main_force_on_peak_buy_flow_positive": 0.3,
+                            "absorption_at_peak_intensity_positive": 0.3,
+                            "main_force_on_peak_sell_flow_negative": 0.2,
+                            "distribution_at_peak_intensity_negative": 0.2
+                        },
+                        "amplifier_factor": 0.2
                     },
                     "regime_modulator_params": {
                         "enabled": true,
