@@ -188,12 +188,12 @@ class ProcessIntelligenceHelper:
         # 计算每个时间点上（axis=1）不同信号的平均值 (代表整体方向和强度)
         mean_scores = fused_scores_df.mean(axis=1)
         # 计算每个时间点上（axis=1）不同信号之间的标准差 (离散度)
-        std_scores = fused_scores_df.std(axis=1).fillna(np.nan) # 修正：fillna(np.nan)
+        std_scores = fused_scores_df.std(axis=1).fillna(np.nan) # fillna(np.nan)
         # 将标准差归一化到 [0, 1] 范围，并转换为一致性强度
         max_possible_std = fused_scores_df.max(axis=1) - fused_scores_df.min(axis=1)
         max_possible_std = max_possible_std.replace(0, 1)
         normalized_std = (std_scores / max_possible_std).clip(0, 1)
-        consistency_strength = (1 - normalized_std).fillna(np.nan) # 修正：fillna(np.nan)
+        consistency_strength = (1 - normalized_std).fillna(np.nan) # fillna(np.nan)
         # 最终共振分数 = 整体方向和强度 * 一致性强度
         resonance_score = mean_scores * consistency_strength
         return resonance_score.clip(-1, 1).astype(np.float32)
@@ -230,13 +230,13 @@ class ProcessIntelligenceHelper:
         min_periods_std = max(1, int(self.meta_window * 0.5))
         instant_std = fused_scores_df.std(axis=1)
         # 对标准差进行平滑处理
-        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(np.nan) # 修正：fillna(np.nan)
+        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(np.nan) # fillna(np.nan)
         # 计算每个时间点上，不同信号的平均值 (代表整体方向)
         instant_mean = fused_scores_df.mean(axis=1)
         # 将标准差转换为协同性强度 (0到1，标准差越小，强度越大)
         # 避免除以零，并处理全为零的情况
         max_std = smoothed_std.max()
-        cohesion_magnitude = pd.Series(np.nan, index=df_index, dtype=np.float32) # 修正：默认值改为np.nan
+        cohesion_magnitude = pd.Series(np.nan, index=df_index, dtype=np.float32) # 默认值改为np.nan
         if max_std > 0:
             cohesion_magnitude = (1 - (smoothed_std / max_std)).clip(0, 1)
         # 结合方向和强度，生成双极性协同性分数
@@ -432,4 +432,81 @@ class ProcessIntelligenceHelper:
         resonance_score = mean_scores * consistency_strength
         return resonance_score.clip(-1, 1).astype(np.float32)
 
+    def _calculate_series_slope(self, series: pd.Series, period: int) -> pd.Series:
+        """
+        计算给定Series的斜率。
+        参数:
+            series (pd.Series): 输入Series。
+            period (int): 计算斜率的周期。
+        返回:
+            pd.Series: 斜率Series。
+        """
+        if period <= 0:
+            return pd.Series(0.0, index=series.index, dtype=np.float32)
+        # 简单的斜率计算：(当前值 - period周期前的值) / period
+        return (series - series.shift(period)) / period
+
+    def _calculate_series_accel(self, series: pd.Series, period: int) -> pd.Series:
+        """
+        计算给定Series的加速度。
+        加速度是斜率的斜率。
+        参数:
+            series (pd.Series): 输入Series。
+            period (int): 计算加速度的周期。
+        返回:
+            pd.Series: 加速度Series。
+        """
+        if period <= 1: # 加速度至少需要3个点 (2个斜率)
+            return pd.Series(0.0, index=series.index, dtype=np.float32)
+        # 计算period周期的斜率
+        slope = self._calculate_series_slope(series, period)
+        # 计算斜率的period周期斜率作为加速度
+        return self._calculate_series_slope(slope, period)
+
+    def _get_mtf_score_from_series_slope_accel(self, series: pd.Series, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, bipolar: bool = True, ascending: bool = True) -> pd.Series:
+        """
+        【新增】计算给定Series的多时间框架斜率和加速度的融合分数。
+        此方法直接对传入的Series计算斜率和加速度，然后进行归一化和融合。
+        参数:
+            series (pd.Series): 要计算MTF分数的原始Series。
+            mtf_weights_config (Dict): 包含 'slope_periods' 和 'accel_periods' 权重的配置字典。
+            df_index (pd.Index): DataFrame的索引。
+            method_name (str): 调用此方法的名称，用于日志输出。
+            bipolar (bool): 归一化是否为双极性 (-1到1)。
+            ascending (bool): 归一化时是否升序处理 (True表示值越大分数越高)。
+        返回:
+            pd.Series: 融合后的MTF斜率和加速度分数。
+        """
+        slope_periods_weights = get_param_value(mtf_weights_config.get('slope_periods'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
+        accel_periods_weights = get_param_value(mtf_weights_config.get('accel_periods'), {"5": 0.6, "13": 0.4})
+        all_scores_components = []
+        total_combined_weight = 0.0
+        # 处理斜率
+        for period_str, weight in slope_periods_weights.items():
+            try:
+                period = int(period_str)
+            except ValueError:
+                continue
+            slope_raw = self._calculate_series_slope(series, period)
+            if slope_raw.isnull().all():
+                continue
+            norm_score = self.helper._normalize_series(slope_raw, df_index, bipolar=bipolar, ascending=ascending)
+            all_scores_components.append(norm_score * weight)
+            total_combined_weight += weight
+        # 处理加速度
+        for period_str, weight in accel_periods_weights.items():
+            try:
+                period = int(period_str)
+            except ValueError:
+                continue
+            accel_raw = self._calculate_series_accel(series, period)
+            if accel_raw.isnull().all():
+                continue
+            norm_score = self.helper._normalize_series(accel_raw, df_index, bipolar=bipolar, ascending=ascending)
+            all_scores_components.append(norm_score * weight)
+            total_combined_weight += weight
+        if not all_scores_components or total_combined_weight == 0:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        fused_score = sum(all_scores_components) / total_combined_weight
+        return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
 

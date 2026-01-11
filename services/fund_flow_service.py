@@ -121,7 +121,7 @@ class AdvancedFundFlowMetricsService:
             chunk_raw_data_df = await self._load_and_merge_sources(stock_info, start_date=chunk_start_date, end_date=chunk_end_date)
             if chunk_raw_data_df.empty:
                 continue
-            # 核心修正：移除独立的 daily_vwap 计算步骤，将其整合到核心合成方法中
+            # 移除独立的 daily_vwap 计算步骤，将其整合到核心合成方法中
             self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, chunk_raw_data_df.index)
             chunk_new_metrics_df, _, _ = self._synthesize_and_forge_metrics(stock_code, chunk_raw_data_df)
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])

@@ -3869,7 +3869,7 @@ class ChipIntelligence:
             dynamic_cost_zone_tolerance = dynamic_cost_zone_tolerance.clip(cost_zone_tolerance_base * 0.5, cost_zone_tolerance_base * 2.0)
         upper_bound = cost_center * (1 + dynamic_cost_zone_tolerance)
         lower_bound = cost_center * (1 - dynamic_cost_zone_tolerance)
-        # --- 修正：先定义 net_conviction_flow ---
+        # --- 先定义 net_conviction_flow ---
         net_conviction_flow = conviction_flow_buy_raw - conviction_flow_sell_raw
         # 优化：传递预解析的 tf_weights 数据
         norm_positive_flow = utils.get_adaptive_mtf_normalized_score(net_conviction_flow.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights, debug_info=False, _parsed_tf_data=parsed_tf_data)

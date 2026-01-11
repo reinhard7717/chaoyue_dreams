@@ -1255,7 +1255,7 @@ def _robust_geometric_mean(scores_dict: Dict[str, pd.Series], weights_dict: Dict
     # 计算最终结果
     result_values = np.exp(exponent)
     
-    # 修正：如果 sum_of_effective_weights_per_date 原始为 0，则结果应为 0
+    # 如果 sum_of_effective_weights_per_date 原始为 0，则结果应为 0
     result_values[np.isclose(sum_of_effective_weights_per_date, 0)] = 0.0
     result_values[np.isnan(result_values)] = 0.0 
     

@@ -1338,7 +1338,7 @@ class ChipFeatureCalculator:
             direction='backward'
         ).set_index('trade_time')
         if not merged_hf_df.empty and 'type' in merged_hf_df.columns and 'volume' in merged_hf_df.columns:
-            # 核心修正：根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
+            # 根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
             conditions = [
                 merged_hf_df['type'] == 'B',
                 merged_hf_df['type'] == 'S'
@@ -1566,7 +1566,7 @@ class ChipFeatureCalculator:
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
         hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff()
-        # 核心修正：根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
+        # 根据逐笔数据 (tick data) 的买卖类型和成交量计算 OFI
         # 'type' 列来自 tick_data，'volume' 列也来自 tick_data (在 merge_asof 后被重命名为 'volume_tick' 然后又被 rename 为 'volume')
         conditions = [
             hf_analysis_df['type'] == 'B',

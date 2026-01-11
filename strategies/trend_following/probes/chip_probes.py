@@ -185,7 +185,7 @@ class ChipProbes:
         actual_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终信号分】: {actual_score:.4f}")
         print("\n  [链路层 2] 前提验证 (Prerequisite Validation)")
-        # 核心修正：读取由微观行为引擎保存的“增强前”的原始锁仓信号值，确保与引擎计算基准一致
+        # 读取由微观行为引擎保存的“增强前”的原始锁仓信号值，确保与引擎计算基准一致
         # 提供一个回退，以防利润兑现模块未运行时探针崩溃
         lockdown_trigger_series = atomic.get(
             'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT',

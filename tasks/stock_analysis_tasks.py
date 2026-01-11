@@ -473,7 +473,7 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     chip_service = AdvancedChipMetricsService()
     fund_flow_service = AdvancedFundFlowMetricsService()
     max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days)
-    # 核心修正：定义三级时间窗口变量
+    # 定义三级时间窗口变量
     lookback_start_date = None # 数据加载的最远边界
     process_start_date = None  # 计算循环的起点 (T-1)
     save_start_date = None     # 指标存储的起点 (T)
@@ -521,7 +521,7 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
             process_start_date = save_start_date
         lookback_start_date = process_start_date - timedelta(days=max_lookback_days)
         # logger.info(f"[{stock_code}] [统一初始化] 创世模式启动。存储自: {save_start_date}, 处理自: {process_start_date}, 回溯自: {lookback_start_date}")
-    # 核心修正：返回新的三级窗口日期
+    # 返回新的三级窗口日期
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager, debug_params: dict = None):
@@ -1913,7 +1913,7 @@ def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: i
             effective_cutoff_for_comparison = overall_cutoff_date
             if is_datetime_field:
                 naive_datetime_cutoff = datetime.combine(overall_cutoff_date, datetime.min.time())
-                # 修正：将 naive_datetime_cutoff 转换为 timezone-aware
+                # 将 naive_datetime_cutoff 转换为 timezone-aware
                 effective_cutoff_for_comparison = timezone.make_aware(naive_datetime_cutoff)
             min_date_to_archive_obj = model.objects.filter(trade_time__lt=effective_cutoff_for_comparison).aggregate(min_date=Min('trade_time'))
             min_date_to_archive = min_date_to_archive_obj.get('min_date')

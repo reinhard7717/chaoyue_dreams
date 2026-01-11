@@ -374,7 +374,7 @@ class IndexBasicDAO(BaseDAO):
         if not index_weight_dicts:
             return {}
         # 保存到数据库
-        # 逻辑修正：使用 'index', 'stock_code', 'trade_time' 作为联合唯一键，更高效且符合ORM规范
+        # 使用 'index', 'stock_code', 'trade_time' 作为联合唯一键，更高效且符合ORM规范
         result = await self._save_all_to_db_native_upsert(
             model_class=IndexWeight,
             data_list=index_weight_dicts,
@@ -641,7 +641,7 @@ class IndexBasicDAO(BaseDAO):
         if not data_list:
             return None
         # --- 批量保存 ---
-        # 逻辑修正：使用 'index' 对象作为唯一键，更高效且符合ORM规范
+        # 使用 'index' 对象作为唯一键，更高效且符合ORM规范
         result = await self._save_all_to_db_native_upsert(
             model_class=IndexDailyBasic,
             data_list=data_list,

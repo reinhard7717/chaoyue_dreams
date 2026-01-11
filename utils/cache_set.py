@@ -632,7 +632,7 @@ class StockRealtimeCacheSet(CacheSet):
                 def process_tick(stock_code: str, tick_data: dict, key_func, pipe_instance):
                     trade_time_val = tick_data.get('trade_time')
                     trade_time_obj = None
-                    # 核心修正：如果 trade_time 是字符串，则尝试从ISO格式转换
+                    # 如果 trade_time 是字符串，则尝试从ISO格式转换
                     if isinstance(trade_time_val, str):
                         try:
                             trade_time_obj = datetime.fromisoformat(trade_time_val)

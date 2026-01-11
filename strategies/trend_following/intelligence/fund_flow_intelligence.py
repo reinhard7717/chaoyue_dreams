@@ -35,7 +35,7 @@ def _numba_calculate_deception_risk_core(
     for i in range(num_dates):
         # 情境调制因子：市场情绪对风险的放大或抑制
         sentiment_mod_factor = (1 + np.abs(norm_market_sentiment_values[i]) * deception_context_sensitivity * np.sign(norm_market_sentiment_values[i]))
-        # 修正：对标量进行裁剪，使用 np.maximum 和 np.minimum
+        # 对标量进行裁剪，使用 np.maximum 和 np.minimum
         sentiment_mod_factor = np.maximum(0.5, np.minimum(sentiment_mod_factor, 1.5)) # 裁剪到合理范围
         # 风险来源1：对倒强度
         risk_from_wash_trade = norm_wash_trade_values[i] * wash_trade_penalty_sensitivity * sentiment_mod_factor * wash_trade_cohesion_mod_values[i]
@@ -49,12 +49,12 @@ def _numba_calculate_deception_risk_core(
         # 风险来源5：低资金流可信度
         # 只有当可信度低于阈值时才产生风险，且风险程度与低于阈值的程度成正比
         risk_from_low_credibility = np.maximum(0.0, (1 - norm_flow_credibility_values[i]) - (1 - flow_credibility_threshold))
-        # 修正：对标量进行裁剪，使用 np.maximum 和 np.minimum
+        # 对标量进行裁剪，使用 np.maximum 和 np.minimum
         risk_from_low_credibility = np.maximum(0.0, np.minimum(risk_from_low_credibility, 1.0)) # 确保在0到1之间
         # 累加所有风险成分
         total_risk = risk_from_wash_trade + risk_from_bull_trap + risk_from_lure_long + risk_from_bear_trap_weak_conviction + risk_from_low_credibility
         # 最终风险分数裁剪到 [0, 1] 范围
-        # 修正：对标量进行裁剪，使用 np.maximum 和 np.minimum
+        # 对标量进行裁剪，使用 np.maximum 和 np.minimum
         deception_risk_score_values[i] = np.maximum(0.0, np.minimum(total_risk, 1.0))
     return deception_risk_score_values
 
@@ -201,7 +201,7 @@ class FundFlowIntelligence:
                 raw_data = pre_fetched_data[col_name]
             else:
                 raw_data = self._get_safe_series(df, df, col_name, 0.0, method_name=method_name)
-            # 关键修正：这里传入的 tf_weights 应该是 self.tf_weights_ff，
+            # 这里传入的 tf_weights 应该是 self.tf_weights_ff，
             # 因为 get_adaptive_mtf_normalized_score 内部会用这些权重对 raw_data 进行多时间框架归一化
             if is_bipolar:
                 norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, tf_weights=self.tf_weights_ff)
@@ -713,7 +713,7 @@ class FundFlowIntelligence:
             "dynamic_deceptive_tension_weight": dynamic_deceptive_tension_weight,
             "dynamic_micro_intent_tension_weight": dynamic_micro_intent_tension_weight,
             "fused_divergence_base": fused_divergence_base,
-            "base_tension_score_before_tanh": base_tension_score, # 修正：这里应该是 tanh 之前的 fused_divergence_base
+            "base_tension_score_before_tanh": base_tension_score, # 这里应该是 tanh 之前的 fused_divergence_base
             "base_tension_score_after_tanh": base_tension_score
         }
         # --- 7. 张力演化趋势与预警 (Tension Evolution & Early Warning) ---

@@ -357,7 +357,7 @@ class IndicatorService:
         all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config, self.calculator)
         # --- 步骤 3: 【VPA效率指标计算】 ---
         all_dfs = await self.feature_service.calculate_vpa_features(all_dfs, config)
-        # --- 步骤 4: 【突破质量分计算】(核心修正：移至此处，确保依赖项已就绪) ---
+        # --- 步骤 4: 【突破质量分计算】(移至此处，确保依赖项已就绪) ---
         bqs_params = indicators_config.get('breakout_quality_score', {})
         if bqs_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_breakout_quality(all_dfs, bqs_params, self.calculator)

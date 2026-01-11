@@ -660,7 +660,7 @@ class AdvancedStructuralMetricsService:
             if MinuteModel:
                 @sync_to_async(thread_sensitive=True)
                 def get_minute_data_for_dates(model, stock_pk, dates_list):
-                    # 核心修正：使用范围查询
+                    # 使用范围查询
                     start_dt_fallback = timezone.make_aware(datetime.combine(dates_list[0], time.min))
                     end_dt_fallback = timezone.make_aware(datetime.combine(dates_list[-1], time.max))
                     qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt_fallback, trade_time__lte=end_dt_fallback)
@@ -697,9 +697,9 @@ class AdvancedStructuralMetricsService:
             if prev_date_ts in historical_metrics_df.index:
                 prev_hist_series = historical_metrics_df.loc[prev_date_ts]
                 prev_day_calculated_metrics.update({
-                    'vpoc': prev_hist_series.get('today_vpoc'), # 修正：使用正确的字段名 today_vpoc
-                    'vah': prev_hist_series.get('today_vah'),   # 修正：使用正确的字段名 today_vah
-                    'val': prev_hist_series.get('today_val'),   # 修正：使用正确的字段名 today_val
+                    'vpoc': prev_hist_series.get('today_vpoc'), # 使用正确的字段名 today_vpoc
+                    'vah': prev_hist_series.get('today_vah'),   # 使用正确的字段名 today_vah
+                    'val': prev_hist_series.get('today_val'),   # 使用正确的字段名 today_val
                 })
             # 从 daily_df_with_atr 中获取前一天的日线基础数据
             if prev_date_ts in daily_df_with_atr.index:
@@ -771,9 +771,9 @@ class AdvancedStructuralMetricsService:
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
             prev_day_calculated_metrics = {
-                'vpoc': day_metric_dict.get('today_vpoc'), # 修正：使用正确的字段名 today_vpoc
-                'vah': day_metric_dict.get('today_vah'),   # 修正：使用正确的字段名 today_vah
-                'val': day_metric_dict.get('today_val'),   # 修正：使用正确的字段名 today_val
+                'vpoc': day_metric_dict.get('today_vpoc'), # 使用正确的字段名 today_vpoc
+                'vah': day_metric_dict.get('today_vah'),   # 使用正确的字段名 today_vah
+                'val': day_metric_dict.get('today_val'),   # 使用正确的字段名 today_val
                 'atr_14d': daily_series_for_day.get('ATR_14'),
                 'high': daily_series_for_day.get('high_qfq'),
                 'low': daily_series_for_day.get('low_qfq'),
