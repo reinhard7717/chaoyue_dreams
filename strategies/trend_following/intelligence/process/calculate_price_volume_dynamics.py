@@ -1185,17 +1185,17 @@ class CalculatePriceVolumeDynamics:
         amplifier_factor = main_force_control_adjudicator_params.get('amplifier_factor', 0.5)
         combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1)
         # --- 调试输出：主力控制裁决器相关变量 ---
-        if is_debug_enabled_for_method and probe_ts:
-            _temp_debug_values["主力控制裁决器调试"] = {
-                'control_solidity_raw': control_solidity_raw,
-                'mf_activity_ratio_raw': mf_activity_ratio_raw,
-                'control_solidity_score': control_solidity_score,
-                'mf_activity_ratio_score': mf_activity_ratio_score,
-                'combined_control_score': combined_control_score,
-                'veto_threshold': veto_threshold,
-                'mask_condition_triggered': (combined_control_score < veto_threshold),
-                'final_score_before_mask': final_score
-            }
+        # if is_debug_enabled_for_method and probe_ts:
+        #     _temp_debug_values["主力控制裁决器调试"] = {
+        #         'control_solidity_raw': control_solidity_raw,
+        #         'mf_activity_ratio_raw': mf_activity_ratio_raw,
+        #         'control_solidity_score': control_solidity_score,
+        #         'mf_activity_ratio_score': mf_activity_ratio_score,
+        #         'combined_control_score': combined_control_score,
+        #         'veto_threshold': veto_threshold,
+        #         'mask_condition_triggered': (combined_control_score < veto_threshold),
+        #         'final_score_before_mask': final_score
+        #     }
         # --- 调试输出结束 ---
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
