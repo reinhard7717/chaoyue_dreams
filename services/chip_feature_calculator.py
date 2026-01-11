@@ -159,7 +159,9 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V12.5 · 情境融合版】
+        【V12.6 · 情境融合版 - 高频数据前置】
+        - 核心修复: 将高频数据 (hf_analysis_df, hf_features) 的准备工作提前，确保所有依赖高频数据的指标计算方法
+                     都能正确访问到这些数据，避免 'NoneType' 错误。
         - 核心升维: 新增对 `_compute_contextual_action_metrics` 的调用，正式将“情境行为融合”指标的计算职责
                      纳入筹码服务，解决了跨服务的数据依赖问题。
         - 核心修复: 恢复 `_compute_tactical_intent_metrics` 的调用顺序，移除调试代码。
@@ -178,6 +180,15 @@ class ChipFeatureCalculator:
         summary_info = self._get_summary_metrics_from_context()
         all_metrics.update(summary_info)
         self.ctx.update(summary_info)
+
+        # --- NEW: Prepare and engineer high-frequency features early ---
+        # 确保 hf_analysis_df 和 hf_features 在所有需要它们的指标计算之前可用
+        raw_hf_df, common_data_hf = self._prepare_behavioral_data_for_chips(self.ctx)
+        hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data_hf.get('daily_total_volume', 0))
+        self.ctx['hf_analysis_df'] = hf_analysis_df
+        self.ctx['hf_features'] = hf_features
+        self.ctx['common_data_hf'] = common_data_hf # 也将 common_data 存储起来，方便后续方法使用
+
         static_structure_metrics = self._compute_static_structure_metrics()
         all_metrics.update(static_structure_metrics)
         self.ctx.update(static_structure_metrics)
@@ -224,7 +235,7 @@ class ChipFeatureCalculator:
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
-        tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx) # 恢复到原始位置
+        tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
         all_metrics.update(tactical_intent_metrics)
         self.ctx.update(tactical_intent_metrics)
         realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
@@ -364,7 +375,9 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.5 · 短路诊断版】
+        【V1.6 · 短路诊断版 - 高频数据复用】
+        - 核心修复: 不再重复调用 _prepare_behavioral_data_for_chips 和 _engineer_hf_features_for_chips，
+                     而是直接从 context 中获取已准备好的 hf_analysis_df 和 common_data_hf。
         - 核心新增: 在 `is_short_circuit` 判断前，打印所有 `required_vars_map` 中的变量值，
                      以便精确诊断导致方法短路的原因。
         """
@@ -395,12 +408,12 @@ class ChipFeatureCalculator:
         rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0) # 修正键名
         suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
 
-        # --- 新增：获取高频数据和主峰区域信息，用于区分“未卖出”和“卖出” ---
-        raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
-        hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
-        dominant_peak_cost = context.get('dominant_peak_cost')
-        # --- 结束新增 ---
+        # --- 修正：直接从 context 获取 hf_analysis_df 和 common_data_hf ---
+        hf_analysis_df = context.get('hf_analysis_df')
+        common_data = context.get('common_data_hf') # 使用存储的 common_data_hf
+        # --- 结束修正 ---
 
+        dominant_peak_cost = context.get('dominant_peak_cost')
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
@@ -410,65 +423,49 @@ class ChipFeatureCalculator:
             'suppressive_accumulation': suppressive_accumulation,
             'dominant_peak_cost': dominant_peak_cost
         }
-        
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
         print(f"  [调试] {stock_code} {trade_date} - 检查 _compute_game_theoretic_metrics 依赖变量:")
         for var_name, var_value in required_vars_map.items():
             print(f"    - {var_name}: {var_value}")
-
         required_vars = list(required_vars_map.values())
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if is_short_circuit:
             print(f"  [调试] {stock_code} {trade_date} - _compute_game_theoretic_metrics 短路触发，原因：存在 NaN 或 ATR <= 0。")
             return results
-        
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
         fatigue_factor = np.log1p(fatigue)
         results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
-        
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
-        
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
         lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
-        
         calculated_control_solidity = gini * peak_transfer
-
         print(f"  [调试] {stock_code} {trade_date} - peak_transfer: {peak_transfer:.4f}, gini: {gini:.4f}")
-
         if peak_transfer < 0 and not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
             peak_battle_zone_radius = 0.5 * atr
             peak_zone_upper = dominant_peak_cost + peak_battle_zone_radius
             peak_zone_lower = dominant_peak_cost - peak_battle_zone_radius
-
             peak_zone_hf_df = hf_analysis_df[(hf_analysis_df['price'] >= peak_zone_lower) & (hf_analysis_df['price'] <= peak_zone_upper)]
-
             if not peak_zone_hf_df.empty:
                 mf_net_vol_in_peak_zone = peak_zone_hf_df['main_force_ofi'].sum()
                 total_vol_in_peak_zone = peak_zone_hf_df['volume'].sum()
-
                 print(f"  [调试] {stock_code} {trade_date} - mf_net_vol_in_peak_zone: {mf_net_vol_in_peak_zone:.4f}, total_vol_in_peak_zone: {total_vol_in_peak_zone:.4f}")
-
                 if mf_net_vol_in_peak_zone >= 0 and total_vol_in_peak_zone > 0:
                     calculated_control_solidity = gini * 0.01
                     print(f"  [调试] {stock_code} {trade_date} - 惜售修正触发！calculated_control_solidity 修正为: {calculated_control_solidity:.4f}")
-        
         results['control_solidity_index'] = calculated_control_solidity
-
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
-        
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
-        
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
@@ -738,14 +735,17 @@ class ChipFeatureCalculator:
         intraday_df_raw = context.get('processed_intraday_df')
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
-        # 获取高频数据
+        # 获取高频数据 (现在保证 hf_analysis_df 不会是 None，因为它在 calculate_all_metrics 中被提前计算并存储)
         hf_analysis_df = context.get('hf_analysis_df')
         # 确保 hf_analysis_df 仅包含交易时间段的数据，与 intraday_df 保持一致
         if hf_analysis_df is not None and not hf_analysis_df.empty:
             hf_analysis_df = hf_analysis_df[hf_analysis_df.index.time >= time(9, 30)].copy()
         if intraday_df_raw is None or intraday_df_raw.empty:
             print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 为空。")
-            return results
+            # 如果 intraday_df_raw 为空，且 hf_analysis_df 也为空，则直接返回
+            if hf_analysis_df is None or hf_analysis_df.empty:
+                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 和 hf_analysis_df 都为空。")
+                return results
         intraday_df = intraday_df_raw[intraday_df_raw.index.time >= time(9, 30)].copy()
         if intraday_df.empty and (hf_analysis_df is None or hf_analysis_df.empty): # 如果分钟和高频数据都为空，则直接返回
             print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 过滤后 intraday_df 和 hf_analysis_df 都为空。")
@@ -1778,7 +1778,9 @@ class ChipFeatureCalculator:
 
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
         """
-        【V12.9 · 派发吸筹承接版】
+        【V12.10 · 派发吸筹承接版 - 高频数据复用】
+        - 核心修复: 不再重复调用 _prepare_behavioral_data_for_chips 和 _engineer_hf_features_for_chips，
+                     而是直接从 context 中获取已准备好的 hf_analysis_df 和 common_data_hf。
         - 核心新增: 引入 `absorption_of_distribution_intensity` (派发吸收强度) 指标。
                      该指标旨在衡量在价格高于主峰区时，主力资金的买入意图和实际买入行为的强度，
                      以对冲 `distribution_at_peak_intensity` 带来的负面影响，更全面地反映市场承接能力。
@@ -1797,8 +1799,11 @@ class ChipFeatureCalculator:
             'breakthrough_of_peak_quality': 0.0,
             'defense_of_peak_quality': 0.0,
         }
-        raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
-        hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
+        # --- 修正：直接从 context 获取 hf_analysis_df 和 common_data_hf ---
+        hf_analysis_df = context.get('hf_analysis_df')
+        common_data = context.get('common_data_hf') # 使用存储的 common_data_hf
+        # --- 结束修正 ---
+
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = common_data.get('atr')
         if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
