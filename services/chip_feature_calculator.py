@@ -719,12 +719,10 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
-        【V2.5 · 主峰区域外主力行为评估版】
-        - 核心增强: 当主导筹码峰区域内无交易时，不再简单赋予固定值。
-                     而是根据日内整体主力净流量，评估是“推高买入”还是“高位卖出”，
-                     并据此修正 `peak_control_transfer`，使其更具业务含义。
-        - 核心修复: 优化了当 `peak_low/high` 无效时，`peak_control_transfer` 的默认值逻辑，
-                     同样优先考虑日内主力净流量。
+        【V2.9 · 全面高频数据优先版】
+        - 核心增强: 方法内所有可从高频数据 (hf_analysis_df) 计算的指标，均优先使用高频数据。
+                     只有在高频数据不可用或不满足计算条件时，才回退到分钟级别数据 (intraday_df)。
+        - 核心逻辑: 确保了指标计算的最高精度，充分利用了逐笔交易的微观信息。
         """
         from datetime import time
         results = {
@@ -740,72 +738,86 @@ class ChipFeatureCalculator:
         intraday_df_raw = context.get('processed_intraday_df')
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
-
+        # 获取高频数据
+        hf_analysis_df = context.get('hf_analysis_df')
+        # 确保 hf_analysis_df 仅包含交易时间段的数据，与 intraday_df 保持一致
+        if hf_analysis_df is not None and not hf_analysis_df.empty:
+            hf_analysis_df = hf_analysis_df[hf_analysis_df.index.time >= time(9, 30)].copy()
         if intraday_df_raw is None or intraday_df_raw.empty:
             print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 为空。")
             return results
         intraday_df = intraday_df_raw[intraday_df_raw.index.time >= time(9, 30)].copy()
-        if intraday_df.empty:
-            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 过滤后 intraday_df 为空。")
+        if intraday_df.empty and (hf_analysis_df is None or hf_analysis_df.empty): # 如果分钟和高频数据都为空，则直接返回
+            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 过滤后 intraday_df 和 hf_analysis_df 都为空。")
             return results
-
         close_price = context.get('close_price')
         vwap = context.get('daily_vwap')
         peak_low = context.get('peak_range_low')
         peak_high = context.get('peak_range_high')
         dominant_peak_cost = context.get('dominant_peak_cost')
-
         if pd.notna(close_price) and pd.notna(vwap) and vwap > 0:
             posture = (close_price / vwap - 1) * 100
             results['intraday_posture_score'] = np.clip(posture * 10, -100, 100)
-
-            # --- 修正 peak_control_transfer 的计算逻辑 ---
+            # --- peak_control_transfer 的计算逻辑 ---
             if pd.notna(peak_low) and pd.notna(peak_high) and peak_high > peak_low:
                 print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域边界: peak_low={peak_low:.2f}, peak_high={peak_high:.2f}")
-                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内数据价格范围: min={intraday_df['minute_vwap'].min():.2f}, max={intraday_df['minute_vwap'].max():.2f}")
-
-                peak_vwap_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
-                
-                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df.empty: {peak_vwap_df.empty}")
-                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df.shape: {peak_vwap_df.shape}")
-                if not peak_vwap_df.empty:
-                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df['vol_shares'].sum(): {peak_vwap_df['vol_shares'].sum():.2f}")
-                    if peak_vwap_df['vol_shares'].sum() == 0:
-                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df['vol_shares'].unique(): {peak_vwap_df['vol_shares'].unique()}")
-
-                if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
-                    # 原始逻辑：主峰区域内有交易
-                    peak_vwap = (peak_vwap_df['minute_vwap'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
-                    peak_transfer = (peak_vwap / vwap - 1) * 100
-                    results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
-                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域内有交易，peak_control_transfer 计算为 {results['peak_control_transfer']:.2f}。")
-                else:
-                    # 主峰区域内无交易或交易量为零
-                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域 ({peak_low:.2f}-{peak_high:.2f}) 无交易或交易量为零。")
-                    
-                    # 评估日内整体主力净流量
-                    if 'main_force_ofi' in intraday_df.columns:
-                        total_mf_net_vol_intraday = intraday_df['main_force_ofi'].sum()
-                        total_vol_intraday = intraday_df['volume'].sum() # 假设 'volume' 是总成交量
-                        
+                # 尝试使用高频数据计算主峰区域内的VWAP
+                peak_vwap_calculated = False
+                if not hf_analysis_df.empty and 'price' in hf_analysis_df.columns and 'volume' in hf_analysis_df.columns:
+                    hf_peak_df = hf_analysis_df[(hf_analysis_df['price'] >= peak_low) & (hf_analysis_df['price'] <= peak_high)]
+                    if not hf_peak_df.empty and hf_peak_df['volume'].sum() > 0:
+                        peak_vwap_hf = (hf_peak_df['price'] * hf_peak_df['volume']).sum() / hf_peak_df['volume'].sum()
+                        peak_transfer = (peak_vwap_hf / vwap - 1) * 100
+                        results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域内有高频交易，peak_control_transfer 计算为 {results['peak_control_transfer']:.2f}。")
+                        peak_vwap_calculated = True
+                # 如果高频数据未计算成功，尝试分钟数据
+                if not peak_vwap_calculated:
+                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内数据价格范围: min={intraday_df['minute_vwap'].min():.2f}, max={intraday_df['minute_vwap'].max():.2f}")
+                    peak_vwap_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
+                    if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
+                        peak_vwap_minute = (peak_vwap_df['minute_vwap'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
+                        peak_transfer = (peak_vwap_minute / vwap - 1) * 100
+                        results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域内有分钟级别交易，peak_control_transfer 计算为 {results['peak_control_transfer']:.2f}。")
+                        peak_vwap_calculated = True
+                # 如果主峰区域内高频和分钟数据都无交易
+                if not peak_vwap_calculated:
+                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域 ({peak_low:.2f}-{peak_high:.2f}) 无交易或交易量为零 (高频/分钟数据均无)。")
+                    # 评估日内整体主力净流量 (优先使用高频数据)
+                    if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'volume' in hf_analysis_df.columns:
+                        total_mf_net_vol_hf = hf_analysis_df['main_force_ofi'].sum()
+                        total_vol_hf = hf_analysis_df['volume'].sum()
+                        if total_vol_hf > 0:
+                            flow_ratio_hf = total_mf_net_vol_hf / total_vol_hf
+                            results['peak_control_transfer'] = np.clip(flow_ratio_hf * 100, -100, 100)
+                            if total_mf_net_vol_hf > 0:
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净买入 (高频数据推高买入)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                            elif total_mf_net_vol_hf < 0:
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净卖出 (高频数据高位卖出)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                            else:
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净流量中性 (高频数据)，peak_control_transfer 修正为 0.0。")
+                        else:
+                            results['peak_control_transfer'] = 0.0
+                            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 高频数据日内无交易量，peak_control_transfer 修正为 0.0。")
+                    # 回退到分钟级别主力流量数据
+                    elif 'main_force_net_vol' in intraday_df.columns and 'vol_shares' in intraday_df.columns:
+                        total_mf_net_vol_intraday = intraday_df['main_force_net_vol'].sum()
+                        total_vol_intraday = intraday_df['vol_shares'].sum()
                         if total_vol_intraday > 0:
                             flow_ratio = total_mf_net_vol_intraday / total_vol_intraday
-                            # 将流量比率缩放到 [-100, 100] 范围，乘以一个放大系数
-                            # 0.2 (20%净买入/卖出量) 的流量比率将对应 100/-100
-                            results['peak_control_transfer'] = np.clip(flow_ratio * 500, -100, 100)
-                            
+                            results['peak_control_transfer'] = np.clip(flow_ratio * 100, -100, 100)
                             if total_mf_net_vol_intraday > 0:
-                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净买入 (推高买入)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净买入 (分钟数据推高买入)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
                             elif total_mf_net_vol_intraday < 0:
-                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净卖出 (高位卖出)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净卖出 (分钟数据高位卖出)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
                             else:
-                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净流量中性，peak_control_transfer 修正为 0.0。")
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净流量中性 (分钟数据)，peak_control_transfer 修正为 0.0。")
                         else:
-                            # 日内无交易量，这在 intraday_df 不为空的情况下不应该发生
                             results['peak_control_transfer'] = 0.0
-                            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内无交易量，peak_control_transfer 修正为 0.0。")
+                            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 分钟数据日内无交易量，peak_control_transfer 修正为 0.0。")
+                    # 无主力流量数据，退回到基于收盘价与主峰成本的判断
                     else:
-                        # 无主力流量数据，退回到基于收盘价与主峰成本的判断
                         if pd.notna(dominant_peak_cost) and close_price > dominant_peak_cost:
                             results['peak_control_transfer'] = 10.0
                             print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 无主力流量数据，股价高于主峰成本，peak_control_transfer 修正为 10.0。")
@@ -815,57 +827,106 @@ class ChipFeatureCalculator:
                         else:
                             results['peak_control_transfer'] = 0.0
                             print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 无主力流量数据，无法判断，peak_control_transfer 修正为 0.0。")
-            else:
-                # peak_low/high 有 NaN 或 peak_high <= peak_low，主峰区域定义无效
+            else: # peak_low/high 有 NaN 或 peak_high <= peak_low，主峰区域定义无效
                 print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_low/high 有 NaN 或 peak_high <= peak_low，主峰区域定义无效。")
-                if 'main_force_ofi' in intraday_df.columns:
-                    total_mf_net_vol_intraday = intraday_df['main_force_ofi'].sum()
-                    total_vol_intraday = intraday_df['volume'].sum()
-                    if total_vol_intraday > 0:
-                        flow_ratio = total_mf_net_vol_intraday / total_vol_intraday
-                        results['peak_control_transfer'] = np.clip(flow_ratio * 500, -100, 100)
-                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效，但有主力流量数据，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                # 同样优先使用高频数据
+                if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'volume' in hf_analysis_df.columns:
+                    total_mf_net_vol_hf = hf_analysis_df['main_force_ofi'].sum()
+                    total_vol_hf = hf_analysis_df['volume'].sum()
+                    if total_vol_hf > 0:
+                        flow_ratio_hf = total_mf_net_vol_hf / total_vol_hf
+                        results['peak_control_transfer'] = np.clip(flow_ratio_hf * 100, -100, 100)
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效，但有高频主力流量数据，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
                     else:
                         results['peak_control_transfer'] = 0.0
-                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效且日内无交易量，peak_control_transfer 修正为 0.0。")
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效且高频数据日内无交易量，peak_control_transfer 修正为 0.0。")
+                elif 'main_force_net_vol' in intraday_df.columns and 'vol_shares' in intraday_df.columns:
+                    total_mf_net_vol_intraday = intraday_df['main_force_net_vol'].sum()
+                    total_vol_intraday = intraday_df['vol_shares'].sum()
+                    if total_vol_intraday > 0:
+                        flow_ratio = total_mf_net_vol_intraday / total_vol_intraday
+                        results['peak_control_transfer'] = np.clip(flow_ratio * 100, -100, 100)
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效，但有分钟主力流量数据，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                    else:
+                        results['peak_control_transfer'] = 0.0
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效且分钟数据日内无交易量，peak_control_transfer 修正为 0.0。")
                 else:
                     results['peak_control_transfer'] = 0.0
                     print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效且无主力流量数据，peak_control_transfer 修正为 0.0。")
-            # --- 修正结束 ---
-
-        up_moves = intraday_df[intraday_df['minute_vwap'].diff() > 0]
-        down_moves = intraday_df[intraday_df['minute_vwap'].diff() < 0]
-        if not up_moves.empty and not down_moves.empty:
-            avg_up_vol = up_moves['vol_shares'].mean()
-            avg_down_vol = down_moves['vol_shares'].mean()
-            if avg_down_vol > 0:
-                results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
-        total_intraday_vol = intraday_df['vol_shares'].sum()
-        if total_intraday_vol > 0:
-            results['upward_impulse_strength'] = (up_moves['vol_shares'].sum() / total_intraday_vol) * 100
-            results['downward_impulse_strength'] = (down_moves['vol_shares'].sum() / total_intraday_vol) * 100
+            # --- peak_control_transfer 修正结束 ---
+        # --- impulse_quality_ratio, upward_impulse_strength, downward_impulse_strength 的计算 ---
+        impulse_calculated = False
+        if not hf_analysis_df.empty and 'mid_price' in hf_analysis_df.columns and 'volume' in hf_analysis_df.columns:
+            hf_mid_price_diff = hf_analysis_df['mid_price'].diff()
+            hf_up_moves = hf_analysis_df[hf_mid_price_diff > 0]
+            hf_down_moves = hf_analysis_df[hf_mid_price_diff < 0]
+            if not hf_up_moves.empty and not hf_down_moves.empty:
+                avg_up_vol_hf = hf_up_moves['volume'].mean()
+                avg_down_vol_hf = hf_down_moves['volume'].mean()
+                if avg_down_vol_hf > 0:
+                    results['impulse_quality_ratio'] = (avg_up_vol_hf / avg_down_vol_hf - 1) * 100
+            total_hf_vol = hf_analysis_df['volume'].sum()
+            if total_hf_vol > 0:
+                results['upward_impulse_strength'] = (hf_up_moves['volume'].sum() / total_hf_vol) * 100
+                results['downward_impulse_strength'] = (hf_down_moves['volume'].sum() / total_hf_vol) * 100
+            impulse_calculated = True
+        if not impulse_calculated: # 回退到分钟数据
+            up_moves = intraday_df[intraday_df['minute_vwap'].diff() > 0]
+            down_moves = intraday_df[intraday_df['minute_vwap'].diff() < 0]
+            if not up_moves.empty and not down_moves.empty:
+                avg_up_vol = up_moves['vol_shares'].mean()
+                avg_down_vol = down_moves['vol_shares'].mean()
+                if avg_down_vol > 0:
+                    results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
+            total_intraday_vol = intraday_df['vol_shares'].sum()
+            if total_intraday_vol > 0:
+                results['upward_impulse_strength'] = (up_moves['vol_shares'].sum() / total_intraday_vol) * 100
+                results['downward_impulse_strength'] = (down_moves['vol_shares'].sum() / total_intraday_vol) * 100
+        # --- opening_gap_defense_strength 的计算 ---
         open_price = context.get('open_price')
         pre_close = context.get('pre_close')
         if pd.notna(open_price) and pd.notna(pre_close) and pre_close > 0:
             gap_pct = (open_price / pre_close - 1) * 100
             if abs(gap_pct) > 0.1:
-                first_5_min_df = intraday_df[intraday_df.index.time <= time(9, 35)]
-                if not first_5_min_df.empty and first_5_min_df['vol_shares'].sum() > 0:
-                    sum_amount = (first_5_min_df['minute_vwap'] * first_5_min_df['vol_shares']).sum()
-                    sum_vol = first_5_min_df['vol_shares'].sum()
-                    vwap_5min = sum_amount / sum_vol
-                    price_change_vs_open = (vwap_5min / open_price - 1) * 100 if open_price > 0 else 0
-                    defense_strength = price_change_vs_open
-                    results['opening_gap_defense_strength'] = np.clip(defense_strength * 50, -100, 100)
+                defense_calculated = False
+                # 优先使用高频数据
+                if not hf_analysis_df.empty and 'price' in hf_analysis_df.columns and 'volume' in hf_analysis_df.columns:
+                    first_5_min_hf_df = hf_analysis_df[hf_analysis_df.index.time <= time(9, 35)]
+                    if not first_5_min_hf_df.empty and first_5_min_hf_df['volume'].sum() > 0:
+                        sum_amount_hf = (first_5_min_hf_df['price'] * first_5_min_hf_df['volume']).sum()
+                        sum_vol_hf = first_5_min_hf_df['volume'].sum()
+                        vwap_5min_hf = sum_amount_hf / sum_vol_hf
+                        price_change_vs_open_hf = (vwap_5min_hf / open_price - 1) * 100 if open_price > 0 else 0
+                        defense_strength_hf = price_change_vs_open_hf
+                        results['opening_gap_defense_strength'] = np.clip(defense_strength_hf * 50, -100, 100)
+                        defense_calculated = True
+                if not defense_calculated: # 回退到分钟数据
+                    first_5_min_df = intraday_df[intraday_df.index.time <= time(9, 35)]
+                    if not first_5_min_df.empty and first_5_min_df['vol_shares'].sum() > 0:
+                        sum_amount = (first_5_min_df['minute_vwap'] * first_5_min_df['vol_shares']).sum()
+                        sum_vol = first_5_min_df['vol_shares'].sum()
+                        vwap_5min = sum_amount / sum_vol
+                        price_change_vs_open = (vwap_5min / open_price - 1) * 100 if open_price > 0 else 0
+                        defense_strength = price_change_vs_open
+                        results['opening_gap_defense_strength'] = np.clip(defense_strength * 50, -100, 100)
             else:
                 results['opening_gap_defense_strength'] = 0.0
-        if 'net_flow_rate' in intraday_df.columns:
-            active_buy_df = intraday_df[intraday_df['net_flow_rate'] > 0]
-            active_sell_df = intraday_df[intraday_df['net_flow_rate'] < 0]
-            if not active_buy_df.empty:
-                results['active_buying_support'] = np.average(active_buy_df['net_flow_rate'], weights=active_buy_df['vol_shares'])
-            if not active_sell_df.empty:
-                results['active_selling_pressure'] = abs(np.average(active_sell_df['net_flow_rate'], weights=active_sell_df['vol_shares']))
+        # --- active_buying_support 和 active_selling_pressure 的计算 ---
+        # 已经实现了高频数据优先的逻辑，保持不变
+        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
+            mf_ofi_positive_sum = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
+            mf_ofi_negative_sum = hf_analysis_df['main_force_ofi'].clip(upper=0).sum()
+            total_mf_ofi_abs = hf_analysis_df['main_force_ofi'].abs().sum()
+            if total_mf_ofi_abs > 0:
+                results['active_buying_support'] = (mf_ofi_positive_sum / total_mf_ofi_abs) * 100
+                results['active_selling_pressure'] = (abs(mf_ofi_negative_sum) / total_mf_ofi_abs) * 100
+        elif 'main_force_net_vol' in intraday_df.columns and 'vol_shares' in intraday_df.columns:
+            active_buy_df = intraday_df[intraday_df['main_force_net_vol'] > 0]
+            active_sell_df = intraday_df[intraday_df['main_force_net_vol'] < 0]
+            if not active_buy_df.empty and active_buy_df['vol_shares'].sum() > 0:
+                results['active_buying_support'] = np.average(active_buy_df['main_force_net_vol'], weights=active_buy_df['vol_shares'])
+            if not active_sell_df.empty and active_sell_df['vol_shares'].sum() > 0:
+                results['active_selling_pressure'] = abs(np.average(active_sell_df['main_force_net_vol'], weights=active_sell_df['vol_shares']))
         return results
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
