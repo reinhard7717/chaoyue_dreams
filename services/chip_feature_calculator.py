@@ -407,12 +407,9 @@ class ChipFeatureCalculator:
         atr = context.get('atr_14d')
         rally_distribution_pressure = context.get('dispersal_by_distribution', 0.0) # 修正键名
         suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
-
         # --- 修正：直接从 context 获取 hf_analysis_df 和 common_data_hf ---
         hf_analysis_df = context.get('hf_analysis_df')
         common_data = context.get('common_data_hf') # 使用存储的 common_data_hf
-        # --- 结束修正 ---
-
         dominant_peak_cost = context.get('dominant_peak_cost')
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
@@ -1296,12 +1293,11 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V3.2 · 索引对齐修复版】
-        - 核心修复: 解决了因高频数据中存在重复时间戳索引，导致在使用 `.loc` 过滤权重时引发的“形状不匹配”
-                     TypeError。
-        - 核心思想: 废弃基于索引的过滤，改为创建统一的布尔掩码 `valid_mask`。通过将此掩码同时应用于
-                     `instant_intent` 和 `weights`，确保了最终用于加权平均的两个序列长度绝对一致，
-                     从根本上修复了“错位的舞伴”问题。
+        【V3.3 · 盘口数据清洗版】
+        - 核心修复: 解决了实时盘口数据中价格出现 `0.0000` 或 `NaN` 导致计算异常的问题。
+                     引入 `valid_data_mask` 严格过滤无效价格和成交量，确保只有有效数据参与计算。
+        - 核心修复: 调整 `_gaussian_weight` 函数，使其在输入价格无效时返回 `0` 权重。
+        - 核心增强: 增加更详细的探针，追踪每个买卖档位价格和成交量的质量。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -1343,32 +1339,40 @@ class ChipFeatureCalculator:
             cost_zone_high = main_force_cost + 0.5 * atr
             if probe_active:
                 print(f"    - 计算成本区间: low={cost_zone_low:.4f}, high={cost_zone_high:.4f}")
-                # New probes for price ranges in realtime_df
                 all_bid_prices = realtime_df[[f'b{i}_p' for i in range(1, 6)]].stack().dropna()
                 all_ask_prices = realtime_df[[f'a{i}_p' for i in range(1, 6)]].stack().dropna()
                 if not all_bid_prices.empty:
-                    print(f"    - Realtime Bid Price Range: [{all_bid_prices.min():.4f}, {all_bid_prices.max():.4f}]")
+                    print(f"    - Realtime Bid Price Range (all levels): [{all_bid_prices.min():.4f}, {all_bid_prices.max():.4f}]")
                 if not all_ask_prices.empty:
-                    print(f"    - Realtime Ask Price Range: [{all_ask_prices.min():.4f}, {all_ask_prices.max():.4f}]")
+                    print(f"    - Realtime Ask Price Range (all levels): [{all_ask_prices.min():.4f}, {all_ask_prices.max():.4f}]")
                 if 'volume' in realtime_df.columns and not realtime_df['volume'].empty:
-                    print(f"    - Realtime Volume Range: [{realtime_df['volume'].min():.0f}, {realtime_df['volume'].max():.0f}]")
-                # New probes for bid/ask volume ranges
+                    print(f"    - Realtime Trade Volume Range: [{realtime_df['volume'].min():.0f}, {realtime_df['volume'].max():.0f}]")
                 all_bid_volumes = realtime_df[[f'b{i}_v' for i in range(1, 6)]].stack().dropna()
                 all_ask_volumes = realtime_df[[f'a{i}_v' for i in range(1, 6)]].stack().dropna()
                 if not all_bid_volumes.empty:
-                    print(f"    - Realtime Bid Volume Range: [{all_bid_volumes.min():.0f}, {all_bid_volumes.max():.0f}]")
+                    print(f"    - Realtime Bid Volume Range (all levels): [{all_bid_volumes.min():.0f}, {all_bid_volumes.max():.0f}]")
                 if not all_ask_volumes.empty:
-                    print(f"    - Realtime Ask Volume Range: [{all_ask_volumes.min():.0f}, {all_ask_volumes.max():.0f}]")
+                    print(f"    - Realtime Ask Volume Range (all levels): [{all_ask_volumes.min():.0f}, {all_ask_volumes.max():.0f}]")
 
-            def _gaussian_weight(price_series, center, sigma):
+            def _gaussian_weight(price_series_input, center, sigma):
+                # 确保只对有效价格计算权重，无效价格（NaN或0）返回0权重
+                weights = pd.Series(0.0, index=price_series_input.index)
+                # 过滤掉NaN和0的价格
+                valid_prices_mask = price_series_input.notna() & (price_series_input > 0)
+                valid_prices = price_series_input[valid_prices_mask]
+
+                if valid_prices.empty:
+                    return weights # 所有价格都无效，返回全0 Series
+
                 if sigma > 0:
-                    return np.exp(-((price_series - center)**2) / (2 * sigma**2))
-                return pd.Series(np.where(price_series == center, 1.0, 0.0), index=price_series.index)
+                    weights.loc[valid_prices.index] = np.exp(-((valid_prices - center)**2) / (2 * sigma**2))
+                else: # sigma为0，只有中心点有权重1
+                    weights.loc[valid_prices.index] = np.where(valid_prices == center, 1.0, 0.0)
+                return weights
+
             bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
             bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
             ask_prices_cols = [f'a{i}_p' for i in range(1, 6)]
-            ask_vols_cols = [f'a{i}_v' for i in range(1, 1)] # 修正：这里应该是 range(1, 6)
-            # 修正：这里应该是 range(1, 6)
             ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
             total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
             total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
@@ -1378,21 +1382,49 @@ class ChipFeatureCalculator:
             for p_col, v_col in zip(bid_prices_cols, bid_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
-                in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
+                if probe_active:
+                    print(f"      - {p_col}: min={price_series.min():.4f}, max={price_series.max():.4f}, mean={price_series.mean():.4f}, NaNs={price_series.isnull().sum()}")
+                    print(f"      - {v_col}: min={vol_series.min():.0f}, max={vol_series.max():.0f}, mean={vol_series.mean():.0f}, NaNs={vol_series.isnull().sum()}")
+
+                # 严格过滤无效数据点：价格非NaN且大于0，成交量非NaN且大于0
+                valid_data_mask = (price_series.notna()) & (price_series > 0) & \
+                                  (vol_series.notna()) & (vol_series > 0)
+
+                # 应用掩码，使无效数据点变为NaN，这样它们不会参与后续的in_zone_mask和level_power计算
+                price_series_filtered = price_series.where(valid_data_mask, np.nan)
+                vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
+
+                in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
                 if probe_active:
                     bid_in_zone_counts.append(in_zone_mask.sum())
-                gravity_weight = _gaussian_weight(price_series, center=main_force_cost, sigma=0.5 * atr)
-                level_power = price_series * vol_series * gravity_weight
-                total_weighted_bid_power += level_power.where(in_zone_mask, 0)
+                
+                gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
+                
+                # level_power只对有效且在区域内的数据计算，否则为0
+                level_power = (price_series_filtered * vol_series_filtered * gravity_weight).where(in_zone_mask, 0).fillna(0)
+                total_weighted_bid_power += level_power
+
             for p_col, v_col in zip(ask_prices_cols, ask_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
-                in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
+                if probe_active:
+                    print(f"      - {p_col}: min={price_series.min():.4f}, max={price_series.max():.4f}, mean={price_series.mean():.4f}, NaNs={price_series.isnull().sum()}")
+                    print(f"      - {v_col}: min={vol_series.min():.0f}, max={vol_series.max():.0f}, mean={vol_series.mean():.0f}, NaNs={vol_series.isnull().sum()}")
+
+                valid_data_mask = (price_series.notna()) & (price_series > 0) & \
+                                  (vol_series.notna()) & (vol_series > 0)
+                price_series_filtered = price_series.where(valid_data_mask, np.nan)
+                vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
+
+                in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
                 if probe_active:
                     ask_in_zone_counts.append(in_zone_mask.sum())
-                gravity_weight = _gaussian_weight(price_series, center=main_force_cost, sigma=0.5 * atr)
-                level_power = price_series * vol_series * gravity_weight
-                total_weighted_ask_power += level_power.where(in_zone_mask, 0)
+                
+                gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
+                
+                level_power = (price_series_filtered * vol_series_filtered * gravity_weight).where(in_zone_mask, 0).fillna(0)
+                total_weighted_ask_power += level_power
+
             if probe_active:
                 print(f"    - Bid levels in zone (counts per level): {bid_in_zone_counts}")
                 print(f"    - Ask levels in zone (counts per level): {ask_in_zone_counts}")
