@@ -168,7 +168,7 @@
         "signal_conviction_score_D": [5, 13],
         "touch_conviction_score_D": [5, 13],
         "gathering_by_chasing_D": [5, 13, 21, 34],
-        "gathering_by_support_D": [5, 13],
+        "gathering_by_support_D": [5, 13, 21, 34],
         "auction_closing_position_D": [5, 13],
         "auction_impact_score_D": [5, 13],
         "auction_intent_signal_D": [5, 13],
