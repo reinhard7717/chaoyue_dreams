@@ -490,7 +490,7 @@ class ProcessIntelligenceHelper:
             slope_raw = self._calculate_series_slope(series, period)
             if slope_raw.isnull().all():
                 continue
-            norm_score = self.helper._normalize_series(slope_raw, df_index, bipolar=bipolar, ascending=ascending)
+            norm_score = self._normalize_series(slope_raw, df_index, bipolar=bipolar, ascending=ascending)
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
         # 处理加速度
@@ -502,7 +502,7 @@ class ProcessIntelligenceHelper:
             accel_raw = self._calculate_series_accel(series, period)
             if accel_raw.isnull().all():
                 continue
-            norm_score = self.helper._normalize_series(accel_raw, df_index, bipolar=bipolar, ascending=ascending)
+            norm_score = self._normalize_series(accel_raw, df_index, bipolar=bipolar, ascending=ascending)
             all_scores_components.append(norm_score * weight)
             total_combined_weight += weight
         if not all_scores_components or total_combined_weight == 0:
