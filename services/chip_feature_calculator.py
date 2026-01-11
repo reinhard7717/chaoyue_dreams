@@ -1343,6 +1343,23 @@ class ChipFeatureCalculator:
             cost_zone_high = main_force_cost + 0.5 * atr
             if probe_active:
                 print(f"    - 计算成本区间: low={cost_zone_low:.4f}, high={cost_zone_high:.4f}")
+                # New probes for price ranges in realtime_df
+                all_bid_prices = realtime_df[[f'b{i}_p' for i in range(1, 6)]].stack().dropna()
+                all_ask_prices = realtime_df[[f'a{i}_p' for i in range(1, 6)]].stack().dropna()
+                if not all_bid_prices.empty:
+                    print(f"    - Realtime Bid Price Range: [{all_bid_prices.min():.4f}, {all_bid_prices.max():.4f}]")
+                if not all_ask_prices.empty:
+                    print(f"    - Realtime Ask Price Range: [{all_ask_prices.min():.4f}, {all_ask_prices.max():.4f}]")
+                if 'volume' in realtime_df.columns and not realtime_df['volume'].empty:
+                    print(f"    - Realtime Volume Range: [{realtime_df['volume'].min():.0f}, {realtime_df['volume'].max():.0f}]")
+                # New probes for bid/ask volume ranges
+                all_bid_volumes = realtime_df[[f'b{i}_v' for i in range(1, 6)]].stack().dropna()
+                all_ask_volumes = realtime_df[[f'a{i}_v' for i in range(1, 6)]].stack().dropna()
+                if not all_bid_volumes.empty:
+                    print(f"    - Realtime Bid Volume Range: [{all_bid_volumes.min():.0f}, {all_bid_volumes.max():.0f}]")
+                if not all_ask_volumes.empty:
+                    print(f"    - Realtime Ask Volume Range: [{all_ask_volumes.min():.0f}, {all_ask_volumes.max():.0f}]")
+
             def _gaussian_weight(price_series, center, sigma):
                 if sigma > 0:
                     return np.exp(-((price_series - center)**2) / (2 * sigma**2))
@@ -1350,6 +1367,8 @@ class ChipFeatureCalculator:
             bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
             bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
             ask_prices_cols = [f'a{i}_p' for i in range(1, 6)]
+            ask_vols_cols = [f'a{i}_v' for i in range(1, 1)] # 修正：这里应该是 range(1, 6)
+            # 修正：这里应该是 range(1, 6)
             ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
             total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
             total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
