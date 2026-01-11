@@ -1184,9 +1184,23 @@ class CalculatePriceVolumeDynamics:
         veto_threshold = main_force_control_adjudicator_params.get('veto_threshold', -0.2)
         amplifier_factor = main_force_control_adjudicator_params.get('amplifier_factor', 0.5)
         combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1)
+
+        # --- 调试输出：主力控制裁决器相关变量 ---
+        if self.strategy.is_debug_enabled and self.strategy.probe_ts:
+            probe_ts = self.strategy.probe_ts
+            print(f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力控制裁决器调试 ---")
+            print(f"        'control_solidity_raw': {control_solidity_raw.loc[probe_ts]:.4f}")
+            print(f"        'mf_activity_ratio_raw': {mf_activity_ratio_raw.loc[probe_ts]:.4f}")
+            print(f"        'control_solidity_score': {control_solidity_score.loc[probe_ts]:.4f}")
+            print(f"        'mf_activity_ratio_score': {mf_activity_ratio_score.loc[probe_ts]:.4f}")
+            print(f"        'combined_control_score': {combined_control_score.loc[probe_ts]:.4f}")
+            print(f"        'veto_threshold': {veto_threshold:.4f}")
+            print(f"        'mask_condition_triggered': {(combined_control_score.loc[probe_ts] < veto_threshold)}")
+            print(f"        'final_score_before_mask': {final_score.loc[probe_ts]:.4f}")
+        # --- 调试输出结束 ---
+
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
-        # 移除 .fillna(0.0) 以暴露 NaN 值
         final_score = (final_score * main_force_amplifier).clip(-1, 1)
         return final_score
 
