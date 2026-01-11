@@ -193,6 +193,7 @@ class CalculateStormEyeCalm:
             # 替换 SCORE_DYN_AXIOM_STABILITY
             'mean_reversion_frequency_D', # 反向代理稳定性
             'control_solidity_index_D', # 控盘稳固度也反映稳定性
+
             'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D',
             'counterparty_exhaustion_index_D', 'main_force_conviction_index_D',
             'main_force_net_flow_calibrated_D',
@@ -231,8 +232,9 @@ class CalculateStormEyeCalm:
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V1.2: 从DataFrame和原子状态中安全地获取所有原始数据和原子信号。
+        V1.3: 从DataFrame和原子状态中安全地获取所有原始数据和原子信号。
         移除对原子信号的直接获取，转而从 df 中获取对应的原始指标或构建代理信号。
+        修正 `equilibrium_compression_index_D` 的键名。
         """
         raw_data = {}
         # Energy Compression
@@ -240,12 +242,13 @@ class CalculateStormEyeCalm:
         raw_data['ma_potential_tension_raw'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', np.nan, method_name=method_name)
         raw_data['bbw_raw'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', np.nan, method_name=method_name)
         raw_data['vol_instability_raw'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name=method_name)
-        raw_data['equilibrium_compression_raw'] = self.helper._get_safe_series(df, 'equilibrium_compression_index_D', np.nan, method_name=method_name)
+        # 修正键名
+        raw_data['equilibrium_compression_index_D'] = self.helper._get_safe_series(df, 'equilibrium_compression_index_D', np.nan, method_name=method_name)
         # 替换 dyn_stability_score (SCORE_DYN_AXIOM_STABILITY)
         raw_data['mean_reversion_frequency_raw'] = self.helper._get_safe_series(df, 'mean_reversion_frequency_D', np.nan, method_name=method_name)
         raw_data['control_solidity_raw_for_stability'] = self.helper._get_safe_series(df, 'control_solidity_index_D', np.nan, method_name=method_name)
         # 替换 market_tension_score (SCORE_FOUNDATION_AXIOM_MARKET_TENSION)
-        raw_data['market_tension_proxy_raw'] = (raw_data['equilibrium_compression_raw'] + (1 - raw_data['vol_instability_raw'])).clip(0,1) # 简单代理
+        raw_data['market_tension_proxy_raw'] = (raw_data['equilibrium_compression_index_D'] + (1 - raw_data['vol_instability_raw'])).clip(0,1) # 简单代理
         raw_data['price_sample_entropy_raw'] = self.helper._get_safe_series(df, 'SAMPLE_ENTROPY_13d_D', np.nan, method_name=method_name)
         raw_data['price_volume_entropy_raw'] = self.helper._get_safe_series(df, 'price_volume_entropy_D', np.nan, method_name=method_name)
         raw_data['price_fractal_dimension_raw'] = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', np.nan, method_name=method_name)
@@ -344,7 +347,7 @@ class CalculateStormEyeCalm:
 
         bbw_inverted_score = self.helper._normalize_series(raw_data['bbw_raw'], target_index=df_index, ascending=False)
         vol_instability_inverted_score = self.helper._normalize_series(raw_data['vol_instability_raw'], target_index=df_index, ascending=False)
-        equilibrium_compression_score = self.helper._normalize_series(raw_data['equilibrium_compression_raw'], target_index=df_index, ascending=True)
+        equilibrium_compression_score = self.helper._normalize_series(raw_data['equilibrium_compression_index_D'], target_index=df_index, ascending=True)
         
         # 代理 dyn_stability_norm (SCORE_DYN_AXIOM_STABILITY)
         # 稳定性 = (1 - 波动不稳定性) + (1 - 均值回归频率) + 控盘稳固度
@@ -548,7 +551,7 @@ class CalculateStormEyeCalm:
 
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict) -> pd.Series:
         """
-        V1.2: 计算突破准备度维度的分数。
+        V1.3: 计算突破准备度维度的分数。
         替换 SCORE_STRUCT_BREAKOUT_READINESS 和 SCORE_STRUCT_PLATFORM_FOUNDATION 为原始指标代理。
         """
         # 直接使用 breakout_readiness_score_D
@@ -616,7 +619,7 @@ class CalculateStormEyeCalm:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        V4.0.4: 计算“风暴眼中的寂静”信号。
+        V4.0.5: 计算“风暴眼中的寂静”信号。
         """
         method_name = "calculate_storm_eye_calm"
         is_debug_enabled_for_method, probe_ts = self._get_debug_info(df, method_name)
