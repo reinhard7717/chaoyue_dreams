@@ -1454,8 +1454,8 @@ class CalculatePriceVolumeDynamics:
             pvd_params, method_name, is_debug_enabled_for_method, probe_ts, _temp_debug_values # 传递调试参数
         )
         _temp_debug_values["最终融合分数"] = {"final_score": final_score}
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_pvd_debug_output(_temp_debug_values, probe_ts, method_name, "价量动态诊断完成")
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_pvd_debug_output(_temp_debug_values, probe_ts, method_name, "价量动态诊断完成")
             
         return final_score.astype(np.float32)
 

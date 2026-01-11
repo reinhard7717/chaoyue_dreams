@@ -93,57 +93,6 @@ class CalculatePriceMomentumDivergence:
                         self.helper._print_debug_output({f"        {key}: {series}": ""})
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
-    def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V1.1 · 模块化与增强版"""
-        method_name = "_calculate_price_momentum_divergence"
-        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.helper.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        debug_output = {}
-        _temp_debug_values = {}
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价势背离..."] = ""
-        df_index = df.index
-        pmd_params = self._get_pmd_params(config)
-        if not self._validate_pmd_signals(df, pmd_params, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self._print_debug_output_pmd(debug_output, probe_ts, method_name, pd.Series(0.0, index=df.index, dtype=np.float32))
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        raw_data = self._get_pmd_raw_data(df, pmd_params, method_name)
-        _temp_debug_values["原始信号值"] = raw_data
-        fused_price_direction, debug_price_direction = self._calculate_fused_price_direction(df, df_index, raw_data, pmd_params, method_name)
-        _temp_debug_values["融合价格方向"] = debug_price_direction
-        fused_momentum_direction, debug_momentum_direction = self._calculate_fused_momentum_direction(df, df_index, raw_data, pmd_params, method_name)
-        _temp_debug_values["融合动量方向"] = debug_momentum_direction
-        base_divergence_score = (fused_price_direction - fused_momentum_direction).clip(-1, 1)
-        _temp_debug_values["基础背离分数"] = {"base_divergence_score": base_divergence_score}
-        volume_confirmation_score, debug_volume_confirmation = self._calculate_volume_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
-        _temp_debug_values["量能确认分数"] = debug_volume_confirmation
-        main_force_confirmation_score, debug_mf_confirmation = self._calculate_main_force_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
-        _temp_debug_values["主力/筹码确认分数"] = debug_mf_confirmation
-        divergence_quality_score, debug_divergence_quality = self._calculate_divergence_quality_score(df_index, raw_data, pmd_params, base_divergence_score, fused_price_direction, fused_momentum_direction)
-        _temp_debug_values["背离质量分数"] = debug_divergence_quality
-        context_modulator, debug_context_modulator = self._calculate_context_modulator(df_index, raw_data, pmd_params)
-        _temp_debug_values["情境调制器"] = debug_context_modulator
-        final_score, debug_final_fusion = self._perform_pmd_final_fusion(
-            df, df_index, raw_data, pmd_params,
-            base_divergence_score, volume_confirmation_score, main_force_confirmation_score,
-            divergence_quality_score, context_modulator, debug_price_direction['price_momentum_quality_score']
-        )
-        _temp_debug_values.update(debug_final_fusion)
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
-        return final_score.astype(np.float32)
-
     def _get_pmd_params(self, config: Dict) -> Dict:
         """V1.7 · 参数精简与替换版 (移除未提供信号，替换语义相近信号，新增RDI参数，修复RDI权重提取)"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
@@ -855,8 +804,8 @@ class CalculatePriceMomentumDivergence:
             divergence_quality_score, context_modulator, debug_price_direction['price_momentum_quality_score'],
             _temp_debug_values
         )
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
         return final_score.astype(np.float32)
 
 

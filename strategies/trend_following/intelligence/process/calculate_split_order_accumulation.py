@@ -95,8 +95,8 @@ class CalculateSplitOrderAccumulation:
         _temp_debug_values["最终分数"] = final_score_debug_values
         _temp_debug_values["最终分数"]["final_score"] = final_score
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, final_score)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, final_score)
         return final_score.astype(np.float32)
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
