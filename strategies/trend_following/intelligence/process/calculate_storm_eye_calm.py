@@ -52,7 +52,7 @@ class CalculateStormEyeCalm:
                 debug_output[f"        '{key}': {val:.4f}"] = ""
             else: # Handle non-Series values like dicts or raw numbers
                 debug_output[f"        '{key}': {value}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF斜率/加速度分数 ---"] = ""
+        debug_output[f"  -- [过程情报调试] {method_ts.strftime('%Y-%m-%d')}: --- MTF斜率/加速度分数 ---"] = ""
         for key, series in _temp_debug_values["MTF斜率/加速度分数"].items():
             if isinstance(series, pd.Series):
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -73,13 +73,17 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图 ---"] = ""
-        for key, series in _temp_debug_values["主力隐蔽意图"].items():
-            if isinstance(series, pd.Series):
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            else:
-                debug_output[f"        {key}: {series}"] = ""
+        
+        # 修改此处：正确遍历主力隐蔽意图的组件
+        if "主力隐蔽意图" in _temp_debug_values and isinstance(_temp_debug_values["主力隐蔽意图"], dict):
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图 (组件) ---"] = ""
+            for key, series in _temp_debug_values["主力隐蔽意图"].items():
+                if isinstance(series, pd.Series):
+                    val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {series}"] = ""
+        
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图融合 ---"] = ""
         for key, series in _temp_debug_values["主力隐蔽意图融合"].items():
             if isinstance(series, pd.Series):
@@ -334,7 +338,7 @@ class CalculateStormEyeCalm:
         }
         return _robust_geometric_mean(volume_exhaustion_scores_dict, weights, df_index)
 
-    def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict) -> pd.Series:
+    def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         stealth_ops_normalized = self.helper._normalize_series(raw_data['stealth_ops_score'], target_index=df_index, ascending=True)
         split_order_accum_normalized = self.helper._normalize_series(raw_data['split_order_accum_score'], target_index=df_index, ascending=True)
         mf_conviction_positive = self.helper._normalize_series(raw_data['mf_conviction_raw'], target_index=df_index, bipolar=True).clip(lower=0)
@@ -390,7 +394,8 @@ class CalculateStormEyeCalm:
             'main_force_net_flow_volatility_inverted': main_force_net_flow_volatility_inverted,
             'main_force_flow_ambiguity': main_force_flow_ambiguity
         }
-        return _robust_geometric_mean(main_force_covert_intent_scores_dict, weights, df_index)
+        fused_score = _robust_geometric_mean(main_force_covert_intent_scores_dict, weights, df_index)
+        return fused_score, main_force_covert_intent_scores_dict
 
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float) -> pd.Series:
         sentiment_pendulum_negative = self.helper._normalize_series(raw_data['sentiment_pendulum_score'], target_index=df_index, bipolar=True).clip(upper=0).abs()
@@ -505,8 +510,12 @@ class CalculateStormEyeCalm:
         _temp_debug_values["能量压缩"] = {"energy_compression_score": energy_compression_score}
         volume_exhaustion_score = self._calculate_volume_exhaustion_component(df_index, raw_data, mtf_derived_scores, params['volume_exhaustion_weights'])
         _temp_debug_values["量能枯竭"] = {"volume_exhaustion_score": volume_exhaustion_score}
-        main_force_covert_intent_score = self._calculate_main_force_covert_intent_component(df_index, raw_data, mtf_derived_scores, params['main_force_covert_intent_weights'], params['ambiguity_components_weights'])
-        _temp_debug_values["主力隐蔽意图融合"] = {"main_force_covert_intent_score": main_force_covert_intent_score}
+        
+        # 修改此处：接收元组并分别存储
+        main_force_covert_intent_score, main_force_covert_intent_components = self._calculate_main_force_covert_intent_component(df_index, raw_data, mtf_derived_scores, params['main_force_covert_intent_weights'], params['ambiguity_components_weights'])
+        _temp_debug_values["主力隐蔽意图"] = main_force_covert_intent_components # 存储组件
+        _temp_debug_values["主力隐蔽意图融合"] = {"main_force_covert_intent_score": main_force_covert_intent_score} # 存储融合分数
+        
         subdued_market_sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], params['sentiment_volatility_window'], params['long_term_sentiment_window'], params['sentiment_neutral_range'], params['sentiment_pendulum_neutral_range'])
         _temp_debug_values["市场情绪低迷融合"] = {"subdued_market_sentiment_score": subdued_market_sentiment_score}
         breakout_readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'])
@@ -518,7 +527,7 @@ class CalculateStormEyeCalm:
         component_scores = {
             'energy_compression': energy_compression_score,
             'volume_exhaustion': volume_exhaustion_score,
-            'main_force_covert_intent': main_force_covert_intent_score,
+            'main_force_covert_intent': main_force_covert_intent_score, # 使用融合分数
             'subdued_market_sentiment': subdued_market_sentiment_score,
             'breakout_readiness': breakout_readiness_score,
             'mtf_cohesion': mtf_derived_scores['mtf_cohesion_score']
