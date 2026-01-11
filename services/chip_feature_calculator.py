@@ -719,8 +719,12 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
-        【V2.4 · 主峰无交易深度诊断版】
-        - 核心新增: 植入更详细的调试探针，深入检查 `peak_vwap_df` 为空或交易量为零的具体原因。
+        【V2.5 · 主峰区域外主力行为评估版】
+        - 核心增强: 当主导筹码峰区域内无交易时，不再简单赋予固定值。
+                     而是根据日内整体主力净流量，评估是“推高买入”还是“高位卖出”，
+                     并据此修正 `peak_control_transfer`，使其更具业务含义。
+        - 核心修复: 优化了当 `peak_low/high` 无效时，`peak_control_transfer` 的默认值逻辑，
+                     同样优先考虑日内主力净流量。
         """
         from datetime import time
         results = {
@@ -755,43 +759,79 @@ class ChipFeatureCalculator:
             posture = (close_price / vwap - 1) * 100
             results['intraday_posture_score'] = np.clip(posture * 10, -100, 100)
 
+            # --- 修正 peak_control_transfer 的计算逻辑 ---
             if pd.notna(peak_low) and pd.notna(peak_high) and peak_high > peak_low:
-                # --- 深度诊断探针开始 ---
                 print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域边界: peak_low={peak_low:.2f}, peak_high={peak_high:.2f}")
                 print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内数据价格范围: min={intraday_df['minute_vwap'].min():.2f}, max={intraday_df['minute_vwap'].max():.2f}")
-                # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - intraday_df.head():\n{intraday_df.head()}")
-                # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - intraday_df.tail():\n{intraday_df.tail()}")
-                # --- 深度诊断探针结束 ---
 
                 peak_vwap_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
                 
-                # --- 深度诊断探针开始 ---
                 print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df.empty: {peak_vwap_df.empty}")
                 print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df.shape: {peak_vwap_df.shape}")
                 if not peak_vwap_df.empty:
                     print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df['vol_shares'].sum(): {peak_vwap_df['vol_shares'].sum():.2f}")
                     if peak_vwap_df['vol_shares'].sum() == 0:
                         print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df['vol_shares'].unique(): {peak_vwap_df['vol_shares'].unique()}")
-                # --- 深度诊断探针结束 ---
 
                 if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
+                    # 原始逻辑：主峰区域内有交易
                     peak_vwap = (peak_vwap_df['minute_vwap'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
                     peak_transfer = (peak_vwap / vwap - 1) * 100
                     results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
+                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域内有交易，peak_control_transfer 计算为 {results['peak_control_transfer']:.2f}。")
                 else:
-                    print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 主峰区域 ({peak_low:.2f}-{peak_high:.2f}) 无交易或交易量为零。")
-                    if pd.notna(dominant_peak_cost) and close_price > dominant_peak_cost:
-                        results['peak_control_transfer'] = 10.0
-                        print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 股价高于主峰成本，peak_control_transfer 修正为 10.0。")
-                    elif pd.notna(dominant_peak_cost) and close_price < dominant_peak_cost:
-                        results['peak_control_transfer'] = -10.0
-                        print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 股价低于主峰成本，peak_control_transfer 修正为 -10.0。")
+                    # 主峰区域内无交易或交易量为零
+                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域 ({peak_low:.2f}-{peak_high:.2f}) 无交易或交易量为零。")
+                    
+                    # 评估日内整体主力净流量
+                    if 'main_force_ofi' in intraday_df.columns:
+                        total_mf_net_vol_intraday = intraday_df['main_force_ofi'].sum()
+                        total_vol_intraday = intraday_df['volume'].sum() # 假设 'volume' 是总成交量
+                        
+                        if total_vol_intraday > 0:
+                            flow_ratio = total_mf_net_vol_intraday / total_vol_intraday
+                            # 将流量比率缩放到 [-100, 100] 范围，乘以一个放大系数
+                            # 0.2 (20%净买入/卖出量) 的流量比率将对应 100/-100
+                            results['peak_control_transfer'] = np.clip(flow_ratio * 500, -100, 100)
+                            
+                            if total_mf_net_vol_intraday > 0:
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净买入 (推高买入)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                            elif total_mf_net_vol_intraday < 0:
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净卖出 (高位卖出)，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
+                            else:
+                                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域外主力净流量中性，peak_control_transfer 修正为 0.0。")
+                        else:
+                            # 日内无交易量，这在 intraday_df 不为空的情况下不应该发生
+                            results['peak_control_transfer'] = 0.0
+                            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内无交易量，peak_control_transfer 修正为 0.0。")
+                    else:
+                        # 无主力流量数据，退回到基于收盘价与主峰成本的判断
+                        if pd.notna(dominant_peak_cost) and close_price > dominant_peak_cost:
+                            results['peak_control_transfer'] = 10.0
+                            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 无主力流量数据，股价高于主峰成本，peak_control_transfer 修正为 10.0。")
+                        elif pd.notna(dominant_peak_cost) and close_price < dominant_peak_cost:
+                            results['peak_control_transfer'] = -10.0
+                            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 无主力流量数据，股价低于主峰成本，peak_control_transfer 修正为 -10.0。")
+                        else:
+                            results['peak_control_transfer'] = 0.0
+                            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 无主力流量数据，无法判断，peak_control_transfer 修正为 0.0。")
+            else:
+                # peak_low/high 有 NaN 或 peak_high <= peak_low，主峰区域定义无效
+                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_low/high 有 NaN 或 peak_high <= peak_low，主峰区域定义无效。")
+                if 'main_force_ofi' in intraday_df.columns:
+                    total_mf_net_vol_intraday = intraday_df['main_force_ofi'].sum()
+                    total_vol_intraday = intraday_df['volume'].sum()
+                    if total_vol_intraday > 0:
+                        flow_ratio = total_mf_net_vol_intraday / total_vol_intraday
+                        results['peak_control_transfer'] = np.clip(flow_ratio * 500, -100, 100)
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效，但有主力流量数据，peak_control_transfer 修正为 {results['peak_control_transfer']:.2f}。")
                     else:
                         results['peak_control_transfer'] = 0.0
-                        print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 无法判断，peak_control_transfer 修正为 0.0。")
-            else:
-                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: peak_low/high 有 NaN 或 peak_high <= peak_low。")
-                results['peak_control_transfer'] = 0.0
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效且日内无交易量，peak_control_transfer 修正为 0.0。")
+                else:
+                    results['peak_control_transfer'] = 0.0
+                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域定义无效且无主力流量数据，peak_control_transfer 修正为 0.0。")
+            # --- 修正结束 ---
 
         up_moves = intraday_df[intraday_df['minute_vwap'].diff() > 0]
         down_moves = intraday_df[intraday_df['minute_vwap'].diff() < 0]
