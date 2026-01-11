@@ -305,18 +305,18 @@ class CalculatePriceVolumeDynamics:
         effective_retail_flow_proxy = (raw_signals['net_sh_amount_calibrated_D'] + raw_signals['net_md_amount_calibrated_D']).diff(1).fillna(0)
         power_transfer_raw_proxy = effective_main_force_flow_proxy - effective_retail_flow_proxy
         # 使用新的方法计算MTF分数
-        mtf_signals['mtf_power_transfer'] = self._get_mtf_score_from_series_slope_accel(power_transfer_raw_proxy, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mtf_power_transfer'] = self.helper._get_mtf_score_from_series_slope_accel(power_transfer_raw_proxy, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         # Lower Shadow Absorption Proxy (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION's raw data implementation)
         total_range = (raw_signals['high_D'] - raw_signals['low_D']).replace(0, 1e-9)
         lower_shadow = np.minimum(raw_signals['open_D'], raw_signals['close_D']) - raw_signals['low_D']
         lower_shadow_ratio = (lower_shadow / total_range).fillna(0)
         lower_shadow_absorption_raw = (lower_shadow_ratio > 0.3).astype(float) * (raw_signals['close_D'] > raw_signals['open_D'] * 0.99).astype(float)
         # 使用新的方法计算MTF分数
-        mtf_signals['mtf_lower_shadow_absorption'] = self._get_mtf_score_from_series_slope_accel(lower_shadow_absorption_raw, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_signals['mtf_lower_shadow_absorption'] = self.helper._get_mtf_score_from_series_slope_accel(lower_shadow_absorption_raw, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # Volume Atrophy Proxy (SCORE_BEHAVIOR_VOLUME_ATROPHY's raw data implementation)
         volume_atrophy_raw = (1 - (raw_signals['volume_D'] / raw_signals['VOL_MA_21_D'])).clip(0, 1)
         # 使用新的方法计算MTF分数
-        mtf_signals['mtf_volume_atrophy'] = self._get_mtf_score_from_series_slope_accel(volume_atrophy_raw, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_signals['mtf_volume_atrophy'] = self.helper._get_mtf_score_from_series_slope_accel(volume_atrophy_raw, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # Chip Strategic Posture Proxy (SCORE_CHIP_STRATEGIC_POSTURE's raw data implementation)
         mtf_winner_concentration = self.helper._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_chip_health = self.helper._get_mtf_slope_accel_score(df, 'chip_health_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -384,7 +384,6 @@ class CalculatePriceVolumeDynamics:
         mtf_signals['mtf_covert_accumulation_signal'] = self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_covert_distribution_signal'] = self.helper._get_mtf_slope_accel_score(df, 'covert_distribution_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_holistic_cmf'] = self.helper._get_mtf_slope_accel_score(df, 'holistic_cmf_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # mtf_signals['mtf_main_force_net_flow_calibrated'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 原始信号不再直接使用
         mtf_signals['mtf_reversal_power_index'] = self.helper._get_mtf_slope_accel_score(df, 'reversal_power_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_reversal_recovery_rate'] = self.helper._get_mtf_slope_accel_score(df, 'reversal_recovery_rate_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_volatility_asymmetry_index'] = self.helper._get_mtf_slope_accel_score(df, 'volatility_asymmetry_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -392,26 +391,21 @@ class CalculatePriceVolumeDynamics:
         mtf_signals['mtf_market_sentiment_score'] = self.helper._get_mtf_slope_accel_score(df, 'market_sentiment_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_trend_alignment_index'] = self.helper._get_mtf_slope_accel_score(df, 'trend_alignment_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_microstructure_efficiency_index'] = self.helper._get_mtf_slope_accel_score(df, 'microstructure_efficiency_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        # 新增生成 mtf_flow_credibility_index
         mtf_signals['mtf_flow_credibility_index'] = self.helper._get_mtf_slope_accel_score(df, 'flow_credibility_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['bbw_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'BBW_21_2.0_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['vol_instability_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['turnover_rate_slope_inverted_score'] = -self.helper._get_mtf_slope_accel_score(df, 'turnover_rate_f_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # mtf_signals['mf_net_flow_slope_positive'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True) # 原始信号不再直接使用
         mtf_signals['mtf_equilibrium_compression_index'] = self.helper._get_mtf_slope_accel_score(df, 'equilibrium_compression_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        # 新增MTF信号
         mtf_signals['mtf_capitulation_absorption_index'] = self.helper._get_mtf_slope_accel_score(df, 'capitulation_absorption_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_bid_liquidity_sample_entropy'] = self.helper._get_mtf_slope_accel_score(df, 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_main_force_level5_buy_ofi'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_level5_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_signals['mtf_main_force_level5_ofi'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_level5_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_signals['mtf_main_force_level5_sell_ofi'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_level5_sell_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        # 修复：添加 mtf_main_force_buy_ofi 的生成
         mtf_signals['mtf_main_force_buy_ofi'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_buy_ofi_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        # 新增：主力资金流情境化分数
         mtf_signals['mtf_main_force_net_flow_contextualized'] = self._calculate_main_force_flow_contextualized_score(df_index, raw_signals, self.process_params, method_name)
         # 原始主力净流的斜率和加速度也需要基于情境化后的信号
         # 使用新的方法计算MTF分数
-        mtf_signals['mf_net_flow_slope_positive'] = self._get_mtf_score_from_series_slope_accel(mtf_signals['mtf_main_force_net_flow_contextualized'], mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_signals['mf_net_flow_slope_positive'] = self.helper._get_mtf_score_from_series_slope_accel(mtf_signals['mtf_main_force_net_flow_contextualized'], mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         return mtf_signals
 
     def _calculate_liquidity_health_dimension(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], weights: Dict[str, float], method_name: str) -> pd.Series:
