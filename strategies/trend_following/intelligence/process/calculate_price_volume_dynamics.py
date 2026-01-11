@@ -1151,7 +1151,7 @@ class CalculatePriceVolumeDynamics:
         total_dynamic_weight = pd.Series(0.0, index=df_index, dtype=np.float32)
         for key in dynamic_quadrant_weights:
             total_dynamic_weight += dynamic_quadrant_weights[key]
-        total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9)
+        total_dynamic_weight = total_dynamic_weight.replace(0, 1e-9) # 避免除以零
         for key in dynamic_quadrant_weights:
             dynamic_quadrant_weights[key] = dynamic_quadrant_weights[key] / total_dynamic_weight
         # Final Fusion: Weighted Average
@@ -1186,7 +1186,8 @@ class CalculatePriceVolumeDynamics:
         combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1)
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
-        final_score = (final_score * main_force_amplifier).clip(-1, 1).fillna(0.0)
+        # 移除 .fillna(0.0) 以暴露 NaN 值
+        final_score = (final_score * main_force_amplifier).clip(-1, 1)
         return final_score
 
     def _calculate_main_force_flow_contextualized_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], pvd_params: Dict, method_name: str) -> pd.Series:
