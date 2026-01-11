@@ -1353,10 +1353,15 @@ class ChipFeatureCalculator:
             ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
             total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
             total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
+            if probe_active:
+                bid_in_zone_counts = []
+                ask_in_zone_counts = []
             for p_col, v_col in zip(bid_prices_cols, bid_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
                 in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
+                if probe_active:
+                    bid_in_zone_counts.append(in_zone_mask.sum())
                 gravity_weight = _gaussian_weight(price_series, center=main_force_cost, sigma=0.5 * atr)
                 level_power = price_series * vol_series * gravity_weight
                 total_weighted_bid_power += level_power.where(in_zone_mask, 0)
@@ -1364,16 +1369,24 @@ class ChipFeatureCalculator:
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
                 in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
+                if probe_active:
+                    ask_in_zone_counts.append(in_zone_mask.sum())
                 gravity_weight = _gaussian_weight(price_series, center=main_force_cost, sigma=0.5 * atr)
                 level_power = price_series * vol_series * gravity_weight
                 total_weighted_ask_power += level_power.where(in_zone_mask, 0)
             if probe_active:
+                print(f"    - Bid levels in zone (counts per level): {bid_in_zone_counts}")
+                print(f"    - Ask levels in zone (counts per level): {ask_in_zone_counts}")
+                print(f"    - total_weighted_bid_power non-zero count: {(total_weighted_bid_power != 0).sum()}/{len(realtime_df)}")
+                print(f"    - total_weighted_ask_power non-zero count: {(total_weighted_ask_power != 0).sum()}/{len(realtime_df)}")
                 print(f"    - total_weighted_bid_power.sum(): {total_weighted_bid_power.sum():.4f}")
                 print(f"    - total_weighted_ask_power.sum(): {total_weighted_ask_power.sum():.4f}")
             total_power = total_weighted_bid_power + total_weighted_ask_power
+            if probe_active:
+                print(f"    - total_power non-zero count: {(total_power != 0).sum()}/{len(realtime_df)}")
+                print(f"    - total_power.sum(): {total_power.sum():.4f}")
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
             if probe_active:
-                print(f"    - total_power.sum(): {total_power.sum():.4f}")
                 print(f"    - instant_intent.mean(): {instant_intent.mean():.4f} (NaNs: {instant_intent.isnull().sum()}/{len(realtime_df)})")
             if 'volume' in realtime_df.columns:
                 weights = realtime_df['volume'].fillna(0).clip(lower=0)
