@@ -248,14 +248,14 @@ class CalculatePriceMomentumDivergence:
         raw_data['trend_alignment_index_raw'] = self.helper._get_safe_series(df, 'trend_alignment_index_D', 0.0, method_name=method_name)
         # 移除 cumulative_mf_flow_raw
         # raw_data['cumulative_mf_flow_raw'] = {p: self.helper._get_safe_series(df, f'CUM_{p}_main_force_net_flow_calibrated_D', 0.0, method_name=method_name) for p in valid_cumulative_periods}
-        raw_data['smart_money_inst_net_buy_raw'] = self.helper._get_atomic_score(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0)
-        raw_data['theme_hotness_raw'] = self.helper._get_atomic_score(df, 'THEME_HOTNESS_SCORE_D', 0.0)
+        raw_data['smart_money_inst_net_buy_raw'] = self.helper._get_safe_series(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0, method_name=method_name)
+        raw_data['theme_hotness_raw'] = self.helper._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name=method_name)
         # 移除 large_trade_imbalance_raw
         # raw_data['large_trade_imbalance_raw'] = self.helper._get_atomic_score(df, 'LARGE_TRADE_IMBALANCE_D', 0.0)
         raw_data['intraday_vwap_div_index_raw'] = self.helper._get_safe_series(df, 'intraday_vwap_div_index_D', 0.0, method_name=method_name) # 替换 vwap_deviation_raw
         # 移除 chip_distribution_entropy_raw
         # raw_data['chip_distribution_entropy_raw'] = self.helper._get_atomic_score(df, 'CHIP_DISTRIBUTION_ENTROPY_D', 0.0)
-        raw_data['retail_panic_surrender_index_raw'] = self.helper._get_atomic_score(df, 'retail_panic_surrender_index_D', 0.0) # 替换 retail_panic_index_raw
+        raw_data['retail_panic_surrender_index_raw'] = self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name) # 替换 retail_panic_index_raw
         return raw_data
 
     def _calculate_fused_price_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:

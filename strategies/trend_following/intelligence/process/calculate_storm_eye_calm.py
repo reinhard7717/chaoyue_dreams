@@ -41,9 +41,23 @@ class CalculateStormEyeCalm:
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         self.actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
+    def _get_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp]]:
+        """
+        V1.0: 集中获取调试信息（是否启用调试、探针日期等）。
+        """
+        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        probe_ts = None
+        if is_debug_enabled_for_method and self.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            for date in reversed(df.index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        return is_debug_enabled_for_method, probe_ts
+
     def _print_debug_output_for_storm_eye_calm(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp, method_name: str, final_score: pd.Series):
         """
-        统一打印 _calculate_storm_eye_calm 方法的调试信息。
+        V1.1: 统一打印 _calculate_storm_eye_calm 方法的调试信息。
         """
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
         for key, value in _temp_debug_values["原始信号值"].items():
@@ -52,7 +66,7 @@ class CalculateStormEyeCalm:
                 debug_output[f"        '{key}': {val:.4f}"] = ""
             else: # Handle non-Series values like dicts or raw numbers
                 debug_output[f"        '{key}': {value}"] = ""
-        debug_output[f"  -- [过程情报调试] {probe_ts.strftime('%Y-%m-%d')}: --- MTF斜率/加速度分数 ---"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF斜率/加速度分数 ---"] = ""
         for key, series in _temp_debug_values["MTF斜率/加速度分数"].items():
             if isinstance(series, pd.Series):
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -80,9 +94,9 @@ class CalculateStormEyeCalm:
             for key, series in _temp_debug_values["主力隐蔽意图"].items():
                 if isinstance(series, pd.Series):
                     val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                    debug_output[f"        {key}: {val:.4f}"] = ""
+                    debug_output[f"          {key}: {val:.4f}"] = ""
                 else:
-                    debug_output[f"        {key}: {series}"] = ""
+                    debug_output[f"          {key}: {series}"] = ""
         
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图融合 ---"] = ""
         for key, series in _temp_debug_values["主力隐蔽意图融合"].items():
@@ -135,6 +149,9 @@ class CalculateStormEyeCalm:
                 print(key)
 
     def _get_storm_eye_calm_params(self, config: Dict) -> Dict:
+        """
+        V1.0: 从配置中获取所有与“风暴眼中的寂静”相关的参数。
+        """
         params = get_param_value(config.get('storm_eye_calm_params'), {})
         return {
             'energy_compression_weights': get_param_value(params.get('energy_compression_weights'), {}),
@@ -158,25 +175,39 @@ class CalculateStormEyeCalm:
         }
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> List[str]:
+        """
+        V1.2: 动态构建所有计算“风暴眼中的寂静”所需的原始信号和原子信号列表。
+        移除对原子信号的直接依赖，转而使用数据层提供的原始指标。
+        """
         required_signals = [
-            'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'control_solidity_index_D',
+            # 替换 SCORE_STRUCT_AXIOM_TENSION
+            'MA_POTENTIAL_TENSION_INDEX_D',
+            # 替换 SCORE_BEHAVIOR_VOLUME_ATROPHY
+            'volume_D', 'turnover_rate_f_D',
+            # PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 仍通过 atomic_states 获取，因为它是一个过程层信号
+            'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
+            # 替换 SCORE_MICRO_STRATEGY_STEALTH_OPS
+            'covert_accumulation_signal_D', 'main_force_flow_gini_D',
+            # 替换 SCORE_FOUNDATION_AXIOM_MARKET_TENSION
+            'equilibrium_compression_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            # 替换 SCORE_DYN_AXIOM_STABILITY
+            'mean_reversion_frequency_D', # 反向代理稳定性
+            'control_solidity_index_D', # 控盘稳固度也反映稳定性
             'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D',
             'counterparty_exhaustion_index_D', 'main_force_conviction_index_D',
-            'SCORE_MICRO_STRATEGY_STEALTH_OPS', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
-            'main_force_net_flow_calibrated_D', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
+            'main_force_net_flow_calibrated_D',
             'market_sentiment_score_D', 'SLOPE_5_close_D', 'pct_change_D',
             'equilibrium_compression_index_D',
             'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
             'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
             'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'loser_pain_index_D',
-            'SCORE_STRUCT_BREAKOUT_READINESS', 'SCORE_STRUCT_PLATFORM_FOUNDATION',
+            'breakout_readiness_score_D', # 直接使用数据层提供的指标
             'main_force_activity_ratio_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D',
-            'SCORE_DYN_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
             'SAMPLE_ENTROPY_13d_D', 'price_volume_entropy_D', 'FRACTAL_DIMENSION_89d_D',
             'bid_side_liquidity_D', 'ask_side_liquidity_D', 'vpin_score_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D',
             'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D', 'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
             'observed_large_order_size_avg_D', 'market_impact_cost_D', 'main_force_flow_directionality_D',
-            'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 'HURST_144d_D', 'turnover_rate_D',
+            'HURST_144d_D', 'turnover_rate_D',
             'volume_structure_skew_D', 'volume_profile_entropy_D',
             'deception_index_D', 'wash_trade_intensity_D',
             'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
@@ -184,7 +215,11 @@ class CalculateStormEyeCalm:
             'main_force_slippage_index_D', 'main_force_flow_gini_D',
             'price_reversion_velocity_D', 'structural_entropy_change_D',
             'micro_impact_elasticity_D', 'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D',
-            'mean_reversion_frequency_D', 'trend_alignment_index_D'
+            'mean_reversion_frequency_D', 'trend_alignment_index_D',
+            'is_consolidating_D',
+            'dynamic_consolidation_duration_D',
+            'goodness_of_fit_score_D',
+            'platform_conviction_score_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in mtf_cohesion_base_signals:
@@ -195,21 +230,30 @@ class CalculateStormEyeCalm:
         return required_signals
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
+        """
+        V1.2: 从DataFrame和原子状态中安全地获取所有原始数据和原子信号。
+        移除对原子信号的直接获取，转而从 df 中获取对应的原始指标或构建代理信号。
+        """
         raw_data = {}
         # Energy Compression
-        raw_data['tension_score'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', np.nan)
+        # 替换 tension_score (SCORE_STRUCT_AXIOM_TENSION)
+        raw_data['ma_potential_tension_raw'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', np.nan, method_name=method_name)
         raw_data['bbw_raw'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', np.nan, method_name=method_name)
         raw_data['vol_instability_raw'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name=method_name)
         raw_data['equilibrium_compression_raw'] = self.helper._get_safe_series(df, 'equilibrium_compression_index_D', np.nan, method_name=method_name)
-        raw_data['dyn_stability_score'] = self.helper._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', np.nan)
-        raw_data['market_tension_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', np.nan)
+        # 替换 dyn_stability_score (SCORE_DYN_AXIOM_STABILITY)
+        raw_data['mean_reversion_frequency_raw'] = self.helper._get_safe_series(df, 'mean_reversion_frequency_D', np.nan, method_name=method_name)
+        raw_data['control_solidity_raw_for_stability'] = self.helper._get_safe_series(df, 'control_solidity_index_D', np.nan, method_name=method_name)
+        # 替换 market_tension_score (SCORE_FOUNDATION_AXIOM_MARKET_TENSION)
+        raw_data['market_tension_proxy_raw'] = (raw_data['equilibrium_compression_raw'] + (1 - raw_data['vol_instability_raw'])).clip(0,1) # 简单代理
         raw_data['price_sample_entropy_raw'] = self.helper._get_safe_series(df, 'SAMPLE_ENTROPY_13d_D', np.nan, method_name=method_name)
         raw_data['price_volume_entropy_raw'] = self.helper._get_safe_series(df, 'price_volume_entropy_D', np.nan, method_name=method_name)
         raw_data['price_fractal_dimension_raw'] = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', np.nan, method_name=method_name)
         raw_data['volume_structure_skew_raw'] = self.helper._get_safe_series(df, 'volume_structure_skew_D', np.nan, method_name=method_name)
         raw_data['volume_profile_entropy_raw'] = self.helper._get_safe_series(df, 'volume_profile_entropy_D', np.nan, method_name=method_name)
         # Volume Exhaustion
-        raw_data['atrophy_score'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', np.nan)
+        # 替换 atrophy_score (SCORE_BEHAVIOR_VOLUME_ATROPHY)
+        raw_data['volume_raw'] = self.helper._get_safe_series(df, 'volume_D', np.nan, method_name=method_name)
         raw_data['turnover_rate_f_raw'] = self.helper._get_safe_series(df, 'turnover_rate_f_D', np.nan, method_name=method_name)
         raw_data['turnover_rate_raw'] = self.helper._get_safe_series(df, 'turnover_rate_D', np.nan, method_name=method_name)
         raw_data['counterparty_exhaustion_raw'] = self.helper._get_safe_series(df, 'counterparty_exhaustion_index_D', np.nan, method_name=method_name)
@@ -223,7 +267,9 @@ class CalculateStormEyeCalm:
         raw_data['vpin_score_raw'] = self.helper._get_safe_series(df, 'vpin_score_D', np.nan, method_name=method_name)
         raw_data['bid_liquidity_sample_entropy_raw'] = self.helper._get_safe_series(df, 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D', np.nan, method_name=method_name)
         # Main Force Covert Intent
-        raw_data['stealth_ops_score'] = self.helper._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', np.nan)
+        # 替换 stealth_ops_score (SCORE_MICRO_STRATEGY_STEALTH_OPS)
+        raw_data['covert_accumulation_signal_raw'] = self.helper._get_safe_series(df, 'covert_accumulation_signal_D', np.nan, method_name=method_name)
+        raw_data['main_force_flow_gini_raw'] = self.helper._get_safe_series(df, 'main_force_flow_gini_D', np.nan, method_name=method_name)
         raw_data['split_order_accum_score'] = self.helper._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', np.nan)
         raw_data['mf_conviction_raw'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', np.nan, method_name=method_name)
         raw_data['mf_net_flow_raw'] = self.helper._get_safe_series(df, 'main_force_net_flow_calibrated_D', np.nan, method_name=method_name)
@@ -242,31 +288,32 @@ class CalculateStormEyeCalm:
         raw_data['wash_trade_intensity_raw'] = self.helper._get_safe_series(df, 'wash_trade_intensity_D', np.nan, method_name=method_name)
         raw_data['deception_lure_long_raw'] = self.helper._get_safe_series(df, 'deception_lure_long_intensity_D', np.nan, method_name=method_name)
         raw_data['deception_lure_short_raw'] = self.helper._get_safe_series(df, 'deception_lure_short_intensity_D', np.nan, method_name=method_name)
-        raw_data['covert_accumulation_raw'] = self.helper._get_safe_series(df, 'covert_accumulation_signal_D', np.nan, method_name=method_name)
         raw_data['covert_distribution_raw'] = self.helper._get_safe_series(df, 'covert_distribution_signal_D', np.nan, method_name=method_name)
         raw_data['main_force_slippage_raw'] = self.helper._get_safe_series(df, 'main_force_slippage_index_D', np.nan, method_name=method_name)
-        raw_data['main_force_flow_gini_raw'] = self.helper._get_safe_series(df, 'main_force_flow_gini_D', np.nan, method_name=method_name)
         raw_data['micro_impact_elasticity_raw'] = self.helper._get_safe_series(df, 'micro_impact_elasticity_D', np.nan, method_name=method_name)
         raw_data['order_flow_imbalance_score_raw'] = self.helper._get_safe_series(df, 'order_flow_imbalance_score_D', np.nan, method_name=method_name)
         raw_data['liquidity_authenticity_score_raw'] = self.helper._get_safe_series(df, 'liquidity_authenticity_score_D', np.nan, method_name=method_name)
         # Subdued Market Sentiment
-        raw_data['sentiment_pendulum_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', np.nan)
+        # 替换 sentiment_pendulum_score (SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM)
         raw_data['market_sentiment_raw'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', np.nan, method_name=method_name)
         raw_data['retail_panic_raw'] = self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', np.nan, method_name=method_name)
         raw_data['retail_fomo_raw'] = self.helper._get_safe_series(df, 'retail_fomo_premium_index_D', np.nan, method_name=method_name)
         raw_data['loser_pain_raw'] = self.helper._get_safe_series(df, 'loser_pain_index_D', np.nan, method_name=method_name)
-        raw_data['liquidity_tide_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', np.nan)
+        # 替换 liquidity_tide_score (SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE)
         raw_data['hurst_raw'] = self.helper._get_safe_series(df, 'HURST_144d_D', np.nan, method_name=method_name)
         raw_data['market_sentiment_std_raw'] = raw_data['market_sentiment_raw'].rolling(window=params['sentiment_volatility_window'], min_periods=1).std()
-        raw_data['sentiment_pendulum_std_raw'] = raw_data['sentiment_pendulum_score'].rolling(window=params['sentiment_volatility_window'], min_periods=1).std()
+        # raw_data['sentiment_pendulum_std_raw'] = raw_data['sentiment_pendulum_score'].rolling(window=params['sentiment_volatility_window'], min_periods=1).std() # 替换
         raw_data['market_sentiment_long_term_mean'] = raw_data['market_sentiment_raw'].rolling(window=params['long_term_sentiment_window'], min_periods=1).mean()
         raw_data['price_reversion_velocity_raw'] = self.helper._get_safe_series(df, 'price_reversion_velocity_D', np.nan, method_name=method_name)
         raw_data['structural_entropy_change_raw'] = self.helper._get_safe_series(df, 'structural_entropy_change_D', np.nan, method_name=method_name)
         raw_data['mean_reversion_frequency_raw'] = self.helper._get_safe_series(df, 'mean_reversion_frequency_D', np.nan, method_name=method_name)
         raw_data['trend_alignment_index_raw'] = self.helper._get_safe_series(df, 'trend_alignment_index_D', np.nan, method_name=method_name)
         # Breakout Readiness
-        raw_data['struct_breakout_readiness_score'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', np.nan)
-        raw_data['struct_platform_foundation_score'] = self.helper._get_atomic_score(df, 'SCORE_STRUCT_PLATFORM_FOUNDATION', np.nan)
+        # 替换 struct_breakout_readiness_score (SCORE_STRUCT_BREAKOUT_READINESS)
+        raw_data['breakout_readiness_score_D'] = self.helper._get_safe_series(df, 'breakout_readiness_score_D', np.nan, method_name=method_name)
+        # 替换 struct_platform_foundation_score (SCORE_STRUCT_PLATFORM_FOUNDATION)
+        raw_data['is_consolidating_raw'] = self.helper._get_safe_series(df, 'is_consolidating_D', np.nan, method_name=method_name)
+        raw_data['dynamic_consolidation_duration_raw'] = self.helper._get_safe_series(df, 'dynamic_consolidation_duration_D', np.nan, method_name=method_name)
         raw_data['goodness_of_fit_raw'] = self.helper._get_safe_series(df, 'goodness_of_fit_score_D', np.nan, method_name=method_name)
         raw_data['platform_conviction_raw'] = self.helper._get_safe_series(df, 'platform_conviction_score_D', np.nan, method_name=method_name)
         # Modulators
@@ -288,18 +335,36 @@ class CalculateStormEyeCalm:
         return mtf_derived_scores
 
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict) -> pd.Series:
+        """
+        V1.1: 计算能量压缩维度的分数。
+        替换 SCORE_STRUCT_AXIOM_TENSION 和 SCORE_FOUNDATION_AXIOM_MARKET_TENSION 为原始指标代理。
+        """
+        # 代理 tension_score (SCORE_STRUCT_AXIOM_TENSION)
+        tension_score_proxy = self.helper._normalize_series(raw_data['ma_potential_tension_raw'], target_index=df_index, ascending=True)
+
         bbw_inverted_score = self.helper._normalize_series(raw_data['bbw_raw'], target_index=df_index, ascending=False)
         vol_instability_inverted_score = self.helper._normalize_series(raw_data['vol_instability_raw'], target_index=df_index, ascending=False)
         equilibrium_compression_score = self.helper._normalize_series(raw_data['equilibrium_compression_raw'], target_index=df_index, ascending=True)
-        dyn_stability_norm = self.helper._normalize_series(raw_data['dyn_stability_score'], target_index=df_index, bipolar=False)
-        market_tension_norm = self.helper._normalize_series(raw_data['market_tension_score'], target_index=df_index, bipolar=False)
+        
+        # 代理 dyn_stability_norm (SCORE_DYN_AXIOM_STABILITY)
+        # 稳定性 = (1 - 波动不稳定性) + (1 - 均值回归频率) + 控盘稳固度
+        dyn_stability_proxy = (
+            (1 - self.helper._normalize_series(raw_data['vol_instability_raw'], target_index=df_index, ascending=True)) +
+            (1 - self.helper._normalize_series(raw_data['mean_reversion_frequency_raw'], target_index=df_index, ascending=True)) +
+            self.helper._normalize_series(raw_data['control_solidity_raw_for_stability'], target_index=df_index, ascending=True)
+        ) / 3.0
+        dyn_stability_norm = dyn_stability_proxy.clip(0,1)
+
+        # 代理 market_tension_norm (SCORE_FOUNDATION_AXIOM_MARKET_TENSION)
+        market_tension_norm = self.helper._normalize_series(raw_data['market_tension_proxy_raw'], target_index=df_index, bipolar=False)
+
         price_sample_entropy_inverted = self.helper._normalize_series(raw_data['price_sample_entropy_raw'], target_index=df_index, ascending=False)
         price_volume_entropy_inverted = self.helper._normalize_series(raw_data['price_volume_entropy_raw'], target_index=df_index, ascending=False)
         price_fractal_dimension_calm = (1 - (raw_data['price_fractal_dimension_raw'] - 1.5).abs() / 0.5).clip(0, 1)
         volume_structure_skew_inverted = self.helper._normalize_series(raw_data['volume_structure_skew_raw'].abs(), target_index=df_index, ascending=False)
         volume_profile_entropy_inverted = self.helper._normalize_series(raw_data['volume_profile_entropy_raw'], target_index=df_index, ascending=False)
         energy_compression_scores_dict = {
-            'tension': raw_data['tension_score'], 'bbw_inverted': bbw_inverted_score, 'vol_instability_inverted': vol_instability_inverted_score,
+            'tension': tension_score_proxy, 'bbw_inverted': bbw_inverted_score, 'vol_instability_inverted': vol_instability_inverted_score,
             'equilibrium_compression': equilibrium_compression_score, 'bbw_slope_inverted': mtf_derived_scores['bbw_slope_inverted_score'],
             'vol_instability_slope_inverted': mtf_derived_scores['vol_instability_slope_inverted_score'],
             'dyn_stability': dyn_stability_norm, 'market_tension': market_tension_norm,
@@ -310,6 +375,16 @@ class CalculateStormEyeCalm:
         return _robust_geometric_mean(energy_compression_scores_dict, weights, df_index)
 
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict) -> pd.Series:
+        """
+        V1.1: 计算量能枯竭维度的分数。
+        替换 SCORE_BEHAVIOR_VOLUME_ATROPHY 为原始指标代理。
+        """
+        # 代理 atrophy_score (SCORE_BEHAVIOR_VOLUME_ATROPHY)
+        # 量能萎缩 = (1 - volume_slope_norm) * (1 - turnover_rate_f_norm)
+        volume_slope_norm = self.helper._normalize_series(raw_data['volume_raw'].diff(1), target_index=df_index, ascending=True)
+        turnover_rate_f_norm = self.helper._normalize_series(raw_data['turnover_rate_f_raw'], target_index=df_index, ascending=True)
+        atrophy_score_proxy = (1 - volume_slope_norm) * (1 - turnover_rate_f_norm)
+
         turnover_rate_inverted_score = self.helper._normalize_series(raw_data['turnover_rate_f_raw'], target_index=df_index, ascending=False)
         turnover_rate_raw_inverted = self.helper._normalize_series(raw_data['turnover_rate_raw'], target_index=df_index, ascending=False)
         counterparty_exhaustion_score = self.helper._normalize_series(raw_data['counterparty_exhaustion_raw'], target_index=df_index, ascending=True)
@@ -325,7 +400,7 @@ class CalculateStormEyeCalm:
         volume_structure_skew_inverted = self.helper._normalize_series(raw_data['volume_structure_skew_raw'].abs(), target_index=df_index, ascending=False)
         volume_profile_entropy_inverted = self.helper._normalize_series(raw_data['volume_profile_entropy_raw'], target_index=df_index, ascending=False)
         volume_exhaustion_scores_dict = {
-            'volume_atrophy': raw_data['atrophy_score'], 'turnover_rate_inverted': turnover_rate_inverted_score,
+            'volume_atrophy': atrophy_score_proxy, 'turnover_rate_inverted': turnover_rate_inverted_score,
             'counterparty_exhaustion': counterparty_exhaustion_score, 'order_book_liquidity_inverted': order_book_liquidity_inverted_score,
             'buy_quote_exhaustion': buy_quote_exhaustion_score, 'sell_quote_exhaustion': sell_quote_exhaustion_score,
             'turnover_rate_slope_inverted': mtf_derived_scores['turnover_rate_slope_inverted_score'],
@@ -339,7 +414,18 @@ class CalculateStormEyeCalm:
         return _robust_geometric_mean(volume_exhaustion_scores_dict, weights, df_index)
 
     def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
-        stealth_ops_normalized = self.helper._normalize_series(raw_data['stealth_ops_score'], target_index=df_index, ascending=True)
+        """
+        V1.2: 计算主力隐蔽意图维度的分数，并返回组件字典用于调试。
+        替换 SCORE_MICRO_STRATEGY_STEALTH_OPS 为原始指标代理。
+        """
+        # 代理 stealth_ops_normalized (SCORE_MICRO_STRATEGY_STEALTH_OPS)
+        # 隐蔽操作 = covert_accumulation_signal_D + (1 - main_force_flow_gini_D)
+        stealth_ops_proxy = (
+            self.helper._normalize_series(raw_data['covert_accumulation_signal_raw'], target_index=df_index, ascending=True) +
+            (1 - self.helper._normalize_series(raw_data['main_force_flow_gini_raw'], target_index=df_index, ascending=True))
+        ) / 2.0
+        stealth_ops_normalized = stealth_ops_proxy.clip(0,1)
+
         split_order_accum_normalized = self.helper._normalize_series(raw_data['split_order_accum_score'], target_index=df_index, ascending=True)
         mf_conviction_positive = self.helper._normalize_series(raw_data['mf_conviction_raw'], target_index=df_index, bipolar=True).clip(lower=0)
         mf_net_flow_positive = self.helper._normalize_series(raw_data['mf_net_flow_raw'], target_index=df_index, bipolar=True).clip(lower=0)
@@ -359,7 +445,7 @@ class CalculateStormEyeCalm:
         wash_trade_score = self.helper._normalize_series(raw_data['wash_trade_intensity_raw'], target_index=df_index, ascending=True)
         mf_conviction_neutrality = 1 - self.helper._normalize_series(raw_data['mf_conviction_raw'].abs(), target_index=df_index, ascending=True)
         deception_lure_neutrality = 1 - self.helper._normalize_series(raw_data['deception_lure_long_raw'].abs() + raw_data['deception_lure_short_raw'].abs(), target_index=df_index, ascending=True)
-        covert_accumulation_norm = self.helper._normalize_series(raw_data['covert_accumulation_raw'], target_index=df_index, ascending=True)
+        covert_accumulation_norm = self.helper._normalize_series(raw_data['covert_accumulation_signal_raw'], target_index=df_index, ascending=True)
         covert_distribution_norm = self.helper._normalize_series(raw_data['covert_distribution_raw'], target_index=df_index, ascending=True)
         covert_action_score = (1 - (covert_accumulation_norm + covert_distribution_norm).clip(0,1))
         main_force_slippage_inverted = self.helper._normalize_series(raw_data['main_force_slippage_raw'], target_index=df_index, ascending=False)
@@ -398,19 +484,43 @@ class CalculateStormEyeCalm:
         return fused_score, main_force_covert_intent_scores_dict
 
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float) -> pd.Series:
-        sentiment_pendulum_negative = self.helper._normalize_series(raw_data['sentiment_pendulum_score'], target_index=df_index, bipolar=True).clip(upper=0).abs()
+        """
+        V1.2: 计算市场情绪低迷维度的分数。
+        替换 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM 和 SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE 为原始指标代理。
+        """
+        # 代理 sentiment_pendulum_score (SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM)
+        # 情绪钟摆 = (市场情绪 - 散户恐慌 + 散户Fomo) 的简单组合，归一化到 [-1, 1]
+        sentiment_pendulum_proxy = (
+            self.helper._normalize_series(raw_data['market_sentiment_raw'], target_index=df_index, bipolar=True) -
+            self.helper._normalize_series(raw_data['retail_panic_raw'], target_index=df_index, bipolar=False) +
+            self.helper._normalize_series(raw_data['retail_fomo_raw'], target_index=df_index, bipolar=False)
+        ).clip(-1, 1)
+        
+        sentiment_pendulum_negative = sentiment_pendulum_proxy.clip(upper=0).abs()
         market_sentiment_inverted = self.helper._normalize_series(raw_data['market_sentiment_raw'], target_index=df_index, ascending=False)
         retail_panic_inverted = self.helper._normalize_series(raw_data['retail_panic_raw'], target_index=df_index, ascending=False)
         retail_fomo_inverted = self.helper._normalize_series(raw_data['retail_fomo_raw'], target_index=df_index, ascending=False)
         loser_pain_positive = self.helper._normalize_series(raw_data['loser_pain_raw'], target_index=df_index, ascending=True)
-        liquidity_tide_calm = self.helper._normalize_series(raw_data['liquidity_tide_score'].abs(), target_index=df_index, ascending=False)
+        
+        # 代理 liquidity_tide_calm (SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE)
+        # 流动性潮汐平静 = (bid_liquidity + ask_liquidity_inverted + mf_net_flow_neutrality + order_book_imbalance_neutrality + turnover_rate_inverted) 的简单组合
+        liquidity_tide_calm_proxy = (
+            self.helper._normalize_series(raw_data['bid_side_liquidity_raw'], target_index=df_index, ascending=True) +
+            self.helper._normalize_series(raw_data['ask_side_liquidity_raw'], target_index=df_index, ascending=False) +
+            (1 - self.helper._normalize_series(raw_data['mf_net_flow_raw'].abs(), target_index=df_index, ascending=True)) +
+            (1 - self.helper._normalize_series(raw_data['order_book_imbalance_raw'].abs(), target_index=df_index, ascending=True)) +
+            self.helper._normalize_series(raw_data['turnover_rate_f_raw'], target_index=df_index, ascending=False)
+        ) / 5.0 # 简单平均
+        liquidity_tide_calm = liquidity_tide_calm_proxy.clip(0, 1)
+
         hurst_calm = (1 - (raw_data['hurst_raw'] - 0.5).abs() / 0.5).clip(0, 1)
         sentiment_neutrality = 1 - self.helper._normalize_series(raw_data['market_sentiment_raw'].abs(), target_index=df_index, ascending=True)
-        sentiment_pendulum_neutrality = 1 - self.helper._normalize_series(raw_data['sentiment_pendulum_score'].abs(), target_index=df_index, bipolar=True).abs()
+        sentiment_pendulum_neutrality = 1 - self.helper._normalize_series(sentiment_pendulum_proxy.abs(), target_index=df_index, bipolar=True).abs()
         sentiment_volatility_inverted = self.helper._normalize_series(raw_data['market_sentiment_std_raw'], target_index=df_index, ascending=False)
-        sentiment_pendulum_volatility_inverted = self.helper._normalize_series(raw_data['sentiment_pendulum_std_raw'], target_index=df_index, ascending=False)
+        sentiment_pendulum_std_raw = sentiment_pendulum_proxy.rolling(window=sentiment_volatility_window, min_periods=1).std() # 使用代理的std
+        sentiment_pendulum_volatility_inverted = self.helper._normalize_series(sentiment_pendulum_std_raw, target_index=df_index, ascending=False)
         long_term_sentiment_subdued = self.helper._normalize_series(raw_data['market_sentiment_long_term_mean'] - raw_data['market_sentiment_raw'], target_index=df_index, ascending=True)
-        sentiment_pendulum_not_extreme = (1 - (raw_data['sentiment_pendulum_score'].abs() - sentiment_pendulum_neutral_range).clip(lower=0) / (raw_data['sentiment_pendulum_score'].abs().max() - sentiment_pendulum_neutral_range + 1e-9)).clip(0, 1)
+        sentiment_pendulum_not_extreme = (1 - (sentiment_pendulum_proxy.abs() - sentiment_pendulum_neutral_range).clip(lower=0) / (sentiment_pendulum_proxy.abs().max() - sentiment_pendulum_neutral_range + 1e-9)).clip(0, 1)
         market_sentiment_not_extreme = (1 - (raw_data['market_sentiment_raw'].abs() - sentiment_neutral_range).clip(lower=0) / (raw_data['market_sentiment_raw'].abs().max() - sentiment_neutral_range + 1e-9)).clip(0, 1)
         market_sentiment_boring_score = _robust_geometric_mean({'volatility_inverted': sentiment_volatility_inverted, 'not_extreme': market_sentiment_not_extreme}, {'volatility_inverted': 0.5, 'not_extreme': 0.5}, df_index)
         price_reversion_velocity_inverted = self.helper._normalize_series(raw_data['price_reversion_velocity_raw'], target_index=df_index, ascending=False)
@@ -437,17 +547,37 @@ class CalculateStormEyeCalm:
         return _robust_geometric_mean(subdued_market_sentiment_scores_dict, weights, df_index)
 
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict) -> pd.Series:
+        """
+        V1.2: 计算突破准备度维度的分数。
+        替换 SCORE_STRUCT_BREAKOUT_READINESS 和 SCORE_STRUCT_PLATFORM_FOUNDATION 为原始指标代理。
+        """
+        # 直接使用 breakout_readiness_score_D
+        struct_breakout_readiness_score = self.helper._normalize_series(raw_data['breakout_readiness_score_D'], target_index=df_index, ascending=True)
+
+        # 代理 struct_platform_foundation_score (SCORE_STRUCT_PLATFORM_FOUNDATION)
+        # 平台基础 = (is_consolidating + dynamic_consolidation_duration + equilibrium_compression_inverted + BBW_inverted) 的简单组合
+        platform_foundation_proxy = (
+            self.helper._normalize_series(raw_data['is_consolidating_raw'], target_index=df_index, ascending=True) +
+            self.helper._normalize_series(raw_data['dynamic_consolidation_duration_raw'], target_index=df_index, ascending=True) +
+            self.helper._normalize_series(raw_data['equilibrium_compression_index_D'], target_index=df_index, ascending=True) +
+            self.helper._normalize_series(raw_data['bbw_raw'], target_index=df_index, ascending=False)
+        ) / 4.0 # 简单平均
+        struct_platform_foundation_score = platform_foundation_proxy.clip(0, 1)
+
         goodness_of_fit_score = self.helper._normalize_series(raw_data['goodness_of_fit_raw'], target_index=df_index, ascending=True)
         platform_conviction_score = self.helper._normalize_series(raw_data['platform_conviction_raw'], target_index=df_index, ascending=True)
         breakout_readiness_scores_dict = {
-            'struct_breakout_readiness': raw_data['struct_breakout_readiness_score'],
-            'struct_platform_foundation': raw_data['struct_platform_foundation_score'],
+            'struct_breakout_readiness': struct_breakout_readiness_score,
+            'struct_platform_foundation': struct_platform_foundation_score,
             'goodness_of_fit': goodness_of_fit_score,
             'platform_conviction': platform_conviction_score
         }
         return _robust_geometric_mean(breakout_readiness_scores_dict, weights, df_index)
 
     def _calculate_market_regime_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], params: Dict) -> pd.Series:
+        """
+        V1.0: 计算市场情境动态调节器。
+        """
         market_regime_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
         regime_modulator_params = params['regime_modulator_params']
         if get_param_value(regime_modulator_params.get('enabled'), False):
@@ -465,6 +595,9 @@ class CalculateStormEyeCalm:
         return market_regime_modulator
 
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: Dict[str, pd.Series], final_fusion_weights: Dict, price_calmness_params: Dict, main_force_control_params: Dict, raw_data: Dict[str, pd.Series]) -> pd.Series:
+        """
+        V1.0: 执行所有维度分数的最终融合和调节。
+        """
         base_calm_score = _robust_geometric_mean(component_scores, final_fusion_weights, df_index)
         price_slope_norm_bipolar = self.helper._normalize_series(raw_data['price_slope_raw'], target_index=df_index, bipolar=True)
         pct_change_abs_norm_inverted = self.helper._normalize_series(raw_data['pct_change_raw'].abs(), target_index=df_index, ascending=False)
@@ -482,6 +615,9 @@ class CalculateStormEyeCalm:
         return final_score
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        V4.0.4: 计算“风暴眼中的寂静”信号。
+        """
         method_name = "calculate_storm_eye_calm"
         is_debug_enabled_for_method, probe_ts = self._get_debug_info(df, method_name)
         debug_output = {}
@@ -511,7 +647,6 @@ class CalculateStormEyeCalm:
         volume_exhaustion_score = self._calculate_volume_exhaustion_component(df_index, raw_data, mtf_derived_scores, params['volume_exhaustion_weights'])
         _temp_debug_values["量能枯竭"] = {"volume_exhaustion_score": volume_exhaustion_score}
         
-        # 修改此处：接收元组并分别存储
         main_force_covert_intent_score, main_force_covert_intent_components = self._calculate_main_force_covert_intent_component(df_index, raw_data, mtf_derived_scores, params['main_force_covert_intent_weights'], params['ambiguity_components_weights'])
         _temp_debug_values["主力隐蔽意图"] = main_force_covert_intent_components # 存储组件
         _temp_debug_values["主力隐蔽意图融合"] = {"main_force_covert_intent_score": main_force_covert_intent_score} # 存储融合分数
@@ -540,15 +675,4 @@ class CalculateStormEyeCalm:
         if is_debug_enabled_for_method and probe_ts:
             self._print_debug_output_for_storm_eye_calm(debug_output, _temp_debug_values, probe_ts, method_name, final_score)
         return final_score.astype(np.float32)
-
-    def _get_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp]]:
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        return is_debug_enabled_for_method, probe_ts
 
