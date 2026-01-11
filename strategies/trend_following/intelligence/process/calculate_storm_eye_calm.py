@@ -52,7 +52,7 @@ class CalculateStormEyeCalm:
                 debug_output[f"        '{key}': {val:.4f}"] = ""
             else: # Handle non-Series values like dicts or raw numbers
                 debug_output[f"        '{key}': {value}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_ts.strftime('%Y-%m-%d')}: --- MTF斜率/加速度分数 ---"] = ""
+        debug_output[f"  -- [过程情报调试] {probe_ts.strftime('%Y-%m-%d')}: --- MTF斜率/加速度分数 ---"] = ""
         for key, series in _temp_debug_values["MTF斜率/加速度分数"].items():
             if isinstance(series, pd.Series):
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
