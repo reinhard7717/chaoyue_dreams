@@ -1305,15 +1305,29 @@ class ChipFeatureCalculator:
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
-            'mf_cost_zone_buy_intent': np.nan, # 新增行
-            'mf_cost_zone_sell_intent': np.nan, # 新增行
+            'mf_cost_zone_buy_intent': np.nan,
+            'mf_cost_zone_sell_intent': np.nan,
             'floating_chip_cleansing_efficiency': np.nan,
         }
         realtime_df = context.get('realtime_data')
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+        debug_params = context.get('debug_params', {})
+        should_probe = debug_params.get('should_probe', False)
+        probe_dates = debug_params.get('probe_dates', [])
+        probe_active = should_probe and str(trade_date) in probe_dates
+        if probe_active:
+            print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: 开始诊断 mf_cost_zone_buy_intent。")
+            print(f"    - realtime_df.empty: {realtime_df.empty if realtime_df is not None else True}")
         if realtime_df is None or realtime_df.empty:
+            if probe_active:
+                print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: realtime_df 为空，提前返回。")
             return results
         required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
         if not all(col in realtime_df.columns for col in required_cols) or 'volume' not in realtime_df.columns:
+            if probe_active:
+                missing = [col for col in required_cols if col not in realtime_df.columns] + (['volume'] if 'volume' not in realtime_df.columns else [])
+                print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: 缺少必要列 {missing}，提前返回。")
             logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情或volume列。")
             return results
         numeric_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']] + ['volume']
@@ -1322,9 +1336,13 @@ class ChipFeatureCalculator:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
         main_force_cost = context.get('main_force_cumulative_cost')
         atr = context.get('atr_14d')
+        if probe_active:
+            print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: main_force_cost={main_force_cost}, atr={atr}")
         if pd.notna(main_force_cost) and pd.notna(atr) and atr > 0:
             cost_zone_low = main_force_cost - 0.5 * atr
             cost_zone_high = main_force_cost + 0.5 * atr
+            if probe_active:
+                print(f"    - 计算成本区间: low={cost_zone_low:.4f}, high={cost_zone_high:.4f}")
             def _gaussian_weight(price_series, center, sigma):
                 if sigma > 0:
                     return np.exp(-((price_series - center)**2) / (2 * sigma**2))
@@ -1349,25 +1367,48 @@ class ChipFeatureCalculator:
                 gravity_weight = _gaussian_weight(price_series, center=main_force_cost, sigma=0.5 * atr)
                 level_power = price_series * vol_series * gravity_weight
                 total_weighted_ask_power += level_power.where(in_zone_mask, 0)
+            if probe_active:
+                print(f"    - total_weighted_bid_power.sum(): {total_weighted_bid_power.sum():.4f}")
+                print(f"    - total_weighted_ask_power.sum(): {total_weighted_ask_power.sum():.4f}")
             total_power = total_weighted_bid_power + total_weighted_ask_power
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
+            if probe_active:
+                print(f"    - total_power.sum(): {total_power.sum():.4f}")
+                print(f"    - instant_intent.mean(): {instant_intent.mean():.4f} (NaNs: {instant_intent.isnull().sum()}/{len(realtime_df)})")
             if 'volume' in realtime_df.columns:
                 weights = realtime_df['volume'].fillna(0).clip(lower=0)
-                # 使用布尔掩码进行过滤，确保长度一致
                 valid_mask = instant_intent.notna()
+                if probe_active:
+                    print(f"    - valid_mask.sum(): {valid_mask.sum()} (total: {len(realtime_df)})")
                 if valid_mask.any():
                     valid_intent = instant_intent[valid_mask]
                     valid_weights = weights[valid_mask]
+                    if probe_active:
+                        print(f"    - valid_weights.sum(): {valid_weights.sum():.4f}")
                     if valid_weights.sum() > 0:
                         weighted_intent = np.average(valid_intent, weights=valid_weights)
                         results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
-                        # 计算买方和卖方意图强度
                         weighted_buy_power = np.average(total_weighted_bid_power[valid_mask], weights=valid_weights)
                         weighted_sell_power = np.average(total_weighted_ask_power[valid_mask], weights=valid_weights)
-                        total_weighted_power = weighted_buy_power + weighted_sell_power
-                        if total_weighted_power > 0:
-                            results['mf_cost_zone_buy_intent'] = (weighted_buy_power / total_weighted_power) * 100
-                            results['mf_cost_zone_sell_intent'] = (weighted_sell_power / total_weighted_power) * 100
+                        total_weighted_power_final = weighted_buy_power + weighted_sell_power
+                        if probe_active:
+                            print(f"    - weighted_buy_power (final): {weighted_buy_power:.4f}, weighted_sell_power (final): {weighted_sell_power:.4f}")
+                            print(f"    - total_weighted_power (final): {total_weighted_power_final:.4f}")
+                        if total_weighted_power_final > 0:
+                            results['mf_cost_zone_buy_intent'] = (weighted_buy_power / total_weighted_power_final) * 100
+                            results['mf_cost_zone_sell_intent'] = (weighted_sell_power / total_weighted_power_final) * 100
+                            if probe_active:
+                                print(f"    - mf_cost_zone_buy_intent: {results['mf_cost_zone_buy_intent']:.4f}, mf_cost_zone_sell_intent: {results['mf_cost_zone_sell_intent']:.4f}")
+                        elif probe_active:
+                            print(f"    - 警告: total_weighted_power (final) 为0，mf_cost_zone_buy_intent/sell_intent 保持NaN。")
+                    elif probe_active:
+                        print(f"    - 警告: valid_weights.sum() 为0，mf_cost_zone_defense_intent/buy_intent/sell_intent 保持NaN。")
+                elif probe_active:
+                    print(f"    - 警告: valid_mask.any() 为False，instant_intent 全为NaN，所有mf_cost_zone_...指标保持NaN。")
+            elif probe_active:
+                print(f"    - 警告: realtime_df 缺少 'volume' 列，所有mf_cost_zone_...指标保持NaN。")
+        elif probe_active:
+            print(f"    - 警告: main_force_cost/atr 为NaN或atr<=0，所有mf_cost_zone_...指标保持NaN。")
         intraday_df = context.get('processed_intraday_df')
         total_daily_volume = context.get('daily_turnover_volume')
         if intraday_df is None or intraday_df.empty or pd.isna(atr) or atr <= 0 or pd.isna(total_daily_volume) or total_daily_volume <= 0:
