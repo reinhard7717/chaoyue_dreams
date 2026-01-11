@@ -719,9 +719,8 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
-        【V2.2 · 探针植入版】
-        - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于追踪 `opening_gap_defense_strength` 的计算链路。
-        - 核心修复: 移除调试探针。
+        【V2.4 · 主峰无交易深度诊断版】
+        - 核心新增: 植入更详细的调试探针，深入检查 `peak_vwap_df` 为空或交易量为零的具体原因。
         """
         from datetime import time
         results = {
@@ -735,24 +734,65 @@ class ChipFeatureCalculator:
             'active_selling_pressure': np.nan,
         }
         intraday_df_raw = context.get('processed_intraday_df')
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+
         if intraday_df_raw is None or intraday_df_raw.empty:
+            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 为空。")
             return results
         intraday_df = intraday_df_raw[intraday_df_raw.index.time >= time(9, 30)].copy()
         if intraday_df.empty:
+            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 过滤后 intraday_df 为空。")
             return results
+
         close_price = context.get('close_price')
         vwap = context.get('daily_vwap')
         peak_low = context.get('peak_range_low')
         peak_high = context.get('peak_range_high')
+        dominant_peak_cost = context.get('dominant_peak_cost')
+
         if pd.notna(close_price) and pd.notna(vwap) and vwap > 0:
             posture = (close_price / vwap - 1) * 100
+            results['intraday_posture_score'] = np.clip(posture * 10, -100, 100)
+
             if pd.notna(peak_low) and pd.notna(peak_high) and peak_high > peak_low:
+                # --- 深度诊断探针开始 ---
+                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 主峰区域边界: peak_low={peak_low:.2f}, peak_high={peak_high:.2f}")
+                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内数据价格范围: min={intraday_df['minute_vwap'].min():.2f}, max={intraday_df['minute_vwap'].max():.2f}")
+                # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - intraday_df.head():\n{intraday_df.head()}")
+                # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - intraday_df.tail():\n{intraday_df.tail()}")
+                # --- 深度诊断探针结束 ---
+
                 peak_vwap_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
+                
+                # --- 深度诊断探针开始 ---
+                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df.empty: {peak_vwap_df.empty}")
+                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df.shape: {peak_vwap_df.shape}")
+                if not peak_vwap_df.empty:
+                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df['vol_shares'].sum(): {peak_vwap_df['vol_shares'].sum():.2f}")
+                    if peak_vwap_df['vol_shares'].sum() == 0:
+                        print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - peak_vwap_df['vol_shares'].unique(): {peak_vwap_df['vol_shares'].unique()}")
+                # --- 深度诊断探针结束 ---
+
                 if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
                     peak_vwap = (peak_vwap_df['minute_vwap'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
                     peak_transfer = (peak_vwap / vwap - 1) * 100
                     results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
-            results['intraday_posture_score'] = np.clip(posture * 10, -100, 100)
+                else:
+                    print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 主峰区域 ({peak_low:.2f}-{peak_high:.2f}) 无交易或交易量为零。")
+                    if pd.notna(dominant_peak_cost) and close_price > dominant_peak_cost:
+                        results['peak_control_transfer'] = 10.0
+                        print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 股价高于主峰成本，peak_control_transfer 修正为 10.0。")
+                    elif pd.notna(dominant_peak_cost) and close_price < dominant_peak_cost:
+                        results['peak_control_transfer'] = -10.0
+                        print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 股价低于主峰成本，peak_control_transfer 修正为 -10.0。")
+                    else:
+                        results['peak_control_transfer'] = 0.0
+                        print(f"  [调试] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 无法判断，peak_control_transfer 修正为 0.0。")
+            else:
+                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: peak_low/high 有 NaN 或 peak_high <= peak_low。")
+                results['peak_control_transfer'] = 0.0
+
         up_moves = intraday_df[intraday_df['minute_vwap'].diff() > 0]
         down_moves = intraday_df[intraday_df['minute_vwap'].diff() < 0]
         if not up_moves.empty and not down_moves.empty:
