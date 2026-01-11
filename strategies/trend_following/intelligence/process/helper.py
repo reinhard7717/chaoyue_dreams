@@ -251,13 +251,7 @@ class ProcessIntelligenceHelper:
         - 核心职责: 为类内部提供一个统一的、基于多时间框架自适应归一化的方法。
         - 核心逻辑: 根据 bipolar 参数，调用 get_adaptive_mtf_normalized_score (单极) 或
                      get_adaptive_mtf_normalized_bipolar_score (双极) 进行归一化。
-        - 暴露问题: 如果输入 Series 是常数（所有非NaN值都相同），则返回 np.nan，因为常数序列无法提供动态信息。
         """
-        # 检查 Series 是否为常数（所有非NaN值都相同）
-        non_nan_series = series.dropna()
-        if not non_nan_series.empty and non_nan_series.nunique() == 1:
-            print(f"    -> [过程情报警告] _normalize_series: 输入Series '{series.name if series.name else 'Unnamed'}' 为常数序列，无法提供动态信息，返回np.nan。")
-            return pd.Series(np.nan, index=target_index, dtype=np.float32)
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})

@@ -1306,24 +1306,17 @@ class ChipFeatureCalculator:
             'floating_chip_cleansing_efficiency': np.nan,
         }
         realtime_df = context.get('realtime_data')
-        stock_code = context.get('stock_code', 'UNKNOWN')
-        trade_date = context.get('trade_date', 'UNKNOWN')
-        debug_params = context.get('debug_params', {})
-        should_probe = debug_params.get('should_probe', False)
-        probe_dates = debug_params.get('probe_dates', [])
-        probe_active = should_probe and str(trade_date) in probe_dates
-        if probe_active:
-            print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: 开始诊断 mf_cost_zone_buy_intent。")
-            print(f"    - realtime_df.empty: {realtime_df.empty if realtime_df is not None else True}")
+        # stock_code = context.get('stock_code', 'UNKNOWN') # 移除调试变量
+        # trade_date = context.get('trade_date', 'UNKNOWN') # 移除调试变量
+        # debug_params = context.get('debug_params', {}) # 移除调试变量
+        # should_probe = debug_params.get('should_probe', False) # 移除调试变量
+        # probe_dates = debug_params.get('probe_dates', []) # 移除调试变量
+        # probe_active = should_probe and str(trade_date) in probe_dates # 移除调试变量
+
         if realtime_df is None or realtime_df.empty:
-            if probe_active:
-                print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: realtime_df 为空，提前返回。")
             return results
         required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
         if not all(col in realtime_df.columns for col in required_cols) or 'volume' not in realtime_df.columns:
-            if probe_active:
-                missing = [col for col in required_cols if col not in realtime_df.columns] + (['volume'] if 'volume' not in realtime_df.columns else [])
-                print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: 缺少必要列 {missing}，提前返回。")
             logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情或volume列。")
             return results
         numeric_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']] + ['volume']
@@ -1332,27 +1325,10 @@ class ChipFeatureCalculator:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
         main_force_cost = context.get('main_force_cumulative_cost')
         atr = context.get('atr_14d')
-        if probe_active:
-            print(f"  [探针 - {stock_code} - {trade_date}] _compute_realtime_orderbook_metrics: main_force_cost={main_force_cost}, atr={atr}")
+
         if pd.notna(main_force_cost) and pd.notna(atr) and atr > 0:
             cost_zone_low = main_force_cost - 0.5 * atr
             cost_zone_high = main_force_cost + 0.5 * atr
-            if probe_active:
-                print(f"    - 计算成本区间: low={cost_zone_low:.4f}, high={cost_zone_high:.4f}")
-                all_bid_prices = realtime_df[[f'b{i}_p' for i in range(1, 6)]].stack().dropna()
-                all_ask_prices = realtime_df[[f'a{i}_p' for i in range(1, 6)]].stack().dropna()
-                if not all_bid_prices.empty:
-                    print(f"    - Realtime Bid Price Range (all levels): [{all_bid_prices.min():.4f}, {all_bid_prices.max():.4f}]")
-                if not all_ask_prices.empty:
-                    print(f"    - Realtime Ask Price Range (all levels): [{all_ask_prices.min():.4f}, {all_ask_prices.max():.4f}]")
-                if 'volume' in realtime_df.columns and not realtime_df['volume'].empty:
-                    print(f"    - Realtime Trade Volume Range: [{realtime_df['volume'].min():.0f}, {realtime_df['volume'].max():.0f}]")
-                all_bid_volumes = realtime_df[[f'b{i}_v' for i in range(1, 6)]].stack().dropna()
-                all_ask_volumes = realtime_df[[f'a{i}_v' for i in range(1, 6)]].stack().dropna()
-                if not all_bid_volumes.empty:
-                    print(f"    - Realtime Bid Volume Range (all levels): [{all_bid_volumes.min():.0f}, {all_bid_volumes.max():.0f}]")
-                if not all_ask_volumes.empty:
-                    print(f"    - Realtime Ask Volume Range (all levels): [{all_ask_volumes.min():.0f}, {all_ask_volumes.max():.0f}]")
 
             def _gaussian_weight(price_series_input, center, sigma):
                 # 确保只对有效价格计算权重，无效价格（NaN或0）返回0权重
@@ -1376,15 +1352,10 @@ class ChipFeatureCalculator:
             ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
             total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
             total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
-            if probe_active:
-                bid_in_zone_counts = []
-                ask_in_zone_counts = []
+
             for p_col, v_col in zip(bid_prices_cols, bid_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
-                if probe_active:
-                    print(f"      - {p_col}: min={price_series.min():.4f}, max={price_series.max():.4f}, mean={price_series.mean():.4f}, NaNs={price_series.isnull().sum()}")
-                    print(f"      - {v_col}: min={vol_series.min():.0f}, max={vol_series.max():.0f}, mean={vol_series.mean():.0f}, NaNs={vol_series.isnull().sum()}")
 
                 # 严格过滤无效数据点：价格非NaN且大于0，成交量非NaN且大于0
                 valid_data_mask = (price_series.notna()) & (price_series > 0) & \
@@ -1395,8 +1366,6 @@ class ChipFeatureCalculator:
                 vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
 
                 in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
-                if probe_active:
-                    bid_in_zone_counts.append(in_zone_mask.sum())
                 
                 gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
                 
@@ -1407,9 +1376,6 @@ class ChipFeatureCalculator:
             for p_col, v_col in zip(ask_prices_cols, ask_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
-                if probe_active:
-                    print(f"      - {p_col}: min={price_series.min():.4f}, max={price_series.max():.4f}, mean={price_series.mean():.4f}, NaNs={price_series.isnull().sum()}")
-                    print(f"      - {v_col}: min={vol_series.min():.0f}, max={vol_series.max():.0f}, mean={vol_series.mean():.0f}, NaNs={vol_series.isnull().sum()}")
 
                 valid_data_mask = (price_series.notna()) & (price_series > 0) & \
                                   (vol_series.notna()) & (vol_series > 0)
@@ -1417,62 +1383,29 @@ class ChipFeatureCalculator:
                 vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
 
                 in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
-                if probe_active:
-                    ask_in_zone_counts.append(in_zone_mask.sum())
                 
                 gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
                 
                 level_power = (price_series_filtered * vol_series_filtered * gravity_weight).where(in_zone_mask, 0).fillna(0)
                 total_weighted_ask_power += level_power
 
-            if probe_active:
-                print(f"    - Bid levels in zone (counts per level): {bid_in_zone_counts}")
-                print(f"    - Ask levels in zone (counts per level): {ask_in_zone_counts}")
-                print(f"    - total_weighted_bid_power non-zero count: {(total_weighted_bid_power != 0).sum()}/{len(realtime_df)}")
-                print(f"    - total_weighted_ask_power non-zero count: {(total_weighted_ask_power != 0).sum()}/{len(realtime_df)}")
-                print(f"    - total_weighted_bid_power.sum(): {total_weighted_bid_power.sum():.4f}")
-                print(f"    - total_weighted_ask_power.sum(): {total_weighted_ask_power.sum():.4f}")
             total_power = total_weighted_bid_power + total_weighted_ask_power
-            if probe_active:
-                print(f"    - total_power non-zero count: {(total_power != 0).sum()}/{len(realtime_df)}")
-                print(f"    - total_power.sum(): {total_power.sum():.4f}")
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
-            if probe_active:
-                print(f"    - instant_intent.mean(): {instant_intent.mean():.4f} (NaNs: {instant_intent.isnull().sum()}/{len(realtime_df)})")
             if 'volume' in realtime_df.columns:
                 weights = realtime_df['volume'].fillna(0).clip(lower=0)
                 valid_mask = instant_intent.notna()
-                if probe_active:
-                    print(f"    - valid_mask.sum(): {valid_mask.sum()} (total: {len(realtime_df)})")
                 if valid_mask.any():
                     valid_intent = instant_intent[valid_mask]
                     valid_weights = weights[valid_mask]
-                    if probe_active:
-                        print(f"    - valid_weights.sum(): {valid_weights.sum():.4f}")
                     if valid_weights.sum() > 0:
                         weighted_intent = np.average(valid_intent, weights=valid_weights)
                         results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
                         weighted_buy_power = np.average(total_weighted_bid_power[valid_mask], weights=valid_weights)
                         weighted_sell_power = np.average(total_weighted_ask_power[valid_mask], weights=valid_weights)
                         total_weighted_power_final = weighted_buy_power + weighted_sell_power
-                        if probe_active:
-                            print(f"    - weighted_buy_power (final): {weighted_buy_power:.4f}, weighted_sell_power (final): {weighted_sell_power:.4f}")
-                            print(f"    - total_weighted_power (final): {total_weighted_power_final:.4f}")
                         if total_weighted_power_final > 0:
                             results['mf_cost_zone_buy_intent'] = (weighted_buy_power / total_weighted_power_final) * 100
                             results['mf_cost_zone_sell_intent'] = (weighted_sell_power / total_weighted_power_final) * 100
-                            if probe_active:
-                                print(f"    - mf_cost_zone_buy_intent: {results['mf_cost_zone_buy_intent']:.4f}, mf_cost_zone_sell_intent: {results['mf_cost_zone_sell_intent']:.4f}")
-                        elif probe_active:
-                            print(f"    - 警告: total_weighted_power (final) 为0，mf_cost_zone_buy_intent/sell_intent 保持NaN。")
-                    elif probe_active:
-                        print(f"    - 警告: valid_weights.sum() 为0，mf_cost_zone_defense_intent/buy_intent/sell_intent 保持NaN。")
-                elif probe_active:
-                    print(f"    - 警告: valid_mask.any() 为False，instant_intent 全为NaN，所有mf_cost_zone_...指标保持NaN。")
-            elif probe_active:
-                print(f"    - 警告: realtime_df 缺少 'volume' 列，所有mf_cost_zone_...指标保持NaN。")
-        elif probe_active:
-            print(f"    - 警告: main_force_cost/atr 为NaN或atr<=0，所有mf_cost_zone_...指标保持NaN。")
         intraday_df = context.get('processed_intraday_df')
         total_daily_volume = context.get('daily_turnover_volume')
         if intraday_df is None or intraday_df.empty or pd.isna(atr) or atr <= 0 or pd.isna(total_daily_volume) or total_daily_volume <= 0:
