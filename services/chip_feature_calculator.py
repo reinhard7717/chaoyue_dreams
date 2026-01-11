@@ -364,11 +364,9 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.3 · 神经探针植入版】
-        - 核心新增: 植入由 `enable_gt_probe` 控制的“神经探针”，用于解剖博弈论指标的依赖链。
-                     探针将详细打印所有前置依赖项的值，并明确报告是否因依赖项缺失而“短路”计算，
-                     从而精准定位导致指标为空的根本原因。
-        - 核心增强: 为 `peak_control_transfer` 等易失败的依赖项增加了安全的默认值，提升代码鲁棒性。
+        【V1.4 · 惜售修正诊断版】
+        - 核心新增: 植入调试探针，打印 `peak_transfer` 和 `mf_net_vol_in_peak_zone` 的值，
+                     以诊断“惜售修正”逻辑未触发的原因。
         - 核心修复: 将 `rally_distribution_pressure` 的获取键名从 `'rally_distribution_pressure'` 修正为 `'dispersal_by_distribution'`。
         - 核心清理: 移除所有调试打印。
         """
@@ -402,6 +400,7 @@ class ChipFeatureCalculator:
         raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
         hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
         dominant_peak_cost = context.get('dominant_peak_cost')
+        # --- 结束新增 ---
         required_vars_map = {
             'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
             'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
@@ -415,19 +414,28 @@ class ChipFeatureCalculator:
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if is_short_circuit:
             return results
+        
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
         fatigue_factor = np.log1p(fatigue)
         results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
+        
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
+        
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
         lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
+        
         # --- 核心修改：调整 control_solidity_index 的计算逻辑 ---
         calculated_control_solidity = gini * peak_transfer
+        # --- 新增调试探针 ---
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+        print(f"  [调试] {stock_code} {trade_date} - peak_transfer: {peak_transfer:.4f}, gini: {gini:.4f}")
+        # --- 结束新增调试探针 ---
         # 只有当 peak_transfer 为负时，才需要进一步判断是否为“惜售”
         if peak_transfer < 0 and not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
             peak_battle_zone_radius = 0.5 * atr # 与 _compute_contextual_action_metrics 保持一致
@@ -439,33 +447,29 @@ class ChipFeatureCalculator:
                 # 计算主峰区域内的主力净流量
                 mf_net_vol_in_peak_zone = peak_zone_hf_df['main_force_ofi'].sum()
                 total_vol_in_peak_zone = peak_zone_hf_df['volume'].sum()
+                # --- 新增调试探针 ---
+                print(f"  [调试] {stock_code} {trade_date} - mf_net_vol_in_peak_zone: {mf_net_vol_in_peak_zone:.4f}, total_vol_in_peak_zone: {total_vol_in_peak_zone:.4f}")
+                # --- 结束新增调试探针 ---
                 # 如果主峰区域内主力净流量不为负（即没有明显卖出），则削弱负面影响
-                # 甚至可以将其视为中性或略微积极，代表锁仓惜售
                 if mf_net_vol_in_peak_zone >= 0 and total_vol_in_peak_zone > 0:
-                    # 引入一个“惜售修正因子”
-                    # 例如，如果主力净流量为正，则将 peak_transfer 修正为 0 或一个小的正值
-                    # 如果主力净流量为 0，则将 peak_transfer 修正为 0
-                    # 这里的修正逻辑可以根据实际需求调整
-                    # 简单修正：如果主峰区域内主力没有净卖出，则将 peak_transfer 的负面影响减半
-                    # 或者直接将 peak_transfer 视为 0，表示中性
-                    # 考虑到 gini 已经是非负的，这里直接修正 calculated_control_solidity
-                    # 如果主力在主峰区域没有净卖出，那么即使 peak_vwap < vwap，也不应完全否决
-                    # 我们可以将 control_solidity_index 修正为 0 (中性) 或一个小的正值
-                    # 修正为 0.01 * gini，表示轻微的积极锁仓
                     calculated_control_solidity = gini * 0.01 # 修正为一个小正值，代表锁仓惜售
-                    # 或者更保守，直接修正为 0，表示中性
-                    # calculated_control_solidity = 0.0
+                    # --- 新增调试探针 ---
+                    print(f"  [调试] {stock_code} {trade_date} - 惜售修正触发！calculated_control_solidity 修正为: {calculated_control_solidity:.4f}")
+                    # --- 结束新增调试探针 ---
                 # else: 如果 mf_net_vol_in_peak_zone < 0，则保持原有的负面 calculated_control_solidity
             # else: 如果 peak_zone_hf_df 为空，说明主峰区域内没有高频交易数据，保持原有逻辑
+        
         results['control_solidity_index'] = calculated_control_solidity
         # --- 核心修改结束 ---
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
+        
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
+        
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
