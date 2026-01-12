@@ -541,6 +541,102 @@ class ProcessIntelligenceHelper:
         fused_cumulative_score = sum(all_cumulative_scores) / total_weight
         return fused_cumulative_score.clip(-1, 1)
 
+    def _get_mtf_trend_consistency_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
+        """
+        【V1.0 · MTF趋势一致性分数计算版】计算给定基础信号在多个时间框架上的趋势一致性分数。
+        该分数评估信号的斜率和加速度在不同周期（5, 13, 21等）上的方向和强度是否一致。
+        - 核心逻辑:
+            1. 获取所有指定周期内的斜率和加速度原始数据。
+            2. 对这些原始数据进行双极性归一化。
+            3. 融合这些归一化分数，计算其平均值（代表整体方向和强度）和标准差（代表离散度）。
+            4. 将离散度转换为一致性强度。
+            5. 最终一致性分数 = 整体方向和强度 * 一致性强度。
+        参数:
+            df (pd.DataFrame): 包含所有原始数据的DataFrame。
+            base_signal_name (str): 基础信号的名称，例如 'winner_stability_index_D'。
+            mtf_weights_config (Dict): 包含 'slope_periods' 和 'accel_periods' 权重的配置字典。
+            df_index (pd.Index): DataFrame的索引。
+            method_name (str): 调用此方法的名称，用于日志输出。
+        返回:
+            pd.Series: 融合后的MTF趋势一致性分数 (范围 [-1, 1])。
+        """
+        slope_periods_weights = get_param_value(mtf_weights_config.get('slope_periods'), {"5": 0.3, "13": 0.3, "21": 0.2, "34": 0.1, "55": 0.1})
+        accel_periods_weights = get_param_value(mtf_weights_config.get('accel_periods'), {"5": 0.5, "13": 0.3, "21": 0.2})
+        all_normalized_mtf_components = {}
+        # 处理斜率
+        for period_str, weight in slope_periods_weights.items():
+            try:
+                period = int(period_str)
+            except ValueError:
+                continue
+            slope_col = f'SLOPE_{period}_{base_signal_name}'
+            slope_raw = self._get_safe_series(df, slope_col, np.nan, method_name=method_name)
+            if not slope_raw.isnull().all():
+                # 对斜率进行双极性归一化
+                norm_slope = self._normalize_series(slope_raw, df_index, bipolar=True, ascending=True)
+                all_normalized_mtf_components[f'norm_slope_{period}'] = norm_slope
+        # 处理加速度
+        for period_str, weight in accel_periods_weights.items():
+            try:
+                period = int(period_str)
+            except ValueError:
+                continue
+            accel_col = f'ACCEL_{period}_{base_signal_name}'
+            accel_raw = self._get_safe_series(df, accel_col, np.nan, method_name=method_name)
+            if not accel_raw.isnull().all():
+                # 对加速度进行双极性归一化
+                norm_accel = self._normalize_series(accel_raw, df_index, bipolar=True, ascending=True)
+                all_normalized_mtf_components[f'norm_accel_{period}'] = norm_accel
+        if not all_normalized_mtf_components:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        components_df = pd.DataFrame(all_normalized_mtf_components, index=df_index)
+        # 计算整体方向和强度 (平均值)
+        mean_components = components_df.mean(axis=1)
+        # 计算离散度 (标准差)
+        std_components = components_df.std(axis=1).fillna(0.0)
+        # 将标准差转换为一致性强度 (0到1，标准差越小，强度越大)
+        max_std_for_norm = components_df.max(axis=1) - components_df.min(axis=1)
+        max_std_for_norm = max_std_for_norm.replace(0, 1).clip(0.1, 2.0) # 避免除以零，并限制最大值
+        normalized_std = (std_components / max_std_for_norm).clip(0, 1)
+        consistency_strength = (1 - normalized_std).fillna(0.0)
+        # 最终一致性分数 = 整体方向和强度 * 一致性强度
+        # 结果范围 [-1, 1]
+        trend_consistency_score = mean_components * consistency_strength
+        return trend_consistency_score.clip(-1, 1).astype(np.float32)
+
+    def _detect_inflection_point(self, series: pd.Series, window: int = 5) -> pd.Series:
+        """
+        【V1.0 · 拐点检测版】检测给定Series的拐点。
+        拐点定义为加速度方向发生变化的点。
+        参数:
+            series (pd.Series): 输入Series，通常是MTF分数。
+            window (int): 用于平滑加速度的窗口大小，以减少噪音。
+        返回:
+            pd.Series: 拐点强度分数 (范围 [-1, 1])。
+                       正值表示加速向上趋势减弱或加速向下趋势增强 (向下拐点)。
+                       负值表示加速向下趋势减弱或加速向上趋势增强 (向上拐点)。
+                       绝对值越大，拐点越明显。
+        """
+        if series.isnull().all():
+            return pd.Series(0.0, index=series.index, dtype=np.float32)
+        # 计算一阶导数 (斜率)
+        slope = series.diff(1)
+        # 计算二阶导数 (加速度)
+        acceleration = slope.diff(1)
+        # 平滑加速度以减少噪音
+        smoothed_acceleration = acceleration.rolling(window=window, min_periods=1).mean()
+        # 拐点发生在加速度方向改变时
+        # 我们可以通过加速度的斜率来衡量拐点强度
+        # 加速度的斜率 (三阶导数)
+        inflection_strength = smoothed_acceleration.diff(1)
+        # 归一化拐点强度到 [-1, 1]
+        max_abs_val = inflection_strength.abs().max()
+        if max_abs_val > 0:
+            inflection_strength = inflection_strength / max_abs_val
+        else:
+            inflection_strength = pd.Series(0.0, index=series.index, dtype=np.float32)
+        return inflection_strength.clip(-1, 1).fillna(0.0)
+
 
 
 
