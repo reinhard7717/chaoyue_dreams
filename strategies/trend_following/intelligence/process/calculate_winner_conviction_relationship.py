@@ -331,7 +331,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V2.5 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正与诡道信号MTF修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
+        【V2.6 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正与诡道信号MTF修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
         - 核心修正: 修正 `mtf_winner_concentration_90pct` 和 `mtf_cost_gini_coefficient` 的 `ascending` 参数，使其MTF分数方向与信念强度业务逻辑一致。
         - 核心修正: 修正 `mtf_deception_index` 和 `mtf_wash_trade_intensity` 的 `bipolar` 和 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
         - 核心修正: 修正 `mtf_covert_accumulation_signal` 的 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
@@ -386,19 +386,11 @@ class CalculateWinnerConvictionRelationship:
         required_signals_for_validation = list(all_raw_signal_names_with_D_suffix)
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         # 动态添加所有MTF信号的列名到 required_signals_for_validation
-        for base_sig in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-            required_signals_for_validation.append(f'SLOPE_{base_sig}_{base_sig}') # 修正：这里应该是 base_sig 而不是 base_sig_D
-        for base_sig in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-            required_signals_for_validation.append(f'ACCEL_{base_sig}_{base_sig}') # 修正：这里应该是 base_sig 而不是 base_sig_D
-
-        # 修正：重新构建 required_signals_for_validation 列表，确保正确引用 base_sig
-        required_signals_for_validation = list(all_raw_signal_names_with_D_suffix)
         for base_sig in mtf_base_signals_raw_names:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals_for_validation.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals_for_validation.append(f'ACCEL_{period_str}_{base_sig}')
-
         # 执行信号存在性校验
         if not self.helper._validate_required_signals(df, required_signals_for_validation, method_name):
             return None
@@ -442,7 +434,6 @@ class CalculateWinnerConvictionRelationship:
             signals_data[mtf_key] = self.helper._get_mtf_slope_accel_score(
                 df, base_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=True
             )
-
         # 特殊处理一些MTF信号的bipolar/ascending，以确保其方向性符合业务逻辑
         # 修正：deception_index_D 越高越差，所以 ascending=False
         signals_data["mtf_deception_index"] = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
@@ -466,7 +457,6 @@ class CalculateWinnerConvictionRelationship:
         signals_data["mtf_winner_concentration_90pct"] = self.helper._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
         # 核心修正：cost_gini_coefficient，基尼系数越低越好，所以ascending=False
         signals_data["mtf_cost_gini_coefficient"] = self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-
         # 计算并存储指定信号的累积上下文分数 (使用新的参数名称和列表)
         cumulative_context_params = params["cumulative_context_params"]
         signals_for_cumulative_context = cumulative_context_params["signals_for_cumulative_context"]
@@ -518,7 +508,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.10 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充与信念信号修正】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
+        【V1.11 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充与信念信号修正】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
         核心修正：移除 `profit_taking_flow_ratio_norm`，新增 `dispersal_by_distribution_norm`、
                   `distribution_at_peak_intensity_norm` 和 `upper_shadow_selling_pressure_norm`。
         核心新增：补充 `volatility_instability_index_21d_norm` 的归一化。
@@ -561,7 +551,6 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["upper_shadow_selling_pressure_norm"] = self.helper._normalize_series(signals["upper_shadow_selling_pressure_raw"], df_index, bipolar=False, ascending=False)
         # 核心新增：波动率不稳定性归一化，高值代表高不稳定性（差），所以 ascending=True
         normalized_signals["volatility_instability_index_21d_norm"] = self.helper._normalize_series(signals["volatility_instability_index_21d_raw"], df_index, bipolar=False, ascending=True)
-
         _temp_debug_values["归一化处理"] = normalized_signals
         return normalized_signals
 
@@ -584,15 +573,12 @@ class CalculateWinnerConvictionRelationship:
         """
         # 核心修正：在方法开始时初始化调试字典
         _temp_debug_values["信念强度"] = {}
-
         relative_position_weights = params["relative_position_weights"]
         conviction_enhancement_weights = params["conviction_enhancement_weights"]
         inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
-        
         # 核心赢家稳定性MTF分数
         mtf_winner_stability = signals["mtf_winner_stability_index"]
         winner_stability_percentile = signals["winner_stability_index_raw"].rank(pct=True).fillna(0.5)
-
         # 获取MTF信号
         mtf_main_force_conviction_index = signals["mtf_main_force_conviction_index"]
         mtf_chip_health_score = signals["mtf_chip_health_score"]
@@ -601,7 +587,6 @@ class CalculateWinnerConvictionRelationship:
         mtf_winner_concentration_90pct = signals["mtf_winner_concentration_90pct"] # 修正：直接使用MTF分数
         mtf_chip_fatigue_index = signals["mtf_chip_fatigue_index"] # 修正：直接使用MTF分数
         mtf_cost_gini_coefficient = signals["mtf_cost_gini_coefficient"] # 修正：直接使用MTF分数
-
         # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
         # 调试输出调制前的MTF信号 (现在这些值就是最终使用的MTF值)
         _temp_debug_values["信念强度"]["mtf_winner_stability_pre_modulated"] = mtf_winner_stability
@@ -612,10 +597,8 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["信念强度"]["mtf_winner_concentration_90pct_pre_modulated"] = mtf_winner_concentration_90pct
         _temp_debug_values["信念强度"]["mtf_chip_fatigue_index_pre_modulated"] = mtf_chip_fatigue_index
         _temp_debug_values["信念强度"]["mtf_cost_gini_coefficient_pre_modulated"] = mtf_cost_gini_coefficient
-
         core_conviction_component = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) +
                                      (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6)))
-
         # 引入MTF趋势一致性分数
         mtf_trend_consistency_winner_stability = signals.get("mtf_trend_consistency_winner_stability_index", pd.Series(0.0, index=df_index))
         # 引入拐点惩罚
@@ -625,7 +608,6 @@ class CalculateWinnerConvictionRelationship:
         inflection_penalty = -inflection_mtf_winner_stability * inflection_penalty_strength
         # 将拐点惩罚应用于核心信念组件
         core_conviction_component = core_conviction_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
-        
         all_conviction_components = {
             "core_conviction": core_conviction_component,
             "main_force_conviction": mtf_main_force_conviction_index,
@@ -708,7 +690,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.13 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正主力买入执行Alpha】计算压力韧性。
+        【V1.14 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正主力买入执行Alpha】计算压力韧性。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`main_force_buy_execution_alpha` 的逻辑修正，直接使用其MTF分数。
         参数:
@@ -724,16 +706,13 @@ class CalculateWinnerConvictionRelationship:
         """
         # 核心修正：在方法开始时初始化调试字典
         _temp_debug_values["压力韧性"] = {}
-
         relative_position_weights = params["relative_position_weights"]
         pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
         inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
-
         # 核心压力信号MTF分数 (使用新的压力信号：dispersal_by_distribution)
         mtf_dispersal_by_distribution = signals["mtf_dispersal_by_distribution"]
         # 修正：使用新的压力信号的原始值计算百分位
         dispersal_by_distribution_percentile = (1 - signals["dispersal_by_distribution_raw"].rank(pct=True)).fillna(0.5)
-
         # 获取MTF信号
         mtf_main_force_buy_execution_alpha = signals["mtf_main_force_buy_execution_alpha"]
         mtf_bid_side_liquidity = signals["mtf_bid_side_liquidity"]
@@ -742,7 +721,6 @@ class CalculateWinnerConvictionRelationship:
         mtf_large_order_support = signals["mtf_large_order_support"]
         mtf_distribution_at_peak_intensity = signals["mtf_distribution_at_peak_intensity"]
         mtf_upper_shadow_selling_pressure = signals["mtf_upper_shadow_selling_pressure"]
-
         # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
         # 调试输出调制前的MTF信号
         _temp_debug_values["压力韧性"]["mtf_main_force_buy_execution_alpha_pre_modulated"] = mtf_main_force_buy_execution_alpha
@@ -754,10 +732,8 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["压力韧性"]["mtf_dispersal_by_distribution_pre_modulated"] = mtf_dispersal_by_distribution
         _temp_debug_values["压力韧性"]["mtf_distribution_at_peak_intensity_pre_modulated"] = mtf_distribution_at_peak_intensity
         _temp_debug_values["压力韧性"]["mtf_upper_shadow_selling_pressure_pre_modulated"] = mtf_upper_shadow_selling_pressure
-
         core_resilience_component = ((mtf_dispersal_by_distribution * -1) * relative_position_weights.get("selling_pressure_low", 0.4) +
                                      (dispersal_by_distribution_percentile * 2 - 1) * (1 - relative_position_weights.get("selling_pressure_low", 0.4)))
-
         # 引入MTF趋势一致性分数 (使用新的压力信号)
         mtf_trend_consistency_selling_pressure = signals.get("mtf_trend_consistency_dispersal_by_distribution", pd.Series(0.0, index=df_index))
         # 引入拐点惩罚 (使用新的压力信号)
@@ -767,7 +743,6 @@ class CalculateWinnerConvictionRelationship:
         inflection_penalty = inflection_mtf_selling_pressure * inflection_penalty_strength
         # 将拐点惩罚应用于核心压力韧性组件
         core_resilience_component = core_resilience_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
-
         all_resilience_components = {
             "core_resilience": core_resilience_component,
             # 核心修正：main_force_buy_execution_alpha 正值是好，对韧性是正面贡献，所以直接使用
@@ -879,7 +854,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.6 · 诡道过滤累积上下文作为加分项，修正诡道信号逻辑】计算诡道过滤因子，融入了更多MTF和归一化信号，新增累积上下文作为独立加分项。
+        【V1.7 · 诡道过滤累积上下文作为加分项，修正诡道信号逻辑】计算诡道过滤因子，融入了更多MTF和归一化信号，新增累积上下文作为独立加分项。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`deception_index`、`wash_trade_intensity`、`covert_accumulation_signal`、`closing_auction_ambush` 的逻辑修正。
         参数:
@@ -895,9 +870,7 @@ class CalculateWinnerConvictionRelationship:
         """
         # 核心修正：在方法开始时初始化调试字典
         _temp_debug_values["诡道过滤"] = {}
-
         deception_enhancement_weights = params["deception_enhancement_weights"]
-        
         # 核心欺骗指数和对倒强度MTF分数
         mtf_deception_index = signals["mtf_deception_index"]
         mtf_wash_trade_intensity = signals["mtf_wash_trade_intensity"]
@@ -907,7 +880,6 @@ class CalculateWinnerConvictionRelationship:
         mtf_covert_accumulation_signal = signals["mtf_covert_accumulation_signal"]
         # 集合竞价伏击，MTF分数越高代表伏击越强，惩罚越高
         mtf_closing_auction_ambush = signals["mtf_closing_auction_ambush"]
-
         # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
         # 调试输出调制前的MTF信号
         _temp_debug_values["诡道过滤"]["mtf_deception_index_pre_modulated"] = mtf_deception_index
@@ -915,11 +887,9 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["诡道过滤"]["mtf_smart_money_divergence_hm_buy_inst_sell_pre_modulated"] = mtf_smart_money_divergence_hm_buy_inst_sell
         _temp_debug_values["诡道过滤"]["mtf_covert_accumulation_signal_pre_modulated"] = mtf_covert_accumulation_signal
         _temp_debug_values["诡道过滤"]["mtf_closing_auction_ambush_pre_modulated"] = mtf_closing_auction_ambush
-
         # 基础欺骗惩罚 (范围 [0, 1])
         # 修正：deception_index 和 wash_trade_intensity 越高越差，MTF分数越低，所以需要 * -1 转换为正惩罚
         base_deception_penalty = (mtf_deception_index * -1 * 0.6 + mtf_wash_trade_intensity * -1 * 0.4).clip(0, 1)
-        
         # 融合所有欺骗相关因子
         all_deception_components = {
             "base_deception_penalty": base_deception_penalty,
@@ -989,25 +959,20 @@ class CalculateWinnerConvictionRelationship:
         """
         # 核心修正：在方法开始时初始化调试字典
         _temp_debug_values["情境调制"] = {}
-
         context_modulator_weights = params["context_modulator_weights"]
         context_modulator_enhancement_weights = params["context_modulator_enhancement_weights"]
         # cumulative_modulation_strength = params["cumulative_context_params"]["cumulative_modulation_strength"] # 移除：不再用于调制
-
         # 获取原始信号和MTF信号
         norm_market_sentiment = self.helper._normalize_series(signals["market_sentiment_score_raw"], df_index, bipolar=True)
-        
         # 核心修正：直接使用 normalized_signals 中已有的波动率不稳定性归一化值
         # volatility_instability_index_21d_norm 越高代表越不稳定，所以 1 - 它 得到稳定性分数
         volatility_stability_raw = 1 - normalized_signals["volatility_instability_index_21d_norm"]
         # volatility_stability_raw 已经是 0-1 范围的稳定性分数，无需再次归一化
         norm_volatility_stability = volatility_stability_raw 
-        
         norm_trend_vitality = self.helper._normalize_series(signals["trend_vitality_index_raw"], df_index, bipolar=False)
         norm_theme_hotness = normalized_signals["theme_hotness_norm"]
         norm_industry_leader_score = normalized_signals["industry_leader_score_norm"]
         mtf_market_impact_cost = signals["mtf_market_impact_cost"] # 市场冲击成本MTF分数
-
         # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
         # 调试输出调制前的信号
         _temp_debug_values["情境调制"]["norm_market_sentiment_pre_modulated"] = norm_market_sentiment
@@ -1016,7 +981,6 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["情境调制"]["norm_theme_hotness_pre_modulated"] = norm_theme_hotness
         _temp_debug_values["情境调制"]["norm_industry_leader_score_pre_modulated"] = norm_industry_leader_score
         _temp_debug_values["情境调制"]["mtf_market_impact_cost_pre_modulated"] = mtf_market_impact_cost
-        
         # 所有情境调制组件
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,

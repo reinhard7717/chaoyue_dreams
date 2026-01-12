@@ -80,17 +80,13 @@ class CalculateStormEyeCalm:
         # 5. 归一化和计算各维度分数
         energy_compression_score = self._calculate_energy_compression_component(df_index, raw_data, mtf_derived_scores, params['energy_compression_weights'], _temp_debug_values)
         _temp_debug_values["能量压缩"]["energy_compression_score"] = energy_compression_score
-
         volume_exhaustion_score = self._calculate_volume_exhaustion_component(df_index, raw_data, mtf_derived_scores, params['volume_exhaustion_weights'], _temp_debug_values)
         _temp_debug_values["量能枯竭"]["volume_exhaustion_score"] = volume_exhaustion_score
-        
         main_force_covert_intent_score, main_force_covert_intent_components = self._calculate_main_force_covert_intent_component(df_index, raw_data, mtf_derived_scores, params['main_force_covert_intent_weights'], params['ambiguity_components_weights'], _temp_debug_values)
         _temp_debug_values["主力隐蔽意图"].update(main_force_covert_intent_components) # 存储组件
         _temp_debug_values["主力隐蔽意图融合"]["main_force_covert_intent_score"] = main_force_covert_intent_score # 存储融合分数
-        
         subdued_market_sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], params['sentiment_volatility_window'], params['long_term_sentiment_window'], params['sentiment_neutral_range'], params['sentiment_pendulum_neutral_range'], _temp_debug_values)
         _temp_debug_values["市场情绪低迷融合"]["subdued_market_sentiment_score"] = subdued_market_sentiment_score
-
         breakout_readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'], _temp_debug_values)
         _temp_debug_values["突破准备度融合"]["breakout_readiness_score"] = breakout_readiness_score
         # 6. 市场情境动态调节器
@@ -108,7 +104,6 @@ class CalculateStormEyeCalm:
         # 调整最终融合权重
         adjusted_final_fusion_weights = {k: v * market_regime_modulator for k, v in params['final_fusion_weights'].items()}
         _temp_debug_values["最终融合"]["adjusted_final_fusion_weights"] = adjusted_final_fusion_weights # 记录调整后的权重
-
         final_score = self._perform_final_fusion(df_index, component_scores, adjusted_final_fusion_weights, params['price_calmness_modulator_params'], params['main_force_control_adjudicator_params'], raw_data, _temp_debug_values)
         _temp_debug_values["最终融合"]["final_score"] = final_score
         # --- 统一输出调试信息 ---
@@ -148,7 +143,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-        
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 能量压缩 (组件) ---"] = ""
         for key, series in _temp_debug_values["能量压缩"].items():
             if isinstance(series, pd.Series):
@@ -156,7 +150,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 量能枯竭 (组件) ---"] = ""
         for key, series in _temp_debug_values["量能枯竭"].items():
             if isinstance(series, pd.Series):
@@ -164,7 +157,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-        
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图 (组件) ---"] = ""
         for key, series in _temp_debug_values["主力隐蔽意图"].items():
             if isinstance(series, pd.Series):
@@ -172,7 +164,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"          {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"          {key}: {series}"] = ""
-        
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力隐蔽意图融合 ---"] = ""
         for key, series in _temp_debug_values["主力隐蔽意图融合"].items():
             if isinstance(series, pd.Series):
@@ -180,7 +171,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-        
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场情绪低迷融合 (组件) ---"] = ""
         for key, series in _temp_debug_values["市场情绪低迷融合"].items():
             if isinstance(series, pd.Series):
@@ -188,7 +178,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 突破准备度融合 (组件) ---"] = ""
         for key, series in _temp_debug_values["突破准备度融合"].items():
             if isinstance(series, pd.Series):
@@ -196,7 +185,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场情境动态调节器 (组件) ---"] = ""
         for key, series in _temp_debug_values["市场情境动态调节器"].items():
             if isinstance(series, pd.Series):
@@ -204,7 +192,6 @@ class CalculateStormEyeCalm:
                 debug_output[f"        {key}: {val:.4f}"] = ""
             else:
                 debug_output[f"        {key}: {series}"] = ""
-
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合 (组件) ---"] = ""
         for key, series in _temp_debug_values["最终融合"].items():
             if isinstance(series, pd.Series):
@@ -272,7 +259,6 @@ class CalculateStormEyeCalm:
             # 替换 SCORE_DYN_AXIOM_STABILITY
             'mean_reversion_frequency_D', # 反向代理稳定性
             'control_solidity_index_D', # 控盘稳固度也反映稳定性
-
             'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D',
             'counterparty_exhaustion_index_D', 'main_force_conviction_index_D',
             'main_force_net_flow_calibrated_D',
@@ -422,11 +408,9 @@ class CalculateStormEyeCalm:
         # 代理 tension_score (SCORE_STRUCT_AXIOM_TENSION)
         tension_score_proxy = self.helper._normalize_series(raw_data['ma_potential_tension_raw'], target_index=df_index, ascending=True)
         _temp_debug_values["能量压缩"]["tension_score_proxy"] = tension_score_proxy
-
         bbw_inverted_score = self.helper._normalize_series(raw_data['bbw_raw'], target_index=df_index, ascending=False)
         vol_instability_inverted_score = self.helper._normalize_series(raw_data['vol_instability_raw'], target_index=df_index, ascending=False)
         equilibrium_compression_score = self.helper._normalize_series(raw_data['equilibrium_compression_index_D'], target_index=df_index, ascending=True)
-        
         # 代理 dyn_stability_norm (SCORE_DYN_AXIOM_STABILITY)
         # 稳定性 = (1 - 波动不稳定性) + (1 - 均值回归频率) + 控盘稳固度
         dyn_stability_proxy = (
@@ -436,11 +420,9 @@ class CalculateStormEyeCalm:
         ) / 3.0
         dyn_stability_norm = dyn_stability_proxy.clip(0,1)
         _temp_debug_values["能量压缩"]["dyn_stability_proxy"] = dyn_stability_norm
-
         # 代理 market_tension_norm (SCORE_FOUNDATION_AXIOM_MARKET_TENSION)
         market_tension_norm = self.helper._normalize_series(raw_data['market_tension_proxy_raw'], target_index=df_index, bipolar=False)
         _temp_debug_values["能量压缩"]["market_tension_norm_proxy"] = market_tension_norm
-
         price_sample_entropy_inverted = self.helper._normalize_series(raw_data['price_sample_entropy_raw'], target_index=df_index, ascending=False)
         price_volume_entropy_inverted = self.helper._normalize_series(raw_data['price_volume_entropy_raw'], target_index=df_index, ascending=False)
         price_fractal_dimension_calm = (1 - (raw_data['price_fractal_dimension_raw'] - 1.5).abs() / 0.5).clip(0, 1)
@@ -468,7 +450,6 @@ class CalculateStormEyeCalm:
         turnover_rate_f_norm = self.helper._normalize_series(raw_data['turnover_rate_f_raw'], target_index=df_index, ascending=True)
         atrophy_score_proxy = (1 - volume_slope_norm) * (1 - turnover_rate_f_norm)
         _temp_debug_values["量能枯竭"]["atrophy_score_proxy"] = atrophy_score_proxy
-
         turnover_rate_inverted_score = self.helper._normalize_series(raw_data['turnover_rate_f_raw'], target_index=df_index, ascending=False)
         turnover_rate_raw_inverted = self.helper._normalize_series(raw_data['turnover_rate_raw'], target_index=df_index, ascending=False)
         counterparty_exhaustion_score = self.helper._normalize_series(raw_data['counterparty_exhaustion_raw'], target_index=df_index, ascending=True)
@@ -510,7 +491,6 @@ class CalculateStormEyeCalm:
         ) / 2.0
         stealth_ops_normalized = stealth_ops_proxy.clip(0,1)
         _temp_debug_values["主力隐蔽意图"]["stealth_ops_proxy"] = stealth_ops_normalized
-
         split_order_accum_normalized = self.helper._normalize_series(raw_data['split_order_accum_score'], target_index=df_index, ascending=True)
         mf_conviction_positive = self.helper._normalize_series(raw_data['mf_conviction_raw'], target_index=df_index, bipolar=True).clip(lower=0)
         mf_net_flow_positive = self.helper._normalize_series(raw_data['mf_net_flow_raw'], target_index=df_index, bipolar=True).clip(lower=0)
@@ -554,7 +534,6 @@ class CalculateStormEyeCalm:
         }
         main_force_flow_ambiguity = _robust_geometric_mean(ambiguity_components, ambiguity_weights, df_index)
         _temp_debug_values["主力隐蔽意图"]["main_force_flow_ambiguity_proxy"] = main_force_flow_ambiguity
-
         main_force_covert_intent_scores_dict = {
             'stealth_ops': stealth_ops_normalized, 'split_order_accum': split_order_accum_normalized,
             'mf_net_flow_positive': mf_net_flow_positive,
@@ -583,13 +562,11 @@ class CalculateStormEyeCalm:
             self.helper._normalize_series(raw_data['retail_fomo_raw'], target_index=df_index, bipolar=False)
         ).clip(-1, 1)
         _temp_debug_values["市场情绪低迷融合"]["sentiment_pendulum_proxy"] = sentiment_pendulum_proxy
-        
         sentiment_pendulum_negative = sentiment_pendulum_proxy.clip(upper=0).abs()
         market_sentiment_inverted = self.helper._normalize_series(raw_data['market_sentiment_raw'], target_index=df_index, ascending=False)
         retail_panic_inverted = self.helper._normalize_series(raw_data['retail_panic_raw'], target_index=df_index, ascending=False)
         retail_fomo_inverted = self.helper._normalize_series(raw_data['retail_fomo_raw'], target_index=df_index, ascending=False)
         loser_pain_positive = self.helper._normalize_series(raw_data['loser_pain_raw'], target_index=df_index, ascending=True)
-        
         # 代理 liquidity_tide_calm (SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE)
         # 流动性潮汐平静 = (bid_liquidity + ask_liquidity_inverted + mf_net_flow_neutrality + order_book_imbalance_neutrality + turnover_rate_inverted) 的简单组合
         liquidity_tide_calm_proxy = (
@@ -601,7 +578,6 @@ class CalculateStormEyeCalm:
         ) / 5.0 # 简单平均
         liquidity_tide_calm = liquidity_tide_calm_proxy.clip(0, 1)
         _temp_debug_values["市场情绪低迷融合"]["liquidity_tide_calm_proxy"] = liquidity_tide_calm
-
         hurst_calm = (1 - (raw_data['hurst_raw'] - 0.5).abs() / 0.5).clip(0, 1)
         sentiment_neutrality = 1 - self.helper._normalize_series(raw_data['market_sentiment_raw'].abs(), target_index=df_index, ascending=True)
         sentiment_pendulum_neutrality = 1 - self.helper._normalize_series(sentiment_pendulum_proxy.abs(), target_index=df_index, bipolar=True).abs()
@@ -643,7 +619,6 @@ class CalculateStormEyeCalm:
         # 直接使用 breakout_readiness_score_D
         struct_breakout_readiness_score = self.helper._normalize_series(raw_data['breakout_readiness_score_D'], target_index=df_index, ascending=True)
         _temp_debug_values["突破准备度融合"]["struct_breakout_readiness_score_direct"] = struct_breakout_readiness_score
-
         # 代理 struct_platform_foundation_score (SCORE_STRUCT_PLATFORM_FOUNDATION)
         # 平台基础 = (is_consolidating + dynamic_consolidation_duration + equilibrium_compression_inverted + BBW_inverted) 的简单组合
         platform_foundation_proxy = (
@@ -654,7 +629,6 @@ class CalculateStormEyeCalm:
         ) / 4.0 # 简单平均
         struct_platform_foundation_score = platform_foundation_proxy.clip(0, 1)
         _temp_debug_values["突破准备度融合"]["struct_platform_foundation_score_proxy"] = struct_platform_foundation_score
-
         goodness_of_fit_score = self.helper._normalize_series(raw_data['goodness_of_fit_raw'], target_index=df_index, ascending=True)
         platform_conviction_score = self.helper._normalize_series(raw_data['platform_conviction_raw'], target_index=df_index, ascending=True)
         breakout_readiness_scores_dict = {
@@ -694,31 +668,25 @@ class CalculateStormEyeCalm:
         """
         base_calm_score = _robust_geometric_mean(component_scores, final_fusion_weights, df_index)
         _temp_debug_values["最终融合"]["base_calm_score"] = base_calm_score
-
         price_slope_norm_bipolar = self.helper._normalize_series(raw_data['price_slope_raw'], target_index=df_index, bipolar=True)
         pct_change_abs_norm_inverted = self.helper._normalize_series(raw_data['pct_change_raw'].abs(), target_index=df_index, ascending=False)
         price_calmness_modulator = (price_calmness_params.get('modulator_factor', 0.5) * (1 - price_slope_norm_bipolar.abs()) + (1 - price_calmness_params.get('modulator_factor', 0.5)) * pct_change_abs_norm_inverted).clip(0,1)
         price_calmness_amplifier = 1 + (price_calmness_modulator * price_calmness_params.get('modulator_factor', 0.5))
         _temp_debug_values["最终融合"]["price_calmness_modulator"] = price_calmness_modulator
         _temp_debug_values["最终融合"]["price_calmness_amplifier"] = price_calmness_amplifier
-
         control_solidity_score = self.helper._normalize_series(raw_data['control_solidity_raw'], target_index=df_index, bipolar=True)
         mf_activity_ratio_score = self.helper._normalize_series(raw_data['mf_activity_ratio_raw'], target_index=df_index, ascending=True)
         veto_threshold = main_force_control_params.get('veto_threshold', -0.2)
         amplifier_factor = main_force_control_params.get('amplifier_factor', 0.5)
-        
         combined_control_score = (control_solidity_score * 0.7 + mf_activity_ratio_score * 0.3).clip(-1, 1)
         _temp_debug_values["最终融合"]["control_solidity_score"] = control_solidity_score
         _temp_debug_values["最终融合"]["mf_activity_ratio_score"] = mf_activity_ratio_score
         _temp_debug_values["最终融合"]["combined_control_score"] = combined_control_score
         _temp_debug_values["最终融合"]["veto_threshold"] = veto_threshold
-
         final_score = base_calm_score * price_calmness_amplifier
         final_score = final_score.mask(combined_control_score < veto_threshold, 0.0)
-        
         main_force_amplifier = 1 + (combined_control_score * amplifier_factor)
         _temp_debug_values["最终融合"]["main_force_amplifier"] = main_force_amplifier
-
         final_score = (final_score * main_force_amplifier).clip(0, 1).fillna(0.0)
         return final_score
 

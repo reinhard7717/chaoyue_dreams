@@ -180,7 +180,6 @@ class ChipFeatureCalculator:
         summary_info = self._get_summary_metrics_from_context()
         all_metrics.update(summary_info)
         self.ctx.update(summary_info)
-
         # --- NEW: Prepare and engineer high-frequency features early ---
         # 确保 hf_analysis_df 和 hf_features 在所有需要它们的指标计算之前可用
         raw_hf_df, common_data_hf = self._prepare_behavioral_data_for_chips(self.ctx)
@@ -188,7 +187,6 @@ class ChipFeatureCalculator:
         self.ctx['hf_analysis_df'] = hf_analysis_df
         self.ctx['hf_features'] = hf_features
         self.ctx['common_data_hf'] = common_data_hf # 也将 common_data 存储起来，方便后续方法使用
-
         static_structure_metrics = self._compute_static_structure_metrics()
         all_metrics.update(static_structure_metrics)
         self.ctx.update(static_structure_metrics)
@@ -1312,7 +1310,6 @@ class ChipFeatureCalculator:
         # should_probe = debug_params.get('should_probe', False) # 移除调试变量
         # probe_dates = debug_params.get('probe_dates', []) # 移除调试变量
         # probe_active = should_probe and str(trade_date) in probe_dates # 移除调试变量
-
         if realtime_df is None or realtime_df.empty:
             return results
         required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
@@ -1325,70 +1322,53 @@ class ChipFeatureCalculator:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
         main_force_cost = context.get('main_force_cumulative_cost')
         atr = context.get('atr_14d')
-
         if pd.notna(main_force_cost) and pd.notna(atr) and atr > 0:
             cost_zone_low = main_force_cost - 0.5 * atr
             cost_zone_high = main_force_cost + 0.5 * atr
-
             def _gaussian_weight(price_series_input, center, sigma):
                 # 确保只对有效价格计算权重，无效价格（NaN或0）返回0权重
                 weights = pd.Series(0.0, index=price_series_input.index)
                 # 过滤掉NaN和0的价格
                 valid_prices_mask = price_series_input.notna() & (price_series_input > 0)
                 valid_prices = price_series_input[valid_prices_mask]
-
                 if valid_prices.empty:
                     return weights # 所有价格都无效，返回全0 Series
-
                 if sigma > 0:
                     weights.loc[valid_prices.index] = np.exp(-((valid_prices - center)**2) / (2 * sigma**2))
                 else: # sigma为0，只有中心点有权重1
                     weights.loc[valid_prices.index] = np.where(valid_prices == center, 1.0, 0.0)
                 return weights
-
             bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
             bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
             ask_prices_cols = [f'a{i}_p' for i in range(1, 6)]
             ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
             total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
             total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
-
             for p_col, v_col in zip(bid_prices_cols, bid_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
-
                 # 严格过滤无效数据点：价格非NaN且大于0，成交量非NaN且大于0
                 valid_data_mask = (price_series.notna()) & (price_series > 0) & \
                                   (vol_series.notna()) & (vol_series > 0)
-
                 # 应用掩码，使无效数据点变为NaN，这样它们不会参与后续的in_zone_mask和level_power计算
                 price_series_filtered = price_series.where(valid_data_mask, np.nan)
                 vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
-
                 in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
-                
                 gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
-                
                 # level_power只对有效且在区域内的数据计算，否则为0
                 level_power = (price_series_filtered * vol_series_filtered * gravity_weight).where(in_zone_mask, 0).fillna(0)
                 total_weighted_bid_power += level_power
-
             for p_col, v_col in zip(ask_prices_cols, ask_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
-
                 valid_data_mask = (price_series.notna()) & (price_series > 0) & \
                                   (vol_series.notna()) & (vol_series > 0)
                 price_series_filtered = price_series.where(valid_data_mask, np.nan)
                 vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
-
                 in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
-                
                 gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
-                
                 level_power = (price_series_filtered * vol_series_filtered * gravity_weight).where(in_zone_mask, 0).fillna(0)
                 total_weighted_ask_power += level_power
-
             total_power = total_weighted_bid_power + total_weighted_ask_power
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
             if 'volume' in realtime_df.columns:
@@ -1773,7 +1753,6 @@ class ChipFeatureCalculator:
         hf_analysis_df = context.get('hf_analysis_df')
         common_data = context.get('common_data_hf') # 使用存储的 common_data_hf
         # --- 结束修正 ---
-
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = common_data.get('atr')
         if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
