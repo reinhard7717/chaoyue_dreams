@@ -591,8 +591,10 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.6 · 压力韧性累积上下文、趋势一致性与拐点调制版】计算压力韧性。
+        【V1.7 · 压力韧性累积上下文、趋势一致性与拐点调制版 - main_force_buy_execution_alpha 符号修正】计算压力韧性。
         融入了更多MTF和归一化信号，修正了键名，新增累积上下文调制、趋势一致性增强和拐点惩罚。
+        核心修正：根据业务逻辑，负的 `main_force_buy_execution_alpha` 代表主力积极买入推高股价，应正面增强压力韧性，
+                  因此在融合时对其进行符号反转。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -622,6 +624,7 @@ class CalculateWinnerConvictionRelationship:
         # 对相关MTF信号进行累积上下文调制
         if "cumulative_main_force_buy_execution_alpha_score" in signals:
             cumulative_score = signals["cumulative_main_force_buy_execution_alpha_score"]
+            # 调制时，保持原始符号，因为调制是基于原始信号的相对变化
             mtf_main_force_buy_execution_alpha = mtf_main_force_buy_execution_alpha + (cumulative_score - mtf_main_force_buy_execution_alpha) * cumulative_modulation_strength
             mtf_main_force_buy_execution_alpha = mtf_main_force_buy_execution_alpha.clip(-1, 1)
         if "cumulative_bid_side_liquidity_score" in signals:
@@ -659,7 +662,8 @@ class CalculateWinnerConvictionRelationship:
         core_resilience_component = core_resilience_component - inflection_penalty
         all_resilience_components = {
             "core_resilience": core_resilience_component,
-            "main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha, # 使用调制后的MTF版本
+            # 核心修正：将 mtf_main_force_buy_execution_alpha 反转符号，使其负值（积极买入）贡献正面效应
+            "main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha * -1,
             "bid_side_liquidity": mtf_bid_side_liquidity, # 使用调制后的MTF版本
             "absorption_strength_ma5": mtf_absorption_strength_ma5, # 使用调制后的MTF版本
             "active_buying_support": mtf_active_buying_support, # 使用调制后的MTF版本
@@ -693,7 +697,8 @@ class CalculateWinnerConvictionRelationship:
             "mtf_profit_taking_flow": mtf_profit_taking_flow,
             "profit_taking_flow_percentile": profit_taking_flow_percentile,
             "core_resilience_component": core_resilience_component,
-            "mtf_main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
+            "mtf_main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha, # 调试输出原始调制后的值
+            "mtf_main_force_buy_execution_alpha_inverted_for_fusion": mtf_main_force_buy_execution_alpha * -1, # 调试输出融合前反转的值
             "mtf_bid_side_liquidity": mtf_bid_side_liquidity,
             "mtf_absorption_strength_ma5": mtf_absorption_strength_ma5,
             "mtf_active_buying_support": mtf_active_buying_support,

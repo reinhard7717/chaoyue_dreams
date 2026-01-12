@@ -14,6 +14,9 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 class CalculateProcessCovertAccumulation:
+    """
+    计算“隐蔽吸筹”的专属信号。PROCESS_META_COVERT_ACCUMULATION
+    """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
             self.strategy = strategy_instance
             self.helper = helper_instance
@@ -584,8 +587,9 @@ class CalculateProcessCovertAccumulation:
 
     def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_flow_weights: Dict, cumulative_acc_windows: List[int], cumulative_acc_weights: Dict, daily_mf_flow_weight: float, cumulative_mf_flow_weight: float, daily_acc_weight: float, cumulative_acc_weight: float, new_raw_signals_weights: Dict, main_force_accumulation_resonance_weight: float, new_raw_signals_weights_v2: Dict, covert_order_flow_resonance_weight: float) -> pd.Series:
         """
-        【V2.12 · 微观订单流与结构共振版】计算隐蔽行动分数。
-        - 核心修改: 引入新的原始信号及其归一化分数，并新增微观订单流共振信号。
+        【V2.13 · 主力买入执行效率修正版】计算隐蔽行动分数。
+        - 核心修改: 修正了主力买入执行效率 (mf_buy_execution_alpha_D) 的归一化逻辑，使其成为双极性信号，
+                    正值代表低位吸筹，负值代表追高买入。
         """
         mtf_suppressive_accum_score = self.helper._get_mtf_slope_accel_score(df, 'suppressive_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_main_force_flow_score = self.helper._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -610,7 +614,8 @@ class CalculateProcessCovertAccumulation:
         # V2.11新增原始信号的归一化分数
         ask_side_liquidity_inverted_score = self.helper._normalize_series(raw_signals['ask_side_liquidity_raw'], df_index, ascending=False)
         mf_level5_buy_ofi_score = self.helper._normalize_series(raw_signals['mf_level5_buy_ofi_raw'], df_index, bipolar=False)
-        mf_buy_execution_alpha_score = self.helper._normalize_series(raw_signals['mf_buy_execution_alpha_raw'], df_index, bipolar=False)
+        # 修正 mf_buy_execution_alpha_score 的归一化逻辑为双极性
+        mf_buy_execution_alpha_score = self.helper._normalize_series(raw_signals['mf_buy_execution_alpha_raw'], df_index, bipolar=True)
         upper_shadow_selling_pressure_inverted_score = self.helper._normalize_series(raw_signals['upper_shadow_selling_pressure_raw'], df_index, ascending=False)
         smart_money_inst_net_buy_score = self.helper._normalize_series(raw_signals['smart_money_inst_net_buy_raw'], df_index, bipolar=False)
         microstructure_efficiency_score = self.helper._normalize_series(raw_signals['microstructure_efficiency_raw'], df_index, bipolar=False)
@@ -689,7 +694,7 @@ class CalculateProcessCovertAccumulation:
             # V2.11新增信号
             "ask_side_liquidity_inverted": ask_side_liquidity_inverted_score,
             "mf_level5_buy_ofi": mf_level5_buy_ofi_score,
-            "mf_buy_execution_alpha": mf_buy_execution_alpha_score,
+            "mf_buy_execution_alpha": mf_buy_execution_alpha_score, # 此处已修正为双极性分数
             "upper_shadow_selling_pressure_inverted": upper_shadow_selling_pressure_inverted_score,
             "smart_money_inst_net_buy": smart_money_inst_net_buy_score,
             "microstructure_efficiency": microstructure_efficiency_score,
