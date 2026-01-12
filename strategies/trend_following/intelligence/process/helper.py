@@ -510,3 +510,43 @@ class ProcessIntelligenceHelper:
         fused_score = sum(all_scores_components) / total_combined_weight
         return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
 
+    def _get_cumulative_context_score(self, series: pd.Series, df_index: pd.Index, periods: List[int], weights: Dict[int, float], bipolar: bool = True) -> pd.Series:
+        """
+        【V1.0 · 累积上下文分数计算版】计算给定信号在多个周期内的累积上下文分数。
+        该分数反映了信号在中长期的累积净方向和强度。
+        参数:
+            series (pd.Series): 原始信号序列（例如，每日资金流）。
+            df_index (pd.Index): DataFrame的索引。
+            periods (List[int]): 累积周期列表，例如 [13, 21]。
+            weights (Dict[int, float]): 累积周期的权重字典，例如 {13: 0.6, 21: 0.4}。
+            bipolar (bool): 归一化是否为双极性 (-1到1)。
+        返回:
+            pd.Series: 融合后的累积上下文分数 (范围 [-1, 1])。
+        """
+        all_cumulative_scores = []
+        total_weight = 0.0
+        for period in periods:
+            if period <= 0:
+                continue
+            # 计算累积和
+            cumulative_sum = series.rolling(window=period, min_periods=1).sum()
+            # 对累积和进行归一化
+            norm_cumulative_sum = self._normalize_series(cumulative_sum, df_index, bipolar=bipolar, ascending=True)
+            weight = weights.get(period, 0.0)
+            if weight > 0:
+                all_cumulative_scores.append(norm_cumulative_sum * weight)
+                total_weight += weight
+        if not all_cumulative_scores or total_weight == 0:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        fused_cumulative_score = sum(all_cumulative_scores) / total_weight
+        return fused_cumulative_score.clip(-1, 1)
+
+
+
+
+
+
+
+
+
+
