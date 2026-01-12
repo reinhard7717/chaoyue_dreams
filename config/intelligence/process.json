@@ -827,9 +827,68 @@
                 "accumulation_window": 21,
                 "description": "【V1.0 · 势能转换】识别多日累积吸筹后，即将由量变到质变的拉升拐点。"
             },
-{
+            {
                 "name": "PROCESS_META_WINNER_CONVICTION",
                 "winner_conviction_params": {
+                    "conviction_enhancement_weights": {
+                        "main_force_conviction": 0.2,
+                        "chip_health": 0.2,
+                        "winner_profit_margin_avg": 0.1,
+                        "loser_loss_margin_avg_inverse": 0.1,
+                        "winner_concentration_90pct": 0.1,
+                        "chip_fatigue": 0.1,
+                        "cost_gini_coefficient_inverse": 0.05,
+                        "winner_stability_trend_consistency": 0.1,
+                        "cumulative_winner_stability_index": 0.05,
+                        "cumulative_main_force_conviction_index": 0.05,
+                        "cumulative_chip_health_score": 0.05,
+                        "cumulative_winner_profit_margin_avg": 0.05,
+                        "cumulative_loser_loss_margin_avg": 0.05,
+                        "cumulative_winner_concentration_90pct": 0.05,
+                        "cumulative_chip_fatigue_index": 0.05,
+                        "cumulative_cost_gini_coefficient": 0.05
+                    },
+                    "pressure_resilience_enhancement_weights": {
+                        "main_force_buy_execution_alpha": 0.2,
+                        "bid_side_liquidity": 0.2,
+                        "absorption_strength_ma5": 0.2,
+                        "active_buying_support": 0.15,
+                        "large_order_support": 0.15,
+                        "dip_absorption_power": 0.1,
+                        "selling_pressure_trend_consistency": 0.1,
+                        "distribution_at_peak_intensity": 0.1,
+                        "upper_shadow_selling_pressure": 0.1,
+                        "cumulative_main_force_buy_execution_alpha": 0.05,
+                        "cumulative_bid_side_liquidity": 0.05,
+                        "cumulative_absorption_strength_ma5": 0.05,
+                        "cumulative_active_buying_support": 0.05,
+                        "cumulative_large_order_support": 0.05,
+                        "cumulative_dip_absorption_power": 0.05,
+                        "cumulative_dispersal_by_distribution": 0.05,
+                        "cumulative_distribution_at_peak_intensity": 0.05,
+                        "cumulative_upper_shadow_selling_pressure": 0.05
+                    },
+                    "deception_enhancement_weights": {
+                        "smart_money_divergence": 0.3,
+                        "covert_accumulation_inverse": 0.2,
+                        "closing_auction_ambush_inverse": 0.1,
+                        "cumulative_deception_index": 0.05,
+                        "cumulative_wash_trade_intensity": 0.05,
+                        "cumulative_smart_money_divergence_hm_buy_inst_sell": 0.05,
+                        "cumulative_covert_accumulation_signal": 0.05,
+                        "cumulative_closing_auction_ambush": 0.05
+                    },
+                    "context_modulator_enhancement_weights": {
+                        "theme_hotness": 0.2,
+                        "industry_leader_score": 0.1,
+                        "market_impact_cost_inverse": 0.05,
+                        "cumulative_market_sentiment_score": 0.05,
+                        "cumulative_volatility_instability_index_21d": 0.05,
+                        "cumulative_trend_vitality_index": 0.05,
+                        "cumulative_theme_hotness_score": 0.05,
+                        "cumulative_industry_leader_score": 0.05,
+                        "cumulative_market_impact_cost": 0.05
+                    },
                     "cumulative_context_params": {
                         "signals_for_cumulative_context": [
                             "main_force_conviction_index_D",
@@ -857,16 +916,15 @@
                             "trend_vitality_index_D",
                             "THEME_HOTNESS_SCORE_D",
                             "industry_leader_score_D",
-                            "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D", 
-                            "distribution_at_peak_intensity_D",  
+                            "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D",
+                            "distribution_at_peak_intensity_D",
                             "upper_shadow_selling_pressure_D"
                         ],
                         "cumulative_periods": [13, 21],
                         "cumulative_weights": {
                             "13": 0.6,
                             "21": 0.4
-                        },
-                        "cumulative_modulation_strength": 0.7
+                        }
                     },
                     "inflection_point_params": {
                         "signals_for_inflection_detection": [
