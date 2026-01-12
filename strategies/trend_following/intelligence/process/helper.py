@@ -512,8 +512,9 @@ class ProcessIntelligenceHelper:
 
     def _get_cumulative_context_score(self, series: pd.Series, df_index: pd.Index, periods: List[int], weights: Dict[int, float], bipolar: bool = True, signal_name: str = "", is_debug_enabled_for_method: bool = False, probe_ts: Optional[pd.Timestamp] = None, debug_output: Dict = None) -> pd.Series:
         """
-        【V1.1 · 累积上下文分数计算与调试探针版】计算给定信号在多个周期内的累积上下文分数。
+        【V1.2 · 累积上下文分数计算与调试探针版 - 权重键类型修正】计算给定信号在多个周期内的累积上下文分数。
         该分数反映了信号在中长期的累积净方向和强度。
+        核心修正：将 `weights.get(period, 0.0)` 修改为 `weights.get(str(period), 0.0)`，以正确匹配字典键的类型。
         参数:
             series (pd.Series): 原始信号序列（例如，每日资金流）。
             df_index (pd.Index): DataFrame的索引。
@@ -541,7 +542,8 @@ class ProcessIntelligenceHelper:
             cumulative_sum = series.rolling(window=period, min_periods=1).sum()
             # 对累积和进行归一化
             norm_cumulative_sum = self._normalize_series(cumulative_sum, df_index, bipolar=bipolar, ascending=True)
-            weight = weights.get(period, 0.0)
+            # 核心修正：将 period 转换为字符串，以匹配 weights 字典的键
+            weight = weights.get(str(period), 0.0)
             if is_debug_enabled_for_method and probe_ts:
                 val_cumulative_sum = cumulative_sum.loc[probe_ts] if probe_ts in cumulative_sum.index else np.nan
                 val_norm_cumulative_sum = norm_cumulative_sum.loc[probe_ts] if probe_ts in norm_cumulative_sum.index else np.nan

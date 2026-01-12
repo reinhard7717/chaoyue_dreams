@@ -496,8 +496,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.6 · 信念强度累积上下文、趋势一致性与拐点调制版】计算赢家信念强度。
+        【V1.7 · 信念强度累积上下文、趋势一致性与拐点调制版 - 拐点逻辑修正】计算赢家信念强度。
         融入了更多MTF和归一化信号，修正了键名，新增累积上下文调制、趋势一致性增强和拐点惩罚。
+        核心修正：修正拐点惩罚逻辑。对于正面信号（信念强度），惩罚值应与拐点信号的符号相反。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -552,12 +553,15 @@ class CalculateWinnerConvictionRelationship:
         # 引入拐点惩罚
         inflection_mtf_winner_stability = signals.get("inflection_mtf_winner_stability_index", pd.Series(0.0, index=df_index))
         inflection_penalty = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 当MTF分数 > 0 且 inflection_score > 0 (向上趋势减弱或向下趋势增强) -> 惩罚
-        inflection_penalty = inflection_penalty.mask((mtf_winner_stability > 0) & (inflection_mtf_winner_stability > 0), inflection_mtf_winner_stability * inflection_penalty_strength)
-        # 当MTF分数 < 0 且 inflection_score < 0 (向下趋势减弱或向上趋势增强) -> 奖励 (负负得正，减少负面影响)
-        inflection_penalty = inflection_penalty.mask((mtf_winner_stability < 0) & (inflection_mtf_winner_stability < 0), inflection_mtf_winner_stability * inflection_penalty_strength) # 负值惩罚，实际是奖励
+        # 核心修正：对于正面信号（信念强度），惩罚值应与拐点信号的符号相反。
+        # 如果信念趋势向上，但加速度减弱（拐点信号为正），则为惩罚（负值）
+        # 如果信念趋势向上，且加速度增强（拐点信号为负），则为奖励（正值）
+        # 如果信念趋势向下，但加速度减弱（拐点信号为正），则为奖励（正值）
+        # 如果信念趋势向下，且加速度增强（拐点信号为负），则为惩罚（负值）
+        # 简化逻辑：inflection_penalty = -inflection_mtf_winner_stability * inflection_penalty_strength
+        inflection_penalty = -inflection_mtf_winner_stability * inflection_penalty_strength
         # 将拐点惩罚应用于核心信念组件
-        core_conviction_component = core_conviction_component - inflection_penalty
+        core_conviction_component = core_conviction_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
         all_conviction_components = {
             "core_conviction": core_conviction_component,
             "main_force_conviction": mtf_main_force_conviction_index, # 使用调制后的MTF版本
@@ -613,12 +617,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.8 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 压力信号更新】计算压力韧性。
+        【V1.9 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 拐点逻辑修正】计算压力韧性。
         融入了更多MTF和归一化信号，修正了键名，新增累积上下文调制、趋势一致性增强和拐点惩罚。
-        核心修正：将 `profit_taking_flow_ratio` 替换为 `dispersal_by_distribution` 作为核心压力信号。
-                  引入 `distribution_at_peak_intensity` 和 `upper_shadow_selling_pressure` 作为增强压力信号。
-                  根据业务逻辑，负的 `main_force_buy_execution_alpha` 代表主力积极买入推高股价，应正面增强压力韧性，
-                  因此在融合时对其进行符号反转。
+        核心修正：修正拐点惩罚逻辑。对于负面信号（压力韧性），惩罚值应与拐点信号的符号相同。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -651,7 +652,7 @@ class CalculateWinnerConvictionRelationship:
         mtf_upper_shadow_selling_pressure = signals["mtf_upper_shadow_selling_pressure"] # 新增
 
         # 对相关MTF信号进行累积上下文调制
-        if "cumulative_main_force_buy_execution_alpha_score" in signals:
+        if "cumulative_main_force_conviction_index_score" in signals: # 修正：这里应该是 main_force_buy_execution_alpha
             cumulative_score = signals["cumulative_main_force_buy_execution_alpha_score"]
             # 调制时，保持原始符号，因为调制是基于原始信号的相对变化
             mtf_main_force_buy_execution_alpha = mtf_main_force_buy_execution_alpha + (cumulative_score - mtf_main_force_buy_execution_alpha) * cumulative_modulation_strength
@@ -695,13 +696,13 @@ class CalculateWinnerConvictionRelationship:
         # 引入拐点惩罚 (使用新的压力信号)
         inflection_mtf_selling_pressure = signals.get("inflection_mtf_dispersal_by_distribution", pd.Series(0.0, index=df_index))
         inflection_penalty = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 当MTF分数 > 0 (压力增加) 且 inflection_score > 0 (压力增加趋势减弱或压力减少趋势增强) -> 奖励 (减少惩罚)
-        # 当MTF分数 < 0 (压力减少) 且 inflection_score < 0 (压力减少趋势减弱或压力增加趋势增强) -> 惩罚 (增加惩罚)
-        # 这里的逻辑需要反转，因为压力信号是负面指标
-        # 如果压力信号MTF为正（压力增加），且拐点信号为正（压力增加趋势减弱），则为奖励
-        inflection_penalty = inflection_penalty.mask((mtf_dispersal_by_distribution > 0) & (inflection_mtf_selling_pressure > 0), inflection_mtf_selling_pressure * -1 * inflection_penalty_strength) # 压力增加趋势减弱是好事，所以是奖励
-        # 如果压力信号MTF为负（压力减少），且拐点信号为负（压力减少趋势减弱），则为惩罚
-        inflection_penalty = inflection_penalty.mask((mtf_dispersal_by_distribution < 0) & (inflection_mtf_selling_pressure < 0), inflection_mtf_selling_pressure * -1 * inflection_penalty_strength) # 压力减少趋势减弱是坏事，所以是惩罚
+        # 核心修正：对于负面信号（压力韧性），惩罚值应与拐点信号的符号相同。
+        # 如果压力趋势向上（负面），但加速度减弱（拐点信号为正），则为奖励（正值）
+        # 如果压力趋势向上，且加速度增强（拐点信号为负），则为惩罚（负值）
+        # 如果压力趋势向下（正面），但加速度减弱（拐点信号为正），则为惩罚（负值）
+        # 如果压力趋势向下（正面），且加速度增强（拐点信号为负），则为奖励（正值）
+        # 简化逻辑：inflection_penalty = inflection_mtf_selling_pressure * inflection_penalty_strength
+        inflection_penalty = inflection_mtf_selling_pressure * inflection_penalty_strength
         # 将拐点惩罚应用于核心压力韧性组件
         core_resilience_component = core_resilience_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
 
@@ -754,7 +755,7 @@ class CalculateWinnerConvictionRelationship:
             "mtf_large_order_support": mtf_large_order_support,
             "dip_absorption_power_norm": normalized_signals["dip_absorption_power_norm"],
             "mtf_trend_consistency_selling_pressure": mtf_trend_consistency_selling_pressure, # 修正
-            "inflection_mtf_selling_pressure": inflection_mtf_selling_pressure, # 修正
+            "inflection_mtf_selling_pressure": inflection_mtf_selling_pressure, # 调试输出
             "inflection_penalty_pressure": inflection_penalty, # 调试输出
             "mtf_distribution_at_peak_intensity": mtf_distribution_at_peak_intensity, # 新增
             "mtf_upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure, # 新增
