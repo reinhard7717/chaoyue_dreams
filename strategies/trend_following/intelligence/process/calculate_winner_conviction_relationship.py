@@ -191,7 +191,8 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V1.0 · 信号获取与校验版】获取所有原始信号数据，并进行有效性校验。
+        【V1.1 · 信号补全版】获取所有原始信号数据，并进行有效性校验。
+        - 核心修复: 确保 `flow_credibility_raw` 被正确添加到返回的信号字典中。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -207,7 +208,7 @@ class CalculateWinnerConvictionRelationship:
             belief_signal_name, pressure_signal_name,
             'deception_index_D', 'wash_trade_intensity_D',
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'trend_vitality_index_D'
+            'trend_vitality_index_D', 'flow_credibility_index_D' # 确保 flow_credibility_index_D 在 required_signals 中
         ]
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         for base_sig in [belief_signal_name, pressure_signal_name, 'deception_index_D', 'wash_trade_intensity_D']:
@@ -224,6 +225,7 @@ class CalculateWinnerConvictionRelationship:
         market_sentiment_raw = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         volatility_instability_raw = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         trend_vitality_raw = self.helper._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
+        flow_credibility_raw = self.helper._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name) # 获取 flow_credibility_raw
         _temp_debug_values["原始信号值"] = {
             belief_signal_name: winner_stability_raw,
             pressure_signal_name: profit_taking_flow_raw,
@@ -231,7 +233,8 @@ class CalculateWinnerConvictionRelationship:
             'wash_trade_intensity_D': wash_trade_intensity_raw,
             'market_sentiment_score_D': market_sentiment_raw,
             'VOLATILITY_INSTABILITY_INDEX_21d_D': volatility_instability_raw,
-            'trend_vitality_index_D': trend_vitality_raw
+            'trend_vitality_index_D': trend_vitality_raw,
+            'flow_credibility_index_D': flow_credibility_raw # 添加到调试输出
         }
         return {
             "winner_stability_raw": winner_stability_raw,
@@ -241,6 +244,7 @@ class CalculateWinnerConvictionRelationship:
             "market_sentiment_raw": market_sentiment_raw,
             "volatility_instability_raw": volatility_instability_raw,
             "trend_vitality_raw": trend_vitality_raw,
+            "flow_credibility_raw": flow_credibility_raw, # 确保 flow_credibility_raw 被返回
             "belief_signal_name": belief_signal_name,
             "pressure_signal_name": pressure_signal_name
         }
