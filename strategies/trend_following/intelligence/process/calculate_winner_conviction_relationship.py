@@ -331,8 +331,11 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V2.3 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
+        【V2.5 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正与诡道信号MTF修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
         - 核心修正: 修正 `mtf_winner_concentration_90pct` 和 `mtf_cost_gini_coefficient` 的 `ascending` 参数，使其MTF分数方向与信念强度业务逻辑一致。
+        - 核心修正: 修正 `mtf_deception_index` 和 `mtf_wash_trade_intensity` 的 `bipolar` 和 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
+        - 核心修正: 修正 `mtf_covert_accumulation_signal` 的 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
+        - 核心修正: 修正 `mtf_closing_auction_ambush` 的 `bipolar` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -383,11 +386,19 @@ class CalculateWinnerConvictionRelationship:
         required_signals_for_validation = list(all_raw_signal_names_with_D_suffix)
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         # 动态添加所有MTF信号的列名到 required_signals_for_validation
+        for base_sig in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+            required_signals_for_validation.append(f'SLOPE_{base_sig}_{base_sig}') # 修正：这里应该是 base_sig 而不是 base_sig_D
+        for base_sig in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+            required_signals_for_validation.append(f'ACCEL_{base_sig}_{base_sig}') # 修正：这里应该是 base_sig 而不是 base_sig_D
+
+        # 修正：重新构建 required_signals_for_validation 列表，确保正确引用 base_sig
+        required_signals_for_validation = list(all_raw_signal_names_with_D_suffix)
         for base_sig in mtf_base_signals_raw_names:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals_for_validation.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals_for_validation.append(f'ACCEL_{period_str}_{base_sig}')
+
         # 执行信号存在性校验
         if not self.helper._validate_required_signals(df, required_signals_for_validation, method_name):
             return None
@@ -427,18 +438,26 @@ class CalculateWinnerConvictionRelationship:
         for base_sig in mtf_base_signals_raw_names:
             # MTF信号的键名保持mtf_前缀和原始信号名的小写形式
             mtf_key = f"mtf_{base_sig.replace('_D', '').lower()}"
+            # 默认情况下，MTF信号是双极性且值越大越好
             signals_data[mtf_key] = self.helper._get_mtf_slope_accel_score(
-                df, base_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True
+                df, base_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=True
             )
-        # 特殊处理一些MTF信号的bipolar/ascending，并统一键名格式
-        # 注意：这里直接覆盖了上面循环中可能生成的mtf_key，以确保特殊处理的参数生效
-        signals_data["mtf_deception_index"] = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
-        signals_data["mtf_wash_trade_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
-        signals_data["mtf_smart_money_divergence_hm_buy_inst_sell"] = self.helper._get_mtf_slope_accel_score(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False) # 聪明钱分歧越大越不好，所以ascending=False
-        signals_data["mtf_chip_fatigue_index"] = self.helper._get_mtf_slope_accel_score(df, 'chip_fatigue_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False) # 筹码疲劳度越低越好，所以ascending=False
-        signals_data["mtf_covert_accumulation_signal"] = self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False) # 隐蔽吸筹信号作为欺骗的反向指标，所以ascending=False
-        signals_data["mtf_closing_auction_ambush"] = self.helper._get_mtf_slope_accel_score(df, 'closing_auction_ambush_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False) # 尾盘伏击作为欺骗的反向指标，所以ascending=False
-        signals_data["mtf_market_impact_cost"] = self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False) # 冲击成本越高越不好，所以ascending=False
+
+        # 特殊处理一些MTF信号的bipolar/ascending，以确保其方向性符合业务逻辑
+        # 修正：deception_index_D 越高越差，所以 ascending=False
+        signals_data["mtf_deception_index"] = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        # 修正：wash_trade_intensity_D 越高越差，所以 ascending=False
+        signals_data["mtf_wash_trade_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        # SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D 聪明钱分歧越大越不好，所以ascending=False
+        signals_data["mtf_smart_money_divergence_hm_buy_inst_sell"] = self.helper._get_mtf_slope_accel_score(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        # chip_fatigue_index_D 筹码疲劳度越低越好，所以ascending=False
+        signals_data["mtf_chip_fatigue_index"] = self.helper._get_mtf_slope_accel_score(df, 'chip_fatigue_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        # 修正：covert_accumulation_signal_D 隐蔽吸筹信号越高越好，所以ascending=True
+        signals_data["mtf_covert_accumulation_signal"] = self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=True)
+        # 修正：closing_auction_ambush_D 尾盘伏击，正值诱多（差），负值诱空（好），所以ascending=False
+        signals_data["mtf_closing_auction_ambush"] = self.helper._get_mtf_slope_accel_score(df, 'closing_auction_ambush_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        # market_impact_cost_D 冲击成本越高越不好，所以ascending=False
+        signals_data["mtf_market_impact_cost"] = self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
         # 新增：为新的压力信号生成MTF分数，高派发/卖压是负面，所以 ascending=False
         signals_data["mtf_dispersal_by_distribution"] = self.helper._get_mtf_slope_accel_score(df, 'dispersal_by_distribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
         signals_data["mtf_distribution_at_peak_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'distribution_at_peak_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
@@ -499,11 +518,11 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.9 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
-        此方法主要处理非MTF原始信号的归一化，MTF信号已在_get_and_validate_signals中通过_get_mtf_slope_accel_score内部归一化。
+        【V1.10 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充与信念信号修正】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
         核心修正：移除 `profit_taking_flow_ratio_norm`，新增 `dispersal_by_distribution_norm`、
                   `distribution_at_peak_intensity_norm` 和 `upper_shadow_selling_pressure_norm`。
         核心新增：补充 `volatility_instability_index_21d_norm` 的归一化。
+        核心修正：`winner_concentration_90pct_norm`、`covert_accumulation_norm`、`closing_auction_ambush_norm` 的 `ascending` 或 `bipolar` 参数。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
@@ -523,15 +542,18 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["absorption_strength_ma5_norm"] = self.helper._normalize_series(signals["absorption_strength_ma5_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["smart_money_divergence_norm"] = self.helper._normalize_series(signals["smart_money_divergence_hm_buy_inst_sell_raw"], df_index, bipolar=True, ascending=False) # 聪明钱分歧越大越不好
         normalized_signals["theme_hotness_norm"] = self.helper._normalize_series(signals["theme_hotness_score_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["winner_concentration_90pct_norm"] = self.helper._normalize_series(signals["winner_concentration_90pct_raw"], df_index, bipolar=False, ascending=True)
+        # 核心修正：winner_concentration_90pct_norm 集中度越低越好，所以 ascending=False
+        normalized_signals["winner_concentration_90pct_norm"] = self.helper._normalize_series(signals["winner_concentration_90pct_raw"], df_index, bipolar=False, ascending=False)
         normalized_signals["chip_fatigue_norm"] = self.helper._normalize_series(signals["chip_fatigue_index_raw"], df_index, bipolar=False, ascending=False) # 筹码疲劳度越低越好
         normalized_signals["active_buying_support_norm"] = self.helper._normalize_series(signals["active_buying_support_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["large_order_support_norm"] = self.helper._normalize_series(signals["large_order_support_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["covert_accumulation_norm"] = self.helper._normalize_series(signals["covert_accumulation_signal_raw"], df_index, bipolar=False, ascending=False) # 隐蔽吸筹信号越低越好（作为欺骗的反向指标）
+        # 核心修正：covert_accumulation_norm 隐蔽吸筹信号越高越好，所以 ascending=True
+        normalized_signals["covert_accumulation_norm"] = self.helper._normalize_series(signals["covert_accumulation_signal_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["industry_leader_score_norm"] = self.helper._normalize_series(signals["industry_leader_score_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["cost_gini_coefficient_norm"] = self.helper._normalize_series(signals["cost_gini_coefficient_raw"], df_index, bipolar=False, ascending=False) # 基尼系数越低越好（筹码越均匀）
         normalized_signals["market_impact_cost_norm"] = self.helper._normalize_series(signals["market_impact_cost_raw"], df_index, bipolar=False, ascending=False) # 冲击成本越低越好
-        normalized_signals["closing_auction_ambush_norm"] = self.helper._normalize_series(signals["closing_auction_ambush_raw"], df_index, bipolar=False, ascending=False) # 尾盘伏击越低越好（作为欺骗的反向指标）
+        # 核心修正：closing_auction_ambush_norm 尾盘伏击，正值诱多（差），负值诱空（好），所以 bipolar=True, ascending=False
+        normalized_signals["closing_auction_ambush_norm"] = self.helper._normalize_series(signals["closing_auction_ambush_raw"], df_index, bipolar=True, ascending=False)
         normalized_signals["dip_absorption_power_norm"] = self.helper._normalize_series(signals["dip_absorption_power_raw"], df_index, bipolar=False, ascending=True) # 新增：下跌吸筹能力归一化
         # 新增：压力信号的归一化，高值代表高压力，所以 ascending=False
         normalized_signals["dispersal_by_distribution_norm"] = self.helper._normalize_series(signals["dispersal_by_distribution_raw"], df_index, bipolar=False, ascending=False)
@@ -686,8 +708,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.13 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项】计算压力韧性。
+        【V1.13 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正主力买入执行Alpha】计算压力韧性。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
+        核心修正：`main_force_buy_execution_alpha` 的逻辑修正，直接使用其MTF分数。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -704,7 +727,6 @@ class CalculateWinnerConvictionRelationship:
 
         relative_position_weights = params["relative_position_weights"]
         pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
-        # cumulative_modulation_strength = params["cumulative_context_params"]["cumulative_modulation_strength"] # 移除：不再用于调制
         inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
 
         # 核心压力信号MTF分数 (使用新的压力信号：dispersal_by_distribution)
@@ -748,8 +770,8 @@ class CalculateWinnerConvictionRelationship:
 
         all_resilience_components = {
             "core_resilience": core_resilience_component,
-            # 核心修正：将 mtf_main_force_buy_execution_alpha 反转符号，使其负值（积极买入）贡献正面效应
-            "main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha * -1,
+            # 核心修正：main_force_buy_execution_alpha 正值是好，对韧性是正面贡献，所以直接使用
+            "main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
             "bid_side_liquidity": mtf_bid_side_liquidity,
             "absorption_strength_ma5": mtf_absorption_strength_ma5,
             "active_buying_support": mtf_active_buying_support,
@@ -808,7 +830,7 @@ class CalculateWinnerConvictionRelationship:
             "dispersal_by_distribution_percentile": dispersal_by_distribution_percentile,
             "core_resilience_component": core_resilience_component,
             "mtf_main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
-            "mtf_main_force_buy_execution_alpha_inverted_for_fusion": mtf_main_force_buy_execution_alpha * -1,
+            "mtf_main_force_buy_execution_alpha_inverted_for_fusion": mtf_main_force_buy_execution_alpha, # 调试输出修正后的值
             "mtf_bid_side_liquidity": mtf_bid_side_liquidity,
             "mtf_absorption_strength_ma5": mtf_absorption_strength_ma5,
             "mtf_active_buying_support": mtf_active_buying_support,
@@ -857,8 +879,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.6 · 诡道过滤累积上下文作为加分项】计算诡道过滤因子，融入了更多MTF和归一化信号，新增累积上下文作为独立加分项。
+        【V1.6 · 诡道过滤累积上下文作为加分项，修正诡道信号逻辑】计算诡道过滤因子，融入了更多MTF和归一化信号，新增累积上下文作为独立加分项。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
+        核心修正：`deception_index`、`wash_trade_intensity`、`covert_accumulation_signal`、`closing_auction_ambush` 的逻辑修正。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -874,7 +897,6 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["诡道过滤"] = {}
 
         deception_enhancement_weights = params["deception_enhancement_weights"]
-        # cumulative_modulation_strength = params["cumulative_context_params"]["cumulative_modulation_strength"] # 移除：不再用于调制
         
         # 核心欺骗指数和对倒强度MTF分数
         mtf_deception_index = signals["mtf_deception_index"]
@@ -895,13 +917,15 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["诡道过滤"]["mtf_closing_auction_ambush_pre_modulated"] = mtf_closing_auction_ambush
 
         # 基础欺骗惩罚 (范围 [0, 1])
-        base_deception_penalty = (mtf_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
+        # 修正：deception_index 和 wash_trade_intensity 越高越差，MTF分数越低，所以需要 * -1 转换为正惩罚
+        base_deception_penalty = (mtf_deception_index * -1 * 0.6 + mtf_wash_trade_intensity * -1 * 0.4).clip(0, 1)
+        
         # 融合所有欺骗相关因子
         all_deception_components = {
             "base_deception_penalty": base_deception_penalty,
-            "smart_money_divergence_penalty": mtf_smart_money_divergence_hm_buy_inst_sell,
-            "covert_accumulation_penalty": mtf_covert_accumulation_signal,
-            "closing_auction_ambush_penalty": mtf_closing_auction_ambush,
+            "smart_money_divergence_penalty": mtf_smart_money_divergence_hm_buy_inst_sell * -1, # 聪明钱分歧越大越不好，MTF分数越低，所以需要 * -1 转换为正惩罚
+            "covert_accumulation_penalty": mtf_covert_accumulation_signal * -1, # 隐蔽吸筹信号越高越好，MTF分数越高，所以需要 * -1 转换为负惩罚（即奖励）
+            "closing_auction_ambush_penalty": mtf_closing_auction_ambush * -1, # 尾盘伏击，正值诱多（差），负值诱空（好），MTF分数越低，所以需要 * -1 转换为正惩罚
             # 新增累积上下文作为独立组件
             "cumulative_deception_index": signals.get("cumulative_deception_index_score", pd.Series(0.0, index=df_index)),
             "cumulative_wash_trade_intensity": signals.get("cumulative_wash_trade_intensity_score", pd.Series(0.0, index=df_index)),
