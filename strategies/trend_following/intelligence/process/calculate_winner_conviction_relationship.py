@@ -625,7 +625,8 @@ class CalculateWinnerConvictionRelationship:
             # 如果历史最高点为0，回撤百分比也为0
             decay_pct = pd.Series(0.0, index=df_index, dtype=np.float32)
             valid_max_mask = historical_max_cumulative_conviction > 1e-9
-            decay_pct.loc[valid_max_mask] = (historical_max_cumulative_conviction.loc[valid_max_mask] - cumulative_main_force_conviction_index.loc[valid_max_mask]) / historical_max_cumulative_conviction.loc[valid_max_max]
+            # 修正：将 valid_max_max 修正为 valid_max_mask
+            decay_pct.loc[valid_max_mask] = (historical_max_cumulative_conviction.loc[valid_max_mask] - cumulative_main_force_conviction_index.loc[valid_max_mask]) / historical_max_cumulative_conviction.loc[valid_max_mask]
             decay_pct = decay_pct.clip(lower=0) # 确保回撤百分比不为负
 
             # 判断是否触发警惕模式
@@ -718,9 +719,13 @@ class CalculateWinnerConvictionRelationship:
                 conviction_fusion_weights[k] = pd.Series(v, index=df_index, dtype=np.float32) # 转换为Series以便进行逐元素乘法
 
         # 归一化动态调整后的权重
-        total_weight = sum(w for w in conviction_fusion_weights.values()) # 这里需要对Series求和
-        # 确保 total_weight 不为0，避免除以0错误
-        total_weight_safe = total_weight.replace(0, 1e-9)
+        # 这里的求和需要对 Series 进行，然后才能进行除法
+        total_weight_series = pd.Series(0.0, index=df_index, dtype=np.float32)
+        for w_series in conviction_fusion_weights.values():
+            total_weight_series += w_series
+        
+        # 确保 total_weight_series 不为0，避免除以0错误
+        total_weight_safe = total_weight_series.replace(0, 1e-9)
         conviction_fusion_weights = {k: v / total_weight_safe for k, v in conviction_fusion_weights.items()}
 
         fused_conviction_strength_0_1 = _robust_geometric_mean(
