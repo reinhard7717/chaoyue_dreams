@@ -42,16 +42,9 @@ class CalculateWinnerConvictionRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0 · 韧性博弈与多维时空版】“赢家信念”专属关系计算引擎
-        - 核心重构: 彻底废弃旧的“状态对抗”逻辑。引入“信念强度 × 压力韧性 × 诡道过滤 × 情境调制”的全新四维诊断框架。
-        - 核心升级:
-            1.  **多时间维度斜率与加速度融合：** 对“赢家稳定性”和“利润兑现压力”进行多时间维度（5, 13, 21, 34, 55日）斜率和加速度的融合，评估其趋势和动能。
-            2.  **共振与背离判断：** 评估“赢家稳定性”和“利润兑现压力”在多时间维度上的共振（同向增强/减弱）或背离（一强一弱）。
-            3.  **历史相对位置：** 引入信号相对于其历史区间的百分位，判断其是处于高位还是低位。
-            4.  **诡道博弈特性：** 引入欺骗指数、对倒强度等信号，对虚假的信念增强或减弱进行惩罚。
-            5.  **情境调制：** 引入市场情绪、波动率等情境因子进行动态调整。
-            6.  **非线性融合：** 使用 _robust_geometric_mean 对所有强度/幅度组件进行融合，并结合整体方向。
-        - 目标: 提供一个双极性分数，正值代表赢家信念坚定，负值代表信念动摇或面临风险。
+        【V4.1 · 参数修正版】“赢家信念”专属关系计算引擎
+        - 核心修正: 修复 `_calculate_conviction_strength`, `_calculate_pressure_resilience`,
+                    `_calculate_deception_filter`, `_calculate_contextual_modulator` 方法调用时缺少 `normalized_signals` 参数的错误。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             config (Dict): 包含配置信息的字典。
@@ -71,15 +64,15 @@ class CalculateWinnerConvictionRelationship:
         # 归一化处理
         normalized_signals = self._normalize_raw_data(df_index, signals_data, _temp_debug_values)
         # 1. 信念强度
-        conviction_strength_score = self._calculate_conviction_strength(df, df_index, method_name, signals_data, all_params, _temp_debug_values)
+        conviction_strength_score = self._calculate_conviction_strength(df, df_index, method_name, signals_data, normalized_signals, all_params, _temp_debug_values)
         # 2. 压力韧性
-        pressure_resilience_score = self._calculate_pressure_resilience(df, df_index, method_name, signals_data, all_params, _temp_debug_values)
+        pressure_resilience_score = self._calculate_pressure_resilience(df, df_index, method_name, signals_data, normalized_signals, all_params, _temp_debug_values)
         # 3. 共振与背离因子
         synergy_factor = self._calculate_synergy_factor(df_index, conviction_strength_score, pressure_resilience_score, _temp_debug_values)
         # 4. 诡道过滤
-        deception_filter = self._calculate_deception_filter(df, df_index, method_name, signals_data, all_params, _temp_debug_values)
+        deception_filter = self._calculate_deception_filter(df, df_index, method_name, signals_data, normalized_signals, all_params, _temp_debug_values)
         # 5. 情境调制
-        context_modulator = self._calculate_contextual_modulator(df_index, signals_data, all_params, _temp_debug_values)
+        context_modulator = self._calculate_contextual_modulator(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
         # 6. 最终融合
         final_score = self._perform_final_fusion(df_index, conviction_strength_score, pressure_resilience_score, synergy_factor, deception_filter, context_modulator, all_params, _temp_debug_values)
         self._print_debug_info(method_name, final_score, is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values)
