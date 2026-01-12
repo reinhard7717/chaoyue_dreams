@@ -289,7 +289,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 原始数据归一化全面扩展版】归一化原始数据，新增了更多信号的归一化处理。
+        【V1.4 · 原始数据归一化键名修正版】归一化原始数据，修正了访问signals字典时的键名错误。
         此方法主要处理非MTF原始信号的归一化，MTF信号已在_get_and_validate_signals中通过_get_mtf_slope_accel_score内部归一化。
         参数:
             df_index (pd.Index): DataFrame的索引。
@@ -299,22 +299,22 @@ class CalculateWinnerConvictionRelationship:
             Dict[str, pd.Series]: 包含归一化信号Series的字典。
         """
         normalized_signals = {}
-        # 归一化非MTF信号
-        normalized_signals["flow_credibility_norm"] = self.helper._normalize_series(signals["flow_credibility_raw"], df_index, bipolar=False)
+        # 归一化非MTF信号，修正键名
+        normalized_signals["flow_credibility_norm"] = self.helper._normalize_series(signals["flow_credibility_index_raw"], df_index, bipolar=False)
         normalized_signals["winner_profit_margin_avg_norm"] = self.helper._normalize_series(signals["winner_profit_margin_avg_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["loser_loss_margin_avg_norm"] = self.helper._normalize_series(signals["loser_loss_margin_avg_raw"], df_index, bipolar=False, ascending=False) # 输家亏损率越低越好
-        normalized_signals["main_force_conviction_norm"] = self.helper._normalize_series(signals["main_force_conviction_raw"], df_index, bipolar=True, ascending=True)
-        normalized_signals["chip_health_norm"] = self.helper._normalize_series(signals["chip_health_raw"], df_index, bipolar=True, ascending=True)
+        normalized_signals["main_force_conviction_norm"] = self.helper._normalize_series(signals["main_force_conviction_index_raw"], df_index, bipolar=True, ascending=True)
+        normalized_signals["chip_health_norm"] = self.helper._normalize_series(signals["chip_health_score_raw"], df_index, bipolar=True, ascending=True)
         normalized_signals["main_force_buy_execution_alpha_norm"] = self.helper._normalize_series(signals["main_force_buy_execution_alpha_raw"], df_index, bipolar=True, ascending=True)
         normalized_signals["bid_side_liquidity_norm"] = self.helper._normalize_series(signals["bid_side_liquidity_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["absorption_strength_ma5_norm"] = self.helper._normalize_series(signals["absorption_strength_ma5_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["smart_money_divergence_norm"] = self.helper._normalize_series(signals["smart_money_divergence_raw"], df_index, bipolar=True, ascending=False) # 聪明钱分歧越大越不好
-        normalized_signals["theme_hotness_norm"] = self.helper._normalize_series(signals["theme_hotness_raw"], df_index, bipolar=False, ascending=True)
+        normalized_signals["smart_money_divergence_norm"] = self.helper._normalize_series(signals["SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_raw"], df_index, bipolar=True, ascending=False) # 聪明钱分歧越大越不好
+        normalized_signals["theme_hotness_norm"] = self.helper._normalize_series(signals["THEME_HOTNESS_SCORE_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["winner_concentration_90pct_norm"] = self.helper._normalize_series(signals["winner_concentration_90pct_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["chip_fatigue_norm"] = self.helper._normalize_series(signals["chip_fatigue_raw"], df_index, bipolar=False, ascending=False) # 筹码疲劳度越低越好
+        normalized_signals["chip_fatigue_norm"] = self.helper._normalize_series(signals["chip_fatigue_index_raw"], df_index, bipolar=False, ascending=False) # 筹码疲劳度越低越好
         normalized_signals["active_buying_support_norm"] = self.helper._normalize_series(signals["active_buying_support_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["large_order_support_norm"] = self.helper._normalize_series(signals["large_order_support_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["covert_accumulation_norm"] = self.helper._normalize_series(signals["covert_accumulation_raw"], df_index, bipolar=False, ascending=False) # 隐蔽吸筹信号越低越好（作为欺骗的反向指标）
+        normalized_signals["covert_accumulation_norm"] = self.helper._normalize_series(signals["covert_accumulation_signal_raw"], df_index, bipolar=False, ascending=False) # 隐蔽吸筹信号越低越好（作为欺骗的反向指标）
         normalized_signals["industry_leader_score_norm"] = self.helper._normalize_series(signals["industry_leader_score_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["cost_gini_coefficient_norm"] = self.helper._normalize_series(signals["cost_gini_coefficient_raw"], df_index, bipolar=False, ascending=False) # 基尼系数越低越好（筹码越均匀）
         normalized_signals["market_impact_cost_norm"] = self.helper._normalize_series(signals["market_impact_cost_raw"], df_index, bipolar=False, ascending=False) # 冲击成本越低越好
