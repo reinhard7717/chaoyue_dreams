@@ -856,6 +856,25 @@
                         "synergy_factor": 0.2,
                         "deception_filter": 0.15,
                         "context_modulator": 0.15
+                    },
+                    "cumulative_flow_params": {
+                        "flow_signals_for_cumulative_context": [
+                            "main_force_conviction_index_D",
+                            "main_force_buy_execution_alpha_D",
+                            "bid_side_liquidity_D",
+                            "absorption_strength_ma5_D",
+                            "active_buying_support_D",
+                            "large_order_support_D",
+                            "covert_accumulation_signal_D",
+                            "closing_auction_ambush_D",
+                            "dip_absorption_power_D"
+                        ],
+                        "cumulative_periods": [13, 21],
+                        "cumulative_weights": {
+                            "13": 0.6,
+                            "21": 0.4
+                        },
+                        "cumulative_modulation_strength": 0.7
                     }
                 }
             },
