@@ -473,10 +473,11 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.8 · 原始数据归一化键名全面修正版 - 压力信号更新】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
+        【V1.9 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
         此方法主要处理非MTF原始信号的归一化，MTF信号已在_get_and_validate_signals中通过_get_mtf_slope_accel_score内部归一化。
         核心修正：移除 `profit_taking_flow_ratio_norm`，新增 `dispersal_by_distribution_norm`、
                   `distribution_at_peak_intensity_norm` 和 `upper_shadow_selling_pressure_norm`。
+        核心新增：补充 `volatility_instability_index_21d_norm` 的归一化。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
@@ -510,6 +511,9 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["dispersal_by_distribution_norm"] = self.helper._normalize_series(signals["dispersal_by_distribution_raw"], df_index, bipolar=False, ascending=False)
         normalized_signals["distribution_at_peak_intensity_norm"] = self.helper._normalize_series(signals["distribution_at_peak_intensity_raw"], df_index, bipolar=False, ascending=False)
         normalized_signals["upper_shadow_selling_pressure_norm"] = self.helper._normalize_series(signals["upper_shadow_selling_pressure_raw"], df_index, bipolar=False, ascending=False)
+        # 核心新增：波动率不稳定性归一化，高值代表高不稳定性（差），所以 ascending=True
+        normalized_signals["volatility_instability_index_21d_norm"] = self.helper._normalize_series(signals["volatility_instability_index_21d_raw"], df_index, bipolar=False, ascending=True)
+
         _temp_debug_values["归一化处理"] = normalized_signals
         return normalized_signals
 
@@ -974,8 +978,8 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.7 · 情境调制累积上下文全面调制版】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名，新增累积上下文调制。
-        核心修正：确保所有相关MTF信号都进行累积上下文调制。
+        【V1.8 · 情境调制累积上下文全面调制版 - 波动率不稳定性处理修正】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名，新增累积上下文调制。
+        核心修正：修正波动率不稳定性信号的获取和处理逻辑，确保其正确归一化并用于稳定性计算。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series和MTF信号Series的字典。
@@ -994,8 +998,13 @@ class CalculateWinnerConvictionRelationship:
 
         # 获取原始信号和MTF信号
         norm_market_sentiment = self.helper._normalize_series(signals["market_sentiment_score_raw"], df_index, bipolar=True)
-        volatility_stability_raw = 1 - normalized_signals["volatility_instability_index_21d_norm"] # 使用归一化后的值
-        norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
+        
+        # 核心修正：直接使用 normalized_signals 中已有的波动率不稳定性归一化值
+        # volatility_instability_index_21d_norm 越高代表越不稳定，所以 1 - 它 得到稳定性分数
+        volatility_stability_raw = 1 - normalized_signals["volatility_instability_index_21d_norm"]
+        # volatility_stability_raw 已经是 0-1 范围的稳定性分数，无需再次归一化
+        norm_volatility_stability = volatility_stability_raw 
+        
         norm_trend_vitality = self.helper._normalize_series(signals["trend_vitality_index_raw"], df_index, bipolar=False)
         norm_theme_hotness = normalized_signals["theme_hotness_norm"]
         norm_industry_leader_score = normalized_signals["industry_leader_score_norm"]
@@ -1013,6 +1022,7 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["情境调制"]["norm_volatility_stability_pre_modulated"] = norm_volatility_stability
         if "cumulative_volatility_instability_index_21d_score" in signals: # 注意这里是 VOLATILITY_INSTABILITY_INDEX_21d_D
             cumulative_score = signals["cumulative_volatility_instability_index_21d_score"]
+            # 这里的调制应该作用于稳定性分数，而不是不稳定性分数
             norm_volatility_stability = norm_volatility_stability + (cumulative_score - norm_volatility_stability) * cumulative_modulation_strength
             norm_volatility_stability = norm_volatility_stability.clip(-1, 1)
 
