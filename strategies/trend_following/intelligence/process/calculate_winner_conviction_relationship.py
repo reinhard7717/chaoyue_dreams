@@ -569,7 +569,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.12 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
+        【V1.13 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg` 和 `chip_fatigue` 的逻辑修正，直接使用其MTF分数。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient` 的逻辑修正，直接使用其MTF分数。
@@ -615,7 +615,7 @@ class CalculateWinnerConvictionRelationship:
             decay_threshold_pct = cumulative_conviction_threshold_params["decay_threshold_pct"]
             absolute_threshold = cumulative_conviction_threshold_params["absolute_threshold"]
             short_term_boost_factor = cumulative_conviction_threshold_params["short_term_weight_boost_factor"]
-            long_term_decay_factor = cumulative_conviction_threshold_params["long_term_weight_decay_factor"]
+            long_term_weight_decay_factor = cumulative_conviction_threshold_params["long_term_weight_decay_factor"]
 
             # 计算累积信念的历史最高点 (只考虑正值，因为我们关心的是信念的衰减)
             # 使用 expand(0) 确保 rolling max 仅考虑当前及之前的数据
@@ -625,21 +625,25 @@ class CalculateWinnerConvictionRelationship:
             # 如果历史最高点为0，回撤百分比也为0
             decay_pct = pd.Series(0.0, index=df_index, dtype=np.float32)
             valid_max_mask = historical_max_cumulative_conviction > 1e-9
-            # 修正：将 valid_max_max 修正为 valid_max_mask
             decay_pct.loc[valid_max_mask] = (historical_max_cumulative_conviction.loc[valid_max_mask] - cumulative_main_force_conviction_index.loc[valid_max_mask]) / historical_max_cumulative_conviction.loc[valid_max_mask]
             decay_pct = decay_pct.clip(lower=0) # 确保回撤百分比不为负
 
             # 判断是否触发警惕模式
             # 警惕条件1: 累积信念从历史最高点回撤超过阈值
+            condition_decay = (decay_pct >= decay_threshold_pct)
             # 警惕条件2: 累积信念的绝对值低于某个绝对阈值 (即使没有大幅回撤，但本身就很弱)
-            alert_condition = (decay_pct >= decay_threshold_pct) | (cumulative_main_force_conviction_index.abs() < absolute_threshold)
+            condition_absolute = (cumulative_main_force_conviction_index.abs() < absolute_threshold)
+            
+            alert_condition = condition_decay | condition_absolute
 
             # 动态调整权重
             dynamic_short_term_boost.loc[alert_condition] = short_term_boost_factor
-            dynamic_long_term_decay.loc[alert_condition] = long_term_decay_factor
+            dynamic_long_term_decay.loc[alert_condition] = long_term_weight_decay_factor
             
             _temp_debug_values["信念强度"]["historical_max_cumulative_conviction"] = historical_max_cumulative_conviction
             _temp_debug_values["信念强度"]["decay_pct"] = decay_pct
+            _temp_debug_values["信念强度"]["condition_decay_triggered"] = condition_decay # 新增调试输出
+            _temp_debug_values["信念强度"]["condition_absolute_triggered"] = condition_absolute # 新增调试输出
             _temp_debug_values["信念强度"]["alert_condition"] = alert_condition
             _temp_debug_values["信念强度"]["dynamic_short_term_boost"] = dynamic_short_term_boost
             _temp_debug_values["信念强度"]["dynamic_long_term_decay"] = dynamic_long_term_decay
@@ -727,6 +731,19 @@ class CalculateWinnerConvictionRelationship:
         # 确保 total_weight_series 不为0，避免除以0错误
         total_weight_safe = total_weight_series.replace(0, 1e-9)
         conviction_fusion_weights = {k: v / total_weight_safe for k, v in conviction_fusion_weights.items()}
+
+        # Debugging: Print final weights for the probe date
+        if self.helper.debug_params.get('enabled') and self.helper.probe_dates:
+            probe_ts = None
+            for date in reversed(df_index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]:
+                    probe_ts = date
+                    break
+            if probe_ts:
+                _temp_debug_values["信念强度"]["final_fusion_weights_at_probe"] = {
+                    k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
+                    for k, v in conviction_fusion_weights.items()
+                }
 
         fused_conviction_strength_0_1 = _robust_geometric_mean(
             all_conviction_components,
