@@ -287,6 +287,17 @@ class CalculateWinnerConvictionRelationship:
         返回:
             Optional[Dict[str, pd.Series]]: 包含所有原始信号Series和MTF信号Series的字典，如果校验失败则返回None。
         """
+        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        probe_ts = None
+        if is_debug_enabled_for_method and self.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            for date in reversed(df_index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        if probe_ts is None:
+            is_debug_enabled_for_method = False
+        debug_output = {} # 局部调试输出，最终会合并到_temp_debug_values
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
         # 所有需要进行MTF斜率和加速度分析的原始信号 (原始列名)
@@ -378,7 +389,8 @@ class CalculateWinnerConvictionRelationship:
             raw_series = self.helper._get_safe_series(df, flow_sig_D, np.nan, method_name=method_name)
             if not raw_series.isnull().all():
                 cumulative_score = self.helper._get_cumulative_context_score(
-                    raw_series, df_index, cumulative_periods, cumulative_weights, bipolar=True
+                    raw_series, df_index, cumulative_periods, cumulative_weights, bipolar=True,
+                    signal_name=flow_sig_D, is_debug_enabled_for_method=is_debug_enabled_for_method, probe_ts=probe_ts, debug_output=debug_output # 传入调试参数
                 )
                 signals_data[f"cumulative_{flow_sig_D.replace('_D', '').lower()}_score"] = cumulative_score
         # 计算并存储指定信号的MTF趋势一致性分数
@@ -412,6 +424,9 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["累积上下文信号值"] = {k: v for k, v in signals_data.items() if k.startswith('cumulative_')}
         _temp_debug_values["MTF趋势一致性信号值"] = {k: v for k, v in signals_data.items() if k.startswith('mtf_trend_consistency_')}
         _temp_debug_values["拐点信号值"] = {k: v for k, v in signals_data.items() if k.startswith('inflection_')}
+        # 合并局部调试输出到_temp_debug_values
+        if is_debug_enabled_for_method and probe_ts:
+            _temp_debug_values["_get_and_validate_signals_debug_output"] = debug_output
         return signals_data
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
