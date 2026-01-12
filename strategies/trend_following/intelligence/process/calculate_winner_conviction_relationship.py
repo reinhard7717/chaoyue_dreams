@@ -211,8 +211,8 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V1.6 · 信号键名统一修正版】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
-        - 核心修正: 统一原始信号的键名格式，避免大小写和命名不一致导致的KeyError。
+        【V1.7 · 原始信号键名显式定义版】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
+        - 核心修正: 显式定义所有原始信号在 `signals_data` 中的键名，确保一致性，避免KeyError。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -224,8 +224,8 @@ class CalculateWinnerConvictionRelationship:
         """
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
-        # 所有需要进行MTF斜率和加速度分析的原始信号
-        mtf_base_signals = [
+        # 所有需要进行MTF斜率和加速度分析的原始信号 (原始列名)
+        mtf_base_signals_raw_names = [
             belief_signal_name, pressure_signal_name,
             'deception_index_D', 'wash_trade_intensity_D',
             'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
@@ -237,19 +237,19 @@ class CalculateWinnerConvictionRelationship:
             'covert_accumulation_signal_D', 'cost_gini_coefficient_D',
             'market_impact_cost_D', 'closing_auction_ambush_D'
         ]
-        # 所有非MTF的原始信号
-        non_mtf_raw_signals = [
+        # 所有非MTF的原始信号 (原始列名)
+        non_mtf_raw_signals_raw_names = [
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'trend_vitality_index_D', 'flow_credibility_index_D',
             'THEME_HOTNESS_SCORE_D', 'industry_leader_score_D'
         ]
         # 所有需要获取原始数据的信号名称（带_D后缀）
-        all_raw_signal_names_with_D_suffix = list(set(mtf_base_signals + non_mtf_raw_signals))
+        all_raw_signal_names_with_D_suffix = list(set(mtf_base_signals_raw_names + non_mtf_raw_signals_raw_names))
         # 生成用于校验的required_signals列表
         required_signals_for_validation = list(all_raw_signal_names_with_D_suffix)
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         # 动态添加所有MTF信号的列名到 required_signals_for_validation
-        for base_sig in mtf_base_signals:
+        for base_sig in mtf_base_signals_raw_names:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals_for_validation.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
@@ -257,20 +257,44 @@ class CalculateWinnerConvictionRelationship:
         # 执行信号存在性校验
         if not self.helper._validate_required_signals(df, required_signals_for_validation, method_name):
             return None
-        # 获取所有原始信号数据
-        signals_data = {}
-        for sig_name_with_D in all_raw_signal_names_with_D_suffix:
-            # 统一原始信号的键名格式：将_D替换为_raw，并转换为小写
-            raw_key = sig_name_with_D.replace('_D', '_raw').lower()
-            signals_data[raw_key] = self.helper._get_safe_series(df, sig_name_with_D, np.nan, method_name=method_name)
+        # 获取所有原始信号数据，并显式定义键名
+        signals_data = {
+            "winner_stability_index_raw": self.helper._get_safe_series(df, 'winner_stability_index_D', np.nan, method_name=method_name),
+            "profit_taking_flow_ratio_raw": self.helper._get_safe_series(df, 'profit_taking_flow_ratio_D', np.nan, method_name=method_name),
+            "deception_index_raw": self.helper._get_safe_series(df, 'deception_index_D', np.nan, method_name=method_name),
+            "wash_trade_intensity_raw": self.helper._get_safe_series(df, 'wash_trade_intensity_D', np.nan, method_name=method_name),
+            "market_sentiment_score_raw": self.helper._get_safe_series(df, 'market_sentiment_score_D', np.nan, method_name=method_name),
+            "volatility_instability_index_21d_raw": self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name=method_name),
+            "trend_vitality_index_raw": self.helper._get_safe_series(df, 'trend_vitality_index_D', np.nan, method_name=method_name),
+            "flow_credibility_index_raw": self.helper._get_safe_series(df, 'flow_credibility_index_D', np.nan, method_name=method_name),
+            "winner_profit_margin_avg_raw": self.helper._get_safe_series(df, 'winner_profit_margin_avg_D', np.nan, method_name=method_name),
+            "loser_loss_margin_avg_raw": self.helper._get_safe_series(df, 'loser_loss_margin_avg_D', np.nan, method_name=method_name),
+            "main_force_conviction_index_raw": self.helper._get_safe_series(df, 'main_force_conviction_index_D', np.nan, method_name=method_name),
+            "chip_health_score_raw": self.helper._get_safe_series(df, 'chip_health_score_D', np.nan, method_name=method_name),
+            "main_force_buy_execution_alpha_raw": self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', np.nan, method_name=method_name),
+            "bid_side_liquidity_raw": self.helper._get_safe_series(df, 'bid_side_liquidity_D', np.nan, method_name=method_name),
+            "absorption_strength_ma5_raw": self.helper._get_safe_series(df, 'absorption_strength_ma5_D', np.nan, method_name=method_name),
+            "smart_money_divergence_hm_buy_inst_sell_raw": self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', np.nan, method_name=method_name),
+            "theme_hotness_score_raw": self.helper._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', np.nan, method_name=method_name),
+            "winner_concentration_90pct_raw": self.helper._get_safe_series(df, 'winner_concentration_90pct_D', np.nan, method_name=method_name),
+            "chip_fatigue_index_raw": self.helper._get_safe_series(df, 'chip_fatigue_index_D', np.nan, method_name=method_name),
+            "active_buying_support_raw": self.helper._get_safe_series(df, 'active_buying_support_D', np.nan, method_name=method_name),
+            "large_order_support_raw": self.helper._get_safe_series(df, 'large_order_support_D', np.nan, method_name=method_name),
+            "covert_accumulation_signal_raw": self.helper._get_safe_series(df, 'covert_accumulation_signal_D', np.nan, method_name=method_name),
+            "industry_leader_score_raw": self.helper._get_safe_series(df, 'industry_leader_score_D', np.nan, method_name=method_name),
+            "cost_gini_coefficient_raw": self.helper._get_safe_series(df, 'cost_gini_coefficient_D', np.nan, method_name=method_name),
+            "market_impact_cost_raw": self.helper._get_safe_series(df, 'market_impact_cost_D', np.nan, method_name=method_name),
+            "closing_auction_ambush_raw": self.helper._get_safe_series(df, 'closing_auction_ambush_D', np.nan, method_name=method_name)
+        }
         # 获取所有MTF信号数据
-        for base_sig in mtf_base_signals:
+        for base_sig in mtf_base_signals_raw_names:
             # MTF信号的键名保持mtf_前缀和原始信号名的小写形式
             mtf_key = f"mtf_{base_sig.replace('_D', '').lower()}"
             signals_data[mtf_key] = self.helper._get_mtf_slope_accel_score(
                 df, base_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True
             )
         # 特殊处理一些MTF信号的bipolar/ascending，并统一键名格式
+        # 注意：这里直接覆盖了上面循环中可能生成的mtf_key，以确保特殊处理的参数生效
         signals_data["mtf_deception_index"] = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
         signals_data["mtf_wash_trade_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
         signals_data["mtf_smart_money_divergence_hm_buy_inst_sell"] = self.helper._get_mtf_slope_accel_score(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
@@ -288,7 +312,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 原始数据归一化键名全面修正版】归一化原始数据，修正了访问signals字典时所有键名的大小写错误。
+        【V1.6 · 原始数据归一化键名全面修正版】归一化原始数据，修正了访问signals字典时所有键名的大小写错误。
         此方法主要处理非MTF原始信号的归一化，MTF信号已在_get_and_validate_signals中通过_get_mtf_slope_accel_score内部归一化。
         参数:
             df_index (pd.Index): DataFrame的索引。
@@ -298,7 +322,7 @@ class CalculateWinnerConvictionRelationship:
             Dict[str, pd.Series]: 包含归一化信号Series的字典。
         """
         normalized_signals = {}
-        # 归一化非MTF信号，修正键名
+        # 归一化非MTF信号，使用显式定义的键名
         normalized_signals["flow_credibility_norm"] = self.helper._normalize_series(signals["flow_credibility_index_raw"], df_index, bipolar=False)
         normalized_signals["winner_profit_margin_avg_norm"] = self.helper._normalize_series(signals["winner_profit_margin_avg_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["loser_loss_margin_avg_norm"] = self.helper._normalize_series(signals["loser_loss_margin_avg_raw"], df_index, bipolar=False, ascending=False) # 输家亏损率越低越好
@@ -307,9 +331,7 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["main_force_buy_execution_alpha_norm"] = self.helper._normalize_series(signals["main_force_buy_execution_alpha_raw"], df_index, bipolar=True, ascending=True)
         normalized_signals["bid_side_liquidity_norm"] = self.helper._normalize_series(signals["bid_side_liquidity_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["absorption_strength_ma5_norm"] = self.helper._normalize_series(signals["absorption_strength_ma5_raw"], df_index, bipolar=False, ascending=True)
-        # 修正此处键名，应为全小写
         normalized_signals["smart_money_divergence_norm"] = self.helper._normalize_series(signals["smart_money_divergence_hm_buy_inst_sell_raw"], df_index, bipolar=True, ascending=False) # 聪明钱分歧越大越不好
-        # 修正此处键名，应为全小写
         normalized_signals["theme_hotness_norm"] = self.helper._normalize_series(signals["theme_hotness_score_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["winner_concentration_90pct_norm"] = self.helper._normalize_series(signals["winner_concentration_90pct_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["chip_fatigue_norm"] = self.helper._normalize_series(signals["chip_fatigue_index_raw"], df_index, bipolar=False, ascending=False) # 筹码疲劳度越低越好
