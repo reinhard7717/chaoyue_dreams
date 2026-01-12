@@ -154,7 +154,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.1 · 参数扩展版】从 config 中获取所有必要的参数，并新增了信念增强、压力韧性增强、诡道过滤增强和情境调制增强的权重。
+        【V1.2 · 参数全面扩展版】从 config 中获取所有必要的参数，并新增了信念增强、压力韧性增强、诡道过滤增强和情境调制增强的权重。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -173,29 +173,37 @@ class CalculateWinnerConvictionRelationship:
             "context_modulator": 0.15
         })
         direction_weights = get_param_value(params.get('direction_weights'), {'conviction': 0.6, 'pressure': 0.4})
-
         # 新增参数：信念增强因子权重
         conviction_enhancement_weights = get_param_value(params.get('conviction_enhancement_weights'), {
             "main_force_conviction": 0.2,
             "chip_health": 0.2,
             "winner_profit_margin_avg": 0.1,
-            "loser_loss_margin_avg_inverse": 0.1
+            "loser_loss_margin_avg_inverse": 0.1,
+            "winner_concentration_90pct": 0.1, # 新增
+            "chip_fatigue_inverse": 0.1, # 新增
+            "cost_gini_coefficient_inverse": 0.05 # 新增
         })
         # 新增参数：压力韧性增强因子权重
         pressure_resilience_enhancement_weights = get_param_value(params.get('pressure_resilience_enhancement_weights'), {
             "main_force_buy_execution_alpha": 0.2,
             "bid_side_liquidity": 0.2,
-            "absorption_strength_ma5": 0.2
+            "absorption_strength_ma5": 0.2,
+            "active_buying_support": 0.15, # 新增
+            "large_order_support": 0.15, # 新增
+            "dip_absorption_power": 0.1 # 新增
         })
         # 新增参数：诡道过滤增强因子权重
         deception_enhancement_weights = get_param_value(params.get('deception_enhancement_weights'), {
-            "smart_money_divergence": 0.3
+            "smart_money_divergence": 0.3,
+            "covert_accumulation_inverse": 0.2, # 新增
+            "closing_auction_ambush_inverse": 0.1 # 新增
         })
         # 新增参数：情境调制增强因子权重
         context_modulator_enhancement_weights = get_param_value(params.get('context_modulator_enhancement_weights'), {
-            "theme_hotness": 0.2
+            "theme_hotness": 0.2,
+            "industry_leader_score": 0.1, # 新增
+            "market_impact_cost_inverse": 0.05 # 新增
         })
-
         return {
             "mtf_slope_accel_weights": mtf_slope_accel_weights,
             "relative_position_weights": relative_position_weights,
@@ -347,7 +355,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.3 · 信念强度全面增强版】计算赢家信念强度，融入了更多MTF和归一化信号。
+        【V1.4 · 信念强度键名修正版】计算赢家信念强度，融入了更多MTF和归一化信号，并修正了键名。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -363,7 +371,8 @@ class CalculateWinnerConvictionRelationship:
         conviction_enhancement_weights = params["conviction_enhancement_weights"]
         # 核心赢家稳定性MTF分数
         mtf_winner_stability = signals["mtf_winner_stability_index"]
-        winner_stability_percentile = signals["winner_stability_raw"].rank(pct=True).fillna(0.5)
+        # 修正此处键名：从 "winner_stability_raw" 改为 "winner_stability_index_raw"
+        winner_stability_percentile = signals["winner_stability_index_raw"].rank(pct=True).fillna(0.5)
         core_conviction_component = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) +
                                      (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6)))
         # 所有信念相关组件，_robust_geometric_mean 会处理 [-1,1] 到 [0,1] 的转换
@@ -417,7 +426,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.3 · 压力韧性全面增强版】计算压力韧性，融入了更多MTF和归一化信号。
+        【V1.4 · 压力韧性键名修正版】计算压力韧性，融入了更多MTF和归一化信号，并修正了键名。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -433,7 +442,8 @@ class CalculateWinnerConvictionRelationship:
         pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
         # 核心利润兑现压力MTF分数
         mtf_profit_taking_flow = signals["mtf_profit_taking_flow_ratio"]
-        profit_taking_flow_percentile = (1 - signals["profit_taking_flow_raw"].rank(pct=True)).fillna(0.5)
+        # 修正此处键名：从 "profit_taking_flow_raw" 改为 "profit_taking_flow_ratio_raw"
+        profit_taking_flow_percentile = (1 - signals["profit_taking_flow_ratio_raw"].rank(pct=True)).fillna(0.5)
         core_resilience_component = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) +
                                      (profit_taking_flow_percentile * 2 - 1) * (1 - relative_position_weights.get("profit_taking_flow_low", 0.4)))
         # 所有压力韧性相关组件
