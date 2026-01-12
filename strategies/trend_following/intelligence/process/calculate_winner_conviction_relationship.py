@@ -690,11 +690,12 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.16 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 修正主力买入执行Alpha贡献逻辑与压力信号反转逻辑】计算压力韧性。
+        【V1.17 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 修正主力买入执行Alpha贡献逻辑与压力信号反转逻辑】计算压力韧性。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`main_force_buy_execution_alpha` 的逻辑修正，无论是正值还是负值，其绝对值越大，对压力韧性贡献越大。
-        核心修正：`distribution_at_peak_intensity`、`selling_pressure_trend_consistency` 和 `upper_shadow_selling_pressure` 的反转逻辑，
+        核心修正：`distribution_at_peak_intensity` 和 `upper_shadow_selling_pressure` 的反转逻辑，
                   由于其MTF分数已通过 `ascending=False` 正确映射负面影响，无需再乘以 `-1`。
+                  （注意：`selling_pressure_trend_consistency` 的 `* -1` 是正确的，因为它衡量的是负面信号的趋势一致性，一致性越高越差。）
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -754,9 +755,9 @@ class CalculateWinnerConvictionRelationship:
             "active_buying_support": mtf_active_buying_support,
             "large_order_support": mtf_large_order_support,
             "dip_absorption_power": normalized_signals["dip_absorption_power_norm"],
-            "selling_pressure_trend_consistency": mtf_trend_consistency_selling_pressure, # 修正：移除 * -1
-            "distribution_at_peak_intensity": mtf_distribution_at_peak_intensity, # 修正：移除 * -1
-            "upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure, # 修正：移除 * -1
+            "selling_pressure_trend_consistency": mtf_trend_consistency_selling_pressure * -1, # 趋势一致性越高，压力越大，对韧性是负面，此处的 * -1 是正确的
+            "distribution_at_peak_intensity": mtf_distribution_at_peak_intensity, # 修正：移除 * -1。高MTF分数代表低派发（好），直接贡献正面。
+            "upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure, # 修正：移除 * -1。低MTF分数代表高抛压（差），直接贡献负面。
             # 新增累积上下文作为独立组件
             "cumulative_main_force_buy_execution_alpha": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(0.0, index=df_index)).abs(), # 取绝对值
             "cumulative_bid_side_liquidity": signals.get("cumulative_bid_side_liquidity_score", pd.Series(0.0, index=df_index)),
@@ -807,7 +808,7 @@ class CalculateWinnerConvictionRelationship:
             "dispersal_by_distribution_percentile": dispersal_by_distribution_percentile,
             "core_resilience_component": core_resilience_component,
             "mtf_main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
-            "mtf_main_force_buy_execution_alpha_inverted_for_fusion": mtf_main_force_buy_execution_alpha.abs(), # 调试输出修正后的值
+            "mtf_main_force_buy_execution_alpha_abs_for_fusion": mtf_main_force_buy_execution_alpha.abs(), # 调试输出修正后的值
             "mtf_bid_side_liquidity": mtf_bid_side_liquidity,
             "mtf_absorption_strength_ma5": mtf_absorption_strength_ma5,
             "mtf_active_buying_support": mtf_active_buying_support,
