@@ -107,13 +107,13 @@ class CalculateWinnerConvictionRelationship:
 
     def _print_debug_info(self, method_name: str, final_score: pd.Series, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict, _temp_debug_values: Dict):
         """
-        【V1.1 · 调试信息全面打印版】统一打印调试信息，新增累积上下文、趋势一致性、拐点信号的输出。
+        【V1.2 · 调试信息全面打印版】统一打印调试信息，新增累积上下文、趋势一致性、拐点信号的输出。
         参数:
             method_name (str): 调用此方法的名称，用于日志输出。
             final_score (pd.Series): 最终计算出的分数。
             is_debug_enabled_for_method (bool): 是否启用调试。
             probe_ts (Optional[pd.Timestamp]): 探针日期。
-            debug_output (Dict): 调试输出字典。
+            debug_output (Dict): 调试输出字典。 (这是 calculate 方法的顶层 debug_output)
             _temp_debug_values (Dict): 临时调试值字典。
         """
         if is_debug_enabled_for_method and probe_ts:
@@ -129,6 +129,13 @@ class CalculateWinnerConvictionRelationship:
             for key, series in _temp_debug_values.get("累积上下文信号值", {}).items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output[f"        {key}: {val:.4f}"] = ""
+            # 新增：打印 _get_and_validate_signals 内部收集的详细调试信息
+            internal_get_signals_debug = _temp_debug_values.get("_get_and_validate_signals_debug_output", {})
+            if internal_get_signals_debug:
+                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 累积上下文计算详情 ---"] = ""
+                for key, value in internal_get_signals_debug.items():
+                    # 假设 value 已经是格式化好的字符串或空字符串
+                    debug_output[key] = value # 直接添加到主 debug_output
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF趋势一致性信号值 ---"] = ""
             for key, series in _temp_debug_values.get("MTF趋势一致性信号值", {}).items():
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
