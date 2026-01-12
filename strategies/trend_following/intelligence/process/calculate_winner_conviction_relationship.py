@@ -177,10 +177,11 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.10 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
+        【V1.12 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
         核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient_inverse` 的逻辑修正，并更新其权重名称。
+        核心调整：降低 `main_force_conviction` 的权重，提高 `cumulative_main_force_conviction_index` 的权重，以减少短期负面信号的过度影响，并增强长期累积信念的权重。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -206,7 +207,7 @@ class CalculateWinnerConvictionRelationship:
         direction_weights = get_param_value(params.get('direction_weights'), {'conviction': 0.6, 'pressure': 0.4})
         # 新增参数：信念增强因子权重
         conviction_enhancement_weights = get_param_value(params.get('conviction_enhancement_weights'), {
-            "main_force_conviction": 0.2,
+            "main_force_conviction": 0.1, # 调整：从0.2降低到0.1，减少短期流量影响
             "chip_health": 0.2,
             "winner_profit_margin_avg": 0.1,
             "loser_loss_margin_avg": 0.1, # 修正：键名改为 loser_loss_margin_avg
@@ -215,7 +216,7 @@ class CalculateWinnerConvictionRelationship:
             "cost_gini_coefficient": 0.05, # 修正：键名改为 cost_gini_coefficient
             "winner_stability_trend_consistency": 0.1,
             "cumulative_winner_stability_index": 0.05, # 新增累积上下文权重
-            "cumulative_main_force_conviction_index": 0.05,
+            "cumulative_main_force_conviction_index": 0.15, # 调整：从0.05提高到0.15，增强长期存量影响
             "cumulative_chip_health_score": 0.05,
             "cumulative_winner_profit_margin_avg": 0.05,
             "cumulative_loser_loss_margin_avg": 0.05,
@@ -225,6 +226,7 @@ class CalculateWinnerConvictionRelationship:
         })
         # 新增参数：压力韧性增强因子权重
         pressure_resilience_enhancement_weights = get_param_value(params.get('pressure_resilience_enhancement_weights'), {
+            "core_resilience": 0.35, # 调整：从0.4降低到0.35
             "main_force_buy_execution_alpha": 0.2,
             "bid_side_liquidity": 0.2,
             "absorption_strength_ma5": 0.2,
@@ -234,7 +236,7 @@ class CalculateWinnerConvictionRelationship:
             "selling_pressure_trend_consistency": 0.1, # 修正：替换为更通用的 selling_pressure_trend_consistency
             "distribution_at_peak_intensity": 0.1, # 新增
             "upper_shadow_selling_pressure": 0.1, # 新增
-            "cumulative_main_force_buy_execution_alpha": 0.05, # 新增累积上下文权重
+            "cumulative_main_force_buy_execution_alpha": 0.1, # 调整：从0.05提高到0.1
             "cumulative_bid_side_liquidity": 0.05,
             "cumulative_absorption_strength_ma5": 0.05,
             "cumulative_active_buying_support": 0.05,
@@ -307,7 +309,7 @@ class CalculateWinnerConvictionRelationship:
         inflection_point_params = get_param_value(params.get('inflection_point_params'), {
             "signals_for_inflection_detection": [ # 需要检测拐点的MTF信号
                 'mtf_winner_stability_index',
-                'mtf_dispersal_by_distribution', # 修正：替换为新的压力信号
+                'mtf_dispersal_by_by_distribution', # 修正：替换为新的压力信号
                 'mtf_main_force_conviction_index',
                 'mtf_chip_health_score'
             ],

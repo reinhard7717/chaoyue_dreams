@@ -867,12 +867,12 @@ class AdvancedFundFlowMetricsService:
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
 
-        if probe_active:
-            print(f"\n--- [探针] {stock_code} {current_date} - main_force_conviction_index 计算全流程 ---")
-            print(f"  - 基础上下文: ATR={atr:.4f}, DailyTotalVolume={daily_total_volume:.4f}")
-            print(f"  - hf_analysis_df (前5行):\n{hf_analysis_df.head()}")
-            print(f"  - hf_analysis_df (后5行):\n{hf_analysis_df.tail()}")
-            print(f"  - hf_features: {hf_features}")
+        # if probe_active:
+        #     print(f"\n--- [探针] {stock_code} {current_date} - main_force_conviction_index 计算全流程 ---")
+        #     print(f"  - 基础上下文: ATR={atr:.4f}, DailyTotalVolume={daily_total_volume:.4f}")
+        #     print(f"  - hf_analysis_df (前5行):\n{hf_analysis_df.head()}")
+        #     print(f"  - hf_analysis_df (后5行):\n{hf_analysis_df.tail()}")
+        #     print(f"  - hf_features: {hf_features}")
 
         mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
         aggressiveness_component, trend_quality, closing_strength = 0.0, 0.0, 0.0
@@ -893,25 +893,25 @@ class AdvancedFundFlowMetricsService:
             closing_strength = np.nan_to_num(closing_strength) # 处理NaN
             aggressiveness_component = trend_quality * closing_strength
         
-        if probe_active:
-            print(f"\n  --- 攻击性组件 (aggressiveness_component) ---")
-            print(f"    - mf_ofi_cumsum (前5行):\n{mf_ofi_cumsum.head()}")
-            print(f"    - mf_ofi_cumsum (后5行):\n{mf_ofi_cumsum.tail()}")
-            print(f"    - trend_quality (累积OFI与时间相关性): {trend_quality:.4f}")
-            print(f"    - ofi_min: {ofi_min:.4f}, ofi_max: {ofi_max:.4f}, mf_ofi_cumsum.iloc[-1]: {mf_ofi_cumsum.iloc[-1]:.4f}")
-            print(f"    - closing_strength (收盘强度): {closing_strength:.4f}")
-            print(f"    - aggressiveness_component: {aggressiveness_component:.4f}")
+        # if probe_active:
+        #     print(f"\n  --- 攻击性组件 (aggressiveness_component) ---")
+        #     print(f"    - mf_ofi_cumsum (前5行):\n{mf_ofi_cumsum.head()}")
+        #     print(f"    - mf_ofi_cumsum (后5行):\n{mf_ofi_cumsum.tail()}")
+        #     print(f"    - trend_quality (累积OFI与时间相关性): {trend_quality:.4f}")
+        #     print(f"    - ofi_min: {ofi_min:.4f}, ofi_max: {ofi_max:.4f}, mf_ofi_cumsum.iloc[-1]: {mf_ofi_cumsum.iloc[-1]:.4f}")
+        #     print(f"    - closing_strength (收盘强度): {closing_strength:.4f}")
+        #     print(f"    - aggressiveness_component: {aggressiveness_component:.4f}")
 
         cost_tolerance_component = 0.0
         if pd.notna(hf_mf_buy_vwap) and pd.notna(hf_mf_sell_vwap) and pd.notna(atr) and atr > 0:
             cost_tolerance_component = (hf_mf_buy_vwap - hf_mf_sell_vwap) / atr
         
-        if probe_active:
-            print(f"\n  --- 成本容忍度组件 (cost_tolerance_component) ---")
-            print(f"    - hf_mf_buy_vwap: {hf_mf_buy_vwap:.4f}")
-            print(f"    - hf_mf_sell_vwap: {hf_mf_sell_vwap:.4f}")
-            print(f"    - atr: {atr:.4f}")
-            print(f"    - cost_tolerance_component: {cost_tolerance_component:.4f}")
+        # if probe_active:
+        #     print(f"\n  --- 成本容忍度组件 (cost_tolerance_component) ---")
+        #     print(f"    - hf_mf_buy_vwap: {hf_mf_buy_vwap:.4f}")
+        #     print(f"    - hf_mf_sell_vwap: {hf_mf_sell_vwap:.4f}")
+        #     print(f"    - atr: {atr:.4f}")
+        #     print(f"    - cost_tolerance_component: {cost_tolerance_component:.4f}")
 
         resilience_component = 0.0
         # 确保 mid_price_delta 存在且有效
@@ -924,20 +924,20 @@ class AdvancedFundFlowMetricsService:
                 if total_mf_positive_ofi > 0:
                     resilience_component = mf_resilience_ofi / total_mf_positive_ofi
             
-        if probe_active:
-            print(f"\n  --- 韧性组件 (resilience_component) ---")
-            print(f"    - 价格下跌时段 (mid_price_delta < 0) 数量: {price_pressure_zone.sum()} / {len(hf_analysis_df)}")
-            print(f"    - mf_resilience_ofi (下跌时主力净买入): {mf_resilience_ofi:.4f}")
-            print(f"    - total_mf_positive_ofi (全天主力净买入): {total_mf_positive_ofi:.4f}")
-            print(f"    - resilience_component: {resilience_component:.4f}")
+        # if probe_active:
+        #     print(f"\n  --- 韧性组件 (resilience_component) ---")
+        #     print(f"    - 价格下跌时段 (mid_price_delta < 0) 数量: {price_pressure_zone.sum()} / {len(hf_analysis_df)}")
+        #     print(f"    - mf_resilience_ofi (下跌时主力净买入): {mf_resilience_ofi:.4f}")
+        #     print(f"    - total_mf_positive_ofi (全天主力净买入): {total_mf_positive_ofi:.4f}")
+        #     print(f"    - resilience_component: {resilience_component:.4f}")
 
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
         
-        if probe_active:
-            print(f"\n  --- 最终 main_force_conviction_index ---")
-            print(f"    - 加权和: (0.4 * {aggressiveness_component:.4f} + 0.4 * {cost_tolerance_component:.4f} + 0.2 * {resilience_component:.4f})")
-            print(f"    - main_force_conviction_index: {metrics['main_force_conviction_index']:.4f}")
-            print(f"--- [探针结束] {stock_code} {current_date} ---")
+        # if probe_active:
+        #     print(f"\n  --- 最终 main_force_conviction_index ---")
+        #     print(f"    - 加权和: (0.4 * {aggressiveness_component:.4f} + 0.4 * {cost_tolerance_component:.4f} + 0.2 * {resilience_component:.4f})")
+        #     print(f"    - main_force_conviction_index: {metrics['main_force_conviction_index']:.4f}")
+        #     print(f"--- [探针结束] {stock_code} {current_date} ---")
 
         mf_trades = hf_features['mf_trades']
         total_mf_vol = hf_features['total_mf_vol']

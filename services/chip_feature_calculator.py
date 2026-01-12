@@ -734,13 +734,13 @@ class ChipFeatureCalculator:
         if hf_analysis_df is not None and not hf_analysis_df.empty:
             hf_analysis_df = hf_analysis_df[hf_analysis_df.index.time >= time(9, 30)].copy()
         if intraday_df_raw is None or intraday_df_raw.empty:
-            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 为空。")
+            # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 为空。")
             if hf_analysis_df is None or hf_analysis_df.empty:
-                print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 和 hf_analysis_df 都为空。")
+                # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: processed_intraday_df 和 hf_analysis_df 都为空。")
                 return results
         intraday_df = intraday_df_raw[intraday_df_raw.index.time >= time(9, 30)].copy()
         if intraday_df.empty and (hf_analysis_df is None or hf_analysis_df.empty):
-            print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 过滤后 intraday_df 和 hf_analysis_df 都为空。")
+            # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - _compute_intraday_dynamics_metrics: 过滤后 intraday_df 和 hf_analysis_df 都为空。")
             return results
         close_price = context.get('close_price')
         vwap = context.get('daily_vwap')
@@ -765,7 +765,7 @@ class ChipFeatureCalculator:
                         peak_vwap_calculated = True
                 # 第二优先级：如果高频数据未计算成功，尝试分钟数据
                 if not peak_vwap_calculated:
-                    print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内数据价格范围: min={intraday_df['minute_vwap'].min():.2f}, max={intraday_df['minute_vwap'].max():.2f}")
+                    # print(f"  [DEBUG_DEEP] {stock_code} {trade_date} - 日内数据价格范围: min={intraday_df['minute_vwap'].min():.2f}, max={intraday_df['minute_vwap'].max():.2f}")
                     peak_vwap_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
                     if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
                         peak_vwap_minute = (peak_vwap_df['minute_vwap'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
