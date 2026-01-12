@@ -177,11 +177,12 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.12 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
+        【V1.14 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
         核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient_inverse` 的逻辑修正，并更新其权重名称。
-        核心调整：降低 `main_force_conviction` 的权重，提高 `cumulative_main_force_conviction_index` 的权重，以减少短期负面信号的过度影响，并增强长期累积信念的权重。
+        核心调整：进一步降低 `main_force_conviction` 和 `core_resilience` 的权重，提高对应累积上下文信号的权重，以减少短期负面信号的过度影响，并增强长期累积信念的权重。
+        核心修正：`pressure_resilience_enhancement_weights` 中 `core_resilience` 的权重调整，并移除 `cumulative_dispersal_by_distribution` 的权重，因为它现在是 `core_resilience` 的主要驱动。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -207,7 +208,7 @@ class CalculateWinnerConvictionRelationship:
         direction_weights = get_param_value(params.get('direction_weights'), {'conviction': 0.6, 'pressure': 0.4})
         # 新增参数：信念增强因子权重
         conviction_enhancement_weights = get_param_value(params.get('conviction_enhancement_weights'), {
-            "main_force_conviction": 0.1, # 调整：从0.2降低到0.1，减少短期流量影响
+            "main_force_conviction": 0.05, # 调整：从0.1降低到0.05，进一步减少短期流量影响
             "chip_health": 0.2,
             "winner_profit_margin_avg": 0.1,
             "loser_loss_margin_avg": 0.1, # 修正：键名改为 loser_loss_margin_avg
@@ -216,7 +217,7 @@ class CalculateWinnerConvictionRelationship:
             "cost_gini_coefficient": 0.05, # 修正：键名改为 cost_gini_coefficient
             "winner_stability_trend_consistency": 0.1,
             "cumulative_winner_stability_index": 0.05, # 新增累积上下文权重
-            "cumulative_main_force_conviction_index": 0.15, # 调整：从0.05提高到0.15，增强长期存量影响
+            "cumulative_main_force_conviction_index": 0.2, # 调整：从0.15提高到0.2，进一步增强长期存量影响
             "cumulative_chip_health_score": 0.05,
             "cumulative_winner_profit_margin_avg": 0.05,
             "cumulative_loser_loss_margin_avg": 0.05,
@@ -226,7 +227,7 @@ class CalculateWinnerConvictionRelationship:
         })
         # 新增参数：压力韧性增强因子权重
         pressure_resilience_enhancement_weights = get_param_value(params.get('pressure_resilience_enhancement_weights'), {
-            "core_resilience": 0.35, # 调整：从0.4降低到0.35
+            "core_resilience": 0.4, # 调整：由于 core_resilience 现在直接由累积派发量驱动，其权重可以适当提高
             "main_force_buy_execution_alpha": 0.2,
             "bid_side_liquidity": 0.2,
             "absorption_strength_ma5": 0.2,
@@ -242,7 +243,7 @@ class CalculateWinnerConvictionRelationship:
             "cumulative_active_buying_support": 0.05,
             "cumulative_large_order_support": 0.05,
             "cumulative_dip_absorption_power": 0.05,
-            "cumulative_dispersal_by_distribution": 0.05,
+            # "cumulative_dispersal_by_distribution": 0.1, # 移除：累积派发量现在是 core_resilience 的主要驱动，不再作为独立组件
             "cumulative_distribution_at_peak_intensity": 0.05,
             "cumulative_upper_shadow_selling_pressure": 0.05
         })
@@ -309,7 +310,7 @@ class CalculateWinnerConvictionRelationship:
         inflection_point_params = get_param_value(params.get('inflection_point_params'), {
             "signals_for_inflection_detection": [ # 需要检测拐点的MTF信号
                 'mtf_winner_stability_index',
-                'mtf_dispersal_by_by_distribution', # 修正：替换为新的压力信号
+                'mtf_dispersal_by_distribution', # 修正：替换为新的压力信号
                 'mtf_main_force_conviction_index',
                 'mtf_chip_health_score'
             ],
@@ -692,12 +693,14 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.17 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 修正主力买入执行Alpha贡献逻辑与压力信号反转逻辑】计算压力韧性。
+        【V1.18 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 修正主力买入执行Alpha贡献逻辑与压力信号反转逻辑】计算压力韧性。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`main_force_buy_execution_alpha` 的逻辑修正，无论是正值还是负值，其绝对值越大，对压力韧性贡献越大。
         核心修正：`distribution_at_peak_intensity` 和 `upper_shadow_selling_pressure` 的反转逻辑，
                   由于其MTF分数已通过 `ascending=False` 正确映射负面影响，无需再乘以 `-1`。
                   （注意：`selling_pressure_trend_consistency` 的 `* -1` 是正确的，因为它衡量的是负面信号的趋势一致性，一致性越高越差。）
+        核心修正：`core_resilience_component` 的计算逻辑，移除 `dispersal_by_distribution_percentile` 和 `mtf_dispersal_by_distribution`，
+                  直接使用 `cumulative_dispersal_by_distribution_score` 作为核心派发压力信号，以避免历史排名和短期MTF的误导性。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -715,9 +718,9 @@ class CalculateWinnerConvictionRelationship:
         pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
         inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
         # 核心压力信号MTF分数 (使用新的压力信号：dispersal_by_distribution)
-        mtf_dispersal_by_distribution = signals["mtf_dispersal_by_distribution"]
+        # mtf_dispersal_by_distribution = signals["mtf_dispersal_by_distribution"] # 移除
         # 修正：使用新的压力信号的原始值计算百分位
-        dispersal_by_distribution_percentile = (1 - signals["dispersal_by_distribution_raw"].rank(pct=True)).fillna(0.5)
+        # dispersal_by_distribution_percentile = (1 - signals["dispersal_by_distribution_raw"].rank(pct=True)).fillna(0.5) # 移除
         # 获取MTF信号
         mtf_main_force_buy_execution_alpha = signals["mtf_main_force_buy_execution_alpha"]
         mtf_bid_side_liquidity = signals["mtf_bid_side_liquidity"]
@@ -734,11 +737,15 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["压力韧性"]["mtf_active_buying_support_pre_modulated"] = mtf_active_buying_support
         _temp_debug_values["压力韧性"]["mtf_large_order_support_pre_modulated"] = mtf_large_order_support
         _temp_debug_values["压力韧性"]["dip_absorption_power_norm_pre_modulated"] = normalized_signals["dip_absorption_power_norm"]
-        _temp_debug_values["压力韧性"]["mtf_dispersal_by_distribution_pre_modulated"] = mtf_dispersal_by_distribution
+        # _temp_debug_values["压力韧性"]["mtf_dispersal_by_distribution_pre_modulated"] = mtf_dispersal_by_distribution # 移除
         _temp_debug_values["压力韧性"]["mtf_distribution_at_peak_intensity_pre_modulated"] = mtf_distribution_at_peak_intensity
         _temp_debug_values["压力韧性"]["mtf_upper_shadow_selling_pressure_pre_modulated"] = mtf_upper_shadow_selling_pressure
-        core_resilience_component = ((mtf_dispersal_by_distribution * -1) * relative_position_weights.get("selling_pressure_low", 0.4) +
-                                     (dispersal_by_distribution_percentile * 2 - 1) * (1 - relative_position_weights.get("selling_pressure_low", 0.4)))
+
+        # 核心修正：core_resilience_component 的计算逻辑，直接使用 cumulative_dispersal_by_distribution_score
+        # cumulative_dispersal_by_distribution_score 越高代表累积派发越多（越差），所以它应该对压力韧性产生负面影响。
+        cumulative_dispersal_by_distribution = signals.get("cumulative_dispersal_by_distribution_score", pd.Series(0.0, index=df_index))
+        core_resilience_component = cumulative_dispersal_by_distribution * -1 # 累积派发越高，核心韧性越低
+
         # 引入MTF趋势一致性分数 (使用新的压力信号)
         mtf_trend_consistency_selling_pressure = signals.get("mtf_trend_consistency_dispersal_by_distribution", pd.Series(0.0, index=df_index))
         # 引入拐点惩罚 (使用新的压力信号)
@@ -773,7 +780,7 @@ class CalculateWinnerConvictionRelationship:
         }
         # 融合权重
         resilience_fusion_weights = {
-            "core_resilience": 0.4,
+            "core_resilience": 0.4, # 调整：由于 core_resilience 现在直接由累积派发量驱动，其权重可以适当提高
             "main_force_buy_execution_alpha": pressure_resilience_enhancement_weights.get("main_force_buy_execution_alpha", 0.2),
             "bid_side_liquidity": pressure_resilience_enhancement_weights.get("bid_side_liquidity", 0.2),
             "absorption_strength_ma5": pressure_resilience_enhancement_weights.get("absorption_strength_ma5", 0.2),
@@ -790,7 +797,7 @@ class CalculateWinnerConvictionRelationship:
             "cumulative_active_buying_support": pressure_resilience_enhancement_weights.get("cumulative_active_buying_support", 0.05),
             "cumulative_large_order_support": pressure_resilience_enhancement_weights.get("cumulative_large_order_support", 0.05),
             "cumulative_dip_absorption_power": pressure_resilience_enhancement_weights.get("cumulative_dip_absorption_power", 0.05),
-            "cumulative_dispersal_by_distribution": pressure_resilience_enhancement_weights.get("cumulative_dispersal_by_distribution", 0.05),
+            "cumulative_dispersal_by_distribution": pressure_resilience_enhancement_weights.get("cumulative_dispersal_by_distribution", 0.05), # 累积派发量现在是核心，权重可以适当降低，因为它已经体现在 core_resilience 中
             "cumulative_distribution_at_peak_intensity": pressure_resilience_enhancement_weights.get("cumulative_distribution_at_peak_intensity", 0.05),
             "cumulative_upper_shadow_selling_pressure": pressure_resilience_enhancement_weights.get("cumulative_upper_shadow_selling_pressure", 0.05)
         }
@@ -806,8 +813,8 @@ class CalculateWinnerConvictionRelationship:
         )
         pressure_resilience_score = (fused_pressure_resilience_0_1 * 2 - 1).clip(-1, 1)
         _temp_debug_values["压力韧性"].update({ # 使用 update 方法合并字典
-            "mtf_dispersal_by_distribution": mtf_dispersal_by_distribution,
-            "dispersal_by_distribution_percentile": dispersal_by_distribution_percentile,
+            # "mtf_dispersal_by_distribution": mtf_dispersal_by_distribution, # 移除
+            # "dispersal_by_distribution_percentile": dispersal_by_distribution_percentile, # 移除
             "core_resilience_component": core_resilience_component,
             "mtf_main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
             "mtf_main_force_buy_execution_alpha_abs_for_fusion": mtf_main_force_buy_execution_alpha.abs(), # 调试输出修正后的值
