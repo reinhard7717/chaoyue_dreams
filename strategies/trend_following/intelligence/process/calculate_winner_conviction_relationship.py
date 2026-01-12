@@ -177,11 +177,12 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.5 · 参数全面扩展与累积流、趋势一致性、拐点参数版 - 压力信号更新】从 config 中获取所有必要的参数。
+        【V1.6 · 参数全面扩展与累积流、趋势一致性、拐点参数版 - 压力信号更新与累积流信号补充】从 config 中获取所有必要的参数。
         新增了信念增强、压力韧性增强、诡道过滤增强和情境调制增强的权重，累积流参数，
         以及趋势一致性权重和拐点惩罚强度。
         核心修正：将 `profit_taking_flow_low` 替换为更通用的 `selling_pressure_low`，并更新相关权重。
         核心新增：在 `pressure_resilience_enhancement_weights` 中加入 `distribution_at_peak_intensity` 和 `upper_shadow_selling_pressure`。
+        核心新增：在 `cumulative_flow_params` 中加入 `market_impact_cost_D`。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -252,7 +253,8 @@ class CalculateWinnerConvictionRelationship:
                 'covert_accumulation_signal_D',
                 'closing_auction_ambush_D',
                 'dip_absorption_power_D',
-                'dispersal_by_distribution_D' # 新增：将新的压力信号加入累积上下文
+                'dispersal_by_distribution_D', # 新增：将新的压力信号加入累积上下文
+                'market_impact_cost_D' # 新增：将市场冲击成本加入累积上下文
             ],
             "cumulative_periods": [13, 21], # 累积周期
             "cumulative_weights": {13: 0.6, 21: 0.4}, # 累积周期权重
@@ -617,7 +619,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.10 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积调制条件修正】计算压力韧性。
+        【V1.11 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积调制条件修正】计算压力韧性。
         融入了更多MTF和归一化信号，修正了键名，新增累积上下文调制、趋势一致性增强和拐点惩罚。
         核心修正：修正 `mtf_main_force_buy_execution_alpha` 累积上下文调制的条件判断，确保其与被调制信号一致。
         参数:
@@ -676,6 +678,9 @@ class CalculateWinnerConvictionRelationship:
             cumulative_score = signals["cumulative_large_order_support_score"]
             mtf_large_order_support = mtf_large_order_support + (cumulative_score - mtf_large_order_support) * cumulative_modulation_strength
             mtf_large_order_support = mtf_large_order_support.clip(-1, 1)
+        # 调试输出调制前的 dip_absorption_power_norm
+        if "dip_absorption_power_norm" in normalized_signals and _temp_debug_values:
+            _temp_debug_values["压力韧性"]["dip_absorption_power_norm_pre_modulated"] = normalized_signals["dip_absorption_power_norm"]
         if "cumulative_dip_absorption_power_score" in signals:
             cumulative_score = signals["cumulative_dip_absorption_power_score"]
             # 注意：这里dip_absorption_power_norm是归一化原始值，不是MTF，但也可以进行调制
@@ -858,7 +863,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.5 · 情境调制累积上下文调制版】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名，新增累积上下文调制。
+        【V1.6 · 情境调制累积上下文调制版 - 市场冲击成本调制与调试增强】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名，新增累积上下文调制。
+        核心修正：确保 `mtf_market_impact_cost` 能够被累积上下文调制。
+        核心新增：添加对调制前和调制后 `mtf_market_impact_cost` 的调试输出。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series和MTF信号Series的字典。
@@ -877,13 +884,18 @@ class CalculateWinnerConvictionRelationship:
         norm_trend_vitality = self.helper._normalize_series(signals["trend_vitality_index_raw"], df_index, bipolar=False)
         norm_theme_hotness = normalized_signals["theme_hotness_norm"]
         norm_industry_leader_score = normalized_signals["industry_leader_score_norm"]
+        
         # 市场冲击成本MTF分数，MTF分数越高代表冲击成本越高，是负面影响
         mtf_market_impact_cost = signals["mtf_market_impact_cost"]
+        # 调试输出调制前的 mtf_market_impact_cost
+        if _temp_debug_values:
+            _temp_debug_values["情境调制"]["mtf_market_impact_cost_pre_modulated"] = mtf_market_impact_cost
         # 对相关MTF信号进行累积上下文调制
         if "cumulative_market_impact_cost_score" in signals:
             cumulative_score = signals["cumulative_market_impact_cost_score"]
             mtf_market_impact_cost = mtf_market_impact_cost + (cumulative_score - mtf_market_impact_cost) * cumulative_modulation_strength
             mtf_market_impact_cost = mtf_market_impact_cost.clip(-1, 1)
+        
         # 所有情境调制组件
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
@@ -920,7 +932,8 @@ class CalculateWinnerConvictionRelationship:
             "norm_trend_vitality": norm_trend_vitality,
             "norm_theme_hotness": norm_theme_hotness,
             "norm_industry_leader_score": norm_industry_leader_score,
-            "mtf_market_impact_cost": mtf_market_impact_cost, # 调试输出调制后的值
+            "mtf_market_impact_cost_pre_modulated": _temp_debug_values["情境调制"].get("mtf_market_impact_cost_pre_modulated"), # 调试输出调制前的值
+            "mtf_market_impact_cost_modulated": mtf_market_impact_cost, # 调试输出调制后的值
             "context_modulator_score_0_1": context_modulator_score_0_1,
             "context_modulator": context_modulator
         }

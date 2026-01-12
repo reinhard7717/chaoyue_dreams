@@ -827,36 +827,9 @@
                 "accumulation_window": 21,
                 "description": "【V1.0 · 势能转换】识别多日累积吸筹后，即将由量变到质变的拉升拐点。"
             },
-            {
+{
                 "name": "PROCESS_META_WINNER_CONVICTION",
-                "type": "meta_analysis",
-                "task_type": "base",
-                "relationship_type": "custom",
-                "description": "【V4.0 · 韧性博弈与多维时空版】诊断赢家信念的综合强度。正分代表信念坚定，负分代表信念动摇。",
                 "winner_conviction_params": {
-                    "fusion_weights": {
-                        "conviction_strength": 0.4,
-                        "pressure_resilience": 0.3,
-                        "synergy_factor": 0.2,
-                        "deception_penalty": 0.1
-                    },
-                    "relative_position_weights": {
-                        "winner_stability_high": 0.6,
-                        "profit_taking_flow_low": 0.4
-                    },
-                    "context_modulator_weights": {
-                        "market_sentiment": 0.4,
-                        "volatility_inverse": 0.3,
-                        "trend_vitality": 0.3
-                    },
-                    "final_exponent": 1.5,
-                    "final_fusion_gm_weights": {
-                        "conviction_magnitude": 0.3,
-                        "pressure_magnitude": 0.2,
-                        "synergy_factor": 0.2,
-                        "deception_filter": 0.15,
-                        "context_modulator": 0.15
-                    },
                     "cumulative_flow_params": {
                         "flow_signals_for_cumulative_context": [
                             "main_force_conviction_index_D",
@@ -867,7 +840,9 @@
                             "large_order_support_D",
                             "covert_accumulation_signal_D",
                             "closing_auction_ambush_D",
-                            "dip_absorption_power_D"
+                            "dip_absorption_power_D",
+                            "dispersal_by_distribution_D",
+                            "market_impact_cost_D"
                         ],
                         "cumulative_periods": [13, 21],
                         "cumulative_weights": {
@@ -875,6 +850,16 @@
                             "21": 0.4
                         },
                         "cumulative_modulation_strength": 0.7
+                    },
+                    "inflection_point_params": {
+                        "signals_for_inflection_detection": [
+                            "mtf_winner_stability_index",
+                            "mtf_dispersal_by_distribution",
+                            "mtf_main_force_conviction_index",
+                            "mtf_chip_health_score"
+                        ],
+                        "inflection_detection_window": 5,
+                        "inflection_penalty_strength": 0.2
                     }
                 }
             },
