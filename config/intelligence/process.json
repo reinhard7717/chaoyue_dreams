@@ -837,7 +837,7 @@
                         "loser_loss_margin_avg": 0.1,
                         "winner_concentration_90pct": 0.1,
                         "chip_fatigue": 0.1,
-                        "cost_gini_coefficient_inverse": 0.05,
+                        "cost_gini_coefficient": 0.05,
                         "winner_stability_trend_consistency": 0.1,
                         "cumulative_winner_stability_index": 0.05,
                         "cumulative_main_force_conviction_index": 0.05,

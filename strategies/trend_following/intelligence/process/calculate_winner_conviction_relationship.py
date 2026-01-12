@@ -177,9 +177,10 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.9 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
+        【V1.10 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
         核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
+        核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient_inverse` 的逻辑修正，并更新其权重名称。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -211,7 +212,7 @@ class CalculateWinnerConvictionRelationship:
             "loser_loss_margin_avg": 0.1, # 修正：键名改为 loser_loss_margin_avg
             "winner_concentration_90pct": 0.1,
             "chip_fatigue": 0.1, # 修正：键名改为 chip_fatigue
-            "cost_gini_coefficient_inverse": 0.05,
+            "cost_gini_coefficient": 0.05, # 修正：键名改为 cost_gini_coefficient
             "winner_stability_trend_consistency": 0.1,
             "cumulative_winner_stability_index": 0.05, # 新增累积上下文权重
             "cumulative_main_force_conviction_index": 0.05,
@@ -330,12 +331,8 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V2.2 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 压力信号更新与累积上下文信号全面补充】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
-        - 核心修正: 替换 `profit_taking_flow_ratio_D` 为 `dispersal_by_distribution_D` 作为核心压力信号。
-        - 核心新增: 补充 `distribution_at_peak_intensity_D` 和 `upper_shadow_selling_pressure_D` 原始信号的获取。
-        - 核心修改: 使用 `cumulative_context_params` 中的 `signals_for_cumulative_context` 列表来计算累积上下文分数。
-        - 核心新增: 计算并存储指定信号的MTF趋势一致性分数。
-        - 核心新增: 计算并存储指定MTF信号的拐点检测分数。
+        【V2.3 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
+        - 核心修正: 修正 `mtf_winner_concentration_90pct` 和 `mtf_cost_gini_coefficient` 的 `ascending` 参数，使其MTF分数方向与信念强度业务逻辑一致。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -446,6 +443,10 @@ class CalculateWinnerConvictionRelationship:
         signals_data["mtf_dispersal_by_distribution"] = self.helper._get_mtf_slope_accel_score(df, 'dispersal_by_distribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
         signals_data["mtf_distribution_at_peak_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'distribution_at_peak_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
         signals_data["mtf_upper_shadow_selling_pressure"] = self.helper._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        # 核心修正：winner_concentration_90pct，集中度越低越好，所以ascending=False
+        signals_data["mtf_winner_concentration_90pct"] = self.helper._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        # 核心修正：cost_gini_coefficient，基尼系数越低越好，所以ascending=False
+        signals_data["mtf_cost_gini_coefficient"] = self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
 
         # 计算并存储指定信号的累积上下文分数 (使用新的参数名称和列表)
         cumulative_context_params = params["cumulative_context_params"]
@@ -544,9 +545,10 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.10 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
+        【V1.11 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，直接使用其MTF分数。
+        核心修正：`loser_loss_margin_avg` 和 `chip_fatigue` 的逻辑修正，直接使用其MTF分数。
+        核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient` 的逻辑修正，直接使用其MTF分数。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -574,9 +576,9 @@ class CalculateWinnerConvictionRelationship:
         mtf_chip_health_score = signals["mtf_chip_health_score"]
         mtf_winner_profit_margin_avg = signals["mtf_winner_profit_margin_avg"]
         mtf_loser_loss_margin_avg = signals["mtf_loser_loss_margin_avg"] # 修正：直接使用MTF分数
-        mtf_winner_concentration_90pct = signals["mtf_winner_concentration_90pct"]
+        mtf_winner_concentration_90pct = signals["mtf_winner_concentration_90pct"] # 修正：直接使用MTF分数
         mtf_chip_fatigue_index = signals["mtf_chip_fatigue_index"] # 修正：直接使用MTF分数
-        mtf_cost_gini_coefficient = signals["mtf_cost_gini_coefficient"]
+        mtf_cost_gini_coefficient = signals["mtf_cost_gini_coefficient"] # 修正：直接使用MTF分数
 
         # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
         # 调试输出调制前的MTF信号 (现在这些值就是最终使用的MTF值)
@@ -608,9 +610,9 @@ class CalculateWinnerConvictionRelationship:
             "chip_health": mtf_chip_health_score,
             "winner_profit_margin_avg": mtf_winner_profit_margin_avg,
             "loser_loss_margin_avg": mtf_loser_loss_margin_avg, # 修正：直接使用 mtf_loser_loss_margin_avg
-            "winner_concentration_90pct": mtf_winner_concentration_90pct,
+            "winner_concentration_90pct": mtf_winner_concentration_90pct, # 修正：直接使用 mtf_winner_concentration_90pct
             "chip_fatigue": mtf_chip_fatigue_index, # 修正：直接使用 mtf_chip_fatigue_index
-            "cost_gini_coefficient_inverse": mtf_cost_gini_coefficient * -1,
+            "cost_gini_coefficient": mtf_cost_gini_coefficient, # 修正：直接使用 mtf_cost_gini_coefficient
             "winner_stability_trend_consistency": mtf_trend_consistency_winner_stability,
             # 新增累积上下文作为独立组件
             "cumulative_winner_stability_index": signals.get("cumulative_winner_stability_index_score", pd.Series(0.0, index=df_index)),
@@ -629,9 +631,9 @@ class CalculateWinnerConvictionRelationship:
             "chip_health": conviction_enhancement_weights.get("chip_health", 0.2),
             "winner_profit_margin_avg": conviction_enhancement_weights.get("winner_profit_margin_avg", 0.1),
             "loser_loss_margin_avg": conviction_enhancement_weights.get("loser_loss_margin_avg", 0.1), # 修正：键名改为 loser_loss_margin_avg
-            "winner_concentration_90pct": conviction_enhancement_weights.get("winner_concentration_90pct", 0.1),
+            "winner_concentration_90pct": conviction_enhancement_weights.get("winner_concentration_90pct", 0.1), # 修正：键名改为 winner_concentration_90pct
             "chip_fatigue": conviction_enhancement_weights.get("chip_fatigue", 0.1), # 修正：键名改为 chip_fatigue
-            "cost_gini_coefficient_inverse": conviction_enhancement_weights.get("cost_gini_coefficient_inverse", 0.05),
+            "cost_gini_coefficient": conviction_enhancement_weights.get("cost_gini_coefficient", 0.05), # 修正：键名改为 cost_gini_coefficient
             "winner_stability_trend_consistency": conviction_enhancement_weights.get("winner_stability_trend_consistency", 0.1),
             # 新增累积上下文权重
             "cumulative_winner_stability_index": conviction_enhancement_weights.get("cumulative_winner_stability_index", 0.05),
@@ -662,9 +664,9 @@ class CalculateWinnerConvictionRelationship:
             "mtf_chip_health_score": mtf_chip_health_score,
             "mtf_winner_profit_margin_avg": mtf_winner_profit_margin_avg,
             "mtf_loser_loss_margin_avg": mtf_loser_loss_margin_avg, # 调试输出修正后的值
-            "mtf_winner_concentration_90pct": mtf_winner_concentration_90pct,
+            "mtf_winner_concentration_90pct": mtf_winner_concentration_90pct, # 调试输出修正后的值
             "mtf_chip_fatigue_index": mtf_chip_fatigue_index, # 调试输出修正后的值
-            "mtf_cost_gini_coefficient": mtf_cost_gini_coefficient,
+            "mtf_cost_gini_coefficient": mtf_cost_gini_coefficient, # 调试输出修正后的值
             "mtf_trend_consistency_winner_stability": mtf_trend_consistency_winner_stability, # 调试输出
             "inflection_mtf_winner_stability_index": inflection_mtf_winner_stability, # 调试输出
             "inflection_penalty_conviction": inflection_penalty, # 调试输出
