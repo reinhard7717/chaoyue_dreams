@@ -510,16 +510,17 @@ class ProcessIntelligenceHelper:
         fused_score = sum(all_scores_components) / total_combined_weight
         return fused_score.clip(-1, 1) if bipolar else fused_score.clip(0, 1)
 
-    def _get_cumulative_context_score(self, series: pd.Series, df_index: pd.Index, periods: List[int], weights: Dict[int, float], bipolar: bool = True, signal_name: str = "", is_debug_enabled_for_method: bool = False, probe_ts: Optional[pd.Timestamp] = None, debug_output: Dict = None) -> pd.Series:
+    def _get_cumulative_context_score(self, series: pd.Series, df_index: pd.Index, periods: List[int], weights: Dict[Any, float], bipolar: bool = True, signal_name: str = "", is_debug_enabled_for_method: bool = False, probe_ts: Optional[pd.Timestamp] = None, debug_output: Dict = None) -> pd.Series:
         """
-        【V1.2 · 累积上下文分数计算与调试探针版 - 权重键类型修正】计算给定信号在多个周期内的累积上下文分数。
+        【V1.3 · 累积上下文分数计算与调试探针版 - 权重键类型统一】计算给定信号在多个周期内的累积上下文分数。
         该分数反映了信号在中长期的累积净方向和强度。
-        核心修正：将 `weights.get(period, 0.0)` 修改为 `weights.get(str(period), 0.0)`，以正确匹配字典键的类型。
+        核心修正：统一 `weights` 字典的键类型为整数，以确保与 `periods` 列表中的整数周期匹配，
+                  解决 `weights.get()` 始终返回默认值 `0.0` 的问题。
         参数:
             series (pd.Series): 原始信号序列（例如，每日资金流）。
             df_index (pd.Index): DataFrame的索引。
             periods (List[int]): 累积周期列表，例如 [13, 21]。
-            weights (Dict[int, float]): 累积周期的权重字典，例如 {13: 0.6, 21: 0.4}。
+            weights (Dict[Any, float]): 累积周期的权重字典，其键可能是字符串或整数。
             bipolar (bool): 归一化是否为双极性 (-1到1)。
             signal_name (str): 信号名称，用于调试输出。
             is_debug_enabled_for_method (bool): 是否启用调试。
@@ -530,36 +531,59 @@ class ProcessIntelligenceHelper:
         """
         if debug_output is None:
             debug_output = {}
+
+        # 核心修正：统一 weights 字典的键类型为整数
+        processed_weights = {}
+        for k, v in weights.items():
+            try:
+                processed_weights[int(k)] = v
+            except (ValueError, TypeError):
+                # 如果键无法转换为整数，则保留原始键（虽然在当前场景下不应该发生）
+                processed_weights[k] = v
+
         if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"      -- [调试] 计算累积上下文分数 for '{signal_name}' @ {probe_ts.strftime('%Y-%m-%d')} --"] = ""
-            debug_output[f"        累积周期: {periods}, 周期权重: {weights}, 双极性归一化: {bipolar}"] = ""
+            debug_output[f"      -- [DEBUG_CUMULATIVE_CONTEXT_START] Signal: '{signal_name}' @ {probe_ts.strftime('%Y-%m-%d')} --"] = ""
+            debug_output[f"        Periods: {periods}, Original Weights Dict: {weights}, Processed Weights Dict: {processed_weights}, Bipolar: {bipolar}"] = ""
+            if processed_weights:
+                debug_output[f"        Processed Weights Dict Keys Type: {type(list(processed_weights.keys())[0]) if processed_weights else 'N/A'}"] = ""
+            else:
+                debug_output[f"        Processed Weights Dict is Empty or None."] = ""
+
         all_cumulative_scores = []
         total_weight = 0.0
-        for period in periods:
+        for period in periods: # period is an int, e.g., 13
             if period <= 0:
                 continue
             # 计算累积和
             cumulative_sum = series.rolling(window=period, min_periods=1).sum()
             # 对累积和进行归一化
             norm_cumulative_sum = self._normalize_series(cumulative_sum, df_index, bipolar=bipolar, ascending=True)
-            # 核心修正：将 period 转换为字符串，以匹配 weights 字典的键
-            weight = weights.get(str(period), 0.0)
+            
+            # 现在从 processed_weights 中获取权重，使用整数 period 作为键
+            weight = processed_weights.get(period, 0.0)
+
             if is_debug_enabled_for_method and probe_ts:
                 val_cumulative_sum = cumulative_sum.loc[probe_ts] if probe_ts in cumulative_sum.index else np.nan
                 val_norm_cumulative_sum = norm_cumulative_sum.loc[probe_ts] if probe_ts in norm_cumulative_sum.index else np.nan
+                debug_output[f"        [DEBUG_WEIGHT_RETRIEVAL_LOOP] Current Period (int): {period}, Retrieved Weight: {weight:.4f}"] = ""
                 debug_output[f"        周期 {period}d: 累积和={val_cumulative_sum:.4f}, 归一化={val_norm_cumulative_sum:.4f}, 权重={weight:.2f}"] = ""
+            
             if weight > 0:
                 all_cumulative_scores.append(norm_cumulative_sum * weight)
                 total_weight += weight
+        
         if not all_cumulative_scores or total_weight == 0:
             if is_debug_enabled_for_method and probe_ts:
                 debug_output[f"      -- [警告] '{signal_name}' 未能计算出有效的累积上下文分数。"] = ""
             return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        
         fused_cumulative_score = sum(all_cumulative_scores) / total_weight
         fused_cumulative_score = fused_cumulative_score.clip(-1, 1)
+        
         if is_debug_enabled_for_method and probe_ts:
             val_fused_score = fused_cumulative_score.loc[probe_ts] if probe_ts in fused_cumulative_score.index else np.nan
             debug_output[f"      -> 融合累积上下文分数 for '{signal_name}': {val_fused_score:.4f}"] = ""
+        
         return fused_cumulative_score
 
     def _get_mtf_trend_consistency_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
