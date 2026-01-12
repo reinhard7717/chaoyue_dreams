@@ -420,13 +420,13 @@ class ChipFeatureCalculator:
         }
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
-        print(f"  [调试] {stock_code} {trade_date} - 检查 _compute_game_theoretic_metrics 依赖变量:")
-        for var_name, var_value in required_vars_map.items():
-            print(f"    - {var_name}: {var_value}")
+        # print(f"  [调试] {stock_code} {trade_date} - 检查 _compute_game_theoretic_metrics 依赖变量:")
+        # for var_name, var_value in required_vars_map.items():
+        #     print(f"    - {var_name}: {var_value}")
         required_vars = list(required_vars_map.values())
         is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if is_short_circuit:
-            print(f"  [调试] {stock_code} {trade_date} - _compute_game_theoretic_metrics 短路触发，原因：存在 NaN 或 ATR <= 0。")
+            # print(f"  [调试] {stock_code} {trade_date} - _compute_game_theoretic_metrics 短路触发，原因：存在 NaN 或 ATR <= 0。")
             return results
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
@@ -440,7 +440,7 @@ class ChipFeatureCalculator:
         results['deception_lure_long_intensity'] = np.clip(lure_long_score * 100, 0, 100)
         results['deception_lure_short_intensity'] = np.clip(lure_short_score * 100, 0, 100)
         calculated_control_solidity = gini * peak_transfer
-        print(f"  [调试] {stock_code} {trade_date} - peak_transfer: {peak_transfer:.4f}, gini: {gini:.4f}")
+        # print(f"  [调试] {stock_code} {trade_date} - peak_transfer: {peak_transfer:.4f}, gini: {gini:.4f}")
         if peak_transfer < 0 and not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
             peak_battle_zone_radius = 0.5 * atr
             peak_zone_upper = dominant_peak_cost + peak_battle_zone_radius
@@ -449,10 +449,10 @@ class ChipFeatureCalculator:
             if not peak_zone_hf_df.empty:
                 mf_net_vol_in_peak_zone = peak_zone_hf_df['main_force_ofi'].sum()
                 total_vol_in_peak_zone = peak_zone_hf_df['volume'].sum()
-                print(f"  [调试] {stock_code} {trade_date} - mf_net_vol_in_peak_zone: {mf_net_vol_in_peak_zone:.4f}, total_vol_in_peak_zone: {total_vol_in_peak_zone:.4f}")
+                # print(f"  [调试] {stock_code} {trade_date} - mf_net_vol_in_peak_zone: {mf_net_vol_in_peak_zone:.4f}, total_vol_in_peak_zone: {total_vol_in_peak_zone:.4f}")
                 if mf_net_vol_in_peak_zone >= 0 and total_vol_in_peak_zone > 0:
                     calculated_control_solidity = gini * 0.01
-                    print(f"  [调试] {stock_code} {trade_date} - 惜售修正触发！calculated_control_solidity 修正为: {calculated_control_solidity:.4f}")
+                    # print(f"  [调试] {stock_code} {trade_date} - 惜售修正触发！calculated_control_solidity 修正为: {calculated_control_solidity:.4f}")
         results['control_solidity_index'] = calculated_control_solidity
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
