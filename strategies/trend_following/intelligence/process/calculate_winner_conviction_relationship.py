@@ -690,9 +690,11 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.14 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正主力买入执行Alpha】计算压力韧性。
+        【V1.16 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 修正主力买入执行Alpha贡献逻辑与压力信号反转逻辑】计算压力韧性。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修正：`main_force_buy_execution_alpha` 的逻辑修正，直接使用其MTF分数。
+        核心修正：`main_force_buy_execution_alpha` 的逻辑修正，无论是正值还是负值，其绝对值越大，对压力韧性贡献越大。
+        核心修正：`distribution_at_peak_intensity`、`selling_pressure_trend_consistency` 和 `upper_shadow_selling_pressure` 的反转逻辑，
+                  由于其MTF分数已通过 `ascending=False` 正确映射负面影响，无需再乘以 `-1`。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -745,18 +747,18 @@ class CalculateWinnerConvictionRelationship:
         core_resilience_component = core_resilience_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
         all_resilience_components = {
             "core_resilience": core_resilience_component,
-            # 核心修正：main_force_buy_execution_alpha 正值是好，对韧性是正面贡献，所以直接使用
-            "main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
+            # 核心修正：main_force_buy_execution_alpha 无论是正值还是负值，其绝对值越大，对压力韧性贡献越大。
+            "main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha.abs(), # 取绝对值
             "bid_side_liquidity": mtf_bid_side_liquidity,
             "absorption_strength_ma5": mtf_absorption_strength_ma5,
             "active_buying_support": mtf_active_buying_support,
             "large_order_support": mtf_large_order_support,
             "dip_absorption_power": normalized_signals["dip_absorption_power_norm"],
-            "selling_pressure_trend_consistency": mtf_trend_consistency_selling_pressure * -1, # 修正：趋势一致性越高，压力越大，对韧性是负面
-            "distribution_at_peak_intensity": mtf_distribution_at_peak_intensity * -1, # 新增，高派发强度对韧性是负面
-            "upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure * -1, # 新增，高上影线压力对韧性是负面
+            "selling_pressure_trend_consistency": mtf_trend_consistency_selling_pressure, # 修正：移除 * -1
+            "distribution_at_peak_intensity": mtf_distribution_at_peak_intensity, # 修正：移除 * -1
+            "upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure, # 修正：移除 * -1
             # 新增累积上下文作为独立组件
-            "cumulative_main_force_buy_execution_alpha": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(0.0, index=df_index)),
+            "cumulative_main_force_buy_execution_alpha": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(0.0, index=df_index)).abs(), # 取绝对值
             "cumulative_bid_side_liquidity": signals.get("cumulative_bid_side_liquidity_score", pd.Series(0.0, index=df_index)),
             "cumulative_absorption_strength_ma5": signals.get("cumulative_absorption_strength_ma5_score", pd.Series(0.0, index=df_index)),
             "cumulative_active_buying_support": signals.get("cumulative_active_buying_support_score", pd.Series(0.0, index=df_index)),
@@ -805,7 +807,7 @@ class CalculateWinnerConvictionRelationship:
             "dispersal_by_distribution_percentile": dispersal_by_distribution_percentile,
             "core_resilience_component": core_resilience_component,
             "mtf_main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
-            "mtf_main_force_buy_execution_alpha_inverted_for_fusion": mtf_main_force_buy_execution_alpha, # 调试输出修正后的值
+            "mtf_main_force_buy_execution_alpha_inverted_for_fusion": mtf_main_force_buy_execution_alpha.abs(), # 调试输出修正后的值
             "mtf_bid_side_liquidity": mtf_bid_side_liquidity,
             "mtf_absorption_strength_ma5": mtf_absorption_strength_ma5,
             "mtf_active_buying_support": mtf_active_buying_support,
@@ -820,6 +822,7 @@ class CalculateWinnerConvictionRelationship:
             "pressure_resilience_score": pressure_resilience_score,
             # 调试输出累积上下文信号
             "cumulative_main_force_buy_execution_alpha": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(np.nan, index=df_index)),
+            "cumulative_main_force_buy_execution_alpha_abs_for_fusion": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(np.nan, index=df_index)).abs(), # 调试输出修正后的值
             "cumulative_bid_side_liquidity": signals.get("cumulative_bid_side_liquidity_score", pd.Series(np.nan, index=df_index)),
             "cumulative_absorption_strength_ma5": signals.get("cumulative_absorption_strength_ma5_score", pd.Series(np.nan, index=df_index)),
             "cumulative_active_buying_support": signals.get("cumulative_active_buying_support_score", pd.Series(np.nan, index=df_index)),
