@@ -617,9 +617,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.9 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 拐点逻辑修正】计算压力韧性。
+        【V1.10 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积调制条件修正】计算压力韧性。
         融入了更多MTF和归一化信号，修正了键名，新增累积上下文调制、趋势一致性增强和拐点惩罚。
-        核心修正：修正拐点惩罚逻辑。对于负面信号（压力韧性），惩罚值应与拐点信号的符号相同。
+        核心修正：修正 `mtf_main_force_buy_execution_alpha` 累积上下文调制的条件判断，确保其与被调制信号一致。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -635,6 +635,7 @@ class CalculateWinnerConvictionRelationship:
         pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
         cumulative_modulation_strength = params["cumulative_flow_params"]["cumulative_modulation_strength"]
         inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
+
         # 核心压力信号MTF分数 (使用新的压力信号：dispersal_by_distribution)
         mtf_dispersal_by_distribution = signals["mtf_dispersal_by_distribution"]
         # 修正：使用新的压力信号的原始值计算百分位
@@ -642,6 +643,7 @@ class CalculateWinnerConvictionRelationship:
         # 核心韧性组件：高派发/卖压是负面，所以 mtf_dispersal_by_distribution 乘以 -1，百分位也反转
         core_resilience_component = ((mtf_dispersal_by_distribution * -1) * relative_position_weights.get("selling_pressure_low", 0.4) +
                                      (dispersal_by_distribution_percentile * 2 - 1) * (1 - relative_position_weights.get("selling_pressure_low", 0.4)))
+
         # 获取MTF信号
         mtf_main_force_buy_execution_alpha = signals["mtf_main_force_buy_execution_alpha"]
         mtf_bid_side_liquidity = signals["mtf_bid_side_liquidity"]
@@ -652,7 +654,8 @@ class CalculateWinnerConvictionRelationship:
         mtf_upper_shadow_selling_pressure = signals["mtf_upper_shadow_selling_pressure"] # 新增
 
         # 对相关MTF信号进行累积上下文调制
-        if "cumulative_main_force_conviction_index_score" in signals: # 修正：这里应该是 main_force_buy_execution_alpha
+        # 核心修正：修正条件判断，确保其与被调制信号一致
+        if "cumulative_main_force_buy_execution_alpha_score" in signals:
             cumulative_score = signals["cumulative_main_force_buy_execution_alpha_score"]
             # 调制时，保持原始符号，因为调制是基于原始信号的相对变化
             mtf_main_force_buy_execution_alpha = mtf_main_force_buy_execution_alpha + (cumulative_score - mtf_main_force_buy_execution_alpha) * cumulative_modulation_strength
@@ -675,6 +678,7 @@ class CalculateWinnerConvictionRelationship:
             mtf_large_order_support = mtf_large_order_support.clip(-1, 1)
         if "cumulative_dip_absorption_power_score" in signals:
             cumulative_score = signals["cumulative_dip_absorption_power_score"]
+            # 注意：这里dip_absorption_power_norm是归一化原始值，不是MTF，但也可以进行调制
             normalized_signals["dip_absorption_power_norm"] = normalized_signals["dip_absorption_power_norm"] + (cumulative_score - normalized_signals["dip_absorption_power_norm"]) * cumulative_modulation_strength
             normalized_signals["dip_absorption_power_norm"] = normalized_signals["dip_absorption_power_norm"].clip(-1, 1)
         # 新增：对新的核心压力信号进行累积上下文调制
@@ -697,11 +701,6 @@ class CalculateWinnerConvictionRelationship:
         inflection_mtf_selling_pressure = signals.get("inflection_mtf_dispersal_by_distribution", pd.Series(0.0, index=df_index))
         inflection_penalty = pd.Series(0.0, index=df_index, dtype=np.float32)
         # 核心修正：对于负面信号（压力韧性），惩罚值应与拐点信号的符号相同。
-        # 如果压力趋势向上（负面），但加速度减弱（拐点信号为正），则为奖励（正值）
-        # 如果压力趋势向上，且加速度增强（拐点信号为负），则为惩罚（负值）
-        # 如果压力趋势向下（正面），但加速度减弱（拐点信号为正），则为惩罚（负值）
-        # 如果压力趋势向下（正面），且加速度增强（拐点信号为负），则为奖励（正值）
-        # 简化逻辑：inflection_penalty = inflection_mtf_selling_pressure * inflection_penalty_strength
         inflection_penalty = inflection_mtf_selling_pressure * inflection_penalty_strength
         # 将拐点惩罚应用于核心压力韧性组件
         core_resilience_component = core_resilience_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
@@ -753,7 +752,7 @@ class CalculateWinnerConvictionRelationship:
             "mtf_absorption_strength_ma5": mtf_absorption_strength_ma5,
             "mtf_active_buying_support": mtf_active_buying_support,
             "mtf_large_order_support": mtf_large_order_support,
-            "dip_absorption_power_norm": normalized_signals["dip_absorption_power_norm"],
+            "dip_absorption_power_norm_modulated": normalized_signals["dip_absorption_power_norm"], # 新增调试输出调制后的值
             "mtf_trend_consistency_selling_pressure": mtf_trend_consistency_selling_pressure, # 修正
             "inflection_mtf_selling_pressure": inflection_mtf_selling_pressure, # 调试输出
             "inflection_penalty_pressure": inflection_penalty, # 调试输出
