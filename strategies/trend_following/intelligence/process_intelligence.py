@@ -19,6 +19,7 @@ from strategies.trend_following.intelligence.process.calculate_process_covert_ac
 from strategies.trend_following.intelligence.process.calculate_price_momentum_divergence import CalculatePriceMomentumDivergence
 from strategies.trend_following.intelligence.process.calculate_winner_conviction_decay import CalculateWinnerConvictionDecay
 from strategies.trend_following.intelligence.process.calculate_storm_eye_calm import CalculateStormEyeCalm
+from strategies.trend_following.intelligence.process.calculate_winner_conviction_relationship import CalculateWinnerConvictionRelationship
 class ProcessIntelligence:
     """
     【V2.0.0 · 全息四象限引擎】
@@ -38,6 +39,8 @@ class ProcessIntelligence:
         self.calculate_price_momentum_divergence_processor = CalculatePriceMomentumDivergence(strategy_instance, self.helper)
         self.calculate_winner_conviction_decay_processor = CalculateWinnerConvictionDecay(strategy_instance, self.helper)
         self.calculate_storm_eye_calm_processor = CalculateStormEyeCalm(strategy_instance, self.helper)
+        # 新增：实例化 CalculateWinnerConvictionRelationship 处理器
+        self.calculate_winner_conviction_relationship_processor = CalculateWinnerConvictionRelationship(strategy_instance, self.helper)
         self.params = self.helper.params
         self.score_type_map = self.helper.score_type_map
         self.norm_window = self.helper.norm_window
@@ -528,7 +531,8 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             meta_score = self.calculate_main_force_rally_intent_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION':
-            relationship_score = self._calculate_winner_conviction_relationship(df, config)
+            # 修改：调用 CalculateWinnerConvictionRelationship 处理器
+            relationship_score = self.calculate_winner_conviction_relationship_processor.calculate(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_LOSER_CAPITULATION':
             meta_score = self._calculate_loser_capitulation(df, config)
@@ -1474,175 +1478,6 @@ class ProcessIntelligence:
         # --- 调试信息 ---
         probe_dates = self.probe_dates
         return final_score.clip(0, 1).astype(np.float32)
-
-    def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V4.0 · 韧性博弈与多维时空版】“赢家信念”专属关系计算引擎
-        - 核心重构: 彻底废弃旧的“状态对抗”逻辑。引入“信念强度 × 压力韧性 × 诡道过滤 × 情境调制”的全新四维诊断框架。
-        - 核心升级:
-            1.  **多时间维度斜率与加速度融合：** 对“赢家稳定性”和“利润兑现压力”进行多时间维度（5, 13, 21, 34, 55日）斜率和加速度的融合，评估其趋势和动能。
-            2.  **共振与背离判断：** 评估“赢家稳定性”和“利润兑现压力”在多时间维度上的共振（同向增强/减弱）或背离（一强一弱）。
-            3.  **历史相对位置：** 引入信号相对于其历史区间的百分位，判断其是处于高位还是低位。
-            4.  **诡道博弈特性：** 引入欺骗指数、对倒强度等信号，对虚假的信念增强或减弱进行惩罚。
-            5.  **情境调制：** 引入市场情绪、波动率等情境因子进行动态调整。
-            6.  **非线性融合：** 使用 _robust_geometric_mean 对所有强度/幅度组件进行融合，并结合整体方向。
-        - 目标: 提供一个双极性分数，正值代表赢家信念坚定，负值代表信念动摇或面临风险。
-        """
-        method_name = "_calculate_winner_conviction_relationship"
-        df_index = df.index
-        # --- 调试信息构建 ---
-        is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
-        probe_dates_list = self.probe_dates 
-        probe_ts_for_debug = None
-        if is_debug_enabled and probe_dates_list:
-            probe_timestamps = pd.to_datetime(probe_dates_list).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates_in_df = [d for d in probe_timestamps if d in df.index]
-            if valid_probe_dates_in_df:
-                probe_ts_for_debug = valid_probe_dates_in_df[-1] # 使用最新的有效探针日期
-        # 获取MTF权重配置
-        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
-        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        # 获取配置参数
-        params = get_param_value(config.get('winner_conviction_params'), {})
-        relative_position_weights = get_param_value(params.get('relative_position_weights'), {"winner_stability_high": 0.6, "profit_taking_flow_low": 0.4})
-        # 更新 context_modulator_weights 的默认值键名
-        context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {"market_sentiment": 0.4, "volatility_stability": 0.3, "trend_vitality": 0.3})
-        final_exponent = get_param_value(params.get('final_exponent'), 1.5)
-        final_fusion_gm_weights = get_param_value(params.get('final_fusion_gm_weights'), {
-            "conviction_magnitude": 0.3,
-            "pressure_magnitude": 0.2,
-            "synergy_factor": 0.2,
-            "deception_filter": 0.15,
-            "context_modulator": 0.15
-        })
-        # 核心信号
-        belief_signal_name = 'winner_stability_index_D'
-        pressure_signal_name = 'profit_taking_flow_ratio_D'
-        # 额外依赖信号
-        required_signals = [
-            belief_signal_name, pressure_signal_name,
-            'deception_index_D', 'wash_trade_intensity_D',
-            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'trend_vitality_index_D'
-        ]
-        # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in [belief_signal_name, pressure_signal_name, 'deception_index_D', 'wash_trade_intensity_D']:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-        if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 原始数据获取 ---
-        winner_stability_raw = self._get_safe_series(df, belief_signal_name, 0.0, method_name=method_name)
-        profit_taking_flow_raw = self._get_safe_series(df, pressure_signal_name, 0.0, method_name=method_name)
-        deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-        wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
-        market_sentiment_raw = self._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
-        volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
-        trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
-        # --- 1. 信念强度 (Conviction Strength) ---
-        # 使用MTF融合赢家稳定性及其斜率和加速度 (双极性)
-        mtf_winner_stability = self._get_mtf_slope_accel_score(df, belief_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # 赢家稳定性相对于历史区间的百分位 (越高越好，映射到 [0, 1])
-        winner_stability_percentile = winner_stability_raw.rank(pct=True).fillna(0.5)
-        # 综合信念强度：MTF趋势 + 历史相对位置
-        conviction_strength_score = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) + 
-                                     (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6))).clip(-1, 1)
-        # --- 2. 压力韧性 (Pressure Resilience) ---
-        # 使用MTF融合利润兑现流量及其斜率和加速度 (双极性，负值代表压力大，韧性差)
-        # 利润兑现流量是负向指标，所以其MTF分数越低（负值越大）代表压力越大，韧性越差
-        mtf_profit_taking_flow = self._get_mtf_slope_accel_score(df, pressure_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # 利润兑现流量相对于历史区间的百分位 (越低越好，映射到 [0, 1])
-        profit_taking_flow_percentile = (1 - profit_taking_flow_raw.rank(pct=True)).fillna(0.5)
-        # 综合压力韧性：(1 - MTF利润兑现流量) + 历史相对位置
-        # 将mtf_profit_taking_flow反向，使其正值代表韧性强
-        pressure_resilience_score = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) + 
-                                     (profit_taking_flow_percentile * 2 - 1) * (1 - relative_position_weights.get("profit_taking_flow_low", 0.4))).clip(-1, 1)
-        # --- 3. 共振与背离因子 (Synergy Factor) ---
-        # 评估赢家稳定性与利润兑现压力之间的共振或背离
-        # 当两者同向（信念增强且压力减弱，或信念减弱且压力增强）时，共振因子高
-        # 当两者背离（信念增强但压力也增强，或信念减弱但压力也减弱）时，共振因子低
-        # 将信念强度和压力韧性映射到 [0, 1]
-        norm_conviction = (conviction_strength_score + 1) / 2
-        norm_resilience = (pressure_resilience_score + 1) / 2
-        # 协同因子：当两者都高或都低时，协同性高
-        synergy_factor = (norm_conviction * norm_resilience + (1 - norm_conviction) * (1 - norm_resilience)).clip(0, 1)
-        # --- 4. 诡道过滤 (Deception Filter) ---
-        # 欺骗指数和对倒强度越高，对信念的真实性惩罚越大
-        mtf_deception_index = self._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_wash_trade_intensity = self._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        deception_penalty = (mtf_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
-        deception_filter = (1 - deception_penalty).clip(0, 1) # 惩罚因子，0表示完全过滤，1表示无影响
-        # --- 5. 情境调制 (Contextual Modulation) ---
-        # 市场情绪、波动率、趋势活力等对信念的影响
-        norm_market_sentiment = self._normalize_series(market_sentiment_raw, df_index, bipolar=True)
-        # 将 volatility_instability_raw 视为负向指标，即值越小越好，因此对其进行反向处理后进行正向归一化。
-        # 这样，低不稳定性（高稳定性）将得到高分。
-        # 明确提供 windows 参数，使用 21 作为窗口，因为 VOLATILITY_INSTABILITY_INDEX_21d_D 是一个21天的指标。
-        # 同时传递 debug_info。
-        volatility_stability_raw = 1 - normalize_score(
-            volatility_instability_raw, 
-            df_index, 
-            21, # 明确指定 windows 参数
-            ascending=True,
-            debug_info=False
-        ) # 将不稳定性转换为稳定性，并归一化到 [0, 1]
-        # 探针：volatility_stability_raw 的值
-        norm_volatility_stability = self._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
-        norm_trend_vitality = self._normalize_series(trend_vitality_raw, df_index, bipolar=False) # 趋势活力越高越好
-        context_modulator_components = {
-            "market_sentiment": norm_market_sentiment,
-            "volatility_stability": norm_volatility_stability, # 使用修正后的稳定性
-            "trend_vitality": norm_trend_vitality
-        }
-        # 调试探针：context_modulator_components 的输入
-        # 使用几何平均融合情境调制器，确保只有当多个情境同时有利时才高
-        context_modulator_score = _robust_geometric_mean(
-            {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()}, # 确保输入为正
-            context_modulator_weights,
-            df_index
-        )
-        # 将情境调制器映射到 [0.5, 1.5] 范围，以实现放大或抑制
-        context_modulator = 0.5 + context_modulator_score # 0.5 + [0,1] -> [0.5, 1.5]
-        # --- 6. 最终融合 ---
-        # 1. 确定整体方向：由信念强度和压力韧性的加权和决定
-        # 权重可以从配置中获取，这里使用默认值
-        direction_weight_conviction = get_param_value(params.get('direction_weights', {}).get('conviction', 0.6), 0.6)
-        direction_weight_pressure = get_param_value(params.get('direction_weights', {}).get('pressure', 0.4), 0.4)
-        overall_direction_raw = (conviction_strength_score * direction_weight_conviction + pressure_resilience_score * direction_weight_pressure)
-        overall_direction = np.sign(overall_direction_raw)
-        overall_direction = overall_direction.replace(0, 1) # 如果和为0，则视为正向，让幅度决定
-        # 2. 准备所有组件的“强度/幅度”版本，映射到 [0, 1] 或 [0.5, 1.5]
-        # conviction_strength_score 和 pressure_resilience_score 是双极性 [-1, 1]
-        # 它们的绝对值代表强度，映射到 [0, 1]
-        conviction_magnitude = (conviction_strength_score.abs() + 1) / 2
-        pressure_magnitude = (pressure_resilience_score.abs() + 1) / 2
-        # synergy_factor 是 [0, 1]
-        # deception_filter 是 [0, 1]
-        # context_modulator 是 [0.5, 1.5]
-        fusion_components_for_gm = {
-            "conviction_magnitude": conviction_magnitude,
-            "pressure_magnitude": pressure_magnitude,
-            "synergy_factor": synergy_factor,
-            "deception_filter": deception_filter,
-            "context_modulator": context_modulator
-        }
-        # 3. 使用 _robust_geometric_mean 融合所有强度/幅度组件
-        fused_magnitude = _robust_geometric_mean(
-            fusion_components_for_gm,
-            final_fusion_gm_weights,
-            df_index
-        )
-        # 4. 结合整体方向和融合后的幅度
-        final_score = fused_magnitude * overall_direction
-        # 5. 应用非线性指数
-        final_score = np.sign(final_score) * (final_score.abs().pow(final_exponent))
-        final_score = final_score.clip(-1, 1).fillna(0.0)
-        return final_score.astype(np.float32)
 
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
