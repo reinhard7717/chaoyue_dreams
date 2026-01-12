@@ -830,8 +830,8 @@
 {
                 "name": "PROCESS_META_WINNER_CONVICTION",
                 "winner_conviction_params": {
-                    "cumulative_flow_params": {
-                        "flow_signals_for_cumulative_context": [
+                    "cumulative_context_params": {
+                        "signals_for_cumulative_context": [
                             "main_force_conviction_index_D",
                             "main_force_buy_execution_alpha_D",
                             "bid_side_liquidity_D",
@@ -842,7 +842,24 @@
                             "closing_auction_ambush_D",
                             "dip_absorption_power_D",
                             "dispersal_by_distribution_D",
-                            "market_impact_cost_D"
+                            "market_impact_cost_D",
+                            "winner_stability_index_D",
+                            "chip_health_score_D",
+                            "winner_profit_margin_avg_D",
+                            "loser_loss_margin_avg_D",
+                            "winner_concentration_90pct_D",
+                            "chip_fatigue_index_D",
+                            "cost_gini_coefficient_D",
+                            "deception_index_D",
+                            "wash_trade_intensity_D",
+                            "market_sentiment_score_D",
+                            "VOLATILITY_INSTABILITY_INDEX_21d_D",
+                            "trend_vitality_index_D",
+                            "THEME_HOTNESS_SCORE_D",
+                            "industry_leader_score_D",
+                            "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D", 
+                            "distribution_at_peak_intensity_D",  
+                            "upper_shadow_selling_pressure_D"
                         ],
                         "cumulative_periods": [13, 21],
                         "cumulative_weights": {
