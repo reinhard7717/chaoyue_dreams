@@ -211,9 +211,8 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V1.5 · 全面MTF信号增强版】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
-        - 核心增强: 扩展 `mtf_base_signals` 列表，对更多原始信号计算并获取其MTF斜率和加速度。
-        - 校验增强: 确保所有MTF信号的原始列都存在于DataFrame中。
+        【V1.6 · 信号键名统一修正版】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
+        - 核心修正: 统一原始信号的键名格式，避免大小写和命名不一致导致的KeyError。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -244,46 +243,46 @@ class CalculateWinnerConvictionRelationship:
             'trend_vitality_index_D', 'flow_credibility_index_D',
             'THEME_HOTNESS_SCORE_D', 'industry_leader_score_D'
         ]
-        required_signals = list(set(mtf_base_signals + non_mtf_raw_signals)) # 确保不重复
+        # 所有需要获取原始数据的信号名称（带_D后缀）
+        all_raw_signal_names_with_D_suffix = list(set(mtf_base_signals + non_mtf_raw_signals))
+        # 生成用于校验的required_signals列表
+        required_signals_for_validation = list(all_raw_signal_names_with_D_suffix)
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
-        # 动态添加所有MTF信号的列名到 required_signals
+        # 动态添加所有MTF信号的列名到 required_signals_for_validation
         for base_sig in mtf_base_signals:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
+                required_signals_for_validation.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+                required_signals_for_validation.append(f'ACCEL_{period_str}_{base_sig}')
         # 执行信号存在性校验
-        if not self.helper._validate_required_signals(df, required_signals, method_name):
+        if not self.helper._validate_required_signals(df, required_signals_for_validation, method_name):
             return None
         # 获取所有原始信号数据
         signals_data = {}
-        for sig_name in mtf_base_signals + non_mtf_raw_signals:
-            signals_data[f"{sig_name.replace('_D', '_raw')}"] = self.helper._get_safe_series(df, sig_name, np.nan, method_name=method_name)
+        for sig_name_with_D in all_raw_signal_names_with_D_suffix:
+            # 统一原始信号的键名格式：将_D替换为_raw，并转换为小写
+            raw_key = sig_name_with_D.replace('_D', '_raw').lower()
+            signals_data[raw_key] = self.helper._get_safe_series(df, sig_name_with_D, np.nan, method_name=method_name)
         # 获取所有MTF信号数据
         for base_sig in mtf_base_signals:
-            signals_data[f"mtf_{base_sig.replace('_D', '')}"] = self.helper._get_mtf_slope_accel_score(
+            # MTF信号的键名保持mtf_前缀和原始信号名的小写形式
+            mtf_key = f"mtf_{base_sig.replace('_D', '').lower()}"
+            signals_data[mtf_key] = self.helper._get_mtf_slope_accel_score(
                 df, base_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True
             )
-        # 特殊处理一些MTF信号的bipolar/ascending
-        # 欺骗指数和对倒强度，MTF分数越高代表欺骗越强，对过滤因子是负面影响，但_get_mtf_slope_accel_score默认bipolar=True
-        # 这里需要确保其在融合时被正确解释为负面贡献
+        # 特殊处理一些MTF信号的bipolar/ascending，并统一键名格式
         signals_data["mtf_deception_index"] = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
         signals_data["mtf_wash_trade_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
-        # 聪明钱分歧，MTF分数越高代表分歧越大，是负面影响
         signals_data["mtf_smart_money_divergence_hm_buy_inst_sell"] = self.helper._get_mtf_slope_accel_score(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
-        # 筹码疲劳度，MTF分数越高代表疲劳度越高，是负面影响
         signals_data["mtf_chip_fatigue_index"] = self.helper._get_mtf_slope_accel_score(df, 'chip_fatigue_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=False)
-        # 隐蔽吸筹，MTF分数越高代表隐蔽吸筹越强，是负面影响（作为诡道过滤的反向指标）
         signals_data["mtf_covert_accumulation_signal"] = self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
-        # 集合竞价伏击，MTF分数越高代表伏击越强，是负面影响
         signals_data["mtf_closing_auction_ambush"] = self.helper._get_mtf_slope_accel_score(df, 'closing_auction_ambush_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=True)
-        # 市场冲击成本，MTF分数越高代表冲击成本越高，是负面影响
         signals_data["mtf_market_impact_cost"] = self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False, ascending=False)
         # 将 belief_signal_name 和 pressure_signal_name 也添加到返回字典
         signals_data["belief_signal_name"] = belief_signal_name
         signals_data["pressure_signal_name"] = pressure_signal_name
         # 更新调试输出
-        _temp_debug_values["原始信号值"] = {k: v for k, v in signals_data.items() if not k.startswith('mtf_')}
+        _temp_debug_values["原始信号值"] = {k: v for k, v in signals_data.items() if not k.startswith('mtf_') and not k.endswith('_name')}
         _temp_debug_values["MTF信号值"] = {k: v for k, v in signals_data.items() if k.startswith('mtf_')}
         return signals_data
 
