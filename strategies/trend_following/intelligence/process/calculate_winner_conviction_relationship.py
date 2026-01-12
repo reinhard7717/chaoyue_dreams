@@ -619,9 +619,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.11 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 累积调制条件修正】计算压力韧性。
+        【V1.12 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 调试字典初始化修正】计算压力韧性。
         融入了更多MTF和归一化信号，修正了键名，新增累积上下文调制、趋势一致性增强和拐点惩罚。
-        核心修正：修正 `mtf_main_force_buy_execution_alpha` 累积上下文调制的条件判断，确保其与被调制信号一致。
+        核心修正：在方法开始时初始化 `_temp_debug_values["压力韧性"]` 字典，避免 `KeyError`。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -633,6 +633,9 @@ class CalculateWinnerConvictionRelationship:
         返回:
             pd.Series: 压力韧性分数。
         """
+        # 核心修正：在方法开始时初始化调试字典
+        _temp_debug_values["压力韧性"] = {}
+
         relative_position_weights = params["relative_position_weights"]
         pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
         cumulative_modulation_strength = params["cumulative_flow_params"]["cumulative_modulation_strength"]
@@ -679,7 +682,7 @@ class CalculateWinnerConvictionRelationship:
             mtf_large_order_support = mtf_large_order_support + (cumulative_score - mtf_large_order_support) * cumulative_modulation_strength
             mtf_large_order_support = mtf_large_order_support.clip(-1, 1)
         # 调试输出调制前的 dip_absorption_power_norm
-        if "dip_absorption_power_norm" in normalized_signals and _temp_debug_values:
+        if "dip_absorption_power_norm" in normalized_signals:
             _temp_debug_values["压力韧性"]["dip_absorption_power_norm_pre_modulated"] = normalized_signals["dip_absorption_power_norm"]
         if "cumulative_dip_absorption_power_score" in signals:
             cumulative_score = signals["cumulative_dip_absorption_power_score"]
@@ -747,7 +750,7 @@ class CalculateWinnerConvictionRelationship:
             df_index
         )
         pressure_resilience_score = (fused_pressure_resilience_0_1 * 2 - 1).clip(-1, 1)
-        _temp_debug_values["压力韧性"] = {
+        _temp_debug_values["压力韧性"].update({ # 使用 update 方法合并字典
             "mtf_dispersal_by_distribution": mtf_dispersal_by_distribution, # 修正
             "dispersal_by_distribution_percentile": dispersal_by_distribution_percentile, # 修正
             "core_resilience_component": core_resilience_component,
@@ -765,7 +768,7 @@ class CalculateWinnerConvictionRelationship:
             "mtf_upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure, # 新增
             "fused_pressure_resilience_0_1": fused_pressure_resilience_0_1,
             "pressure_resilience_score": pressure_resilience_score
-        }
+        })
         return pressure_resilience_score
 
     def _calculate_synergy_factor(self, df_index: pd.Index, conviction_strength_score: pd.Series, pressure_resilience_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
@@ -863,8 +866,8 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.6 · 情境调制累积上下文调制版 - 市场冲击成本调制与调试增强】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名，新增累积上下文调制。
-        核心修正：确保 `mtf_market_impact_cost` 能够被累积上下文调制。
+        【V1.7 · 情境调制累积上下文调制版 - 调试字典初始化修正】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名，新增累积上下文调制。
+        核心修正：在方法开始时初始化 `_temp_debug_values["情境调制"]` 字典，避免 `KeyError`。
         核心新增：添加对调制前和调制后 `mtf_market_impact_cost` 的调试输出。
         参数:
             df_index (pd.Index): DataFrame的索引。
@@ -875,6 +878,9 @@ class CalculateWinnerConvictionRelationship:
         返回:
             pd.Series: 情境调制因子分数。
         """
+        # 核心修正：在方法开始时初始化调试字典
+        _temp_debug_values["情境调制"] = {}
+
         context_modulator_weights = params["context_modulator_weights"]
         context_modulator_enhancement_weights = params["context_modulator_enhancement_weights"]
         cumulative_modulation_strength = params["cumulative_flow_params"]["cumulative_modulation_strength"]
@@ -888,8 +894,7 @@ class CalculateWinnerConvictionRelationship:
         # 市场冲击成本MTF分数，MTF分数越高代表冲击成本越高，是负面影响
         mtf_market_impact_cost = signals["mtf_market_impact_cost"]
         # 调试输出调制前的 mtf_market_impact_cost
-        if _temp_debug_values:
-            _temp_debug_values["情境调制"]["mtf_market_impact_cost_pre_modulated"] = mtf_market_impact_cost
+        _temp_debug_values["情境调制"]["mtf_market_impact_cost_pre_modulated"] = mtf_market_impact_cost
         # 对相关MTF信号进行累积上下文调制
         if "cumulative_market_impact_cost_score" in signals:
             cumulative_score = signals["cumulative_market_impact_cost_score"]
@@ -925,18 +930,17 @@ class CalculateWinnerConvictionRelationship:
             df_index
         )
         context_modulator = 0.5 + context_modulator_score_0_1
-        _temp_debug_values["情境调制"] = {
+        _temp_debug_values["情境调制"].update({ # 使用 update 方法合并字典
             "norm_market_sentiment": norm_market_sentiment,
             "volatility_stability_raw": volatility_stability_raw,
             "norm_volatility_stability": norm_volatility_stability,
             "norm_trend_vitality": norm_trend_vitality,
             "norm_theme_hotness": norm_theme_hotness,
             "norm_industry_leader_score": norm_industry_leader_score,
-            "mtf_market_impact_cost_pre_modulated": _temp_debug_values["情境调制"].get("mtf_market_impact_cost_pre_modulated"), # 调试输出调制前的值
             "mtf_market_impact_cost_modulated": mtf_market_impact_cost, # 调试输出调制后的值
             "context_modulator_score_0_1": context_modulator_score_0_1,
             "context_modulator": context_modulator
-        }
+        })
         return context_modulator
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_strength_score: pd.Series, pressure_resilience_score: pd.Series, synergy_factor: pd.Series, deception_filter: pd.Series, context_modulator: pd.Series, params: Dict, _temp_debug_values: Dict) -> pd.Series:
