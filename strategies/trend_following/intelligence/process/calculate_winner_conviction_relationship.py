@@ -288,7 +288,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 原始数据归一化键名修正版】归一化原始数据，修正了访问signals字典时的键名错误。
+        【V1.5 · 原始数据归一化键名全面修正版】归一化原始数据，修正了访问signals字典时所有键名的大小写错误。
         此方法主要处理非MTF原始信号的归一化，MTF信号已在_get_and_validate_signals中通过_get_mtf_slope_accel_score内部归一化。
         参数:
             df_index (pd.Index): DataFrame的索引。
@@ -307,8 +307,10 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["main_force_buy_execution_alpha_norm"] = self.helper._normalize_series(signals["main_force_buy_execution_alpha_raw"], df_index, bipolar=True, ascending=True)
         normalized_signals["bid_side_liquidity_norm"] = self.helper._normalize_series(signals["bid_side_liquidity_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["absorption_strength_ma5_norm"] = self.helper._normalize_series(signals["absorption_strength_ma5_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["smart_money_divergence_norm"] = self.helper._normalize_series(signals["SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_raw"], df_index, bipolar=True, ascending=False) # 聪明钱分歧越大越不好
-        normalized_signals["theme_hotness_norm"] = self.helper._normalize_series(signals["THEME_HOTNESS_SCORE_raw"], df_index, bipolar=False, ascending=True)
+        # 修正此处键名，应为全小写
+        normalized_signals["smart_money_divergence_norm"] = self.helper._normalize_series(signals["smart_money_divergence_hm_buy_inst_sell_raw"], df_index, bipolar=True, ascending=False) # 聪明钱分歧越大越不好
+        # 修正此处键名，应为全小写
+        normalized_signals["theme_hotness_norm"] = self.helper._normalize_series(signals["theme_hotness_score_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["winner_concentration_90pct_norm"] = self.helper._normalize_series(signals["winner_concentration_90pct_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["chip_fatigue_norm"] = self.helper._normalize_series(signals["chip_fatigue_index_raw"], df_index, bipolar=False, ascending=False) # 筹码疲劳度越低越好
         normalized_signals["active_buying_support_norm"] = self.helper._normalize_series(signals["active_buying_support_raw"], df_index, bipolar=False, ascending=True)
