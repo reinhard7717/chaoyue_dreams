@@ -219,8 +219,8 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V1.7 · 原始信号键名显式定义版】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
-        - 核心修正: 显式定义所有原始信号在 `signals_data` 中的键名，确保一致性，避免KeyError。
+        【V1.8 · 原始信号补充版】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
+        - 核心修正: 补充了 `dip_absorption_power_D` 原始信号的获取。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -249,7 +249,8 @@ class CalculateWinnerConvictionRelationship:
         non_mtf_raw_signals_raw_names = [
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'trend_vitality_index_D', 'flow_credibility_index_D',
-            'THEME_HOTNESS_SCORE_D', 'industry_leader_score_D'
+            'THEME_HOTNESS_SCORE_D', 'industry_leader_score_D',
+            'dip_absorption_power_D' # 新增：下跌吸筹能力
         ]
         # 所有需要获取原始数据的信号名称（带_D后缀）
         all_raw_signal_names_with_D_suffix = list(set(mtf_base_signals_raw_names + non_mtf_raw_signals_raw_names))
@@ -292,7 +293,8 @@ class CalculateWinnerConvictionRelationship:
             "industry_leader_score_raw": self.helper._get_safe_series(df, 'industry_leader_score_D', np.nan, method_name=method_name),
             "cost_gini_coefficient_raw": self.helper._get_safe_series(df, 'cost_gini_coefficient_D', np.nan, method_name=method_name),
             "market_impact_cost_raw": self.helper._get_safe_series(df, 'market_impact_cost_D', np.nan, method_name=method_name),
-            "closing_auction_ambush_raw": self.helper._get_safe_series(df, 'closing_auction_ambush_D', np.nan, method_name=method_name)
+            "closing_auction_ambush_raw": self.helper._get_safe_series(df, 'closing_auction_ambush_D', np.nan, method_name=method_name),
+            "dip_absorption_power_raw": self.helper._get_safe_series(df, 'dip_absorption_power_D', np.nan, method_name=method_name) # 新增
         }
         # 获取所有MTF信号数据
         for base_sig in mtf_base_signals_raw_names:
@@ -320,7 +322,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 原始数据归一化键名全面修正版】归一化原始数据，修正了访问signals字典时所有键名的大小写错误。
+        【V1.7 · 原始数据归一化键名全面修正版】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
         此方法主要处理非MTF原始信号的归一化，MTF信号已在_get_and_validate_signals中通过_get_mtf_slope_accel_score内部归一化。
         参数:
             df_index (pd.Index): DataFrame的索引。
@@ -350,6 +352,7 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["cost_gini_coefficient_norm"] = self.helper._normalize_series(signals["cost_gini_coefficient_raw"], df_index, bipolar=False, ascending=False) # 基尼系数越低越好（筹码越均匀）
         normalized_signals["market_impact_cost_norm"] = self.helper._normalize_series(signals["market_impact_cost_raw"], df_index, bipolar=False, ascending=False) # 冲击成本越低越好
         normalized_signals["closing_auction_ambush_norm"] = self.helper._normalize_series(signals["closing_auction_ambush_raw"], df_index, bipolar=False, ascending=False) # 尾盘伏击越低越好（作为欺骗的反向指标）
+        normalized_signals["dip_absorption_power_norm"] = self.helper._normalize_series(signals["dip_absorption_power_raw"], df_index, bipolar=False, ascending=True) # 新增：下跌吸筹能力归一化
         _temp_debug_values["归一化处理"] = normalized_signals
         return normalized_signals
 
