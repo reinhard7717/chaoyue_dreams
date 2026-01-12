@@ -177,9 +177,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.8 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整】从 config 中获取所有必要的参数。
+        【V1.9 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
         核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修改：`chip_fatigue_inverse` 更正为 `chip_fatigue`，并修正其权重。
+        核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -208,7 +208,7 @@ class CalculateWinnerConvictionRelationship:
             "main_force_conviction": 0.2,
             "chip_health": 0.2,
             "winner_profit_margin_avg": 0.1,
-            "loser_loss_margin_avg_inverse": 0.1,
+            "loser_loss_margin_avg": 0.1, # 修正：键名改为 loser_loss_margin_avg
             "winner_concentration_90pct": 0.1,
             "chip_fatigue": 0.1, # 修正：键名改为 chip_fatigue
             "cost_gini_coefficient_inverse": 0.05,
@@ -544,9 +544,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.9 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正筹码疲劳度】计算赢家信念强度。
+        【V1.10 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修正：`chip_fatigue_inverse` 的逻辑修正，直接使用 `mtf_chip_fatigue_index`。
+        核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，直接使用其MTF分数。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -563,7 +563,6 @@ class CalculateWinnerConvictionRelationship:
 
         relative_position_weights = params["relative_position_weights"]
         conviction_enhancement_weights = params["conviction_enhancement_weights"]
-        # cumulative_modulation_strength = params["cumulative_context_params"]["cumulative_modulation_strength"] # 移除：不再用于调制
         inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
         
         # 核心赢家稳定性MTF分数
@@ -574,13 +573,13 @@ class CalculateWinnerConvictionRelationship:
         mtf_main_force_conviction_index = signals["mtf_main_force_conviction_index"]
         mtf_chip_health_score = signals["mtf_chip_health_score"]
         mtf_winner_profit_margin_avg = signals["mtf_winner_profit_margin_avg"]
-        mtf_loser_loss_margin_avg = signals["mtf_loser_loss_margin_avg"]
+        mtf_loser_loss_margin_avg = signals["mtf_loser_loss_margin_avg"] # 修正：直接使用MTF分数
         mtf_winner_concentration_90pct = signals["mtf_winner_concentration_90pct"]
-        mtf_chip_fatigue_index = signals["mtf_chip_fatigue_index"]
+        mtf_chip_fatigue_index = signals["mtf_chip_fatigue_index"] # 修正：直接使用MTF分数
         mtf_cost_gini_coefficient = signals["mtf_cost_gini_coefficient"]
 
         # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
-        # 调试输出调制前的MTF信号
+        # 调试输出调制前的MTF信号 (现在这些值就是最终使用的MTF值)
         _temp_debug_values["信念强度"]["mtf_winner_stability_pre_modulated"] = mtf_winner_stability
         _temp_debug_values["信念强度"]["mtf_main_force_conviction_index_pre_modulated"] = mtf_main_force_conviction_index
         _temp_debug_values["信念强度"]["mtf_chip_health_score_pre_modulated"] = mtf_chip_health_score
@@ -608,7 +607,7 @@ class CalculateWinnerConvictionRelationship:
             "main_force_conviction": mtf_main_force_conviction_index,
             "chip_health": mtf_chip_health_score,
             "winner_profit_margin_avg": mtf_winner_profit_margin_avg,
-            "loser_loss_margin_avg_inverse": mtf_loser_loss_margin_avg * -1,
+            "loser_loss_margin_avg": mtf_loser_loss_margin_avg, # 修正：直接使用 mtf_loser_loss_margin_avg
             "winner_concentration_90pct": mtf_winner_concentration_90pct,
             "chip_fatigue": mtf_chip_fatigue_index, # 修正：直接使用 mtf_chip_fatigue_index
             "cost_gini_coefficient_inverse": mtf_cost_gini_coefficient * -1,
@@ -629,7 +628,7 @@ class CalculateWinnerConvictionRelationship:
             "main_force_conviction": conviction_enhancement_weights.get("main_force_conviction", 0.2),
             "chip_health": conviction_enhancement_weights.get("chip_health", 0.2),
             "winner_profit_margin_avg": conviction_enhancement_weights.get("winner_profit_margin_avg", 0.1),
-            "loser_loss_margin_avg_inverse": conviction_enhancement_weights.get("loser_loss_margin_avg_inverse", 0.1),
+            "loser_loss_margin_avg": conviction_enhancement_weights.get("loser_loss_margin_avg", 0.1), # 修正：键名改为 loser_loss_margin_avg
             "winner_concentration_90pct": conviction_enhancement_weights.get("winner_concentration_90pct", 0.1),
             "chip_fatigue": conviction_enhancement_weights.get("chip_fatigue", 0.1), # 修正：键名改为 chip_fatigue
             "cost_gini_coefficient_inverse": conviction_enhancement_weights.get("cost_gini_coefficient_inverse", 0.05),
@@ -662,7 +661,7 @@ class CalculateWinnerConvictionRelationship:
             "mtf_main_force_conviction_index": mtf_main_force_conviction_index,
             "mtf_chip_health_score": mtf_chip_health_score,
             "mtf_winner_profit_margin_avg": mtf_winner_profit_margin_avg,
-            "mtf_loser_loss_margin_avg": mtf_loser_loss_margin_avg,
+            "mtf_loser_loss_margin_avg": mtf_loser_loss_margin_avg, # 调试输出修正后的值
             "mtf_winner_concentration_90pct": mtf_winner_concentration_90pct,
             "mtf_chip_fatigue_index": mtf_chip_fatigue_index, # 调试输出修正后的值
             "mtf_cost_gini_coefficient": mtf_cost_gini_coefficient,
