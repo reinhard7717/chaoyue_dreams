@@ -580,7 +580,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.3 · 情境调制全面增强版】计算情境调制因子，融入了更多MTF和归一化信号。
+        【V1.4 · 情境调制键名修正版】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series和MTF信号Series的字典。
@@ -592,10 +592,13 @@ class CalculateWinnerConvictionRelationship:
         """
         context_modulator_weights = params["context_modulator_weights"]
         context_modulator_enhancement_weights = params["context_modulator_enhancement_weights"]
-        norm_market_sentiment = self.helper._normalize_series(signals["market_sentiment_raw"], df_index, bipolar=True)
-        volatility_stability_raw = 1 - normalize_score(signals["volatility_instability_raw"], df_index, 21, ascending=True, debug_info=False)
+        # 修正此处键名：从 "market_sentiment_raw" 改为 "market_sentiment_score_raw"
+        norm_market_sentiment = self.helper._normalize_series(signals["market_sentiment_score_raw"], df_index, bipolar=True)
+        # 修正此处键名：从 "volatility_instability_raw" 改为 "volatility_instability_index_21d_raw"
+        volatility_stability_raw = 1 - normalize_score(signals["volatility_instability_index_21d_raw"], df_index, 21, ascending=True, debug_info=False)
         norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
-        norm_trend_vitality = self.helper._normalize_series(signals["trend_vitality_raw"], df_index, bipolar=False)
+        # 修正此处键名：从 "trend_vitality_raw" 改为 "trend_vitality_index_raw"
+        norm_trend_vitality = self.helper._normalize_series(signals["trend_vitality_index_raw"], df_index, bipolar=False)
         norm_theme_hotness = normalized_signals["theme_hotness_norm"]
         norm_industry_leader_score = normalized_signals["industry_leader_score_norm"]
         # 市场冲击成本MTF分数，MTF分数越高代表冲击成本越高，是负面影响
