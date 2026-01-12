@@ -531,7 +531,6 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             meta_score = self.calculate_main_force_rally_intent_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION':
-            # 修改：调用 CalculateWinnerConvictionRelationship 处理器
             relationship_score = self.calculate_winner_conviction_relationship_processor.calculate(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_LOSER_CAPITULATION':

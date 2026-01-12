@@ -161,7 +161,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.0 · 参数获取版】从 config 中获取所有必要的参数。
+        【V1.1 · 参数扩展版】从 config 中获取所有必要的参数，并新增了信念增强、压力韧性增强、诡道过滤增强和情境调制增强的权重。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -180,19 +180,48 @@ class CalculateWinnerConvictionRelationship:
             "context_modulator": 0.15
         })
         direction_weights = get_param_value(params.get('direction_weights'), {'conviction': 0.6, 'pressure': 0.4})
+
+        # 新增参数：信念增强因子权重
+        conviction_enhancement_weights = get_param_value(params.get('conviction_enhancement_weights'), {
+            "main_force_conviction": 0.2,
+            "chip_health": 0.2,
+            "winner_profit_margin_avg": 0.1,
+            "loser_loss_margin_avg_inverse": 0.1
+        })
+        # 新增参数：压力韧性增强因子权重
+        pressure_resilience_enhancement_weights = get_param_value(params.get('pressure_resilience_enhancement_weights'), {
+            "main_force_buy_execution_alpha": 0.2,
+            "bid_side_liquidity": 0.2,
+            "absorption_strength_ma5": 0.2
+        })
+        # 新增参数：诡道过滤增强因子权重
+        deception_enhancement_weights = get_param_value(params.get('deception_enhancement_weights'), {
+            "smart_money_divergence": 0.3
+        })
+        # 新增参数：情境调制增强因子权重
+        context_modulator_enhancement_weights = get_param_value(params.get('context_modulator_enhancement_weights'), {
+            "theme_hotness": 0.2
+        })
+
         return {
             "mtf_slope_accel_weights": mtf_slope_accel_weights,
             "relative_position_weights": relative_position_weights,
             "context_modulator_weights": context_modulator_weights,
             "final_exponent": final_exponent,
             "final_fusion_gm_weights": final_fusion_gm_weights,
-            "direction_weights": direction_weights
+            "direction_weights": direction_weights,
+            "conviction_enhancement_weights": conviction_enhancement_weights,
+            "pressure_resilience_enhancement_weights": pressure_resilience_enhancement_weights,
+            "deception_enhancement_weights": deception_enhancement_weights,
+            "context_modulator_enhancement_weights": context_modulator_enhancement_weights
         }
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V1.1 · 信号补全版】获取所有原始信号数据，并进行有效性校验。
-        - 核心修复: 确保 `flow_credibility_raw` 被正确添加到返回的信号字典中。
+        【V1.3 · 多维信号增强版】获取所有原始信号数据，并进行有效性校验。
+        - 核心增强: 增加 `main_force_conviction_index_D`, `chip_health_score_D`, `main_force_buy_execution_alpha_D`,
+                    `bid_side_liquidity_D`, `absorption_strength_ma5_D`, `SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D`,
+                    `THEME_HOTNESS_SCORE_D` 等信号，以丰富赢家信念的判断维度。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -204,11 +233,17 @@ class CalculateWinnerConvictionRelationship:
         """
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
+        # 增加新的原始信号到所需信号列表
         required_signals = [
             belief_signal_name, pressure_signal_name,
             'deception_index_D', 'wash_trade_intensity_D',
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'trend_vitality_index_D', 'flow_credibility_index_D' # 确保 flow_credibility_index_D 在 required_signals 中
+            'trend_vitality_index_D', 'flow_credibility_index_D',
+            'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
+            'main_force_conviction_index_D', 'chip_health_score_D',
+            'main_force_buy_execution_alpha_D', 'bid_side_liquidity_D',
+            'absorption_strength_ma5_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
+            'THEME_HOTNESS_SCORE_D'
         ]
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         for base_sig in [belief_signal_name, pressure_signal_name, 'deception_index_D', 'wash_trade_intensity_D']:
@@ -225,7 +260,18 @@ class CalculateWinnerConvictionRelationship:
         market_sentiment_raw = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         volatility_instability_raw = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         trend_vitality_raw = self.helper._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
-        flow_credibility_raw = self.helper._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name) # 获取 flow_credibility_raw
+        flow_credibility_raw = self.helper._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
+        winner_profit_margin_avg_raw = self.helper._get_safe_series(df, 'winner_profit_margin_avg_D', 0.0, method_name=method_name)
+        loser_loss_margin_avg_raw = self.helper._get_safe_series(df, 'loser_loss_margin_avg_D', 0.0, method_name=method_name)
+        # 获取新增的信号
+        main_force_conviction_raw = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
+        chip_health_raw = self.helper._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name)
+        main_force_buy_execution_alpha_raw = self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name=method_name)
+        bid_side_liquidity_raw = self.helper._get_safe_series(df, 'bid_side_liquidity_D', 0.0, method_name=method_name)
+        absorption_strength_ma5_raw = self.helper._get_safe_series(df, 'absorption_strength_ma5_D', 0.0, method_name=method_name)
+        smart_money_divergence_raw = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0, method_name=method_name)
+        theme_hotness_raw = self.helper._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name=method_name)
+
         _temp_debug_values["原始信号值"] = {
             belief_signal_name: winner_stability_raw,
             pressure_signal_name: profit_taking_flow_raw,
@@ -234,7 +280,16 @@ class CalculateWinnerConvictionRelationship:
             'market_sentiment_score_D': market_sentiment_raw,
             'VOLATILITY_INSTABILITY_INDEX_21d_D': volatility_instability_raw,
             'trend_vitality_index_D': trend_vitality_raw,
-            'flow_credibility_index_D': flow_credibility_raw # 添加到调试输出
+            'flow_credibility_index_D': flow_credibility_raw,
+            'winner_profit_margin_avg_D': winner_profit_margin_avg_raw,
+            'loser_loss_margin_avg_D': loser_loss_margin_avg_raw,
+            'main_force_conviction_index_D': main_force_conviction_raw, # 添加到调试输出
+            'chip_health_score_D': chip_health_raw, # 添加到调试输出
+            'main_force_buy_execution_alpha_D': main_force_buy_execution_alpha_raw, # 添加到调试输出
+            'bid_side_liquidity_D': bid_side_liquidity_raw, # 添加到调试输出
+            'absorption_strength_ma5_D': absorption_strength_ma5_raw, # 添加到调试输出
+            'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D': smart_money_divergence_raw, # 添加到调试输出
+            'THEME_HOTNESS_SCORE_D': theme_hotness_raw # 添加到调试输出
         }
         return {
             "winner_stability_raw": winner_stability_raw,
@@ -244,14 +299,23 @@ class CalculateWinnerConvictionRelationship:
             "market_sentiment_raw": market_sentiment_raw,
             "volatility_instability_raw": volatility_instability_raw,
             "trend_vitality_raw": trend_vitality_raw,
-            "flow_credibility_raw": flow_credibility_raw, # 确保 flow_credibility_raw 被返回
+            "flow_credibility_raw": flow_credibility_raw,
+            "winner_profit_margin_avg_raw": winner_profit_margin_avg_raw,
+            "loser_loss_margin_avg_raw": loser_loss_margin_avg_raw,
+            "main_force_conviction_raw": main_force_conviction_raw, # 确保被返回
+            "chip_health_raw": chip_health_raw, # 确保被返回
+            "main_force_buy_execution_alpha_raw": main_force_buy_execution_alpha_raw, # 确保被返回
+            "bid_side_liquidity_raw": bid_side_liquidity_raw, # 确保被返回
+            "absorption_strength_ma5_raw": absorption_strength_ma5_raw, # 确保被返回
+            "smart_money_divergence_raw": smart_money_divergence_raw, # 确保被返回
+            "theme_hotness_raw": theme_hotness_raw, # 确保被返回
             "belief_signal_name": belief_signal_name,
             "pressure_signal_name": pressure_signal_name
         }
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 原始数据归一化版】归一化原始数据。
+        【V1.1 · 原始数据归一化扩展版】归一化原始数据，新增了多个信号的归一化处理。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
@@ -260,21 +324,53 @@ class CalculateWinnerConvictionRelationship:
             Dict[str, pd.Series]: 包含归一化信号Series的字典。
         """
         flow_credibility_norm = self.helper._normalize_series(signals["flow_credibility_raw"], df_index, bipolar=False)
+        # 新增信号的归一化
+        winner_profit_margin_avg_norm = self.helper._normalize_series(signals["winner_profit_margin_avg_raw"], df_index, bipolar=False, ascending=True)
+        # 输家亏损率越低越好，所以 ascending=False
+        loser_loss_margin_avg_norm = self.helper._normalize_series(signals["loser_loss_margin_avg_raw"], df_index, bipolar=False, ascending=False)
+        main_force_conviction_norm = self.helper._normalize_series(signals["main_force_conviction_raw"], df_index, bipolar=True, ascending=True)
+        chip_health_norm = self.helper._normalize_series(signals["chip_health_raw"], df_index, bipolar=True, ascending=True)
+        main_force_buy_execution_alpha_norm = self.helper._normalize_series(signals["main_force_buy_execution_alpha_raw"], df_index, bipolar=True, ascending=True)
+        bid_side_liquidity_norm = self.helper._normalize_series(signals["bid_side_liquidity_raw"], df_index, bipolar=False, ascending=True)
+        absorption_strength_ma5_norm = self.helper._normalize_series(signals["absorption_strength_ma5_raw"], df_index, bipolar=False, ascending=True)
+        # 聪明钱分歧越大越不好，所以 bipolar=True, ascending=False
+        smart_money_divergence_norm = self.helper._normalize_series(signals["smart_money_divergence_raw"], df_index, bipolar=True, ascending=False)
+        theme_hotness_norm = self.helper._normalize_series(signals["theme_hotness_raw"], df_index, bipolar=False, ascending=True)
+
         _temp_debug_values["归一化处理"] = {
-            "flow_credibility_norm": flow_credibility_norm
+            "flow_credibility_norm": flow_credibility_norm,
+            "winner_profit_margin_avg_norm": winner_profit_margin_avg_norm,
+            "loser_loss_margin_avg_norm": loser_loss_margin_avg_norm,
+            "main_force_conviction_norm": main_force_conviction_norm,
+            "chip_health_norm": chip_health_norm,
+            "main_force_buy_execution_alpha_norm": main_force_buy_execution_alpha_norm,
+            "bid_side_liquidity_norm": bid_side_liquidity_norm,
+            "absorption_strength_ma5_norm": absorption_strength_ma5_norm,
+            "smart_money_divergence_norm": smart_money_divergence_norm,
+            "theme_hotness_norm": theme_hotness_norm
         }
         return {
-            "flow_credibility_norm": flow_credibility_norm
+            "flow_credibility_norm": flow_credibility_norm,
+            "winner_profit_margin_avg_norm": winner_profit_margin_avg_norm,
+            "loser_loss_margin_avg_norm": loser_loss_margin_avg_norm,
+            "main_force_conviction_norm": main_force_conviction_norm,
+            "chip_health_norm": chip_health_norm,
+            "main_force_buy_execution_alpha_norm": main_force_buy_execution_alpha_norm,
+            "bid_side_liquidity_norm": bid_side_liquidity_norm,
+            "absorption_strength_ma5_norm": absorption_strength_ma5_norm,
+            "smart_money_divergence_norm": smart_money_divergence_norm,
+            "theme_hotness_norm": theme_hotness_norm
         }
 
-    def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0 · 信念强度计算版】计算赢家信念强度。
+        【V1.1 · 信念强度增强版】计算赢家信念强度，融入了主力信念、筹码健康度、赢家利润率和输家亏损率。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
             method_name (str): 调用此方法的名称，用于日志输出。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
+            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
             params (Dict): 包含所有参数的字典。
             _temp_debug_values (Dict): 临时调试值字典。
         返回:
@@ -282,25 +378,69 @@ class CalculateWinnerConvictionRelationship:
         """
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         relative_position_weights = params["relative_position_weights"]
+        conviction_enhancement_weights = params["conviction_enhancement_weights"]
+
         mtf_winner_stability = self.helper._get_mtf_slope_accel_score(df, signals["belief_signal_name"], mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         winner_stability_percentile = signals["winner_stability_raw"].rank(pct=True).fillna(0.5)
-        conviction_strength_score = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) +
-                                     (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6))).clip(-1, 1)
+
+        # 核心信念组件 (范围 [-1, 1])
+        core_conviction_component = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) +
+                                     (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6)))
+
+        # 所有信念相关组件，直接使用归一化后的信号，_robust_geometric_mean 会处理 [-1,1] 到 [0,1] 的转换
+        all_conviction_components = {
+            "core_conviction": core_conviction_component,
+            "main_force_conviction": normalized_signals["main_force_conviction_norm"],
+            "chip_health": normalized_signals["chip_health_norm"],
+            "winner_profit_margin_avg": normalized_signals["winner_profit_margin_avg_norm"],
+            "loser_loss_margin_avg_inverse": normalized_signals["loser_loss_margin_avg_norm"]
+        }
+
+        # 融合权重
+        conviction_fusion_weights = {
+            "core_conviction": 0.4,
+            "main_force_conviction": conviction_enhancement_weights.get("main_force_conviction", 0.2),
+            "chip_health": conviction_enhancement_weights.get("chip_health", 0.2),
+            "winner_profit_margin_avg": conviction_enhancement_weights.get("winner_profit_margin_avg", 0.1),
+            "loser_loss_margin_avg_inverse": conviction_enhancement_weights.get("loser_loss_margin_avg_inverse", 0.1)
+        }
+        total_weight = sum(conviction_fusion_weights.values())
+        if total_weight > 0:
+            conviction_fusion_weights = {k: v / total_weight for k, v in conviction_fusion_weights.items()}
+        else: # Fallback if weights are all zero
+            conviction_fusion_weights = {k: 1/len(conviction_fusion_weights) for k in conviction_fusion_weights.keys()}
+
+        # _robust_geometric_mean 返回的是 [0, 1] 范围
+        fused_conviction_strength_0_1 = _robust_geometric_mean(
+            all_conviction_components,
+            conviction_fusion_weights,
+            df_index
+        )
+        # 转换回 [-1, 1]
+        conviction_strength_score = (fused_conviction_strength_0_1 * 2 - 1).clip(-1, 1)
+
         _temp_debug_values["信念强度"] = {
             "mtf_winner_stability": mtf_winner_stability,
             "winner_stability_percentile": winner_stability_percentile,
+            "core_conviction_component": core_conviction_component,
+            "main_force_conviction_norm": normalized_signals["main_force_conviction_norm"],
+            "chip_health_norm": normalized_signals["chip_health_norm"],
+            "winner_profit_margin_avg_norm": normalized_signals["winner_profit_margin_avg_norm"],
+            "loser_loss_margin_avg_norm": normalized_signals["loser_loss_margin_avg_norm"],
+            "fused_conviction_strength_0_1": fused_conviction_strength_0_1,
             "conviction_strength_score": conviction_strength_score
         }
         return conviction_strength_score
 
-    def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0 · 压力韧性计算版】计算压力韧性。
+        【V1.1 · 压力韧性增强版】计算压力韧性，融入了主力买入执行效率、买方流动性和吸收强度。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
             method_name (str): 调用此方法的名称，用于日志输出。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
+            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
             params (Dict): 包含所有参数的字典。
             _temp_debug_values (Dict): 临时调试值字典。
         返回:
@@ -308,13 +448,51 @@ class CalculateWinnerConvictionRelationship:
         """
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
         relative_position_weights = params["relative_position_weights"]
+        pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
+
         mtf_profit_taking_flow = self.helper._get_mtf_slope_accel_score(df, signals["pressure_signal_name"], mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         profit_taking_flow_percentile = (1 - signals["profit_taking_flow_raw"].rank(pct=True)).fillna(0.5)
-        pressure_resilience_score = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) +
-                                     (profit_taking_flow_percentile * 2 - 1) * (1 - relative_position_weights.get("profit_taking_flow_low", 0.4))).clip(-1, 1)
+
+        # 核心压力韧性组件 (范围 [-1, 1])
+        core_resilience_component = ((mtf_profit_taking_flow * -1) * relative_position_weights.get("profit_taking_flow_low", 0.4) +
+                                     (profit_taking_flow_percentile * 2 - 1) * (1 - relative_position_weights.get("profit_taking_flow_low", 0.4)))
+
+        # 所有压力韧性相关组件
+        all_resilience_components = {
+            "core_resilience": core_resilience_component,
+            "main_force_buy_execution_alpha": normalized_signals["main_force_buy_execution_alpha_norm"],
+            "bid_side_liquidity": normalized_signals["bid_side_liquidity_norm"],
+            "absorption_strength_ma5": normalized_signals["absorption_strength_ma5_norm"],
+        }
+
+        # 融合权重
+        resilience_fusion_weights = {
+            "core_resilience": 0.4,
+            "main_force_buy_execution_alpha": pressure_resilience_enhancement_weights.get("main_force_buy_execution_alpha", 0.2),
+            "bid_side_liquidity": pressure_resilience_enhancement_weights.get("bid_side_liquidity", 0.2),
+            "absorption_strength_ma5": pressure_resilience_enhancement_weights.get("absorption_strength_ma5", 0.2)
+        }
+        total_weight = sum(resilience_fusion_weights.values())
+        if total_weight > 0:
+            resilience_fusion_weights = {k: v / total_weight for k, v in resilience_fusion_weights.items()}
+        else:
+            resilience_fusion_weights = {k: 1/len(resilience_fusion_weights) for k in resilience_fusion_weights.keys()}
+
+        fused_pressure_resilience_0_1 = _robust_geometric_mean(
+            all_resilience_components,
+            resilience_fusion_weights,
+            df_index
+        )
+        pressure_resilience_score = (fused_pressure_resilience_0_1 * 2 - 1).clip(-1, 1)
+
         _temp_debug_values["压力韧性"] = {
             "mtf_profit_taking_flow": mtf_profit_taking_flow,
             "profit_taking_flow_percentile": profit_taking_flow_percentile,
+            "core_resilience_component": core_resilience_component,
+            "main_force_buy_execution_alpha_norm": normalized_signals["main_force_buy_execution_alpha_norm"],
+            "bid_side_liquidity_norm": normalized_signals["bid_side_liquidity_norm"],
+            "absorption_strength_ma5_norm": normalized_signals["absorption_strength_ma5_norm"],
+            "fused_pressure_resilience_0_1": fused_pressure_resilience_0_1,
             "pressure_resilience_score": pressure_resilience_score
         }
         return pressure_resilience_score
@@ -340,65 +518,124 @@ class CalculateWinnerConvictionRelationship:
         }
         return synergy_factor
 
-    def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0 · 诡道过滤计算版】计算诡道过滤因子。
+        【V1.1 · 诡道过滤增强版】计算诡道过滤因子，融入了聪明钱分歧。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
             method_name (str): 调用此方法的名称，用于日志输出。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
+            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
             params (Dict): 包含所有参数的字典。
             _temp_debug_values (Dict): 临时调试值字典。
         返回:
             pd.Series: 诡道过滤因子分数。
         """
         mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
+        deception_enhancement_weights = params["deception_enhancement_weights"]
+
         mtf_deception_index = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_wash_trade_intensity = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        deception_penalty = (mtf_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
-        deception_filter = (1 - deception_penalty).clip(0, 1)
+
+        # 基础欺骗惩罚 (范围 [0, 1])
+        base_deception_penalty = (mtf_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
+
+        # 聪明钱分歧越大，欺骗惩罚越大 (smart_money_divergence_norm 是 [-1, 1]，高分歧 -> 低值)
+        # 所以 (1 - smart_money_divergence_norm) / 2 转换为 [0, 1]，高分歧 -> 高值
+        smart_money_divergence_penalty_0_1 = (1 - normalized_signals["smart_money_divergence_norm"]) / 2
+
+        # 融合所有欺骗相关因子
+        all_deception_components = {
+            "base_deception_penalty": base_deception_penalty,
+            "smart_money_divergence_penalty": smart_money_divergence_penalty_0_1
+        }
+
+        deception_fusion_weights = {
+            "base_deception_penalty": 0.7,
+            "smart_money_divergence_penalty": deception_enhancement_weights.get("smart_money_divergence", 0.3)
+        }
+        total_weight = sum(deception_fusion_weights.values())
+        if total_weight > 0:
+            deception_fusion_weights = {k: v / total_weight for k, v in deception_fusion_weights.items()}
+        else:
+            deception_fusion_weights = {k: 1/len(deception_fusion_weights) for k in deception_fusion_weights.keys()}
+
+        fused_deception_penalty_0_1 = _robust_geometric_mean(
+            all_deception_components,
+            deception_fusion_weights,
+            df_index
+        )
+        deception_filter = (1 - fused_deception_penalty_0_1).clip(0, 1)
+
         _temp_debug_values["诡道过滤"] = {
             "mtf_deception_index": mtf_deception_index,
             "mtf_wash_trade_intensity": mtf_wash_trade_intensity,
-            "deception_penalty": deception_penalty,
+            "base_deception_penalty": base_deception_penalty,
+            "smart_money_divergence_norm": normalized_signals["smart_money_divergence_norm"],
+            "fused_deception_penalty_0_1": fused_deception_penalty_0_1,
             "deception_filter": deception_filter
         }
         return deception_filter
 
-    def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0 · 情境调制计算版】计算情境调制因子。
+        【V1.1 · 情境调制增强版】计算情境调制因子，融入了题材热度。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
+            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
             params (Dict): 包含所有参数的字典。
             _temp_debug_values (Dict): 临时调试值字典。
         返回:
             pd.Series: 情境调制因子分数。
         """
         context_modulator_weights = params["context_modulator_weights"]
+        context_modulator_enhancement_weights = params["context_modulator_enhancement_weights"]
+
         norm_market_sentiment = self.helper._normalize_series(signals["market_sentiment_raw"], df_index, bipolar=True)
         volatility_stability_raw = 1 - normalize_score(signals["volatility_instability_raw"], df_index, 21, ascending=True, debug_info=False)
         norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
         norm_trend_vitality = self.helper._normalize_series(signals["trend_vitality_raw"], df_index, bipolar=False)
+        norm_theme_hotness = normalized_signals["theme_hotness_norm"]
+
+        # 所有情境调制组件
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
             "volatility_stability": norm_volatility_stability,
-            "trend_vitality": norm_trend_vitality
+            "trend_vitality": norm_trend_vitality,
+            "theme_hotness": norm_theme_hotness
         }
-        context_modulator_score = _robust_geometric_mean(
-            {k: (v + 1) / 2 if v.min() < 0 else v for k, v in context_modulator_components.items()},
-            context_modulator_weights,
+
+        # 融合权重
+        context_fusion_weights = {
+            "market_sentiment": context_modulator_weights.get("market_sentiment", 0.4),
+            "volatility_stability": context_modulator_weights.get("volatility_stability", 0.3),
+            "trend_vitality": context_modulator_weights.get("trend_vitality", 0.3),
+            "theme_hotness": context_modulator_enhancement_weights.get("theme_hotness", 0.2)
+        }
+        total_weight = sum(context_fusion_weights.values())
+        if total_weight > 0:
+            context_fusion_weights = {k: v / total_weight for k, v in context_fusion_weights.items()}
+        else:
+            context_fusion_weights = {k: 1/len(context_fusion_weights) for k in context_fusion_weights.keys()}
+
+        # _robust_geometric_mean 返回的是 [0, 1] 范围
+        context_modulator_score_0_1 = _robust_geometric_mean(
+            context_modulator_components,
+            context_fusion_weights,
             df_index
         )
-        context_modulator = 0.5 + context_modulator_score
+        # 将 0-1 范围的调制分数映射到 0.5-1.5 范围，作为乘数
+        context_modulator = 0.5 + context_modulator_score_0_1 # 范围 [0.5, 1.5]
+
         _temp_debug_values["情境调制"] = {
             "norm_market_sentiment": norm_market_sentiment,
             "volatility_stability_raw": volatility_stability_raw,
             "norm_volatility_stability": norm_volatility_stability,
             "norm_trend_vitality": norm_trend_vitality,
-            "context_modulator_score": context_modulator_score,
+            "norm_theme_hotness": norm_theme_hotness,
+            "context_modulator_score_0_1": context_modulator_score_0_1,
             "context_modulator": context_modulator
         }
         return context_modulator

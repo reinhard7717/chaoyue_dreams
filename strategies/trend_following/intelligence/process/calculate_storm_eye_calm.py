@@ -41,6 +41,81 @@ class CalculateStormEyeCalm:
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         self.actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
+    def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        V4.0.5: 计算“风暴眼中的寂静”信号。
+        """
+        method_name = "calculate_storm_eye_calm"
+        is_debug_enabled_for_method, probe_ts = self._get_debug_info(df, method_name)
+        debug_output = {}
+        _temp_debug_values = {
+            "能量压缩": {},
+            "量能枯竭": {},
+            "主力隐蔽意图": {}, # 用于存储组件
+            "主力隐蔽意图融合": {}, # 用于存储融合分数
+            "市场情绪低迷融合": {},
+            "突破准备度融合": {},
+            "市场情境动态调节器": {},
+            "最终融合": {}
+        }
+        if is_debug_enabled_for_method and probe_ts:
+            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算风暴眼中的寂静..."] = ""
+        df_index = df.index
+        # 1. 获取所有参数
+        params = self._get_storm_eye_calm_params(config)
+        # 2. 校验所有必需的信号
+        required_signals = self._get_required_signals(params, params['mtf_slope_accel_weights'], params['mtf_cohesion_base_signals'])
+        if not self.helper._validate_required_signals(df, required_signals, method_name):
+            if is_debug_enabled_for_method and probe_ts:
+                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
+                self._print_debug_output_for_storm_eye_calm(debug_output, _temp_debug_values, probe_ts, method_name, pd.Series(0.0, index=df.index, dtype=np.float32))
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 3. 获取原始数据和原子信号
+        raw_data = self._get_raw_and_atomic_data(df, method_name, params)
+        _temp_debug_values["原始信号值"] = raw_data
+        # 4. 计算MTF斜率/加速度分数
+        mtf_derived_scores = self._calculate_mtf_derived_scores(df, df_index, params['mtf_slope_accel_weights'], params['mtf_cohesion_base_signals'], method_name)
+        _temp_debug_values["MTF斜率/加速度分数"] = mtf_derived_scores
+        # 5. 归一化和计算各维度分数
+        energy_compression_score = self._calculate_energy_compression_component(df_index, raw_data, mtf_derived_scores, params['energy_compression_weights'], _temp_debug_values)
+        _temp_debug_values["能量压缩"]["energy_compression_score"] = energy_compression_score
+
+        volume_exhaustion_score = self._calculate_volume_exhaustion_component(df_index, raw_data, mtf_derived_scores, params['volume_exhaustion_weights'], _temp_debug_values)
+        _temp_debug_values["量能枯竭"]["volume_exhaustion_score"] = volume_exhaustion_score
+        
+        main_force_covert_intent_score, main_force_covert_intent_components = self._calculate_main_force_covert_intent_component(df_index, raw_data, mtf_derived_scores, params['main_force_covert_intent_weights'], params['ambiguity_components_weights'], _temp_debug_values)
+        _temp_debug_values["主力隐蔽意图"].update(main_force_covert_intent_components) # 存储组件
+        _temp_debug_values["主力隐蔽意图融合"]["main_force_covert_intent_score"] = main_force_covert_intent_score # 存储融合分数
+        
+        subdued_market_sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], params['sentiment_volatility_window'], params['long_term_sentiment_window'], params['sentiment_neutral_range'], params['sentiment_pendulum_neutral_range'], _temp_debug_values)
+        _temp_debug_values["市场情绪低迷融合"]["subdued_market_sentiment_score"] = subdued_market_sentiment_score
+
+        breakout_readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'], _temp_debug_values)
+        _temp_debug_values["突破准备度融合"]["breakout_readiness_score"] = breakout_readiness_score
+        # 6. 市场情境动态调节器
+        market_regime_modulator = self._calculate_market_regime_modulator(df_index, raw_data, params, _temp_debug_values)
+        _temp_debug_values["市场情境动态调节器"]["market_regime_modulator"] = market_regime_modulator
+        # 7. 最终融合
+        component_scores = {
+            'energy_compression': energy_compression_score,
+            'volume_exhaustion': volume_exhaustion_score,
+            'main_force_covert_intent': main_force_covert_intent_score, # 使用融合分数
+            'subdued_market_sentiment': subdued_market_sentiment_score,
+            'breakout_readiness': breakout_readiness_score,
+            'mtf_cohesion': mtf_derived_scores['mtf_cohesion_score']
+        }
+        # 调整最终融合权重
+        adjusted_final_fusion_weights = {k: v * market_regime_modulator for k, v in params['final_fusion_weights'].items()}
+        _temp_debug_values["最终融合"]["adjusted_final_fusion_weights"] = adjusted_final_fusion_weights # 记录调整后的权重
+
+        final_score = self._perform_final_fusion(df_index, component_scores, adjusted_final_fusion_weights, params['price_calmness_modulator_params'], params['main_force_control_adjudicator_params'], raw_data, _temp_debug_values)
+        _temp_debug_values["最终融合"]["final_score"] = final_score
+        # --- 统一输出调试信息 ---
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_debug_output_for_storm_eye_calm(debug_output, _temp_debug_values, probe_ts, method_name, final_score)
+        return final_score.astype(np.float32)
+
     def _get_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp]]:
         """
         V1.0: 集中获取调试信息（是否启用调试、探针日期等）。
@@ -647,78 +722,4 @@ class CalculateStormEyeCalm:
         final_score = (final_score * main_force_amplifier).clip(0, 1).fillna(0.0)
         return final_score
 
-    def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        V4.0.5: 计算“风暴眼中的寂静”信号。
-        """
-        method_name = "calculate_storm_eye_calm"
-        is_debug_enabled_for_method, probe_ts = self._get_debug_info(df, method_name)
-        debug_output = {}
-        _temp_debug_values = {
-            "能量压缩": {},
-            "量能枯竭": {},
-            "主力隐蔽意图": {}, # 用于存储组件
-            "主力隐蔽意图融合": {}, # 用于存储融合分数
-            "市场情绪低迷融合": {},
-            "突破准备度融合": {},
-            "市场情境动态调节器": {},
-            "最终融合": {}
-        }
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算风暴眼中的寂静..."] = ""
-        df_index = df.index
-        # 1. 获取所有参数
-        params = self._get_storm_eye_calm_params(config)
-        # 2. 校验所有必需的信号
-        required_signals = self._get_required_signals(params, params['mtf_slope_accel_weights'], params['mtf_cohesion_base_signals'])
-        if not self.helper._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self._print_debug_output_for_storm_eye_calm(debug_output, _temp_debug_values, probe_ts, method_name, pd.Series(0.0, index=df.index, dtype=np.float32))
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 3. 获取原始数据和原子信号
-        raw_data = self._get_raw_and_atomic_data(df, method_name, params)
-        _temp_debug_values["原始信号值"] = raw_data
-        # 4. 计算MTF斜率/加速度分数
-        mtf_derived_scores = self._calculate_mtf_derived_scores(df, df_index, params['mtf_slope_accel_weights'], params['mtf_cohesion_base_signals'], method_name)
-        _temp_debug_values["MTF斜率/加速度分数"] = mtf_derived_scores
-        # 5. 归一化和计算各维度分数
-        energy_compression_score = self._calculate_energy_compression_component(df_index, raw_data, mtf_derived_scores, params['energy_compression_weights'], _temp_debug_values)
-        _temp_debug_values["能量压缩"]["energy_compression_score"] = energy_compression_score
-
-        volume_exhaustion_score = self._calculate_volume_exhaustion_component(df_index, raw_data, mtf_derived_scores, params['volume_exhaustion_weights'], _temp_debug_values)
-        _temp_debug_values["量能枯竭"]["volume_exhaustion_score"] = volume_exhaustion_score
-        
-        main_force_covert_intent_score, main_force_covert_intent_components = self._calculate_main_force_covert_intent_component(df_index, raw_data, mtf_derived_scores, params['main_force_covert_intent_weights'], params['ambiguity_components_weights'], _temp_debug_values)
-        _temp_debug_values["主力隐蔽意图"].update(main_force_covert_intent_components) # 存储组件
-        _temp_debug_values["主力隐蔽意图融合"]["main_force_covert_intent_score"] = main_force_covert_intent_score # 存储融合分数
-        
-        subdued_market_sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], params['sentiment_volatility_window'], params['long_term_sentiment_window'], params['sentiment_neutral_range'], params['sentiment_pendulum_neutral_range'], _temp_debug_values)
-        _temp_debug_values["市场情绪低迷融合"]["subdued_market_sentiment_score"] = subdued_market_sentiment_score
-
-        breakout_readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'], _temp_debug_values)
-        _temp_debug_values["突破准备度融合"]["breakout_readiness_score"] = breakout_readiness_score
-        # 6. 市场情境动态调节器
-        market_regime_modulator = self._calculate_market_regime_modulator(df_index, raw_data, params, _temp_debug_values)
-        _temp_debug_values["市场情境动态调节器"]["market_regime_modulator"] = market_regime_modulator
-        # 7. 最终融合
-        component_scores = {
-            'energy_compression': energy_compression_score,
-            'volume_exhaustion': volume_exhaustion_score,
-            'main_force_covert_intent': main_force_covert_intent_score, # 使用融合分数
-            'subdued_market_sentiment': subdued_market_sentiment_score,
-            'breakout_readiness': breakout_readiness_score,
-            'mtf_cohesion': mtf_derived_scores['mtf_cohesion_score']
-        }
-        # 调整最终融合权重
-        adjusted_final_fusion_weights = {k: v * market_regime_modulator for k, v in params['final_fusion_weights'].items()}
-        _temp_debug_values["最终融合"]["adjusted_final_fusion_weights"] = adjusted_final_fusion_weights # 记录调整后的权重
-
-        final_score = self._perform_final_fusion(df_index, component_scores, adjusted_final_fusion_weights, params['price_calmness_modulator_params'], params['main_force_control_adjudicator_params'], raw_data, _temp_debug_values)
-        _temp_debug_values["最终融合"]["final_score"] = final_score
-        # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_output_for_storm_eye_calm(debug_output, _temp_debug_values, probe_ts, method_name, final_score)
-        return final_score.astype(np.float32)
 

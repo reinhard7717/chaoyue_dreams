@@ -633,17 +633,17 @@ class CalculateMainForceRallyIntent:
             cumulative_mf_flow_long = raw_signals['main_force_net_flow'].rolling(window=cumulative_mf_flow_window, min_periods=int(cumulative_mf_flow_window * 0.5)).sum()
             mtf_cumulative_mf_flow = get_adaptive_mtf_normalized_score(
                 cumulative_mf_flow_long, df_index, hc_mtf_weights_medium, ascending=True,
-                debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_cumulative_mf_flow")
+                debug_info=False
             )
             rolling_std_winner_concentration = raw_signals['winner_concentration_90pct'].rolling(window=chip_concentration_stability_window, min_periods=int(chip_concentration_stability_window * 0.5)).std().replace(0, np.nan)
             chip_concentration_stability_raw = (1 / rolling_std_winner_concentration).fillna(0)
             mtf_chip_concentration_stability = get_adaptive_mtf_normalized_score(
                 chip_concentration_stability_raw, df_index, hc_mtf_weights_medium, ascending=True,
-                debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_chip_concentration_stability")
+                debug_info=False
             )
             mtf_long_term_trend_strength = get_adaptive_mtf_normalized_score(
                 raw_signals['long_term_trend_slope'], df_index, hc_mtf_weights_medium, ascending=True,
-                debug_info=(is_debug_enabled_for_method, probe_ts, "mtf_long_term_trend_strength")
+                debug_info=False
             )
         _temp_debug_values["MTF融合信号"].update({
             "mtf_cumulative_mf_flow": mtf_cumulative_mf_flow,
