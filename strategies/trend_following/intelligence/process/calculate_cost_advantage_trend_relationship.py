@@ -269,10 +269,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_q1_healthy_rally(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.0 · Q1健康上涨计算 - 动态权重与微观增强版】
+        【V1.1.1 · Q1健康上涨计算 - 动态权重与微观增强版】
         - 核心职责: 计算Q1（价涨 & 优扩）象限的分数。
         - 核心新增: 引入动态权重和主力买入执行Alpha作为确认项。
-        - 版本: 1.1.0
+        - 核心修复: 解决 Series 比较的 ValueError。
+        - 版本: 1.1.1
         """
         Q1_base = (fetched_signals['mtf_price_change'].clip(lower=0) * fetched_signals['mtf_ca_change'].clip(lower=0)).pow(0.5)
         # 确认：主力信念、上涨纯度、资金流可信度、主力买入执行Alpha
@@ -282,9 +283,25 @@ class CalculateCostAdvantageTrendRelationship:
             'flow_credibility_norm': normalized_signals['flow_credibility_norm'],
             'main_force_buy_execution_alpha_norm': normalized_signals['main_force_buy_execution_alpha_norm']
         }
-        Q1_confirm_weights = dynamic_weights['Q1_confirmation_weights']
-        Q1_confirm = sum(Q1_confirm_components[k] * Q1_confirm_weights.get(k, 0) for k in Q1_confirm_components)
-        Q1_confirm = Q1_confirm / sum(Q1_confirm_weights.values()) if sum(Q1_confirm_weights.values()) > 0 else Q1_confirm
+        Q1_confirm_weights_series = dynamic_weights['Q1_confirmation_weights'] # 这是一个字典，值是 Series
+        
+        # 计算加权和
+        weighted_sum = pd.Series(0.0, index=Q1_base.index, dtype=np.float32)
+        for k, component_series in Q1_confirm_components.items():
+            weight_series = Q1_confirm_weights_series.get(k, pd.Series(0.0, index=Q1_base.index, dtype=np.float32))
+            weighted_sum += component_series * weight_series
+        
+        # 计算所有权重的总和 (Series)
+        sum_of_weights_series = pd.Series(0.0, index=Q1_base.index, dtype=np.float32)
+        for weight_series in Q1_confirm_weights_series.values():
+            sum_of_weights_series += weight_series
+        
+        # 避免除以零，将总和为零的元素替换为 NaN
+        sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
+        
+        # 执行除法，并用0填充 NaN
+        Q1_confirm = (weighted_sum / sum_of_weights_series_safe).fillna(0)
+        
         Q1_final = (Q1_base * Q1_confirm).clip(0, 1)
         _temp_debug_values["Q1: 价涨 & 优扩"] = {
             "Q1_base": Q1_base,
@@ -295,10 +312,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_q2_bearish_distribution(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.0 · Q2派发下跌计算 - 动态权重与微观增强版】
+        【V1.1.1 · Q2派发下跌计算 - 动态权重与微观增强版】
         - 核心职责: 计算Q2（价跌 & 优缩）象限的分数。
         - 核心新增: 引入动态权重和主力卖出执行Alpha作为确认项。
-        - 版本: 1.1.0
+        - 核心修复: 解决 Series 比较的 ValueError。
+        - 版本: 1.1.1
         """
         Q2_base = (fetched_signals['mtf_price_change'].clip(upper=0).abs() * fetched_signals['mtf_ca_change'].clip(upper=0).abs()).pow(0.5)
         # 确认：利润兑现流量、主动卖压、行为派发意图 (使用MTF信号)、主力卖出执行Alpha
@@ -308,9 +326,21 @@ class CalculateCostAdvantageTrendRelationship:
             'mtf_distribution_intensity': normalized_signals['mtf_distribution_intensity'],
             'main_force_sell_execution_alpha_norm': normalized_signals['main_force_sell_execution_alpha_norm']
         }
-        Q2_confirm_weights = dynamic_weights['Q2_confirmation_weights']
-        Q2_distribution_evidence = sum(Q2_confirm_components[k] * Q2_confirm_weights.get(k, 0) for k in Q2_confirm_components)
-        Q2_distribution_evidence = Q2_distribution_evidence / sum(Q2_confirm_weights.values()) if sum(Q2_confirm_weights.values()) > 0 else Q2_distribution_evidence
+        Q2_confirm_weights_series = dynamic_weights['Q2_confirmation_weights']
+        
+        weighted_sum = pd.Series(0.0, index=Q2_base.index, dtype=np.float32)
+        for k, component_series in Q2_confirm_components.items():
+            weight_series = Q2_confirm_weights_series.get(k, pd.Series(0.0, index=Q2_base.index, dtype=np.float32))
+            weighted_sum += component_series * weight_series
+        
+        sum_of_weights_series = pd.Series(0.0, index=Q2_base.index, dtype=np.float32)
+        for weight_series in Q2_confirm_weights_series.values():
+            sum_of_weights_series += weight_series
+        
+        sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
+        
+        Q2_distribution_evidence = (weighted_sum / sum_of_weights_series_safe).fillna(0)
+        
         Q2_final = (Q2_base * Q2_distribution_evidence * -1).clip(-1, 0)
         _temp_debug_values["Q2: 价跌 & 优缩"] = {
             "Q2_base": Q2_base,
@@ -321,10 +351,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_q3_golden_pit(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], df_index: pd.Index, dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.0 · Q3黄金坑计算 - 动态权重与微观增强版】
+        【V1.1.1 · Q3黄金坑计算 - 动态权重与微观增强版】
         - 核心职责: 计算Q3（价跌 & 优扩）象限的分数。
         - 核心新增: 引入动态权重和流动性真实性分数作为确认项。
-        - 版本: 1.1.0
+        - 核心修复: 解决 Series 比较的 ValueError。
+        - 版本: 1.1.1
         """
         Q3_base = (fetched_signals['mtf_price_change'].clip(upper=0).abs() * fetched_signals['mtf_ca_change'].clip(lower=0)).pow(0.5)
         # 确认：隐蔽吸筹、下影线吸收、资金流可信度、流动性真实性
@@ -334,12 +365,24 @@ class CalculateCostAdvantageTrendRelationship:
             'flow_credibility_norm': normalized_signals['flow_credibility_norm'],
             'liquidity_authenticity_score_norm': normalized_signals['liquidity_authenticity_score_norm']
         }
-        Q3_confirm_weights = dynamic_weights['Q3_confirmation_weights']
-        Q3_confirm = sum(Q3_confirm_components[k] * Q3_confirm_weights.get(k, 0) for k in Q3_confirm_components)
-        Q3_confirm = Q3_confirm / sum(Q3_confirm_weights.values()) if sum(Q3_confirm_weights.values()) > 0 else Q3_confirm
+        Q3_confirm_weights_series = dynamic_weights['Q3_confirmation_weights']
+        
+        weighted_sum = pd.Series(0.0, index=Q3_base.index, dtype=np.float32)
+        for k, component_series in Q3_confirm_components.items():
+            weight_series = Q3_confirm_weights_series.get(k, pd.Series(0.0, index=Q3_base.index, dtype=np.float32))
+            weighted_sum += component_series * weight_series
+        
+        sum_of_weights_series = pd.Series(0.0, index=Q3_base.index, dtype=np.float32)
+        for weight_series in Q3_confirm_weights_series.values():
+            sum_of_weights_series += weight_series
+        
+        sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
+        
+        Q3_confirm = (weighted_sum / sum_of_weights_series_safe).fillna(0)
+        
         # 前置下跌上下文，如果前几日有深跌，则增加黄金坑的权重
         pre_5day_pct_change = fetched_signals['close_price'].pct_change(periods=5).shift(1).fillna(0)
-        norm_pre_drop_5d = self.helper._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
+        norm_pre_drop_5d = self.helper._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=false)
         pre_drop_context_bonus = norm_pre_drop_5d * 0.5
         Q3_final = (Q3_base * Q3_confirm * (1 + pre_drop_context_bonus)).clip(0, 1)
         _temp_debug_values["Q3: 价跌 & 优扩"] = {
@@ -354,10 +397,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_q4_bull_trap(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.0 · Q4牛市陷阱计算 - 动态权重与微观增强版】
+        【V1.1.1 · Q4牛市陷阱计算 - 动态权重与微观增强版】
         - 核心职责: 计算Q4（价涨 & 优缩）象限的分数。
         - 核心新增: 引入动态权重和微观价格冲击不对称性作为确认项。
-        - 版本: 1.1.0
+        - 核心修复: 解决 Series 比较的 ValueError。
+        - 版本: 1.1.1
         """
         Q4_base = (fetched_signals['mtf_price_change'].clip(lower=0) * fetched_signals['mtf_ca_change'].clip(upper=0).abs()).pow(0.5)
         # 确认：派发强度、买盘虚弱度、主力资金净流出 (使用MTF信号)、微观价格冲击不对称性
@@ -367,9 +411,21 @@ class CalculateCostAdvantageTrendRelationship:
             'main_force_net_flow_outflow_norm': normalized_signals['main_force_net_flow_outflow_norm'],
             'micro_price_impact_asymmetry_norm': normalized_signals['micro_price_impact_asymmetry_norm']
         }
-        Q4_confirm_weights = dynamic_weights['Q4_confirmation_weights']
-        Q4_trap_evidence = sum(Q4_confirm_components[k] * Q4_confirm_weights.get(k, 0) for k in Q4_confirm_components)
-        Q4_trap_evidence = Q4_trap_evidence / sum(Q4_confirm_weights.values()) if sum(Q4_confirm_weights.values()) > 0 else Q4_trap_evidence
+        Q4_confirm_weights_series = dynamic_weights['Q4_confirmation_weights']
+        
+        weighted_sum = pd.Series(0.0, index=Q4_base.index, dtype=np.float32)
+        for k, component_series in Q4_confirm_components.items():
+            weight_series = Q4_confirm_weights_series.get(k, pd.Series(0.0, index=Q4_base.index, dtype=np.float32))
+            weighted_sum += component_series * weight_series
+        
+        sum_of_weights_series = pd.Series(0.0, index=Q4_base.index, dtype=np.float32)
+        for weight_series in Q4_confirm_weights_series.values():
+            sum_of_weights_series += weight_series
+        
+        sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
+        
+        Q4_trap_evidence = (weighted_sum / sum_of_weights_series_safe).fillna(0)
+        
         Q4_final = (Q4_base * Q4_trap_evidence * -1).clip(-1, 0)
         _temp_debug_values["Q4: 价涨 & 优缩"] = {
             "Q4_base": Q4_base,

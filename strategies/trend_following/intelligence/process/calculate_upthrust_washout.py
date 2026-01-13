@@ -395,10 +395,10 @@ class CalculateUpthrustWashoutRelationship:
                                      is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp],
                                      debug_output: Dict) -> pd.Series:
         """
-        【V1.1.0 · 主力资金累积流向门控】
+        【V1.2.0 · 主力资金累积流向门控】
         - 核心职责: 评估主力资金的累积净流向是否支持洗盘信号。
         - 核心升级: 使用 `_get_cumulative_context_score` 计算主力资金净流的累积分数，
-                      并设定阈值（0.6）来判断是否通过门控。
+                      并设定阈值（0.6）来判断是否通过门控。累积周期调整为13日和21日。
         参数:
             df_index (pd.Index): DataFrame的索引。
             main_force_net_flow (pd.Series): 原始主力资金净流。
@@ -408,9 +408,11 @@ class CalculateUpthrustWashoutRelationship:
         返回:
             pd.Series: 主力资金累积流向门控 (布尔Series)。
         """
-        # 定义累积周期和权重
-        cumulative_periods = [5, 13, 21]
-        cumulative_weights = {"5": 0.5, "13": 0.3, "21": 0.2}
+        # 定义累积周期和权重，调整为只考虑13日和21日
+        cumulative_periods = [13, 21]
+        # 重新分配权重，使总和为1
+        cumulative_weights = {"13": 0.6, "21": 0.4} # 原0.3和0.2，总和0.5，按比例分配为0.6和0.4
+        
         # 计算主力资金净流的累积上下文分数
         mf_cumulative_score = self.helper._get_cumulative_context_score(
             series=main_force_net_flow,
