@@ -939,7 +939,7 @@
                     },
                     "cumulative_conviction_threshold_params": {
                         "enabled": true,
-                        "decay_threshold_pct": 0.1,
+                        "decay_threshold_pct": 0.2,
                         "absolute_threshold": 0.2,
                         "short_term_weight_boost_factor": 10.0,
                         "long_term_weight_decay_factor": 0.01,
@@ -948,6 +948,7 @@
                     }
                 }
             },
+
             {
                 "name": "PROCESS_META_LOSER_CAPITULATION",
                 "type": "meta_analysis",

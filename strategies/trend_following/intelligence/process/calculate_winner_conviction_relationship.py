@@ -107,7 +107,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _print_debug_info(self, method_name: str, final_score: pd.Series, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict, _temp_debug_values: Dict):
         """
-        【V1.4 · 调试信息全面打印版 - 增强字典类型处理】统一打印调试信息，新增累积上下文、趋势一致性、拐点信号的输出。
+        【V1.5 · 调试信息全面打印版 - 增强字典类型处理】统一打印调试信息，新增累积上下文、趋势一致性、拐点信号的输出。
         核心修正：增强对 `_temp_debug_values` 中字典类型数据的处理，避免 `AttributeError: 'dict' object has no attribute 'index'`。
         新增：打印 `raw_conviction_enhancement_weights_from_params`、`base_fusion_weights_at_probe` 和 `dynamic_fusion_weights_pre_norm_at_probe`。
         参数:
@@ -191,7 +191,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.19 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
+        【V1.20 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
         核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient_inverse` 的逻辑修正，并更新其权重名称。
@@ -336,7 +336,7 @@ class CalculateWinnerConvictionRelationship:
         # 新增：累积信念阈值参数
         cumulative_conviction_threshold_params = get_param_value(params.get('cumulative_conviction_threshold_params'), {
             "enabled": True,
-            "decay_threshold_pct": 0.1, # 累积信念从历史最高点回撤的百分比阈值 (0.5 = 50%)
+            "decay_threshold_pct": 0.2, # 调整：提高衰减阈值，使得11.61%的衰减不再触发警惕模式
             "absolute_threshold": 0.2, # 累积信念的绝对值阈值 (低于此值也触发警惕)
             "short_term_weight_boost_factor": 10.0, # 警惕模式下，短期信号权重放大因子
             "long_term_weight_decay_factor": 0.01, # 警惕模式下，长期信号权重衰减因子
@@ -586,7 +586,7 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.14 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
+        【V1.15 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg` 和 `chip_fatigue` 的逻辑修正，直接使用其MTF分数。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient` 的逻辑修正，直接使用其MTF分数。
@@ -653,11 +653,12 @@ class CalculateWinnerConvictionRelationship:
             alert_condition = condition_decay | condition_absolute
 
             # 动态调整权重因子
-            dynamic_short_term_factor.loc[alert_condition] = alert_short_term_boost_factor # 警惕模式下，短期信号权重放大
-            dynamic_long_term_factor.loc[alert_condition] = alert_long_term_decay_factor # 警惕模式下，长期信号权重衰减
-
-            dynamic_short_term_factor.loc[~alert_condition] = healthy_short_term_decay_factor # 健康模式下，短期信号权重衰减
-            dynamic_long_term_factor.loc[~alert_condition] = healthy_long_term_boost_factor # 健康模式下，长期信号权重放大
+            # 警惕模式下
+            dynamic_short_term_factor.loc[alert_condition] = alert_short_term_boost_factor
+            dynamic_long_term_factor.loc[alert_condition] = alert_long_term_decay_factor
+            # 健康模式下
+            dynamic_short_term_factor.loc[~alert_condition] = healthy_short_term_decay_factor
+            dynamic_long_term_factor.loc[~alert_condition] = healthy_long_term_boost_factor
             
             _temp_debug_values["信念强度"]["historical_max_cumulative_conviction"] = historical_max_cumulative_conviction
             _temp_debug_values["信念强度"]["decay_pct"] = decay_pct
@@ -741,8 +742,9 @@ class CalculateWinnerConvictionRelationship:
                     break
             if probe_ts:
                 _temp_debug_values["信念强度"]["raw_conviction_enhancement_weights_from_params"] = conviction_enhancement_weights
+                # 修正：base_conviction_fusion_weights 中的值是标量，直接存储即可
                 _temp_debug_values["信念强度"]["base_fusion_weights_at_probe"] = {
-                    k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
+                    k: v
                     for k, v in base_conviction_fusion_weights.items()
                 }
 
