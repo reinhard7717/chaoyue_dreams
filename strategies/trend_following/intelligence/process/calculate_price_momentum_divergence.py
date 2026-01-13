@@ -1048,8 +1048,8 @@ class CalculatePriceMomentumDivergence:
             divergence_quality_score, context_modulator, debug_price_direction['price_momentum_quality_score'],
             _temp_debug_values
         )
-        # if is_debug_enabled_for_method and probe_ts:
-        #     self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
+        if is_debug_enabled_for_method and probe_ts:
+            self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
         return final_score.astype(np.float32)
 
 
