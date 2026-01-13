@@ -58,7 +58,7 @@ class CalculateUpthrustWashoutRelationship:
         _temp_debug_values = {}
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_ts.strftime('%Y-%m-%d')}: 正在计算上冲回落洗盘..."] = ""
+            debug_output[f"  -- [过程情报调试] {probe_ts.strftime('%Y-%m-%d')}: 正在计算上冲回落洗盘..."] = ""
 
         # 明确所有需要的原始信号
         required_signals = [
