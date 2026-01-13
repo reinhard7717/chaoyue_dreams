@@ -31,13 +31,14 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2.0 · 军令直达版】识别主力利用“上冲回落”阴线进行的洗盘行为。
+        【V2.4.0 · 军令直达版】识别主力利用“上冲回落”阴线进行的洗盘行为。
         - 核心重构: 创立“强证优先”原则。废除对多种承接证据的加权平均，改为采用 max() 函数，
                       直接取“主动买盘”、“下影线强度”、“权力转移”三者中的最强者作为最终承接证据，
                       旨在识别任何一种足以扭转战局的决定性吸收力量。
         - 【新增】严格限制 K 线形态，只有当 K 线为“上冲回落”形态时才激活信号。
-        - 【新增】引入主力资金净流向作为判断洗盘真实性的关键证据。
         - 【核心升级】所有依赖信号均从数据层原始指标派生，不再直接引用情报层原子信号。
+        - 【核心升级】放宽市场上下文限制，移除对乖离率的严格要求。
+        - 【核心升级】优化主力资金门控，从简单的当日净流入判断升级为基于累积资金流的评估。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             config (Dict): 诊断配置字典。
@@ -108,7 +109,7 @@ class CalculateUpthrustWashoutRelationship:
             main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw, method_name
         )
 
-        # 归一化处理
+        # 归一化处理 (注意：main_force_net_flow_norm 不再直接用于门控，但可能用于其他地方或调试)
         (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
          power_transfer_norm, main_force_net_flow_norm) = self._normalize_signals(
             df_index, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
@@ -142,12 +143,12 @@ class CalculateUpthrustWashoutRelationship:
         net_washout_intent = (absorption_rebuttal_score - selling_pressure_score).clip(0, 1)
         _temp_debug_values["净洗盘意图"] = {"net_washout_intent": net_washout_intent}
 
-        # 主力资金净流入门控
-        mf_inflow_gate = self._validate_main_force_inflow(main_force_net_flow_norm)
-        _temp_debug_values["主力资金净流入门控"] = {"mf_inflow_gate": mf_inflow_gate}
+        # 主力资金累积流向门控
+        mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_net_flow, is_debug_enabled_for_method, probe_ts, debug_output)
+        _temp_debug_values["主力资金累积流向门控"] = {"mf_cumulative_flow_gate": mf_cumulative_flow_gate}
 
         # 最终分数融合
-        final_score = self._fuse_final_score(net_washout_intent, context_mask, is_upthrust_kline, mf_inflow_gate)
+        final_score = self._fuse_final_score(net_washout_intent, context_mask, is_upthrust_kline, mf_cumulative_flow_gate)
         _temp_debug_values["最终分数"] = {"final_score": final_score}
 
         if is_debug_enabled_for_method and probe_ts:
@@ -305,18 +306,20 @@ class CalculateUpthrustWashoutRelationship:
 
     def _evaluate_market_context(self, trend_form_score: pd.Series, bias_21: pd.Series, upward_purity_norm: pd.Series) -> pd.Series:
         """
-        【V1.1.0 · 市场情境评估器】
+        【V1.2.0 · 市场情境评估器】
         - 核心职责: 评估当前市场是否处于适合洗盘反弹的上下文。
+        - 核心升级: 移除对 `bias_21` 的严格限制，仅关注趋势向上和上涨纯度。
         参数:
             trend_form_score (pd.Series): 派生出的趋势形态分数。
-            bias_21 (pd.Series): 21日乖离率。
+            bias_21 (pd.Series): 21日乖离率 (不再作为硬性门槛)。
             upward_purity_norm (pd.Series): 归一化后的上涨纯度。
         返回:
             pd.Series: 市场情境掩码 (布尔Series)。
         """
-        # 趋势向上，乖离率不过高，上涨纯度良好
+        # 趋势向上，上涨纯度良好
         # trend_form_score 是双极性，大于0.2表示趋势向上且有一定强度
-        context_mask = (trend_form_score > 0.2) & (bias_21 < 0.2) & (upward_purity_norm.rolling(3).mean() > 0.3)
+        # 移除 bias_21 < 0.2 的限制
+        context_mask = (trend_form_score > 0.2) & (upward_purity_norm.rolling(3).mean() > 0.3)
         return context_mask
 
     def _identify_kline_pattern(self, open_price: pd.Series, high_price: pd.Series,
@@ -388,42 +391,70 @@ class CalculateUpthrustWashoutRelationship:
         ], axis=1).max(axis=1)
         return absorption_rebuttal_score
 
-    def _validate_main_force_inflow(self, main_force_net_flow_norm: pd.Series) -> pd.Series:
+    def _validate_main_force_inflow(self, df_index: pd.Index, main_force_net_flow: pd.Series,
+                                     is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp],
+                                     debug_output: Dict) -> pd.Series:
         """
-        【V1.0.0 · 主力资金净流入门控】
-        - 核心职责: 验证主力资金净流入是否为正，作为洗盘真实性的门槛。
+        【V1.1.0 · 主力资金累积流向门控】
+        - 核心职责: 评估主力资金的累积净流向是否支持洗盘信号。
+        - 核心升级: 使用 `_get_cumulative_context_score` 计算主力资金净流的累积分数，
+                      并设定阈值（0.6）来判断是否通过门控。
         参数:
-            main_force_net_flow_norm (pd.Series): 归一化后的主力资金净流。
+            df_index (pd.Index): DataFrame的索引。
+            main_force_net_flow (pd.Series): 原始主力资金净流。
+            is_debug_enabled_for_method (bool): 是否启用调试。
+            probe_ts (Optional[pd.Timestamp]): 探针日期。
+            debug_output (Dict): 调试输出字典。
         返回:
-            pd.Series: 主力资金净流入门控分数。
+            pd.Series: 主力资金累积流向门控 (布尔Series)。
         """
-        # 只有当主力资金净流入为正时，才认为洗盘真实
-        mf_inflow_gate = main_force_net_flow_norm.clip(lower=0)
-        return mf_inflow_gate
+        # 定义累积周期和权重
+        cumulative_periods = [5, 13, 21]
+        cumulative_weights = {"5": 0.5, "13": 0.3, "21": 0.2}
+        # 计算主力资金净流的累积上下文分数
+        mf_cumulative_score = self.helper._get_cumulative_context_score(
+            series=main_force_net_flow,
+            df_index=df_index,
+            periods=cumulative_periods,
+            weights=cumulative_weights,
+            bipolar=True,
+            signal_name="main_force_net_flow_calibrated_D",
+            is_debug_enabled_for_method=is_debug_enabled_for_method,
+            probe_ts=probe_ts,
+            debug_output=debug_output
+        )
+        # 如果累积分数大于0.6，则认为通过门控
+        mf_cumulative_flow_gate = (mf_cumulative_score > 0.6).fillna(False)
+        if is_debug_enabled_for_method and probe_ts:
+            val_mf_cumulative_score = mf_cumulative_score.loc[probe_ts] if probe_ts in mf_cumulative_score.index else np.nan
+            debug_output[f"      -> 主力资金累积流向分数: {val_mf_cumulative_score:.4f}"] = ""
+            debug_output[f"      -> 主力资金累积流向门控 (mf_cumulative_score > 0.6): {mf_cumulative_flow_gate.loc[probe_ts]}"] = ""
+        return mf_cumulative_flow_gate
 
     def _fuse_final_score(self, net_washout_intent: pd.Series, context_mask: pd.Series,
-                          is_upthrust_kline: pd.Series, mf_inflow_gate: pd.Series) -> pd.Series:
+                          is_upthrust_kline: pd.Series, mf_cumulative_flow_gate: pd.Series) -> pd.Series:
         """
-        【V1.0.0 · 最终分数融合器】
+        【V1.1.0 · 最终分数融合器】
         - 核心职责: 结合所有评估维度，计算最终的上冲回落洗盘信号分数。
+        - 核心升级: 调整主力资金门控的判断方式，直接使用布尔型的 `mf_cumulative_flow_gate`。
         参数:
             net_washout_intent (pd.Series): 净洗盘意图。
             context_mask (pd.Series): 市场情境掩码。
             is_upthrust_kline (pd.Series): K线形态门控。
-            mf_inflow_gate (pd.Series): 主力资金净流入门控。
+            mf_cumulative_flow_gate (pd.Series): 主力资金累积流向门控 (布尔Series)。
         返回:
             pd.Series: 最终的上冲回落洗盘信号分数。
         """
-        # 结合市场上下文、K线形态门控和主力资金净流入门控
-        # 0.1为门槛，可调，确保主力资金有一定程度的流入
-        final_score = net_washout_intent.where(context_mask & is_upthrust_kline & (mf_inflow_gate > 0.1), 0.0).fillna(0.0)
+        # 结合市场上下文、K线形态门控和主力资金累积流向门控
+        final_score = net_washout_intent.where(context_mask & is_upthrust_kline & mf_cumulative_flow_gate, 0.0).fillna(0.0)
         return final_score
 
     def _print_debug_output_for_upthrust_washout(self, debug_output: Dict, probe_ts: pd.Timestamp,
                                                   temp_debug_values: Dict, final_score: pd.Series) -> None:
         """
-        【V1.0.0 · 调试信息输出器】
+        【V1.1.0 · 调试信息输出器】
         - 核心职责: 统一输出上冲回落洗盘计算过程中的调试信息。
+        - 核心升级: 调整主力资金门控的调试信息输出，以反映其新的累积流向评估逻辑。
         参数:
             debug_output (Dict): 调试信息字典。
             probe_ts (pd.Timestamp): 探针日期。
@@ -459,10 +490,11 @@ class CalculateUpthrustWashoutRelationship:
         for key, series in temp_debug_values["净洗盘意图"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
             debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力资金净流入门控 ---"] = ""
-        for key, series in temp_debug_values["主力资金净流入门控"].items():
+        # 调整主力资金门控的调试输出
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力资金累积流向门控 ---"] = ""
+        for key, series in temp_debug_values["主力资金累积流向门控"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
+            debug_output[f"        {key}: {val}"] = "" # mf_cumulative_flow_gate 现在是布尔值
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
         for key, series in temp_debug_values["最终分数"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
