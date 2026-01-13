@@ -134,40 +134,24 @@ class CalculatePriceMomentumDivergence:
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
-        """V1.5 · 信号精简与替换版 (移除未提供信号，替换语义相近信号)"""
+        """V1.6 · 信号精简与替换版 (移除未提供信号，替换语义相近信号，新增加速度信号和结构张力指数校验)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         mtf_accel_weights = pmd_params['mtf_accel_weights']
-        # 移除 cumulative_mf_flow_periods，因为数据层未提供 CUM_XX_main_force_net_flow_calibrated_D
-        # cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods']
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
-        # 移除 valid_cumulative_periods
-        # valid_cumulative_periods = [p_str for p_str in cumulative_mf_flow_periods.keys() if p_str.isdigit()]
         required_signals = [
             *[f'SLOPE_{p}_close_D' for p in valid_mtf_periods],
             *[f'SLOPE_{p}_MACDh_13_34_8_D' for p in valid_mtf_periods],
             *[f'SLOPE_{p}_RSI_13_D' for p in valid_mtf_periods],
             *[f'SLOPE_{p}_ROC_13_D' for p in valid_mtf_periods],
             *[f'SLOPE_{p}_volume_D' for p in valid_mtf_periods],
-            'volume_burstiness_index_D', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
+            'volume_burstiness_index_D',
             *[f'SLOPE_{p}_main_force_net_flow_calibrated_D' for p in valid_mtf_periods],
-            # 移除 CUM_XX_main_force_net_flow_calibrated_D
-            # *[f'CUM_{p}_main_force_net_flow_calibrated_D' for p in valid_cumulative_periods],
-            'deception_index_D', 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_CHIP_AXIOM_DIVERGENCE',
+            'deception_index_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
-            'PROCESS_META_COVERT_ACCUMULATION',
-            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
-            'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM',
-            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
-            'SCORE_DYN_AXIOM_MOMENTUM',
             'constructive_turnover_ratio_D',
             'volume_structure_skew_D',
             'main_force_conviction_index_D',
             'chip_health_score_D',
-            'SCORE_DYN_AXIOM_STABILITY',
-            'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL',
-            'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE',
-            'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION',
-            'SCORE_FOUNDATION_AXIOM_MARKET_TENSION',
             'volume_profile_entropy_D',
             'upward_impulse_strength_D', 'downward_impulse_strength_D',
             'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
@@ -178,16 +162,13 @@ class CalculatePriceMomentumDivergence:
             'mean_reversion_frequency_D', 'trend_alignment_index_D',
             'SMART_MONEY_INST_NET_BUY_D',
             'THEME_HOTNESS_SCORE_D',
-            # 移除 LARGE_TRADE_IMBALANCE_D
-            # 'LARGE_TRADE_IMBALANCE_D',
-            'intraday_vwap_div_index_D', # 替换 VWAP_DEVIATION_D
-            # 移除 CHIP_DISTRIBUTION_ENTROPY_D
-            # 'CHIP_DISTRIBUTION_ENTROPY_D',
-            'retail_panic_surrender_index_D' # 替换 RETAIL_PANIC_INDEX_D
+            'intraday_vwap_div_index_D',
+            'retail_panic_surrender_index_D',
+            'structural_tension_index_D' # 新增结构张力指数校验
         ]
         for p_str in mtf_accel_weights.keys():
             p = int(p_str)
-            required_signals.append(f'ACCEL_{p}_close_D')
+            required_signals.append(f'ACCEL_{p}_close_D') # 新增加速度信号校验
             required_signals.append(f'ACCEL_{p}_MACDh_13_34_8_D')
             required_signals.append(f'ACCEL_{p}_RSI_13_D')
             required_signals.append(f'ACCEL_{p}_ROC_13_D')
@@ -196,13 +177,9 @@ class CalculatePriceMomentumDivergence:
         return self.helper._validate_required_signals(df, required_signals, method_name)
 
     def _get_pmd_raw_data(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> Dict[str, pd.Series]:
-        """V1.5 · 原始数据精简与替换版 (移除未提供信号，替换语义相近信号)"""
+        """V1.6 · 原始数据精简与替换版 (移除原子信号，替换为复合计算或安全获取原始数据)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
-        # 移除 cumulative_mf_flow_periods
-        # cumulative_mf_flow_periods = pmd_params['cumulative_mf_flow_periods']
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
-        # 移除 valid_cumulative_periods
-        # valid_cumulative_periods = [p_str for p_str in cumulative_mf_flow_periods.keys() if p_str.isdigit()]
         raw_data = {}
         raw_data['price_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['macdh_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_MACDh_13_34_8_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
@@ -210,28 +187,41 @@ class CalculatePriceMomentumDivergence:
         raw_data['roc_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_ROC_13_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['volume_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_volume_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['volume_burstiness_raw'] = self.helper._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
-        raw_data['volume_atrophy_score'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
+        # 替换 SCORE_BEHAVIOR_VOLUME_ATROPHY
+        raw_data['volume_atrophy_score'] = self._calculate_composite_volume_atrophy_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['mf_net_flow_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_main_force_net_flow_calibrated_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['deception_index_raw'] = self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-        raw_data['distribution_intent_score'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        raw_data['covert_accumulation_score'] = self.helper._get_atomic_score(df, 'PROCESS_META_COVERT_ACCUMULATION', 0.0)
-        raw_data['chip_divergence_score'] = self.helper._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
+        # 替换 SCORE_BEHAVIOR_DISTRIBUTION_INTENT
+        raw_data['distribution_intent_score'] = self._calculate_composite_distribution_intent_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 PROCESS_META_COVERT_ACCUMULATION
+        raw_data['covert_accumulation_score'] = self._calculate_composite_covert_accumulation_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_CHIP_AXIOM_DIVERGENCE
+        raw_data['chip_divergence_score'] = self._calculate_composite_chip_divergence_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['volatility_instability_raw'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         raw_data['adx_raw'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
         raw_data['market_sentiment_raw'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
-        raw_data['upward_efficiency_score'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)
-        raw_data['price_upward_momentum_score'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0)
-        raw_data['price_downward_momentum_score'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0)
-        raw_data['momentum_quality_score'] = self.helper._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0)
+        # 替换 SCORE_BEHAVIOR_UPWARD_EFFICIENCY
+        raw_data['upward_efficiency_score'] = self._calculate_composite_upward_efficiency_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM
+        raw_data['price_upward_momentum_score'] = self._calculate_composite_price_upward_momentum_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM
+        raw_data['price_downward_momentum_score'] = self._calculate_composite_price_downward_momentum_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_DYN_AXIOM_MOMENTUM
+        raw_data['momentum_quality_score'] = self._calculate_composite_momentum_quality_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['constructive_turnover_raw'] = self.helper._get_safe_series(df, 'constructive_turnover_ratio_D', 0.0, method_name=method_name)
         raw_data['volume_structure_skew_raw'] = self.helper._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name=method_name)
         raw_data['main_force_conviction_raw'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         raw_data['chip_health_raw'] = self.helper._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name)
-        raw_data['stability_score'] = self.helper._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
-        raw_data['chip_historical_potential_score'] = self.helper._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
-        raw_data['liquidity_tide_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
-        raw_data['market_constitution_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
-        raw_data['market_tension_score'] = self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
+        # 替换 SCORE_DYN_AXIOM_STABILITY
+        raw_data['stability_score'] = self._calculate_composite_stability_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL
+        raw_data['chip_historical_potential_score'] = self._calculate_composite_chip_historical_potential_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE
+        raw_data['liquidity_tide_score'] = self._calculate_composite_liquidity_tide_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION
+        raw_data['market_constitution_score'] = self._calculate_composite_market_constitution_score(df, df.index, raw_data, pmd_params, method_name)
+        # 替换 SCORE_FOUNDATION_AXIOM_MARKET_TENSION
+        raw_data['market_tension_score'] = self._calculate_composite_market_tension_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['volume_profile_entropy_raw'] = self.helper._get_safe_series(df, 'volume_profile_entropy_D', 0.0, method_name=method_name)
         raw_data['upward_impulse_strength_raw'] = self.helper._get_safe_series(df, 'upward_impulse_strength_D', 0.0, method_name=method_name)
         raw_data['downward_impulse_strength_raw'] = self.helper._get_safe_series(df, 'downward_impulse_strength_D', 0.0, method_name=method_name)
@@ -246,27 +236,24 @@ class CalculatePriceMomentumDivergence:
         raw_data['loser_loss_margin_avg_raw'] = self.helper._get_safe_series(df, 'loser_loss_margin_avg_D', 0.0, method_name=method_name)
         raw_data['mean_reversion_frequency_raw'] = self.helper._get_safe_series(df, 'mean_reversion_frequency_D', 0.0, method_name=method_name)
         raw_data['trend_alignment_index_raw'] = self.helper._get_safe_series(df, 'trend_alignment_index_D', 0.0, method_name=method_name)
-        # 移除 cumulative_mf_flow_raw
-        # raw_data['cumulative_mf_flow_raw'] = {p: self.helper._get_safe_series(df, f'CUM_{p}_main_force_net_flow_calibrated_D', 0.0, method_name=method_name) for p in valid_cumulative_periods}
+        # 替换 SMART_MONEY_INST_NET_BUY_D
         raw_data['smart_money_inst_net_buy_raw'] = self.helper._get_safe_series(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0, method_name=method_name)
+        # 替换 THEME_HOTNESS_SCORE_D
         raw_data['theme_hotness_raw'] = self.helper._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name=method_name)
-        # 移除 large_trade_imbalance_raw
-        # raw_data['large_trade_imbalance_raw'] = self.helper._get_atomic_score(df, 'LARGE_TRADE_IMBALANCE_D', 0.0)
-        raw_data['intraday_vwap_div_index_raw'] = self.helper._get_safe_series(df, 'intraday_vwap_div_index_D', 0.0, method_name=method_name) # 替换 vwap_deviation_raw
-        # 移除 chip_distribution_entropy_raw
-        # raw_data['chip_distribution_entropy_raw'] = self.helper._get_atomic_score(df, 'CHIP_DISTRIBUTION_ENTROPY_D', 0.0)
-        raw_data['retail_panic_surrender_index_raw'] = self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name) # 替换 retail_panic_index_raw
+        raw_data['intraday_vwap_div_index_raw'] = self.helper._get_safe_series(df, 'intraday_vwap_div_index_D', 0.0, method_name=method_name)
+        # 替换 retail_panic_surrender_index_D
+        raw_data['retail_panic_surrender_index_raw'] = self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
         return raw_data
 
     def _calculate_fused_price_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
-        """V1.2 · 价格动量品质增强版 (价格动量品质分数归一化)"""
+        """V1.3 · 价格动量品质增强版 (价格动量品质分数归一化，使用复合分数)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         price_components_weights = pmd_params['price_components_weights']
         fused_price_direction_base = self.helper._get_mtf_slope_score(df, 'close_D', mtf_slope_weights, df_index, method_name, bipolar=True)
         # 优化价格动量品质：结合上涨纯度和上涨冲动强度
-        # 原始值可能超出 [0, 1] 范围，需要先归一化
-        bullish_price_momentum_quality_raw = (raw_data['upward_efficiency_score'] * raw_data['upward_impulse_strength_raw']).pow(0.5)
-        bearish_price_momentum_quality_raw = raw_data['price_downward_momentum_score'] # 沿用旧的下跌动量品质
+        # upward_efficiency_score, price_upward_momentum_score, price_downward_momentum_score 现在是复合分数
+        bullish_price_momentum_quality_raw = (raw_data['upward_efficiency_score'] * raw_data['price_upward_momentum_score']).pow(0.5)
+        bearish_price_momentum_quality_raw = raw_data['price_downward_momentum_score']
         # 对原始品质分数进行归一化
         bullish_price_momentum_quality_norm = self.helper._normalize_series(bullish_price_momentum_quality_raw, df_index, ascending=True)
         bearish_price_momentum_quality_norm = self.helper._normalize_series(bearish_price_momentum_quality_raw, df_index, ascending=True)
@@ -276,22 +263,23 @@ class CalculatePriceMomentumDivergence:
         price_momentum_quality_score = price_momentum_quality_score.clip(-1, 1)
         fused_price_direction_components = {
             "close_D": fused_price_direction_base,
-            "upward_efficiency": self.helper._normalize_series(raw_data['upward_efficiency_score'], df_index, ascending=True), # 确保这里也归一化
+            "upward_efficiency": self.helper._normalize_series(raw_data['upward_efficiency_score'], df_index, ascending=True),
             "price_momentum_quality": price_momentum_quality_score
         }
         fused_price_direction = _robust_geometric_mean(fused_price_direction_components, price_components_weights, df_index)
         debug_values = {
             "fused_price_direction_base": fused_price_direction_base,
-            "bullish_price_momentum_quality_raw": bullish_price_momentum_quality_raw, # 新增调试信息
-            "bearish_price_momentum_quality_raw": bearish_price_momentum_quality_raw, # 新增调试信息
-            "bullish_price_momentum_quality_norm": bullish_price_momentum_quality_norm, # 新增调试信息
-            "bearish_price_momentum_quality_norm": bearish_price_momentum_quality_norm, # 新增调试信息
+            "bullish_price_momentum_quality_raw": bullish_price_momentum_quality_raw,
+            "bearish_price_momentum_quality_raw": bearish_price_momentum_quality_raw,
+            "bullish_price_momentum_quality_norm": bullish_price_momentum_quality_norm,
+            "bearish_price_momentum_quality_norm": bearish_price_momentum_quality_norm,
             "price_momentum_quality_score": price_momentum_quality_score,
             "fused_price_direction": fused_price_direction
         }
         return fused_price_direction, debug_values
 
     def _calculate_fused_momentum_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
+        """V1.1 · 动量方向融合 (使用复合动量品质分数)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         momentum_components_weights = pmd_params['momentum_components_weights']
         fused_macdh_direction = self.helper._get_mtf_slope_score(df, 'MACDh_13_34_8_D', mtf_slope_weights, df_index, method_name, bipolar=True)
@@ -301,7 +289,7 @@ class CalculatePriceMomentumDivergence:
             "MACDh_13_34_8_D": fused_macdh_direction,
             "RSI_13_D": fused_rsi_direction,
             "ROC_13_D": fused_roc_direction,
-            "momentum_quality": raw_data['momentum_quality_score']
+            "momentum_quality": raw_data['momentum_quality_score'] # 使用复合分数
         }
         momentum_components_weights_extended = momentum_components_weights.copy()
         momentum_components_weights_extended["momentum_quality"] = get_param_value(pmd_params.get('momentum_components_weights', {}).get("momentum_quality"), 0.2)
@@ -370,7 +358,7 @@ class CalculatePriceMomentumDivergence:
         return volume_confirmation_score, debug_values
 
     def _calculate_main_force_confirmation_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, method_name: str) -> Tuple[pd.Series, pd.Series, Dict]:
-        """V1.6 · 主力微观与筹码结构、聪明钱及微观执行力增强版 (移除累积资金流、大单不平衡)"""
+        """V1.7 · 主力微观与筹码结构、聪明钱及微观执行力增强版 (移除累积资金流、大单不平衡，使用复合分数)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         main_force_confirmation_weights = pmd_params['main_force_confirmation_weights']
         dynamic_main_force_confirmation_modulators = pmd_params['dynamic_main_force_confirmation_modulators']
@@ -387,12 +375,12 @@ class CalculatePriceMomentumDivergence:
         micro_price_impact_asymmetry_positive = self.helper._normalize_series(raw_data.get('micro_price_impact_asymmetry_raw', pd.Series(0.0, index=df_index)).clip(lower=0), df_index, ascending=True)
         main_force_slippage_inverted = self.helper._normalize_series(raw_data.get('main_force_slippage_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False)
         winner_concentration_positive = self.helper._normalize_series(raw_data.get('winner_concentration_90pct_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
-        loser_pain_positive = self.helper._normalize_series(raw_data.get('loser_pain_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
+        loser_pain_positive = self.helper._normalize_series(raw_data.get('loser_loss_margin_avg_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True) # 使用 loser_loss_margin_avg_raw 作为 loser_pain_positive
         smart_money_inst_net_buy_norm = self.helper._normalize_series(raw_data.get('smart_money_inst_net_buy_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
         intraday_vwap_div_index_inverted_norm = self.helper._normalize_series(raw_data.get('intraday_vwap_div_index_raw', pd.Series(0.0, index=df_index)).abs(), df_index, ascending=False)
         current_main_force_confirmation_weights = main_force_confirmation_weights.copy()
         if get_param_value(dynamic_main_force_confirmation_modulators.get('enabled'), False):
-            modulator_signal_raw = self.helper._get_atomic_score(df, dynamic_main_force_confirmation_modulators['modulator_signal'], 0.0)
+            modulator_signal_raw = raw_data.get('market_tension_score', pd.Series(0.0, index=df_index)) # 使用复合分数
             modulator_signal = self.helper._normalize_series(modulator_signal_raw, df_index, bipolar=True)
             sensitivity = dynamic_main_force_confirmation_modulators['sensitivity']
             min_factor = dynamic_main_force_confirmation_modulators['min_factor']
@@ -438,28 +426,6 @@ class CalculatePriceMomentumDivergence:
             top_mf_conf.loc[idx] if x > 0 else (-bottom_mf_conf.loc[idx] if x < 0 else 0)
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
-        debug_values = {
-            "fused_mf_net_flow_slope": fused_mf_net_flow_slope,
-            "deception_index_norm": deception_index_norm,
-            "distribution_intent_norm": distribution_intent_norm,
-            "covert_accumulation_norm": covert_accumulation_norm,
-            "chip_divergence_norm": chip_divergence_norm,
-            "main_force_conviction_norm": main_force_conviction_norm,
-            "chip_health_norm": chip_health_norm,
-            "mf_buy_ofi_positive": mf_buy_ofi_positive,
-            "mf_sell_ofi_negative": mf_sell_ofi_negative,
-            "order_book_imbalance_positive": order_book_imbalance_positive,
-            "micro_price_impact_asymmetry_positive": micro_price_impact_asymmetry_positive,
-            "main_force_slippage_inverted": main_force_slippage_inverted,
-            "winner_concentration_positive": winner_concentration_positive,
-            "loser_pain_positive": loser_pain_positive,
-            "smart_money_inst_net_buy_norm": smart_money_inst_net_buy_norm,
-            "intraday_vwap_div_index_inverted_norm": intraday_vwap_div_index_inverted_norm,
-            "top_mf_conf": top_mf_conf,
-            "bottom_mf_conf": bottom_mf_conf,
-            "main_force_confirmation_score": main_force_confirmation_score
-        }
-        return main_force_confirmation_score, fused_mf_net_flow_slope, debug_values
 
     def _calculate_divergence_quality_score(self, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series) -> Tuple[pd.Series, Dict]:
         """V1.3 · 背离纯度增强版 (移除筹码分布熵)"""
@@ -755,6 +721,271 @@ class CalculatePriceMomentumDivergence:
         # 融合不同周期的RDI分数
         fused_rdi_score = _weighted_sum_fusion(all_rdi_scores_by_period, rdi_period_weights, df_index)
         return fused_rdi_score, period_debug_values
+
+    def _calculate_composite_volume_atrophy_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的量能萎缩分数。
+        量能萎缩通常表现为成交量低迷、爆发度低以及建设性换手率低。
+        融合负向的量能斜率、反向的量能爆发度以及反向的建设性换手率来构建此分数。
+        """
+        # 负向量能斜率：量能越萎缩，分数越高
+        fused_volume_slope_norm = self.helper._get_mtf_slope_score(df, 'volume_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        volume_slope_negative_norm = self.helper._normalize_series(fused_volume_slope_norm.clip(upper=0).abs(), df_index, ascending=True)
+        # 反向量能爆发度：爆发度越低，分数越高
+        volume_burst_inverted_norm = self.helper._normalize_series(raw_data['volume_burstiness_raw'], df_index, ascending=False)
+        # 反向建设性换手率：换手率越低，分数越高
+        constructive_turnover_inverted_norm = self.helper._normalize_series(raw_data['constructive_turnover_raw'], df_index, ascending=False)
+        components = {
+            "volume_slope_negative": volume_slope_negative_norm,
+            "volume_burst_inverted": volume_burst_inverted_norm,
+            "constructive_turnover_inverted": constructive_turnover_inverted_norm
+        }
+        weights = {"volume_slope_negative": 0.4, "volume_burst_inverted": 0.3, "constructive_turnover_inverted": 0.3}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_distribution_intent_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的派发意图分数。
+        派发意图通常伴随着主力卖出、价格下跌、量能放大以及市场欺骗行为。
+        融合主力卖出OFI、正向欺骗指数、负向价格斜率和正向量能斜率来构建此分数。
+        """
+        # 主力卖出OFI：越高越好
+        mf_sell_ofi_norm = self.helper._normalize_series(raw_data['main_force_sell_ofi_raw'], df_index, ascending=True)
+        # 欺骗指数正向：越高越好
+        deception_index_positive_norm = self.helper._normalize_series(raw_data['deception_index_raw'].clip(lower=0), df_index, ascending=True)
+        # 负向价格斜率：价格下跌，分数越高
+        fused_price_direction_norm = self.helper._get_mtf_slope_score(df, 'close_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        price_slope_negative_norm = self.helper._normalize_series(fused_price_direction_norm.clip(upper=0).abs(), df_index, ascending=True)
+        # 正向量能斜率：量能放大，分数越高
+        fused_volume_slope_norm = self.helper._get_mtf_slope_score(df, 'volume_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        volume_slope_positive_norm = self.helper._normalize_series(fused_volume_slope_norm.clip(lower=0), df_index, ascending=True)
+        components = {
+            "mf_sell_ofi": mf_sell_ofi_norm,
+            "deception_index_positive": deception_index_positive_norm,
+            "price_slope_negative": price_slope_negative_norm,
+            "volume_slope_positive": volume_slope_positive_norm
+        }
+        weights = {"mf_sell_ofi": 0.3, "deception_index_positive": 0.3, "price_slope_negative": 0.2, "volume_slope_positive": 0.2}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_covert_accumulation_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的隐蔽吸筹分数。
+        隐蔽吸筹通常发生在价格下跌或横盘时，伴随着主力买入、量能放大以及诱空欺骗行为。
+        融合主力买入OFI、负向欺骗指数、负向价格斜率和正向量能斜率来构建此分数。
+        """
+        # 主力买入OFI：越高越好
+        mf_buy_ofi_norm = self.helper._normalize_series(raw_data['main_force_buy_ofi_raw'], df_index, ascending=True)
+        # 欺骗指数负向：越低越好 (即欺骗指数为负，代表诱空，有利于吸筹)
+        deception_index_negative_norm = self.helper._normalize_series(raw_data['deception_index_raw'].clip(upper=0).abs(), df_index, ascending=True)
+        # 负向价格斜率：价格下跌或横盘，分数越高
+        fused_price_direction_norm = self.helper._get_mtf_slope_score(df, 'close_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        price_slope_negative_or_flat_norm = self.helper._normalize_series(fused_price_direction_norm.clip(upper=0).abs(), df_index, ascending=True) # 简化为负向
+        # 正向量能斜率：量能放大，分数越高
+        fused_volume_slope_norm = self.helper._get_mtf_slope_score(df, 'volume_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        volume_slope_positive_norm = self.helper._normalize_series(fused_volume_slope_norm.clip(lower=0), df_index, ascending=True)
+        components = {
+            "mf_buy_ofi": mf_buy_ofi_norm,
+            "deception_index_negative": deception_index_negative_norm,
+            "price_slope_negative_or_flat": price_slope_negative_or_flat_norm,
+            "volume_slope_positive": volume_slope_positive_norm
+        }
+        weights = {"mf_buy_ofi": 0.3, "deception_index_negative": 0.3, "price_slope_negative_or_flat": 0.2, "volume_slope_positive": 0.2}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_chip_divergence_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的筹码背离分数。
+        筹码背离通常指价格与筹码结构之间的不一致。这里我们简化为当筹码健康度高、赢家集中度低（分散）
+        且输家集中度高时，筹码结构趋于优化。结合价格方向，形成双极性背离分数。
+        """
+        # 筹码健康度：越高越好
+        chip_health_norm = self.helper._normalize_series(raw_data['chip_health_raw'], df_index, ascending=True)
+        # 赢家集中度反向：赢家越分散越好 (有利于筹码换手)
+        winner_concentration_inverted_norm = self.helper._normalize_series(raw_data['winner_concentration_90pct_raw'], df_index, ascending=False)
+        # 输家集中度正向：输家越集中越好 (有利于洗盘结束)
+        loser_concentration_norm = self.helper._normalize_series(raw_data['loser_concentration_90pct_raw'], df_index, ascending=True)
+        # 计算一个单极性的“筹码结构优化”分数
+        chip_structure_optimization = _robust_geometric_mean({
+            "chip_health": chip_health_norm,
+            "winner_concentration_inverted": winner_concentration_inverted_norm,
+            "loser_concentration": loser_concentration_norm
+        }, {"chip_health": 0.4, "winner_concentration_inverted": 0.3, "loser_concentration": 0.3}, df_index)
+        # 结合价格方向，使其成为双极性
+        fused_price_direction_norm = self.helper._get_mtf_slope_score(df, 'close_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        chip_divergence_score = chip_structure_optimization * fused_price_direction_norm
+        return chip_divergence_score.clip(-1, 1)
+
+    def _calculate_composite_upward_efficiency_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的上涨效率分数。
+        上涨效率高通常表现为价格上涨，但量能相对较小或爆发度低，即“轻量化”上涨。
+        融合正向价格斜率、反向量能斜率和反向量能爆发度来构建此分数。
+        """
+        # 正向价格斜率：越高越好
+        fused_price_slope_norm = self.helper._get_mtf_slope_score(df, 'close_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        price_slope_positive_norm = self.helper._normalize_series(fused_price_slope_norm.clip(lower=0), df_index, ascending=True)
+        # 反向量能斜率：量能越小，分数越高
+        fused_volume_slope_norm = self.helper._get_mtf_slope_score(df, 'volume_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        volume_slope_inverted_norm = self.helper._normalize_series(fused_volume_slope_norm.abs(), df_index, ascending=False) # 绝对值越小越好
+        # 反向量能爆发度：爆发度越低，分数越高
+        volume_burst_inverted_norm = self.helper._normalize_series(raw_data['volume_burstiness_raw'], df_index, ascending=False)
+        components = {
+            "price_slope_positive": price_slope_positive_norm,
+            "volume_slope_inverted": volume_slope_inverted_norm,
+            "volume_burst_inverted": volume_burst_inverted_norm
+        }
+        weights = {"price_slope_positive": 0.4, "volume_slope_inverted": 0.3, "volume_burst_inverted": 0.3}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_price_upward_momentum_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的价格上涨动量分数。
+        价格上涨动量强通常表现为价格持续上涨且加速。
+        融合正向价格斜率和正向价格加速度来构建此分数。
+        """
+        # 正向价格斜率：越高越好
+        fused_price_slope_norm = self.helper._get_mtf_slope_score(df, 'close_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        price_slope_positive_norm = self.helper._normalize_series(fused_price_slope_norm.clip(lower=0), df_index, ascending=True)
+        # 正向价格加速度：越高越好
+        fused_price_accel_norm = self.helper._get_mtf_slope_accel_score(df, 'close_D', pmd_params['mtf_accel_weights'], df_index, method_name, bipolar=True)
+        price_accel_positive_norm = self.helper._normalize_series(fused_price_accel_norm.clip(lower=0), df_index, ascending=True)
+        components = {
+            "price_slope_positive": price_slope_positive_norm,
+            "price_accel_positive": price_accel_positive_norm
+        }
+        weights = {"price_slope_positive": 0.5, "price_accel_positive": 0.5}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_price_downward_momentum_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的价格下跌动量分数。
+        价格下跌动量强通常表现为价格持续下跌且加速。
+        融合负向价格斜率和负向价格加速度来构建此分数。
+        """
+        # 负向价格斜率：越低越好 (绝对值越大越好)
+        fused_price_slope_norm = self.helper._get_mtf_slope_score(df, 'close_D', pmd_params['mtf_slope_weights'], df_index, method_name, bipolar=True)
+        price_slope_negative_norm = self.helper._normalize_series(fused_price_slope_norm.clip(upper=0).abs(), df_index, ascending=True)
+        # 负向价格加速度：越低越好 (绝对值越大越好)
+        fused_price_accel_norm = self.helper._get_mtf_slope_accel_score(df, 'close_D', pmd_params['mtf_accel_weights'], df_index, method_name, bipolar=True)
+        price_accel_negative_norm = self.helper._normalize_series(fused_price_accel_norm.clip(upper=0).abs(), df_index, ascending=True)
+        components = {
+            "price_slope_negative": price_slope_negative_norm,
+            "price_accel_negative": price_accel_negative_norm
+        }
+        weights = {"price_slope_negative": 0.5, "price_accel_negative": 0.5}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_momentum_quality_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的动量品质分数。
+        动量品质高通常表现为多个动量指标（MACDh、RSI、ROC）在多时间框架上具有一致的方向和强度。
+        这里直接复用 helper 中的 _get_mtf_cohesion_score 来评估这种协同性。
+        """
+        return self.helper._get_mtf_cohesion_score(df, ['MACDh_13_34_8_D', 'RSI_13_D', 'ROC_13_D'], pmd_params['mtf_slope_weights'], df_index, method_name)
+
+    def _calculate_composite_stability_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的稳定性分数。
+        市场稳定性高通常表现为波动率低、均值回归频率低以及趋势对齐度高。
+        融合反向波动率不稳定性、反向均值回归频率和正向趋势对齐指数来构建此分数。
+        """
+        # 波动率不稳定性反向：越低越好
+        volatility_instability_inverted_norm = self.helper._normalize_series(raw_data['volatility_instability_raw'], df_index, ascending=False)
+        # 均值回归频率反向：越低越好
+        mean_reversion_frequency_inverted_norm = self.helper._normalize_series(raw_data['mean_reversion_frequency_raw'], df_index, ascending=False)
+        # 趋势对齐指数正向：越高越好
+        trend_alignment_norm = self.helper._normalize_series(raw_data['trend_alignment_index_raw'], df_index, ascending=True)
+        components = {
+            "volatility_instability_inverted": volatility_instability_inverted_norm,
+            "mean_reversion_frequency_inverted": mean_reversion_frequency_inverted_norm,
+            "trend_alignment": trend_alignment_norm
+        }
+        weights = {"volatility_instability_inverted": 0.4, "mean_reversion_frequency_inverted": 0.3, "trend_alignment": 0.3}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_chip_historical_potential_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的筹码历史潜力分数。
+        筹码历史潜力高通常表现为筹码健康度高、量能轮廓清晰（熵低）以及主力信念指数高。
+        融合筹码健康度、反向量能轮廓熵和主力信念指数来构建此分数。
+        """
+        # 筹码健康度：越高越好
+        chip_health_norm = self.helper._normalize_series(raw_data['chip_health_raw'], df_index, ascending=True)
+        # 量能轮廓熵反向：熵越低（结构越清晰），分数越高
+        volume_profile_entropy_inverted_norm = self.helper._normalize_series(raw_data['volume_profile_entropy_raw'], df_index, ascending=False)
+        # 主力信念指数：越高越好
+        main_force_conviction_norm = self.helper._normalize_series(raw_data['main_force_conviction_raw'], df_index, ascending=True)
+        components = {
+            "chip_health": chip_health_norm,
+            "volume_profile_entropy_inverted": volume_profile_entropy_inverted_norm,
+            "main_force_conviction": main_force_conviction_norm
+        }
+        weights = {"chip_health": 0.4, "volume_profile_entropy_inverted": 0.3, "main_force_conviction": 0.3}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_liquidity_tide_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的流动性潮汐分数。
+        流动性潮汐平静通常表现为订单簿失衡度低（接近中性）、微观价格冲击不对称性低（接近中性）
+        以及主力滑点指数低。
+        融合反向订单簿失衡绝对值、反向微观价格冲击不对称性绝对值和反向主力滑点指数来构建此分数。
+        """
+        # 订单簿失衡绝对值反向：越接近中性，分数越高
+        order_book_imbalance_abs_inverted_norm = self.helper._normalize_series(raw_data['order_book_imbalance_raw'].abs(), df_index, ascending=False)
+        # 微观价格冲击不对称性绝对值反向：越接近中性，分数越高
+        micro_price_impact_asymmetry_abs_inverted_norm = self.helper._normalize_series(raw_data['micro_price_impact_asymmetry_raw'].abs(), df_index, ascending=False)
+        # 主力滑点指数反向：滑点越低，分数越高
+        main_force_slippage_inverted_norm = self.helper._normalize_series(raw_data['main_force_slippage_index_raw'], df_index, ascending=False)
+        components = {
+            "order_book_imbalance_abs_inverted": order_book_imbalance_abs_inverted_norm,
+            "micro_price_impact_asymmetry_abs_inverted": micro_price_impact_asymmetry_abs_inverted_norm,
+            "main_force_slippage_inverted": main_force_slippage_inverted_norm
+        }
+        weights = {"order_book_imbalance_abs_inverted": 0.4, "micro_price_impact_asymmetry_abs_inverted": 0.3, "main_force_slippage_inverted": 0.3}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_market_constitution_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的市场体质分数。
+        市场体质健康通常表现为趋势不明显（ADX低）、波动率稳定以及量能轮廓清晰（熵低）。
+        融合反向ADX、反向波动率不稳定性以及反向量能轮廓熵来构建此分数。
+        """
+        # ADX反向：ADX越低（趋势越不明显），分数越高 (代表中性市场体质)
+        adx_inverted_norm = self.helper._normalize_series(raw_data['adx_raw'], df_index, ascending=False)
+        # 波动率不稳定性反向：波动率越稳定，分数越高
+        volatility_instability_inverted_norm = self.helper._normalize_series(raw_data['volatility_instability_raw'], df_index, ascending=False)
+        # 量能轮廓熵反向：熵越低（结构越清晰），分数越高
+        volume_profile_entropy_inverted_norm = self.helper._normalize_series(raw_data['volume_profile_entropy_raw'], df_index, ascending=False)
+        components = {
+            "adx_inverted": adx_inverted_norm,
+            "volatility_instability_inverted": volatility_instability_inverted_norm,
+            "volume_profile_entropy_inverted": volume_profile_entropy_inverted_norm
+        }
+        weights = {"adx_inverted": 0.3, "volatility_instability_inverted": 0.4, "volume_profile_entropy_inverted": 0.3}
+        return _robust_geometric_mean(components, weights, df_index)
+
+    def _calculate_composite_market_tension_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的市场张力分数。
+        市场张力高通常表现为波动率不稳定性高、趋势强度高（ADX高）以及结构张力指数高。
+        融合波动率不稳定性、ADX和结构张力指数（如果可用）来构建此分数。
+        """
+        # 波动率不稳定性：越高越好
+        volatility_instability_norm = self.helper._normalize_series(raw_data['volatility_instability_raw'], df_index, ascending=True)
+        # ADX：越高越好
+        adx_norm = self.helper._normalize_series(raw_data['adx_raw'], df_index, ascending=True)
+        # 结构张力指数 (structural_tension_index_D) - 假设它作为原始数据可用
+        structural_tension_raw = self.helper._get_safe_series(df, 'structural_tension_index_D', np.nan, method_name=method_name)
+        structural_tension_norm = self.helper._normalize_series(structural_tension_raw, df_index, ascending=True)
+        components = {
+            "volatility_instability": volatility_instability_norm,
+            "adx": adx_norm,
+            "structural_tension": structural_tension_norm
+        }
+        weights = {"volatility_instability": 0.4, "adx": 0.3, "structural_tension": 0.3}
+        return _robust_geometric_mean(components, weights, df_index)
+
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V1.3 · 模块化与增强版 (传递 fused_momentum_direction 给最终融合方法)"""
