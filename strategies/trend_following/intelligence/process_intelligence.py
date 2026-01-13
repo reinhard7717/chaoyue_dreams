@@ -1845,9 +1845,9 @@ class ProcessIntelligence:
             is_debug_enabled_for_method = False
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算资金流吸筹拐点意图..."] = ""
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算资金流吸筹拐点意图..."] = ""
         # 获取MTF权重配置
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
@@ -1932,33 +1932,33 @@ class ProcessIntelligence:
             "final_score": final_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for key, value in _temp_debug_values["原始信号值"].items():
-                val = value.loc[probe_ts] if probe_ts in value.index else np.nan
-                debug_output[f"        '{key}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-            for key, series in _temp_debug_values["归一化处理"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 前奏分 ---"] = ""
-            for key, series in _temp_debug_values["前奏分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 强攻分 ---"] = ""
-            for key, series in _temp_debug_values["强攻分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终审判 ---"] = ""
-            for key, series in _temp_debug_values["最终审判"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流吸筹拐点意图诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for key, value in _temp_debug_values["原始信号值"].items():
+        #         val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+        #         debug_output[f"        '{key}': {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
+        #     for key, series in _temp_debug_values["归一化处理"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 前奏分 ---"] = ""
+        #     for key, series in _temp_debug_values["前奏分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 强攻分 ---"] = ""
+        #     for key, series in _temp_debug_values["强攻分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终审判 ---"] = ""
+        #     for key, series in _temp_debug_values["最终审判"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 资金流吸筹拐点意图诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1983,9 +1983,9 @@ class ProcessIntelligence:
             is_debug_enabled_for_method = False
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算主力盈亏vs流量关系..."] = ""
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算主力盈亏vs流量关系..."] = ""
         pressure_signal_name = 'profit_taking_flow_ratio_D'
         drive_signal_name = 'main_force_net_flow_calibrated_D'
         winner_profit_margin_name = 'winner_profit_margin_avg_D' # 新增
@@ -2050,33 +2050,33 @@ class ProcessIntelligence:
             "final_score": final_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for key, value in _temp_debug_values["原始信号值"].items():
-                val = value.loc[probe_ts] if probe_ts in value.index else np.nan
-                debug_output[f"        '{key}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-            for key, series in _temp_debug_values["归一化处理"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发压力分 ---"] = ""
-            for key, series in _temp_debug_values["派发压力分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 建仓动力分 ---"] = ""
-            for key, series in _temp_debug_values["建仓动力分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
-            for key, series in _temp_debug_values["最终分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力盈亏vs流量关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for key, value in _temp_debug_values["原始信号值"].items():
+        #         val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+        #         debug_output[f"        '{key}': {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
+        #     for key, series in _temp_debug_values["归一化处理"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 派发压力分 ---"] = ""
+        #     for key, series in _temp_debug_values["派发压力分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 建仓动力分 ---"] = ""
+        #     for key, series in _temp_debug_values["建仓动力分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
+        #     for key, series in _temp_debug_values["最终分数"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力盈亏vs流量关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score.astype(np.float32)
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -2103,9 +2103,9 @@ class ProcessIntelligence:
             is_debug_enabled_for_method = False
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算个股板块协同共振..."] = ""
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算个股板块协同共振..."] = ""
         stock_signal_name = 'pct_change_D'
         sector_rank_name = 'industry_strength_rank_D'
         sector_momentum_name = 'SLOPE_5_industry_strength_rank_D'
@@ -2210,33 +2210,33 @@ class ProcessIntelligence:
             "final_score": final_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for key, value in _temp_debug_values["原始信号值"].items():
-                val = value.loc[probe_ts] if probe_ts in value.index else np.nan
-                debug_output[f"        '{key}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-            for key, series in _temp_debug_values["归一化处理"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看涨协同部分 ---"] = ""
-            for key, series in _temp_debug_values["看涨协同部分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看跌协同部分 ---"] = ""
-            for key, series in _temp_debug_values["看跌协同部分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合 ---"] = ""
-            for key, series in _temp_debug_values["最终融合"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 个股板块协同共振诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for key, value in _temp_debug_values["原始信号值"].items():
+        #         val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+        #         debug_output[f"        '{key}': {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
+        #     for key, series in _temp_debug_values["归一化处理"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看涨协同部分 ---"] = ""
+        #     for key, series in _temp_debug_values["看涨协同部分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 看跌协同部分 ---"] = ""
+        #     for key, series in _temp_debug_values["看跌协同部分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合 ---"] = ""
+        #     for key, series in _temp_debug_values["最终融合"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 个股板块协同共振诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score.astype(np.float32)
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -2260,9 +2260,9 @@ class ProcessIntelligence:
             is_debug_enabled_for_method = False
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算热门板块冷却..."] = ""
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算热门板块冷却..."] = ""
         hotness_signal_name = 'THEME_HOTNESS_SCORE_D'
         flow_signal_name = 'main_force_net_flow_calibrated_D'
         required_signals = [hotness_signal_name, flow_signal_name]
@@ -2296,25 +2296,25 @@ class ProcessIntelligence:
             "final_score": final_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for key, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{key}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-            for key, series in _temp_debug_values["归一化处理"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
-            for key, series in _temp_debug_values["最终分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 热门板块冷却诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for key, series in _temp_debug_values["原始信号值"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        '{key}': {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
+        #     for key, series in _temp_debug_values["归一化处理"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
+        #     for key, series in _temp_debug_values["最终分数"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 热门板块冷却诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:

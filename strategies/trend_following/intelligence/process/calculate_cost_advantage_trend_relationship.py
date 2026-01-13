@@ -79,10 +79,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0 · 深度情境与诡道博弈增强版】计算成本优势趋势。
+        【V4.1 · 情境指标替换版】计算成本优势趋势。
+        - 核心修复: 将缺失的 'market_stability_score_D' 替换为数据层已有的 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
         - 核心升级: 引入情境自适应权重、动态指数和信号交互项。
         - 核心新增: 引入更多微观结构和订单流信号，增强主力行为的验证。
-        - 版本: 4.0
+        - 版本: 4.1
         """
         method_name = "calculate_cost_advantage_trend_relationship"
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
@@ -95,7 +96,7 @@ class CalculateCostAdvantageTrendRelationship:
         # 补充情境调制和微观信号到 required_signals
         required_signals.extend([
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
-            'liquidity_authenticity_score_D', 'market_stability_score_D', 'microstructure_efficiency_index_D',
+            'liquidity_authenticity_score_D', 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'microstructure_efficiency_index_D',
             'main_force_buy_execution_alpha_D', 'main_force_sell_execution_alpha_D',
             'micro_price_impact_asymmetry_D'
         ])
@@ -192,10 +193,10 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.0 · 原始及MTF信号获取 - 情境与微观增强版】
+        【V1.1.1 · 原始及MTF信号获取 - 情境指标替换版】
         - 核心职责: 获取所有原始信号和MTF融合信号，并将其存储到调试字典中。
-        - 核心新增: 获取情境调制信号和微观结构信号。
-        - 版本: 1.1.0
+        - 核心修复: 将缺失的 'market_stability_score_D' 替换为 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
+        - 版本: 1.1.1
         """
         fetched_signals = {}
 
@@ -219,7 +220,7 @@ class CalculateCostAdvantageTrendRelationship:
         fetched_signals['adx_trend_strength'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
         fetched_signals['market_sentiment'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         fetched_signals['liquidity_authenticity'] = self.helper._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name=method_name)
-        fetched_signals['market_stability'] = self.helper._get_safe_series(df, 'market_stability_score_D', 0.0, method_name=method_name) # 假设存在
+        fetched_signals['ma_potential_orderliness_score'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name=method_name) # 替换为MA_POTENTIAL_ORDERLINESS_SCORE_D
         fetched_signals['microstructure_efficiency'] = self.helper._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name)
 
         # --- 新增微观结构和订单流信号 ---
@@ -232,10 +233,10 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _normalize_all_signals(self, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.0 · 信号归一化处理 - 情境与微观增强版】
+        【V1.1.1 · 信号归一化处理 - 情境指标替换版】
         - 核心职责: 对所有必要的信号进行归一化处理，并将其存储到调试字典中。
-        - 核心新增: 对情境调制信号和微观结构信号的归一化。
-        - 版本: 1.1.0
+        - 核心修复: 将缺失的 'market_stability_score_D' 替换为 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
+        - 版本: 1.1.1
         """
         normalized_signals = {}
 
@@ -254,7 +255,7 @@ class CalculateCostAdvantageTrendRelationship:
         normalized_signals['trend_strength_inverse_norm'] = 1 - self.helper._normalize_series(fetched_signals['adx_trend_strength'], df_index, bipolar=False) # 趋势强度越低，分数越高
         normalized_signals['sentiment_neutrality_norm'] = 1 - self.helper._normalize_series(fetched_signals['market_sentiment'].abs(), df_index, bipolar=False) # 情绪越中性，分数越高
         normalized_signals['liquidity_authenticity_score_norm'] = self.helper._normalize_series(fetched_signals['liquidity_authenticity'], df_index, bipolar=False)
-        normalized_signals['market_stability_score_norm'] = self.helper._normalize_series(fetched_signals['market_stability'], df_index, bipolar=False)
+        normalized_signals['ma_potential_orderliness_score_norm'] = self.helper._normalize_series(fetched_signals['ma_potential_orderliness_score'], df_index, bipolar=False) # 替换为MA_POTENTIAL_ORDERLINESS_SCORE_D
         normalized_signals['microstructure_efficiency_index_norm'] = self.helper._normalize_series(fetched_signals['microstructure_efficiency'], df_index, bipolar=False)
 
         # --- 新增微观结构和订单流信号归一化 ---
@@ -379,9 +380,10 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_dynamic_weights(self, normalized_signals: Dict[str, pd.Series], config: Dict, df_index: pd.Index, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0.0 · 动态权重计算】
+        【V1.0.1 · 动态权重计算 - 情境指标替换版】
         - 核心职责: 根据情境调制信号计算动态权重调制因子。
-        - 版本: 1.0.0
+        - 核心修复: 将缺失的 'market_stability_score_D' 替换为 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
+        - 版本: 1.0.1
         """
         context_modulator_weights = config.get('context_modulator_weights', {})
         if not context_modulator_weights:
@@ -398,7 +400,7 @@ class CalculateCostAdvantageTrendRelationship:
             'trend_strength_inverse': normalized_signals['trend_strength_inverse_norm'],
             'sentiment_neutrality': normalized_signals['sentiment_neutrality_norm'],
             'liquidity_authenticity_score': normalized_signals['liquidity_authenticity_score_norm'],
-            'market_stability_score': normalized_signals['market_stability_score_norm'],
+            'ma_potential_orderliness_score': normalized_signals['ma_potential_orderliness_score_norm'], # 替换为ma_potential_orderliness_score_norm
             'microstructure_efficiency_index': normalized_signals['microstructure_efficiency_index_norm']
         }
         base_modulator = pd.Series(0.0, index=df_index, dtype=np.float32)

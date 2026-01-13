@@ -1002,7 +1002,7 @@
                     "trend_strength_inverse": 0.15,
                     "sentiment_neutrality": 0.15,
                     "liquidity_authenticity_score": 0.15,
-                    "market_stability_score": 0.2,
+                    "ma_potential_orderliness_score": 0.2,
                     "microstructure_efficiency_index": 0.15
                 },
                 "dynamic_exponent_modulator_weights": {
