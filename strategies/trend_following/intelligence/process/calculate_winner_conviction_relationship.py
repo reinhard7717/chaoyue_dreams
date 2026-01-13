@@ -191,13 +191,14 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.20 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
+        【V1.22 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
         核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient_inverse` 的逻辑修正，并更新其权重名称。
         核心调整：进一步降低 `main_force_conviction` 和 `core_resilience` 的权重，提高对应累积上下文信号的权重，以减少短期负面信号的过度影响，并增强长期累积信念的权重。
         核心修正：`pressure_resilience_enhancement_weights` 中 `core_resilience` 的权重调整，并移除 `cumulative_dispersal_by_distribution` 的权重，因为它现在是 `core_resilience` 的主要驱动。
         新增：`cumulative_conviction_threshold_params` 用于动态调整信念强度融合权重，并引入健康模式下的累积信念权重放大因子。
+        核心修改：移除 `main_force_conviction` 的权重，新增 `cumulative_main_force_buy_amount`、`cumulative_main_force_sell_amount` 和 `main_force_daily_sell_ratio` 的权重。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -224,7 +225,7 @@ class CalculateWinnerConvictionRelationship:
         # 新增参数：信念增强因子权重
         conviction_enhancement_weights = get_param_value(params.get('conviction_enhancement_weights'), {
             "core_conviction": 0.05, # 进一步大幅降低核心信念的默认权重，让动态调整的信号有更大影响空间
-            "main_force_conviction": 0.15, # 大幅提高短期主力信念的基础权重，使其在放大后能显著影响结果
+            # "main_force_conviction": 0.1, # 移除 main_force_conviction 的权重
             "chip_health": 0.1, # 适当降低其他信号权重，为动态调整的信号腾出空间
             "winner_profit_margin_avg": 0.05,
             "loser_loss_margin_avg": 0.05,
@@ -233,13 +234,17 @@ class CalculateWinnerConvictionRelationship:
             "cost_gini_coefficient": 0.02,
             "winner_stability_trend_consistency": 0.05,
             "cumulative_winner_stability_index": 0.02,
-            "cumulative_main_force_conviction_index": 0.1, # 降低累积主力信念的基础权重，使其在衰减后影响更小
+            "cumulative_main_force_conviction_index": 0.15, # 保持不变，用于阈值逻辑
             "cumulative_chip_health_score": 0.02,
             "cumulative_winner_profit_margin_avg": 0.02,
             "cumulative_loser_loss_margin_avg": 0.02,
             "cumulative_winner_concentration_90pct": 0.02,
             "cumulative_chip_fatigue_index": 0.02,
-            "cumulative_cost_gini_coefficient": 0.02
+            "cumulative_cost_gini_coefficient": 0.02,
+            # 新增主力资金流相关权重
+            "cumulative_main_force_buy_amount": 0.15, # 累积主力买入量，正面信号
+            "cumulative_main_force_sell_amount": 0.1, # 累积主力卖出量，负面信号
+            "main_force_daily_sell_ratio": 0.05 # 当日主力卖出占比，负面信号
         })
         # 新增参数：压力韧性增强因子权重
         pressure_resilience_enhancement_weights = get_param_value(params.get('pressure_resilience_enhancement_weights'), {
@@ -289,7 +294,7 @@ class CalculateWinnerConvictionRelationship:
         # 累积上下文参数 (重命名并扩展)
         cumulative_context_params = get_param_value(params.get('cumulative_context_params'), {
             "signals_for_cumulative_context": [ # 需要进行累积上下文调制的信号 (原始D后缀)
-                'main_force_conviction_index_D',
+                'main_force_conviction_index_D', # 保持不变，用于阈值逻辑
                 'main_force_buy_execution_alpha_D',
                 'bid_side_liquidity_D',
                 'absorption_strength_ma5_D',
@@ -316,7 +321,10 @@ class CalculateWinnerConvictionRelationship:
                 'industry_leader_score_D',
                 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
                 'distribution_at_peak_intensity_D',
-                'upper_shadow_selling_pressure_D'
+                'upper_shadow_selling_pressure_D',
+                # 新增累积主力资金流信号
+                'main_force_buy_amount_calibrated_D',
+                'main_force_sell_amount_calibrated_D'
             ],
             "cumulative_periods": [13, 21], # 累积周期
             "cumulative_weights": {13: 0.6, 21: 0.4} # 累积周期权重
@@ -327,7 +335,7 @@ class CalculateWinnerConvictionRelationship:
             "signals_for_inflection_detection": [ # 需要检测拐点的MTF信号
                 'mtf_winner_stability_index',
                 'mtf_dispersal_by_distribution', # 修正：替换为新的压力信号
-                'mtf_main_force_conviction_index',
+                # 'mtf_main_force_conviction_index', # 移除此行，因为其MTF分数不再计算
                 'mtf_chip_health_score'
             ],
             "inflection_detection_window": 5, # 拐点检测的平滑窗口
@@ -340,8 +348,8 @@ class CalculateWinnerConvictionRelationship:
             "absolute_threshold": 0.2, # 累积信念的绝对值阈值 (低于此值也触发警惕)
             "short_term_weight_boost_factor": 10.0, # 警惕模式下，短期信号权重放大因子
             "long_term_weight_decay_factor": 0.01, # 警惕模式下，长期信号权重衰减因子
-            "healthy_long_term_boost_factor": 1.5, # 健康模式下，长期信号权重放大因子
-            "healthy_short_term_decay_factor": 0.5 # 健康模式下，短期信号权重衰减因子
+            "healthy_long_term_boost_factor": 2.5, # 健康模式下，长期信号权重进一步放大
+            "healthy_short_term_decay_factor": 0.1 # 健康模式下，短期信号权重进一步衰减
         })
         return {
             "mtf_slope_accel_weights": mtf_slope_accel_weights,
@@ -361,11 +369,12 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V2.6 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正与诡道信号MTF修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
+        【V2.7 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正与诡道信号MTF修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
         - 核心修正: 修正 `mtf_winner_concentration_90pct` 和 `mtf_cost_gini_coefficient` 的 `ascending` 参数，使其MTF分数方向与信念强度业务逻辑一致。
         - 核心修正: 修正 `mtf_deception_index` 和 `mtf_wash_trade_intensity` 的 `bipolar` 和 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
         - 核心修正: 修正 `mtf_covert_accumulation_signal` 的 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
         - 核心修正: 修正 `mtf_closing_auction_ambush` 的 `bipolar` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
+        核心修改：移除 `main_force_conviction_index_D` 的MTF计算，新增 `main_force_buy_amount_calibrated_D`、`main_force_sell_amount_calibrated_D` 的累积上下文计算，并计算 `main_force_daily_sell_ratio_D`。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -393,7 +402,8 @@ class CalculateWinnerConvictionRelationship:
             belief_signal_name, pressure_signal_name, # 修正：使用新的压力信号
             'deception_index_D', 'wash_trade_intensity_D',
             'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            'main_force_conviction_index_D', 'chip_health_score_D',
+            # 'main_force_conviction_index_D', # 移除 main_force_conviction_index_D 的MTF计算
+            'chip_health_score_D',
             'main_force_buy_execution_alpha_D', 'bid_side_liquidity_D',
             'absorption_strength_ma5_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'winner_concentration_90pct_D', 'chip_fatigue_index_D',
@@ -408,7 +418,11 @@ class CalculateWinnerConvictionRelationship:
             'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'trend_vitality_index_D', 'flow_credibility_index_D',
             'THEME_HOTNESS_SCORE_D', 'industry_leader_score_D',
-            'dip_absorption_power_D'
+            'dip_absorption_power_D',
+            # 新增主力资金流原始信号
+            'main_force_buy_amount_calibrated_D',
+            'main_force_sell_amount_calibrated_D',
+            'main_force_conviction_index_D' # 保持不变，用于累积上下文和阈值逻辑
         ]
         # 所有需要获取原始数据的信号名称（带_D后缀）
         all_raw_signal_names_with_D_suffix = list(set(mtf_base_signals_raw_names + non_mtf_raw_signals_raw_names))
@@ -436,7 +450,7 @@ class CalculateWinnerConvictionRelationship:
             "flow_credibility_index_raw": self.helper._get_safe_series(df, 'flow_credibility_index_D', np.nan, method_name=method_name),
             "winner_profit_margin_avg_raw": self.helper._get_safe_series(df, 'winner_profit_margin_avg_D', np.nan, method_name=method_name),
             "loser_loss_margin_avg_raw": self.helper._get_safe_series(df, 'loser_loss_margin_avg_D', np.nan, method_name=method_name),
-            "main_force_conviction_index_raw": self.helper._get_safe_series(df, 'main_force_conviction_index_D', np.nan, method_name=method_name),
+            "main_force_conviction_index_raw": self.helper._get_safe_series(df, 'main_force_conviction_index_D', np.nan, method_name=method_name), # 保持不变，用于累积上下文和阈值逻辑
             "chip_health_score_raw": self.helper._get_safe_series(df, 'chip_health_score_D', np.nan, method_name=method_name),
             "main_force_buy_execution_alpha_raw": self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', np.nan, method_name=method_name),
             "bid_side_liquidity_raw": self.helper._get_safe_series(df, 'bid_side_liquidity_D', np.nan, method_name=method_name),
@@ -454,7 +468,10 @@ class CalculateWinnerConvictionRelationship:
             "closing_auction_ambush_raw": self.helper._get_safe_series(df, 'closing_auction_ambush_D', np.nan, method_name=method_name),
             "dip_absorption_power_raw": self.helper._get_safe_series(df, 'dip_absorption_power_D', np.nan, method_name=method_name),
             "distribution_at_peak_intensity_raw": self.helper._get_safe_series(df, 'distribution_at_peak_intensity_D', np.nan, method_name=method_name), # 新增
-            "upper_shadow_selling_pressure_raw": self.helper._get_safe_series(df, 'upper_shadow_selling_pressure_D', np.nan, method_name=method_name) # 新增
+            "upper_shadow_selling_pressure_raw": self.helper._get_safe_series(df, 'upper_shadow_selling_pressure_D', np.nan, method_name=method_name), # 新增
+            # 新增主力资金流原始信号
+            "main_force_buy_amount_calibrated_raw": self.helper._get_safe_series(df, 'main_force_buy_amount_calibrated_D', np.nan, method_name=method_name),
+            "main_force_sell_amount_calibrated_raw": self.helper._get_safe_series(df, 'main_force_sell_amount_calibrated_D', np.nan, method_name=method_name),
         }
         # 获取所有MTF信号数据
         for base_sig in mtf_base_signals_raw_names:
@@ -487,6 +504,7 @@ class CalculateWinnerConvictionRelationship:
         signals_data["mtf_winner_concentration_90pct"] = self.helper._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
         # 核心修正：cost_gini_coefficient，基尼系数越低越好，所以ascending=False
         signals_data["mtf_cost_gini_coefficient"] = self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
+        
         # 计算并存储指定信号的累积上下文分数 (使用新的参数名称和列表)
         cumulative_context_params = params["cumulative_context_params"]
         signals_for_cumulative_context = cumulative_context_params["signals_for_cumulative_context"]
@@ -500,16 +518,24 @@ class CalculateWinnerConvictionRelationship:
                     signal_name=sig_D, is_debug_enabled_for_method=is_debug_enabled_for_method, probe_ts=probe_ts, debug_output=debug_output # 传入调试参数
                 )
                 signals_data[f"cumulative_{sig_D.replace('_D', '').lower()}_score"] = cumulative_score
+        
+        # 计算 main_force_daily_sell_ratio_D
+        mf_buy_amount = signals_data["main_force_buy_amount_calibrated_raw"]
+        mf_sell_amount = signals_data["main_force_sell_amount_calibrated_raw"]
+        total_mf_amount = mf_buy_amount + mf_sell_amount
+        # 避免除以零，如果总金额为零，则比例为0
+        signals_data["main_force_daily_sell_ratio_D"] = (mf_sell_amount / total_mf_amount).fillna(0.0).replace([np.inf, -np.inf], 0.0)
+
         # 计算并存储指定信号的MTF趋势一致性分数
         signals_for_trend_consistency = [
             belief_signal_name,
             pressure_signal_name, # 修正：使用新的压力信号
-            'main_force_conviction_index_D',
+            'main_force_conviction_index_D', # 保持不变，其MTF趋势一致性可能仍有参考价值
             'chip_health_score_D'
         ]
         for base_sig_D in signals_for_trend_consistency:
-            trend_consistency_score = self.helper._get_mtf_trend_consistency_score(
-                df, base_sig_D, mtf_slope_accel_weights, df_index, method_name
+            trend_consistency_score = self.helper._get_mtf_slope_accel_score(
+                df, base_sig_D, mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=True # 默认MTF计算，值越大越好
             )
             signals_data[f"mtf_trend_consistency_{base_sig_D.replace('_D', '').lower()}"] = trend_consistency_score
         # 计算并存储指定MTF信号的拐点检测分数
@@ -517,11 +543,14 @@ class CalculateWinnerConvictionRelationship:
         signals_for_inflection_detection = inflection_point_params["signals_for_inflection_detection"]
         inflection_detection_window = inflection_point_params["inflection_detection_window"]
         for mtf_sig_key in signals_for_inflection_detection:
-            if mtf_sig_key in signals_data:
+            # 检查 mtf_sig_key 是否在 signals_data 中，因为 mtf_main_force_conviction_index 可能已被移除
+            if mtf_sig_key in signals_data: # Only detect inflection if the MTF signal exists
                 inflection_score = self.helper._detect_inflection_point(
                     signals_data[mtf_sig_key], inflection_detection_window
                 )
                 signals_data[f"inflection_{mtf_sig_key}"] = inflection_score
+            # Removed the else block that defaulted to 0.0, as it's better to have NaN if signal is truly missing.
+
         # 将 belief_signal_name 和 pressure_signal_name 也添加到返回字典
         signals_data["belief_signal_name"] = belief_signal_name
         signals_data["pressure_signal_name"] = pressure_signal_name
@@ -538,11 +567,12 @@ class CalculateWinnerConvictionRelationship:
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.11 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充与信念信号修正】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
+        【V1.12 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充与信念信号修正】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
         核心修正：移除 `profit_taking_flow_ratio_norm`，新增 `dispersal_by_distribution_norm`、
                   `distribution_at_peak_intensity_norm` 和 `upper_shadow_selling_pressure_norm`。
         核心新增：补充 `volatility_instability_index_21d_norm` 的归一化。
         核心修正：`winner_concentration_90pct_norm`、`covert_accumulation_norm`、`closing_auction_ambush_norm` 的 `ascending` 或 `bipolar` 参数。
+        核心修改：新增 `main_force_daily_sell_ratio_norm` 的归一化。
         参数:
             df_index (pd.Index): DataFrame的索引。
             signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
@@ -555,7 +585,7 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["flow_credibility_norm"] = self.helper._normalize_series(signals["flow_credibility_index_raw"], df_index, bipolar=False)
         normalized_signals["winner_profit_margin_avg_norm"] = self.helper._normalize_series(signals["winner_profit_margin_avg_raw"], df_index, bipolar=False, ascending=True)
         normalized_signals["loser_loss_margin_avg_norm"] = self.helper._normalize_series(signals["loser_loss_margin_avg_raw"], df_index, bipolar=False, ascending=False) # 输家亏损率越低越好
-        normalized_signals["main_force_conviction_norm"] = self.helper._normalize_series(signals["main_force_conviction_index_raw"], df_index, bipolar=True, ascending=True)
+        # normalized_signals["main_force_conviction_norm"] = self.helper._normalize_series(signals["main_force_conviction_index_raw"], df_index, bipolar=True, ascending=True) # 移除，因为其MTF版本已移除
         normalized_signals["chip_health_norm"] = self.helper._normalize_series(signals["chip_health_score_raw"], df_index, bipolar=True, ascending=True)
         normalized_signals["main_force_buy_execution_alpha_norm"] = self.helper._normalize_series(signals["main_force_buy_execution_alpha_raw"], df_index, bipolar=True, ascending=True)
         normalized_signals["bid_side_liquidity_norm"] = self.helper._normalize_series(signals["bid_side_liquidity_raw"], df_index, bipolar=False, ascending=True)
@@ -581,17 +611,21 @@ class CalculateWinnerConvictionRelationship:
         normalized_signals["upper_shadow_selling_pressure_norm"] = self.helper._normalize_series(signals["upper_shadow_selling_pressure_raw"], df_index, bipolar=False, ascending=False)
         # 核心新增：波动率不稳定性归一化，高值代表高不稳定性（差），所以 ascending=True
         normalized_signals["volatility_instability_index_21d_norm"] = self.helper._normalize_series(signals["volatility_instability_index_21d_raw"], df_index, bipolar=False, ascending=True)
+        # 新增：主力每日卖出占比归一化，高值代表卖出压力大（差），所以 ascending=False
+        normalized_signals["main_force_daily_sell_ratio_norm"] = self.helper._normalize_series(signals["main_force_daily_sell_ratio_D"], df_index, bipolar=False, ascending=False)
         _temp_debug_values["归一化处理"] = normalized_signals
         return normalized_signals
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.15 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
+        【V1.16 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg` 和 `chip_fatigue` 的逻辑修正，直接使用其MTF分数。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient` 的逻辑修正，直接使用其MTF分数。
         新增：累积信念阈值逻辑，当累积信念下降到一定程度时，动态调整短期和长期信念信号的融合权重；
               当累积信念健康时，放大其权重。
+        核心修改：移除 `mtf_main_force_conviction_index`，新增 `cumulative_main_force_buy_amount_score`、
+                  `cumulative_main_force_sell_amount_score` 和 `main_force_daily_sell_ratio_norm`。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -614,7 +648,7 @@ class CalculateWinnerConvictionRelationship:
         mtf_winner_stability = signals["mtf_winner_stability_index"]
         winner_stability_percentile = signals["winner_stability_index_raw"].rank(pct=True).fillna(0.5)
         # 获取MTF信号
-        mtf_main_force_conviction_index = signals["mtf_main_force_conviction_index"]
+        # mtf_main_force_conviction_index = signals["mtf_main_force_conviction_index"] # 移除
         mtf_chip_health_score = signals["mtf_chip_health_score"]
         mtf_winner_profit_margin_avg = signals["mtf_winner_profit_margin_avg"]
         mtf_loser_loss_margin_avg = signals["mtf_loser_loss_margin_avg"]
@@ -622,8 +656,14 @@ class CalculateWinnerConvictionRelationship:
         mtf_chip_fatigue_index = signals["mtf_chip_fatigue_index"]
         mtf_cost_gini_coefficient = signals["mtf_cost_gini_coefficient"]
 
-        # 获取累积主力信念指数
+        # 获取累积主力信念指数 (用于阈值逻辑)
         cumulative_main_force_conviction_index = signals.get("cumulative_main_force_conviction_index_score", pd.Series(0.0, index=df_index))
+        # 获取新的主力资金流累积信号
+        cumulative_main_force_buy_amount_score = signals.get("cumulative_main_force_buy_amount_calibrated_score", pd.Series(0.0, index=df_index))
+        cumulative_main_force_sell_amount_score = signals.get("cumulative_main_force_sell_amount_calibrated_score", pd.Series(0.0, index=df_index))
+        # 获取新的主力每日卖出占比信号
+        main_force_daily_sell_ratio_norm = normalized_signals.get("main_force_daily_sell_ratio_norm", pd.Series(0.0, index=df_index))
+
 
         # --- 累积信念阈值逻辑 ---
         dynamic_short_term_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
@@ -670,7 +710,7 @@ class CalculateWinnerConvictionRelationship:
 
         # 调试输出调制前的MTF信号 (现在这些值就是最终使用的MTF值)
         _temp_debug_values["信念强度"]["mtf_winner_stability_pre_modulated"] = mtf_winner_stability
-        _temp_debug_values["信念强度"]["mtf_main_force_conviction_index_pre_modulated"] = mtf_main_force_conviction_index
+        # _temp_debug_values["信念强度"]["mtf_main_force_conviction_index_pre_modulated"] = mtf_main_force_conviction_index # 移除
         _temp_debug_values["信念强度"]["mtf_chip_health_score_pre_modulated"] = mtf_chip_health_score
         _temp_debug_values["信念强度"]["mtf_winner_profit_margin_avg_pre_modulated"] = mtf_winner_profit_margin_avg
         _temp_debug_values["信念强度"]["mtf_loser_loss_margin_avg_pre_modulated"] = mtf_loser_loss_margin_avg
@@ -692,7 +732,7 @@ class CalculateWinnerConvictionRelationship:
         
         all_conviction_components = {
             "core_conviction": core_conviction_component,
-            "main_force_conviction": mtf_main_force_conviction_index,
+            # "main_force_conviction": mtf_main_force_conviction_index, # 移除
             "chip_health": mtf_chip_health_score,
             "winner_profit_margin_avg": mtf_winner_profit_margin_avg,
             "loser_loss_margin_avg": mtf_loser_loss_margin_avg,
@@ -702,20 +742,24 @@ class CalculateWinnerConvictionRelationship:
             "winner_stability_trend_consistency": mtf_trend_consistency_winner_stability,
             # 新增累积上下文作为独立组件
             "cumulative_winner_stability_index": signals.get("cumulative_winner_stability_index_score", pd.Series(0.0, index=df_index)),
-            "cumulative_main_force_conviction_index": cumulative_main_force_conviction_index, # 使用已获取的Series
+            "cumulative_main_force_conviction_index": cumulative_main_force_conviction_index, # 保持不变，用于阈值逻辑
             "cumulative_chip_health_score": signals.get("cumulative_chip_health_score_score", pd.Series(0.0, index=df_index)),
             "cumulative_winner_profit_margin_avg": signals.get("cumulative_winner_profit_margin_avg_score", pd.Series(0.0, index=df_index)),
             "cumulative_loser_loss_margin_avg": signals.get("cumulative_loser_loss_margin_avg_score", pd.Series(0.0, index=df_index)),
             "cumulative_winner_concentration_90pct": signals.get("cumulative_winner_concentration_90pct_score", pd.Series(0.0, index=df_index)),
             "cumulative_chip_fatigue_index": signals.get("cumulative_chip_fatigue_index_score", pd.Series(0.0, index=df_index)),
-            "cumulative_cost_gini_coefficient": signals.get("cumulative_cost_gini_coefficient_score", pd.Series(0.0, index=df_index))
+            "cumulative_cost_gini_coefficient": signals.get("cumulative_cost_gini_coefficient_score", pd.Series(0.0, index=df_index)),
+            # 新增主力资金流相关信号
+            "cumulative_main_force_buy_amount": cumulative_main_force_buy_amount_score, # 正面信号
+            "cumulative_main_force_sell_amount": cumulative_main_force_sell_amount_score * -1, # 负面信号，所以乘以-1
+            "main_force_daily_sell_ratio": main_force_daily_sell_ratio_norm * -1 # 负面信号，所以乘以-1
         }
         
         # 融合权重 (初始权重)
         # Note: conviction_enhancement_weights comes from params, which is loaded from process.json
         base_conviction_fusion_weights = {
             "core_conviction": conviction_enhancement_weights.get("core_conviction", 0.05), # Default 0.05 if not in JSON
-            "main_force_conviction": conviction_enhancement_weights.get("main_force_conviction", 0.15), # Default 0.15 if not in JSON
+            # "main_force_conviction": conviction_enhancement_weights.get("main_force_conviction", 0.1), # 移除
             "chip_health": conviction_enhancement_weights.get("chip_health", 0.1),
             "winner_profit_margin_avg": conviction_enhancement_weights.get("winner_profit_margin_avg", 0.05),
             "loser_loss_margin_avg": conviction_enhancement_weights.get("loser_loss_margin_avg", 0.05),
@@ -724,13 +768,17 @@ class CalculateWinnerConvictionRelationship:
             "cost_gini_coefficient": conviction_enhancement_weights.get("cost_gini_coefficient", 0.02),
             "winner_stability_trend_consistency": conviction_enhancement_weights.get("winner_stability_trend_consistency", 0.05),
             "cumulative_winner_stability_index": conviction_enhancement_weights.get("cumulative_winner_stability_index", 0.02),
-            "cumulative_main_force_conviction_index": conviction_enhancement_weights.get("cumulative_main_force_conviction_index", 0.1), # Default 0.1 if not in JSON
+            "cumulative_main_force_conviction_index": conviction_enhancement_weights.get("cumulative_main_force_conviction_index", 0.15), # Default 0.15 if not in JSON
             "cumulative_chip_health_score": conviction_enhancement_weights.get("cumulative_chip_health_score", 0.02),
             "cumulative_winner_profit_margin_avg": conviction_enhancement_weights.get("cumulative_winner_profit_margin_avg", 0.02),
             "cumulative_loser_loss_margin_avg": conviction_enhancement_weights.get("cumulative_loser_loss_margin_avg", 0.02),
             "cumulative_winner_concentration_90pct": conviction_enhancement_weights.get("cumulative_winner_concentration_90pct", 0.02),
             "cumulative_chip_fatigue_index": conviction_enhancement_weights.get("cumulative_chip_fatigue_index", 0.02),
-            "cumulative_cost_gini_coefficient": conviction_enhancement_weights.get("cumulative_cost_gini_coefficient", 0.02)
+            "cumulative_cost_gini_coefficient": conviction_enhancement_weights.get("cumulative_cost_gini_coefficient", 0.02),
+            # 新增主力资金流相关权重
+            "cumulative_main_force_buy_amount": conviction_enhancement_weights.get("cumulative_main_force_buy_amount", 0.15),
+            "cumulative_main_force_sell_amount": conviction_enhancement_weights.get("cumulative_main_force_sell_amount", 0.1),
+            "main_force_daily_sell_ratio": conviction_enhancement_weights.get("main_force_daily_sell_ratio", 0.05)
         }
 
         # Debugging: Print base_conviction_fusion_weights and raw_conviction_enhancement_weights_from_params
@@ -747,14 +795,16 @@ class CalculateWinnerConvictionRelationship:
                     k: v
                     for k, v in base_conviction_fusion_weights.items()
                 }
+                # DEBUG: Confirm content
+                # print(f"DEBUG: base_fusion_weights_at_probe set to: {_temp_debug_values['信念强度']['base_fusion_weights_at_probe']}")
 
 
         # 动态调整权重
         conviction_fusion_weights = {}
         for k, v in base_conviction_fusion_weights.items():
-            if k == "main_force_conviction":
+            if k == "main_force_daily_sell_ratio": # 短期信号
                 conviction_fusion_weights[k] = v * dynamic_short_term_factor
-            elif k == "cumulative_main_force_conviction_index":
+            elif k in ["cumulative_main_force_buy_amount", "cumulative_main_force_sell_amount", "cumulative_main_force_conviction_index"]: # 长期累积信号
                 conviction_fusion_weights[k] = v * dynamic_long_term_factor
             else:
                 conviction_fusion_weights[k] = pd.Series(v, index=df_index, dtype=np.float32)
@@ -793,14 +843,14 @@ class CalculateWinnerConvictionRelationship:
             "mtf_winner_stability": mtf_winner_stability,
             "winner_stability_percentile": winner_stability_percentile,
             "core_conviction_component": core_conviction_component,
-            "mtf_main_force_conviction_index": mtf_main_force_conviction_index,
+            # "mtf_main_force_conviction_index": mtf_main_force_conviction_index, # 移除
             "mtf_chip_health_score": mtf_chip_health_score,
             "mtf_winner_profit_margin_avg": mtf_winner_profit_margin_avg,
             "mtf_loser_loss_margin_avg": mtf_loser_loss_margin_avg, # 调试输出修正后的值
             "mtf_winner_concentration_90pct": mtf_winner_concentration_90pct, # 调试输出修正后的值
             "mtf_chip_fatigue_index": mtf_chip_fatigue_index, # 调试输出修正后的值
             "mtf_cost_gini_coefficient": mtf_cost_gini_coefficient, # 调试输出修正后的值
-            "mtf_trend_consistency_winner_stability": mtf_trend_consistency_winner_stability, # 调试输出
+            "mtf_trend_consistency_winner_stability": signals.get("mtf_trend_consistency_winner_stability_index", pd.Series(np.nan, index=df_index)), # 调试输出
             "inflection_mtf_winner_stability_index": inflection_mtf_winner_stability, # 调试输出
             "inflection_penalty_conviction": inflection_penalty, # 调试输出
             "fused_conviction_strength_0_1": fused_conviction_strength_0_1,
@@ -813,7 +863,11 @@ class CalculateWinnerConvictionRelationship:
             "cumulative_loser_loss_margin_avg": signals.get("cumulative_loser_loss_margin_avg_score", pd.Series(np.nan, index=df_index)),
             "cumulative_winner_concentration_90pct": signals.get("cumulative_winner_concentration_90pct_score", pd.Series(np.nan, index=df_index)),
             "cumulative_chip_fatigue_index": signals.get("cumulative_chip_fatigue_index_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_cost_gini_coefficient": signals.get("cumulative_cost_gini_coefficient_score", pd.Series(np.nan, index=df_index))
+            "cumulative_cost_gini_coefficient": signals.get("cumulative_cost_gini_coefficient_score", pd.Series(np.nan, index=df_index)),
+            # 调试输出新增的主力资金流相关信号
+            "cumulative_main_force_buy_amount": cumulative_main_force_buy_amount_score,
+            "cumulative_main_force_sell_amount": cumulative_main_force_sell_amount_score, # 原始值，未乘以-1
+            "main_force_daily_sell_ratio": main_force_daily_sell_ratio_norm # 原始值，未乘以-1
         })
         return conviction_strength_score
 

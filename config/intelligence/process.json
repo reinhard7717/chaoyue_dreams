@@ -832,7 +832,6 @@
                 "winner_conviction_params": {
                     "conviction_enhancement_weights": {
                         "core_conviction": 0.05,
-                        "main_force_conviction": 0.15,
                         "chip_health": 0.1,
                         "winner_profit_margin_avg": 0.05,
                         "loser_loss_margin_avg": 0.05,
@@ -841,13 +840,16 @@
                         "cost_gini_coefficient": 0.02,
                         "winner_stability_trend_consistency": 0.05,
                         "cumulative_winner_stability_index": 0.02,
-                        "cumulative_main_force_conviction_index": 0.1,
+                        "cumulative_main_force_conviction_index": 0.15,
                         "cumulative_chip_health_score": 0.02,
                         "cumulative_winner_profit_margin_avg": 0.02,
                         "cumulative_loser_loss_margin_avg": 0.02,
                         "cumulative_winner_concentration_90pct": 0.02,
                         "cumulative_chip_fatigue_index": 0.02,
-                        "cumulative_cost_gini_coefficient": 0.02
+                        "cumulative_cost_gini_coefficient": 0.02,
+                        "cumulative_main_force_buy_amount": 0.15, 
+                        "cumulative_main_force_sell_amount": 0.1, 
+                        "main_force_daily_sell_ratio": 0.05 
                     },
                     "pressure_resilience_enhancement_weights": {
                         "core_resilience": 0.45,
@@ -919,7 +921,9 @@
                             "industry_leader_score_D",
                             "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D",
                             "distribution_at_peak_intensity_D",
-                            "upper_shadow_selling_pressure_D"
+                            "upper_shadow_selling_pressure_D",
+                            "main_force_buy_amount_calibrated_D", 
+                            "main_force_sell_amount_calibrated_D" 
                         ],
                         "cumulative_periods": [13, 21],
                         "cumulative_weights": {
@@ -931,7 +935,6 @@
                         "signals_for_inflection_detection": [
                             "mtf_winner_stability_index",
                             "mtf_dispersal_by_distribution",
-                            "mtf_main_force_conviction_index",
                             "mtf_chip_health_score"
                         ],
                         "inflection_detection_window": 5,
@@ -943,8 +946,8 @@
                         "absolute_threshold": 0.2,
                         "short_term_weight_boost_factor": 10.0,
                         "long_term_weight_decay_factor": 0.01,
-                        "healthy_long_term_boost_factor": 1.5,
-                        "healthy_short_term_decay_factor": 0.5
+                        "healthy_long_term_boost_factor": 2.5,
+                        "healthy_short_term_decay_factor": 0.1
                     }
                 }
             },
