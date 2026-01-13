@@ -43,7 +43,7 @@ class CalculateStormEyeCalm:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        V4.0.8: 计算“风暴眼中的寂静”信号。
+        V4.0.9: 计算“风暴眼中的寂静”信号。
         """
         method_name = "calculate_storm_eye_calm"
         is_debug_enabled_for_method, probe_ts = self._get_debug_info(df, method_name)
@@ -255,8 +255,8 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> List[str]:
         """
-        V1.6: 动态构建所有计算“风暴眼中的寂静”所需的原始信号和原子信号列表。
-        新增 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度信号。
+        V1.7: 动态构建所有计算“风暴眼中的寂静”所需的原始信号和原子信号列表。
+        新增 price_volume_entropy_D、volume_profile_entropy_D、main_force_slippage_index_D、micro_impact_elasticity_D、loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度信号。
         """
         required_signals = [
             # 替换 SCORE_STRUCT_AXIOM_TENSION
@@ -315,11 +315,25 @@ class CalculateStormEyeCalm:
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D',
             f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
-            # 新增 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度
             f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
             f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
+            # 新增 price_volume_entropy_D 和 volume_profile_entropy_D 的斜率和加速度
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D',
+            # 新增 main_force_slippage_index_D 和 micro_impact_elasticity_D 的斜率和加速度
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D',
+            # 新增 loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D',
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in mtf_cohesion_base_signals:
@@ -331,8 +345,8 @@ class CalculateStormEyeCalm:
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V1.7: 从DataFrame和原子状态中安全地获取所有原始数据和原子信号。
-        获取新增的 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度信号。
+        V1.8: 从DataFrame和原子状态中安全地获取所有原始数据和原子信号。
+        获取新增的 price_volume_entropy_D、volume_profile_entropy_D、main_force_slippage_index_D、micro_impact_elasticity_D、loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度信号。
         """
         raw_data = {}
         # Energy Compression
@@ -445,6 +459,21 @@ class CalculateStormEyeCalm:
         raw_data['structural_leverage_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D', np.nan, method_name=method_name)
         raw_data['cost_gini_coefficient_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D', np.nan, method_name=method_name)
         raw_data['cost_gini_coefficient_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D', np.nan, method_name=method_name)
+        # 获取 price_volume_entropy_D 和 volume_profile_entropy_D 的斜率和加速度
+        raw_data['price_volume_entropy_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D', np.nan, method_name=method_name)
+        raw_data['price_volume_entropy_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D', np.nan, method_name=method_name)
+        raw_data['volume_profile_entropy_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D', np.nan, method_name=method_name)
+        raw_data['volume_profile_entropy_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D', np.nan, method_name=method_name)
+        # 获取 main_force_slippage_index_D 和 micro_impact_elasticity_D 的斜率和加速度
+        raw_data['main_force_slippage_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D', np.nan, method_name=method_name)
+        raw_data['main_force_slippage_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D', np.nan, method_name=method_name)
+        raw_data['micro_impact_elasticity_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D', np.nan, method_name=method_name)
+        raw_data['micro_impact_elasticity_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D', np.nan, method_name=method_name)
+        # 获取 loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度
+        raw_data['loser_pain_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D', np.nan, method_name=method_name)
+        raw_data['loser_pain_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D', np.nan, method_name=method_name)
+        raw_data['retail_panic_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D', np.nan, method_name=method_name)
+        raw_data['retail_panic_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D', np.nan, method_name=method_name)
         return raw_data
 
     def _calculate_mtf_derived_scores(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List, method_name: str) -> Dict[str, pd.Series]:
@@ -458,8 +487,8 @@ class CalculateStormEyeCalm:
 
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V1.4: 计算能量压缩维度的分数。
-        纳入 structural_entropy_change_D、structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度信号。
+        V1.5: 计算能量压缩维度的分数。
+        纳入 price_volume_entropy_D 和 volume_profile_entropy_D 的斜率和加速度信号。
         """
         # 代理 tension_score (SCORE_STRUCT_AXIOM_TENSION)
         tension_score_proxy = self.helper._normalize_series(raw_data['ma_potential_tension_raw'], target_index=df_index, ascending=True)
@@ -506,6 +535,17 @@ class CalculateStormEyeCalm:
         cost_gini_coefficient_accel_inverted = 1 - self.helper._normalize_series(raw_data['cost_gini_coefficient_accel_raw'].abs(), target_index=df_index, ascending=True)
         _temp_debug_values["能量压缩"]["cost_gini_coefficient_accel_inverted"] = cost_gini_coefficient_accel_inverted
 
+        # 新增 price_volume_entropy_D 和 volume_profile_entropy_D 的斜率和加速度
+        price_volume_entropy_slope_inverted = 1 - self.helper._normalize_series(raw_data['price_volume_entropy_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["price_volume_entropy_slope_inverted"] = price_volume_entropy_slope_inverted
+        price_volume_entropy_accel_inverted = 1 - self.helper._normalize_series(raw_data['price_volume_entropy_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["price_volume_entropy_accel_inverted"] = price_volume_entropy_accel_inverted
+
+        volume_profile_entropy_slope_inverted = 1 - self.helper._normalize_series(raw_data['volume_profile_entropy_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["volume_profile_entropy_slope_inverted"] = volume_profile_entropy_slope_inverted
+        volume_profile_entropy_accel_inverted = 1 - self.helper._normalize_series(raw_data['volume_profile_entropy_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["volume_profile_entropy_accel_inverted"] = volume_profile_entropy_accel_inverted
+
         energy_compression_scores_dict = {
             'tension': tension_score_proxy, 'bbw_inverted': bbw_inverted_score, 'vol_instability_inverted': vol_instability_inverted_score,
             'equilibrium_compression': equilibrium_compression_score, 'bbw_slope_inverted': mtf_derived_scores['bbw_slope_inverted_score'],
@@ -519,7 +559,11 @@ class CalculateStormEyeCalm:
             'structural_leverage_slope_inverted': structural_leverage_slope_inverted,
             'structural_leverage_accel_inverted': structural_leverage_accel_inverted,
             'cost_gini_coefficient_slope_inverted': cost_gini_coefficient_slope_inverted,
-            'cost_gini_coefficient_accel_inverted': cost_gini_coefficient_accel_inverted
+            'cost_gini_coefficient_accel_inverted': cost_gini_coefficient_accel_inverted,
+            'price_volume_entropy_slope_inverted': price_volume_entropy_slope_inverted,
+            'price_volume_entropy_accel_inverted': price_volume_entropy_accel_inverted,
+            'volume_profile_entropy_slope_inverted': volume_profile_entropy_slope_inverted,
+            'volume_profile_entropy_accel_inverted': volume_profile_entropy_accel_inverted
         }
         return _robust_geometric_mean(energy_compression_scores_dict, weights, df_index)
 
@@ -574,8 +618,8 @@ class CalculateStormEyeCalm:
 
     def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        V1.5: 计算主力隐蔽意图维度的分数，并返回组件字典用于调试。
-        纳入 main_force_conviction_index_D 的斜率和加速度信号。
+        V1.6: 计算主力隐蔽意图维度的分数，并返回组件字典用于调试。
+        纳入 main_force_slippage_index_D 和 micro_impact_elasticity_D 的斜率和加速度信号。
         """
         # 代理 stealth_ops_normalized (SCORE_MICRO_STRATEGY_STEALTH_OPS)
         # 隐蔽操作 = covert_accumulation_signal_D + (1 - main_force_flow_gini_D)
@@ -627,6 +671,17 @@ class CalculateStormEyeCalm:
         main_force_conviction_accel_neutrality = 1 - self.helper._normalize_series(raw_data['main_force_conviction_index_accel_raw'].abs(), target_index=df_index, ascending=True)
         _temp_debug_values["主力隐蔽意图"]["main_force_conviction_accel_neutrality"] = main_force_conviction_accel_neutrality
 
+        # 新增 main_force_slippage_index_D 和 micro_impact_elasticity_D 的斜率和加速度
+        main_force_slippage_slope_neutrality = 1 - self.helper._normalize_series(raw_data['main_force_slippage_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["主力隐蔽意图"]["main_force_slippage_slope_neutrality"] = main_force_slippage_slope_neutrality
+        main_force_slippage_accel_neutrality = 1 - self.helper._normalize_series(raw_data['main_force_slippage_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["主力隐蔽意图"]["main_force_slippage_accel_neutrality"] = main_force_slippage_accel_neutrality
+
+        micro_impact_elasticity_slope_neutrality = 1 - self.helper._normalize_series(raw_data['micro_impact_elasticity_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["主力隐蔽意图"]["micro_impact_elasticity_slope_neutrality"] = micro_impact_elasticity_slope_neutrality
+        micro_impact_elasticity_accel_neutrality = 1 - self.helper._normalize_series(raw_data['micro_impact_elasticity_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["主力隐蔽意图"]["micro_impact_elasticity_accel_neutrality"] = micro_impact_elasticity_accel_neutrality
+
         ambiguity_components = {
             'directionality_neutrality': main_force_flow_directionality_neutrality,
             'net_flow_near_zero': mf_net_flow_near_zero,
@@ -642,7 +697,11 @@ class CalculateStormEyeCalm:
             'liquidity_authenticity_positive': liquidity_authenticity_positive,
             'mf_level5_ofi_dynamic_neutrality': mf_level5_ofi_dynamic_neutrality, # 纳入模糊性判断
             'main_force_conviction_slope_neutrality': main_force_conviction_slope_neutrality,
-            'main_force_conviction_accel_neutrality': main_force_conviction_accel_neutrality
+            'main_force_conviction_accel_neutrality': main_force_conviction_accel_neutrality,
+            'main_force_slippage_slope_neutrality': main_force_slippage_slope_neutrality,
+            'main_force_slippage_accel_neutrality': main_force_slippage_accel_neutrality,
+            'micro_impact_elasticity_slope_neutrality': micro_impact_elasticity_slope_neutrality,
+            'micro_impact_elasticity_accel_neutrality': micro_impact_elasticity_accel_neutrality
         }
         main_force_flow_ambiguity = _robust_geometric_mean(ambiguity_components, ambiguity_weights, df_index)
         _temp_debug_values["主力隐蔽意图"]["main_force_flow_ambiguity_proxy"] = main_force_flow_ambiguity
@@ -664,8 +723,8 @@ class CalculateStormEyeCalm:
 
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _temp_debug_values: Dict) -> pd.Series:
         """
-        V1.5: 计算市场情绪低迷维度的分数。
-        纳入 price_reversion_velocity_D 的斜率和加速度信号。
+        V1.6: 计算市场情绪低迷维度的分数。
+        纳入 loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度信号。
         """
         # 代理 sentiment_pendulum_score (SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM)
         # 情绪钟摆 = (市场情绪 - 散户恐慌 + 散户Fomo) 的简单组合，归一化到 [-1, 1]
@@ -725,6 +784,17 @@ class CalculateStormEyeCalm:
         price_reversion_velocity_accel_inverted = 1 - self.helper._normalize_series(raw_data['price_reversion_velocity_accel_raw'].abs(), target_index=df_index, ascending=True)
         _temp_debug_values["市场情绪低迷融合"]["price_reversion_velocity_accel_inverted"] = price_reversion_velocity_accel_inverted
 
+        # 新增 loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度
+        loser_pain_slope_inverted = 1 - self.helper._normalize_series(raw_data['loser_pain_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["市场情绪低迷融合"]["loser_pain_slope_inverted"] = loser_pain_slope_inverted
+        loser_pain_accel_inverted = 1 - self.helper._normalize_series(raw_data['loser_pain_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["市场情绪低迷融合"]["loser_pain_accel_inverted"] = loser_pain_accel_inverted
+
+        retail_panic_slope_inverted = 1 - self.helper._normalize_series(raw_data['retail_panic_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["市场情绪低迷融合"]["retail_panic_slope_inverted"] = retail_panic_slope_inverted
+        retail_panic_accel_inverted = 1 - self.helper._normalize_series(raw_data['retail_panic_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["市场情绪低迷融合"]["retail_panic_accel_inverted"] = retail_panic_accel_inverted
+
         subdued_market_sentiment_scores_dict = {
             'sentiment_pendulum_negative': sentiment_pendulum_negative, 'market_sentiment_inverted': market_sentiment_inverted,
             'retail_panic_inverted': retail_panic_inverted, 'retail_fomo_inverted': retail_fomo_inverted,
@@ -745,7 +815,11 @@ class CalculateStormEyeCalm:
             'market_sentiment_slope_neutrality': market_sentiment_slope_neutrality, # 情绪变化速度越慢越好
             'market_sentiment_accel_neutrality': market_sentiment_accel_neutrality, # 情绪加速度越慢越好
             'price_reversion_velocity_slope_inverted': price_reversion_velocity_slope_inverted,
-            'price_reversion_velocity_accel_inverted': price_reversion_velocity_accel_inverted
+            'price_reversion_velocity_accel_inverted': price_reversion_velocity_accel_inverted,
+            'loser_pain_slope_inverted': loser_pain_slope_inverted,
+            'loser_pain_accel_inverted': loser_pain_accel_inverted,
+            'retail_panic_slope_inverted': retail_panic_slope_inverted,
+            'retail_panic_accel_inverted': retail_panic_accel_inverted
         }
         return _robust_geometric_mean(subdued_market_sentiment_scores_dict, weights, df_index)
 

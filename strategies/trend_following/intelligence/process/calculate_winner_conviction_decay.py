@@ -14,24 +14,10 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 class CalculateWinnerConvictionDecay:
-    def __init__(self, strategy_instance, helper):
-        self.strategy = strategy_instance
-        self.helper = helper
-import json
-import os
-import pandas as pd
-import numpy as np
-import pandas_ta as ta
-from typing import Dict, List, Optional, Any, Tuple
-
-from strategies.trend_following.utils import (
-    get_params_block, get_param_value, get_adaptive_mtf_normalized_score,
-    is_limit_up, get_adaptive_mtf_normalized_bipolar_score,
-    normalize_score, _robust_geometric_mean
-)
-from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
-
-class CalculateWinnerConvictionDecay:
+    """
+    【V4.1 · 全息动态审判版】“赢家信念衰减”专属计算引擎
+    PROCESS_META_WINNER_CONVICTION_DECAY
+    """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
         self.helper = helper_instance
@@ -328,51 +314,64 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        计算赢家信念强度。
+        计算赢家信念强度（此处分数越高代表衰减越严重）。
         """
         belief_signal_name = params_dict['belief_signal_name']
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
-        relative_position_weights = params_dict['relative_position_weights']
+        # relative_position_weights = params_dict['relative_position_weights'] # 未使用，移除
         belief_decay_components_weights = params_dict['belief_decay_components_weights']
         # --- 原料数据存在性检查 ---
         required_raw_signals = [
-            "belief_signal_raw", "chip_health_raw"
+            "belief_signal_raw", "chip_health_raw", "winner_profit_margin_avg_raw",
+            "total_winner_rate_raw", "chip_fatigue_raw"
         ]
         for sig_name in required_raw_signals:
-            if sig_name not in raw_signals or raw_signals[sig_name].empty or raw_signals[sig_name].isnull().all(): # 增加对全NaN的检查
+            if sig_name not in raw_signals or raw_signals[sig_name].empty or raw_signals[sig_name].isnull().all():
                 print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}' 或其值全为NaN，信念强度计算可能不完整。")
-                return pd.Series(np.nan, index=df_index, dtype=np.float32) # 返回np.nan
+                return pd.Series(np.nan, index=df_index, dtype=np.float32)
         belief_signal_raw = raw_signals["belief_signal_raw"]
         chip_health_raw = raw_signals["chip_health_raw"]
+        winner_profit_margin_avg_raw = raw_signals["winner_profit_margin_avg_raw"]
+        total_winner_rate_raw = raw_signals["total_winner_rate_raw"]
+        chip_fatigue_raw = raw_signals["chip_fatigue_raw"]
+        # 1. 计算MTF获利盘稳定性 (正值代表稳定性趋势向上，对衰减是负贡献)
         mtf_winner_stability = self.helper._get_mtf_slope_accel_score(df, belief_signal_name, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        winner_stability_percentile = belief_signal_raw.rank(pct=True).fillna(np.nan) # fillna(np.nan)
-        # 新增：归一化筹码健康度（反向，健康度越低，信念衰减越严重）
+        # 2. 归一化平均获利盘利润率 (正值代表利润率高，对衰减是负贡献)
+        norm_profit_margin_avg = self.helper._normalize_series(winner_profit_margin_avg_raw, df_index, bipolar=True, ascending=True)
+        # 3. 归一化总获利盘比例 (正值代表获利盘比例高，对衰减是负贡献)
+        norm_total_winner_rate = self.helper._normalize_series(total_winner_rate_raw, df_index, bipolar=True, ascending=True)
+        # 4. 归一化筹码疲劳指数 (正值代表疲劳度高，对衰减是正贡献)
+        norm_chip_fatigue = self.helper._normalize_series(chip_fatigue_raw, df_index, bipolar=True, ascending=True)
+        # 5. 归一化筹码健康度反向 (正值代表健康度低，对衰减是正贡献)
         norm_chip_health_inverted = self.helper._normalize_series(chip_health_raw, df_index, bipolar=True, ascending=False)
-        # 融合信念强度组件
-        # 提取相关权重，并进行加权平均
+        # 提取相关权重
         w_mtf_stability = belief_decay_components_weights.get("winner_stability_mtf", 0.4)
         w_winner_profit_margin_inverted = belief_decay_components_weights.get("winner_profit_margin_avg_inverted", 0.2)
         w_total_winner_rate_inverted = belief_decay_components_weights.get("total_winner_rate_inverted", 0.2)
         w_chip_fatigue = belief_decay_components_weights.get("chip_fatigue", 0.1)
         w_chip_health_inverted = belief_decay_components_weights.get("chip_health_inverted", 0.1)
-        # 将 winner_stability_percentile 转换为双极性
-        winner_stability_percentile_bipolar = (winner_stability_percentile * 2 - 1)
-        # 重新构建信念强度融合逻辑，使用配置中的权重进行加权平均
-        # 确保所有组件都是双极性 [-1, 1]
-        # 避免除以零，如果所有权重都为0，则结果为NaN
-        total_weights = w_mtf_stability + (w_winner_profit_margin_inverted + w_total_winner_rate_inverted) / 2 + w_chip_health_inverted
+        # 计算总权重，避免除以零
+        total_weights = (
+            w_mtf_stability + w_winner_profit_margin_inverted + w_total_winner_rate_inverted +
+            w_chip_fatigue + w_chip_health_inverted
+        )
         if total_weights == 0:
             fused_conviction_score = pd.Series(np.nan, index=df_index, dtype=np.float32)
         else:
+            # 融合信念强度组件 (分数越高代表衰减越严重)
             fused_conviction_score = (
-                mtf_winner_stability * w_mtf_stability +
-                winner_stability_percentile_bipolar * (w_winner_profit_margin_inverted + w_total_winner_rate_inverted) / 2 +
-                norm_chip_health_inverted * w_chip_health_inverted
+                (-mtf_winner_stability * w_mtf_stability) + # 稳定性高 -> 衰减低
+                (-norm_profit_margin_avg * w_winner_profit_margin_inverted) + # 利润率高 -> 衰减低
+                (-norm_total_winner_rate * w_total_winner_rate_inverted) + # 获利盘高 -> 衰减低
+                (norm_chip_fatigue * w_chip_fatigue) + # 疲劳度高 -> 衰减高
+                (norm_chip_health_inverted * w_chip_health_inverted) # 健康度低 -> 衰减高
             ) / total_weights
-        conviction_strength_score = fused_conviction_score.clip(-1, 1).fillna(np.nan) # fillna(np.nan)
+        conviction_strength_score = fused_conviction_score.clip(-1, 1).fillna(np.nan)
         _temp_debug_values["信念强度"] = {
             "mtf_winner_stability": mtf_winner_stability,
-            "winner_stability_percentile": winner_stability_percentile,
+            "norm_profit_margin_avg": norm_profit_margin_avg,
+            "norm_total_winner_rate": norm_total_winner_rate,
+            "norm_chip_fatigue": norm_chip_fatigue,
             "norm_chip_health_inverted": norm_chip_health_inverted,
             "conviction_strength_score": conviction_strength_score
         }
