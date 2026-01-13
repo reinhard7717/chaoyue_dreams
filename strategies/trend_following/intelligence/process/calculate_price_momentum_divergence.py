@@ -417,6 +417,28 @@ class CalculatePriceMomentumDivergence:
             top_mf_conf.loc[idx] if x > 0 else (-bottom_mf_conf.loc[idx] if x < 0 else 0)
             for idx, x in base_divergence_score.items()
         ], index=df_index, dtype=np.float32)
+        debug_values = {
+            "fused_mf_net_flow_slope": fused_mf_net_flow_slope,
+            "deception_index_norm": deception_index_norm,
+            "distribution_intent_norm": distribution_intent_norm,
+            "covert_accumulation_norm": covert_accumulation_norm,
+            "chip_divergence_norm": chip_divergence_norm,
+            "main_force_conviction_norm": main_force_conviction_norm,
+            "chip_health_norm": chip_health_norm,
+            "mf_buy_ofi_positive": mf_buy_ofi_positive,
+            "mf_sell_ofi_negative": mf_sell_ofi_negative,
+            "order_book_imbalance_positive": order_book_imbalance_positive,
+            "micro_price_impact_asymmetry_positive": micro_price_impact_asymmetry_positive,
+            "main_force_slippage_inverted": main_force_slippage_inverted,
+            "winner_concentration_positive": winner_concentration_positive,
+            "loser_pain_positive": loser_pain_positive,
+            "smart_money_inst_net_buy_norm": smart_money_inst_net_buy_norm,
+            "intraday_vwap_div_index_inverted_norm": intraday_vwap_div_index_inverted_norm,
+            "top_mf_conf": top_mf_conf,
+            "bottom_mf_conf": bottom_mf_conf,
+            "main_force_confirmation_score": main_force_confirmation_score
+        }
+        return main_force_confirmation_score, fused_mf_net_flow_slope, debug_values
 
     def _calculate_divergence_quality_score(self, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series) -> Tuple[pd.Series, Dict]:
         """V1.3 · 背离纯度增强版 (移除筹码分布熵)"""
