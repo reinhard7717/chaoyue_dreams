@@ -107,8 +107,9 @@ class CalculateWinnerConvictionRelationship:
 
     def _print_debug_info(self, method_name: str, final_score: pd.Series, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict, _temp_debug_values: Dict):
         """
-        【V1.3 · 调试信息全面打印版 - 增强字典类型处理】统一打印调试信息，新增累积上下文、趋势一致性、拐点信号的输出。
+        【V1.4 · 调试信息全面打印版 - 增强字典类型处理】统一打印调试信息，新增累积上下文、趋势一致性、拐点信号的输出。
         核心修正：增强对 `_temp_debug_values` 中字典类型数据的处理，避免 `AttributeError: 'dict' object has no attribute 'index'`。
+        新增：打印 `raw_conviction_enhancement_weights_from_params`、`base_fusion_weights_at_probe` 和 `dynamic_fusion_weights_pre_norm_at_probe`。
         参数:
             method_name (str): 调用此方法的名称，用于日志输出。
             final_score (pd.Series): 最终计算出的分数。
@@ -157,7 +158,12 @@ class CalculateWinnerConvictionRelationship:
                 elif isinstance(item, dict): # 处理像 final_fusion_weights_at_probe 这样的字典
                     debug_output[f"        {key}:"] = ""
                     for sub_key, sub_val in item.items():
-                        debug_output[f"          {sub_key}: {sub_val:.4f}"] = ""
+                        # sub_val could be a Series or scalar
+                        if isinstance(sub_val, pd.Series):
+                            sub_val_at_probe = sub_val.loc[probe_ts] if probe_ts in sub_val.index else np.nan
+                            debug_output[f"          {sub_key}: {sub_val_at_probe:.4f}"] = ""
+                        else:
+                            debug_output[f"          {sub_key}: {sub_val:.4f}"] = ""
                 else: # 处理标量值或其他非Series/非字典类型
                     debug_output[f"        {key}: {item:.4f}"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 压力韧性 ---"] = ""
@@ -185,13 +191,13 @@ class CalculateWinnerConvictionRelationship:
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.16 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
+        【V1.19 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
         核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient_inverse` 的逻辑修正，并更新其权重名称。
         核心调整：进一步降低 `main_force_conviction` 和 `core_resilience` 的权重，提高对应累积上下文信号的权重，以减少短期负面信号的过度影响，并增强长期累积信念的权重。
         核心修正：`pressure_resilience_enhancement_weights` 中 `core_resilience` 的权重调整，并移除 `cumulative_dispersal_by_distribution` 的权重，因为它现在是 `core_resilience` 的主要驱动。
-        新增：`cumulative_conviction_threshold_params` 用于动态调整信念强度融合权重。
+        新增：`cumulative_conviction_threshold_params` 用于动态调整信念强度融合权重，并引入健康模式下的累积信念权重放大因子。
         参数:
             config (Dict): 包含配置信息的字典。
         返回:
@@ -217,22 +223,23 @@ class CalculateWinnerConvictionRelationship:
         direction_weights = get_param_value(params.get('direction_weights'), {'conviction': 0.6, 'pressure': 0.4})
         # 新增参数：信念增强因子权重
         conviction_enhancement_weights = get_param_value(params.get('conviction_enhancement_weights'), {
-            "main_force_conviction": 0.01, # 调整：从0.05降低到0.01，进一步减少短期流量影响
-            "chip_health": 0.2,
-            "winner_profit_margin_avg": 0.1,
-            "loser_loss_margin_avg": 0.1, # 修正：键名改为 loser_loss_margin_avg
-            "winner_concentration_90pct": 0.1,
-            "chip_fatigue": 0.1, # 修正：键名改为 chip_fatigue
-            "cost_gini_coefficient": 0.05, # 修正：键名改为 cost_gini_coefficient
-            "winner_stability_trend_consistency": 0.1,
-            "cumulative_winner_stability_index": 0.05, # 新增累积上下文权重
-            "cumulative_main_force_conviction_index": 0.25, # 调整：从0.2提高到0.25，进一步增强长期存量影响
-            "cumulative_chip_health_score": 0.05,
-            "cumulative_winner_profit_margin_avg": 0.05,
-            "cumulative_loser_loss_margin_avg": 0.05,
-            "cumulative_winner_concentration_90pct": 0.05,
-            "cumulative_chip_fatigue_index": 0.05,
-            "cumulative_cost_gini_coefficient": 0.05
+            "core_conviction": 0.05, # 进一步大幅降低核心信念的默认权重，让动态调整的信号有更大影响空间
+            "main_force_conviction": 0.15, # 大幅提高短期主力信念的基础权重，使其在放大后能显著影响结果
+            "chip_health": 0.1, # 适当降低其他信号权重，为动态调整的信号腾出空间
+            "winner_profit_margin_avg": 0.05,
+            "loser_loss_margin_avg": 0.05,
+            "winner_concentration_90pct": 0.05,
+            "chip_fatigue": 0.05,
+            "cost_gini_coefficient": 0.02,
+            "winner_stability_trend_consistency": 0.05,
+            "cumulative_winner_stability_index": 0.02,
+            "cumulative_main_force_conviction_index": 0.1, # 降低累积主力信念的基础权重，使其在衰减后影响更小
+            "cumulative_chip_health_score": 0.02,
+            "cumulative_winner_profit_margin_avg": 0.02,
+            "cumulative_loser_loss_margin_avg": 0.02,
+            "cumulative_winner_concentration_90pct": 0.02,
+            "cumulative_chip_fatigue_index": 0.02,
+            "cumulative_cost_gini_coefficient": 0.02
         })
         # 新增参数：压力韧性增强因子权重
         pressure_resilience_enhancement_weights = get_param_value(params.get('pressure_resilience_enhancement_weights'), {
@@ -329,10 +336,12 @@ class CalculateWinnerConvictionRelationship:
         # 新增：累积信念阈值参数
         cumulative_conviction_threshold_params = get_param_value(params.get('cumulative_conviction_threshold_params'), {
             "enabled": True,
-            "decay_threshold_pct": 0.5, # 累积信念从历史最高点回撤的百分比阈值 (0.5 = 50%)
+            "decay_threshold_pct": 0.1, # 累积信念从历史最高点回撤的百分比阈值 (0.5 = 50%)
             "absolute_threshold": 0.2, # 累积信念的绝对值阈值 (低于此值也触发警惕)
-            "short_term_weight_boost_factor": 2.0, # 短期信号权重放大的因子
-            "long_term_weight_decay_factor": 0.5 # 长期信号权重衰减的因子
+            "short_term_weight_boost_factor": 10.0, # 警惕模式下，短期信号权重放大因子
+            "long_term_weight_decay_factor": 0.01, # 警惕模式下，长期信号权重衰减因子
+            "healthy_long_term_boost_factor": 1.5, # 健康模式下，长期信号权重放大因子
+            "healthy_short_term_decay_factor": 0.5 # 健康模式下，短期信号权重衰减因子
         })
         return {
             "mtf_slope_accel_weights": mtf_slope_accel_weights,
@@ -577,11 +586,12 @@ class CalculateWinnerConvictionRelationship:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.13 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
+        【V1.14 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
         核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
         核心修正：`loser_loss_margin_avg` 和 `chip_fatigue` 的逻辑修正，直接使用其MTF分数。
         核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient` 的逻辑修正，直接使用其MTF分数。
-        新增：累积信念阈值逻辑，当累积信念下降到一定程度时，动态调整短期和长期信念信号的融合权重。
+        新增：累积信念阈值逻辑，当累积信念下降到一定程度时，动态调整短期和长期信念信号的融合权重；
+              当累积信念健康时，放大其权重。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -616,45 +626,46 @@ class CalculateWinnerConvictionRelationship:
         cumulative_main_force_conviction_index = signals.get("cumulative_main_force_conviction_index_score", pd.Series(0.0, index=df_index))
 
         # --- 累积信念阈值逻辑 ---
-        dynamic_short_term_boost = pd.Series(1.0, index=df_index, dtype=np.float32)
-        dynamic_long_term_decay = pd.Series(1.0, index=df_index, dtype=np.float32)
+        dynamic_short_term_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
+        dynamic_long_term_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
 
         if cumulative_conviction_threshold_params["enabled"]:
             decay_threshold_pct = cumulative_conviction_threshold_params["decay_threshold_pct"]
             absolute_threshold = cumulative_conviction_threshold_params["absolute_threshold"]
-            short_term_boost_factor = cumulative_conviction_threshold_params["short_term_weight_boost_factor"]
-            long_term_weight_decay_factor = cumulative_conviction_threshold_params["long_term_weight_decay_factor"]
+            alert_short_term_boost_factor = cumulative_conviction_threshold_params["short_term_weight_boost_factor"]
+            alert_long_term_decay_factor = cumulative_conviction_threshold_params["long_term_weight_decay_factor"]
+            healthy_long_term_boost_factor = cumulative_conviction_threshold_params["healthy_long_term_boost_factor"]
+            healthy_short_term_decay_factor = cumulative_conviction_threshold_params["healthy_short_term_decay_factor"]
 
             # 计算累积信念的历史最高点 (只考虑正值，因为我们关心的是信念的衰减)
-            # 使用 expand(0) 确保 rolling max 仅考虑当前及之前的数据
             historical_max_cumulative_conviction = cumulative_main_force_conviction_index.clip(lower=0).expanding(min_periods=1).max()
             
             # 计算回撤百分比 (只在历史最高点 > 0 时计算)
-            # 如果历史最高点为0，回撤百分比也为0
             decay_pct = pd.Series(0.0, index=df_index, dtype=np.float32)
             valid_max_mask = historical_max_cumulative_conviction > 1e-9
             decay_pct.loc[valid_max_mask] = (historical_max_cumulative_conviction.loc[valid_max_mask] - cumulative_main_force_conviction_index.loc[valid_max_mask]) / historical_max_cumulative_conviction.loc[valid_max_mask]
             decay_pct = decay_pct.clip(lower=0) # 确保回撤百分比不为负
 
             # 判断是否触发警惕模式
-            # 警惕条件1: 累积信念从历史最高点回撤超过阈值
             condition_decay = (decay_pct >= decay_threshold_pct)
-            # 警惕条件2: 累积信念的绝对值低于某个绝对阈值 (即使没有大幅回撤，但本身就很弱)
             condition_absolute = (cumulative_main_force_conviction_index.abs() < absolute_threshold)
             
             alert_condition = condition_decay | condition_absolute
 
-            # 动态调整权重
-            dynamic_short_term_boost.loc[alert_condition] = short_term_boost_factor
-            dynamic_long_term_decay.loc[alert_condition] = long_term_weight_decay_factor
+            # 动态调整权重因子
+            dynamic_short_term_factor.loc[alert_condition] = alert_short_term_boost_factor # 警惕模式下，短期信号权重放大
+            dynamic_long_term_factor.loc[alert_condition] = alert_long_term_decay_factor # 警惕模式下，长期信号权重衰减
+
+            dynamic_short_term_factor.loc[~alert_condition] = healthy_short_term_decay_factor # 健康模式下，短期信号权重衰减
+            dynamic_long_term_factor.loc[~alert_condition] = healthy_long_term_boost_factor # 健康模式下，长期信号权重放大
             
             _temp_debug_values["信念强度"]["historical_max_cumulative_conviction"] = historical_max_cumulative_conviction
             _temp_debug_values["信念强度"]["decay_pct"] = decay_pct
             _temp_debug_values["信念强度"]["condition_decay_triggered"] = condition_decay # 新增调试输出
             _temp_debug_values["信念强度"]["condition_absolute_triggered"] = condition_absolute # 新增调试输出
             _temp_debug_values["信念强度"]["alert_condition"] = alert_condition
-            _temp_debug_values["信念强度"]["dynamic_short_term_boost"] = dynamic_short_term_boost
-            _temp_debug_values["信念强度"]["dynamic_long_term_decay"] = dynamic_long_term_decay
+            _temp_debug_values["信念强度"]["dynamic_short_term_factor"] = dynamic_short_term_factor
+            _temp_debug_values["信念强度"]["dynamic_long_term_factor"] = dynamic_long_term_factor
 
         # 调试输出调制前的MTF信号 (现在这些值就是最终使用的MTF值)
         _temp_debug_values["信念强度"]["mtf_winner_stability_pre_modulated"] = mtf_winner_stability
@@ -700,38 +711,60 @@ class CalculateWinnerConvictionRelationship:
         }
         
         # 融合权重 (初始权重)
+        # Note: conviction_enhancement_weights comes from params, which is loaded from process.json
         base_conviction_fusion_weights = {
-            "core_conviction": conviction_enhancement_weights.get("core_conviction", 0.45), # 确保这里有默认值
-            "main_force_conviction": conviction_enhancement_weights.get("main_force_conviction", 0.01),
-            "chip_health": conviction_enhancement_weights.get("chip_health", 0.2),
-            "winner_profit_margin_avg": conviction_enhancement_weights.get("winner_profit_margin_avg", 0.1),
-            "loser_loss_margin_avg": conviction_enhancement_weights.get("loser_loss_margin_avg", 0.1),
-            "winner_concentration_90pct": conviction_enhancement_weights.get("winner_concentration_90pct", 0.1),
-            "chip_fatigue": conviction_enhancement_weights.get("chip_fatigue", 0.1),
-            "cost_gini_coefficient": conviction_enhancement_weights.get("cost_gini_coefficient", 0.05),
-            "winner_stability_trend_consistency": conviction_enhancement_weights.get("winner_stability_trend_consistency", 0.1),
-            "cumulative_winner_stability_index": conviction_enhancement_weights.get("cumulative_winner_stability_index", 0.05),
-            "cumulative_main_force_conviction_index": conviction_enhancement_weights.get("cumulative_main_force_conviction_index", 0.25),
-            "cumulative_chip_health_score": conviction_enhancement_weights.get("cumulative_chip_health_score", 0.05),
-            "cumulative_winner_profit_margin_avg": conviction_enhancement_weights.get("cumulative_winner_profit_margin_avg", 0.05),
-            "cumulative_loser_loss_margin_avg": conviction_enhancement_weights.get("cumulative_loser_loss_margin_avg", 0.05),
-            "cumulative_winner_concentration_90pct": conviction_enhancement_weights.get("cumulative_winner_concentration_90pct", 0.05),
-            "cumulative_chip_fatigue_index": conviction_enhancement_weights.get("cumulative_chip_fatigue_index", 0.05),
-            "cumulative_cost_gini_coefficient": conviction_enhancement_weights.get("cumulative_cost_gini_coefficient", 0.05)
+            "core_conviction": conviction_enhancement_weights.get("core_conviction", 0.05), # Default 0.05 if not in JSON
+            "main_force_conviction": conviction_enhancement_weights.get("main_force_conviction", 0.15), # Default 0.15 if not in JSON
+            "chip_health": conviction_enhancement_weights.get("chip_health", 0.1),
+            "winner_profit_margin_avg": conviction_enhancement_weights.get("winner_profit_margin_avg", 0.05),
+            "loser_loss_margin_avg": conviction_enhancement_weights.get("loser_loss_margin_avg", 0.05),
+            "winner_concentration_90pct": conviction_enhancement_weights.get("winner_concentration_90pct", 0.05),
+            "chip_fatigue": conviction_enhancement_weights.get("chip_fatigue", 0.05),
+            "cost_gini_coefficient": conviction_enhancement_weights.get("cost_gini_coefficient", 0.02),
+            "winner_stability_trend_consistency": conviction_enhancement_weights.get("winner_stability_trend_consistency", 0.05),
+            "cumulative_winner_stability_index": conviction_enhancement_weights.get("cumulative_winner_stability_index", 0.02),
+            "cumulative_main_force_conviction_index": conviction_enhancement_weights.get("cumulative_main_force_conviction_index", 0.1), # Default 0.1 if not in JSON
+            "cumulative_chip_health_score": conviction_enhancement_weights.get("cumulative_chip_health_score", 0.02),
+            "cumulative_winner_profit_margin_avg": conviction_enhancement_weights.get("cumulative_winner_profit_margin_avg", 0.02),
+            "cumulative_loser_loss_margin_avg": conviction_enhancement_weights.get("cumulative_loser_loss_margin_avg", 0.02),
+            "cumulative_winner_concentration_90pct": conviction_enhancement_weights.get("cumulative_winner_concentration_90pct", 0.02),
+            "cumulative_chip_fatigue_index": conviction_enhancement_weights.get("cumulative_chip_fatigue_index", 0.02),
+            "cumulative_cost_gini_coefficient": conviction_enhancement_weights.get("cumulative_cost_gini_coefficient", 0.02)
         }
+
+        # Debugging: Print base_conviction_fusion_weights and raw_conviction_enhancement_weights_from_params
+        if self.helper.debug_params.get('enabled') and self.helper.probe_dates:
+            probe_ts = None
+            for date in reversed(df_index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]:
+                    probe_ts = date
+                    break
+            if probe_ts:
+                _temp_debug_values["信念强度"]["raw_conviction_enhancement_weights_from_params"] = conviction_enhancement_weights
+                _temp_debug_values["信念强度"]["base_fusion_weights_at_probe"] = {
+                    k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
+                    for k, v in base_conviction_fusion_weights.items()
+                }
+
 
         # 动态调整权重
         conviction_fusion_weights = {}
         for k, v in base_conviction_fusion_weights.items():
             if k == "main_force_conviction":
-                conviction_fusion_weights[k] = v * dynamic_short_term_boost
+                conviction_fusion_weights[k] = v * dynamic_short_term_factor
             elif k == "cumulative_main_force_conviction_index":
-                conviction_fusion_weights[k] = v * dynamic_long_term_decay
+                conviction_fusion_weights[k] = v * dynamic_long_term_factor
             else:
-                conviction_fusion_weights[k] = pd.Series(v, index=df_index, dtype=np.float32) # 转换为Series以便进行逐元素乘法
+                conviction_fusion_weights[k] = pd.Series(v, index=df_index, dtype=np.float32)
+
+        # Debugging: Print conviction_fusion_weights before normalization
+        if self.helper.debug_params.get('enabled') and self.helper.probe_dates and probe_ts:
+            _temp_debug_values["信念强度"]["dynamic_fusion_weights_pre_norm_at_probe"] = {
+                k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
+                for k, v in conviction_fusion_weights.items()
+            }
 
         # 归一化动态调整后的权重
-        # 这里的求和需要对 Series 进行，然后才能进行除法
         total_weight_series = pd.Series(0.0, index=df_index, dtype=np.float32)
         for w_series in conviction_fusion_weights.values():
             total_weight_series += w_series
@@ -741,17 +774,11 @@ class CalculateWinnerConvictionRelationship:
         conviction_fusion_weights = {k: v / total_weight_safe for k, v in conviction_fusion_weights.items()}
 
         # Debugging: Print final weights for the probe date
-        if self.helper.debug_params.get('enabled') and self.helper.probe_dates:
-            probe_ts = None
-            for date in reversed(df_index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]:
-                    probe_ts = date
-                    break
-            if probe_ts:
-                _temp_debug_values["信念强度"]["final_fusion_weights_at_probe"] = {
-                    k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
-                    for k, v in conviction_fusion_weights.items()
-                }
+        if self.helper.debug_params.get('enabled') and self.helper.probe_dates and probe_ts:
+            _temp_debug_values["信念强度"]["final_fusion_weights_at_probe"] = {
+                k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
+                for k, v in conviction_fusion_weights.items()
+            }
 
         fused_conviction_strength_0_1 = _robust_geometric_mean(
             all_conviction_components,

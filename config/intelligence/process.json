@@ -831,22 +831,23 @@
                 "name": "PROCESS_META_WINNER_CONVICTION",
                 "winner_conviction_params": {
                     "conviction_enhancement_weights": {
-                        "main_force_conviction": 0.01,
-                        "chip_health": 0.2,
-                        "winner_profit_margin_avg": 0.1,
-                        "loser_loss_margin_avg": 0.1,
-                        "winner_concentration_90pct": 0.1,
-                        "chip_fatigue": 0.1,
-                        "cost_gini_coefficient": 0.05,
-                        "winner_stability_trend_consistency": 0.1,
-                        "cumulative_winner_stability_index": 0.05,
-                        "cumulative_main_force_conviction_index": 0.25,
-                        "cumulative_chip_health_score": 0.05,
-                        "cumulative_winner_profit_margin_avg": 0.05,
-                        "cumulative_loser_loss_margin_avg": 0.05,
-                        "cumulative_winner_concentration_90pct": 0.05,
-                        "cumulative_chip_fatigue_index": 0.05,
-                        "cumulative_cost_gini_coefficient": 0.05
+                        "core_conviction": 0.05,
+                        "main_force_conviction": 0.15,
+                        "chip_health": 0.1,
+                        "winner_profit_margin_avg": 0.05,
+                        "loser_loss_margin_avg": 0.05,
+                        "winner_concentration_90pct": 0.05,
+                        "chip_fatigue": 0.05,
+                        "cost_gini_coefficient": 0.02,
+                        "winner_stability_trend_consistency": 0.05,
+                        "cumulative_winner_stability_index": 0.02,
+                        "cumulative_main_force_conviction_index": 0.1,
+                        "cumulative_chip_health_score": 0.02,
+                        "cumulative_winner_profit_margin_avg": 0.02,
+                        "cumulative_loser_loss_margin_avg": 0.02,
+                        "cumulative_winner_concentration_90pct": 0.02,
+                        "cumulative_chip_fatigue_index": 0.02,
+                        "cumulative_cost_gini_coefficient": 0.02
                     },
                     "pressure_resilience_enhancement_weights": {
                         "core_resilience": 0.45,
@@ -940,8 +941,10 @@
                         "enabled": true,
                         "decay_threshold_pct": 0.1,
                         "absolute_threshold": 0.2,
-                        "short_term_weight_boost_factor": 2.0,
-                        "long_term_weight_decay_factor": 0.5
+                        "short_term_weight_boost_factor": 10.0,
+                        "long_term_weight_decay_factor": 0.01,
+                        "healthy_long_term_boost_factor": 1.5,
+                        "healthy_short_term_decay_factor": 0.5
                     }
                 }
             },
