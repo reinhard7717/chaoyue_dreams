@@ -382,7 +382,7 @@ class CalculateCostAdvantageTrendRelationship:
         
         # 前置下跌上下文，如果前几日有深跌，则增加黄金坑的权重
         pre_5day_pct_change = fetched_signals['close_price'].pct_change(periods=5).shift(1).fillna(0)
-        norm_pre_drop_5d = self.helper._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=false)
+        norm_pre_drop_5d = self.helper._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         pre_drop_context_bonus = norm_pre_drop_5d * 0.5
         Q3_final = (Q3_base * Q3_confirm * (1 + pre_drop_context_bonus)).clip(0, 1)
         _temp_debug_values["Q3: 价跌 & 优扩"] = {
