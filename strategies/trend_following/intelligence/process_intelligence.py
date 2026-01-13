@@ -1396,9 +1396,9 @@ class ProcessIntelligence:
             is_debug_enabled_for_method = False
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算套牢盘投降..."] = ""
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算套牢盘投降..."] = ""
         required_signals = [
             'pct_change_D', 'capitulation_flow_ratio_D', 'active_buying_support_D',
             'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'
@@ -1442,33 +1442,33 @@ class ProcessIntelligence:
             "final_score": final_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 战场上下文 ---"] = ""
-            for key, series in _temp_debug_values["战场上下文"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val}"] = "" # Boolean series
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 恐慌分 ---"] = ""
-            for key, series in _temp_debug_values["恐慌分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 吸收分 ---"] = ""
-            for key, series in _temp_debug_values["吸收分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终审判 ---"] = ""
-            for key, series in _temp_debug_values["最终审判"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 套牢盘投降诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        #     for sig_name, series in _temp_debug_values["原始信号值"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 战场上下文 ---"] = ""
+        #     for key, series in _temp_debug_values["战场上下文"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val}"] = "" # Boolean series
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 恐慌分 ---"] = ""
+        #     for key, series in _temp_debug_values["恐慌分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 吸收分 ---"] = ""
+        #     for key, series in _temp_debug_values["吸收分"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终审判 ---"] = ""
+        #     for key, series in _temp_debug_values["最终审判"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 套牢盘投降诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score.astype(np.float32)
 
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:

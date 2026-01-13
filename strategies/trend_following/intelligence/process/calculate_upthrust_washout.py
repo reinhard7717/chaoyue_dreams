@@ -12,6 +12,7 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 class CalculateUpthrustWashoutRelationship:
     """
     【V2.1.0 · 上冲回落洗盘甄别器】
+    PROCESS_META_UPTHRUST_WASHOUT
     - 核心职责: 识别主力利用“上冲回落”阴线进行的洗盘行为。
     - 版本: 2.1.0
     """
@@ -321,8 +322,9 @@ class CalculateUpthrustWashoutRelationship:
     def _identify_kline_pattern(self, open_price: pd.Series, high_price: pd.Series,
                                 close_price: pd.Series, low_price: pd.Series, pct_change: pd.Series) -> pd.Series:
         """
-        【V1.0.0 · K线形态识别器】
-        - 核心职责: 严格识别“上冲回落”的K线形态。
+        【V1.2.0 · K线形态识别器】
+        - 核心职责: 识别“上冲回落”的K线形态。
+        - 核心升级: 增加“收盘价低于高点3%以上”的条件，使其对上冲回落的定义更加灵活。
         参数:
             open_price (pd.Series): 开盘价。
             high_price (pd.Series): 最高价。
@@ -333,12 +335,24 @@ class CalculateUpthrustWashoutRelationship:
             pd.Series: K线形态门控 (布尔Series)。
         """
         total_range = high_price - low_price
-        total_range_safe = total_range.replace(0, 1e-9)
+        total_range_safe = total_range.replace(0, 1e-9) # 避免除以零
         upper_shadow = high_price - np.maximum(open_price, close_price)
         upper_shadow_ratio = (upper_shadow / total_range_safe).fillna(0)
+
+        # 条件1: 高开低走阴线 (开盘价高于收盘价，且当日下跌)
         is_high_open_low_close_yin = (open_price > close_price) & (pct_change < 0)
+
+        # 条件2: 长上影线阴线 (上影线占比超过一定阈值，且收盘价低于开盘价)
         is_long_upper_shadow_yin = (upper_shadow_ratio > 0.4) & (close_price < open_price)
-        is_upthrust_kline = is_high_open_low_close_yin | is_long_upper_shadow_yin
+
+        # 新增条件3: 收盘价从高点回落超过3% (无论阴阳线)
+        # 确保 high_price 不为0，避免除以零
+        high_price_safe = high_price.replace(0, np.nan)
+        drop_from_high_pct = ((high_price_safe - close_price) / high_price_safe).fillna(0)
+        is_significant_drop_from_high = (drop_from_high_pct > 0.03)
+
+        # 只要满足这三种形态之一，就认为是“上冲回落”的 K 线
+        is_upthrust_kline = is_high_open_low_close_yin | is_long_upper_shadow_yin | is_significant_drop_from_high
         return is_upthrust_kline
 
     def _assess_selling_pressure(self, upper_shadow_pressure_norm: pd.Series, pct_change: pd.Series) -> pd.Series:

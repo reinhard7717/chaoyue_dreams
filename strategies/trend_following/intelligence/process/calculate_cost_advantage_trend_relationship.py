@@ -79,11 +79,12 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.1 · 情境指标替换版】计算成本优势趋势。
+        【V4.2 · 修复AttributeError】计算成本优势趋势。
+        - 核心修复: 解决 'TrendFollowStrategy' object has no attribute 'df' 错误，正确传递 df 参数。
         - 核心修复: 将缺失的 'market_stability_score_D' 替换为数据层已有的 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
         - 核心升级: 引入情境自适应权重、动态指数和信号交互项。
         - 核心新增: 引入更多微观结构和订单流信号，增强主力行为的验证。
-        - 版本: 4.1
+        - 版本: 4.2
         """
         method_name = "calculate_cost_advantage_trend_relationship"
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
@@ -112,7 +113,7 @@ class CalculateCostAdvantageTrendRelationship:
         fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
 
         # 4. 归一化处理
-        normalized_signals = self._normalize_all_signals(df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
+        normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
 
         # 5. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(normalized_signals, config, df_index, method_name, _temp_debug_values)
@@ -231,20 +232,20 @@ class CalculateCostAdvantageTrendRelationship:
         _temp_debug_values["原始信号值"] = {k: v for k, v in fetched_signals.items()}
         return fetched_signals
 
-    def _normalize_all_signals(self, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
+    def _normalize_all_signals(self, df: pd.DataFrame, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.1 · 信号归一化处理 - 情境指标替换版】
+        【V1.1.2 · 信号归一化处理 - 修复AttributeError】
         - 核心职责: 对所有必要的信号进行归一化处理，并将其存储到调试字典中。
-        - 核心修复: 将缺失的 'market_stability_score_D' 替换为 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
-        - 版本: 1.1.1
+        - 核心修复: 传入 df 参数，并替换 self.strategy.df，解决 AttributeError。
+        - 版本: 1.1.2
         """
         normalized_signals = {}
 
-        normalized_signals['mtf_main_force_conviction'] = self.helper._get_mtf_slope_accel_score(self.strategy.df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        normalized_signals['mtf_upward_purity'] = self.helper._get_mtf_slope_accel_score(self.strategy.df, 'upward_impulse_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        normalized_signals['mtf_main_force_conviction'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        normalized_signals['mtf_upward_purity'] = self.helper._get_mtf_slope_accel_score(df, 'upward_impulse_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         normalized_signals['suppressive_accum_norm'] = self.helper._normalize_series(fetched_signals['suppressive_accum'], df_index, bipolar=False)
-        normalized_signals['mtf_distribution_intensity'] = self.helper._get_mtf_slope_accel_score(self.strategy.df, 'distribution_at_peak_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        normalized_signals['mtf_active_selling'] = self.helper._get_mtf_slope_accel_score(self.strategy.df, 'active_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        normalized_signals['mtf_distribution_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'distribution_at_peak_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        normalized_signals['mtf_active_selling'] = self.helper._get_mtf_slope_accel_score(df, 'active_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         normalized_signals['profit_taking_flow_norm'] = self.helper._normalize_series(fetched_signals['profit_taking_flow'], df_index, bipolar=False)
         normalized_signals['active_buying_support_inverted_norm'] = 1 - self.helper._normalize_series(fetched_signals['active_buying_support'], df_index, bipolar=False) # 买盘虚弱度
         normalized_signals['main_force_net_flow_outflow_norm'] = self.helper._normalize_series(fetched_signals['main_force_net_flow'].clip(upper=0).abs(), df_index, bipolar=False) # 主力净流出风险
