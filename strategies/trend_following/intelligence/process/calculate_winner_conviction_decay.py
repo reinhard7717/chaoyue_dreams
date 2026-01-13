@@ -610,6 +610,20 @@ class CalculateWinnerConvictionDecay:
         contextual_modulator_weights = params_dict['contextual_modulator_weights']
         contextual_mtf_config = params_dict['contextual_mtf_config']
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
+
+        # 辅助函数：将配置中的信号名映射到 raw_signals 字典中的实际键名
+        def _map_config_signal_to_raw_signals_key(config_signal_name: str) -> str:
+            if config_signal_name == 'market_sentiment_score_D':
+                return 'market_sentiment_raw'
+            elif config_signal_name == 'VOLATILITY_INSTABILITY_INDEX_21d_D':
+                return 'volatility_instability_raw'
+            elif config_signal_name == 'trend_vitality_index_D':
+                return 'trend_vitality_raw'
+            elif config_signal_name == 'upper_shadow_selling_pressure_D':
+                return 'upper_shadow_pressure_raw'
+            # 对于其他信号，假设配置名就是 raw_signals 中的键名
+            return config_signal_name
+
         # --- 原料数据存在性检查 ---
         required_raw_signals = [
             "market_sentiment_raw", "volatility_instability_raw", "trend_vitality_raw",
@@ -640,38 +654,28 @@ class CalculateWinnerConvictionDecay:
         mtf_signals_for_resonance = [] # 用于计算共振的MTF信号
         for config_key, config_val in contextual_mtf_config.items():
             if isinstance(config_val, dict):
-                base_signal_name_from_config = config_val.get('base_signal_name') # e.g., "market_sentiment_score_D" or "composite_market_tension"
-                is_bipolar_mtf = config_val.get('bipolar', True)
-                is_inverted_for_stability = config_val.get('inverted_for_stability', False)
-                is_inverted_for_decay = config_val.get('inverted_for_decay', False)
-                # 获取原始信号 Series，现在可以直接从 raw_signals 中获取，因为复合信号也已存储在其中
-                raw_series_for_processing = raw_signals.get(base_signal_name_from_config)
-                if raw_series_for_processing is None or raw_series_for_processing.empty or raw_series_for_processing.isnull().all():
-                    print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_from_config}' 或其值为空。")
+                base_signal_name_from_config = config_val.get('base_signal_name')
+                if not base_signal_name_from_config:
                     continue
-                # 确定传递给 _get_mtf_slope_accel_score 的 ascending 参数
+
+                # 使用映射函数获取 raw_signals 中的正确键名
+                raw_signals_key = _map_config_signal_to_raw_signals_key(base_signal_name_from_config)
+
+                raw_series_for_processing = raw_signals.get(raw_signals_key)
+                if raw_series_for_processing is None or raw_series_for_processing.empty or raw_series_for_processing.isnull().all():
+                    print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_from_config}' (映射到 '{raw_signals_key}') 或其值为空。")
+                    continue
+                # 确定传递给 _get_mtf_score_from_series_slope_accel 的 ascending 参数
                 ascending_param_for_mtf = True
-                if is_inverted_for_decay or is_inverted_for_stability:
+                if config_val.get('inverted_for_decay', False) or config_val.get('inverted_for_stability', False):
                     ascending_param_for_mtf = False
                 # 计算MTF斜率/加速度融合分数
-                # 注意：这里 _get_mtf_slope_accel_score 期望的是 df 和原始列名，
-                # 但现在 base_signal_name_from_config 可能是复合信号的名称，
-                # 且 raw_series_for_processing 已经是计算好的 Series。
-                # 因此，我们需要调整 _get_mtf_slope_accel_score 的调用方式，
-                # 或者在 helper 中新增一个直接对 Series 进行 MTF 分析的方法。
-                # 鉴于 helper 中 _get_mtf_slope_accel_score 的签名，它需要 df 和 base_signal_name。
-                # 为了兼容性，我们假设 contextual_mtf_config 中的 base_signal_name 仍然是原始DF列名，
-                # 并且其MTF衍生信号（SLOPE_X_signal_D, ACCEL_X_signal_D）已在 _get_raw_signals 中被获取。
-                # 如果 base_signal_name_from_config 是复合信号，那么它的MTF衍生信号不会存在于 df 中。
-                # 最佳实践是 helper 中有一个 _get_mtf_score_from_series_slope_accel 方法。
-                # 假设 helper 中已经有 _get_mtf_score_from_series_slope_accel 方法，或者我们直接使用 raw_series_for_processing。
-                # 考虑到 helper.py 中已经有 _get_mtf_score_from_series_slope_accel 方法，我们使用它。
                 mtf_score = self.helper._get_mtf_score_from_series_slope_accel(
                     raw_series_for_processing, # 直接传入 Series
                     mtf_slope_accel_weights,
                     df_index,
                     method_name,
-                    bipolar=is_bipolar_mtf,
+                    bipolar=config_val.get('bipolar', True),
                     ascending=ascending_param_for_mtf
                 )
                 mtf_enhanced_signals[f"mtf_{config_key}"] = mtf_score
@@ -679,22 +683,6 @@ class CalculateWinnerConvictionDecay:
         # --- 3. 计算情境共振 ---
         context_mtf_resonance = pd.Series(np.nan, index=df_index, dtype=np.float32)
         if len(mtf_signals_for_resonance) >= 2:
-            # _get_mtf_resonance_score_from_config 期望的是 df 和 contextual_mtf_config
-            # 这里的 contextual_mtf_config 应该已经更新为指向新的复合信号名称
-            # 并且 _get_mtf_resonance_score_from_config 内部会调用 _get_mtf_slope_accel_score
-            # 如果 _get_mtf_slope_accel_score 仍然期望 df 和原始列名，那么这里需要调整。
-            # 鉴于 helper.py 中 _get_mtf_resonance_score_from_config 的签名，它需要 df 和 contextual_mtf_config。
-            # 并且它内部会调用 _get_mtf_slope_accel_score(df, base_signal_name, ...)。
-            # 这意味着 contextual_mtf_config 中的 base_signal_name 必须是 df 中的列名。
-            # 为了解决这个问题，我们需要将复合信号也作为 df 的列传递，或者修改 _get_mtf_resonance_score_from_config
-            # 接受一个包含 Series 的字典。
-            # 最简单的方案是，将计算好的复合信号添加到 df 中，然后 _get_mtf_resonance_score_from_config 就可以正常工作。
-            # 但这会修改原始 df，不是最佳实践。
-            # 更好的方法是，_get_mtf_resonance_score_from_config 接受一个包含 Series 的字典，而不是 df。
-            # 鉴于 helper.py 中 _get_mtf_resonance_score_from_config 的实现，它需要 df。
-            # 那么，我们只能将 raw_signals 中的复合信号，临时添加到 df 中，或者修改 helper 方法。
-            # 考虑到只修改当前文件，我们直接使用 mtf_enhanced_signals 来计算共振。
-            # 重新设计 context_mtf_resonance 的计算，直接使用 mtf_enhanced_signals
             fused_scores_df = pd.DataFrame(mtf_enhanced_signals, index=df_index)
             if not fused_scores_df.empty and len(fused_scores_df.columns) >= 2:
                 mean_scores = fused_scores_df.mean(axis=1)
