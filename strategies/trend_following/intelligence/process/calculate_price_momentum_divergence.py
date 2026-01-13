@@ -177,51 +177,28 @@ class CalculatePriceMomentumDivergence:
         return self.helper._validate_required_signals(df, required_signals, method_name)
 
     def _get_pmd_raw_data(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> Dict[str, pd.Series]:
-        """V1.6 · 原始数据精简与替换版 (移除原子信号，替换为复合计算或安全获取原始数据)"""
+        """V1.7 · 原始数据精简与替换版 (修复原始信号依赖顺序，移除原子信号，替换为复合计算或安全获取原始数据)"""
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
         raw_data = {}
+
+        # --- 1. 首先获取所有直接的原始信号 (不依赖其他 raw_data 中的复合信号) ---
         raw_data['price_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['macdh_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_MACDh_13_34_8_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['rsi_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_RSI_13_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['roc_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_ROC_13_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['volume_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_volume_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
-        raw_data['volume_burstiness_raw'] = self.helper._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
-        # 替换 SCORE_BEHAVIOR_VOLUME_ATROPHY
-        raw_data['volume_atrophy_score'] = self._calculate_composite_volume_atrophy_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['mf_net_flow_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_main_force_net_flow_calibrated_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
+
+        raw_data['volume_burstiness_raw'] = self.helper._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
         raw_data['deception_index_raw'] = self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-        # 替换 SCORE_BEHAVIOR_DISTRIBUTION_INTENT
-        raw_data['distribution_intent_score'] = self._calculate_composite_distribution_intent_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 PROCESS_META_COVERT_ACCUMULATION
-        raw_data['covert_accumulation_score'] = self._calculate_composite_covert_accumulation_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_CHIP_AXIOM_DIVERGENCE
-        raw_data['chip_divergence_score'] = self._calculate_composite_chip_divergence_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['volatility_instability_raw'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         raw_data['adx_raw'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
         raw_data['market_sentiment_raw'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
-        # 替换 SCORE_BEHAVIOR_UPWARD_EFFICIENCY
-        raw_data['upward_efficiency_score'] = self._calculate_composite_upward_efficiency_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM
-        raw_data['price_upward_momentum_score'] = self._calculate_composite_price_upward_momentum_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM
-        raw_data['price_downward_momentum_score'] = self._calculate_composite_price_downward_momentum_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_DYN_AXIOM_MOMENTUM
-        raw_data['momentum_quality_score'] = self._calculate_composite_momentum_quality_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['constructive_turnover_raw'] = self.helper._get_safe_series(df, 'constructive_turnover_ratio_D', 0.0, method_name=method_name)
         raw_data['volume_structure_skew_raw'] = self.helper._get_safe_series(df, 'volume_structure_skew_D', 0.0, method_name=method_name)
         raw_data['main_force_conviction_raw'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         raw_data['chip_health_raw'] = self.helper._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name)
-        # 替换 SCORE_DYN_AXIOM_STABILITY
-        raw_data['stability_score'] = self._calculate_composite_stability_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL
-        raw_data['chip_historical_potential_score'] = self._calculate_composite_chip_historical_potential_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE
-        raw_data['liquidity_tide_score'] = self._calculate_composite_liquidity_tide_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION
-        raw_data['market_constitution_score'] = self._calculate_composite_market_constitution_score(df, df.index, raw_data, pmd_params, method_name)
-        # 替换 SCORE_FOUNDATION_AXIOM_MARKET_TENSION
-        raw_data['market_tension_score'] = self._calculate_composite_market_tension_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['volume_profile_entropy_raw'] = self.helper._get_safe_series(df, 'volume_profile_entropy_D', 0.0, method_name=method_name)
         raw_data['upward_impulse_strength_raw'] = self.helper._get_safe_series(df, 'upward_impulse_strength_D', 0.0, method_name=method_name)
         raw_data['downward_impulse_strength_raw'] = self.helper._get_safe_series(df, 'downward_impulse_strength_D', 0.0, method_name=method_name)
@@ -236,13 +213,27 @@ class CalculatePriceMomentumDivergence:
         raw_data['loser_loss_margin_avg_raw'] = self.helper._get_safe_series(df, 'loser_loss_margin_avg_D', 0.0, method_name=method_name)
         raw_data['mean_reversion_frequency_raw'] = self.helper._get_safe_series(df, 'mean_reversion_frequency_D', 0.0, method_name=method_name)
         raw_data['trend_alignment_index_raw'] = self.helper._get_safe_series(df, 'trend_alignment_index_D', 0.0, method_name=method_name)
-        # 替换 SMART_MONEY_INST_NET_BUY_D
         raw_data['smart_money_inst_net_buy_raw'] = self.helper._get_safe_series(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0, method_name=method_name)
-        # 替换 THEME_HOTNESS_SCORE_D
         raw_data['theme_hotness_raw'] = self.helper._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name=method_name)
         raw_data['intraday_vwap_div_index_raw'] = self.helper._get_safe_series(df, 'intraday_vwap_div_index_D', 0.0, method_name=method_name)
-        # 替换 retail_panic_surrender_index_D
         raw_data['retail_panic_surrender_index_raw'] = self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
+        raw_data['structural_tension_index_D'] = self.helper._get_safe_series(df, 'structural_tension_index_D', 0.0, method_name=method_name)
+
+        # --- 2. 然后计算依赖于上述原始信号的复合分数 ---
+        raw_data['volume_atrophy_score'] = self._calculate_composite_volume_atrophy_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['distribution_intent_score'] = self._calculate_composite_distribution_intent_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['covert_accumulation_score'] = self._calculate_composite_covert_accumulation_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['chip_divergence_score'] = self._calculate_composite_chip_divergence_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['upward_efficiency_score'] = self._calculate_composite_upward_efficiency_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['price_upward_momentum_score'] = self._calculate_composite_price_upward_momentum_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['price_downward_momentum_score'] = self._calculate_composite_price_downward_momentum_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['momentum_quality_score'] = self._calculate_composite_momentum_quality_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['stability_score'] = self._calculate_composite_stability_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['chip_historical_potential_score'] = self._calculate_composite_chip_historical_potential_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['liquidity_tide_score'] = self._calculate_composite_liquidity_tide_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['market_constitution_score'] = self._calculate_composite_market_constitution_score(df, df.index, raw_data, pmd_params, method_name)
+        raw_data['market_tension_score'] = self._calculate_composite_market_tension_score(df, df.index, raw_data, pmd_params, method_name)
+
         return raw_data
 
     def _calculate_fused_price_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
