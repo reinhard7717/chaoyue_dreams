@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+import numba
 from typing import Dict, List, Optional, Any
 
 from strategies.trend_following.utils import (
@@ -11,6 +12,49 @@ from strategies.trend_following.utils import (
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
     normalize_score, _robust_geometric_mean
 )
+
+@numba.njit(cache=True)
+def _numba_calculate_slope_core(arr: np.ndarray, period: int) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算滚动窗口内的斜率。
+    arr: 输入的NumPy数组。
+    period: 计算斜率的周期。
+    返回: 斜率数组。
+    """
+    n = len(arr)
+    result = np.full(n, 0.0, dtype=np.float32) # 初始化为0.0，匹配fillna(0.0)行为
+    if period <= 0:
+        return result
+    for i in range(n):
+        if i >= period:
+            # 只有当当前值和period周期前的值都非NaN时才计算
+            if not np.isnan(arr[i]) and not np.isnan(arr[i - period]):
+                result[i] = (arr[i] - arr[i - period]) / period
+            # 否则，result[i]保持为0.0
+    return result
+
+@numba.njit(cache=True)
+def _numba_calculate_accel_core(arr: np.ndarray, period: int) -> np.ndarray:
+    """
+    Numba优化后的核心函数，用于计算滚动窗口内的加速度。
+    加速度是斜率的斜率。
+    arr: 输入的NumPy数组。
+    period: 计算加速度的周期。
+    返回: 加速度数组。
+    """
+    n = len(arr)
+    result = np.full(n, 0.0, dtype=np.float32) # 初始化为0.0
+    if period <= 1: # 加速度至少需要3个点 (2个斜率)
+        return result
+    # 计算period周期的斜率
+    first_slope = _numba_calculate_slope_core(arr, period)
+    # 计算斜率的period周期斜率作为加速度
+    second_slope = _numba_calculate_slope_core(first_slope, period)
+    # 将计算出的加速度值复制到结果数组，处理可能存在的NaN（尽管_numba_calculate_slope_core会返回0.0）
+    for i in range(n):
+        if not np.isnan(second_slope[i]):
+            result[i] = second_slope[i]
+    return result
 
 class ProcessIntelligenceHelper:
     """
@@ -434,7 +478,7 @@ class ProcessIntelligenceHelper:
 
     def _calculate_series_slope(self, series: pd.Series, period: int) -> pd.Series:
         """
-        计算给定Series的斜率。
+        【V1.2 · Numba优化版】计算给定Series的斜率。
         参数:
             series (pd.Series): 输入Series。
             period (int): 计算斜率的周期。
@@ -443,12 +487,15 @@ class ProcessIntelligenceHelper:
         """
         if period <= 0:
             return pd.Series(0.0, index=series.index, dtype=np.float32)
-        # 简单的斜率计算：(当前值 - period周期前的值) / period
-        return (series - series.shift(period)) / period
+        # 将Pandas Series转换为NumPy数组，以便Numba处理
+        series_values = series.values.astype(np.float32)
+        # 调用Numba优化后的核心函数
+        slope_values = _numba_calculate_slope_core(series_values, period)
+        return pd.Series(slope_values, index=series.index, dtype=np.float32)
 
     def _calculate_series_accel(self, series: pd.Series, period: int) -> pd.Series:
         """
-        计算给定Series的加速度。
+        【V1.2 · Numba优化版】计算给定Series的加速度。
         加速度是斜率的斜率。
         参数:
             series (pd.Series): 输入Series。
@@ -458,10 +505,11 @@ class ProcessIntelligenceHelper:
         """
         if period <= 1: # 加速度至少需要3个点 (2个斜率)
             return pd.Series(0.0, index=series.index, dtype=np.float32)
-        # 计算period周期的斜率
-        slope = self._calculate_series_slope(series, period)
-        # 计算斜率的period周期斜率作为加速度
-        return self._calculate_series_slope(slope, period)
+        # 将Pandas Series转换为NumPy数组，以便Numba处理
+        series_values = series.values.astype(np.float32)
+        # 调用Numba优化后的核心函数
+        accel_values = _numba_calculate_accel_core(series_values, period)
+        return pd.Series(accel_values, index=series.index, dtype=np.float32)
 
     def _get_mtf_score_from_series_slope_accel(self, series: pd.Series, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, bipolar: bool = True, ascending: bool = True) -> pd.Series:
         """
