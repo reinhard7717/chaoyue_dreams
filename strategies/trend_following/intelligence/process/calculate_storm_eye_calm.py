@@ -43,7 +43,7 @@ class CalculateStormEyeCalm:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        V4.0.7: 计算“风暴眼中的寂静”信号。
+        V4.0.8: 计算“风暴眼中的寂静”信号。
         """
         method_name = "calculate_storm_eye_calm"
         is_debug_enabled_for_method, probe_ts = self._get_debug_info(df, method_name)
@@ -255,8 +255,8 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> List[str]:
         """
-        V1.5: 动态构建所有计算“风暴眼中的寂静”所需的原始信号和原子信号列表。
-        新增 structural_entropy_change_D、price_reversion_velocity_D 和 main_force_conviction_index_D 的斜率和加速度信号。
+        V1.6: 动态构建所有计算“风暴眼中的寂静”所需的原始信号和原子信号列表。
+        新增 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度信号。
         """
         required_signals = [
             # 替换 SCORE_STRUCT_AXIOM_TENSION
@@ -309,13 +309,17 @@ class CalculateStormEyeCalm:
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_order_book_liquidity_supply_D',
             f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_tension_index_D',
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_tension_index_D',
-            # 新增斜率和加速度信号
             f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_entropy_change_D',
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_entropy_change_D',
             f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D',
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D',
             f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
             f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
+            # 新增 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in mtf_cohesion_base_signals:
@@ -327,8 +331,8 @@ class CalculateStormEyeCalm:
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V1.6: 从DataFrame和原子状态中安全地获取所有原始数据和原子信号。
-        获取新增的 structural_entropy_change_D、price_reversion_velocity_D 和 main_force_conviction_index_D 的斜率和加速度信号。
+        V1.7: 从DataFrame和原子状态中安全地获取所有原始数据和原子信号。
+        获取新增的 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度信号。
         """
         raw_data = {}
         # Energy Compression
@@ -436,6 +440,11 @@ class CalculateStormEyeCalm:
         raw_data['price_reversion_velocity_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D', np.nan, method_name=method_name)
         raw_data['main_force_conviction_index_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D', np.nan, method_name=method_name)
         raw_data['main_force_conviction_index_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D', np.nan, method_name=method_name)
+        # 获取 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度
+        raw_data['structural_leverage_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D', np.nan, method_name=method_name)
+        raw_data['structural_leverage_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D', np.nan, method_name=method_name)
+        raw_data['cost_gini_coefficient_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D', np.nan, method_name=method_name)
+        raw_data['cost_gini_coefficient_accel_raw'] = self.helper._get_safe_series(df, f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D', np.nan, method_name=method_name)
         return raw_data
 
     def _calculate_mtf_derived_scores(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List, method_name: str) -> Dict[str, pd.Series]:
@@ -449,8 +458,8 @@ class CalculateStormEyeCalm:
 
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V1.3: 计算能量压缩维度的分数。
-        纳入 structural_entropy_change_D 的斜率和加速度信号。
+        V1.4: 计算能量压缩维度的分数。
+        纳入 structural_entropy_change_D、structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度信号。
         """
         # 代理 tension_score (SCORE_STRUCT_AXIOM_TENSION)
         tension_score_proxy = self.helper._normalize_series(raw_data['ma_potential_tension_raw'], target_index=df_index, ascending=True)
@@ -486,6 +495,17 @@ class CalculateStormEyeCalm:
         structural_entropy_change_accel_inverted = 1 - self.helper._normalize_series(raw_data['structural_entropy_change_accel_raw'].abs(), target_index=df_index, ascending=True)
         _temp_debug_values["能量压缩"]["structural_entropy_change_accel_inverted"] = structural_entropy_change_accel_inverted
 
+        # 新增 structural_leverage_D 和 cost_gini_coefficient_D 的斜率和加速度
+        structural_leverage_slope_inverted = 1 - self.helper._normalize_series(raw_data['structural_leverage_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["structural_leverage_slope_inverted"] = structural_leverage_slope_inverted
+        structural_leverage_accel_inverted = 1 - self.helper._normalize_series(raw_data['structural_leverage_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["structural_leverage_accel_inverted"] = structural_leverage_accel_inverted
+
+        cost_gini_coefficient_slope_inverted = 1 - self.helper._normalize_series(raw_data['cost_gini_coefficient_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["cost_gini_coefficient_slope_inverted"] = cost_gini_coefficient_slope_inverted
+        cost_gini_coefficient_accel_inverted = 1 - self.helper._normalize_series(raw_data['cost_gini_coefficient_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["能量压缩"]["cost_gini_coefficient_accel_inverted"] = cost_gini_coefficient_accel_inverted
+
         energy_compression_scores_dict = {
             'tension': tension_score_proxy, 'bbw_inverted': bbw_inverted_score, 'vol_instability_inverted': vol_instability_inverted_score,
             'equilibrium_compression': equilibrium_compression_score, 'bbw_slope_inverted': mtf_derived_scores['bbw_slope_inverted_score'],
@@ -495,14 +515,18 @@ class CalculateStormEyeCalm:
             'price_fractal_dimension_calm': price_fractal_dimension_calm,
             'volume_structure_skew_inverted': volume_structure_skew_inverted, 'volume_profile_entropy_inverted': volume_profile_entropy_inverted,
             'structural_entropy_change_slope_inverted': structural_entropy_change_slope_inverted,
-            'structural_entropy_change_accel_inverted': structural_entropy_change_accel_inverted
+            'structural_entropy_change_accel_inverted': structural_entropy_change_accel_inverted,
+            'structural_leverage_slope_inverted': structural_leverage_slope_inverted,
+            'structural_leverage_accel_inverted': structural_leverage_accel_inverted,
+            'cost_gini_coefficient_slope_inverted': cost_gini_coefficient_slope_inverted,
+            'cost_gini_coefficient_accel_inverted': cost_gini_coefficient_accel_inverted
         }
         return _robust_geometric_mean(energy_compression_scores_dict, weights, df_index)
 
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V1.2: 计算量能枯竭维度的分数。
-        替换 SCORE_BEHAVIOR_VOLUME_ATROPHY 为原始指标代理。
+        V1.3: 计算量能枯竭维度的分数。
+        纳入 order_book_liquidity_supply_D 的斜率和加速度信号。
         """
         # 代理 atrophy_score (SCORE_BEHAVIOR_VOLUME_ATROPHY)
         # 量能萎缩 = (1 - volume_slope_norm) * (1 - turnover_rate_f_norm)
@@ -525,6 +549,13 @@ class CalculateStormEyeCalm:
         bid_liquidity_sample_entropy_inverted = self.helper._normalize_series(raw_data['bid_liquidity_sample_entropy_raw'], target_index=df_index, ascending=False)
         volume_structure_skew_inverted = self.helper._normalize_series(raw_data['volume_structure_skew_raw'].abs(), target_index=df_index, ascending=False)
         volume_profile_entropy_inverted = self.helper._normalize_series(raw_data['volume_profile_entropy_raw'], target_index=df_index, ascending=False)
+
+        # 新增 order_book_liquidity_supply_D 的斜率和加速度
+        order_book_liquidity_supply_slope_neutrality = 1 - self.helper._normalize_series(raw_data['order_book_liquidity_supply_slope_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["量能枯竭"]["order_book_liquidity_supply_slope_neutrality"] = order_book_liquidity_supply_slope_neutrality
+        order_book_liquidity_supply_accel_neutrality = 1 - self.helper._normalize_series(raw_data['order_book_liquidity_supply_accel_raw'].abs(), target_index=df_index, ascending=True)
+        _temp_debug_values["量能枯竭"]["order_book_liquidity_supply_accel_neutrality"] = order_book_liquidity_supply_accel_neutrality
+
         volume_exhaustion_scores_dict = {
             'volume_atrophy': atrophy_score_proxy, 'turnover_rate_inverted': turnover_rate_inverted_score,
             'counterparty_exhaustion': counterparty_exhaustion_score, 'order_book_liquidity_inverted': order_book_liquidity_inverted_score,
@@ -535,7 +566,9 @@ class CalculateStormEyeCalm:
             'bid_side_liquidity_inverted': bid_side_liquidity_inverted, 'ask_side_liquidity_inverted': ask_side_liquidity_inverted,
             'vpin_score_inverted': vpin_score_inverted, 'bid_liquidity_sample_entropy_inverted': bid_liquidity_sample_entropy_inverted,
             'volume_structure_skew_inverted': volume_structure_skew_inverted, 'volume_profile_entropy_inverted': volume_profile_entropy_inverted,
-            'turnover_rate_raw_inverted': turnover_rate_raw_inverted
+            'turnover_rate_raw_inverted': turnover_rate_raw_inverted,
+            'order_book_liquidity_supply_slope_neutrality': order_book_liquidity_supply_slope_neutrality,
+            'order_book_liquidity_supply_accel_neutrality': order_book_liquidity_supply_accel_neutrality
         }
         return _robust_geometric_mean(volume_exhaustion_scores_dict, weights, df_index)
 
@@ -740,7 +773,7 @@ class CalculateStormEyeCalm:
         goodness_of_fit_score = self.helper._normalize_series(raw_data['goodness_of_fit_raw'], target_index=df_index, ascending=True)
         platform_conviction_score = self.helper._normalize_series(raw_data['platform_conviction_raw'], target_index=df_index, ascending=True)
         
-        # 新增结构张力斜率/加速度
+        # 新增结构张力斜率和加速度
         structural_tension_slope_inverted = 1 - self.helper._normalize_series(raw_data['structural_tension_index_slope_raw'].abs(), target_index=df_index, ascending=True)
         _temp_debug_values["突破准备度融合"]["structural_tension_slope_inverted"] = structural_tension_slope_inverted
 
@@ -781,8 +814,9 @@ class CalculateStormEyeCalm:
 
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: Dict[str, pd.Series], final_fusion_weights: Dict, price_calmness_params: Dict, main_force_control_params: Dict, raw_data: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        V1.1: 执行所有维度分数的最终融合和调节。
+        V1.2: 执行所有维度分数的最终融合和调节。
         增加对 `combined_control_score` 和 `veto_threshold` 的调试输出。
+        修正 `amplifier_factor` 的参数名。
         """
         base_calm_score = _robust_geometric_mean(component_scores, final_fusion_weights, df_index)
         _temp_debug_values["最终融合"]["base_calm_score"] = base_calm_score
