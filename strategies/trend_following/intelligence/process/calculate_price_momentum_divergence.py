@@ -46,6 +46,10 @@ def _weighted_sum_fusion(components: Dict[str, pd.Series], weights: Dict[str, Un
     return result
 
 class CalculatePriceMomentumDivergence:
+    """
+    计算价格-动量背离分数。 
+    PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE
+    """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
         self.helper = helper_instance

@@ -20,6 +20,9 @@ from strategies.trend_following.intelligence.process.calculate_price_momentum_di
 from strategies.trend_following.intelligence.process.calculate_winner_conviction_decay import CalculateWinnerConvictionDecay
 from strategies.trend_following.intelligence.process.calculate_storm_eye_calm import CalculateStormEyeCalm
 from strategies.trend_following.intelligence.process.calculate_winner_conviction_relationship import CalculateWinnerConvictionRelationship
+from strategies.trend_following.intelligence.process.calculate_cost_advantage_trend_relationship import CalculateCostAdvantageTrendRelationship
+from strategies.trend_following.intelligence.process.calculate_upthrust_washout import CalculateUpthrustWashoutRelationship
+
 class ProcessIntelligence:
     """
     【V2.0.0 · 全息四象限引擎】
@@ -39,8 +42,9 @@ class ProcessIntelligence:
         self.calculate_price_momentum_divergence_processor = CalculatePriceMomentumDivergence(strategy_instance, self.helper)
         self.calculate_winner_conviction_decay_processor = CalculateWinnerConvictionDecay(strategy_instance, self.helper)
         self.calculate_storm_eye_calm_processor = CalculateStormEyeCalm(strategy_instance, self.helper)
-        # 新增：实例化 CalculateWinnerConvictionRelationship 处理器
         self.calculate_winner_conviction_relationship_processor = CalculateWinnerConvictionRelationship(strategy_instance, self.helper)
+        self.calculate_cost_advantage_trend_relationship_processor = CalculateCostAdvantageTrendRelationship(strategy_instance, self.helper)
+        self.calculate_upthrust_washout_processor = CalculateUpthrustWashoutRelationship(strategy_instance, self.helper)
         self.params = self.helper.params
         self.score_type_map = self.helper.score_type_map
         self.norm_window = self.helper.norm_window
@@ -536,11 +540,9 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_LOSER_CAPITULATION':
             meta_score = self._calculate_loser_capitulation(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
-            meta_score = self._calculate_cost_advantage_trend_relationship(df, config)
+            meta_score = self.calculate_cost_advantage_trend_relationship_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
             meta_score = self._calculate_main_force_control_relationship(df, config)
-        elif signal_name == 'PROCESS_META_STEALTH_ACCUMULATION':
-            meta_score = self._calculate_stealth_accumulation(df, config)
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
             meta_score = self._calculate_panic_washout_accumulation(df, config)
         elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION':
@@ -548,7 +550,7 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
             meta_score = self.calculate_split_order_accumulation_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT':
-            meta_score = self._calculate_upthrust_washout(df, config)
+            meta_score = self.calculate_upthrust_washout_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION':
             meta_score = self._calculate_accumulation_inflection(df, config)
         elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
@@ -992,110 +994,6 @@ class ProcessIntelligence:
             output_bottom_name: bottom_reversal_score.astype(np.float32),
             output_top_name: top_reversal_score.astype(np.float32)
         }
-
-    def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V5.2 · 全息融合与多维趋势感知版】计算“隐蔽吸筹”的专属关系分数。
-        - 核心升级: 将“横盘”与“温和推升”场景的证据融合方式，从“几何平均”升级为“全息证据加权融合”，
-                      允许核心证据的强势弥补次要证据的不足，以勘破“明修栈道，暗度陈仓”的诡道。
-        - 【强化】将价格趋势、筹码集中度趋势、峰值稳固度趋势和成本优势趋势全部升级为多时间维度（MTF）融合信号，
-                      增强信号的鲁棒性和趋势感知能力。
-        - 【调整】优化 `suppressive_score` 和 `consolidative_score` 的构成，使其更精准地捕捉隐蔽吸筹的特征。
-        """
-        method_name = "_calculate_stealth_accumulation"
-        df_index = df.index
-        # 修正 MTF 权重配置的获取路径，从 structural_ultimate_params 中获取
-        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
-        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
-        potential_gate = config.get('historical_potential_gate', 0.0)
-        potential_amplifier = config.get('historical_potential_amplifier', 0.0)
-        required_signals = [
-            'winner_concentration_90pct_D', 'dominant_peak_solidity_D',
-            'main_force_cost_advantage_D', 'upward_impulse_purity_D'
-        ]
-        # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['close_D', 'winner_concentration_90pct_D', 'dominant_peak_solidity_D', 'main_force_cost_advantage_D']:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-        required_atomic_signals = [
-            'SCORE_DYN_AXIOM_STABILITY', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
-            'PROCESS_META_POWER_TRANSFER', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'
-        ]
-        all_required_signals = required_signals + required_atomic_signals
-        if not self._validate_required_signals(df, all_required_signals, method_name):
-            print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 原始数据获取 ---
-        stability_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
-        volume_atrophy_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
-        power_transfer_score = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        split_order_accumulation_score = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
-        upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
-        # --- 归一化处理 ---
-        upward_purity = self._normalize_series(upward_purity_raw, df_index, bipolar=False)
-        # 价格趋势：使用MTF融合信号
-        mtf_price_trend_norm = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # 筹码集中度趋势：使用MTF融合信号
-        mtf_concentration_trend_norm = self._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # 峰值稳固度趋势：使用MTF融合信号
-        mtf_peak_solidity_trend_norm = self._get_mtf_slope_accel_score(df, 'dominant_peak_solidity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # 成本优势趋势：使用MTF融合信号
-        mtf_cost_advantage_norm = self._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # --- 1. 压制吸筹场景 (Suppressive Accumulation) ---
-        # 价格趋势为负或接近零，且成交量萎缩，权力转移为正，筹码集中度上升，成本优势上升
-        suppressive_mask = mtf_price_trend_norm <= 0.1 # 价格压制或横盘
-        evidence1_suppressive = volume_atrophy_score.clip(lower=0) # 成交量萎缩
-        evidence2_suppressive = power_transfer_score.clip(lower=0) # 权力转移为正
-        evidence3_suppressive = mtf_concentration_trend_norm.clip(lower=0) # 筹码集中度上升
-        evidence4_suppressive = mtf_cost_advantage_norm.clip(lower=0) # 成本优势上升
-        suppressive_score = (
-            evidence1_suppressive * 0.25 +
-            evidence2_suppressive * 0.25 +
-            evidence3_suppressive * 0.25 +
-            evidence4_suppressive * 0.25
-        ).clip(0, 1)
-        suppressive_score = suppressive_score.where(suppressive_mask, 0.0)
-        # --- 2. 盘整吸筹场景 (Consolidative Accumulation) ---
-        # 价格稳定，成交量萎缩，权力转移为正，峰值稳固度上升，拆单吸筹强度高
-        consolidative_mask = stability_score > 0.2 # 价格稳定
-        evidence1_consolidative = volume_atrophy_score.clip(lower=0) # 成交量萎缩
-        evidence2_consolidative = power_transfer_score.clip(lower=0) # 权力转移为正
-        evidence3_consolidative = mtf_peak_solidity_trend_norm.clip(lower=0) # 峰值稳固度上升
-        evidence4_consolidative = split_order_accumulation_score.clip(lower=0) # 拆单吸筹强度高
-        consolidative_score = (
-            evidence1_consolidative * 0.25 +
-            evidence2_consolidative * 0.25 +
-            evidence3_consolidative * 0.25 +
-            evidence4_consolidative * 0.25
-        ).clip(0, 1)
-        consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
-        # --- 3. 温和推升吸筹场景 (Gentle Push Accumulation) ---
-        # 价格温和上涨，上涨纯度高，权力转移为正，拆单吸筹强度高
-        gentle_push_mask = (mtf_price_trend_norm > 0.1) & (mtf_price_trend_norm < 0.5) # 价格温和上涨
-        evidence1_gentle = upward_purity.clip(lower=0) # 上涨纯度高
-        evidence2_gentle = power_transfer_score.clip(lower=0) # 权力转移为正
-        evidence3_gentle = split_order_accumulation_score.clip(lower=0) # 拆单吸筹强度高
-        gentle_push_score = (
-            evidence1_gentle * 0.33 +
-            evidence2_gentle * 0.33 +
-            evidence3_gentle * 0.34
-        ).clip(0, 1)
-        gentle_push_score = gentle_push_score.where(gentle_push_mask, 0.0)
-        # --- 4. 基础分：取三种场景中的最大值 ---
-        base_score = pd.concat([suppressive_score, consolidative_score, gentle_push_score], axis=1).max(axis=1).fillna(0.0)
-        # --- 5. 历史势能门控与调节 ---
-        potential_gate_mask = historical_potential > potential_gate
-        potential_modulator = (1 + historical_potential * potential_amplifier)
-        final_score = (base_score * potential_modulator).where(potential_gate_mask, 0.0)
-        self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
-        self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
-        self.strategy.atomic_states["_DEBUG_accum_gentle_push_score"] = gentle_push_score
-        return final_score.clip(0, 1).astype(np.float32)
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """

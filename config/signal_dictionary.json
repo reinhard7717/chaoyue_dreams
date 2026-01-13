@@ -1089,13 +1089,6 @@
             "scoring_mode": "bipolar",
             "description": "【V4.0 · 全息战场版】诊断'价格'与'主力成本优势'的共识与背离。核心升级：将四象限模型从依赖“间接推断”的原子信号，升级为由“直接战术行为”信号驱动。例如，Q3象限（价跌优扩-黄金坑）将直接由“打压吸筹强度”等信号确认，Q4象限（价涨优缩-牛市陷阱）将由“顶部派发强度”等信号确认，极大提升了对战场真实博弈意图的识别精度。"
         },
-        "PROCESS_META_STEALTH_ACCUMULATION": {
-            "cn_name": "【过程】隐秘吸筹",
-            "type": "process",
-            "score": 250,
-            "scoring_mode": "unipolar",
-            "description": "【事件型】主力在不拉高价格的情况下悄悄收集筹码的过程。只应有加分。"
-        },
         "PROCESS_META_DECEPTIVE_ACCUMULATION": {
             "cn_name": "【过程】诡道吸筹",
             "category": "过程层-机会",
