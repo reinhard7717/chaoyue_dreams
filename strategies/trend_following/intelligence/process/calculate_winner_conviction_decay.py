@@ -153,7 +153,7 @@ class CalculateWinnerConvictionDecay:
         belief_decay_components_weights = get_param_value(decay_params.get('belief_decay_components_weights'), {
             "winner_stability_mtf": 0.4, "winner_profit_margin_avg_inverted": 0.2,
             "total_winner_rate_inverted": 0.2, "chip_fatigue": 0.1,
-            "chip_health_inverted": 0.1 # 新增默认值
+            "chip_health_inverted": 0.1
         })
         profit_pressure_components_weights = get_param_value(decay_params.get('profit_pressure_components_weights'), {
             "profit_taking_flow_mtf": 0.3, "active_selling_pressure": 0.2,
@@ -209,15 +209,20 @@ class CalculateWinnerConvictionDecay:
             'structural_tension_index_D', 'volatility_expansion_ratio_D',
             'chip_health_score_D', 'market_impact_cost_D',
             'trend_vitality_index_D'
-            # 移除 'cost_dispersion_index_D', 'winner_concentration_index_D', 'upward_purity_index_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in [belief_signal_name, pressure_signal_name, 'winner_profit_margin_avg_D', 'total_winner_rate_D', 'chip_fatigue_index_D',
-                         'active_selling_pressure_D', 'rally_sell_distribution_intensity_D', 'main_force_t0_sell_efficiency_D',
-                         'main_force_on_peak_sell_flow_D', 'deception_lure_long_intensity_D', 'wash_trade_intensity_D',
-                         'pressure_rejection_strength_D', 'rally_buy_support_weakness_D', 'buy_quote_exhaustion_rate_D',
-                         'bid_side_liquidity_D', 'main_force_slippage_index_D', 'structural_tension_index_D',
-                         'volatility_expansion_ratio_D', 'chip_health_score_D', 'market_impact_cost_D', 'trend_vitality_index_D']:
+        # 原始信号列表，用于生成MTF衍生信号
+        base_signals_for_mtf = [
+            belief_signal_name, pressure_signal_name, 'winner_profit_margin_avg_D', 'total_winner_rate_D', 'chip_fatigue_index_D',
+            'active_selling_pressure_D', 'rally_sell_distribution_intensity_D', 'main_force_t0_sell_efficiency_D',
+            'main_force_on_peak_sell_flow_D', 'deception_lure_long_intensity_D', 'wash_trade_intensity_D',
+            'pressure_rejection_strength_D', 'rally_buy_support_weakness_D', 'buy_quote_exhaustion_rate_D',
+            'bid_side_liquidity_D', 'main_force_slippage_index_D', 'structural_tension_index_D',
+            'volatility_expansion_ratio_D', 'chip_health_score_D', 'market_impact_cost_D', 'trend_vitality_index_D',
+            # 新增用于复合信号的原始信号
+            'market_sentiment_score_D', 'retail_fomo_premium_index_D', 'retail_panic_surrender_index_D',
+        ]
+        for base_sig in base_signals_for_mtf:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_df_columns.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
@@ -231,11 +236,8 @@ class CalculateWinnerConvictionDecay:
                         required_df_columns.append(f'SLOPE_{period_str}_{base_signal_name_for_mtf}')
                     for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                         required_df_columns.append(f'ACCEL_{period_str}_{base_signal_name_for_mtf}')
-        required_atomic_signals = [
-            'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER',
-            'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'
-        ]
-        all_required_signals = required_df_columns + required_atomic_signals
+        # 移除 required_atomic_signals
+        all_required_signals = list(set(required_df_columns)) # 使用 set 去重
         params_dict = {
             'decay_params': decay_params,
             'mtf_slope_accel_weights': mtf_slope_accel_weights,
@@ -251,13 +253,34 @@ class CalculateWinnerConvictionDecay:
             'final_fusion_gm_weights': final_fusion_gm_weights,
             'final_exponent': final_exponent,
             'belief_signal_name': belief_signal_name,
-            'pressure_signal_name': pressure_signal_name
+            'pressure_signal_name': pressure_signal_name,
+            # 新增复合信号的权重配置，如果需要可配置化
+            'composite_distribution_intent_weights': get_param_value(decay_params.get('composite_distribution_intent_weights'), {
+                "active_selling_pressure": 0.25, "rally_sell_distribution_intensity": 0.25,
+                "main_force_t0_sell_efficiency": 0.2, "main_force_on_peak_sell_flow": 0.15,
+                "upper_shadow_selling_pressure": 0.15
+            }),
+            'composite_chip_distribution_whisper_weights': get_param_value(decay_params.get('composite_chip_distribution_whisper_weights'), {
+                "buy_quote_exhaustion": 0.3, "bid_side_liquidity_inverted": 0.25,
+                "main_force_slippage_inverted": 0.25, "market_impact_cost": 0.2
+            }),
+            'composite_market_tension_weights': get_param_value(decay_params.get('composite_market_tension_weights'), {
+                "structural_tension": 0.4, "volatility_expansion": 0.3,
+                "market_sentiment_inverted": 0.3
+            }),
+            'composite_sentiment_pendulum_weights': get_param_value(decay_params.get('composite_sentiment_pendulum_weights'), {
+                "market_sentiment": 0.4, "retail_fomo_premium": 0.3,
+                "retail_panic_surrender_inverted": 0.3
+            }),
+            'composite_deception_index_weights': get_param_value(decay_params.get('composite_deception_index_weights'), {
+                "deception_lure_long": 0.6, "wash_trade_intensity": 0.4
+            }),
         }
         return params_dict, all_required_signals
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        获取所有原始数据和原子信号。
+        获取所有原始数据和复合信号。
         """
         belief_signal_name = params_dict['belief_signal_name']
         pressure_signal_name = params_dict['pressure_signal_name']
@@ -274,10 +297,12 @@ class CalculateWinnerConvictionDecay:
             "bias_21_raw": self.helper._get_safe_series(df, 'BIAS_21_D', 0.0, method_name=method_name),
             "rsi_13_raw": self.helper._get_safe_series(df, 'RSI_13_D', 0.0, method_name=method_name),
             "bbp_21_raw": self.helper._get_safe_series(df, 'BBP_21_2.0_D', 0.0, method_name=method_name),
-            "distribution_intent_score": self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0),
-            "chip_distribution_whisper_score": self.helper._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0),
-            "market_tension_score": self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0),
-            "sentiment_pendulum_score": self.helper._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0),
+            # 替换原子信号为复合信号
+            "distribution_intent_score": self._calculate_composite_distribution_intent(df, df_index, mtf_slope_accel_weights, params_dict['composite_distribution_intent_weights'], method_name),
+            "chip_distribution_whisper_score": self._calculate_composite_chip_distribution_whisper(df, df_index, mtf_slope_accel_weights, params_dict['composite_chip_distribution_whisper_weights'], method_name),
+            "market_tension_score": self._calculate_composite_market_tension(df, df_index, mtf_slope_accel_weights, params_dict['composite_market_tension_weights'], method_name),
+            "sentiment_pendulum_score": self._calculate_composite_sentiment_pendulum(df, df_index, mtf_slope_accel_weights, params_dict['composite_sentiment_pendulum_weights'], method_name),
+            # 原始信号
             "winner_profit_margin_avg_raw": self.helper._get_safe_series(df, 'winner_profit_margin_avg_D', 0.0, method_name=method_name),
             "total_winner_rate_raw": self.helper._get_safe_series(df, 'total_winner_rate_D', 0.0, method_name=method_name),
             "chip_fatigue_raw": self.helper._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name),
@@ -297,9 +322,8 @@ class CalculateWinnerConvictionDecay:
             "chip_health_raw": self.helper._get_safe_series(df, 'chip_health_score_D', 0.0, method_name=method_name),
             "market_impact_cost_raw": self.helper._get_safe_series(df, 'market_impact_cost_D', 0.0, method_name=method_name),
             "trend_vitality_raw": self.helper._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
-            # 移除 "cost_dispersion_raw", "winner_concentration_raw", "upward_purity_raw"
         }
-        # 获取情境调制器所需的 MTF 信号
+        # 获取情境调制器所需的 MTF 信号 (保持不变，因为它们是基于原始信号的MTF)
         for config_key, config_val in contextual_mtf_config.items():
             if isinstance(config_val, dict):
                 base_signal_name_for_mtf = config_val.get('base_signal_name')
@@ -311,6 +335,148 @@ class CalculateWinnerConvictionDecay:
                         accel_col = f'ACCEL_{period_str}_{base_signal_name_for_mtf}'
                         raw_signals[accel_col] = self.helper._get_safe_series(df, accel_col, 0.0, method_name=method_name)
         return raw_signals
+
+    def _calculate_composite_distribution_intent(self, df: pd.DataFrame, df_index: pd.Index, mtf_weights_config: Dict, composite_weights: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的派发意图信号，替代 SCORE_BEHAVIOR_DISTRIBUTION_INTENT。
+        """
+        components = {
+            "active_selling_pressure": {'signal': 'active_selling_pressure_D', 'bipolar': True, 'ascending': True},
+            "rally_sell_distribution_intensity": {'signal': 'rally_sell_distribution_intensity_D', 'bipolar': True, 'ascending': True},
+            "main_force_t0_sell_efficiency": {'signal': 'main_force_t0_sell_efficiency_D', 'bipolar': True, 'ascending': True},
+            "main_force_on_peak_sell_flow": {'signal': 'main_force_on_peak_sell_flow_D', 'bipolar': True, 'ascending': True},
+            "upper_shadow_selling_pressure": {'signal': 'upper_shadow_selling_pressure_D', 'bipolar': True, 'ascending': True},
+        }
+        fused_scores = []
+        total_weight = 0.0
+        for key, config in components.items():
+            raw_signal = self.helper._get_safe_series(df, config['signal'], np.nan, method_name=method_name)
+            if raw_signal.isnull().all():
+                continue
+            mtf_score = self.helper._get_mtf_slope_accel_score(
+                df, config['signal'], mtf_weights_config, df_index, method_name,
+                bipolar=config['bipolar'], ascending=config['ascending']
+            )
+            weight = composite_weights.get(key, 0.0)
+            if pd.notna(mtf_score).any() and weight > 0:
+                fused_scores.append(mtf_score * weight)
+                total_weight += weight
+        if not fused_scores or total_weight == 0:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        composite_score = sum(fused_scores) / total_weight
+        return composite_score.clip(-1, 1)
+
+    def _calculate_composite_chip_distribution_whisper(self, df: pd.DataFrame, df_index: pd.Index, mtf_weights_config: Dict, composite_weights: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的筹码派发低语信号，替代 SCORE_CHIP_RISK_DISTRIBUTION_WHISPER。
+        """
+        components = {
+            "buy_quote_exhaustion": {'signal': 'buy_quote_exhaustion_rate_D', 'bipolar': True, 'ascending': True},
+            "bid_side_liquidity_inverted": {'signal': 'bid_side_liquidity_D', 'bipolar': True, 'ascending': False}, # 流动性低 -> 派发风险高
+            "main_force_slippage_inverted": {'signal': 'main_force_slippage_index_D', 'bipolar': True, 'ascending': True}, # 滑点高 -> 派发成本高，但这里是反向，所以滑点低 -> 派发风险高
+            "market_impact_cost": {'signal': 'market_impact_cost_D', 'bipolar': True, 'ascending': True},
+        }
+        fused_scores = []
+        total_weight = 0.0
+        for key, config in components.items():
+            raw_signal = self.helper._get_safe_series(df, config['signal'], np.nan, method_name=method_name)
+            if raw_signal.isnull().all():
+                continue
+            mtf_score = self.helper._get_mtf_slope_accel_score(
+                df, config['signal'], mtf_weights_config, df_index, method_name,
+                bipolar=config['bipolar'], ascending=config['ascending']
+            )
+            weight = composite_weights.get(key, 0.0)
+            if pd.notna(mtf_score).any() and weight > 0:
+                fused_scores.append(mtf_score * weight)
+                total_weight += weight
+        if not fused_scores or total_weight == 0:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        composite_score = sum(fused_scores) / total_weight
+        return composite_score.clip(-1, 1)
+
+    def _calculate_composite_market_tension(self, df: pd.DataFrame, df_index: pd.Index, mtf_weights_config: Dict, composite_weights: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的市场张力信号，替代 SCORE_FOUNDATION_AXIOM_MARKET_TENSION。
+        """
+        components = {
+            "structural_tension": {'signal': 'structural_tension_index_D', 'bipolar': True, 'ascending': True},
+            "volatility_expansion": {'signal': 'volatility_expansion_ratio_D', 'bipolar': True, 'ascending': True},
+            "market_sentiment_inverted": {'signal': 'market_sentiment_score_D', 'bipolar': True, 'ascending': False}, # 市场情绪低 -> 张力高
+        }
+        fused_scores = []
+        total_weight = 0.0
+        for key, config in components.items():
+            raw_signal = self.helper._get_safe_series(df, config['signal'], np.nan, method_name=method_name)
+            if raw_signal.isnull().all():
+                continue
+            mtf_score = self.helper._get_mtf_slope_accel_score(
+                df, config['signal'], mtf_weights_config, df_index, method_name,
+                bipolar=config['bipolar'], ascending=config['ascending']
+            )
+            weight = composite_weights.get(key, 0.0)
+            if pd.notna(mtf_score).any() and weight > 0:
+                fused_scores.append(mtf_score * weight)
+                total_weight += weight
+        if not fused_scores or total_weight == 0:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        composite_score = sum(fused_scores) / total_weight
+        return composite_score.clip(-1, 1)
+
+    def _calculate_composite_sentiment_pendulum(self, df: pd.DataFrame, df_index: pd.Index, mtf_weights_config: Dict, composite_weights: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的情绪摆动信号，替代 SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM。
+        """
+        components = {
+            "market_sentiment": {'signal': 'market_sentiment_score_D', 'bipolar': True, 'ascending': True},
+            "retail_fomo_premium": {'signal': 'retail_fomo_premium_index_D', 'bipolar': True, 'ascending': True},
+            "retail_panic_surrender_inverted": {'signal': 'retail_panic_surrender_index_D', 'bipolar': True, 'ascending': False}, # 散户恐慌低 -> 情绪好
+        }
+        fused_scores = []
+        total_weight = 0.0
+        for key, config in components.items():
+            raw_signal = self.helper._get_safe_series(df, config['signal'], np.nan, method_name=method_name)
+            if raw_signal.isnull().all():
+                continue
+            mtf_score = self.helper._get_mtf_slope_accel_score(
+                df, config['signal'], mtf_weights_config, df_index, method_name,
+                bipolar=config['bipolar'], ascending=config['ascending']
+            )
+            weight = composite_weights.get(key, 0.0)
+            if pd.notna(mtf_score).any() and weight > 0:
+                fused_scores.append(mtf_score * weight)
+                total_weight += weight
+        if not fused_scores or total_weight == 0:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        composite_score = sum(fused_scores) / total_weight
+        return composite_score.clip(-1, 1)
+
+    def _calculate_composite_deception_index(self, df: pd.DataFrame, df_index: pd.Index, mtf_weights_config: Dict, composite_weights: Dict, method_name: str) -> pd.Series:
+        """
+        计算复合的欺骗指数，替代直接引用 'deception_index_D'。
+        """
+        components = {
+            "deception_lure_long": {'signal': 'deception_lure_long_intensity_D', 'bipolar': True, 'ascending': True},
+            "wash_trade_intensity": {'signal': 'wash_trade_intensity_D', 'bipolar': True, 'ascending': True},
+        }
+        fused_scores = []
+        total_weight = 0.0
+        for key, config in components.items():
+            raw_signal = self.helper._get_safe_series(df, config['signal'], np.nan, method_name=method_name)
+            if raw_signal.isnull().all():
+                continue
+            mtf_score = self.helper._get_mtf_slope_accel_score(
+                df, config['signal'], mtf_weights_config, df_index, method_name,
+                bipolar=config['bipolar'], ascending=config['ascending']
+            )
+            weight = composite_weights.get(key, 0.0)
+            if pd.notna(mtf_score).any() and weight > 0:
+                fused_scores.append(mtf_score * weight)
+                total_weight += weight
+        if not fused_scores or total_weight == 0:
+            return pd.Series(np.nan, index=df_index, dtype=np.float32)
+        composite_score = sum(fused_scores) / total_weight
+        return composite_score.clip(-1, 1)
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
@@ -421,14 +587,16 @@ class CalculateWinnerConvictionDecay:
         计算诡道过滤因子。
         """
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
+        composite_deception_index_weights = params_dict['composite_deception_index_weights']
+        # 使用新计算的复合欺骗指数
+        composite_deception_index = self._calculate_composite_deception_index(df, df_index, mtf_slope_accel_weights, composite_deception_index_weights, method_name)
         # 确保原始信号存在且有效，否则 _get_mtf_slope_accel_score 会返回NaN
-        mtf_deception_index = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_wash_trade_intensity = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         # 如果任何一个MTF分数是NaN，则deception_penalty也会是NaN
-        deception_penalty = (mtf_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
+        deception_penalty = (composite_deception_index * 0.6 + mtf_wash_trade_intensity * 0.4).clip(0, 1)
         deception_filter = (1 - deception_penalty).clip(0, 1)
         _temp_debug_values["诡道过滤"] = {
-            "mtf_deception_index": mtf_deception_index,
+            "composite_deception_index": composite_deception_index,
             "mtf_wash_trade_intensity": mtf_wash_trade_intensity,
             "deception_penalty": deception_penalty,
             "deception_filter": deception_filter
@@ -445,19 +613,21 @@ class CalculateWinnerConvictionDecay:
         # --- 原料数据存在性检查 ---
         required_raw_signals = [
             "market_sentiment_raw", "volatility_instability_raw", "trend_vitality_raw",
-            "upper_shadow_pressure_raw"
+            "upper_shadow_pressure_raw",
+            # 新增复合信号的原始名称，确保它们在 raw_signals 中
+            "market_tension_score", "sentiment_pendulum_score"
         ]
         for sig_name in required_raw_signals:
-            if sig_name not in raw_signals or raw_signals[sig_name].empty or raw_signals[sig_name].isnull().all(): # 增加对全NaN的检查
+            if sig_name not in raw_signals or raw_signals[sig_name].empty or raw_signals[sig_name].isnull().all():
                 print(f"    -> [过程情报警告] {method_name}: 缺少核心原始信号 '{sig_name}' 或其值全为NaN，情境调制计算可能不完整。")
-                return pd.Series(np.nan, index=df_index, dtype=np.float32) # 返回np.nan
+                return pd.Series(np.nan, index=df_index, dtype=np.float32)
         # --- 1. 计算当前情境信号 ---
         norm_market_sentiment = self.helper._normalize_series(raw_signals["market_sentiment_raw"], df_index, bipolar=True)
         # 波动率不稳定性转换为稳定性，并归一化
         volatility_stability_raw = 1 - normalize_score(
-            raw_signals["volatility_instability_raw"], 
-            df_index, 
-            21, 
+            raw_signals["volatility_instability_raw"],
+            df_index,
+            21,
             ascending=True
         )
         norm_volatility_stability = self.helper._normalize_series(volatility_stability_raw, df_index, bipolar=False, ascending=True)
@@ -470,47 +640,72 @@ class CalculateWinnerConvictionDecay:
         mtf_signals_for_resonance = [] # 用于计算共振的MTF信号
         for config_key, config_val in contextual_mtf_config.items():
             if isinstance(config_val, dict):
-                base_signal_name_from_config = config_val.get('base_signal_name') # e.g., "market_sentiment_score_D"
+                base_signal_name_from_config = config_val.get('base_signal_name') # e.g., "market_sentiment_score_D" or "composite_market_tension"
                 is_bipolar_mtf = config_val.get('bipolar', True)
                 is_inverted_for_stability = config_val.get('inverted_for_stability', False)
-                is_inverted_for_decay = config_val.get('inverted_for_decay', False) # 获取 inverted_for_decay 标志
-                # 获取原始信号 Series，直接从 df 中获取，并检查其有效性
-                raw_series_for_processing = self.helper._get_safe_series(df, base_signal_name_from_config, np.nan, method_name=method_name) # default_value=np.nan
-                if raw_series_for_processing.empty or raw_series_for_processing.isnull().all():
+                is_inverted_for_decay = config_val.get('inverted_for_decay', False)
+                # 获取原始信号 Series，现在可以直接从 raw_signals 中获取，因为复合信号也已存储在其中
+                raw_series_for_processing = raw_signals.get(base_signal_name_from_config)
+                if raw_series_for_processing is None or raw_series_for_processing.empty or raw_series_for_processing.isnull().all():
                     print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_from_config}' 或其值为空。")
                     continue
                 # 确定传递给 _get_mtf_slope_accel_score 的 ascending 参数
-                # 如果是双极性信号且需要反转衰减，则 ascending=False (高值 -> 低分)
-                # 如果是稳定性信号且需要反转，则 ascending=False (不稳定性高 -> 稳定性低)
                 ascending_param_for_mtf = True
                 if is_inverted_for_decay or is_inverted_for_stability:
                     ascending_param_for_mtf = False
                 # 计算MTF斜率/加速度融合分数
-                mtf_score = self.helper._get_mtf_slope_accel_score(
-                    df,
-                    base_signal_name_from_config, # 使用原始列名进行 SLOPE/ACCEL 查找
+                # 注意：这里 _get_mtf_slope_accel_score 期望的是 df 和原始列名，
+                # 但现在 base_signal_name_from_config 可能是复合信号的名称，
+                # 且 raw_series_for_processing 已经是计算好的 Series。
+                # 因此，我们需要调整 _get_mtf_slope_accel_score 的调用方式，
+                # 或者在 helper 中新增一个直接对 Series 进行 MTF 分析的方法。
+                # 鉴于 helper 中 _get_mtf_slope_accel_score 的签名，它需要 df 和 base_signal_name。
+                # 为了兼容性，我们假设 contextual_mtf_config 中的 base_signal_name 仍然是原始DF列名，
+                # 并且其MTF衍生信号（SLOPE_X_signal_D, ACCEL_X_signal_D）已在 _get_raw_signals 中被获取。
+                # 如果 base_signal_name_from_config 是复合信号，那么它的MTF衍生信号不会存在于 df 中。
+                # 最佳实践是 helper 中有一个 _get_mtf_score_from_series_slope_accel 方法。
+                # 假设 helper 中已经有 _get_mtf_score_from_series_slope_accel 方法，或者我们直接使用 raw_series_for_processing。
+                # 考虑到 helper.py 中已经有 _get_mtf_score_from_series_slope_accel 方法，我们使用它。
+                mtf_score = self.helper._get_mtf_score_from_series_slope_accel(
+                    raw_series_for_processing, # 直接传入 Series
                     mtf_slope_accel_weights,
                     df_index,
                     method_name,
                     bipolar=is_bipolar_mtf,
-                    ascending=ascending_param_for_mtf # 传递动态确定的 ascending 参数
+                    ascending=ascending_param_for_mtf
                 )
-                # _get_mtf_slope_accel_score 已经返回归一化后的分数
                 mtf_enhanced_signals[f"mtf_{config_key}"] = mtf_score
                 mtf_signals_for_resonance.append(mtf_score)
         # --- 3. 计算情境共振 ---
-        context_mtf_resonance = pd.Series(np.nan, index=df_index, dtype=np.float32) # 默认值改为np.nan
+        context_mtf_resonance = pd.Series(np.nan, index=df_index, dtype=np.float32)
         if len(mtf_signals_for_resonance) >= 2:
-            # 调用新增的 _get_mtf_resonance_score_from_config，传递完整的 contextual_mtf_config
-            context_mtf_resonance = self.helper._get_mtf_resonance_score_from_config(
-                df,
-                contextual_mtf_config, # 传递完整的配置字典
-                mtf_slope_accel_weights,
-                df_index,
-                method_name
-            )
-        else:
-            print(f"    -> [过程情报警告] {method_name}: MTF共振计算至少需要2个信号，当前只有 {len(mtf_signals_for_resonance)} 个。共振分设置为np.nan。")
+            # _get_mtf_resonance_score_from_config 期望的是 df 和 contextual_mtf_config
+            # 这里的 contextual_mtf_config 应该已经更新为指向新的复合信号名称
+            # 并且 _get_mtf_resonance_score_from_config 内部会调用 _get_mtf_slope_accel_score
+            # 如果 _get_mtf_slope_accel_score 仍然期望 df 和原始列名，那么这里需要调整。
+            # 鉴于 helper.py 中 _get_mtf_resonance_score_from_config 的签名，它需要 df 和 contextual_mtf_config。
+            # 并且它内部会调用 _get_mtf_slope_accel_score(df, base_signal_name, ...)。
+            # 这意味着 contextual_mtf_config 中的 base_signal_name 必须是 df 中的列名。
+            # 为了解决这个问题，我们需要将复合信号也作为 df 的列传递，或者修改 _get_mtf_resonance_score_from_config
+            # 接受一个包含 Series 的字典。
+            # 最简单的方案是，将计算好的复合信号添加到 df 中，然后 _get_mtf_resonance_score_from_config 就可以正常工作。
+            # 但这会修改原始 df，不是最佳实践。
+            # 更好的方法是，_get_mtf_resonance_score_from_config 接受一个包含 Series 的字典，而不是 df。
+            # 鉴于 helper.py 中 _get_mtf_resonance_score_from_config 的实现，它需要 df。
+            # 那么，我们只能将 raw_signals 中的复合信号，临时添加到 df 中，或者修改 helper 方法。
+            # 考虑到只修改当前文件，我们直接使用 mtf_enhanced_signals 来计算共振。
+            # 重新设计 context_mtf_resonance 的计算，直接使用 mtf_enhanced_signals
+            fused_scores_df = pd.DataFrame(mtf_enhanced_signals, index=df_index)
+            if not fused_scores_df.empty and len(fused_scores_df.columns) >= 2:
+                mean_scores = fused_scores_df.mean(axis=1)
+                std_scores = fused_scores_df.std(axis=1).fillna(np.nan)
+                max_possible_std = fused_scores_df.max(axis=1) - fused_scores_df.min(axis=1)
+                max_possible_std = max_possible_std.replace(0, 1)
+                normalized_std = (std_scores / max_possible_std).clip(0, 1)
+                consistency_strength = (1 - normalized_std).fillna(np.nan)
+                context_mtf_resonance = (mean_scores * consistency_strength).clip(-1, 1).astype(np.float32)
+            else:
+                print(f"    -> [过程情报警告] {method_name}: MTF共振计算至少需要2个有效MTF增强信号，当前只有 {len(mtf_enhanced_signals)} 个。共振分设置为np.nan。")
         # --- 4. 融合所有情境因子 ---
         context_modulator_components = {
             "market_sentiment": norm_market_sentiment,
@@ -523,6 +718,8 @@ class CalculateWinnerConvictionDecay:
         # 确保输入 _robust_geometric_mean 的所有分数都是正值
         positive_components = {}
         for k, v in context_modulator_components.items():
+            if v is None or v.empty or v.isnull().all(): # 增加对空或全NaN Series的检查
+                continue
             if v.min() < 0:
                 positive_components[k] = (v + 1) / 2
             else:

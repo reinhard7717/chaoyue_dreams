@@ -112,8 +112,8 @@ class CalculateStormEyeCalm:
         final_score = self._perform_final_fusion(df_index, component_scores, adjusted_final_fusion_weights, params['price_calmness_modulator_params'], params['main_force_control_adjudicator_params'], raw_data, _temp_debug_values)
         _temp_debug_values["最终融合"]["final_score"] = final_score
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_output_for_storm_eye_calm(debug_output, _temp_debug_values, probe_ts, method_name, final_score)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_debug_output_for_storm_eye_calm(debug_output, _temp_debug_values, probe_ts, method_name, final_score)
         return final_score.astype(np.float32)
 
     def _get_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp]]:
