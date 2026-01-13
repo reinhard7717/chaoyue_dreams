@@ -738,9 +738,9 @@ class ProcessIntelligence:
             is_debug_enabled_for_method = False
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价格效率关系..."] = ""
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价格效率关系..."] = ""
         required_signals = ['close_D', 'VPA_EFFICIENCY_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D']
         if not self._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
@@ -769,21 +769,21 @@ class ProcessIntelligence:
             "final_score": final_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础共识分数 ---"] = ""
-            for key, series in _temp_debug_values["基础共识分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 品质因子校准 ---"] = ""
-            for key, series in _temp_debug_values["品质因子校准"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价格效率关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 基础共识分数 ---"] = ""
+        #     for key, series in _temp_debug_values["基础共识分数"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 品质因子校准 ---"] = ""
+        #     for key, series in _temp_debug_values["品质因子校准"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价格效率关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return final_score
 
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -2336,9 +2336,9 @@ class ProcessIntelligence:
             is_debug_enabled_for_method = False
         debug_output = {}
         _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价资关系..."] = ""
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价资关系..."] = ""
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             if is_debug_enabled_for_method and probe_ts:
@@ -2354,21 +2354,21 @@ class ProcessIntelligence:
             "meta_score": meta_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关系分数 ---"] = ""
-            for key, series in _temp_debug_values["关系分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 元分析分数 ---"] = ""
-            for key, series in _temp_debug_values["元分析分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价资关系诊断完成，最终分值: {meta_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 关系分数 ---"] = ""
+        #     for key, series in _temp_debug_values["关系分数"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 元分析分数 ---"] = ""
+        #     for key, series in _temp_debug_values["元分析分数"].items():
+        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        #         debug_output[f"        {key}: {val:.4f}"] = ""
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价资关系诊断完成，最终分值: {meta_score.loc[probe_ts]:.4f}"] = ""
+        #     for key, value in debug_output.items():
+        #         if value:
+        #             print(f"{key}: {value}")
+        #         else:
+        #             print(key)
         return meta_score
 
     def _calculate_pc_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:

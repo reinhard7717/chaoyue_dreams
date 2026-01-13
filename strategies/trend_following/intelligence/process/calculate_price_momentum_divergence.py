@@ -1003,7 +1003,6 @@ class CalculatePriceMomentumDivergence:
         weights = {"volatility_instability": 0.4, "adx": 0.3, "structural_tension": 0.3}
         return _robust_geometric_mean(components, weights, df_index)
 
-
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V1.3 · 模块化与增强版 (传递 fused_momentum_direction 给最终融合方法)"""
         method_name = "_calculate_price_momentum_divergence"
@@ -1052,8 +1051,8 @@ class CalculatePriceMomentumDivergence:
             divergence_quality_score, context_modulator, debug_price_direction['price_momentum_quality_score'],
             _temp_debug_values
         )
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
         return final_score.astype(np.float32)
 
 
