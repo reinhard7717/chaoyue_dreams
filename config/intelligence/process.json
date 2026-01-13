@@ -831,7 +831,7 @@
                 "name": "PROCESS_META_WINNER_CONVICTION",
                 "winner_conviction_params": {
                     "conviction_enhancement_weights": {
-                        "main_force_conviction": 0.2,
+                        "main_force_conviction": 0.01,
                         "chip_health": 0.2,
                         "winner_profit_margin_avg": 0.1,
                         "loser_loss_margin_avg": 0.1,
@@ -840,7 +840,7 @@
                         "cost_gini_coefficient": 0.05,
                         "winner_stability_trend_consistency": 0.1,
                         "cumulative_winner_stability_index": 0.05,
-                        "cumulative_main_force_conviction_index": 0.05,
+                        "cumulative_main_force_conviction_index": 0.25,
                         "cumulative_chip_health_score": 0.05,
                         "cumulative_winner_profit_margin_avg": 0.05,
                         "cumulative_loser_loss_margin_avg": 0.05,
@@ -849,6 +849,7 @@
                         "cumulative_cost_gini_coefficient": 0.05
                     },
                     "pressure_resilience_enhancement_weights": {
+                        "core_resilience": 0.45,
                         "main_force_buy_execution_alpha": 0.2,
                         "bid_side_liquidity": 0.2,
                         "absorption_strength_ma5": 0.2,
@@ -858,13 +859,12 @@
                         "selling_pressure_trend_consistency": 0.1,
                         "distribution_at_peak_intensity": 0.1,
                         "upper_shadow_selling_pressure": 0.1,
-                        "cumulative_main_force_buy_execution_alpha": 0.05,
+                        "cumulative_main_force_buy_execution_alpha": 0.1,
                         "cumulative_bid_side_liquidity": 0.05,
                         "cumulative_absorption_strength_ma5": 0.05,
                         "cumulative_active_buying_support": 0.05,
                         "cumulative_large_order_support": 0.05,
                         "cumulative_dip_absorption_power": 0.05,
-                        "cumulative_dispersal_by_distribution": 0.05,
                         "cumulative_distribution_at_peak_intensity": 0.05,
                         "cumulative_upper_shadow_selling_pressure": 0.05
                     },
@@ -935,6 +935,13 @@
                         ],
                         "inflection_detection_window": 5,
                         "inflection_penalty_strength": 0.2
+                    },
+                    "cumulative_conviction_threshold_params": {
+                        "enabled": true,
+                        "decay_threshold_pct": 0.1,
+                        "absolute_threshold": 0.2,
+                        "short_term_weight_boost_factor": 2.0,
+                        "long_term_weight_decay_factor": 0.5
                     }
                 }
             },
