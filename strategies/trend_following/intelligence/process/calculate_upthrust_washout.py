@@ -11,14 +11,14 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateUpthrustWashoutRelationship:
     """
-    【V2.6.0 · 主力日内意图流驱动版】上冲回落洗盘甄别器
+    【V2.7.0 · 主力日度净买卖金额驱动版】上冲回落洗盘甄别器
     - 核心职责: 识别主力利用“上冲回落”阴线进行的洗盘行为。
     - 核心升级:
         1. 放宽市场上下文限制，移除对乖离率的严格要求。
-        2. 主力资金门控升级为基于“主力日内意图流”的累积评估，
-           该意图流融合了高频tick和Level5数据，更精细地捕捉主力主动买卖、订单簿控制和隐藏订单迹象。
+        2. 主力资金门控升级为基于“主力日度净买卖金额”的累积评估，
+           该金额直接来源于高频tick数据中识别出的主力交易，更直接地衡量主力资金规模。
         3. 主力资金累积流向计算周期调整为13日和21日。
-    - 版本: 2.6.0
+    - 版本: 2.7.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -50,7 +50,7 @@ class CalculateUpthrustWashoutRelationship:
             'main_force_net_flow_calibrated_D', 'trend_vitality_index_D', 'lower_shadow_absorption_strength_D',
             'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
             'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
-            'deception_index_D', 'main_force_intraday_intent_D' # 新增
+            'deception_index_D', 'main_force_intraday_intent_D', 'main_force_net_amount_from_hf_D' # 新增
         ]
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
@@ -63,7 +63,7 @@ class CalculateUpthrustWashoutRelationship:
          trend_vitality_index_raw, lower_shadow_absorption_strength_raw,
          net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
          main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw,
-         main_force_intraday_intent) = self._get_raw_signals(df, method_name) # 新增 main_force_intraday_intent
+         main_force_intraday_intent, main_force_net_amount_from_hf) = self._get_raw_signals(df, method_name) # 新增 main_force_net_amount_from_hf
         _temp_debug_values["原始信号值"] = {
             "bias_21": bias_21, "pct_change": pct_change, "upward_purity_raw": upward_purity_raw,
             "upper_shadow_pressure_raw": upper_shadow_pressure_raw, "active_buying_raw": active_buying_raw,
@@ -76,7 +76,8 @@ class CalculateUpthrustWashoutRelationship:
             "main_force_conviction_raw": main_force_conviction_raw,
             "wash_trade_intensity_raw": wash_trade_intensity_raw,
             "deception_index_raw": deception_index_raw,
-            "main_force_intraday_intent": main_force_intraday_intent # 新增
+            "main_force_intraday_intent": main_force_intraday_intent,
+            "main_force_net_amount_from_hf": main_force_net_amount_from_hf # 新增
         }
         trend_form_score = self._derive_trend_form_score_from_raw(df_index, trend_vitality_index_raw, method_name)
         lower_shadow_strength = self._derive_lower_shadow_absorption_score_from_raw(df_index, lower_shadow_absorption_strength_raw, method_name)
@@ -85,16 +86,15 @@ class CalculateUpthrustWashoutRelationship:
             main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw, method_name
         )
         (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
-         power_transfer_norm) = self._normalize_signals( # 移除 main_force_net_flow_norm
+         power_transfer_norm) = self._normalize_signals(
             df_index, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
-            power_transfer, method_name # 移除 main_force_net_flow
+            power_transfer
         )
         _temp_debug_values["归一化处理"] = {
             "upward_purity_norm": upward_purity_norm,
             "upper_shadow_pressure_norm": upper_shadow_pressure_norm,
             "active_buying_norm": active_buying_norm,
             "power_transfer_norm": power_transfer_norm,
-            # "main_force_net_flow_norm": main_force_net_flow_norm # 移除
         }
         context_mask = self._evaluate_market_context(trend_form_score, bias_21, upward_purity_norm)
         _temp_debug_values["市场上下文"] = {"context_mask": context_mask}
@@ -106,7 +106,7 @@ class CalculateUpthrustWashoutRelationship:
         _temp_debug_values["承接审判分"] = {"absorption_rebuttal_score": absorption_rebuttal_score}
         net_washout_intent = (absorption_rebuttal_score - selling_pressure_score).clip(0, 1)
         _temp_debug_values["净洗盘意图"] = {"net_washout_intent": net_washout_intent}
-        mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_intraday_intent, is_debug_enabled_for_method, probe_ts, debug_output) # 传入新的意图流
+        mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_net_amount_from_hf, is_debug_enabled_for_method, probe_ts, debug_output) # 传入新的净买卖金额
         _temp_debug_values["主力资金累积流向门控"] = {"mf_cumulative_flow_gate": mf_cumulative_flow_gate}
         final_score = self._fuse_final_score(net_washout_intent, context_mask, is_upthrust_kline, mf_cumulative_flow_gate)
         _temp_debug_values["最终分数"] = {"final_score": final_score}
@@ -134,13 +134,14 @@ class CalculateUpthrustWashoutRelationship:
         main_force_conviction_raw = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         wash_trade_intensity_raw = self.helper._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
         deception_index_raw = self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-        main_force_intraday_intent = self.helper._get_safe_series(df, 'main_force_intraday_intent_D', 0.0, method_name=method_name) # 新增
+        main_force_intraday_intent = self.helper._get_safe_series(df, 'main_force_intraday_intent_D', 0.0, method_name=method_name)
+        main_force_net_amount_from_hf = self.helper._get_safe_series(df, 'main_force_net_amount_from_hf_D', 0.0, method_name=method_name) # 新增
         return (bias_21, pct_change, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
                 open_price, high_price, close_price, low_price, main_force_net_flow,
                 trend_vitality_index_raw, lower_shadow_absorption_strength_raw,
                 net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
                 main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw,
-                main_force_intraday_intent) # 新增 main_force_intraday_intent
+                main_force_intraday_intent, main_force_net_amount_from_hf) # 新增 main_force_net_amount_from_hf
 
     def _derive_trend_form_score_from_raw(self, df_index: pd.Index, trend_vitality_index_raw: pd.Series, method_name: str) -> pd.Series:
         """
@@ -323,17 +324,17 @@ class CalculateUpthrustWashoutRelationship:
         ], axis=1).max(axis=1)
         return absorption_rebuttal_score
 
-    def _validate_main_force_inflow(self, df_index: pd.Index, main_force_intraday_intent: pd.Series, # 更改参数名
+    def _validate_main_force_inflow(self, df_index: pd.Index, main_force_net_amount_from_hf: pd.Series, # 更改参数名
                                      is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp],
                                      debug_output: Dict) -> pd.Series:
         """
-        【V1.3.0 · 主力日内意图流累积门控】
-        - 核心职责: 评估主力资金的累积日内意图流是否支持洗盘信号。
-        - 核心升级: 使用 `_get_cumulative_context_score` 计算“主力日内意图流”的累积分数，
+        【V1.4.0 · 主力日度净买卖金额累积门控】
+        - 核心职责: 评估主力资金的累积日度净买卖金额是否支持洗盘信号。
+        - 核心升级: 使用 `_get_cumulative_context_score` 计算“主力日度净买卖金额”的累积分数，
                       并设定阈值（0.6）来判断是否通过门控。累积周期调整为13日和21日。
         参数:
             df_index (pd.Index): DataFrame的索引。
-            main_force_intraday_intent (pd.Series): 原始主力日内意图流。
+            main_force_net_amount_from_hf (pd.Series): 原始主力日度净买卖金额。
             is_debug_enabled_for_method (bool): 是否启用调试。
             probe_ts (Optional[pd.Timestamp]): 探针日期。
             debug_output (Dict): 调试输出字典。
@@ -343,12 +344,12 @@ class CalculateUpthrustWashoutRelationship:
         cumulative_periods = [13, 21]
         cumulative_weights = {"13": 0.6, "21": 0.4}
         mf_cumulative_score = self.helper._get_cumulative_context_score(
-            series=main_force_intraday_intent, # 使用新的意图流
+            series=main_force_net_amount_from_hf, # 使用新的净买卖金额
             df_index=df_index,
             periods=cumulative_periods,
             weights=cumulative_weights,
             bipolar=True,
-            signal_name="main_force_intraday_intent_D", # 更新信号名称
+            signal_name="main_force_net_amount_from_hf_D", # 更新信号名称
             is_debug_enabled_for_method=is_debug_enabled_for_method,
             probe_ts=probe_ts,
             debug_output=debug_output
@@ -356,8 +357,8 @@ class CalculateUpthrustWashoutRelationship:
         mf_cumulative_flow_gate = (mf_cumulative_score > 0.6).fillna(False)
         if is_debug_enabled_for_method and probe_ts:
             val_mf_cumulative_score = mf_cumulative_score.loc[probe_ts] if probe_ts in mf_cumulative_score.index else np.nan
-            debug_output[f"      -> 主力日内意图流累积分数: {val_mf_cumulative_score:.4f}"] = ""
-            debug_output[f"      -> 主力日内意图流累积门控 (mf_cumulative_score > 0.6): {mf_cumulative_flow_gate.loc[probe_ts]}"] = ""
+            debug_output[f"      -> 主力日度净买卖金额累积分数: {val_mf_cumulative_score:.4f}"] = ""
+            debug_output[f"      -> 主力日度净买卖金额累积门控 (mf_cumulative_score > 0.6): {mf_cumulative_flow_gate.loc[probe_ts]}"] = ""
         return mf_cumulative_flow_gate
 
     def _fuse_final_score(self, net_washout_intent: pd.Series, context_mask: pd.Series,
