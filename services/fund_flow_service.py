@@ -57,11 +57,13 @@ def _numba_calculate_attribution_modifiers(
 
 class AdvancedFundFlowMetricsService:
     """
-    【V1.0 · 兵工厂模式】高级资金流指标服务
+    【V1.1 · 主力日内意图流增强版】高级资金流指标服务
     - 核心职责: 封装所有高级资金流指标的加载、计算、融合与存储逻辑。
+    - 核心升级: 引入基于高频tick和Level5数据的主力日内意图流分析，
+                 更精细地识别主力主动买卖行为、订单簿控制意图和隐藏订单迹象。
     - 架构优势: 实现业务逻辑与任务调度的完全解耦。
     """
-    def __init__(self, debug_params: dict = None): # 新增 debug_params 参数
+    def __init__(self, debug_params: dict = None):
         self.max_lookback_days = 300
         self.debug_params = debug_params if debug_params is not None else {}
 
@@ -287,42 +289,33 @@ class AdvancedFundFlowMetricsService:
         return raw_hf_df, common_data
 
     def _engineer_hf_features(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
-        """
-        【V64.3 · 主力订单流失衡列名修复版】
-        - 核心修复: 解决 `KeyError: 'main_force_ofi'`。
-                    现在，`hf_analysis_df['main_force_ofi']` 和 `hf_analysis_df['retail_ofi']`
-                    被明确地定义为基于 `net_active_volume` (实际执行的净主动成交量) 的逐笔订单流失衡。
-                    这确保了下游方法能够正确访问这些列，并反映主力/散户的实际成交行为。
-        - 核心思想: `main_force_ofi` 指标名称保持不变，但其底层数据源已从挂单量失衡（`ofi`）
-                    切换为实际执行的净主动成交量（`net_active_volume`），并根据交易金额进行主力/散户划分。
-        """
         import numpy as np
         features = {
             'mf_trades': pd.DataFrame(), 'buy_trades_mask': pd.Series(dtype=bool),
             'sell_trades_mask': pd.Series(dtype=bool), 'total_mf_vol': 0.0,
             'mf_buy_vol': 0.0, 'mf_sell_vol': 0.0, 'offensive_volume': 0.0,
             'passive_volume': 0.0, 'hf_mf_buy_vwap': np.nan, 'hf_mf_sell_vwap': np.nan,
+            'main_force_aggressive_buy_volume': 0.0, 'main_force_aggressive_sell_volume': 0.0, # 新增
+            'main_force_passive_buy_volume': 0.0, 'main_force_passive_sell_volume': 0.0, # 新增
+            'main_force_avg_price_impact': np.nan, # 新增
         }
         if raw_hf_df is None or raw_hf_df.empty:
             return pd.DataFrame(), features
         hf_analysis_df = raw_hf_df.copy()
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
-        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # 确保 mid_price_delta 存在
-        # --- 保留原始的基于挂单量的OFI，用于需要盘口压力的指标 ---
+        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff()
         buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
-        hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote # 这是基于挂单量的OFI
+        hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
         is_main_force_trade = hf_analysis_df['amount'] > 200000
         is_retail_trade = hf_analysis_df['amount'] < 50000
-        # --- 计算净主动成交量 (实际执行的买卖成交量) ---
         active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
         active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
         net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
         net_active_volume_series.loc[active_buy_mask] = hf_analysis_df.loc[active_buy_mask, 'volume']
         net_active_volume_series.loc[active_sell_mask] = -hf_analysis_df.loc[active_sell_mask, 'volume']
         hf_analysis_df['net_active_volume'] = net_active_volume_series
-        # --- 修复：将基于实际执行的净主动成交量赋值给 'main_force_ofi' 和 'retail_ofi' 列 ---
         hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['net_active_volume'], 0)
         hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['net_active_volume'], 0)
         hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff()
@@ -361,17 +354,27 @@ class AdvancedFundFlowMetricsService:
         mf_buy_trades = mf_trades[buy_trades_mask]
         mf_sell_trades = mf_trades[sell_trades_mask]
         if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
+            features['mf_buy_vol'] = mf_buy_trades['volume'].sum()
             features['hf_mf_buy_vwap'] = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
         if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
+            features['mf_sell_vol'] = mf_sell_trades['volume'].sum()
             features['hf_mf_sell_vwap'] = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
         if total_mf_vol > 0:
-            features['mf_buy_vol'] = mf_buy_trades['volume'].sum()
-            features['mf_sell_vol'] = mf_sell_trades['volume'].sum()
             offensive_buy_mask = (buy_trades_mask) & (mf_trades['price'] >= mf_trades['sell_price1'])
             offensive_sell_mask = (sell_trades_mask) & (mf_trades['price'] <= mf_trades['buy_price1'])
-            offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
+            features['main_force_aggressive_buy_volume'] = mf_trades[offensive_buy_mask]['volume'].sum() # 新增
+            features['main_force_aggressive_sell_volume'] = mf_trades[offensive_sell_mask]['volume'].sum() # 新增
+            features['main_force_passive_buy_volume'] = mf_buy_trades['volume'].sum() - features['main_force_aggressive_buy_volume'] # 新增
+            features['main_force_passive_sell_volume'] = mf_sell_trades['volume'].sum() - features['main_force_aggressive_sell_volume'] # 新增
+            offensive_volume = features['main_force_aggressive_buy_volume'] + features['main_force_aggressive_sell_volume']
             features['offensive_volume'] = offensive_volume
             features['passive_volume'] = total_mf_vol - offensive_volume
+            # 计算主力交易的平均价格冲击
+            mf_trades['price_impact'] = np.nan
+            mf_trades.loc[offensive_buy_mask, 'price_impact'] = (mf_trades.loc[offensive_buy_mask, 'price'] - mf_trades.loc[offensive_buy_mask, 'prev_mid_price']).clip(lower=0)
+            mf_trades.loc[offensive_sell_mask, 'price_impact'] = (mf_trades.loc[offensive_sell_mask, 'prev_mid_price'] - mf_trades.loc[offensive_sell_mask, 'price']).clip(lower=0)
+            if offensive_volume > 0:
+                features['main_force_avg_price_impact'] = (mf_trades['price_impact'] * mf_trades['volume']).sum() / offensive_volume
         return hf_analysis_df, features
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
@@ -801,28 +804,32 @@ class AdvancedFundFlowMetricsService:
         )
         hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0))
         current_date = daily_data.name.date()
-        # 根据配置文件中的should_probe和probe_dates判断是否启用探针
         should_probe = self.debug_params.get('should_probe', False) and \
                        (current_date.strftime('%Y-%m-%d') in self.debug_params.get('probe_dates', []))
         context = {
             'intraday_data': intraday_data,
-            'daily_data': daily_data, # 确保这里是原始的 daily_data Series
+            'daily_data': daily_data,
             'hf_analysis_df': hf_analysis_df,
             'common_data': common_data,
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
                 'should_probe': should_probe,
-                'probe_dates': self.debug_params.get('probe_dates', []), # 更新为probe_dates
+                'probe_dates': self.debug_params.get('probe_dates', []),
                 'stock_code': stock_code
             }
         }
+        # 先计算Level5相关指标，因为它们是主力日内意图流的输入
+        mf_metrics = AdvancedFundFlowMetricsService._calculate_level5_order_flow_metrics(context)
+        results.update(mf_metrics)
+        context['mf_metrics'] = mf_metrics # 将Level5指标加入上下文，供后续方法使用
         if not hf_analysis_df.empty:
             results.update(AdvancedFundFlowMetricsService._calculate_main_force_profile_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_ofi_based_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_order_book_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_micro_dynamics_metrics(context))
-            results.update(AdvancedFundFlowMetricsService._calculate_level5_order_flow_metrics(context))
+            # results.update(AdvancedFundFlowMetricsService._calculate_level5_order_flow_metrics(context)) # 已提前计算
+            results.update(AdvancedFundFlowMetricsService._calculate_main_force_intraday_intent(context)) # 新增
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_related_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_opening_battle_metrics(context))
@@ -1023,16 +1030,6 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_level5_order_flow_metrics(context: dict) -> dict:
-        """
-        【V72.3 · Level5订单流失衡版】
-        - 核心职责: 基于Level 5盘口数据，计算主力与散户的订单流失衡比率。
-                    主要关注大额挂单所代表的潜在买卖压力。
-        - 核心逻辑:
-            1. 识别主力挂单：设定 Q_threshold，挂单量大于此阈值视为主力挂单。
-            2. 统计主力/散户买卖盘压力：累加各档位的挂单量，并根据是否为主力挂单进行区分。
-            3. 计算主力/散户订单流失衡比率：(买盘压力 - 卖盘压力) / (买盘压力 + 卖盘压力)。
-            4. 结果归一化为 [-1, 1] 的比率。
-        """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         metrics = {
@@ -1042,22 +1039,23 @@ class AdvancedFundFlowMetricsService:
             'retail_level5_ofi': np.nan,
             'retail_level5_buy_ofi': np.nan,
             'retail_level5_sell_ofi': np.nan,
-            'main_force_level5_ofi_dynamic': np.nan, # 动态变化分析
-            'retail_level5_ofi_dynamic': np.nan,     # 动态变化分析
+            'main_force_level5_ofi_dynamic': np.nan,
+            'retail_level5_ofi_dynamic': np.nan,
+            'mf_hidden_bid_replenishment_ratio': np.nan, # 新增
+            'mf_hidden_ask_replenishment_ratio': np.nan, # 新增
+            'mf_order_cancellation_ratio': np.nan, # 新增
         }
         if hf_analysis_df.empty:
             return metrics
-        # 设定主力挂单量阈值 (Q_threshold)
-        # 可以根据 daily_total_volume 或 ATR 动态调整，这里先用一个固定值作为示例
-        # 假设 1000 手（10万股）以上的挂单被认为是主力挂单
-        Q_threshold = 1000 * 100 # 1000手 * 100股/手 = 10万股
-        # 权重可以根据档位远近设置，这里简化为等权重
-        weights = [1.0, 0.8, 0.6, 0.4, 0.2] # 越靠近盘口权重越高
-        # 存储每个快照的 Level 5 OFI
+        Q_threshold = 1000 * 100
+        weights = [1.0, 0.8, 0.6, 0.4, 0.2]
         main_force_ofi_snapshots = []
         retail_ofi_snapshots = []
-        # 遍历每个快照
-        for _, row in hf_analysis_df.iterrows():
+        mf_replenishment_events = {'bid': 0, 'ask': 0} # 新增
+        mf_cancellation_volume = 0 # 新增
+        mf_total_posted_volume = 0 # 新增
+        prev_row = None # 新增
+        for idx, row in hf_analysis_df.iterrows():
             main_force_bid_pressure = 0.0
             main_force_ask_pressure = 0.0
             retail_bid_pressure = 0.0
@@ -1069,52 +1067,55 @@ class AdvancedFundFlowMetricsService:
                 sell_price_col = f'sell_price{i}'
                 buy_vol = row.get(buy_vol_col, 0)
                 sell_vol = row.get(sell_vol_col, 0)
-                # 确保价格有效，避免0价格导致的问题
                 buy_price = row.get(buy_price_col, 0)
                 sell_price = row.get(sell_price_col, 0)
                 if buy_vol > 0 and buy_price > 0:
                     if buy_vol >= Q_threshold:
                         main_force_bid_pressure += buy_vol * weights[i-1]
+                        mf_total_posted_volume += buy_vol # 新增
+                        if prev_row is not None and prev_row.get(buy_vol_col, 0) > 0 and buy_vol > prev_row.get(buy_vol_col, 0) and buy_price == prev_row.get(buy_price_col, 0):
+                            mf_replenishment_events['bid'] += 1 # 新增
                     else:
                         retail_bid_pressure += buy_vol * weights[i-1]
                 if sell_vol > 0 and sell_price > 0:
                     if sell_vol >= Q_threshold:
                         main_force_ask_pressure += sell_vol * weights[i-1]
+                        mf_total_posted_volume += sell_vol # 新增
+                        if prev_row is not None and prev_row.get(sell_vol_col, 0) > 0 and sell_vol > prev_row.get(sell_vol_col, 0) and sell_price == prev_row.get(sell_price_col, 0):
+                            mf_replenishment_events['ask'] += 1 # 新增
                     else:
                         retail_ask_pressure += sell_vol * weights[i-1]
-            # 计算当前快照的主力订单流失衡比率
+                # 统计主力撤单量 (简化处理：如果大单在下一刻消失或显著减少，且价格未变，则视为撤单)
+                if prev_row is not None: # 新增
+                    if prev_row.get(buy_vol_col, 0) >= Q_threshold and row.get(buy_vol_col, 0) < Q_threshold and buy_price == prev_row.get(buy_price_col, 0):
+                        mf_cancellation_volume += prev_row.get(buy_vol_col, 0) - row.get(buy_vol_col, 0) # 新增
+                    if prev_row.get(sell_vol_col, 0) >= Q_threshold and row.get(sell_vol_col, 0) < Q_threshold and sell_price == prev_row.get(sell_price_col, 0):
+                        mf_cancellation_volume += prev_row.get(sell_vol_col, 0) - row.get(sell_vol_col, 0) # 新增
             total_mf_pressure = main_force_bid_pressure + main_force_ask_pressure
             if total_mf_pressure > 0:
                 main_force_ofi_snapshots.append((main_force_bid_pressure - main_force_ask_pressure) / total_mf_pressure)
             else:
-                main_force_ofi_snapshots.append(0.0) # 无主力挂单时，失衡为0
-            # 计算当前快照的散户订单流失衡比率
+                main_force_ofi_snapshots.append(0.0)
             total_retail_pressure = retail_bid_pressure + retail_ask_pressure
             if total_retail_pressure > 0:
                 retail_ofi_snapshots.append((retail_bid_pressure - retail_ask_pressure) / total_retail_pressure)
             else:
-                retail_ofi_snapshots.append(0.0) # 无散户挂单时，失衡为0
-        # 将快照结果转换为 Series
+                retail_ofi_snapshots.append(0.0)
+            prev_row = row # 新增
         main_force_ofi_series = pd.Series(main_force_ofi_snapshots, index=hf_analysis_df.index)
         retail_ofi_series = pd.Series(retail_ofi_snapshots, index=hf_analysis_df.index)
-        # 对整个交易日的主力/散户 Level 5 OFI 进行加权平均
-        # 可以使用时间差作为权重，或者简单平均
         time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
         total_time = time_diffs.sum()
         if total_time > 0:
-            # 主力 Level 5 OFI
             metrics['main_force_level5_ofi'] = np.average(main_force_ofi_series.dropna(), weights=time_diffs[main_force_ofi_series.notna()])
             metrics['main_force_level5_buy_ofi'] = np.average(main_force_ofi_series.clip(lower=0).dropna(), weights=time_diffs[main_force_ofi_series.notna()])
             metrics['main_force_level5_sell_ofi'] = np.average(main_force_ofi_series.clip(upper=0).dropna(), weights=time_diffs[main_force_ofi_series.notna()])
-            # 散户 Level 5 OFI
             metrics['retail_level5_ofi'] = np.average(retail_ofi_series.dropna(), weights=time_diffs[retail_ofi_series.notna()])
             metrics['retail_level5_buy_ofi'] = np.average(retail_ofi_series.clip(lower=0).dropna(), weights=time_diffs[retail_ofi_series.notna()])
             metrics['retail_level5_sell_ofi'] = np.average(retail_ofi_series.clip(upper=0).dropna(), weights=time_diffs[retail_ofi_series.notna()])
-            # 动态变化分析：计算日内 Level 5 OFI 的平均变化率
             metrics['main_force_level5_ofi_dynamic'] = main_force_ofi_series.diff().mean()
             metrics['retail_level5_ofi_dynamic'] = retail_ofi_series.diff().mean()
         else:
-            # 如果没有有效时间差，则直接取平均值（或保持NaN）
             metrics['main_force_level5_ofi'] = main_force_ofi_series.mean()
             metrics['main_force_level5_buy_ofi'] = main_force_ofi_series.clip(lower=0).mean()
             metrics['main_force_level5_sell_ofi'] = main_force_ofi_series.clip(upper=0).mean()
@@ -1123,6 +1124,84 @@ class AdvancedFundFlowMetricsService:
             metrics['retail_level5_sell_ofi'] = retail_ofi_series.clip(upper=0).mean()
             metrics['main_force_level5_ofi_dynamic'] = main_force_ofi_series.diff().mean()
             metrics['retail_level5_ofi_dynamic'] = retail_ofi_series.diff().mean()
+        # 新增隐藏订单和撤单比率计算
+        total_replenishment_events = mf_replenishment_events['bid'] + mf_replenishment_events['ask']
+        if total_replenishment_events > 0:
+            metrics['mf_hidden_bid_replenishment_ratio'] = mf_replenishment_events['bid'] / total_replenishment_events
+            metrics['mf_hidden_ask_replenishment_ratio'] = mf_replenishment_events['ask'] / total_replenishment_events
+        if mf_total_posted_volume > 0:
+            metrics['mf_order_cancellation_ratio'] = mf_cancellation_volume / mf_total_posted_volume
+        return metrics
+
+    @staticmethod
+    def _calculate_main_force_intraday_intent(context: dict) -> dict:
+        """
+        【V1.0 · 主力日内意图流】
+        - 核心职责: 融合高频tick和Level5数据中提取的主力行为特征，生成日度的“主力日内意图流”指标。
+        - 核心逻辑: 综合主力主动买卖意图、订单簿控制意图、承接/派发意图，并结合日度校准资金流。
+        参数:
+            context (dict): 包含所有计算所需数据和特征的上下文字典。
+        返回:
+            dict: 包含 'main_force_intraday_intent_D' 指标的字典。
+        """
+        metrics = {'main_force_intraday_intent_D': np.nan}
+        daily_data = context['daily_data']
+        hf_features = context['hf_features']
+        mf_metrics = context['mf_metrics'] # 包含 _calculate_level5_order_flow_metrics 的结果
+        atr = daily_data.get('atr_14d', np.nan)
+        if pd.isna(atr) or atr <= 0:
+            return metrics
+        # 1. 主力主动攻击意图 (Aggressive Intent)
+        # 衡量主力主动推高或打压价格的意愿
+        # 使用主力主动买卖量和平均价格冲击
+        main_force_aggressive_buy_volume = hf_features.get('main_force_aggressive_buy_volume', 0.0)
+        main_force_aggressive_sell_volume = hf_features.get('main_force_aggressive_sell_volume', 0.0)
+        main_force_avg_price_impact = hf_features.get('main_force_avg_price_impact', np.nan)
+        # 归一化价格冲击，使其在ATR范围内
+        normalized_price_impact = (main_force_avg_price_impact / atr) if pd.notna(main_force_avg_price_impact) else 0.0
+        # 简单归一化主动买卖量，可以考虑用日总成交量或主力总成交量归一化
+        total_aggressive_volume = main_force_aggressive_buy_volume + main_force_aggressive_sell_volume
+        if total_aggressive_volume > 0:
+            aggressive_buy_ratio = main_force_aggressive_buy_volume / total_aggressive_volume
+            aggressive_sell_ratio = main_force_aggressive_sell_volume / total_aggressive_volume
+            net_aggressive_intent = (aggressive_buy_ratio - aggressive_sell_ratio) * (1 + normalized_price_impact)
+        else:
+            net_aggressive_intent = 0.0
+        # 2. 主力订单簿控制意图 (Order Book Control Intent)
+        # 衡量主力通过挂单对市场预期的影响
+        main_force_level5_ofi = mf_metrics.get('main_force_level5_ofi', 0.0)
+        main_force_level5_ofi_dynamic = mf_metrics.get('main_force_level5_ofi_dynamic', 0.0)
+        mf_hidden_bid_replenishment_ratio = mf_metrics.get('mf_hidden_bid_replenishment_ratio', 0.0)
+        mf_hidden_ask_replenishment_ratio = mf_metrics.get('mf_hidden_ask_replenishment_ratio', 0.0)
+        mf_order_cancellation_ratio = mf_metrics.get('mf_order_cancellation_ratio', 0.0)
+        # 融合Level5指标，隐藏订单补充为正向，撤单为负向
+        order_book_control_score = (
+            0.5 * main_force_level5_ofi +
+            0.2 * main_force_level5_ofi_dynamic +
+            0.2 * (mf_hidden_bid_replenishment_ratio - mf_hidden_ask_replenishment_ratio) -
+            0.1 * mf_order_cancellation_ratio # 撤单可能暗示虚假挂单或意图改变
+        )
+        # 3. 主力承接/派发意图 (Absorption/Distribution Intent)
+        # 衡量主力在价格波动中是吸筹还是派发
+        main_force_passive_buy_volume = hf_features.get('main_force_passive_buy_volume', 0.0)
+        main_force_passive_sell_volume = hf_features.get('main_force_passive_sell_volume', 0.0)
+        total_passive_volume = main_force_passive_buy_volume + main_force_passive_sell_volume
+        if total_passive_volume > 0:
+            net_passive_intent = (main_force_passive_buy_volume - main_force_passive_sell_volume) / total_passive_volume
+        else:
+            net_passive_intent = 0.0
+        # 4. 日度校准资金流 (作为基础参考)
+        main_force_net_flow_calibrated = context['main_force_net_flow_calibrated']
+        # 融合所有组件，权重可调
+        # 假设我们更看重主动攻击和订单簿控制，被动行为次之，日度净流作为背景
+        main_force_intraday_intent = (
+            0.4 * net_aggressive_intent +
+            0.3 * order_book_control_score +
+            0.2 * net_passive_intent +
+            0.1 * (main_force_net_flow_calibrated / abs(main_force_net_flow_calibrated) if main_force_net_flow_calibrated != 0 else 0.0) # 归一化为方向
+        )
+        # 最终归一化到 [-1, 1]
+        metrics['main_force_intraday_intent_D'] = np.tanh(main_force_intraday_intent) # 使用tanh进行平滑归一化
         return metrics
 
     @staticmethod

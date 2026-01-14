@@ -313,12 +313,11 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V72.3 · Level5订单流失衡版】
+    【V73.0 · 主力日内意图流增强版】
     - 核心职责: 存储股票高级资金流和行为指标。
-    - 核心增强: 进一步精细化资金流指标，将净流入拆分为买入和卖出分量，
-                 提供更细致的市场力量洞察。同时，对战术日志指标进行拆分，
-                 以更清晰地揭示买卖双方在特定市场行为中的贡献。
-                 新增基于Level 5盘口数据的主力/散户订单流失衡指标。
+    - 核心增强: 引入基于高频tick和Level5数据的主力日内意图流指标 (main_force_intraday_intent_D)，
+                 更精细地识别主力主动买卖行为、订单簿控制意图和隐藏订单迹象。
+                 同时，增强Level5订单流指标，增加隐藏订单补充和撤单比率。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -431,7 +430,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'buy_quote_exhaustion_rate': '买方报价消耗率(%)',
         'sell_quote_exhaustion_rate': '卖方报价消耗率(%)',
         'imbalance_effectiveness': '盘口失衡有效性',
-        # --- 新增 Level 5 订单流指标 ---
         'main_force_level5_ofi': '主力Level5订单流失衡',
         'main_force_level5_buy_ofi': '主力Level5买入订单流失衡',
         'main_force_level5_sell_ofi': '主力Level5卖出订单流失衡',
@@ -440,6 +438,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_level5_sell_ofi': '散户Level5卖出订单流失衡',
         'main_force_level5_ofi_dynamic': '主力Level5订单流动态变化',
         'retail_level5_ofi_dynamic': '散户Level5订单流动态变化',
+        'mf_hidden_bid_replenishment_ratio': '主力隐藏买单补充比率', # 新增
+        'mf_hidden_ask_replenishment_ratio': '主力隐藏卖单补充比率', # 新增
+        'mf_order_cancellation_ratio': '主力订单撤单比率', # 新增
+        'main_force_intraday_intent_D': '主力日内意图流', # 新增
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
@@ -528,7 +530,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'micro_impact_elasticity',
         'price_reversion_velocity',
         'asymmetric_friction_index',
-        # --- 新增 Level 5 订单流指标 ---
         'main_force_level5_ofi',
         'main_force_level5_buy_ofi',
         'main_force_level5_sell_ofi',
@@ -537,6 +538,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_level5_sell_ofi',
         'main_force_level5_ofi_dynamic',
         'retail_level5_ofi_dynamic',
+        'mf_hidden_bid_replenishment_ratio', # 新增
+        'mf_hidden_ask_replenishment_ratio', # 新增
+        'mf_order_cancellation_ratio', # 新增
+        'main_force_intraday_intent_D', # 新增
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -588,7 +593,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'sell_md_amount_calibrated',
         'buy_sm_amount_calibrated',
         'sell_sm_amount_calibrated',
-        # --- 新增 Level 5 订单流指标 ---
         'main_force_level5_ofi',
         'main_force_level5_buy_ofi',
         'main_force_level5_sell_ofi',
@@ -597,6 +601,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_level5_sell_ofi',
         'main_force_level5_ofi_dynamic',
         'retail_level5_ofi_dynamic',
+        'mf_hidden_bid_replenishment_ratio', # 新增
+        'mf_hidden_ask_replenishment_ratio', # 新增
+        'mf_order_cancellation_ratio', # 新增
+        'main_force_intraday_intent_D', # 新增
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
