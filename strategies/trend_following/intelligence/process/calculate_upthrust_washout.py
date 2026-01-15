@@ -11,7 +11,7 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateUpthrustWashoutRelationship:
     """
-    【V2.9.0 · 趋势上下文分离版】上冲回落洗盘甄别器
+    【V2.9.2 · 吸收强度绝对值校准版】上冲回落洗盘甄别器
     - 核心职责: 识别主力利用“上冲回落”阴线进行的洗盘行为。
     - 核心升级:
         1. 明确区分“中长期趋势上下文”与“短期动量”。
@@ -20,8 +20,10 @@ class CalculateUpthrustWashoutRelationship:
         3. 主力资金门控升级为基于“主力日度净买卖股数”的累积评估，
            该股数直接来源于高频tick数据中识别出的主力交易，更直接地衡量主力对筹码的控制力，
            解决金额累积受股价影响的问题。
-        4. 主力资金累积流向计算周期调整为13日和21日。
-    - 版本: 2.9.0
+        4. 主力资金累积流向计算周期调整为55日。
+        5. 修正 `lower_shadow_strength` 的归一化逻辑，从相对排名归一化改为绝对值映射归一化，
+           确保高吸收强度原始值能正确反映为高归一化分数。
+    - 版本: 2.9.2
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -99,7 +101,6 @@ class CalculateUpthrustWashoutRelationship:
             probe_ts=probe_ts,
             debug_output=debug_output
         )
-        # 传递调试参数给 _derive_lower_shadow_absorption_score_from_raw
         lower_shadow_strength = self._derive_lower_shadow_absorption_score_from_raw(df_index, lower_shadow_absorption_strength_raw, method_name, is_debug_enabled_for_method, probe_ts, debug_output)
         power_transfer = self._derive_power_transfer_score_from_raw(
             df_index, net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
@@ -258,9 +259,9 @@ class CalculateUpthrustWashoutRelationship:
 
     def _derive_lower_shadow_absorption_score_from_raw(self, df_index: pd.Index, lower_shadow_absorption_strength_raw: pd.Series, method_name: str, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict) -> pd.Series:
         """
-        【V1.0.1 · 下影线吸收强度派生器 - 调试增强版】
+        【V1.0.2 · 下影线吸收强度派生器 - 绝对值校准版】
         - 核心职责: 从原始的 `lower_shadow_absorption_strength_D` 派生出下影线吸收强度分数。
-        - 核心升级: 增加调试输出，打印原始信号在探针日期附近的值，以诊断归一化问题。
+        - 核心升级: 修正归一化逻辑，将原始值直接映射到 [0, 1] 范围，假设原始值最大为100。
         参数:
             df_index (pd.Index): DataFrame的索引。
             lower_shadow_absorption_strength_raw (pd.Series): 原始的下影线吸收强度。
@@ -285,7 +286,9 @@ class CalculateUpthrustWashoutRelationship:
                     raw_val = lower_shadow_absorption_strength_raw.loc[current_date] if current_date in lower_shadow_absorption_strength_raw.index else np.nan
                     debug_output[f"            {current_date.strftime('%Y-%m-%d')}: 原始值={raw_val:.4f}"] = ""
 
-        lower_shadow_absorption_score = self.helper._normalize_series(lower_shadow_absorption_strength_raw, df_index, bipolar=False)
+        # 核心修正：直接将原始值除以100进行归一化，并裁剪到 [0, 1] 范围
+        # 假设 lower_shadow_absorption_strength_raw 的范围是 0-100
+        lower_shadow_absorption_score = (lower_shadow_absorption_strength_raw / 100.0).clip(0, 1)
 
         if is_debug_enabled_for_method and probe_ts:
             val_norm = lower_shadow_absorption_score.loc[probe_ts] if probe_ts in lower_shadow_absorption_score.index else np.nan
