@@ -560,10 +560,11 @@ class ProcessIntelligenceHelper:
 
     def _get_cumulative_context_score(self, series: pd.Series, df_index: pd.Index, periods: List[int], weights: Dict[Any, float], bipolar: bool = True, signal_name: str = "", is_debug_enabled_for_method: bool = False, probe_ts: Optional[pd.Timestamp] = None, debug_output: Dict = None) -> pd.Series:
         """
-        【V1.3 · 累积上下文分数计算与调试探针版 - 权重键类型统一】计算给定信号在多个周期内的累积上下文分数。
+        【V1.4 · 累积上下文分数计算与调试探针增强版 - 权重键类型统一 & 每日详情输出】计算给定信号在多个周期内的累积上下文分数。
         该分数反映了信号在中长期的累积净方向和强度。
         核心修正：统一 `weights` 字典的键类型为整数，以确保与 `periods` 列表中的整数周期匹配，
                   解决 `weights.get()` 始终返回默认值 `0.0` 的问题。
+        新增功能：在调试模式下，为每个累积周期输出 `probe_ts` 及其前 `period` 天的原始信号值和累积值。
         参数:
             series (pd.Series): 原始信号序列（例如，每日资金流）。
             df_index (pd.Index): DataFrame的索引。
@@ -579,13 +580,11 @@ class ProcessIntelligenceHelper:
         """
         if debug_output is None:
             debug_output = {}
-        # 核心修正：统一 weights 字典的键类型为整数
         processed_weights = {}
         for k, v in weights.items():
             try:
                 processed_weights[int(k)] = v
             except (ValueError, TypeError):
-                # 如果键无法转换为整数，则保留原始键（虽然在当前场景下不应该发生）
                 processed_weights[k] = v
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"      -- [DEBUG_CUMULATIVE_CONTEXT_START] Signal: '{signal_name}' @ {probe_ts.strftime('%Y-%m-%d')} --"] = ""
@@ -596,20 +595,28 @@ class ProcessIntelligenceHelper:
                 debug_output[f"        Processed Weights Dict is Empty or None."] = ""
         all_cumulative_scores = []
         total_weight = 0.0
-        for period in periods: # period is an int, e.g., 13
+        for period in periods:
             if period <= 0:
                 continue
-            # 计算累积和
             cumulative_sum = series.rolling(window=period, min_periods=1).sum()
-            # 对累积和进行归一化
             norm_cumulative_sum = self._normalize_series(cumulative_sum, df_index, bipolar=bipolar, ascending=True)
-            # 现在从 processed_weights 中获取权重，使用整数 period 作为键
             weight = processed_weights.get(period, 0.0)
             if is_debug_enabled_for_method and probe_ts:
                 val_cumulative_sum = cumulative_sum.loc[probe_ts] if probe_ts in cumulative_sum.index else np.nan
                 val_norm_cumulative_sum = norm_cumulative_sum.loc[probe_ts] if probe_ts in norm_cumulative_sum.index else np.nan
                 debug_output[f"        [DEBUG_WEIGHT_RETRIEVAL_LOOP] Current Period (int): {period}, Retrieved Weight: {weight:.4f}"] = ""
                 debug_output[f"        周期 {period}d: 累积和={val_cumulative_sum:.4f}, 归一化={val_norm_cumulative_sum:.4f}, 权重={weight:.2f}"] = ""
+                debug_output[f"          --- 周期 {period}d 详细累积数据 (截止 {probe_ts.strftime('%Y-%m-%d')}) ---"] = ""
+                if probe_ts not in df_index:
+                    debug_output[f"            [警告] 探针日期 {probe_ts.strftime('%Y-%m-%d')} 不在DataFrame索引中，无法输出详细每日数据。"] = ""
+                else:
+                    probe_ts_idx = df_index.get_loc(probe_ts)
+                    start_idx = max(0, probe_ts_idx - period + 1)
+                    dates_to_display = df_index[start_idx : probe_ts_idx + 1]
+                    for current_date in dates_to_display:
+                        raw_val = series.loc[current_date] if current_date in series.index else np.nan
+                        cum_val = cumulative_sum.loc[current_date] if current_date in cumulative_sum.index else np.nan
+                        debug_output[f"            {current_date.strftime('%Y-%m-%d')}: 原始值={raw_val:.4f}, 累积值={cum_val:.4f}"] = ""
             if weight > 0:
                 all_cumulative_scores.append(norm_cumulative_sum * weight)
                 total_weight += weight

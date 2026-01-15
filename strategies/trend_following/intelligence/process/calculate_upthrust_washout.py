@@ -140,14 +140,14 @@ class CalculateUpthrustWashoutRelationship:
         deception_index_raw = self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
         main_force_intraday_intent = self.helper._get_safe_series(df, 'main_force_intraday_intent_D', 0.0, method_name=method_name)
         main_force_net_amount_from_hf = self.helper._get_safe_series(df, 'main_force_net_amount_from_hf_D', 0.0, method_name=method_name)
-        main_force_net_volume_from_hf = self.helper._get_safe_series(df, 'main_force_net_volume_from_hf_D', 0.0, method_name=method_name) # 新增
+        main_force_net_volume_from_hf = self.helper._get_safe_series(df, 'main_force_net_volume_from_hf_D', 0.0, method_name=method_name)
         return (bias_21, pct_change, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
                 open_price, high_price, close_price, low_price, main_force_net_flow,
                 trend_vitality_index_raw, lower_shadow_absorption_strength_raw,
                 net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
                 main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw,
                 main_force_intraday_intent, main_force_net_amount_from_hf,
-                main_force_net_volume_from_hf) # 新增 main_force_net_volume_from_hf
+                main_force_net_volume_from_hf)
 
     def _derive_trend_form_score_from_raw(self, df_index: pd.Index, trend_vitality_index_raw: pd.Series, method_name: str) -> pd.Series:
         """
@@ -234,14 +234,13 @@ class CalculateUpthrustWashoutRelationship:
 
     def _normalize_signals(self, df_index: pd.Index, upward_purity_raw: pd.Series,
                            upper_shadow_pressure_raw: pd.Series, active_buying_raw: pd.Series,
-                           power_transfer: pd.Series, method_name: str) -> Tuple[pd.Series, ...]: # 移除 main_force_net_flow 参数
+                           power_transfer: pd.Series, method_name: str) -> Tuple[pd.Series, ...]:
         upward_purity_norm = self.helper._normalize_series(upward_purity_raw, df_index, bipolar=False)
         upper_shadow_pressure_norm = self.helper._normalize_series(upper_shadow_pressure_raw, df_index, bipolar=False)
         active_buying_norm = self.helper._normalize_series(active_buying_raw, df_index, bipolar=False)
         power_transfer_norm = power_transfer.clip(lower=0)
-        # main_force_net_flow_norm = self.helper._normalize_series(main_force_net_flow, df_index, bipolar=True) # 移除
         return (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
-                power_transfer_norm) # 移除 main_force_net_flow_norm
+                power_transfer_norm)
 
     def _evaluate_market_context(self, trend_form_score: pd.Series, bias_21: pd.Series, upward_purity_norm: pd.Series) -> pd.Series:
         """
@@ -347,8 +346,8 @@ class CalculateUpthrustWashoutRelationship:
         返回:
             pd.Series: 主力资金累积流向门控 (布尔Series)。
         """
-        cumulative_periods = [55] # 统一改为55日
-        cumulative_weights = {"55": 1.0} # 统一改为55日，权重为1.0
+        cumulative_periods = [55]
+        cumulative_weights = {"55": 1.0}
         mf_cumulative_score = self.helper._get_cumulative_context_score(
             series=main_force_net_volume_from_hf,
             df_index=df_index,
@@ -363,7 +362,7 @@ class CalculateUpthrustWashoutRelationship:
         mf_cumulative_flow_gate = (mf_cumulative_score > 0.6).fillna(False)
         if is_debug_enabled_for_method and probe_ts:
             val_mf_cumulative_score = mf_cumulative_score.loc[probe_ts] if probe_ts in mf_cumulative_score.index else np.nan
-            debug_output[f"      -> 主力日度净买卖股数累积分数 (55日): {val_mf_cumulative_score:.4f}"] = "" # 更新调试信息
+            debug_output[f"      -> 主力日度净买卖股数累积分数 (55日): {val_mf_cumulative_score:.4f}"] = ""
             debug_output[f"      -> 主力日度净买卖股数累积门控 (mf_cumulative_score > 0.6): {mf_cumulative_flow_gate.loc[probe_ts]}"] = ""
         return mf_cumulative_flow_gate
 
