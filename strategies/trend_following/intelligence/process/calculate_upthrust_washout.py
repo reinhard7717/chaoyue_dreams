@@ -52,7 +52,7 @@ class CalculateUpthrustWashoutRelationship:
             'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
             'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'deception_index_D', 'main_force_intraday_intent_D', 'main_force_net_amount_from_hf_D',
-            'main_force_net_volume_from_hf_D' # 新增
+            'main_force_net_volume_from_hf_D'
         ]
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
@@ -66,7 +66,7 @@ class CalculateUpthrustWashoutRelationship:
          net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
          main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw,
          main_force_intraday_intent, main_force_net_amount_from_hf,
-         main_force_net_volume_from_hf) = self._get_raw_signals(df, method_name) # 新增 main_force_net_volume_from_hf
+         main_force_net_volume_from_hf) = self._get_raw_signals(df, method_name)
         _temp_debug_values["原始信号值"] = {
             "bias_21": bias_21, "pct_change": pct_change, "upward_purity_raw": upward_purity_raw,
             "upper_shadow_pressure_raw": upper_shadow_pressure_raw, "active_buying_raw": active_buying_raw,
@@ -81,7 +81,7 @@ class CalculateUpthrustWashoutRelationship:
             "deception_index_raw": deception_index_raw,
             "main_force_intraday_intent": main_force_intraday_intent,
             "main_force_net_amount_from_hf": main_force_net_amount_from_hf,
-            "main_force_net_volume_from_hf": main_force_net_volume_from_hf # 新增
+            "main_force_net_volume_from_hf": main_force_net_volume_from_hf
         }
         trend_form_score = self._derive_trend_form_score_from_raw(df_index, trend_vitality_index_raw, method_name)
         lower_shadow_strength = self._derive_lower_shadow_absorption_score_from_raw(df_index, lower_shadow_absorption_strength_raw, method_name)
@@ -92,7 +92,7 @@ class CalculateUpthrustWashoutRelationship:
         (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
          power_transfer_norm) = self._normalize_signals(
             df_index, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
-            power_transfer
+            power_transfer, method_name # <--- 在这里添加 method_name 参数
         )
         _temp_debug_values["归一化处理"] = {
             "upward_purity_norm": upward_purity_norm,
@@ -110,7 +110,7 @@ class CalculateUpthrustWashoutRelationship:
         _temp_debug_values["承接审判分"] = {"absorption_rebuttal_score": absorption_rebuttal_score}
         net_washout_intent = (absorption_rebuttal_score - selling_pressure_score).clip(0, 1)
         _temp_debug_values["净洗盘意图"] = {"net_washout_intent": net_washout_intent}
-        mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_net_volume_from_hf, is_debug_enabled_for_method, probe_ts, debug_output) # 传入新的净买卖股数
+        mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_net_volume_from_hf, is_debug_enabled_for_method, probe_ts, debug_output)
         _temp_debug_values["主力资金累积流向门控"] = {"mf_cumulative_flow_gate": mf_cumulative_flow_gate}
         final_score = self._fuse_final_score(net_washout_intent, context_mask, is_upthrust_kline, mf_cumulative_flow_gate)
         _temp_debug_values["最终分数"] = {"final_score": final_score}
