@@ -102,7 +102,8 @@
                     },
                     "main_force_flow_context_params": {
                         "enabled": true,
-                        "cumulative_flow_periods": [13, 21, 55],
+                        "cumulative_flow_periods": [55],
+                        "cumulative_flow_weights": {"55": 1.0},
                         "daily_flow_base_weight": 0.3,
                         "cumulative_flow_dynamic_weight_factor": 0.7
                     },
@@ -817,7 +818,7 @@
                 "type": "meta_analysis", "task_type": "base",
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
-                "description": "【V1.0 · 假阴线甄别】识别主力在拉升初期利用高开低走阴线进行的洗盘行为。"
+                "description": "【V2.8 · 主力日度净买卖股数驱动版 - 统一55日周期】识别主力利用“上冲回落”阴线进行的洗盘行为。核心重构: 创立“强证优先”原则，直接取“主动买盘”、“下影线强度”、“权力转移”三者中的最强者作为最终承接证据。K线形态门控调整为：只要收盘价从当日高点回落超过3%就视为符合形态。所有依赖信号均从数据层原始指标派生。市场上下文限制放宽，移除对乖离率的严格要求。主力资金门控升级为基于“主力日度净买卖股数”的累积评估，该股数直接来源于高频tick数据中识别出的主力交易，更直接地衡量主力对筹码的控制力，解决金额累积受股价影响的问题，累积周期统一调整为55日。"
             },
             {
                 "name": "PROCESS_META_ACCUMULATION_INFLECTION",
@@ -847,9 +848,9 @@
                         "cumulative_winner_concentration_90pct": 0.02,
                         "cumulative_chip_fatigue_index": 0.02,
                         "cumulative_cost_gini_coefficient": 0.02,
-                        "cumulative_main_force_buy_amount": 0.15, 
-                        "cumulative_main_force_sell_amount": 0.1, 
-                        "main_force_daily_sell_ratio": 0.05 
+                        "cumulative_main_force_buy_amount": 0.15,
+                        "cumulative_main_force_sell_amount": 0.1,
+                        "main_force_daily_sell_ratio": 0.05
                     },
                     "pressure_resilience_enhancement_weights": {
                         "core_resilience": 0.45,
@@ -922,13 +923,12 @@
                             "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D",
                             "distribution_at_peak_intensity_D",
                             "upper_shadow_selling_pressure_D",
-                            "main_force_buy_amount_calibrated_D", 
-                            "main_force_sell_amount_calibrated_D" 
+                            "main_force_buy_amount_calibrated_D",
+                            "main_force_sell_amount_calibrated_D"
                         ],
-                        "cumulative_periods": [13, 21],
+                        "cumulative_periods": [55],
                         "cumulative_weights": {
-                            "13": 0.6,
-                            "21": 0.4
+                            "55": 1.0
                         }
                     },
                     "inflection_point_params": {
@@ -1782,14 +1782,12 @@
             "price_weakness_slope_window": 5,
             "low_volatility_bbw_window": 21,
             "neutral_range_threshold": 0.1,
-            "cumulative_flow_windows": [13, 21],
-            "cumulative_flow_weights": {"13": 0.6, "21": 0.4},
-            "cumulative_acc_windows": [13, 21],
-            "cumulative_acc_weights": {"13": 0.6, "21": 0.4},
+            "cumulative_flow_windows": [55],
+            "cumulative_flow_weights": {"55": 1.0},
+            "cumulative_acc_windows": [55],
+            "cumulative_acc_weights": {"55": 1.0},
             "daily_mf_flow_weight": 0.4,
-            "cumulative_mf_flow_weight": 0.6,
-            "daily_acc_weight": 0.4,
-            "cumulative_acc_weight": 0.6
+            "cumulative_mf_flow_weight": 0.6
         },
         "main_force_urgency_params": {
             "description": "【V1.0 · 深度博弈版】主力紧迫度计算的权重配置。",

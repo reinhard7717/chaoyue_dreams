@@ -86,12 +86,10 @@ class CalculateCostAdvantageTrendRelationship:
         - 核心新增: 引入更多微观结构和订单流信号，增强主力行为的验证。
         - 版本: 4.2
         """
-        method_name = "calculate_cost_advantage_trend_relationship"
+        method_name = "CalculateCostAdvantageTrendRelationship"
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
-
         # 1. 获取MTF配置
         _, _, _, mtf_slope_accel_weights = self._get_mtf_configs(config)
-
         # 2. 获取所需信号列表并进行验证
         required_signals = self._get_required_signals_list(mtf_slope_accel_weights)
         # 补充情境调制和微观信号到 required_signals
@@ -106,56 +104,43 @@ class CalculateCostAdvantageTrendRelationship:
                 debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
                 self.helper._print_debug_output(debug_output)
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         df_index = df.index
-
         # 3. 获取原始数据和MTF融合信号
         fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
-
         # 4. 归一化处理
         normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
-
         # 5. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(normalized_signals, config, df_index, method_name, _temp_debug_values)
-
         # 6. 计算各象限分数
         Q1_final = self._calculate_q1_healthy_rally(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q2_final = self._calculate_q2_bearish_distribution(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q3_final = self._calculate_q3_golden_pit(fetched_signals, normalized_signals, df_index, dynamic_weights, _temp_debug_values)
         Q4_final = self._calculate_q4_bull_trap(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
-
         # 7. 计算交互项
         interaction_score = self._calculate_interaction_terms(fetched_signals, normalized_signals, config, df_index, _temp_debug_values)
-
         # --- 最终融合 ---
         # 基础融合分数
         base_fusion_score = (Q1_final + Q2_final + Q3_final + Q4_final)
-
         # 叠加交互项
         final_score_with_interaction = base_fusion_score + interaction_score
-
         # 8. 计算动态指数
         dynamic_exponent = self._calculate_dynamic_exponent(fetched_signals, config, df_index, _temp_debug_values)
-
         # 应用动态指数进行非线性放大/平滑
         # 将分数映射到 [0, 1] 区间，应用指数，再映射回 [-1, 1]
         # 对于 [-1, 1] 的分数，可以先映射到 [0, 2]，应用指数，再映射回 [-1, 1]
         final_score_normalized_for_exponent = (final_score_with_interaction + 1) / 2 # 映射到 [0, 1]
         final_score_exponentiated = final_score_normalized_for_exponent.pow(dynamic_exponent)
         final_score = (final_score_exponentiated * 2 - 1).clip(-1, 1) # 映射回 [-1, 1]
-
         _temp_debug_values["最终融合"] = {
             "base_fusion_score": base_fusion_score,
             "final_score_with_interaction": final_score_with_interaction,
             "final_score": final_score
         }
-
         # --- 统一输出调试信息 ---
         if is_debug_enabled_for_method and probe_ts:
             self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
             self.helper._print_debug_output(debug_output)
-
         return final_score.astype(np.float32)
 
     def _get_mtf_configs(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
@@ -200,7 +185,6 @@ class CalculateCostAdvantageTrendRelationship:
         - 版本: 1.1.1
         """
         fetched_signals = {}
-
         # 价格变化和成本优势变化改为MTF融合信号
         fetched_signals['mtf_price_change'] = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         fetched_signals['mtf_ca_change'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -215,7 +199,6 @@ class CalculateCostAdvantageTrendRelationship:
         fetched_signals['main_force_net_flow'] = self.helper._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
         fetched_signals['flow_credibility'] = self.helper._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
         fetched_signals['close_price'] = self.helper._get_safe_series(df, 'close_D', 0.0, method_name=method_name) # 用于计算前置下跌
-
         # --- 新增情境调制信号 ---
         fetched_signals['volatility_instability'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         fetched_signals['adx_trend_strength'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
@@ -223,12 +206,10 @@ class CalculateCostAdvantageTrendRelationship:
         fetched_signals['liquidity_authenticity'] = self.helper._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name=method_name)
         fetched_signals['ma_potential_orderliness_score'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name=method_name) # 替换为MA_POTENTIAL_ORDERLINESS_SCORE_D
         fetched_signals['microstructure_efficiency'] = self.helper._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name)
-
         # --- 新增微观结构和订单流信号 ---
         fetched_signals['main_force_buy_execution_alpha'] = self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name=method_name)
         fetched_signals['main_force_sell_execution_alpha'] = self.helper._get_safe_series(df, 'main_force_sell_execution_alpha_D', 0.0, method_name=method_name)
         fetched_signals['micro_price_impact_asymmetry'] = self.helper._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name=method_name)
-
         _temp_debug_values["原始信号值"] = {k: v for k, v in fetched_signals.items()}
         return fetched_signals
 
@@ -240,7 +221,6 @@ class CalculateCostAdvantageTrendRelationship:
         - 版本: 1.1.2
         """
         normalized_signals = {}
-
         normalized_signals['mtf_main_force_conviction'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         normalized_signals['mtf_upward_purity'] = self.helper._get_mtf_slope_accel_score(df, 'upward_impulse_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         normalized_signals['suppressive_accum_norm'] = self.helper._normalize_series(fetched_signals['suppressive_accum'], df_index, bipolar=False)
@@ -250,7 +230,6 @@ class CalculateCostAdvantageTrendRelationship:
         normalized_signals['active_buying_support_inverted_norm'] = 1 - self.helper._normalize_series(fetched_signals['active_buying_support'], df_index, bipolar=False) # 买盘虚弱度
         normalized_signals['main_force_net_flow_outflow_norm'] = self.helper._normalize_series(fetched_signals['main_force_net_flow'].clip(upper=0).abs(), df_index, bipolar=False) # 主力净流出风险
         normalized_signals['flow_credibility_norm'] = self.helper._normalize_series(fetched_signals['flow_credibility'], df_index, bipolar=False)
-
         # --- 新增情境调制信号归一化 ---
         normalized_signals['volatility_inverse_norm'] = 1 - self.helper._normalize_series(fetched_signals['volatility_instability'], df_index, bipolar=False) # 波动率越低，分数越高
         normalized_signals['trend_strength_inverse_norm'] = 1 - self.helper._normalize_series(fetched_signals['adx_trend_strength'], df_index, bipolar=False) # 趋势强度越低，分数越高
@@ -258,12 +237,10 @@ class CalculateCostAdvantageTrendRelationship:
         normalized_signals['liquidity_authenticity_score_norm'] = self.helper._normalize_series(fetched_signals['liquidity_authenticity'], df_index, bipolar=False)
         normalized_signals['ma_potential_orderliness_score_norm'] = self.helper._normalize_series(fetched_signals['ma_potential_orderliness_score'], df_index, bipolar=False) # 替换为MA_POTENTIAL_ORDERLINESS_SCORE_D
         normalized_signals['microstructure_efficiency_index_norm'] = self.helper._normalize_series(fetched_signals['microstructure_efficiency'], df_index, bipolar=False)
-
         # --- 新增微观结构和订单流信号归一化 ---
         normalized_signals['main_force_buy_execution_alpha_norm'] = self.helper._normalize_series(fetched_signals['main_force_buy_execution_alpha'], df_index, bipolar=False)
         normalized_signals['main_force_sell_execution_alpha_norm'] = self.helper._normalize_series(fetched_signals['main_force_sell_execution_alpha'], df_index, bipolar=False)
         normalized_signals['micro_price_impact_asymmetry_norm'] = self.helper._normalize_series(fetched_signals['micro_price_impact_asymmetry'], df_index, bipolar=False)
-
         _temp_debug_values["归一化处理"] = {k: v for k, v in normalized_signals.items()}
         return normalized_signals
 
@@ -470,10 +447,8 @@ class CalculateCostAdvantageTrendRelationship:
             base_modulator /= total_modulator_weight
         else:
             base_modulator = pd.Series(0.5, index=df_index, dtype=np.float32) # 默认中性调制
-
         # 将 base_modulator 映射到 [0.8, 1.2] 范围，以避免过度调整
         modulator_factor = (base_modulator * 0.4 + 0.8).clip(0.8, 1.2) # 0.5 -> 1.0, 0 -> 0.8, 1 -> 1.2
-
         dynamic_weights = {}
         for q_key in ['Q1_confirmation_weights', 'Q2_confirmation_weights', 'Q3_confirmation_weights', 'Q4_confirmation_weights']:
             base_weights = config.get(q_key, {})
@@ -496,22 +471,18 @@ class CalculateCostAdvantageTrendRelationship:
         """
         interaction_terms_weights = config.get('interaction_terms_weights', {})
         interaction_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-
         # Q1: 主力信念与资金流可信度协同
         if 'Q1_mf_conviction_flow_credibility_synergy' in interaction_terms_weights:
             synergy = normalized_signals['mtf_main_force_conviction'].clip(lower=0) * normalized_signals['flow_credibility_norm']
             interaction_score += synergy * interaction_terms_weights['Q1_mf_conviction_flow_credibility_synergy']
-
         # Q3: 打压吸筹与下影线吸收协同
         if 'Q3_suppressive_absorb_synergy' in interaction_terms_weights:
             synergy = normalized_signals['suppressive_accum_norm'] * fetched_signals['lower_shadow_absorb']
             interaction_score += synergy * interaction_terms_weights['Q3_suppressive_absorb_synergy']
-
         # Q4: 派发强度与主力净流出协同
         if 'Q4_distribution_mf_outflow_synergy' in interaction_terms_weights:
             synergy = normalized_signals['mtf_distribution_intensity'] * normalized_signals['main_force_net_flow_outflow_norm']
             interaction_score += synergy * interaction_terms_weights['Q4_distribution_mf_outflow_synergy']
-
         _temp_debug_values["交互项"] = {
             "interaction_score": interaction_score
         }
@@ -526,22 +497,18 @@ class CalculateCostAdvantageTrendRelationship:
         dynamic_exponent_params = config.get('dynamic_exponent_modulator_weights', {})
         if not dynamic_exponent_params.get('enabled', False):
             return pd.Series(dynamic_exponent_params.get('base_exponent', 1.0), index=df_index, dtype=np.float32)
-
         modulator_signal_name = dynamic_exponent_params.get('modulator_signal')
         sensitivity = dynamic_exponent_params.get('sensitivity', 0.5)
         base_exponent = dynamic_exponent_params.get('base_exponent', 1.0)
         min_exponent = dynamic_exponent_params.get('min_exponent', 1.0)
         max_exponent = dynamic_exponent_params.get('max_exponent', 2.0)
-
         modulator_signal = self.helper._get_safe_series(self.strategy.df, modulator_signal_name, 0.0, method_name="dynamic_exponent")
         # 归一化调制信号到 [0, 1]
         normalized_modulator = self.helper._normalize_series(modulator_signal, df_index, bipolar=False)
-
         # 根据归一化调制信号调整指数
         # 例如，波动率越高，指数越大，放大信号；波动率越低，指数越小，平滑信号
         dynamic_exponent = base_exponent + (normalized_modulator - 0.5) * sensitivity * (max_exponent - min_exponent) * 2
         dynamic_exponent = dynamic_exponent.clip(min_exponent, max_exponent)
-
         _temp_debug_values["动态指数调制"] = {
             "modulator_signal": modulator_signal,
             "normalized_modulator": normalized_modulator,

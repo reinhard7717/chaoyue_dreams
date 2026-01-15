@@ -330,14 +330,14 @@ class CalculateUpthrustWashoutRelationship:
         ], axis=1).max(axis=1)
         return absorption_rebuttal_score
 
-    def _validate_main_force_inflow(self, df_index: pd.Index, main_force_net_volume_from_hf: pd.Series, # 更改参数名
+    def _validate_main_force_inflow(self, df_index: pd.Index, main_force_net_volume_from_hf: pd.Series,
                                      is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp],
                                      debug_output: Dict) -> pd.Series:
         """
-        【V1.5.0 · 主力日度净买卖股数累积门控】
+        【V1.6.0 · 主力日度净买卖股数累积门控 - 统一55日周期】
         - 核心职责: 评估主力资金的累积日度净买卖股数是否支持洗盘信号。
         - 核心升级: 使用 `_get_cumulative_context_score` 计算“主力日度净买卖股数”的累积分数，
-                      并设定阈值（0.6）来判断是否通过门控。累积周期调整为13日和21日。
+                      并设定阈值（0.6）来判断是否通过门控。累积周期统一调整为55日。
         参数:
             df_index (pd.Index): DataFrame的索引。
             main_force_net_volume_from_hf (pd.Series): 原始主力日度净买卖股数。
@@ -347,15 +347,15 @@ class CalculateUpthrustWashoutRelationship:
         返回:
             pd.Series: 主力资金累积流向门控 (布尔Series)。
         """
-        cumulative_periods = [13, 21]
-        cumulative_weights = {"13": 0.6, "21": 0.4}
+        cumulative_periods = [55] # 统一改为55日
+        cumulative_weights = {"55": 1.0} # 统一改为55日，权重为1.0
         mf_cumulative_score = self.helper._get_cumulative_context_score(
-            series=main_force_net_volume_from_hf, # 使用新的净买卖股数
+            series=main_force_net_volume_from_hf,
             df_index=df_index,
             periods=cumulative_periods,
             weights=cumulative_weights,
             bipolar=True,
-            signal_name="main_force_net_volume_from_hf_D", # 更新信号名称
+            signal_name="main_force_net_volume_from_hf_D",
             is_debug_enabled_for_method=is_debug_enabled_for_method,
             probe_ts=probe_ts,
             debug_output=debug_output
@@ -363,7 +363,7 @@ class CalculateUpthrustWashoutRelationship:
         mf_cumulative_flow_gate = (mf_cumulative_score > 0.6).fillna(False)
         if is_debug_enabled_for_method and probe_ts:
             val_mf_cumulative_score = mf_cumulative_score.loc[probe_ts] if probe_ts in mf_cumulative_score.index else np.nan
-            debug_output[f"      -> 主力日度净买卖股数累积分数: {val_mf_cumulative_score:.4f}"] = ""
+            debug_output[f"      -> 主力日度净买卖股数累积分数 (55日): {val_mf_cumulative_score:.4f}"] = "" # 更新调试信息
             debug_output[f"      -> 主力日度净买卖股数累积门控 (mf_cumulative_score > 0.6): {mf_cumulative_flow_gate.loc[probe_ts]}"] = ""
         return mf_cumulative_flow_gate
 
