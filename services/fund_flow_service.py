@@ -316,44 +316,35 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
 
         # --- 动态主力识别逻辑开始 ---
-        intraday_data_for_avg = context['intraday_data'] # 获取当日分钟级别数据
-
-        avg_minute_amount = 0.0
-        avg_minute_volume = 0.0
-
-        if not intraday_data_for_avg.empty and 'amount_yuan' in intraday_data_for_avg.columns and 'vol_shares' in intraday_data_for_avg.columns:
-            avg_minute_amount = intraday_data_for_avg['amount_yuan'].mean()
-            avg_minute_volume = intraday_data_for_avg['vol_shares'].mean()
-        else:
-            # Fallback: 如果分钟数据不可用，从高频数据估算平均分钟成交额/量
-            unique_minutes = hf_analysis_df.index.floor('1min').nunique()
-            if unique_minutes > 0:
-                avg_minute_amount = hf_analysis_df['amount'].sum() / unique_minutes
-                avg_minute_volume = hf_analysis_df['volume'].sum() / unique_minutes
-            else:
-                # 极端情况，如果无法估算，使用一个默认值（例如原有的固定阈值）
-                avg_minute_amount = 200000
-                avg_minute_volume = 2000 # 假设平均价格100元，20万金额对应2000股
+        # 计算当日所有高频交易的平均单笔成交金额和成交量
+        # 这比“平均分钟总成交额/量”更具代表性，能反映该股票当日的普遍交易规模。
+        avg_trade_amount = hf_analysis_df['amount'].mean() if not hf_analysis_df.empty else 0.0
+        avg_trade_volume = hf_analysis_df['volume'].mean() if not hf_analysis_df.empty else 0.0
 
         # 定义动态主力阈值参数
+        # MIN_ABSOLUTE_AMOUNT: 任何低于此金额的交易，无论如何都不是主力。
+        # K1_AMOUNT_MULTIPLIER / K2_VOLUME_MULTIPLIER: 订单金额/量是“平均单笔成交金额/量”的多少倍才算主力。
+        # MIN_ABSOLUTE_VOLUME: 对于低价股，即使金额不大，但股数达到一定量也应算主力。
+        # ABSOLUTE_MAIN_FORCE_AMOUNT: 兜底的绝对主力金额，任何高于此金额的交易都算主力。
         MIN_ABSOLUTE_AMOUNT = 50000 # 最小绝对金额，低于此值直接排除
-        K1_AMOUNT_MULTIPLIER = 2.0 # 订单金额是平均分钟成交额的 K1 倍
-        K2_VOLUME_MULTIPLIER = 2.0 # 订单量是平均分钟成交量的 K2 倍
+        K1_AMOUNT_MULTIPLIER = 3.0 # 订单金额是平均单笔成交额的 K1 倍 (可调，例如3-5倍)
+        K2_VOLUME_MULTIPLIER = 3.0 # 订单量是平均单笔成交量的 K2 倍 (可调，例如3-5倍)
         MIN_ABSOLUTE_VOLUME = 5000 # 最小绝对股数 (例如，对于10元股，5000股是5万，对于1元股，5000股是5千)
+        ABSOLUTE_MAIN_FORCE_AMOUNT = 200000 # 兜底的绝对主力金额，任何高于此金额的交易都算主力
 
         # 动态主力交易判断：
-        # 1. 订单金额必须大于最小绝对金额 (MIN_ABSOLUTE_AMOUNT)
+        # 1. 订单金额必须大于 MIN_ABSOLUTE_AMOUNT (例如 5 万元)
         # 2. 并且满足以下任一条件：
-        #    a. 订单金额大于平均分钟成交额的 K1 倍
-        #    b. 订单成交量大于平均分钟成交量的 K2 倍
-        #    c. 订单金额大于传统的 20 万元固定阈值 (作为强主力信号)
-        #    d. 订单成交量大于最小绝对股数 (MIN_ABSOLUTE_VOLUME)
-        is_main_force_trade = (hf_analysis_df['amount'] > MIN_ABSOLUTE_AMOUNT) & \
+        #    a. 订单金额大于 (K1_AMOUNT_MULTIPLIER * avg_trade_amount)
+        #    b. 订单成交量大于 (K2_VOLUME_MULTIPLIER * avg_trade_volume)
+        #    c. 订单成交量大于 MIN_ABSOLUTE_VOLUME (例如 5000 股)
+        #    d. 订单金额大于 ABSOLUTE_MAIN_FORCE_AMOUNT (例如 20 万元)
+        is_main_force_trade = (hf_analysis_df['amount'] >= MIN_ABSOLUTE_AMOUNT) & \
                               (
-                                  (hf_analysis_df['amount'] > K1_AMOUNT_MULTIPLIER * avg_minute_amount) |
-                                  (hf_analysis_df['volume'] > K2_VOLUME_MULTIPLIER * avg_minute_volume) |
-                                  (hf_analysis_df['amount'] > 200000) |
-                                  (hf_analysis_df['volume'] > MIN_ABSOLUTE_VOLUME)
+                                  (hf_analysis_df['amount'] > K1_AMOUNT_MULTIPLIER * avg_trade_amount) |
+                                  (hf_analysis_df['volume'] > K2_VOLUME_MULTIPLIER * avg_trade_volume) |
+                                  (hf_analysis_df['volume'] >= MIN_ABSOLUTE_VOLUME) |
+                                  (hf_analysis_df['amount'] >= ABSOLUTE_MAIN_FORCE_AMOUNT)
                               )
 
         # 散户交易定义：保持原有的固定金额阈值，或根据需要进行动态调整
@@ -472,8 +463,12 @@ class AdvancedFundFlowMetricsService:
             print(f"    - K1_AMOUNT_MULTIPLIER: {K1_AMOUNT_MULTIPLIER}")
             print(f"    - K2_VOLUME_MULTIPLIER: {K2_VOLUME_MULTIPLIER}")
             print(f"    - MIN_ABSOLUTE_VOLUME: {MIN_ABSOLUTE_VOLUME}")
-            print(f"    - avg_minute_amount: {avg_minute_amount:.2f}")
-            print(f"    - avg_minute_volume: {avg_minute_volume:.2f}")
+            print(f"    - ABSOLUTE_MAIN_FORCE_AMOUNT: {ABSOLUTE_MAIN_FORCE_AMOUNT}")
+            print(f"    - avg_trade_amount (所有交易平均单笔金额): {avg_trade_amount:.2f}")
+            print(f"    - avg_trade_volume (所有交易平均单笔股数): {avg_trade_volume:.2f}")
+            print(f"    - 动态金额阈值 (K1 * avg_trade_amount): {(K1_AMOUNT_MULTIPLIER * avg_trade_amount):.2f}")
+            print(f"    - 动态股数阈值 (K2 * avg_trade_volume): {(K2_VOLUME_MULTIPLIER * avg_trade_volume):.2f}")
+            print(f"    - is_main_force_trade 分布 (新): {is_main_force_trade.value_counts()}")
             print(f"  - 关键计算节点: mf_aggressive_buy_trades['volume'].sum() = {features['main_force_aggressive_buy_volume']:.2f}")
             print(f"  - 关键计算节点: mf_aggressive_sell_trades['volume'].sum() = {features['main_force_aggressive_sell_volume']:.2f}")
             print(f"  - 关键计算节点: mf_mid_trades['volume'].sum() = {mf_mid_trades['volume'].sum():.2f}")
