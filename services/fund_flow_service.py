@@ -314,8 +314,52 @@ class AdvancedFundFlowMetricsService:
         buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
-        is_main_force_trade = hf_analysis_df['amount'] > 200000
+
+        # --- 动态主力识别逻辑开始 ---
+        intraday_data_for_avg = context['intraday_data'] # 获取当日分钟级别数据
+
+        avg_minute_amount = 0.0
+        avg_minute_volume = 0.0
+
+        if not intraday_data_for_avg.empty and 'amount_yuan' in intraday_data_for_avg.columns and 'vol_shares' in intraday_data_for_avg.columns:
+            avg_minute_amount = intraday_data_for_avg['amount_yuan'].mean()
+            avg_minute_volume = intraday_data_for_avg['vol_shares'].mean()
+        else:
+            # Fallback: 如果分钟数据不可用，从高频数据估算平均分钟成交额/量
+            unique_minutes = hf_analysis_df.index.floor('1min').nunique()
+            if unique_minutes > 0:
+                avg_minute_amount = hf_analysis_df['amount'].sum() / unique_minutes
+                avg_minute_volume = hf_analysis_df['volume'].sum() / unique_minutes
+            else:
+                # 极端情况，如果无法估算，使用一个默认值（例如原有的固定阈值）
+                avg_minute_amount = 200000
+                avg_minute_volume = 2000 # 假设平均价格100元，20万金额对应2000股
+
+        # 定义动态主力阈值参数
+        MIN_ABSOLUTE_AMOUNT = 50000 # 最小绝对金额，低于此值直接排除
+        K1_AMOUNT_MULTIPLIER = 2.0 # 订单金额是平均分钟成交额的 K1 倍
+        K2_VOLUME_MULTIPLIER = 2.0 # 订单量是平均分钟成交量的 K2 倍
+        MIN_ABSOLUTE_VOLUME = 5000 # 最小绝对股数 (例如，对于10元股，5000股是5万，对于1元股，5000股是5千)
+
+        # 动态主力交易判断：
+        # 1. 订单金额必须大于最小绝对金额 (MIN_ABSOLUTE_AMOUNT)
+        # 2. 并且满足以下任一条件：
+        #    a. 订单金额大于平均分钟成交额的 K1 倍
+        #    b. 订单成交量大于平均分钟成交量的 K2 倍
+        #    c. 订单金额大于传统的 20 万元固定阈值 (作为强主力信号)
+        #    d. 订单成交量大于最小绝对股数 (MIN_ABSOLUTE_VOLUME)
+        is_main_force_trade = (hf_analysis_df['amount'] > MIN_ABSOLUTE_AMOUNT) & \
+                              (
+                                  (hf_analysis_df['amount'] > K1_AMOUNT_MULTIPLIER * avg_minute_amount) |
+                                  (hf_analysis_df['volume'] > K2_VOLUME_MULTIPLIER * avg_minute_volume) |
+                                  (hf_analysis_df['amount'] > 200000) |
+                                  (hf_analysis_df['volume'] > MIN_ABSOLUTE_VOLUME)
+                              )
+
+        # 散户交易定义：保持原有的固定金额阈值，或根据需要进行动态调整
         is_retail_trade = hf_analysis_df['amount'] < 50000
+        # --- 动态主力识别逻辑结束 ---
+
         net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
         active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
         active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
@@ -423,6 +467,13 @@ class AdvancedFundFlowMetricsService:
                 print(f"    - 'mid_price_change' 分布 (主力交易): {mf_trades['mid_price_change'].describe()}")
             else:
                 print(f"    - 无主力交易数据。")
+            print(f"  - 动态主力识别参数:")
+            print(f"    - MIN_ABSOLUTE_AMOUNT: {MIN_ABSOLUTE_AMOUNT}")
+            print(f"    - K1_AMOUNT_MULTIPLIER: {K1_AMOUNT_MULTIPLIER}")
+            print(f"    - K2_VOLUME_MULTIPLIER: {K2_VOLUME_MULTIPLIER}")
+            print(f"    - MIN_ABSOLUTE_VOLUME: {MIN_ABSOLUTE_VOLUME}")
+            print(f"    - avg_minute_amount: {avg_minute_amount:.2f}")
+            print(f"    - avg_minute_volume: {avg_minute_volume:.2f}")
             print(f"  - 关键计算节点: mf_aggressive_buy_trades['volume'].sum() = {features['main_force_aggressive_buy_volume']:.2f}")
             print(f"  - 关键计算节点: mf_aggressive_sell_trades['volume'].sum() = {features['main_force_aggressive_sell_volume']:.2f}")
             print(f"  - 关键计算节点: mf_mid_trades['volume'].sum() = {mf_mid_trades['volume'].sum():.2f}")
@@ -862,6 +913,10 @@ class AdvancedFundFlowMetricsService:
         return pd.DataFrame.from_dict(all_results, orient='index').set_index('trade_time')
 
     def _compute_all_behavioral_metrics(self, stock_code: str, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
+        """
+        【V1.5 · 主力动态识别版】计算所有行为指标的统一入口。
+        - 核心升级: 继承类级别的主力动态识别逻辑，确保所有依赖主力交易的指标都基于更精确的定义。
+        """
         results = {}
         if intraday_data.empty:
             return results
@@ -909,6 +964,10 @@ class AdvancedFundFlowMetricsService:
             if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
                 print(f"\n--- [探针 _compute_all_behavioral_metrics] {stock_code} {current_date} - 主力日度净买卖金额/股数结果 ---")
                 print(f"  - 从 hf_features 获取:")
+                print(f"    - main_force_aggressive_buy_volume: {hf_features.get('main_force_aggressive_buy_volume', 0.0):.2f}")
+                print(f"    - main_force_aggressive_sell_volume: {hf_features.get('main_force_aggressive_sell_volume', 0.0):.2f}")
+                print(f"    - main_force_passive_buy_volume: {hf_features.get('main_force_passive_buy_volume', 0.0):.2f}")
+                print(f"    - main_force_passive_sell_volume: {hf_features.get('main_force_passive_sell_volume', 0.0):.2f}")
                 print(f"    - main_force_daily_buy_amount: {main_force_daily_buy_amount:.2f}")
                 print(f"    - main_force_daily_sell_amount: {main_force_daily_sell_amount:.2f}")
                 print(f"    - main_force_daily_buy_volume: {main_force_daily_buy_volume:.2f}")
