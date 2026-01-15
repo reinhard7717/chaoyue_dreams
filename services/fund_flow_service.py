@@ -310,7 +310,7 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df = raw_hf_df.copy()
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
-        hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff() # 确保此列存在且命名正确
+        hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff()
         buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
@@ -324,11 +324,39 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['net_active_volume'] = net_active_volume_series
         hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['net_active_volume'], 0)
         hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['net_active_volume'], 0)
-        # 确保 prev_a1_p 等列在这里被创建
         hf_analysis_df['prev_a1_p'] = hf_analysis_df['sell_price1'].shift(1)
         hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
         hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
         hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
+        # 确保 imbalance 和 liquidity_supply_ratio 列始终存在，即使计算失败也填充 np.nan
+        hf_analysis_df['imbalance'] = np.nan
+        hf_analysis_df['liquidity_supply_ratio'] = np.nan
+        try:
+            # 检查所有 Level 5 订单簿列是否存在
+            required_level5_cols = [f'{side}_{col}{i}' for i in range(1, 6) for side in ['buy', 'sell'] for col in ['volume', 'price']]
+            if all(col in hf_analysis_df.columns for col in required_level5_cols):
+                weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index)
+                weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
+                total_buy_value = pd.Series(0, index=hf_analysis_df.index)
+                total_sell_value = pd.Series(0, index=hf_analysis_df.index)
+                for i in range(1, 6):
+                    weight = 1 / i
+                    weighted_buy_vol += hf_analysis_df[f'buy_volume{i}'] * weight
+                    weighted_sell_vol += hf_analysis_df[f'sell_volume{i}'] * weight
+                    total_buy_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'buy_price{i}']
+                    total_sell_value += hf_analysis_df[f'sell_volume{i}'] * hf_analysis_df[f'sell_price{i}']
+                sum_weighted_vol = (weighted_buy_vol + weighted_sell_vol)
+                if (sum_weighted_vol > 1e-9).any():
+                    hf_analysis_df['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / sum_weighted_vol.replace(0, np.nan)
+                if (total_sell_value > 1e-9).any():
+                    hf_analysis_df['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
+            else:
+                # 如果缺少 Level 5 列，则 imbalance 和 liquidity_supply_ratio 保持为 np.nan
+                pass
+        except Exception as e:
+            # 记录错误，但列已初始化为 np.nan，不会导致 KeyError
+            logger.warning(f"Error calculating imbalance/liquidity_supply_ratio: {e}")
+            pass
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
             return hf_analysis_df, features
@@ -1014,7 +1042,7 @@ class AdvancedFundFlowMetricsService:
             'retail_sell_ofi': np.nan,
             'microstructure_efficiency_index': np.nan,
         }
-        if hf_analysis_df.empty: # 增加空数据检查
+        if hf_analysis_df.empty:
             return metrics
         # --- 计算主力订单流失衡比率 (基于实际执行成交量) ---
         mf_net_ofi_sum = hf_analysis_df['main_force_ofi'].sum()
@@ -1233,12 +1261,13 @@ class AdvancedFundFlowMetricsService:
         【V72.0 · 资金流拆分版】
         - 核心增强: 拆分 `order_book_clearing_rate` 和 `order_book_imbalance` 为买卖双方贡献。
         - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
+        - 核心修复: 在访问 `imbalance` 和 `liquidity_supply_ratio` 之前，增加列存在性检查。
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         import numpy as np
         metrics = {}
-        if hf_analysis_df.empty: # 增加空数据检查
+        if hf_analysis_df.empty:
             return metrics
         daily_total_volume = common_data['daily_total_volume']
         large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
@@ -1252,7 +1281,6 @@ class AdvancedFundFlowMetricsService:
             if vol_per_tick_down > 1e-9:
                 asymmetry_ratio = vol_per_tick_up / vol_per_tick_down
                 metrics['micro_price_impact_asymmetry'] = np.log(asymmetry_ratio) if asymmetry_ratio > 1e-9 else np.nan
-        # 确保 prev_a1_p 和 prev_b1_p 存在
         if 'prev_a1_p' in hf_analysis_df.columns and 'prev_b1_p' in hf_analysis_df.columns:
             ask_clearing_mask = (hf_analysis_df['type'] == 'B') & (hf_analysis_df['price'] == hf_analysis_df['prev_a1_p'])
             ask_clearing_vol = hf_analysis_df.loc[ask_clearing_mask, 'volume'].sum()
@@ -1266,41 +1294,49 @@ class AdvancedFundFlowMetricsService:
         try:
             time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
             if time_diffs.sum() > 0:
-                metrics['order_book_imbalance'] = np.average(hf_analysis_df['imbalance'].dropna(), weights=time_diffs[hf_analysis_df['imbalance'].notna()]) * 100
-                metrics['order_book_liquidity_supply'] = np.average(hf_analysis_df['liquidity_supply_ratio'].dropna(), weights=time_diffs[hf_analysis_df['liquidity_supply_ratio'].notna()])
+                if 'imbalance' in hf_analysis_df.columns: # 增加列存在性检查
+                    metrics['order_book_imbalance'] = np.average(hf_analysis_df['imbalance'].dropna(), weights=time_diffs[hf_analysis_df['imbalance'].notna()]) * 100
+                if 'liquidity_supply_ratio' in hf_analysis_df.columns: # 增加列存在性检查
+                    metrics['order_book_liquidity_supply'] = np.average(hf_analysis_df['liquidity_supply_ratio'].dropna(), weights=time_diffs[hf_analysis_df['liquidity_supply_ratio'].notna()])
                 bid_liquidity_cols = [f'buy_volume{i}' for i in range(1, 6)]
                 ask_liquidity_cols = [f'sell_volume{i}' for i in range(1, 6)]
-                bid_depth_series = hf_analysis_df[bid_liquidity_cols].sum(axis=1)
-                ask_depth_series = hf_analysis_df[ask_liquidity_cols].sum(axis=1)
-                metrics['bid_side_liquidity'] = np.average(bid_depth_series.dropna(), weights=time_diffs[bid_depth_series.notna()]) if bid_depth_series.notna().any() else np.nan
-                metrics['ask_side_liquidity'] = np.average(ask_depth_series.dropna(), weights=time_diffs[ask_depth_series.notna()]) if ask_depth_series.notna().any() else np.nan
-            if 'market_vol_delta' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
-                correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
-                metrics['imbalance_effectiveness'] = correlation_value
+                # 检查所有 Level 5 订单簿列是否存在
+                if all(col in hf_analysis_df.columns for col in bid_liquidity_cols) and all(col in hf_analysis_df.columns for col in ask_liquidity_cols):
+                    bid_depth_series = hf_analysis_df[bid_liquidity_cols].sum(axis=1)
+                    ask_depth_series = hf_analysis_df[ask_liquidity_cols].sum(axis=1)
+                    metrics['bid_side_liquidity'] = np.average(bid_depth_series.dropna(), weights=time_diffs[bid_depth_series.notna()]) if bid_depth_series.notna().any() else np.nan
+                    metrics['ask_side_liquidity'] = np.average(ask_depth_series.dropna(), weights=time_diffs[ask_depth_series.notna()]) if ask_depth_series.notna().any() else np.nan
+                if 'market_vol_delta' in hf_analysis_df.columns and 'imbalance' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
+                    correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
+                    metrics['imbalance_effectiveness'] = correlation_value
         except Exception:
             pass
         try:
             df_static = hf_analysis_df.copy()
             large_order_threshold_value = 500000
-            pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
-            support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
-            time_diffs = df_static.index.to_series().diff().dt.total_seconds().fillna(0)
-            pressure_strength = 0; support_strength = 0
-            if 'market_vol_delta' in df_static.columns:
-                market_activity = df_static['market_vol_delta'].rolling(window=20, min_periods=1).mean().replace(0, np.nan)
-                activity_factor = 1 / np.log1p(market_activity)
-                pressure_strength = (time_diffs * activity_factor)[pressure_mask].sum()
-                support_strength = (time_diffs * activity_factor)[support_mask].sum()
+            # 检查 Level 5 订单簿列是否存在
+            required_level5_cols_for_pressure = ['sell_volume1', 'sell_price1', 'sell_volume2', 'sell_price2', 'buy_volume1', 'buy_price1', 'buy_volume2', 'buy_price2']
+            if all(col in df_static.columns for col in required_level5_cols_for_pressure):
+                pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
+                support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
+                time_diffs = df_static.index.to_series().diff().dt.total_seconds().fillna(0)
+                pressure_strength = 0; support_strength = 0
+                if 'market_vol_delta' in df_static.columns:
+                    market_activity = df_static['market_vol_delta'].rolling(window=20, min_periods=1).mean().replace(0, np.nan)
+                    activity_factor = 1 / np.log1p(market_activity)
+                    pressure_strength = (time_diffs * activity_factor)[pressure_mask].sum()
+                    support_strength = (time_diffs * activity_factor)[support_mask].sum()
+                else:
+                    pressure_strength = time_diffs[pressure_mask].sum(); support_strength = time_diffs[support_mask].sum()
+                total_trading_seconds = (df_static.index.max() - df_static.index.min()).total_seconds()
+                if total_trading_seconds > 0:
+                    metrics['large_order_pressure'] = (pressure_strength / total_trading_seconds) * 100
+                    metrics['large_order_support'] = (support_strength / total_trading_seconds) * 100
             else:
-                pressure_strength = time_diffs[pressure_mask].sum(); support_strength = time_diffs[support_mask].sum()
-            total_trading_seconds = (df_static.index.max() - df_static.index.min()).total_seconds()
-            if total_trading_seconds > 0:
-                metrics['large_order_pressure'] = (pressure_strength / total_trading_seconds) * 100
-                metrics['large_order_support'] = (support_strength / total_trading_seconds) * 100
+                metrics['large_order_pressure'] = np.nan; metrics['large_order_support'] = np.nan
         except Exception:
             metrics['large_order_pressure'] = np.nan; metrics['large_order_support'] = np.nan
-        # 确保 prev_a1_v 和 prev_b1_v 存在
-        if 'prev_a1_v' in hf_analysis_df.columns and 'prev_b1_v' in hf_analysis_df.columns:
+        if 'prev_a1_p' in hf_analysis_df.columns and 'prev_b1_p' in hf_analysis_df.columns and 'prev_a1_v' in hf_analysis_df.columns and 'prev_b1_v' in hf_analysis_df.columns:
             try:
                 buy_exhaustion_mask = hf_analysis_df['sell_price1'] > hf_analysis_df['prev_a1_p']
                 buy_exhausted_vol = hf_analysis_df.loc[buy_exhaustion_mask, 'prev_a1_v'].sum()
@@ -1542,6 +1578,7 @@ class AdvancedFundFlowMetricsService:
         【V72.0 · 资金流拆分版】
         - 核心增强: 拆分 `pre_closing_posturing` 和 `closing_auction_ambush` 为买卖双方姿态/伏击。
         - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
+        - 核心修复: 在访问 `imbalance` 之前，增加列存在性检查。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -1549,7 +1586,7 @@ class AdvancedFundFlowMetricsService:
         from datetime import time
         import numpy as np
         metrics = {}
-        if hf_analysis_df.empty: # 增加空数据检查
+        if hf_analysis_df.empty:
             return metrics
         day_close = common_data['day_close']
         daily_vwap = common_data['daily_vwap']
@@ -1565,7 +1602,7 @@ class AdvancedFundFlowMetricsService:
                 if not pre_auction_df.empty:
                     pre_auction_snapshot = pre_auction_df.iloc[-1]
                     pre_auction_mid = pre_auction_snapshot['mid_price']
-                    pre_auction_imbalance = pre_auction_snapshot['imbalance']
+                    pre_auction_imbalance = pre_auction_snapshot['imbalance'] if 'imbalance' in pre_auction_snapshot else np.nan # 增加列存在性检查
                     PriceDeviation = (day_close - pre_auction_mid) / atr if pd.notna(pre_auction_mid) else 0.0
                     Deception = -np.sign(PriceDeviation) * pre_auction_imbalance if pd.notna(pre_auction_imbalance) else 0.0
                     metrics['closing_auction_ambush'] = PriceDeviation * VolumeAnomaly * (1 + Deception) * 100
@@ -1575,7 +1612,7 @@ class AdvancedFundFlowMetricsService:
                     if total_auction_vol > 0:
                         metrics['closing_auction_buy_ambush'] = (mf_auction_buy_vol / total_auction_vol) * PriceDeviation * VolumeAnomaly * 100
                         metrics['closing_auction_sell_ambush'] = (mf_auction_sell_vol / total_auction_vol) * PriceDeviation * VolumeAnomaly * 100
-                else: # Fallback if pre_auction_df is empty
+                else:
                     pre_auction_close = continuous_trading_df['close'].iloc[-1]
                     PriceImpact = (day_close - pre_auction_close) / atr if pd.notna(pre_auction_close) else 0.0
                     metrics['closing_auction_ambush'] = PriceImpact * VolumeAnomaly * 100
@@ -1591,9 +1628,11 @@ class AdvancedFundFlowMetricsService:
                 if not posturing_hf_df.empty:
                     time_diffs = posturing_hf_df.index.to_series().diff().dt.total_seconds().fillna(0)
                     if time_diffs.sum() > 0:
-                        avg_imbalance = np.average(posturing_hf_df['imbalance'].dropna(), weights=time_diffs[posturing_hf_df['imbalance'].notna()])
+                        avg_imbalance = np.nan
+                        if 'imbalance' in posturing_hf_df.columns: # 增加列存在性检查
+                            avg_imbalance = np.average(posturing_hf_df['imbalance'].dropna(), weights=time_diffs[posturing_hf_df['imbalance'].notna()])
                         avg_spread = (posturing_hf_df['sell_price1'] - posturing_hf_df['buy_price1']).mean()
-                        normalized_imbalance = avg_imbalance * (avg_spread / atr) if pd.notna(avg_spread) and avg_spread > 0 else 0
+                        normalized_imbalance = avg_imbalance * (avg_spread / atr) if pd.notna(avg_imbalance) and pd.notna(avg_spread) and avg_spread > 0 else 0
                         metrics['pre_closing_posturing'] = normalized_imbalance * 100
                         mf_buy_ofi_posturing = posturing_hf_df['main_force_ofi'].clip(lower=0).sum()
                         mf_sell_ofi_posturing = posturing_hf_df['main_force_ofi'].clip(upper=0).sum()
@@ -1601,7 +1640,7 @@ class AdvancedFundFlowMetricsService:
                         if total_mf_ofi_abs_posturing > 0:
                             metrics['pre_closing_buy_posture'] = (mf_buy_ofi_posturing / total_mf_ofi_abs_posturing) * normalized_imbalance * 100
                             metrics['pre_closing_sell_posture'] = (abs(mf_sell_ofi_posturing) / total_mf_ofi_abs_posturing) * normalized_imbalance * 100
-                else: # Fallback if posturing_hf_df is empty
+                else:
                     if 'vol_shares' in posturing_df.columns and 'minute_vwap' in posturing_df.columns and 'main_force_net_vol' in posturing_df.columns:
                         posturing_vwap = (posturing_df['vol_shares'] * posturing_df['minute_vwap']).sum() / posturing_df['vol_shares'].sum()
                         price_posture = (posturing_vwap - daily_vwap) / atr
@@ -2249,8 +2288,9 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_misc_minute_metrics(context: dict) -> dict:
         """
-        【V71.0 · 终极生产版 - 命名一致性修复】
+        【V71.0 · 终极生产版 - 命名一致性修复 - 空数据鲁棒性增强】
         - 核心修复: 将所有对 `mid_price_delta` 的引用改为 `mid_price_change`，以保持命名一致性。
+        - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -2259,10 +2299,32 @@ class AdvancedFundFlowMetricsService:
         import numpy as np
         import pandas as pd
         metrics = {}
+        if hf_analysis_df.empty:
+            # Fallback to intraday_data based calculation if hf_analysis_df is empty
+            day_open, day_close = common_data['day_open'], common_data['day_close']
+            atr = common_data['atr']
+            daily_total_volume = common_data['daily_total_volume']
+            if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
+                mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
+                if mf_activity_ratio > 0:
+                    price_outcome = (day_close - day_open) / atr
+                    metrics['trend_alignment_index'] = price_outcome / mf_activity_ratio
+            continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+            if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
+                up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
+                down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
+                if not up_minutes.empty and not down_minutes.empty:
+                    up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
+                    down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
+                    avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
+                    avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
+                    if avg_up_speed > 0 and avg_down_speed > 0:
+                        metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
+            return metrics
         day_open, day_close = common_data['day_open'], common_data['day_close']
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
-        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns: # 修正：增加 mid_price_change 检查
+        if 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
             ema_span = 60
             df = hf_analysis_df.copy()
             df['mid_price_ema'] = df['mid_price'].ewm(span=ema_span, adjust=False).mean()
@@ -2710,9 +2772,11 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_micro_dynamics_metrics(context: dict) -> dict:
         """
-        【V68.2 · 阻力升维终版】(生产环境清洁版)
+        【V68.2 · 阻力升维终版 - 命名一致性修复 - 空数据鲁棒性增强】
         - 核心逻辑: 废弃“弹性”概念，转向更本质的“阻力”概念 (abs(总净主动量) / abs(总价差))，
                      确保 `asymmetric_friction_index` 在任何市场场景下都具有数学鲁棒性。
+        - 核心修复: 将所有对 `mid_price_delta` 的引用改为 `mid_price_change`，以保持命名一致性。
+        - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
         """
         hf_analysis_df = context['hf_analysis_df']
         import numpy as np
@@ -2722,30 +2786,30 @@ class AdvancedFundFlowMetricsService:
             'price_reversion_velocity': np.nan,
             'asymmetric_friction_index': np.nan,
         }
-        if hf_analysis_df.empty or 'mid_price_delta' not in hf_analysis_df.columns:
+        if hf_analysis_df.empty or 'mid_price_change' not in hf_analysis_df.columns:
             return metrics
-        elasticity_series = hf_analysis_df['mid_price_delta'] / hf_analysis_df['net_active_volume'].replace(0, np.nan)
+        elasticity_series = hf_analysis_df['mid_price_change'] / hf_analysis_df['net_active_volume'].replace(0, np.nan)
         weights_vol = hf_analysis_df['volume']
         valid_elasticity = elasticity_series.dropna()
         if not valid_elasticity.empty and weights_vol.sum() > 0:
             metrics['micro_impact_elasticity'] = np.average(valid_elasticity, weights=weights_vol[elasticity_series.notna()])
-        hf_analysis_df['next_mid_price_delta'] = hf_analysis_df['mid_price_delta'].shift(-1)
-        reversion_df = hf_analysis_df.dropna(subset=['mid_price_delta', 'next_mid_price_delta'])
-        if not reversion_df.empty and reversion_df['mid_price_delta'].var() > 0 and reversion_df['next_mid_price_delta'].var() > 0:
-            reversion_product = -reversion_df['mid_price_delta'] * reversion_df['next_mid_price_delta']
+        hf_analysis_df['next_mid_price_change'] = hf_analysis_df['mid_price_change'].shift(-1)
+        reversion_df = hf_analysis_df.dropna(subset=['mid_price_change', 'next_mid_price_change'])
+        if not reversion_df.empty and reversion_df['mid_price_change'].var() > 0 and reversion_df['next_mid_price_change'].var() > 0:
+            reversion_product = -reversion_df['mid_price_change'] * reversion_df['next_mid_price_change']
             reversion_signal = np.sign(reversion_product)
             weights_rev = reversion_df['volume']
             if weights_rev.sum() > 0:
                 metrics['price_reversion_velocity'] = np.average(reversion_signal, weights=weights_rev) * 100
-        up_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] > 0]
-        down_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] < 0]
+        up_moves = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
+        down_moves = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
         if not up_moves.empty and not down_moves.empty:
-            up_price_delta_sum = up_moves['mid_price_delta'].sum()
+            up_price_change_sum = up_moves['mid_price_change'].sum()
             up_net_vol_abs_sum = abs(up_moves['net_active_volume'].sum())
-            down_price_delta_abs_sum = abs(down_moves['mid_price_delta'].sum())
+            down_price_change_abs_sum = abs(down_moves['mid_price_change'].sum())
             down_net_vol_abs_sum = abs(down_moves['net_active_volume'].sum())
-            upward_resistance = up_net_vol_abs_sum / up_price_delta_sum if up_price_delta_sum > 0 else np.nan
-            downward_resistance = down_net_vol_abs_sum / down_price_delta_abs_sum if down_price_delta_abs_sum > 0 else np.nan
+            upward_resistance = up_net_vol_abs_sum / up_price_change_sum if up_price_change_sum > 0 else np.nan
+            downward_resistance = down_net_vol_abs_sum / down_price_change_abs_sum if down_price_change_abs_sum > 0 else np.nan
             if pd.notna(upward_resistance) and pd.notna(downward_resistance) and downward_resistance > 0:
                 friction_ratio = upward_resistance / downward_resistance
                 metrics['asymmetric_friction_index'] = np.log(friction_ratio) if friction_ratio > 0 else np.nan
