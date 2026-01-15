@@ -11,7 +11,7 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateUpthrustWashoutRelationship:
     """
-    【V2.9.2 · 吸收强度绝对值校准版】上冲回落洗盘甄别器
+    【V2.9.4 · 净洗盘意图背离放大版】上冲回落洗盘甄别器
     - 核心职责: 识别主力利用“上冲回落”阴线进行的洗盘行为。
     - 核心升级:
         1. 明确区分“中长期趋势上下文”与“短期动量”。
@@ -23,8 +23,14 @@ class CalculateUpthrustWashoutRelationship:
         4. 主力资金累积流向计算周期调整为55日。
         5. 修正 `lower_shadow_strength` 的归一化逻辑，从相对排名归一化改为绝对值映射归一化，
            确保高吸收强度原始值能正确反映为高归一化分数。
-    - 版本: 2.9.2
+        6. 优化 `_assess_selling_pressure` 方法，引入“吸收强度缓解因子”，
+           当 `lower_shadow_strength` 较高时，适当降低负收盘价对卖压分数的贡献，
+           以更好地捕捉洗盘中“卖压被吸收”的本质。
+        7. **新增 `_calculate_net_washout_intent` 方法，并在其中实现“净洗盘意图背离放大”机制。**
+           当承接力量大于卖压且股价下跌时，非线性放大净洗盘意图分数，以更准确地识别洗盘特征。
+    - 版本: 2.9.4
     """
+
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
         self.helper = helper_instance
@@ -126,11 +132,13 @@ class CalculateUpthrustWashoutRelationship:
         _temp_debug_values["市场上下文"] = {"context_mask": context_mask}
         is_upthrust_kline = self._identify_kline_pattern(open_price, high_price, close_price, low_price, pct_change)
         _temp_debug_values["K线形态门控"] = {"is_upthrust_kline": is_upthrust_kline}
-        selling_pressure_score = self._assess_selling_pressure(upper_shadow_pressure_norm, pct_change)
+        # 传递 lower_shadow_strength 给 _assess_selling_pressure
+        selling_pressure_score = self._assess_selling_pressure(upper_shadow_pressure_norm, pct_change, lower_shadow_strength)
         _temp_debug_values["卖压审判分"] = {"selling_pressure_score": selling_pressure_score}
         absorption_rebuttal_score = self._assess_absorption_rebuttal(active_buying_norm, lower_shadow_strength, power_transfer_norm)
         _temp_debug_values["承接审判分"] = {"absorption_rebuttal_score": absorption_rebuttal_score}
-        net_washout_intent = (absorption_rebuttal_score - selling_pressure_score).clip(0, 1)
+        # 调用新的方法计算净洗盘意图
+        net_washout_intent = self._calculate_net_washout_intent(absorption_rebuttal_score, selling_pressure_score, pct_change, df_index)
         _temp_debug_values["净洗盘意图"] = {"net_washout_intent": net_washout_intent}
         mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_net_volume_from_hf, is_debug_enabled_for_method, probe_ts, debug_output)
         _temp_debug_values["主力资金累积流向门控"] = {"mf_cumulative_flow_gate": mf_cumulative_flow_gate}
@@ -174,7 +182,6 @@ class CalculateUpthrustWashoutRelationship:
         val_upward_purity_norm_rolling_mean = temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].index else np.nan
         debug_output[f"        [Context Condition 1] trend_form_score ({val_trend_form_score:.4f}) > 0.2: {val_trend_form_score > 0.2}"] = ""
         debug_output[f"        [Context Condition 2] upward_purity_norm_rolling_mean ({val_upward_purity_norm_rolling_mean:.4f}) > 0.3: {val_upward_purity_norm_rolling_mean > 0.3}"] = ""
-
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场上下文 ---"] = ""
         for key, series in temp_debug_values["市场上下文"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -285,15 +292,12 @@ class CalculateUpthrustWashoutRelationship:
                 for current_date in dates_to_display:
                     raw_val = lower_shadow_absorption_strength_raw.loc[current_date] if current_date in lower_shadow_absorption_strength_raw.index else np.nan
                     debug_output[f"            {current_date.strftime('%Y-%m-%d')}: 原始值={raw_val:.4f}"] = ""
-
         # 核心修正：直接将原始值除以100进行归一化，并裁剪到 [0, 1] 范围
         # 假设 lower_shadow_absorption_strength_raw 的范围是 0-100
         lower_shadow_absorption_score = (lower_shadow_absorption_strength_raw / 100.0).clip(0, 1)
-
         if is_debug_enabled_for_method and probe_ts:
             val_norm = lower_shadow_absorption_score.loc[probe_ts] if probe_ts in lower_shadow_absorption_score.index else np.nan
             debug_output[f"        归一化后 lower_shadow_strength (探针日期): {val_norm:.4f}"] = ""
-
         return lower_shadow_absorption_score
 
     def _derive_power_transfer_score_from_raw(self, df_index: pd.Index,
@@ -323,29 +327,23 @@ class CalculateUpthrustWashoutRelationship:
         wash_trade_norm = self.helper._normalize_series(wash_trade_intensity, df_index, bipolar=False)
         deception_norm = self.helper._normalize_series(deception_index, df_index, bipolar=True)
         conviction_norm = self.helper._normalize_series(main_force_conviction, df_index, bipolar=True)
-
         # 计算战场清晰度因子
         clarity_from_noise = (1 - wash_trade_norm) * 0.4
         clarity_from_deception = (1 + deception_norm) / 2 * 0.6
         clarity_factor = (clarity_from_noise + clarity_from_deception).clip(0, 1)
-
         # 计算转移真实性因子
         transfer_authenticity_factor = (conviction_norm * clarity_factor).clip(-1, 1)
-
         # 计算有效主力资金流和有效散户资金流
         md_to_main_force = net_md_amount * transfer_authenticity_factor
         sm_to_main_force = net_sm_amount * transfer_authenticity_factor
         effective_main_force_flow = net_lg_amount + net_elg_amount + md_to_main_force + sm_to_main_force
         effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
-
         # 计算原始权力转移
         power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
-
         # 归一化并进行非线性放大
         normalized_score = self.helper._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
         final_score = np.sign(normalized_score) * normalized_score.abs().pow(1.2)
         final_score = final_score.clip(-1, 1)
-
         return final_score.astype(np.float32)
 
     def _normalize_signals(self, df_index: pd.Index, upward_purity_raw: pd.Series,
@@ -395,36 +393,83 @@ class CalculateUpthrustWashoutRelationship:
         total_range_safe = total_range.replace(0, 1e-9) # 避免除以零
         upper_shadow = high_price - np.maximum(open_price, close_price)
         upper_shadow_ratio = (upper_shadow / total_range_safe).fillna(0)
-
         # 条件1: 高开低走阴线 (开盘价高于收盘价，且当日下跌)
         is_high_open_low_close_yin = (open_price > close_price) & (pct_change < 0)
-
         # 条件2: 长上影线阴线 (上影线占比超过一定阈值，且收盘价低于开盘价)
         is_long_upper_shadow_yin = (upper_shadow_ratio > 0.4) & (close_price < open_price)
-
         # 新增条件3: 收盘价从高点回落超过3% (无论阴阳线)
         # 确保 high_price 不为0，避免除以零
         high_price_safe = high_price.replace(0, np.nan)
         drop_from_high_pct = ((high_price_safe - close_price) / high_price_safe).fillna(0)
         is_significant_drop_from_high = (drop_from_high_pct > 0.03)
-
         # 只要满足这三种形态之一，就认为是“上冲回落”的 K 线
         is_upthrust_kline = is_high_open_low_close_yin | is_long_upper_shadow_yin | is_significant_drop_from_high
         return is_upthrust_kline
 
-    def _assess_selling_pressure(self, upper_shadow_pressure_norm: pd.Series, pct_change: pd.Series) -> pd.Series:
+    def _assess_selling_pressure(self, upper_shadow_pressure_norm: pd.Series, pct_change: pd.Series, lower_shadow_strength: pd.Series) -> pd.Series:
         """
-        【V1.0.0 · 卖压审判器】
+        【V1.0.1 · 卖压审判器 - 吸收强度缓解版】
         - 核心职责: 评估当日的卖压强度。
+        - 核心升级: 引入 `lower_shadow_strength` 作为缓解因子，当吸收强度高时，适当降低卖压的感知。
         参数:
             upper_shadow_pressure_norm (pd.Series): 归一化后的上影线卖压。
             pct_change (pd.Series): 涨跌幅。
+            lower_shadow_strength (pd.Series): 派生出的下影线吸收强度。
         返回:
             pd.Series: 卖压审判分数。
         """
         is_down_day = (pct_change < 0).astype(float)
-        selling_pressure_score = (upper_shadow_pressure_norm * 0.7 + is_down_day * 0.3).clip(0, 1)
+        # 吸收强度缓解因子：当 lower_shadow_strength 越高，缓解效果越强
+        # 缓解因子 = (1 - lower_shadow_strength * 缓解系数)。
+        # 缓解系数 0.5 意味着当 lower_shadow_strength 为 1 时，is_down_day 的权重会减半。
+        # clip(0.5, 1.0) 确保缓解因子在 0.5 到 1.0 之间，即 is_down_day 的权重最多减半，不会完全消失。
+        mitigation_factor = (1 - lower_shadow_strength * 0.5).clip(0.5, 1.0)
+        # 调整 is_down_day 的权重
+        adjusted_down_day_weight = 0.3 * mitigation_factor
+        # 卖压分数 = 上影线卖压 * 0.7 + (收阴线 * 调整后的权重)
+        selling_pressure_score = (upper_shadow_pressure_norm * 0.7 + is_down_day * adjusted_down_day_weight).clip(0, 1)
         return selling_pressure_score
+
+    def _calculate_net_washout_intent(self, absorption_rebuttal_score: pd.Series, selling_pressure_score: pd.Series, pct_change: pd.Series, df_index: pd.Index) -> pd.Series:
+        """
+        【V1.0.0 · 净洗盘意图计算器 - 背离放大版】
+        - 核心职责: 计算净洗盘意图，并在承接大于卖压且股价下跌时，非线性放大该意图。
+        - 核心逻辑:
+            1. 计算承接与卖压的原始差值。
+            2. 如果原始差值为正且股价下跌，则应用一个基于股价跌幅的非线性放大因子。
+            3. 放大因子 = 1 + (abs(pct_change) / 100 * amplification_multiplier)。
+            4. 最终结果裁剪到 [0, 1]。
+        参数:
+            absorption_rebuttal_score (pd.Series): 承接审判分数。
+            selling_pressure_score (pd.Series): 卖压审判分数。
+            pct_change (pd.Series): 涨跌幅 (百分比)。
+            df_index (pd.Index): DataFrame的索引。
+        返回:
+            pd.Series: 净洗盘意图分数。
+        """
+        # 从配置中获取放大乘数，如果未配置则使用默认值 3.0
+        amplification_multiplier = get_param_value(self.params.get('washout_amplification_multiplier'), 3.0)
+        # 1. 计算承接与卖压的原始差值
+        raw_washout_diff = absorption_rebuttal_score - selling_pressure_score
+        # 初始化净洗盘意图分数，默认值为 0.0
+        net_washout_intent = pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 2. 识别“背离”情境：承接大于卖压 (raw_washout_diff > 0) 且股价下跌 (pct_change < 0)
+        divergence_mask = (raw_washout_diff > 0) & (pct_change < 0)
+        # 3. 计算放大因子
+        # pct_change 是百分比，所以除以 100 转换为小数
+        # 确保 pct_change.abs() 避免负值
+        amplification_factor = 1 + (pct_change.abs() / 100 * amplification_multiplier)
+        # 确保 amplification_factor 至少为 1 (不缩小)
+        amplification_factor = amplification_factor.clip(lower=1.0)
+        # 4. 在背离情境下，应用放大因子
+        net_washout_intent.loc[divergence_mask] = (raw_washout_diff * amplification_factor).loc[divergence_mask]
+        # 5. 对于非背离情境 (raw_washout_diff <= 0 或 pct_change >= 0)，直接使用原始差值 (但要确保非负)
+        # 如果 raw_washout_diff > 0 但 pct_change >= 0，不应该放大，只取 raw_washout_diff
+        # 如果 raw_washout_diff <= 0，则意图为 0
+        non_divergence_mask = ~divergence_mask
+        net_washout_intent.loc[non_divergence_mask] = raw_washout_diff.loc[non_divergence_mask].clip(lower=0)
+        # 6. 最终裁剪到 [0, 1] 范围
+        return net_washout_intent.clip(0, 1)
 
     def _assess_absorption_rebuttal(self, active_buying_norm: pd.Series,
                                     lower_shadow_strength: pd.Series, power_transfer_norm: pd.Series) -> pd.Series:
