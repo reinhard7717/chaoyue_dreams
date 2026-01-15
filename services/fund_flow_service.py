@@ -57,10 +57,10 @@ def _numba_calculate_attribution_modifiers(
 
 class AdvancedFundFlowMetricsService:
     """
-    【V1.2 · 主力日度净买卖金额增强版】高级资金流指标服务
+    【V1.3 · 主力日度净买卖股数增强版】高级资金流指标服务
     - 核心职责: 封装所有高级资金流指标的加载、计算、融合与存储逻辑。
-    - 核心升级: 引入基于高频tick数据的主力日度买入金额、卖出金额及净买卖金额，
-                 为累积量化提供更直接的资金规模衡量。
+    - 核心升级: 引入基于高频tick数据的主力日度买入股数、卖出股数及净买卖股数，
+                 为累积量化提供更直接的筹码规模衡量，解决金额累积受股价影响的问题。
     - 架构优势: 实现业务逻辑与任务调度的完全解耦。
     """
     def __init__(self, debug_params: dict = None):
@@ -288,7 +288,7 @@ class AdvancedFundFlowMetricsService:
         }
         return raw_hf_df, common_data
 
-    def _engineer_hf_features(self, raw_hf_df: pd.DataFrame, daily_total_volume: float, context: dict = None) -> tuple[pd.DataFrame, dict]: # 新增 context 参数
+    def _engineer_hf_features(self, raw_hf_df: pd.DataFrame, daily_total_volume: float, context: dict = None) -> tuple[pd.DataFrame, dict]:
         import numpy as np
         features = {
             'mf_trades': pd.DataFrame(), 'buy_trades_mask': pd.Series(dtype=bool),
@@ -300,6 +300,8 @@ class AdvancedFundFlowMetricsService:
             'main_force_avg_price_impact': np.nan,
             'main_force_daily_buy_amount': 0.0,
             'main_force_daily_sell_amount': 0.0,
+            'main_force_daily_buy_volume': 0.0, # 新增
+            'main_force_daily_sell_volume': 0.0, # 新增
         }
         if raw_hf_df is None or raw_hf_df.empty:
             return pd.DataFrame(), features
@@ -347,15 +349,17 @@ class AdvancedFundFlowMetricsService:
         if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
             stock_code = context['debug']['stock_code']
             current_date = context['daily_data'].name.date()
-            print(f"\n--- [探针 _engineer_hf_features] {stock_code} {current_date} - 主力日度买卖金额计算 ---")
+            print(f"\n--- [探针 _engineer_hf_features] {stock_code} {current_date} - 主力日度买卖金额/股数计算 ---")
             print(f"  - 原始高频数据 (hf_analysis_df) 概览:")
             print(f"    - 总行数: {len(hf_analysis_df)}")
             print(f"    - 'amount' 列统计: {hf_analysis_df['amount'].describe()}")
+            print(f"    - 'volume' 列统计: {hf_analysis_df['volume'].describe()}")
             print(f"    - 'is_main_force_trade' 分布: {is_main_force_trade.value_counts()}")
             print(f"  - 筛选后的主力交易 (mf_trades) 概览:")
             print(f"    - 总行数: {len(mf_trades)}")
             if not mf_trades.empty:
                 print(f"    - 'amount' 列统计: {mf_trades['amount'].describe()}")
+                print(f"    - 'volume' 列统计: {mf_trades['volume'].describe()}")
                 print(f"    - 'type' 分布: {mf_trades['type'].value_counts()}")
             else:
                 print(f"    - 无主力交易数据。")
@@ -374,11 +378,14 @@ class AdvancedFundFlowMetricsService:
             features['mf_buy_vol'] = mf_buy_trades['volume'].sum()
             features['hf_mf_buy_vwap'] = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
             features['main_force_daily_buy_amount'] = mf_buy_trades['amount'].sum()
+            features['main_force_daily_buy_volume'] = mf_buy_trades['volume'].sum() # 新增
             if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
                 print(f"  - 主力买入交易 (mf_buy_trades) 概览:")
                 print(f"    - 总行数: {len(mf_buy_trades)}")
                 print(f"    - 'amount' 列统计: {mf_buy_trades['amount'].describe()}")
+                print(f"    - 'volume' 列统计: {mf_buy_trades['volume'].describe()}")
                 print(f"    - 关键计算节点: mf_buy_trades['amount'].sum() = {features['main_force_daily_buy_amount']:.2f}")
+                print(f"    - 关键计算节点: mf_buy_trades['volume'].sum() = {features['main_force_daily_buy_volume']:.2f}")
         else:
             if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
                 print(f"  - 无主力买入交易数据。")
@@ -386,11 +393,14 @@ class AdvancedFundFlowMetricsService:
             features['mf_sell_vol'] = mf_sell_trades['volume'].sum()
             features['hf_mf_sell_vwap'] = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
             features['main_force_daily_sell_amount'] = mf_sell_trades['amount'].sum()
+            features['main_force_daily_sell_volume'] = mf_sell_trades['volume'].sum() # 新增
             if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
                 print(f"  - 主力卖出交易 (mf_sell_trades) 概览:")
                 print(f"    - 总行数: {len(mf_sell_trades)}")
                 print(f"    - 'amount' 列统计: {mf_sell_trades['amount'].describe()}")
+                print(f"    - 'volume' 列统计: {mf_sell_trades['volume'].describe()}")
                 print(f"    - 关键计算节点: mf_sell_trades['amount'].sum() = {features['main_force_daily_sell_amount']:.2f}")
+                print(f"    - 关键计算节点: mf_sell_trades['volume'].sum() = {features['main_force_daily_sell_volume']:.2f}")
         else:
             if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
                 print(f"  - 无主力卖出交易数据。")
@@ -413,6 +423,8 @@ class AdvancedFundFlowMetricsService:
             print(f"  - 最终计算结果 (features):")
             print(f"    - main_force_daily_buy_amount: {features['main_force_daily_buy_amount']:.2f}")
             print(f"    - main_force_daily_sell_amount: {features['main_force_daily_sell_amount']:.2f}")
+            print(f"    - main_force_daily_buy_volume: {features['main_force_daily_buy_volume']:.2f}")
+            print(f"    - main_force_daily_sell_volume: {features['main_force_daily_sell_volume']:.2f}")
             print(f"--- [探针 _engineer_hf_features 结束] {stock_code} {current_date} ---")
         return hf_analysis_df, features
 
@@ -847,9 +859,9 @@ class AdvancedFundFlowMetricsService:
         context = {
             'intraday_data': intraday_data,
             'daily_data': daily_data,
-            'hf_analysis_df': None, # 占位符，稍后填充
+            'hf_analysis_df': None,
             'common_data': common_data,
-            'hf_features': None, # 占位符，稍后填充
+            'hf_features': None,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
                 'should_probe': should_probe,
@@ -857,7 +869,7 @@ class AdvancedFundFlowMetricsService:
                 'stock_code': stock_code
             }
         }
-        hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0), context) # 传递 context
+        hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0), context)
         context['hf_analysis_df'] = hf_analysis_df
         context['hf_features'] = hf_features
         mf_metrics = AdvancedFundFlowMetricsService._calculate_level5_order_flow_metrics(context)
@@ -871,18 +883,28 @@ class AdvancedFundFlowMetricsService:
             results.update(AdvancedFundFlowMetricsService._calculate_main_force_intraday_intent(context))
             main_force_daily_buy_amount = hf_features.get('main_force_daily_buy_amount', 0.0)
             main_force_daily_sell_amount = hf_features.get('main_force_daily_sell_amount', 0.0)
+            main_force_daily_buy_volume = hf_features.get('main_force_daily_buy_volume', 0.0) # 新增
+            main_force_daily_sell_volume = hf_features.get('main_force_daily_sell_volume', 0.0) # 新增
             results['main_force_daily_buy_amount_D'] = main_force_daily_buy_amount
             results['main_force_daily_sell_amount_D'] = main_force_daily_sell_amount
             results['main_force_net_amount_from_hf_D'] = main_force_daily_buy_amount - main_force_daily_sell_amount
+            results['main_force_daily_buy_volume_D'] = main_force_daily_buy_volume # 新增
+            results['main_force_daily_sell_volume_D'] = main_force_daily_sell_volume # 新增
+            results['main_force_net_volume_from_hf_D'] = main_force_daily_buy_volume - main_force_daily_sell_volume # 新增
             if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-                print(f"\n--- [探针 _compute_all_behavioral_metrics] {stock_code} {current_date} - 主力日度净买卖金额结果 ---")
+                print(f"\n--- [探针 _compute_all_behavioral_metrics] {stock_code} {current_date} - 主力日度净买卖金额/股数结果 ---")
                 print(f"  - 从 hf_features 获取:")
                 print(f"    - main_force_daily_buy_amount: {main_force_daily_buy_amount:.2f}")
                 print(f"    - main_force_daily_sell_amount: {main_force_daily_sell_amount:.2f}")
+                print(f"    - main_force_daily_buy_volume: {main_force_daily_buy_volume:.2f}")
+                print(f"    - main_force_daily_sell_volume: {main_force_daily_sell_volume:.2f}")
                 print(f"  - 最终结果 (results):")
                 print(f"    - main_force_daily_buy_amount_D: {results['main_force_daily_buy_amount_D']:.2f}")
                 print(f"    - main_force_daily_sell_amount_D: {results['main_force_daily_sell_amount_D']:.2f}")
                 print(f"    - main_force_net_amount_from_hf_D: {results['main_force_net_amount_from_hf_D']:.2f}")
+                print(f"    - main_force_daily_buy_volume_D: {results['main_force_daily_buy_volume_D']:.2f}")
+                print(f"    - main_force_daily_sell_volume_D: {results['main_force_daily_sell_volume_D']:.2f}")
+                print(f"    - main_force_net_volume_from_hf_D: {results['main_force_net_volume_from_hf_D']:.2f}")
                 print(f"--- [探针 _compute_all_behavioral_metrics 结束] {stock_code} {current_date} ---")
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_related_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))

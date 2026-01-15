@@ -313,10 +313,10 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V74.0 · 主力日度净买卖金额增强版】
+    【V75.0 · 主力日度净买卖股数增强版】
     - 核心职责: 存储股票高级资金流和行为指标。
-    - 核心升级: 引入基于高频tick数据的主力日度买入金额、卖出金额及净买卖金额，
-                 为累积量化提供更直接的资金规模衡量。
+    - 核心升级: 引入基于高频tick数据的主力日度买入股数、卖出股数及净买卖股数，
+                 为累积量化提供更直接的筹码规模衡量，解决金额累积受股价影响的问题。
                  同时，增强Level5订单流指标，增加隐藏订单补充和撤单比率。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
@@ -351,9 +351,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'observed_large_order_size_avg': '观测大单平均规模(元)',
         'retail_flow_dominance_index': '散户流动性主导指数',
         'main_force_slippage_index': '主力滑点指数(%)',
-        'main_force_daily_buy_amount_D': '主力日度买入金额(元)', # 新增
-        'main_force_daily_sell_amount_D': '主力日度卖出金额(元)', # 新增
-        'main_force_net_amount_from_hf_D': '主力日度净买卖金额(元)', # 新增
+        'main_force_daily_buy_amount_D': '主力日度买入金额(元)',
+        'main_force_daily_sell_amount_D': '主力日度卖出金额(元)',
+        'main_force_net_amount_from_hf_D': '主力日度净买卖金额(元)',
+        'main_force_daily_buy_volume_D': '主力日度买入股数(股)', # 新增
+        'main_force_daily_sell_volume_D': '主力日度卖出股数(股)', # 新增
+        'main_force_net_volume_from_hf_D': '主力日度净买卖股数(股)', # 新增
     }
     TACTICAL_LOG_METRICS = {
         'dip_absorption_power': '逢低吸筹力度',
@@ -545,9 +548,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'mf_hidden_ask_replenishment_ratio',
         'mf_order_cancellation_ratio',
         'main_force_intraday_intent_D',
-        'main_force_daily_buy_amount_D', # 新增
-        'main_force_daily_sell_amount_D', # 新增
-        'main_force_net_amount_from_hf_D', # 新增
+        'main_force_daily_buy_amount_D',
+        'main_force_daily_sell_amount_D',
+        'main_force_net_amount_from_hf_D',
+        'main_force_daily_buy_volume_D', # 新增
+        'main_force_daily_sell_volume_D', # 新增
+        'main_force_net_volume_from_hf_D', # 新增
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -597,9 +603,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'mf_hidden_ask_replenishment_ratio',
         'mf_order_cancellation_ratio',
         'main_force_intraday_intent_D',
-        'main_force_daily_buy_amount_D', # 新增
-        'main_force_daily_sell_amount_D', # 新增
-        'main_force_net_amount_from_hf_D', # 新增
+        'main_force_daily_buy_amount_D',
+        'main_force_daily_sell_amount_D',
+        'main_force_net_amount_from_hf_D',
+        'main_force_daily_buy_volume_D', # 新增
+        'main_force_daily_sell_volume_D', # 新增
+        'main_force_net_volume_from_hf_D', # 新增
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
