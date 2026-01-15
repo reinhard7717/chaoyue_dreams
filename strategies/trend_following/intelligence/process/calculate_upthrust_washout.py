@@ -11,15 +11,17 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateUpthrustWashoutRelationship:
     """
-    【V2.8.0 · 主力日度净买卖股数驱动版】上冲回落洗盘甄别器
+    【V2.9.0 · 趋势上下文分离版】上冲回落洗盘甄别器
     - 核心职责: 识别主力利用“上冲回落”阴线进行的洗盘行为。
     - 核心升级:
-        1. 放宽市场上下文限制，移除对乖离率的严格要求。
-        2. 主力资金门控升级为基于“主力日度净买卖股数”的累积评估，
+        1. 明确区分“中长期趋势上下文”与“短期动量”。
+        2. “上升波段”的判断现在基于 `trend_form_score` 的中长期累积上下文分数，
+           使其在短期回调日也能正确识别出整体上升趋势。
+        3. 主力资金门控升级为基于“主力日度净买卖股数”的累积评估，
            该股数直接来源于高频tick数据中识别出的主力交易，更直接地衡量主力对筹码的控制力，
            解决金额累积受股价影响的问题。
-        3. 主力资金累积流向计算周期调整为13日和21日。
-    - 版本: 2.8.0
+        4. 主力资金累积流向计算周期调整为13日和21日。
+    - 版本: 2.9.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -84,6 +86,25 @@ class CalculateUpthrustWashoutRelationship:
             "main_force_net_volume_from_hf": main_force_net_volume_from_hf
         }
         trend_form_score = self._derive_trend_form_score_from_raw(df_index, trend_vitality_index_raw, method_name)
+
+        # --- 新增：计算中长期累积趋势分数 ---
+        # 使用 trend_form_score 作为输入，计算其在较长周期（例如55日）的累积上下文分数
+        # 这将用于判断“上升波段”这个中长期背景
+        cumulative_trend_periods = [55] # 可以根据需要调整周期
+        cumulative_trend_weights = {"55": 1.0}
+        long_term_trend_context_score = self.helper._get_cumulative_context_score(
+            series=trend_form_score, # 对 trend_form_score 进行累积
+            df_index=df_index,
+            periods=cumulative_trend_periods,
+            weights=cumulative_trend_weights,
+            bipolar=True,
+            signal_name="long_term_trend_context_score",
+            is_debug_enabled_for_method=is_debug_enabled_for_method,
+            probe_ts=probe_ts,
+            debug_output=debug_output
+        )
+        # --- 新增结束 ---
+
         lower_shadow_strength = self._derive_lower_shadow_absorption_score_from_raw(df_index, lower_shadow_absorption_strength_raw, method_name)
         power_transfer = self._derive_power_transfer_score_from_raw(
             df_index, net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
@@ -104,10 +125,11 @@ class CalculateUpthrustWashoutRelationship:
             "power_transfer_norm": power_transfer_norm,
             "trend_form_score": trend_form_score, # 添加 trend_form_score
             "upward_purity_norm_rolling_mean": upward_purity_norm_rolling_mean, # 添加滚动平均值
+            "long_term_trend_context_score": long_term_trend_context_score, # 添加中长期累积趋势分数
         }
 
-        # 将滚动平均值传递给 _evaluate_market_context
-        context_mask = self._evaluate_market_context(trend_form_score, bias_21, upward_purity_norm_rolling_mean)
+        # 将中长期累积趋势分数传递给 _evaluate_market_context
+        context_mask = self._evaluate_market_context(long_term_trend_context_score, bias_21, upward_purity_norm_rolling_mean)
         _temp_debug_values["市场上下文"] = {"context_mask": context_mask}
         is_upthrust_kline = self._identify_kline_pattern(open_price, high_price, close_price, low_price, pct_change)
         _temp_debug_values["K线形态门控"] = {"is_upthrust_kline": is_upthrust_kline}
@@ -125,7 +147,6 @@ class CalculateUpthrustWashoutRelationship:
             self._print_debug_output_for_upthrust_washout(debug_output, probe_ts, _temp_debug_values, final_score)
         return final_score.astype(np.float32)
 
-    # 修改 _evaluate_market_context 方法签名以接收滚动平均值
     def _evaluate_market_context(self, trend_form_score: pd.Series, bias_21: pd.Series, upward_purity_norm_rolling_mean: pd.Series) -> pd.Series:
         """
         【V1.2.0 · 市场情境评估器】
@@ -144,7 +165,6 @@ class CalculateUpthrustWashoutRelationship:
         context_mask = (trend_form_score > 0.2) & (upward_purity_norm_rolling_mean > 0.3)
         return context_mask
 
-    # 修改 _print_debug_output_for_upthrust_washout 方法以打印新添加的调试值
     def _print_debug_output_for_upthrust_washout(self, debug_output: Dict, probe_ts: pd.Timestamp,
                                                   temp_debug_values: Dict, final_score: pd.Series) -> None:
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
@@ -321,22 +341,22 @@ class CalculateUpthrustWashoutRelationship:
         return (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
                 power_transfer_norm)
 
-    def _evaluate_market_context(self, trend_form_score: pd.Series, bias_21: pd.Series, upward_purity_norm: pd.Series) -> pd.Series:
+    def _evaluate_market_context(self, long_term_trend_context_score: pd.Series, bias_21: pd.Series, upward_purity_norm_rolling_mean: pd.Series) -> pd.Series:
         """
-        【V1.2.0 · 市场情境评估器】
+        【V1.3.0 · 市场情境评估器 - 趋势上下文分离版】
         - 核心职责: 评估当前市场是否处于适合洗盘反弹的上下文。
-        - 核心升级: 移除对 `bias_21` 的严格限制，仅关注趋势向上和上涨纯度。
+        - 核心升级: “趋势向上”的判断现在基于 `long_term_trend_context_score` (中长期累积趋势分数)，
+                      使其在短期回调日也能正确识别出整体上升趋势。
         参数:
-            trend_form_score (pd.Series): 派生出的趋势形态分数。
+            long_term_trend_context_score (pd.Series): 中长期累积趋势分数。
             bias_21 (pd.Series): 21日乖离率 (不再作为硬性门槛)。
-            upward_purity_norm (pd.Series): 归一化后的上涨纯度。
+            upward_purity_norm_rolling_mean (pd.Series): 归一化后的上涨纯度3日滚动平均值。
         返回:
             pd.Series: 市场情境掩码 (布尔Series)。
         """
-        # 趋势向上，上涨纯度良好
-        # trend_form_score 是双极性，大于0.2表示趋势向上且有一定强度
-        # 移除 bias_21 < 0.2 的限制
-        context_mask = (trend_form_score > 0.2) & (upward_purity_norm.rolling(3).mean() > 0.3)
+        # 趋势向上 (使用中长期累积趋势分数判断)，上涨纯度良好
+        # long_term_trend_context_score 是双极性，大于0.2表示中长期趋势向上且有一定强度
+        context_mask = (long_term_trend_context_score > 0.2) & (upward_purity_norm_rolling_mean > 0.3)
         return context_mask
 
     def _identify_kline_pattern(self, open_price: pd.Series, high_price: pd.Series,
@@ -474,6 +494,12 @@ class CalculateUpthrustWashoutRelationship:
         for key, series in temp_debug_values["归一化处理"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
             debug_output[f"        {key}: {val:.4f}"] = ""
+        # 新增打印 context_mask 的两个条件
+        val_long_term_trend_context_score = temp_debug_values["归一化处理"]["long_term_trend_context_score"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["long_term_trend_context_score"].index else np.nan
+        val_upward_purity_norm_rolling_mean = temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].index else np.nan
+        debug_output[f"        [Context Condition 1] long_term_trend_context_score ({val_long_term_trend_context_score:.4f}) > 0.2: {val_long_term_trend_context_score > 0.2}"] = ""
+        debug_output[f"        [Context Condition 2] upward_purity_norm_rolling_mean ({val_upward_purity_norm_rolling_mean:.4f}) > 0.3: {val_upward_purity_norm_rolling_mean > 0.3}"] = ""
+
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场上下文 ---"] = ""
         for key, series in temp_debug_values["市场上下文"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
