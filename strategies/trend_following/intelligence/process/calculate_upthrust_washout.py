@@ -92,15 +92,22 @@ class CalculateUpthrustWashoutRelationship:
         (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
          power_transfer_norm) = self._normalize_signals(
             df_index, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
-            power_transfer, method_name # <--- 在这里添加 method_name 参数
+            power_transfer, method_name
         )
+
+        # 新增：计算 upward_purity_norm 的滚动平均值，并添加到 debug_values
+        upward_purity_norm_rolling_mean = upward_purity_norm.rolling(3).mean()
         _temp_debug_values["归一化处理"] = {
             "upward_purity_norm": upward_purity_norm,
             "upper_shadow_pressure_norm": upper_shadow_pressure_norm,
             "active_buying_norm": active_buying_norm,
             "power_transfer_norm": power_transfer_norm,
+            "trend_form_score": trend_form_score, # 添加 trend_form_score
+            "upward_purity_norm_rolling_mean": upward_purity_norm_rolling_mean, # 添加滚动平均值
         }
-        context_mask = self._evaluate_market_context(trend_form_score, bias_21, upward_purity_norm)
+
+        # 将滚动平均值传递给 _evaluate_market_context
+        context_mask = self._evaluate_market_context(trend_form_score, bias_21, upward_purity_norm_rolling_mean)
         _temp_debug_values["市场上下文"] = {"context_mask": context_mask}
         is_upthrust_kline = self._identify_kline_pattern(open_price, high_price, close_price, low_price, pct_change)
         _temp_debug_values["K线形态门控"] = {"is_upthrust_kline": is_upthrust_kline}
@@ -117,6 +124,78 @@ class CalculateUpthrustWashoutRelationship:
         if is_debug_enabled_for_method and probe_ts:
             self._print_debug_output_for_upthrust_washout(debug_output, probe_ts, _temp_debug_values, final_score)
         return final_score.astype(np.float32)
+
+    # 修改 _evaluate_market_context 方法签名以接收滚动平均值
+    def _evaluate_market_context(self, trend_form_score: pd.Series, bias_21: pd.Series, upward_purity_norm_rolling_mean: pd.Series) -> pd.Series:
+        """
+        【V1.2.0 · 市场情境评估器】
+        - 核心职责: 评估当前市场是否处于适合洗盘反弹的上下文。
+        - 核心升级: 移除对 `bias_21` 的严格限制，仅关注趋势向上和上涨纯度。
+        参数:
+            trend_form_score (pd.Series): 派生出的趋势形态分数。
+            bias_21 (pd.Series): 21日乖离率 (不再作为硬性门槛)。
+            upward_purity_norm_rolling_mean (pd.Series): 归一化后的上涨纯度3日滚动平均值。
+        返回:
+            pd.Series: 市场情境掩码 (布尔Series)。
+        """
+        # 趋势向上，上涨纯度良好
+        # trend_form_score 是双极性，大于0.2表示趋势向上且有一定强度
+        # 移除 bias_21 < 0.2 的限制
+        context_mask = (trend_form_score > 0.2) & (upward_purity_norm_rolling_mean > 0.3)
+        return context_mask
+
+    # 修改 _print_debug_output_for_upthrust_washout 方法以打印新添加的调试值
+    def _print_debug_output_for_upthrust_washout(self, debug_output: Dict, probe_ts: pd.Timestamp,
+                                                  temp_debug_values: Dict, final_score: pd.Series) -> None:
+        method_name = "CalculateUpthrustWashoutRelationship.calculate"
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
+        for key, series in temp_debug_values["原始信号值"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        '{key}': {val:.4f}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
+        for key, series in temp_debug_values["归一化处理"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val:.4f}"] = ""
+        # 新增打印 context_mask 的两个条件
+        val_trend_form_score = temp_debug_values["归一化处理"]["trend_form_score"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["trend_form_score"].index else np.nan
+        val_upward_purity_norm_rolling_mean = temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].index else np.nan
+        debug_output[f"        [Context Condition 1] trend_form_score ({val_trend_form_score:.4f}) > 0.2: {val_trend_form_score > 0.2}"] = ""
+        debug_output[f"        [Context Condition 2] upward_purity_norm_rolling_mean ({val_upward_purity_norm_rolling_mean:.4f}) > 0.3: {val_upward_purity_norm_rolling_mean > 0.3}"] = ""
+
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场上下文 ---"] = ""
+        for key, series in temp_debug_values["市场上下文"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- K线形态门控 ---"] = ""
+        for key, series in temp_debug_values["K线形态门控"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 卖压审判分 ---"] = ""
+        for key, series in temp_debug_values["卖压审判分"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val:.4f}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 承接审判分 ---"] = ""
+        for key, series in temp_debug_values["承接审判分"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val:.4f}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 净洗盘意图 ---"] = ""
+        for key, series in temp_debug_values["净洗盘意图"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val:.4f}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力资金累积流向门控 ---"] = ""
+        for key, series in temp_debug_values["主力资金累积流向门控"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
+        for key, series in temp_debug_values["最终分数"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val:.4f}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 上冲回落洗盘诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        for key, value in debug_output.items():
+            if value:
+                print(f"{key}: {value}")
+            else:
+                print(key)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         bias_21 = self.helper._get_safe_series(df, 'BIAS_21_D', 0.0, method_name=method_name)
