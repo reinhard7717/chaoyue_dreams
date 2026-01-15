@@ -57,12 +57,14 @@ def _numba_calculate_attribution_modifiers(
 
 class AdvancedFundFlowMetricsService:
     """
-    【V1.3 · 主力日度净买卖股数增强版】高级资金流指标服务
+    【V1.4 · 主力日度净买卖股数全面捕捉版】高级资金流指标服务
     - 核心职责: 封装所有高级资金流指标的加载、计算、融合与存储逻辑。
     - 核心升级: 引入基于高频tick数据的主力日度买入股数、卖出股数及净买卖股数，
-                 为累积量化提供更直接的筹码规模衡量，解决金额累积受股价影响的问题。
+                 现在这些指标全面捕捉主力所有类型的买卖行为（包括主动攻击和被动承接/派发），
+                 为累积量化提供更直接、更全面的筹码规模衡量，解决金额累积受股价影响的问题。
     - 架构优势: 实现业务逻辑与任务调度的完全解耦。
     """
+
     def __init__(self, debug_params: dict = None):
         self.max_lookback_days = 300
         self.debug_params = debug_params if debug_params is not None else {}
@@ -314,6 +316,16 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
         is_main_force_trade = hf_analysis_df['amount'] > 200000
         is_retail_trade = hf_analysis_df['amount'] < 50000
+        # 定义净主动成交量，用于计算激进OFI
+        net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
+        active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
+        active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
+        net_active_volume_series.loc[active_buy_mask] = hf_analysis_df.loc[active_buy_mask, 'volume']
+        net_active_volume_series.loc[active_sell_mask] = -hf_analysis_df.loc[active_sell_mask, 'volume']
+        hf_analysis_df['net_active_volume'] = net_active_volume_series
+        # 创建激进主力OFI和散户OFI列
+        hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['net_active_volume'], 0)
+        hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['net_active_volume'], 0)
         # Filter for main force trades
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
@@ -916,103 +928,60 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_main_force_profile_metrics(context: dict) -> dict:
         """
-        【V69.0 · 韧性升维版】(生产环境清洁版)
+        【V69.1 · 韧性升维版 - 空数据鲁棒性增强】
         - 核心逻辑: `main_force_conviction_index` 的“韧性”组件基于 `mid_price_delta < 0` (实际价格下跌) 计算，
                      以更精确地衡量主力在真实逆境中的托底决心。
-        - 核心新增: 针对 `debug_params` 中的 `probe_dates` 启用 `main_force_conviction_index` 的计算全流程探针。
+        - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
-        hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         should_probe = context['debug']['should_probe']
         stock_code = context['debug']['stock_code']
         current_date = context['daily_data'].name.date()
         probe_active = should_probe and (current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates'])
-
         import numpy as np
         metrics = {}
+        # 增加空数据检查
+        if hf_analysis_df.empty:
+            return metrics
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
-
-        # if probe_active:
-        #     print(f"\n--- [探针] {stock_code} {current_date} - main_force_conviction_index 计算全流程 ---")
-        #     print(f"  - 基础上下文: ATR={atr:.4f}, DailyTotalVolume={daily_total_volume:.4f}")
-        #     print(f"  - hf_analysis_df (前5行):\n{hf_analysis_df.head()}")
-        #     print(f"  - hf_analysis_df (后5行):\n{hf_analysis_df.tail()}")
-        #     print(f"  - hf_features: {hf_features}")
-
         mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
         aggressiveness_component, trend_quality, closing_strength = 0.0, 0.0, 0.0
         if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
             time_index = np.arange(len(mf_ofi_cumsum))
-            # 确保 time_index 和 mf_ofi_cumsum 长度一致，且 mf_ofi_cumsum 至少有两个不同的值才能计算相关系数
             if len(time_index) > 1 and mf_ofi_cumsum.nunique() > 1:
                 trend_quality = np.corrcoef(time_index, mf_ofi_cumsum)[0, 1]
-                trend_quality = np.nan_to_num(trend_quality) # 处理NaN
+                trend_quality = np.nan_to_num(trend_quality)
             else:
-                trend_quality = 0.0 # 数据不足时设为0
-            
+                trend_quality = 0.0
             ofi_min, ofi_max = mf_ofi_cumsum.min(), mf_ofi_cumsum.max()
             if (ofi_max - ofi_min) > 0:
                 closing_strength = (mf_ofi_cumsum.iloc[-1] - ofi_min) / (ofi_max - ofi_min)
             else:
-                closing_strength = 0.0 # 累积OFI没有变化时设为0
-            closing_strength = np.nan_to_num(closing_strength) # 处理NaN
+                closing_strength = 0.0
+            closing_strength = np.nan_to_num(closing_strength)
             aggressiveness_component = trend_quality * closing_strength
-        
-        # if probe_active:
-        #     print(f"\n  --- 攻击性组件 (aggressiveness_component) ---")
-        #     print(f"    - mf_ofi_cumsum (前5行):\n{mf_ofi_cumsum.head()}")
-        #     print(f"    - mf_ofi_cumsum (后5行):\n{mf_ofi_cumsum.tail()}")
-        #     print(f"    - trend_quality (累积OFI与时间相关性): {trend_quality:.4f}")
-        #     print(f"    - ofi_min: {ofi_min:.4f}, ofi_max: {ofi_max:.4f}, mf_ofi_cumsum.iloc[-1]: {mf_ofi_cumsum.iloc[-1]:.4f}")
-        #     print(f"    - closing_strength (收盘强度): {closing_strength:.4f}")
-        #     print(f"    - aggressiveness_component: {aggressiveness_component:.4f}")
-
         cost_tolerance_component = 0.0
+        hf_mf_buy_vwap = hf_features.get('hf_mf_buy_vwap')
+        hf_mf_sell_vwap = hf_features.get('hf_mf_sell_vwap')
         if pd.notna(hf_mf_buy_vwap) and pd.notna(hf_mf_sell_vwap) and pd.notna(atr) and atr > 0:
             cost_tolerance_component = (hf_mf_buy_vwap - hf_mf_sell_vwap) / atr
-        
-        # if probe_active:
-        #     print(f"\n  --- 成本容忍度组件 (cost_tolerance_component) ---")
-        #     print(f"    - hf_mf_buy_vwap: {hf_mf_buy_vwap:.4f}")
-        #     print(f"    - hf_mf_sell_vwap: {hf_mf_sell_vwap:.4f}")
-        #     print(f"    - atr: {atr:.4f}")
-        #     print(f"    - cost_tolerance_component: {cost_tolerance_component:.4f}")
-
         resilience_component = 0.0
-        # 确保 mid_price_delta 存在且有效
         if 'mid_price_delta' in hf_analysis_df.columns and not hf_analysis_df['mid_price_delta'].empty:
-            price_pressure_zone = hf_analysis_df['mid_price_delta'] < 0 # 价格下跌时段
-            # 确保 main_force_ofi 存在且有效
+            price_pressure_zone = hf_analysis_df['mid_price_delta'] < 0
             if 'main_force_ofi' in hf_analysis_df.columns and not hf_analysis_df['main_force_ofi'].empty:
                 mf_resilience_ofi = hf_analysis_df.loc[price_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
                 total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
                 if total_mf_positive_ofi > 0:
                     resilience_component = mf_resilience_ofi / total_mf_positive_ofi
-            
-        # if probe_active:
-        #     print(f"\n  --- 韧性组件 (resilience_component) ---")
-        #     print(f"    - 价格下跌时段 (mid_price_delta < 0) 数量: {price_pressure_zone.sum()} / {len(hf_analysis_df)}")
-        #     print(f"    - mf_resilience_ofi (下跌时主力净买入): {mf_resilience_ofi:.4f}")
-        #     print(f"    - total_mf_positive_ofi (全天主力净买入): {total_mf_positive_ofi:.4f}")
-        #     print(f"    - resilience_component: {resilience_component:.4f}")
-
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
-        
-        # if probe_active:
-        #     print(f"\n  --- 最终 main_force_conviction_index ---")
-        #     print(f"    - 加权和: (0.4 * {aggressiveness_component:.4f} + 0.4 * {cost_tolerance_component:.4f} + 0.2 * {resilience_component:.4f})")
-        #     print(f"    - main_force_conviction_index: {metrics['main_force_conviction_index']:.4f}")
-        #     print(f"--- [探针结束] {stock_code} {current_date} ---")
-
         mf_trades = hf_features['mf_trades']
         total_mf_vol = hf_features['total_mf_vol']
         if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
-            buy_trades_mask = hf_features['buy_trades_mask']
-            sell_trades_mask = hf_features['sell_trades_mask']
+            buy_trades_mask = mf_trades['type'] == 'B'
+            sell_trades_mask = mf_trades['type'] == 'S'
             mf_trades['slippage'] = np.nan
             mf_trades.loc[buy_trades_mask, 'slippage'] = (mf_trades.loc[buy_trades_mask, 'price'] - mf_trades.loc[buy_trades_mask, 'prev_mid_price']).values
             mf_trades.loc[sell_trades_mask, 'slippage'] = (mf_trades.loc[sell_trades_mask, 'prev_mid_price'] - mf_trades.loc[sell_trades_mask, 'price']).values
@@ -1026,8 +995,8 @@ class AdvancedFundFlowMetricsService:
                 passive_volume = hf_features['passive_volume']
                 metrics['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_vol) * 100
                 metrics['main_force_activity_ratio'] = (total_mf_vol / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
-                mf_buy_vol = hf_features['mf_buy_vol']
-                mf_sell_vol = hf_features['mf_sell_vol']
+                mf_buy_vol = hf_features['main_force_daily_buy_volume'] # 使用总买入量
+                mf_sell_vol = hf_features['main_force_daily_sell_volume'] # 使用总卖出量
                 mf_total_activity_vol = mf_buy_vol + mf_sell_vol
                 if mf_total_activity_vol > 0:
                     mf_net_vol = mf_buy_vol - mf_sell_vol
