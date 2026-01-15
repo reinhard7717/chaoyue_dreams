@@ -494,12 +494,10 @@ class CalculateUpthrustWashoutRelationship:
         for key, series in temp_debug_values["归一化处理"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
             debug_output[f"        {key}: {val:.4f}"] = ""
-        # 新增打印 context_mask 的两个条件
         val_long_term_trend_context_score = temp_debug_values["归一化处理"]["long_term_trend_context_score"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["long_term_trend_context_score"].index else np.nan
         val_upward_purity_norm_rolling_mean = temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].index else np.nan
         debug_output[f"        [Context Condition 1] long_term_trend_context_score ({val_long_term_trend_context_score:.4f}) > 0.2: {val_long_term_trend_context_score > 0.2}"] = ""
         debug_output[f"        [Context Condition 2] upward_purity_norm_rolling_mean ({val_upward_purity_norm_rolling_mean:.4f}) > 0.3: {val_upward_purity_norm_rolling_mean > 0.3}"] = ""
-
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场上下文 ---"] = ""
         for key, series in temp_debug_values["市场上下文"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
