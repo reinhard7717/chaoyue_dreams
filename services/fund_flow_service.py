@@ -300,8 +300,8 @@ class AdvancedFundFlowMetricsService:
             'main_force_avg_price_impact': np.nan,
             'main_force_daily_buy_amount': 0.0,
             'main_force_daily_sell_amount': 0.0,
-            'main_force_daily_buy_volume': 0.0, # 新增
-            'main_force_daily_sell_volume': 0.0, # 新增
+            'main_force_daily_buy_volume': 0.0,
+            'main_force_daily_sell_volume': 0.0,
         }
         if raw_hf_df is None or raw_hf_df.empty:
             return pd.DataFrame(), features
@@ -314,117 +314,103 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
         is_main_force_trade = hf_analysis_df['amount'] > 200000
         is_retail_trade = hf_analysis_df['amount'] < 50000
-        active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
-        active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
-        net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
-        net_active_volume_series.loc[active_buy_mask] = hf_analysis_df.loc[active_buy_mask, 'volume']
-        net_active_volume_series.loc[active_sell_mask] = -hf_analysis_df.loc[active_sell_mask, 'volume']
-        hf_analysis_df['net_active_volume'] = net_active_volume_series
-        hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['net_active_volume'], 0)
-        hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['net_active_volume'], 0)
-        hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff()
-        if 'volume_realtime' in hf_analysis_df.columns and 'snapshot_time' in hf_analysis_df.columns:
-            snapshot_changed_mask = hf_analysis_df['snapshot_time'] != hf_analysis_df['snapshot_time'].shift(1)
-            volume_delta = hf_analysis_df['volume_realtime'].diff().fillna(0)
-            hf_analysis_df['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
-        hf_analysis_df['prev_a1_p'] = hf_analysis_df['sell_price1'].shift(1)
-        hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
-        hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
-        hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
-        try:
-            weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index); weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
-            total_buy_value = pd.Series(0, index=hf_analysis_df.index); total_sell_value = pd.Series(0, index=hf_analysis_df.index)
-            for i in range(1, 6):
-                weight = 1 / i
-                weighted_buy_vol += hf_analysis_df[f'buy_volume{i}'] * weight
-                weighted_sell_vol += hf_analysis_df[f'sell_volume{i}'] * weight
-                total_buy_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'buy_price{i}']
-                total_sell_value += hf_analysis_df[f'sell_volume{i}'] * hf_analysis_df[f'sell_price{i}']
-            hf_analysis_df['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
-            hf_analysis_df['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
-        except Exception:
-            hf_analysis_df['imbalance'] = np.nan
-            hf_analysis_df['liquidity_supply_ratio'] = np.nan
+        # Filter for main force trades
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
-        if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-            stock_code = context['debug']['stock_code']
-            current_date = context['daily_data'].name.date()
+        if mf_trades.empty:
+            return hf_analysis_df, features
+        features['mf_trades'] = mf_trades
+        # --- 计算激进和被动主力买卖量和金额 ---
+        # 激进买入是 'B' 类型交易
+        mf_aggressive_buy_trades = mf_trades[mf_trades['type'] == 'B']
+        features['main_force_aggressive_buy_volume'] = mf_aggressive_buy_trades['volume'].sum()
+        features['main_force_daily_buy_amount'] = mf_aggressive_buy_trades['amount'].sum()
+        # 激进卖出是 'S' 类型交易
+        mf_aggressive_sell_trades = mf_trades[mf_trades['type'] == 'S']
+        features['main_force_aggressive_sell_volume'] = mf_aggressive_sell_trades['volume'].sum()
+        features['main_force_daily_sell_amount'] = mf_aggressive_sell_trades['amount'].sum()
+        # 被动交易是 'M' 类型交易，根据 mid_price_delta 归因
+        mf_mid_trades = mf_trades[mf_trades['type'] == 'M']
+        # 被动买入量/金额: 'M' 交易中 mid_price_delta 为正或中性 (承接/低吸)
+        mf_passive_buy_trades = mf_mid_trades[mf_mid_trades['mid_price_delta'] >= 0]
+        features['main_force_passive_buy_volume'] = mf_passive_buy_trades['volume'].sum()
+        features['main_force_daily_buy_amount'] += mf_passive_buy_trades['amount'].sum() # 加到总买入金额
+        # 被动卖出量/金额: 'M' 交易中 mid_price_delta 为负 (派发)
+        mf_passive_sell_trades = mf_mid_trades[mf_mid_trades['mid_price_delta'] < 0]
+        features['main_force_passive_sell_volume'] = mf_passive_sell_trades['volume'].sum()
+        features['main_force_daily_sell_amount'] += mf_passive_sell_trades['amount'].sum() # 加到总卖出金额
+        # 总主力买入量 (激进 + 被动)
+        features['main_force_daily_buy_volume'] = features['main_force_aggressive_buy_volume'] + features['main_force_passive_buy_volume']
+        # 总主力卖出量 (激进 + 被动)
+        features['main_force_daily_sell_volume'] = features['main_force_aggressive_sell_volume'] + features['main_force_passive_sell_volume']
+        # --- 更新 offensive_volume 和 passive_volume ---
+        features['offensive_volume'] = features['main_force_aggressive_buy_volume'] + features['main_force_aggressive_sell_volume']
+        features['passive_volume'] = features['main_force_passive_buy_volume'] + features['main_force_passive_sell_volume']
+        # --- 重新计算 hf_mf_buy_vwap 和 hf_mf_sell_vwap (基于总买卖量) ---
+        total_mf_buy_trades_for_vwap = pd.concat([mf_aggressive_buy_trades, mf_passive_buy_trades])
+        if not total_mf_buy_trades_for_vwap.empty and total_mf_buy_trades_for_vwap['volume'].sum() > 0:
+            features['hf_mf_buy_vwap'] = (total_mf_buy_trades_for_vwap['price'] * total_mf_buy_trades_for_vwap['volume']).sum() / total_mf_buy_trades_for_vwap['volume'].sum()
+        else:
+            features['hf_mf_buy_vwap'] = np.nan
+        total_mf_sell_trades_for_vwap = pd.concat([mf_aggressive_sell_trades, mf_passive_sell_trades])
+        if not total_mf_sell_trades_for_vwap.empty and total_mf_sell_trades_for_vwap['volume'].sum() > 0:
+            features['hf_mf_sell_vwap'] = (total_mf_sell_trades_for_vwap['price'] * total_mf_sell_trades_for_vwap['volume']).sum() / total_mf_sell_trades_for_vwap['volume'].sum()
+        else:
+            features['hf_mf_sell_vwap'] = np.nan
+        # --- 更新 total_mf_vol ---
+        features['total_mf_vol'] = features['main_force_daily_buy_volume'] + features['main_force_daily_sell_volume']
+        # --- 价格冲击计算 (仍侧重于激进交易) ---
+        mf_trades['price_impact'] = np.nan
+        offensive_buy_mask = mf_aggressive_buy_trades.index
+        offensive_sell_mask = mf_aggressive_sell_trades.index
+        mf_trades.loc[offensive_buy_mask, 'price_impact'] = (mf_trades.loc[offensive_buy_mask, 'price'] - mf_trades.loc[offensive_buy_mask, 'prev_mid_price']).clip(lower=0)
+        mf_trades.loc[offensive_sell_mask, 'price_impact'] = (mf_trades.loc[offensive_sell_mask, 'prev_mid_price'] - mf_trades.loc[offensive_sell_mask, 'price']).clip(lower=0)
+        mf_trades['price_impact'] = mf_trades['price_impact'].clip(lower=0)
+        if features['offensive_volume'] > 0:
+            aggressive_trades_for_impact = mf_trades[mf_trades['type'].isin(['B', 'S'])]
+            if not aggressive_trades_for_impact.empty and aggressive_trades_for_impact['volume'].sum() > 0:
+                features['main_force_avg_price_impact'] = (aggressive_trades_for_impact['price_impact'] * aggressive_trades_for_impact['volume']).sum() / aggressive_trades_for_impact['volume'].sum()
+            else:
+                features['main_force_avg_price_impact'] = np.nan
+        else:
+            features['main_force_avg_price_impact'] = np.nan
+        # --- 调试输出 ---
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = context['daily_data'].name.date()
+        if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
             print(f"\n--- [探针 _engineer_hf_features] {stock_code} {current_date} - 主力日度买卖金额/股数计算 ---")
             print(f"  - 原始高频数据 (hf_analysis_df) 概览:")
             print(f"    - 总行数: {len(hf_analysis_df)}")
             print(f"    - 'amount' 列统计: {hf_analysis_df['amount'].describe()}")
             print(f"    - 'volume' 列统计: {hf_analysis_df['volume'].describe()}")
             print(f"    - 'is_main_force_trade' 分布: {is_main_force_trade.value_counts()}")
+            print(f"    - 'type' 分布 (所有交易): {hf_analysis_df['type'].value_counts()}")
             print(f"  - 筛选后的主力交易 (mf_trades) 概览:")
             print(f"    - 总行数: {len(mf_trades)}")
             if not mf_trades.empty:
                 print(f"    - 'amount' 列统计: {mf_trades['amount'].describe()}")
                 print(f"    - 'volume' 列统计: {mf_trades['volume'].describe()}")
-                print(f"    - 'type' 分布: {mf_trades['type'].value_counts()}")
+                print(f"    - 'type' 分布 (主力交易): {mf_trades['type'].value_counts()}")
+                print(f"    - 'mid_price_delta' 分布 (主力交易): {mf_trades['mid_price_delta'].describe()}")
             else:
                 print(f"    - 无主力交易数据。")
-        if mf_trades.empty:
-            return hf_analysis_df, features
-        features['mf_trades'] = mf_trades
-        buy_trades_mask = mf_trades['type'] == 'B'
-        sell_trades_mask = mf_trades['type'] == 'S'
-        features['buy_trades_mask'] = buy_trades_mask
-        features['sell_trades_mask'] = sell_trades_mask
-        total_mf_vol = mf_trades['volume'].sum()
-        features['total_mf_vol'] = total_mf_vol
-        mf_buy_trades = mf_trades[buy_trades_mask]
-        mf_sell_trades = mf_trades[sell_trades_mask]
-        if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
-            features['mf_buy_vol'] = mf_buy_trades['volume'].sum()
-            features['hf_mf_buy_vwap'] = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
-            features['main_force_daily_buy_amount'] = mf_buy_trades['amount'].sum()
-            features['main_force_daily_buy_volume'] = mf_buy_trades['volume'].sum() # 新增
-            if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-                print(f"  - 主力买入交易 (mf_buy_trades) 概览:")
-                print(f"    - 总行数: {len(mf_buy_trades)}")
-                print(f"    - 'amount' 列统计: {mf_buy_trades['amount'].describe()}")
-                print(f"    - 'volume' 列统计: {mf_buy_trades['volume'].describe()}")
-                print(f"    - 关键计算节点: mf_buy_trades['amount'].sum() = {features['main_force_daily_buy_amount']:.2f}")
-                print(f"    - 关键计算节点: mf_buy_trades['volume'].sum() = {features['main_force_daily_buy_volume']:.2f}")
-        else:
-            if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-                print(f"  - 无主力买入交易数据。")
-        if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
-            features['mf_sell_vol'] = mf_sell_trades['volume'].sum()
-            features['hf_mf_sell_vwap'] = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
-            features['main_force_daily_sell_amount'] = mf_sell_trades['amount'].sum()
-            features['main_force_daily_sell_volume'] = mf_sell_trades['volume'].sum() # 新增
-            if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-                print(f"  - 主力卖出交易 (mf_sell_trades) 概览:")
-                print(f"    - 总行数: {len(mf_sell_trades)}")
-                print(f"    - 'amount' 列统计: {mf_sell_trades['amount'].describe()}")
-                print(f"    - 'volume' 列统计: {mf_sell_trades['volume'].describe()}")
-                print(f"    - 关键计算节点: mf_sell_trades['amount'].sum() = {features['main_force_daily_sell_amount']:.2f}")
-                print(f"    - 关键计算节点: mf_sell_trades['volume'].sum() = {features['main_force_daily_sell_volume']:.2f}")
-        else:
-            if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-                print(f"  - 无主力卖出交易数据。")
-        if total_mf_vol > 0:
-            offensive_buy_mask = (buy_trades_mask) & (mf_trades['price'] >= mf_trades['sell_price1'])
-            offensive_sell_mask = (sell_trades_mask) & (mf_trades['price'] <= mf_trades['buy_price1'])
-            features['main_force_aggressive_buy_volume'] = mf_trades[offensive_buy_mask]['volume'].sum()
-            features['main_force_aggressive_sell_volume'] = mf_trades[offensive_sell_mask]['volume'].sum()
-            features['main_force_passive_buy_volume'] = mf_buy_trades['volume'].sum() - features['main_force_aggressive_buy_volume']
-            features['main_force_passive_sell_volume'] = mf_sell_trades['volume'].sum() - features['main_force_aggressive_sell_volume']
-            offensive_volume = features['main_force_aggressive_buy_volume'] + features['main_force_aggressive_sell_volume']
-            features['offensive_volume'] = offensive_volume
-            features['passive_volume'] = total_mf_vol - offensive_volume
-            mf_trades['price_impact'] = np.nan
-            mf_trades.loc[offensive_buy_mask, 'price_impact'] = (mf_trades.loc[offensive_buy_mask, 'price'] - mf_trades.loc[offensive_buy_mask, 'prev_mid_price']).clip(lower=0)
-            mf_trades.loc[offensive_sell_mask, 'price_impact'] = (mf_trades.loc[offensive_sell_mask, 'prev_mid_price'] - mf_trades.loc[offensive_sell_mask, 'price']).clip(lower=0)
-            if offensive_volume > 0:
-                features['main_force_avg_price_impact'] = (mf_trades['price_impact'] * mf_trades['volume']).sum() / offensive_volume
-        if context and context['debug']['should_probe'] and context['daily_data'].name.date().strftime('%Y-%m-%d') in context['debug']['probe_dates']:
+            print(f"  - 关键计算节点: mf_aggressive_buy_trades['volume'].sum() = {features['main_force_aggressive_buy_volume']:.2f}")
+            print(f"  - 关键计算节点: mf_aggressive_sell_trades['volume'].sum() = {features['main_force_aggressive_sell_volume']:.2f}")
+            print(f"  - 关键计算节点: mf_mid_trades['volume'].sum() = {mf_mid_trades['volume'].sum():.2f}")
+            print(f"  - 关键计算节点: mf_passive_buy_trades['volume'].sum() = {features['main_force_passive_buy_volume']:.2f}")
+            print(f"  - 关键计算节点: mf_passive_sell_trades['volume'].sum() = {features['main_force_passive_sell_volume']:.2f}")
             print(f"  - 最终计算结果 (features):")
-            print(f"    - main_force_daily_buy_amount: {features['main_force_daily_buy_amount']:.2f}")
-            print(f"    - main_force_daily_sell_amount: {features['main_force_daily_sell_amount']:.2f}")
+            print(f"    - main_force_aggressive_buy_volume: {features['main_force_aggressive_buy_volume']:.2f}")
+            print(f"    - main_force_aggressive_sell_volume: {features['main_force_aggressive_sell_volume']:.2f}")
+            print(f"    - main_force_passive_buy_volume: {features['main_force_passive_buy_volume']:.2f}")
+            print(f"    - main_force_passive_sell_volume: {features['main_force_passive_sell_volume']:.2f}")
             print(f"    - main_force_daily_buy_volume: {features['main_force_daily_buy_volume']:.2f}")
             print(f"    - main_force_daily_sell_volume: {features['main_force_daily_sell_volume']:.2f}")
+            print(f"    - main_force_daily_buy_amount: {features['main_force_daily_buy_amount']:.2f}")
+            print(f"    - main_force_daily_sell_amount: {features['main_force_daily_sell_amount']:.2f}")
+            print(f"    - hf_mf_buy_vwap: {features['hf_mf_buy_vwap']:.4f}")
+            print(f"    - hf_mf_sell_vwap: {features['hf_mf_sell_vwap']:.4f}")
+            print(f"    - total_mf_vol: {features['total_mf_vol']:.2f}")
             print(f"--- [探针 _engineer_hf_features 结束] {stock_code} {current_date} ---")
         return hf_analysis_df, features
 
@@ -883,14 +869,14 @@ class AdvancedFundFlowMetricsService:
             results.update(AdvancedFundFlowMetricsService._calculate_main_force_intraday_intent(context))
             main_force_daily_buy_amount = hf_features.get('main_force_daily_buy_amount', 0.0)
             main_force_daily_sell_amount = hf_features.get('main_force_daily_sell_amount', 0.0)
-            main_force_daily_buy_volume = hf_features.get('main_force_daily_buy_volume', 0.0) # 新增
-            main_force_daily_sell_volume = hf_features.get('main_force_daily_sell_volume', 0.0) # 新增
+            main_force_daily_buy_volume = hf_features.get('main_force_daily_buy_volume', 0.0)
+            main_force_daily_sell_volume = hf_features.get('main_force_daily_sell_volume', 0.0)
             results['main_force_daily_buy_amount_D'] = main_force_daily_buy_amount
             results['main_force_daily_sell_amount_D'] = main_force_daily_sell_amount
             results['main_force_net_amount_from_hf_D'] = main_force_daily_buy_amount - main_force_daily_sell_amount
-            results['main_force_daily_buy_volume_D'] = main_force_daily_buy_volume # 新增
-            results['main_force_daily_sell_volume_D'] = main_force_daily_sell_volume # 新增
-            results['main_force_net_volume_from_hf_D'] = main_force_daily_buy_volume - main_force_daily_sell_volume # 新增
+            results['main_force_daily_buy_volume_D'] = main_force_daily_buy_volume
+            results['main_force_daily_sell_volume_D'] = main_force_daily_sell_volume
+            results['main_force_net_volume_from_hf_D'] = main_force_daily_buy_volume - main_force_daily_sell_volume
             if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
                 print(f"\n--- [探针 _compute_all_behavioral_metrics] {stock_code} {current_date} - 主力日度净买卖金额/股数结果 ---")
                 print(f"  - 从 hf_features 获取:")
