@@ -86,14 +86,10 @@ class CalculateUpthrustWashoutRelationship:
             "main_force_net_volume_from_hf": main_force_net_volume_from_hf
         }
         trend_form_score = self._derive_trend_form_score_from_raw(df_index, trend_vitality_index_raw, method_name)
-
-        # --- 新增：计算中长期累积趋势分数 ---
-        # 使用 trend_form_score 作为输入，计算其在较长周期（例如55日）的累积上下文分数
-        # 这将用于判断“上升波段”这个中长期背景
-        cumulative_trend_periods = [55] # 可以根据需要调整周期
+        cumulative_trend_periods = [55]
         cumulative_trend_weights = {"55": 1.0}
         long_term_trend_context_score = self.helper._get_cumulative_context_score(
-            series=trend_form_score, # 对 trend_form_score 进行累积
+            series=trend_form_score,
             df_index=df_index,
             periods=cumulative_trend_periods,
             weights=cumulative_trend_weights,
@@ -103,9 +99,8 @@ class CalculateUpthrustWashoutRelationship:
             probe_ts=probe_ts,
             debug_output=debug_output
         )
-        # --- 新增结束 ---
-
-        lower_shadow_strength = self._derive_lower_shadow_absorption_score_from_raw(df_index, lower_shadow_absorption_strength_raw, method_name)
+        # 传递调试参数给 _derive_lower_shadow_absorption_score_from_raw
+        lower_shadow_strength = self._derive_lower_shadow_absorption_score_from_raw(df_index, lower_shadow_absorption_strength_raw, method_name, is_debug_enabled_for_method, probe_ts, debug_output)
         power_transfer = self._derive_power_transfer_score_from_raw(
             df_index, net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
             main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw, method_name
@@ -115,20 +110,17 @@ class CalculateUpthrustWashoutRelationship:
             df_index, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
             power_transfer, method_name
         )
-
-        # 新增：计算 upward_purity_norm 的滚动平均值，并添加到 debug_values
         upward_purity_norm_rolling_mean = upward_purity_norm.rolling(3).mean()
         _temp_debug_values["归一化处理"] = {
             "upward_purity_norm": upward_purity_norm,
             "upper_shadow_pressure_norm": upper_shadow_pressure_norm,
             "active_buying_norm": active_buying_norm,
             "power_transfer_norm": power_transfer_norm,
-            "trend_form_score": trend_form_score, # 添加 trend_form_score
-            "upward_purity_norm_rolling_mean": upward_purity_norm_rolling_mean, # 添加滚动平均值
-            "long_term_trend_context_score": long_term_trend_context_score, # 添加中长期累积趋势分数
+            "trend_form_score": trend_form_score,
+            "upward_purity_norm_rolling_mean": upward_purity_norm_rolling_mean,
+            "long_term_trend_context_score": long_term_trend_context_score,
+            "lower_shadow_strength": lower_shadow_strength,
         }
-
-        # 将中长期累积趋势分数传递给 _evaluate_market_context
         context_mask = self._evaluate_market_context(long_term_trend_context_score, bias_21, upward_purity_norm_rolling_mean)
         _temp_debug_values["市场上下文"] = {"context_mask": context_mask}
         is_upthrust_kline = self._identify_kline_pattern(open_price, high_price, close_price, low_price, pct_change)
@@ -264,19 +256,41 @@ class CalculateUpthrustWashoutRelationship:
         trend_form_score = self.helper._normalize_series(trend_vitality_index_raw, df_index, bipolar=True)
         return trend_form_score
 
-    def _derive_lower_shadow_absorption_score_from_raw(self, df_index: pd.Index, lower_shadow_absorption_strength_raw: pd.Series, method_name: str) -> pd.Series:
+    def _derive_lower_shadow_absorption_score_from_raw(self, df_index: pd.Index, lower_shadow_absorption_strength_raw: pd.Series, method_name: str, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict) -> pd.Series:
         """
-        【V1.0.0 · 下影线吸收强度派生器】
+        【V1.0.1 · 下影线吸收强度派生器 - 调试增强版】
         - 核心职责: 从原始的 `lower_shadow_absorption_strength_D` 派生出下影线吸收强度分数。
+        - 核心升级: 增加调试输出，打印原始信号在探针日期附近的值，以诊断归一化问题。
         参数:
             df_index (pd.Index): DataFrame的索引。
             lower_shadow_absorption_strength_raw (pd.Series): 原始的下影线吸收强度。
             method_name (str): 调用此方法的名称，用于日志输出。
+            is_debug_enabled_for_method (bool): 是否启用调试。
+            probe_ts (Optional[pd.Timestamp]): 探针日期。
+            debug_output (Dict): 调试输出字典。
         返回:
             pd.Series: 派生出的下影线吸收强度分数 (单极性)。
         """
-        # 下影线吸收强度本身就是衡量吸收力量的，直接归一化为单极性分数即可。
+        if is_debug_enabled_for_method and probe_ts:
+            debug_output[f"      -- [DEBUG_LOWER_SHADOW_ABSORPTION] Signal: 'lower_shadow_absorption_strength_D' @ {probe_ts.strftime('%Y-%m-%d')} --"] = ""
+            val_raw = lower_shadow_absorption_strength_raw.loc[probe_ts] if probe_ts in lower_shadow_absorption_strength_raw.index else np.nan
+            debug_output[f"        原始 lower_shadow_absorption_strength_raw (探针日期): {val_raw:.4f}"] = ""
+            # 打印探针日期前几天的原始值，帮助理解归一化窗口内的分布
+            debug_output[f"        --- 原始 lower_shadow_absorption_strength_raw 探针日期附近数据 (前5天) ---"] = ""
+            if probe_ts in df_index:
+                probe_ts_idx = df_index.get_loc(probe_ts)
+                start_idx = max(0, probe_ts_idx - 5) # 打印前5天
+                dates_to_display = df_index[start_idx : probe_ts_idx + 1]
+                for current_date in dates_to_display:
+                    raw_val = lower_shadow_absorption_strength_raw.loc[current_date] if current_date in lower_shadow_absorption_strength_raw.index else np.nan
+                    debug_output[f"            {current_date.strftime('%Y-%m-%d')}: 原始值={raw_val:.4f}"] = ""
+
         lower_shadow_absorption_score = self.helper._normalize_series(lower_shadow_absorption_strength_raw, df_index, bipolar=False)
+
+        if is_debug_enabled_for_method and probe_ts:
+            val_norm = lower_shadow_absorption_score.loc[probe_ts] if probe_ts in lower_shadow_absorption_score.index else np.nan
+            debug_output[f"        归一化后 lower_shadow_strength (探针日期): {val_norm:.4f}"] = ""
+
         return lower_shadow_absorption_score
 
     def _derive_power_transfer_score_from_raw(self, df_index: pd.Index,
