@@ -534,6 +534,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
                  增加列存在性检查，提高代码健壮性。
     - 核心新增: 增加对 `df_realtime` 中 `trade_time` 列重复值的检查和输出。
     - 核心新增: 在 `_process_intraday_df_to_map` 中 `set_index` 前增加重复索引检查。
+    - 核心修复: 在 `_process_intraday_df_to_map` 中，在设置索引前对 `trade_time` 列进行去重，以解决重复索引问题。
     """
     import pytz
     from utils.model_helpers import (
@@ -670,6 +671,9 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         if df['trade_time'].duplicated().any():
             duplicate_times = df['trade_time'][df['trade_time'].duplicated()].unique().tolist()
             print(f"  [DEBUG_ERROR] _process_intraday_df_to_map: For stock {stock_code_for_log}, data source {data_source_name}, 'trade_time' column has duplicate values before setting index: {duplicate_times}")
+            # --- 修复：在设置索引前删除重复的 trade_time，保留最后一条 ---
+            df = df.drop_duplicates(subset=['trade_time'], keep='last')
+            print(f"  [DEBUG_FIX] _process_intraday_df_to_map: Removed duplicates for {stock_code_for_log}, {data_source_name}. New shape: {df.shape}")
         # --- 调试信息结束 ---
         # If for some reason it's still not datetime, it's a critical issue.
         if not pd.api.types.is_datetime64_any_dtype(df['trade_time']):
