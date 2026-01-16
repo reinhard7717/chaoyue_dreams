@@ -169,57 +169,6 @@ class CalculateUpthrustWashoutRelationship:
         context_mask = (trend_form_score > 0.2) & (upward_purity_norm_rolling_mean > 0.3)
         return context_mask
 
-    def _print_debug_output_for_upthrust_washout(self, debug_output: Dict, probe_ts: pd.Timestamp,
-                                                  temp_debug_values: Dict, final_score: pd.Series) -> None:
-        method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-        for key, series in temp_debug_values["原始信号值"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        '{key}': {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-        for key, series in temp_debug_values["归一化处理"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        # 新增打印 context_mask 的两个条件
-        val_trend_form_score = temp_debug_values["归一化处理"]["trend_form_score"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["trend_form_score"].index else np.nan
-        val_upward_purity_norm_rolling_mean = temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].index else np.nan
-        debug_output[f"        [Context Condition 1] trend_form_score ({val_trend_form_score:.4f}) > 0.2: {val_trend_form_score > 0.2}"] = ""
-        debug_output[f"        [Context Condition 2] upward_purity_norm_rolling_mean ({val_upward_purity_norm_rolling_mean:.4f}) > 0.3: {val_upward_purity_norm_rolling_mean > 0.3}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场上下文 ---"] = ""
-        for key, series in temp_debug_values["市场上下文"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- K线形态门控 ---"] = ""
-        for key, series in temp_debug_values["K线形态门控"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 卖压审判分 ---"] = ""
-        for key, series in temp_debug_values["卖压审判分"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 承接审判分 ---"] = ""
-        for key, series in temp_debug_values["承接审判分"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 净洗盘意图 ---"] = ""
-        for key, series in temp_debug_values["净洗盘意图"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力资金累积流向门控 ---"] = ""
-        for key, series in temp_debug_values["主力资金累积流向门控"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
-        for key, series in temp_debug_values["最终分数"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 上冲回落洗盘诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-        for key, value in debug_output.items():
-            if value:
-                print(f"{key}: {value}")
-            else:
-                print(key)
-
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         bias_21 = self.helper._get_safe_series(df, 'BIAS_21_D', 0.0, method_name=method_name)
         pct_change = self.helper._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
