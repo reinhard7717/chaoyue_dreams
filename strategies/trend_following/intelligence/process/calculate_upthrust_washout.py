@@ -132,13 +132,16 @@ class CalculateUpthrustWashoutRelationship:
         _temp_debug_values["市场上下文"] = {"context_mask": context_mask}
         is_upthrust_kline = self._identify_kline_pattern(open_price, high_price, close_price, low_price, pct_change)
         _temp_debug_values["K线形态门控"] = {"is_upthrust_kline": is_upthrust_kline}
-        # 传递 lower_shadow_strength 给 _assess_selling_pressure
         selling_pressure_score = self._assess_selling_pressure(upper_shadow_pressure_norm, pct_change, lower_shadow_strength)
         _temp_debug_values["卖压审判分"] = {"selling_pressure_score": selling_pressure_score}
         absorption_rebuttal_score = self._assess_absorption_rebuttal(active_buying_norm, lower_shadow_strength, power_transfer_norm)
         _temp_debug_values["承接审判分"] = {"absorption_rebuttal_score": absorption_rebuttal_score}
-        # 调用新的方法计算净洗盘意图
-        net_washout_intent = self._calculate_net_washout_intent(absorption_rebuttal_score, selling_pressure_score, pct_change, df_index)
+        # 调用新的方法计算净洗盘意图，并传递调试参数
+        # 这一行是关键，请确保它与以下代码完全一致
+        net_washout_intent = self._calculate_net_washout_intent(
+            absorption_rebuttal_score, selling_pressure_score, pct_change, df_index,
+            is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values
+        )
         _temp_debug_values["净洗盘意图"] = {"net_washout_intent": net_washout_intent}
         mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_net_volume_from_hf, is_debug_enabled_for_method, probe_ts, debug_output)
         _temp_debug_values["主力资金累积流向门控"] = {"mf_cumulative_flow_gate": mf_cumulative_flow_gate}

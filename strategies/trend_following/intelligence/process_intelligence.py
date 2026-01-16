@@ -22,6 +22,7 @@ from strategies.trend_following.intelligence.process.calculate_storm_eye_calm im
 from strategies.trend_following.intelligence.process.calculate_winner_conviction_relationship import CalculateWinnerConvictionRelationship
 from strategies.trend_following.intelligence.process.calculate_cost_advantage_trend_relationship import CalculateCostAdvantageTrendRelationship
 from strategies.trend_following.intelligence.process.calculate_upthrust_washout import CalculateUpthrustWashoutRelationship
+from strategies.trend_following.intelligence.process.calculate_main_force_control import CalculateMainForceControlRelationship
 
 class ProcessIntelligence:
     """
@@ -45,6 +46,7 @@ class ProcessIntelligence:
         self.calculate_winner_conviction_relationship_processor = CalculateWinnerConvictionRelationship(strategy_instance, self.helper)
         self.calculate_cost_advantage_trend_relationship_processor = CalculateCostAdvantageTrendRelationship(strategy_instance, self.helper)
         self.calculate_upthrust_washout_processor = CalculateUpthrustWashoutRelationship(strategy_instance, self.helper)
+        self.calculate_main_force_control_processor = CalculateMainForceControlRelationship(strategy_instance, self.helper) # 新增此行
         self.params = self.helper.params
         self.score_type_map = self.helper.score_type_map
         self.norm_window = self.helper.norm_window
@@ -342,154 +344,6 @@ class ProcessIntelligence:
             print(f"    -> [过程情报警告] 未知的元分析诊断类型: '{diagnosis_type}'，跳过信号 '{config.get('name')}' 的计算。")
             return {}
 
-    def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V2.3 · 控盘杠杆与全息资金流验证强化版】计算“主力控盘”的专属关系分数。
-        - 核心重构: 创立“控盘即杠杆”模型。将“控盘度”作为调节“资金流向”影响力的核心杠杆。
-                      最终分 = 主力净流入分 * (1 + 融合控盘分)。
-        - 证据升级: 融合传统的均线控盘度与更现代的“控盘稳固度”，形成更立体的控盘评分。
-        - 【强化】引入主力资金净流向和资金流可信度作为控盘杠杆的调节因子，确保控盘的积极性。
-        - 【重要修改】修正 `control_leverage` 逻辑，当控盘不强时，对资金流入进行更强的惩罚。
-        - 【新增】引入 MTF 控盘信号和 MTF 主力资金净流，增强信号鲁棒性。
-        """
-        method_name = "_calculate_main_force_control_relationship"
-        # --- 调试信息构建 ---
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        debug_output = {}
-        _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算主力控盘关系..."] = ""
-        # 获取MTF权重配置
-        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
-        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = ['close_D', 'main_force_net_flow_calibrated_D', 'control_solidity_index_D', 'flow_credibility_index_D']
-        # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in ['control_solidity_index_D', 'main_force_net_flow_calibrated_D']:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-        if not self._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self._print_debug_output(debug_output)
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        # --- 原始数据获取 ---
-        close_price = self._get_safe_series(df, 'close_D', method_name=method_name)
-        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
-        main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
-        flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
-        _temp_debug_values["原始信号值"] = {
-            "close_D": close_price,
-            "control_solidity_index_D": control_solidity_raw,
-            "main_force_net_flow_calibrated_D": main_force_net_flow,
-            "flow_credibility_index_D": flow_credibility_raw
-        }
-        # --- 1. 传统控盘度计算 ---
-        ema13 = ta.ema(close=close_price, length=13, append=False)
-        if ema13 is None:
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} EMA_13 计算失败，返回默认值。"] = ""
-                self._print_debug_output(debug_output)
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
-        varn1 = ta.ema(close=ema13, length=13, append=False)
-        if varn1 is None:
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} VARN1 计算失败，返回默认值。"] = ""
-                self._print_debug_output(debug_output)
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
-        prev_varn1 = varn1.shift(1).replace(0, np.nan)
-        kongpan_raw = (varn1 - prev_varn1) / prev_varn1 * 1000
-        _temp_debug_values["传统控盘度计算"] = {
-            "ema13": ema13,
-            "varn1": varn1,
-            "prev_varn1": prev_varn1,
-            "kongpan_raw": kongpan_raw
-        }
-        # --- 2. 归一化处理 ---
-        traditional_control_score = self._normalize_series(kongpan_raw, df_index, bipolar=True)
-        # 结构控盘度：使用MTF融合信号
-        mtf_structural_control_score = self._get_mtf_slope_accel_score(df, 'control_solidity_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # 主力资金流分：使用MTF融合信号
-        mtf_main_force_flow_score = self._get_mtf_slope_accel_score(df, 'main_force_net_flow_calibrated_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        flow_credibility_norm = self._normalize_series(flow_credibility_raw, df_index, bipolar=False)
-        _temp_debug_values["归一化处理"] = {
-            "traditional_control_score": traditional_control_score,
-            "mtf_structural_control_score": mtf_structural_control_score,
-            "mtf_main_force_flow_score": mtf_main_force_flow_score,
-            "flow_credibility_norm": flow_credibility_norm
-        }
-        # --- 3. 融合控盘分 ---
-        fused_control_score = (traditional_control_score * 0.4 + mtf_structural_control_score * 0.6).clip(-1, 1)
-        _temp_debug_values["融合控盘分"] = {
-            "fused_control_score": fused_control_score
-        }
-        # --- 4. 控盘杠杆模型 ---
-        # 杠杆效应：当控盘为正时，放大资金流入；当控盘为负时，抑制资金流入，甚至反向惩罚
-        mf_inflow_validation = mtf_main_force_flow_score.clip(lower=0) * flow_credibility_norm
-        control_leverage = pd.Series(1.0, index=df_index, dtype=np.float32)
-        # 控盘强 (fused_control_score > 0)，则放大资金流入
-        control_leverage = control_leverage.mask(fused_control_score > 0, 1 + fused_control_score * mf_inflow_validation)
-        # 控盘弱或负 (fused_control_score <= 0)，则更强地抑制资金流入，甚至反向惩罚
-        # 惩罚因子可以是非线性的，例如 (1 + fused_control_score) * (1 - mf_inflow_validation)
-        control_leverage = control_leverage.mask(fused_control_score <= 0, (1 + fused_control_score) * (1 - mf_inflow_validation * 0.5)) # 惩罚力度增强
-        control_leverage = control_leverage.clip(0, 2) # 限制杠杆范围，避免过大或过小的负值
-        _temp_debug_values["控盘杠杆模型"] = {
-            "mf_inflow_validation": mf_inflow_validation,
-            "control_leverage": control_leverage
-        }
-        # --- 5. 最终控盘分数 ---
-        final_control_score = (mtf_main_force_flow_score * control_leverage).clip(-1, 1)
-        _temp_debug_values["最终控盘分数"] = {
-            "final_control_score": final_control_score
-        }
-        # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 传统控盘度计算 ---"] = ""
-            for key, series in _temp_debug_values["传统控盘度计算"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-            for key, series in _temp_debug_values["归一化处理"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 融合控盘分 ---"] = ""
-            for key, series in _temp_debug_values["融合控盘分"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 控盘杠杆模型 ---"] = ""
-            for key, series in _temp_debug_values["控盘杠杆模型"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终控盘分数 ---"] = ""
-            for key, series in _temp_debug_values["最终控盘分数"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力控盘关系诊断完成，最终分值: {final_control_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
-        return final_control_score.astype(np.float32)
-
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         signal_name = config.get('name', '未知信号')
         if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
@@ -542,7 +396,7 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
             meta_score = self.calculate_cost_advantage_trend_relationship_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
-            meta_score = self._calculate_main_force_control_relationship(df, config)
+            meta_score = self.calculate_main_force_control_processor.calculate(df, config) # 修改此行
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
             meta_score = self._calculate_panic_washout_accumulation(df, config)
         elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION':

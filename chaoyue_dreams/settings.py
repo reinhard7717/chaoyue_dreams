@@ -535,7 +535,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     '每天运行一次: 今日涨跌停价格数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_stk_limit_data_today_task',
-        'schedule': crontab(minute=5, hour=9, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=25, hour=9, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveData_TimeTrade'}
     },
     '每天运行一次: 股票列表': {
