@@ -147,8 +147,8 @@ class CalculateUpthrustWashoutRelationship:
         _temp_debug_values["主力资金累积流向门控"] = {"mf_cumulative_flow_gate": mf_cumulative_flow_gate}
         final_score = self._fuse_final_score(net_washout_intent, context_mask, is_upthrust_kline, mf_cumulative_flow_gate)
         _temp_debug_values["最终分数"] = {"final_score": final_score}
-        if is_debug_enabled_for_method and probe_ts:
-            self._print_debug_output_for_upthrust_washout(debug_output, probe_ts, _temp_debug_values, final_score)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._print_debug_output_for_upthrust_washout(debug_output, probe_ts, _temp_debug_values, final_score)
         return final_score.astype(np.float32)
 
     def _evaluate_market_context(self, trend_form_score: pd.Series, bias_21: pd.Series, upward_purity_norm_rolling_mean: pd.Series) -> pd.Series:

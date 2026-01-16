@@ -370,10 +370,11 @@ class CalculateMainForceControlRelationship:
 
     def _calculate_traditional_control_score_components(self, df: pd.DataFrame, close_price: pd.Series, method_name: str, _temp_debug_values: Dict, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp, debug_output: Dict) -> pd.Series:
         """
-        【V1.0.0】计算基于EMA的传统控盘度分数。
+        【V1.0.1】计算基于EMA的传统控盘度分数。
+        直接从数据层获取EMA指标，不再重新计算。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            close_price (pd.Series): 收盘价序列。
+            close_price (pd.Series): 收盘价序列 (不再直接使用，仅为兼容签名)。
             method_name (str): 调用此方法的名称。
             _temp_debug_values (Dict): 临时存储中间计算结果的字典。
             is_debug_enabled_for_method (bool): 是否启用调试。
@@ -382,20 +383,18 @@ class CalculateMainForceControlRelationship:
         返回:
             pd.Series: 传统控盘度分数。
         """
-        ema13 = ta.ema(close=close_price, length=13, append=False)
-        if ema13 is None:
+        # 直接从数据层获取EMA指标
+        ema13 = self._get_safe_series(df, 'EMA_13_D', method_name=method_name)
+        # 假设 varn1 是 EMA_13_D 的一个更长周期平滑，例如 EMA_55_D
+        varn1 = self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
+        if ema13.isnull().all() or varn1.isnull().all():
             if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} EMA_13 计算失败，返回默认值。"] = ""
+                debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度所需EMA数据缺失或全为NaN，返回默认值。"] = ""
                 self._print_debug_info(debug_output)
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        varn1 = ta.ema(close=ema13, length=13, append=False)
-        if varn1 is None:
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} VARN1 计算失败，返回默认值。"] = ""
-                self._print_debug_info(debug_output)
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        prev_varn1 = varn1.shift(1).replace(0, np.nan)
-        kongpan_raw = (varn1 - prev_varn1) / prev_varn1 * 1000
+            return pd.Series(np.nan, index=df.index, dtype=np.float32) # 返回NaN，让归一化处理
+        prev_varn1 = varn1.shift(1)
+        # 避免除以零，并处理NaN
+        kongpan_raw = (varn1 - prev_varn1) / prev_varn1.replace(0, np.nan) * 1000
         _temp_debug_values["传统控盘度计算"] = {
             "ema13": ema13,
             "varn1": varn1,

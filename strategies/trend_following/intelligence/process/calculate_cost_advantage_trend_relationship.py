@@ -137,10 +137,10 @@ class CalculateCostAdvantageTrendRelationship:
             "final_score": final_score
         }
         # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            self.helper._print_debug_output(debug_output)
+        # if is_debug_enabled_for_method and probe_ts:
+        #     self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
+        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+        #     self.helper._print_debug_output(debug_output)
         return final_score.astype(np.float32)
 
     def _get_mtf_configs(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
