@@ -670,10 +670,10 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         # --- 新增：检查 df['trade_time'] 中的重复值，在 set_index 之前 ---
         if df['trade_time'].duplicated().any():
             duplicate_times = df['trade_time'][df['trade_time'].duplicated()].unique().tolist()
-            print(f"  [DEBUG_ERROR] _process_intraday_df_to_map: For stock {stock_code_for_log}, data source {data_source_name}, 'trade_time' column has duplicate values before setting index: {duplicate_times}")
+            # print(f"  [DEBUG_ERROR] _process_intraday_df_to_map: For stock {stock_code_for_log}, data source {data_source_name}, 'trade_time' column has duplicate values before setting index: {duplicate_times}")
             # --- 修复：在设置索引前删除重复的 trade_time，保留最后一条 ---
             df = df.drop_duplicates(subset=['trade_time'], keep='last')
-            print(f"  [DEBUG_FIX] _process_intraday_df_to_map: Removed duplicates for {stock_code_for_log}, {data_source_name}. New shape: {df.shape}")
+            # print(f"  [DEBUG_FIX] _process_intraday_df_to_map: Removed duplicates for {stock_code_for_log}, {data_source_name}. New shape: {df.shape}")
         # --- 调试信息结束 ---
         # If for some reason it's still not datetime, it's a critical issue.
         if not pd.api.types.is_datetime64_any_dtype(df['trade_time']):
