@@ -120,7 +120,7 @@ def _numba_calculate_sweeps(trade_types: np.ndarray, prices: np.ndarray, volumes
                     sell_sweep_vol += np.sum(block_volumes)
     return buy_sweep_vol, sell_sweep_vol
 
-@numba.jit(float64(float64[:], float64, float64), nopython=True, cache=True)
+@numba.jit(float64[:](float64[:], float64, float64), nopython=True, cache=True)
 def _gaussian_weight_numba_core(prices_arr, center, sigma):
     """
     Numba优化的高斯权重计算核心函数。
