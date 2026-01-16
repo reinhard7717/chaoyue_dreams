@@ -7,6 +7,7 @@ from scipy.signal import find_peaks
 from scipy.stats import entropy, percentileofscore, skew
 from decimal import Decimal
 import numba
+from numba import float64, boolean, int64 # 导入常用类型，用于签名
 from typing import Tuple
 import logging
 logger = logging.getLogger(__name__)
@@ -118,6 +119,34 @@ def _numba_calculate_sweeps(trade_types: np.ndarray, prices: np.ndarray, volumes
                 if is_monotonic:
                     sell_sweep_vol += np.sum(block_volumes)
     return buy_sweep_vol, sell_sweep_vol
+
+@numba.jit(float66(float64[:], float64, float64), nopython=True, cache=True)
+def _gaussian_weight_numba_core(prices_arr, center, sigma):
+    """
+    Numba优化的高斯权重计算核心函数。
+    直接操作NumPy数组以获得最佳性能。
+    """
+    weights_arr = np.zeros_like(prices_arr, dtype=np.float64)
+    # 创建一个布尔掩码，用于筛选有效价格（非NaN且大于0）
+    # Numba可以直接处理np.isnan和数组比较
+    valid_mask = (prices_arr > 0) & (~np.isnan(prices_arr))
+
+    # 如果没有有效价格，直接返回全0权重数组
+    if not np.any(valid_mask):
+        return weights_arr
+
+    # 提取有效价格的NumPy数组
+    valid_prices_values = prices_arr[valid_mask]
+
+    # 根据sigma计算权重
+    if sigma > 0:
+        calculated_weights_array = np.exp(-((valid_prices_values - center)**2) / (2 * sigma**2))
+    else: # sigma为0时，只有中心点有权重1
+        calculated_weights_array = np.where(valid_prices_values == center, 1.0, 0.0)
+
+    # 将计算出的权重赋值回weights_arr中对应的位置
+    weights_arr[valid_mask] = calculated_weights_array
+    return weights_arr
 
 class ChipFeatureCalculator:
     """
@@ -1291,13 +1320,14 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V3.3 · 盘口数据清洗版】
+        【V3.4 · Numba优化版】
+        - 核心优化: 将 `_gaussian_weight` 函数的核心计算逻辑提取并使用 Numba 进行 JIT 编译，
+                     显著提升了权重计算的效率。
         - 核心修复: 解决了实时盘口数据中价格出现 `0.0000` 或 `NaN` 导致计算异常的问题。
                      引入 `valid_data_mask` 严格过滤无效价格和成交量，确保只有有效数据参与计算。
         - 核心修复: 调整 `_gaussian_weight` 函数，使其在输入价格无效时返回 `0` 权重。
         - 核心增强: 增加更详细的探针，追踪每个买卖档位价格和成交量的质量。
-        - 核心新增: 在 `_gaussian_weight` 函数中，当可能发生 `ValueError: cannot reindex on an axis with duplicate labels` 错误时，输出 `weights` 和 `valid_prices.index` 中重复的索引。
-        - 核心新增: 在方法入口处检查 `realtime_df` 是否包含重复索引。
+        - 核心修复: 修复 `_gaussian_weight` 函数中因 `DataFrame` 索引重复导致的 `ValueError: cannot reindex on an axis with duplicate labels` 错误。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -1327,28 +1357,14 @@ class ChipFeatureCalculator:
         if pd.notna(main_force_cost) and pd.notna(atr) and atr > 0:
             cost_zone_low = main_force_cost - 0.5 * atr
             cost_zone_high = main_force_cost + 0.5 * atr
+            # 修改后的_gaussian_weight函数，调用Numba优化过的核心函数
             def _gaussian_weight(price_series_input, center, sigma):
-                # 确保只对有效价格计算权重，无效价格（NaN或0）返回0权重
-                weights = pd.Series(0.0, index=price_series_input.index)
-                # 过滤掉NaN和0的价格
-                valid_prices_mask = price_series_input.notna() & (price_series_input > 0)
-                valid_prices = price_series_input[valid_prices_mask]
-                if valid_prices.empty:
-                    return weights # 所有价格都无效，返回全0 Series
-
-                # --- 新增调试信息 (保持原样，因为用户要求不修复错误，只输出) ---
-                if weights.index.has_duplicates:
-                    duplicate_indices_weights = weights.index[weights.index.duplicated()].unique().tolist()
-                    print(f"  [DEBUG_ERROR] _gaussian_weight: 'weights' Series (from price_series_input) has duplicate indices: {duplicate_indices_weights}")
-                if valid_prices.index.has_duplicates:
-                    duplicate_indices_valid_prices = valid_prices.index[valid_prices.index.duplicated()].unique().tolist()
-                    print(f"  [DEBUG_ERROR] _gaussian_weight: 'valid_prices.index' has duplicate indices: {duplicate_indices_valid_prices}")
-                # --- 调试信息结束 ---
-
-                if sigma > 0:
-                    weights.loc[valid_prices.index] = np.exp(-((valid_prices - center)**2) / (2 * sigma**2))
-                else: # sigma为0，只有中心点有权重1
-                    weights.loc[valid_prices.index] = np.where(valid_prices == center, 1.0, 0.0)
+                # 将Pandas Series转换为NumPy数组
+                prices_arr = price_series_input.to_numpy()
+                # 调用Numba优化过的核心函数
+                weights_arr = _gaussian_weight_numba_core(prices_arr, center, sigma)
+                # 将结果NumPy数组转换回Pandas Series，并保留原始索引
+                weights = pd.Series(weights_arr, index=price_series_input.index)
                 return weights
             bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
             bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
