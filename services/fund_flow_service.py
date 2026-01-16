@@ -314,13 +314,11 @@ class AdvancedFundFlowMetricsService:
         buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
-
         # --- 动态主力识别逻辑开始 ---
         # 计算当日所有高频交易的平均单笔成交金额和成交量
         # 这比“平均分钟总成交额/量”更具代表性，能反映该股票当日的普遍交易规模。
         avg_trade_amount = hf_analysis_df['amount'].mean() if not hf_analysis_df.empty else 0.0
         avg_trade_volume = hf_analysis_df['volume'].mean() if not hf_analysis_df.empty else 0.0
-
         # 定义动态主力阈值参数
         # MIN_ABSOLUTE_AMOUNT: 任何低于此金额的交易，无论如何都不是主力。
         # K1_AMOUNT_MULTIPLIER / K2_VOLUME_MULTIPLIER: 订单金额/量是“平均单笔成交金额/量”的多少倍才算主力。
@@ -331,7 +329,6 @@ class AdvancedFundFlowMetricsService:
         K2_VOLUME_MULTIPLIER = 3.0 # 订单量是平均单笔成交量的 K2 倍 (可调，例如3-5倍)
         MIN_ABSOLUTE_VOLUME = 5000 # 最小绝对股数 (例如，对于10元股，5000股是5万，对于1元股，5000股是5千)
         ABSOLUTE_MAIN_FORCE_AMOUNT = 200000 # 兜底的绝对主力金额，任何高于此金额的交易都算主力
-
         # 动态主力交易判断：
         # 1. 订单金额必须大于 MIN_ABSOLUTE_AMOUNT (例如 5 万元)
         # 2. 并且满足以下任一条件：
@@ -346,11 +343,9 @@ class AdvancedFundFlowMetricsService:
                                   (hf_analysis_df['volume'] >= MIN_ABSOLUTE_VOLUME) |
                                   (hf_analysis_df['amount'] >= ABSOLUTE_MAIN_FORCE_AMOUNT)
                               )
-
         # 散户交易定义：保持原有的固定金额阈值，或根据需要进行动态调整
         is_retail_trade = hf_analysis_df['amount'] < 50000
         # --- 动态主力识别逻辑结束 ---
-
         net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
         active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
         active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
@@ -441,52 +436,52 @@ class AdvancedFundFlowMetricsService:
         should_probe = context['debug']['should_probe']
         stock_code = context['debug']['stock_code']
         current_date = context['daily_data'].name.date()
-        if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-            print(f"\n--- [探针 _engineer_hf_features] {stock_code} {current_date} - 主力日度买卖金额/股数计算 ---")
-            print(f"  - 原始高频数据 (hf_analysis_df) 概览:")
-            print(f"    - 总行数: {len(hf_analysis_df)}")
-            print(f"    - 'amount' 列统计: {hf_analysis_df['amount'].describe()}")
-            print(f"    - 'volume' 列统计: {hf_analysis_df['volume'].describe()}")
-            print(f"    - 'is_main_force_trade' 分布: {is_main_force_trade.value_counts()}")
-            print(f"    - 'type' 分布 (所有交易): {hf_analysis_df['type'].value_counts()}")
-            print(f"  - 筛选后的主力交易 (mf_trades) 概览:")
-            print(f"    - 总行数: {len(mf_trades)}")
-            if not mf_trades.empty:
-                print(f"    - 'amount' 列统计: {mf_trades['amount'].describe()}")
-                print(f"    - 'volume' 列统计: {mf_trades['volume'].describe()}")
-                print(f"    - 'type' 分布 (主力交易): {mf_trades['type'].value_counts()}")
-                print(f"    - 'mid_price_change' 分布 (主力交易): {mf_trades['mid_price_change'].describe()}")
-            else:
-                print(f"    - 无主力交易数据。")
-            print(f"  - 动态主力识别参数:")
-            print(f"    - MIN_ABSOLUTE_AMOUNT: {MIN_ABSOLUTE_AMOUNT}")
-            print(f"    - K1_AMOUNT_MULTIPLIER: {K1_AMOUNT_MULTIPLIER}")
-            print(f"    - K2_VOLUME_MULTIPLIER: {K2_VOLUME_MULTIPLIER}")
-            print(f"    - MIN_ABSOLUTE_VOLUME: {MIN_ABSOLUTE_VOLUME}")
-            print(f"    - ABSOLUTE_MAIN_FORCE_AMOUNT: {ABSOLUTE_MAIN_FORCE_AMOUNT}")
-            print(f"    - avg_trade_amount (所有交易平均单笔金额): {avg_trade_amount:.2f}")
-            print(f"    - avg_trade_volume (所有交易平均单笔股数): {avg_trade_volume:.2f}")
-            print(f"    - 动态金额阈值 (K1 * avg_trade_amount): {(K1_AMOUNT_MULTIPLIER * avg_trade_amount):.2f}")
-            print(f"    - 动态股数阈值 (K2 * avg_trade_volume): {(K2_VOLUME_MULTIPLIER * avg_trade_volume):.2f}")
-            print(f"    - is_main_force_trade 分布 (新): {is_main_force_trade.value_counts()}")
-            print(f"  - 关键计算节点: mf_aggressive_buy_trades['volume'].sum() = {features['main_force_aggressive_buy_volume']:.2f}")
-            print(f"  - 关键计算节点: mf_aggressive_sell_trades['volume'].sum() = {features['main_force_aggressive_sell_volume']:.2f}")
-            print(f"  - 关键计算节点: mf_mid_trades['volume'].sum() = {mf_mid_trades['volume'].sum():.2f}")
-            print(f"  - 关键计算节点: mf_passive_buy_trades['volume'].sum() = {features['main_force_passive_buy_volume']:.2f}")
-            print(f"  - 关键计算节点: mf_passive_sell_trades['volume'].sum() = {features['main_force_passive_sell_volume']:.2f}")
-            print(f"  - 最终计算结果 (features):")
-            print(f"    - main_force_aggressive_buy_volume: {features['main_force_aggressive_buy_volume']:.2f}")
-            print(f"    - main_force_aggressive_sell_volume: {features['main_force_aggressive_sell_volume']:.2f}")
-            print(f"    - main_force_passive_buy_volume: {features['main_force_passive_buy_volume']:.2f}")
-            print(f"    - main_force_passive_sell_volume: {features['main_force_passive_sell_volume']:.2f}")
-            print(f"    - main_force_daily_buy_volume: {features['main_force_daily_buy_volume']:.2f}")
-            print(f"    - main_force_daily_sell_volume: {features['main_force_daily_sell_volume']:.2f}")
-            print(f"    - main_force_daily_buy_amount: {features['main_force_daily_buy_amount']:.2f}")
-            print(f"    - main_force_daily_sell_amount: {features['main_force_daily_sell_amount']:.2f}")
-            print(f"    - hf_mf_buy_vwap: {features['hf_mf_buy_vwap']:.4f}")
-            print(f"    - hf_mf_sell_vwap: {features['hf_mf_sell_vwap']:.4f}")
-            print(f"    - total_mf_vol: {features['total_mf_vol']:.2f}")
-            print(f"--- [探针 _engineer_hf_features 结束] {stock_code} {current_date} ---")
+        # if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
+        #     print(f"\n--- [探针 _engineer_hf_features] {stock_code} {current_date} - 主力日度买卖金额/股数计算 ---")
+        #     print(f"  - 原始高频数据 (hf_analysis_df) 概览:")
+        #     print(f"    - 总行数: {len(hf_analysis_df)}")
+        #     print(f"    - 'amount' 列统计: {hf_analysis_df['amount'].describe()}")
+        #     print(f"    - 'volume' 列统计: {hf_analysis_df['volume'].describe()}")
+        #     print(f"    - 'is_main_force_trade' 分布: {is_main_force_trade.value_counts()}")
+        #     print(f"    - 'type' 分布 (所有交易): {hf_analysis_df['type'].value_counts()}")
+        #     print(f"  - 筛选后的主力交易 (mf_trades) 概览:")
+        #     print(f"    - 总行数: {len(mf_trades)}")
+        #     if not mf_trades.empty:
+        #         print(f"    - 'amount' 列统计: {mf_trades['amount'].describe()}")
+        #         print(f"    - 'volume' 列统计: {mf_trades['volume'].describe()}")
+        #         print(f"    - 'type' 分布 (主力交易): {mf_trades['type'].value_counts()}")
+        #         print(f"    - 'mid_price_change' 分布 (主力交易): {mf_trades['mid_price_change'].describe()}")
+        #     else:
+        #         print(f"    - 无主力交易数据。")
+        #     print(f"  - 动态主力识别参数:")
+        #     print(f"    - MIN_ABSOLUTE_AMOUNT: {MIN_ABSOLUTE_AMOUNT}")
+        #     print(f"    - K1_AMOUNT_MULTIPLIER: {K1_AMOUNT_MULTIPLIER}")
+        #     print(f"    - K2_VOLUME_MULTIPLIER: {K2_VOLUME_MULTIPLIER}")
+        #     print(f"    - MIN_ABSOLUTE_VOLUME: {MIN_ABSOLUTE_VOLUME}")
+        #     print(f"    - ABSOLUTE_MAIN_FORCE_AMOUNT: {ABSOLUTE_MAIN_FORCE_AMOUNT}")
+        #     print(f"    - avg_trade_amount (所有交易平均单笔金额): {avg_trade_amount:.2f}")
+        #     print(f"    - avg_trade_volume (所有交易平均单笔股数): {avg_trade_volume:.2f}")
+        #     print(f"    - 动态金额阈值 (K1 * avg_trade_amount): {(K1_AMOUNT_MULTIPLIER * avg_trade_amount):.2f}")
+        #     print(f"    - 动态股数阈值 (K2 * avg_trade_volume): {(K2_VOLUME_MULTIPLIER * avg_trade_volume):.2f}")
+        #     print(f"    - is_main_force_trade 分布 (新): {is_main_force_trade.value_counts()}")
+        #     print(f"  - 关键计算节点: mf_aggressive_buy_trades['volume'].sum() = {features['main_force_aggressive_buy_volume']:.2f}")
+        #     print(f"  - 关键计算节点: mf_aggressive_sell_trades['volume'].sum() = {features['main_force_aggressive_sell_volume']:.2f}")
+        #     print(f"  - 关键计算节点: mf_mid_trades['volume'].sum() = {mf_mid_trades['volume'].sum():.2f}")
+        #     print(f"  - 关键计算节点: mf_passive_buy_trades['volume'].sum() = {features['main_force_passive_buy_volume']:.2f}")
+        #     print(f"  - 关键计算节点: mf_passive_sell_trades['volume'].sum() = {features['main_force_passive_sell_volume']:.2f}")
+        #     print(f"  - 最终计算结果 (features):")
+        #     print(f"    - main_force_aggressive_buy_volume: {features['main_force_aggressive_buy_volume']:.2f}")
+        #     print(f"    - main_force_aggressive_sell_volume: {features['main_force_aggressive_sell_volume']:.2f}")
+        #     print(f"    - main_force_passive_buy_volume: {features['main_force_passive_buy_volume']:.2f}")
+        #     print(f"    - main_force_passive_sell_volume: {features['main_force_passive_sell_volume']:.2f}")
+        #     print(f"    - main_force_daily_buy_volume: {features['main_force_daily_buy_volume']:.2f}")
+        #     print(f"    - main_force_daily_sell_volume: {features['main_force_daily_sell_volume']:.2f}")
+        #     print(f"    - main_force_daily_buy_amount: {features['main_force_daily_buy_amount']:.2f}")
+        #     print(f"    - main_force_daily_sell_amount: {features['main_force_daily_sell_amount']:.2f}")
+        #     print(f"    - hf_mf_buy_vwap: {features['hf_mf_buy_vwap']:.4f}")
+        #     print(f"    - hf_mf_sell_vwap: {features['hf_mf_sell_vwap']:.4f}")
+        #     print(f"    - total_mf_vol: {features['total_mf_vol']:.2f}")
+        #     print(f"--- [探针 _engineer_hf_features 结束] {stock_code} {current_date} ---")
         return hf_analysis_df, features
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
@@ -956,25 +951,25 @@ class AdvancedFundFlowMetricsService:
             results['main_force_daily_buy_volume_D'] = main_force_daily_buy_volume
             results['main_force_daily_sell_volume_D'] = main_force_daily_sell_volume
             results['main_force_net_volume_from_hf_D'] = main_force_daily_buy_volume - main_force_daily_sell_volume
-            if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
-                print(f"\n--- [探针 _compute_all_behavioral_metrics] {stock_code} {current_date} - 主力日度净买卖金额/股数结果 ---")
-                print(f"  - 从 hf_features 获取:")
-                print(f"    - main_force_aggressive_buy_volume: {hf_features.get('main_force_aggressive_buy_volume', 0.0):.2f}")
-                print(f"    - main_force_aggressive_sell_volume: {hf_features.get('main_force_aggressive_sell_volume', 0.0):.2f}")
-                print(f"    - main_force_passive_buy_volume: {hf_features.get('main_force_passive_buy_volume', 0.0):.2f}")
-                print(f"    - main_force_passive_sell_volume: {hf_features.get('main_force_passive_sell_volume', 0.0):.2f}")
-                print(f"    - main_force_daily_buy_amount: {main_force_daily_buy_amount:.2f}")
-                print(f"    - main_force_daily_sell_amount: {main_force_daily_sell_amount:.2f}")
-                print(f"    - main_force_daily_buy_volume: {main_force_daily_buy_volume:.2f}")
-                print(f"    - main_force_daily_sell_volume: {main_force_daily_sell_volume:.2f}")
-                print(f"  - 最终结果 (results):")
-                print(f"    - main_force_daily_buy_amount_D: {results['main_force_daily_buy_amount_D']:.2f}")
-                print(f"    - main_force_daily_sell_amount_D: {results['main_force_daily_sell_amount_D']:.2f}")
-                print(f"    - main_force_net_amount_from_hf_D: {results['main_force_net_amount_from_hf_D']:.2f}")
-                print(f"    - main_force_daily_buy_volume_D: {results['main_force_daily_buy_volume_D']:.2f}")
-                print(f"    - main_force_daily_sell_volume_D: {results['main_force_daily_sell_volume_D']:.2f}")
-                print(f"    - main_force_net_volume_from_hf_D: {results['main_force_net_volume_from_hf_D']:.2f}")
-                print(f"--- [探针 _compute_all_behavioral_metrics 结束] {stock_code} {current_date} ---")
+            # if should_probe and current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates']:
+            #     print(f"\n--- [探针 _compute_all_behavioral_metrics] {stock_code} {current_date} - 主力日度净买卖金额/股数结果 ---")
+            #     print(f"  - 从 hf_features 获取:")
+            #     print(f"    - main_force_aggressive_buy_volume: {hf_features.get('main_force_aggressive_buy_volume', 0.0):.2f}")
+            #     print(f"    - main_force_aggressive_sell_volume: {hf_features.get('main_force_aggressive_sell_volume', 0.0):.2f}")
+            #     print(f"    - main_force_passive_buy_volume: {hf_features.get('main_force_passive_buy_volume', 0.0):.2f}")
+            #     print(f"    - main_force_passive_sell_volume: {hf_features.get('main_force_passive_sell_volume', 0.0):.2f}")
+            #     print(f"    - main_force_daily_buy_amount: {main_force_daily_buy_amount:.2f}")
+            #     print(f"    - main_force_daily_sell_amount: {main_force_daily_sell_amount:.2f}")
+            #     print(f"    - main_force_daily_buy_volume: {main_force_daily_buy_volume:.2f}")
+            #     print(f"    - main_force_daily_sell_volume: {main_force_daily_sell_volume:.2f}")
+            #     print(f"  - 最终结果 (results):")
+            #     print(f"    - main_force_daily_buy_amount_D: {results['main_force_daily_buy_amount_D']:.2f}")
+            #     print(f"    - main_force_daily_sell_amount_D: {results['main_force_daily_sell_amount_D']:.2f}")
+            #     print(f"    - main_force_net_amount_from_hf_D: {results['main_force_net_amount_from_hf_D']:.2f}")
+            #     print(f"    - main_force_daily_buy_volume_D: {results['main_force_daily_buy_volume_D']:.2f}")
+            #     print(f"    - main_force_daily_sell_volume_D: {results['main_force_daily_sell_volume_D']:.2f}")
+            #     print(f"    - main_force_net_volume_from_hf_D: {results['main_force_net_volume_from_hf_D']:.2f}")
+            #     print(f"--- [探针 _compute_all_behavioral_metrics 结束] {stock_code} {current_date} ---")
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_related_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_opening_battle_metrics(context))

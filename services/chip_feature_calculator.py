@@ -1297,6 +1297,7 @@ class ChipFeatureCalculator:
         - 核心修复: 调整 `_gaussian_weight` 函数，使其在输入价格无效时返回 `0` 权重。
         - 核心增强: 增加更详细的探针，追踪每个买卖档位价格和成交量的质量。
         - 核心新增: 在 `_gaussian_weight` 函数中，当可能发生 `ValueError: cannot reindex on an axis with duplicate labels` 错误时，输出 `weights` 和 `valid_prices.index` 中重复的索引。
+        - 核心新增: 在方法入口处检查 `realtime_df` 是否包含重复索引。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -1305,6 +1306,12 @@ class ChipFeatureCalculator:
             'floating_chip_cleansing_efficiency': np.nan,
         }
         realtime_df = context.get('realtime_data')
+        # --- 新增：在方法入口处检查 realtime_df 是否包含重复索引 ---
+        if realtime_df is not None and not realtime_df.empty and realtime_df.index.has_duplicates:
+            duplicate_realtime_indices = realtime_df.index[realtime_df.index.duplicated()].unique().tolist()
+            print(f"  [DEBUG_ERROR] _compute_realtime_orderbook_metrics: 'realtime_df' has duplicate indices: {duplicate_realtime_indices}")
+        # --- 调试信息结束 ---
+
         if realtime_df is None or realtime_df.empty:
             return results
         required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
@@ -1329,7 +1336,7 @@ class ChipFeatureCalculator:
                 if valid_prices.empty:
                     return weights # 所有价格都无效，返回全0 Series
 
-                # --- 新增调试信息 ---
+                # --- 新增调试信息 (保持原样，因为用户要求不修复错误，只输出) ---
                 if weights.index.has_duplicates:
                     duplicate_indices_weights = weights.index[weights.index.duplicated()].unique().tolist()
                     print(f"  [DEBUG_ERROR] _gaussian_weight: 'weights' Series (from price_series_input) has duplicate indices: {duplicate_indices_weights}")
