@@ -155,6 +155,7 @@ class AdvancedChipMetricsService:
                      的记录。此举修复了因遗漏导致累积成本状态无法跨区块传递，从而引发全量回测中“失忆”的根本问题。
         - 核心新增: 将 `debug_params` 传递给 `ChipFeatureCalculator` 的上下文。
         - 核心修复: 修正 `prev_metrics` 的赋值方式，确保其为字典而不是元组。
+        - 核心新增: 增加对 `tick_df_day`, `level5_df_day`, `merged_realtime_df` 索引重复的调试输出。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -232,12 +233,21 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
-            context_for_calc['tick_data'] = tick_data_map.get(date_obj, pd.DataFrame()) if tick_data_map else pd.DataFrame()
-            context_for_calc['level5_data'] = level5_data_map.get(date_obj, pd.DataFrame()) if level5_data_map else pd.DataFrame()
+            
             merged_realtime_df = pd.DataFrame()
-            tick_df_day = tick_data_map.get(date_obj)
-            level5_df_day = level5_data_map.get(date_obj)
-            if tick_df_day is not None and not tick_df_day.empty and level5_df_day is not None and not level5_df_day.empty:
+            tick_df_day = tick_data_map.get(date_obj, pd.DataFrame())
+            level5_df_day = level5_data_map.get(date_obj, pd.DataFrame())
+
+            # --- 新增调试：检查 tick_df_day 和 level5_df_day 的索引重复情况 ---
+            if not tick_df_day.empty and tick_df_day.index.has_duplicates:
+                duplicate_indices = tick_df_day.index[tick_df_day.index.duplicated()].unique().tolist()
+                print(f"  [DEBUG_ERROR] _synthesize_and_forge_metrics: For stock {stock_code}, date {date_obj}, 'tick_df_day' has duplicate indices: {duplicate_indices}")
+            if not level5_df_day.empty and level5_df_day.index.has_duplicates:
+                duplicate_indices = level5_df_day.index[level5_df_day.index.duplicated()].unique().tolist()
+                print(f"  [DEBUG_ERROR] _synthesize_and_forge_metrics: For stock {stock_code}, date {date_obj}, 'level5_df_day' has duplicate indices: {duplicate_indices}")
+            # --- 调试信息结束 ---
+
+            if not tick_df_day.empty and not level5_df_day.empty:
                 if all(col in tick_df_day.columns for col in ['price', 'volume']) and 'buy_price1' in level5_df_day.columns:
                     tick_df_sorted = tick_df_day.sort_index()
                     merged_realtime_df = pd.merge_asof(
@@ -246,8 +256,20 @@ class AdvancedChipMetricsService:
                         on='trade_time',
                         direction='backward'
                     )
+                    # --- 新增调试：检查 merge_asof 后的 trade_time 列重复情况 ---
+                    if 'trade_time' in merged_realtime_df.columns and merged_realtime_df['trade_time'].duplicated().any():
+                        duplicate_times = merged_realtime_df['trade_time'][merged_realtime_df['trade_time'].duplicated()].unique().tolist()
+                        print(f"  [DEBUG_ERROR] _synthesize_and_forge_metrics: For stock {stock_code}, date {date_obj}, 'merged_realtime_df' has duplicate 'trade_time' column values AFTER merge_asof: {duplicate_times}")
+                    # --- 调试信息结束 ---
+
                     if 'trade_time' in merged_realtime_df.columns:
                         merged_realtime_df.set_index('trade_time', inplace=True)
+                        # --- 新增调试：检查 set_index 后的索引重复情况 ---
+                        if merged_realtime_df.index.has_duplicates:
+                            duplicate_indices = merged_realtime_df.index[merged_realtime_df.index.duplicated()].unique().tolist()
+                            print(f"  [DEBUG_ERROR] _synthesize_and_forge_metrics: For stock {stock_code}, date {date_obj}, 'merged_realtime_df' has duplicate indices AFTER set_index: {duplicate_indices}")
+                        # --- 调试信息结束 ---
+
                     column_rename_map = {
                         **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
                         **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
@@ -255,7 +277,10 @@ class AdvancedChipMetricsService:
                         **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
                     }
                     merged_realtime_df.rename(columns=column_rename_map, inplace=True)
-            context_for_calc['realtime_data'] = merged_realtime_df
+            context_for_calc['tick_data'] = tick_data_map.get(date_obj, pd.DataFrame()) if tick_data_map else pd.DataFrame()
+            context_for_calc['level5_data'] = level5_data_map.get(date_obj, pd.DataFrame()) if level5_data_map else pd.DataFrame()
+            context_for_calc['realtime_data'] = merged_realtime_df # This is the DataFrame passed to ChipFeatureCalculator
+            
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
@@ -314,7 +339,7 @@ class AdvancedChipMetricsService:
         """
         from stock_models.time_trade import StockDailyBasic
         intraday_data_map = {}
-        all_dates_in_range_qs = StockDailyBasic.objects.filter(stock=stock_info, trade_time__gte=start_date, trade_time__lte=end_date).values_list('trade_time', flat=True)
+        all_dates_in_range_qs = StockDailyBasic.objects.filter(stock=stock_info, trade_time__gte=start_date, trade_time__lte=end_date).values_list('trade_time', flat=True).order_by('trade_time')
         all_required_dates = {d.date() for d in pd.to_datetime(await sync_to_async(list)(all_dates_in_range_qs))}
         for date_obj in sorted(list(all_required_dates)):
             processed_intraday_for_day = None
@@ -469,6 +494,7 @@ class AdvancedChipMetricsService:
         current_day_total_vol = df['vol_shares'].sum()
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
         return df
+
 
 
 
