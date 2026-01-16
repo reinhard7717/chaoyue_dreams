@@ -56,7 +56,7 @@ class CalculateMainForceControlRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4.1 · 控盘杠杆与全息资金流验证强化版 - 拆分版】计算“主力控盘”的专属关系分数。
+        【V2.4.2 · 控盘杠杆与全息资金流验证强化版 - 拆分版】计算“主力控盘”的专属关系分数。
         - 核心重构: 创立“控盘即杠杆”模型。将“控盘度”作为调节“资金流向”影响力的核心杠杆。
                       最终分 = 主力净流入分 * (1 + 融合控盘分)。
         - 证据升级: 融合传统的均线控盘度与更现代的“控盘稳固度”，形成更立体的控盘评分。
@@ -91,7 +91,9 @@ class CalculateMainForceControlRelationship:
         required_signals = [
             'close_D', 'main_force_net_flow_calibrated_D', 'control_solidity_index_D', 'flow_credibility_index_D',
             'main_force_daily_buy_amount_D', 'main_force_daily_sell_amount_D',
-            'main_force_daily_buy_volume_D', 'main_force_daily_sell_volume_D'
+            'main_force_daily_buy_volume_D', 'main_force_daily_sell_volume_D',
+            'main_force_t0_buy_efficiency_D', 'main_force_t0_sell_efficiency_D',
+            'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in ['control_solidity_index_D']: # 仅控盘稳固度需要MTF斜率/加速度
@@ -107,23 +109,46 @@ class CalculateMainForceControlRelationship:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         # 3. 获取原始信号
-        close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume = self._get_raw_control_signals(df, method_name, _temp_debug_values)
-        # 4. 计算传统控盘度
-        kongpan_raw = self._calculate_traditional_control_score_components(df, close_price, method_name, _temp_debug_values, is_debug_enabled_for_method, probe_ts, debug_output)
-        if kongpan_raw.isnull().all():
+        close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, \
+        mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, \
+        mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance = \
+            self._get_raw_control_signals(df, method_name, _temp_debug_values)
+        # 4. 计算传统控盘度 (直接使用数据层提供的EMA_13_D等，不再重复计算)
+        # 根据数据层提供的指标，EMA_13_D, EMA_55_D等可以直接获取
+        ema13 = self._get_safe_series(df, 'EMA_13_D', method_name=method_name)
+        varn1 = self._get_safe_series(df, 'EMA_13_D_EMA_13_D', method_name=method_name) # 假设数据层提供了EMA的EMA
+        if ema13.isnull().all() or varn1.isnull().all():
             if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度计算失败，返回默认值。"] = ""
+                debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度所需EMA数据缺失，返回默认值。"] = ""
                 self._print_debug_info(debug_output)
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 5. 归一化和MTF融合控盘组件 (不包含主力资金流MTF)
-        traditional_control_score, mtf_structural_control_score, flow_credibility_norm = self._normalize_and_mtf_control_components(df, df_index, kongpan_raw, control_solidity_raw, flow_credibility_raw, mtf_slope_accel_weights, method_name, _temp_debug_values)
-        # 6. 计算主力净活动分数 (MTF融合版)
+        prev_varn1 = varn1.shift(1).replace(0, np.nan)
+        kongpan_raw = (varn1 - prev_varn1) / prev_varn1 * 1000
+        _temp_debug_values["传统控盘度计算"] = {
+            "ema13": ema13,
+            "varn1": varn1,
+            "prev_varn1": prev_varn1,
+            "kongpan_raw": kongpan_raw
+        }
+        # 5. 计算主力平均价格和成本优势
+        main_force_avg_buy_price, main_force_avg_sell_price = self._calculate_main_force_avg_prices(df_index, close_price, mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, _temp_debug_values)
+        main_force_cost_advantage_score = self._calculate_main_force_cost_advantage_score(df_index, close_price, main_force_avg_buy_price, main_force_avg_sell_price, _temp_debug_values)
+        # 6. 归一化和MTF融合控盘组件 (不包含主力资金流MTF)
+        traditional_control_score, mtf_structural_control_score, flow_credibility_norm, \
+        mf_t0_buy_efficiency_norm, mf_t0_sell_efficiency_norm, mf_vwap_up_guidance_norm, mf_vwap_down_guidance_norm = \
+            self._normalize_and_mtf_control_components(df, df_index, kongpan_raw, control_solidity_raw, flow_credibility_raw, \
+                                                       mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance, \
+                                                       mtf_slope_accel_weights, method_name, _temp_debug_values)
+        # 7. 计算主力净活动分数 (MTF融合版)
         mtf_main_force_net_activity_score = self._calculate_main_force_net_activity_score(df, df_index, mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, mtf_slope_accel_weights, method_name, _temp_debug_values)
-        # 7. 融合控盘分
+        # 8. 融合控盘分
         fused_control_score = self._fuse_control_scores(traditional_control_score, mtf_structural_control_score, _temp_debug_values)
-        # 8. 计算控盘杠杆模型 (使用新的主力净活动分数)
-        control_leverage = self._calculate_control_leverage_model(df_index, fused_control_score, mtf_main_force_net_activity_score, flow_credibility_norm, _temp_debug_values)
-        # 9. 最终控盘分数
+        # 9. 计算控盘杠杆模型 (使用新的主力净活动分数和控盘意图指标)
+        control_leverage = self._calculate_control_leverage_model(df_index, fused_control_score, mtf_main_force_net_activity_score, \
+                                                                  flow_credibility_norm, main_force_cost_advantage_score, \
+                                                                  mf_t0_buy_efficiency_norm, mf_t0_sell_efficiency_norm, \
+                                                                  mf_vwap_up_guidance_norm, mf_vwap_down_guidance_norm, _temp_debug_values)
+        # 10. 最终控盘分数
         final_control_score = (mtf_main_force_net_activity_score * control_leverage).clip(-1, 1)
         _temp_debug_values["最终控盘分数"] = {
             "final_control_score": final_control_score
@@ -146,28 +171,33 @@ class CalculateMainForceControlRelationship:
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         return actual_mtf_weights, mtf_slope_accel_weights
 
-    def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+    def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         """
-        【V1.0.1】获取主力控盘关系计算所需的原始信号。
-        新增获取主力日度买卖金额和股数。
+        【V1.0.2】获取主力控盘关系计算所需的原始信号。
+        新增获取 `close_D`、`main_force_t0_buy_efficiency_D`、`main_force_t0_sell_efficiency_D`、
+        `main_force_vwap_up_guidance_D`、`main_force_vwap_down_guidance_D`。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             method_name (str): 调用此方法的名称。
             _temp_debug_values (Dict): 临时存储中间计算结果的字典。
         返回:
             Tuple[pd.Series, ...]: 包含收盘价、控盘稳固度、校准主力净流量、资金流可信度、
-                                   主力日度买入金额、主力日度卖出金额、主力日度买入股数、主力日度卖出股数的元组。
+                                   主力日度买入金额、主力日度卖出金额、主力日度买入股数、主力日度卖出股数、
+                                   主力T0买入效率、主力T0卖出效率、主力VWAP向上引导、主力VWAP向下引导的元组。
         """
         close_price = self._get_safe_series(df, 'close_D', method_name=method_name)
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name=method_name)
-        # main_force_net_flow_calibrated_D 仍获取，但不再用于核心计算，仅作调试参考
         main_force_net_flow_calibrated = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
         flow_credibility_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
-        # 新增的四个主力日度买卖指标
         mf_buy_amount = self._get_safe_series(df, 'main_force_daily_buy_amount_D', 0.0, method_name=method_name)
         mf_sell_amount = self._get_safe_series(df, 'main_force_daily_sell_amount_D', 0.0, method_name=method_name)
         mf_buy_volume = self._get_safe_series(df, 'main_force_daily_buy_volume_D', 0.0, method_name=method_name)
         mf_sell_volume = self._get_safe_series(df, 'main_force_daily_sell_volume_D', 0.0, method_name=method_name)
+        # 新增的T0效率和VWAP引导指标
+        mf_t0_buy_efficiency = self._get_safe_series(df, 'main_force_t0_buy_efficiency_D', 0.0, method_name=method_name)
+        mf_t0_sell_efficiency = self._get_safe_series(df, 'main_force_t0_sell_efficiency_D', 0.0, method_name=method_name)
+        mf_vwap_up_guidance = self._get_safe_series(df, 'main_force_vwap_up_guidance_D', 0.0, method_name=method_name)
+        mf_vwap_down_guidance = self._get_safe_series(df, 'main_force_vwap_down_guidance_D', 0.0, method_name=method_name)
         _temp_debug_values["原始信号值"] = {
             "close_D": close_price,
             "control_solidity_index_D": control_solidity_raw,
@@ -177,13 +207,19 @@ class CalculateMainForceControlRelationship:
             "main_force_daily_sell_amount_D": mf_sell_amount,
             "main_force_daily_buy_volume_D": mf_buy_volume,
             "main_force_daily_sell_volume_D": mf_sell_volume,
+            "main_force_t0_buy_efficiency_D": mf_t0_buy_efficiency,
+            "main_force_t0_sell_efficiency_D": mf_t0_sell_efficiency,
+            "main_force_vwap_up_guidance_D": mf_vwap_up_guidance,
+            "main_force_vwap_down_guidance_D": mf_vwap_down_guidance,
         }
-        return close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume
+        return close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, \
+               mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, \
+               mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp, final_control_score: pd.Series):
         """
-        【V1.0.1】主力控盘关系计算的调试信息输出方法。
-        更新调试输出，以反映 `_temp_debug_values` 中新增的“主力净活动计算”部分。
+        【V1.0.2】主力控盘关系计算的调试信息输出方法。
+        更新调试输出，以反映 `_temp_debug_values` 中新增的“主力平均价格计算”、“主力成本优势计算”和“归一化处理”中的新指标。
         参数:
             debug_output (Dict): 调试信息字典。
             _temp_debug_values (Dict): 临时存储的中间计算结果。
@@ -197,6 +233,14 @@ class CalculateMainForceControlRelationship:
             debug_output[f"        '{sig_name}': {val:.4f}"] = ""
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 传统控盘度计算 ---"] = ""
         for key, series in _temp_debug_values["传统控盘度计算"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val:.4f}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力平均价格计算 ---"] = ""
+        for key, series in _temp_debug_values["主力平均价格计算"].items():
+            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+            debug_output[f"        {key}: {val:.4f}"] = ""
+        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力成本优势计算 ---"] = ""
+        for key, series in _temp_debug_values["主力成本优势计算"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
             debug_output[f"        {key}: {val:.4f}"] = ""
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
@@ -222,10 +266,68 @@ class CalculateMainForceControlRelationship:
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力控盘关系诊断完成，最终分值: {final_control_score.loc[probe_ts]:.4f}"] = ""
         self._print_debug_info(debug_output)
 
+    def _calculate_main_force_avg_prices(self, df_index: pd.Index, close_price: pd.Series, mf_buy_amount: pd.Series, mf_sell_amount: pd.Series, mf_buy_volume: pd.Series, mf_sell_volume: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
+        """
+        【V1.0.0】计算主力平均买入价格和平均卖出价格。
+        参数:
+            df_index (pd.Index): DataFrame的索引。
+            close_price (pd.Series): 收盘价序列。
+            mf_buy_amount (pd.Series): 主力日度买入金额。
+            mf_sell_amount (pd.Series): 主力日度卖出金额。
+            mf_buy_volume (pd.Series): 主力日度买入股数。
+            mf_sell_volume (pd.Series): 主力日度卖出股数。
+            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
+        返回:
+            Tuple[pd.Series, pd.Series]: 主力平均买入价格和主力平均卖出价格。
+        """
+        # 避免除以零，当成交量为0时，平均价格设为NaN或当日收盘价
+        main_force_avg_buy_price = (mf_buy_amount / mf_buy_volume).replace([np.inf, -np.inf], np.nan).fillna(close_price)
+        main_force_avg_sell_price = (mf_sell_amount / mf_sell_volume).replace([np.inf, -np.inf], np.nan).fillna(close_price)
+        _temp_debug_values["主力平均价格计算"] = {
+            "main_force_avg_buy_price": main_force_avg_buy_price,
+            "main_force_avg_sell_price": main_force_avg_sell_price
+        }
+        return main_force_avg_buy_price, main_force_avg_sell_price
+
+    def _calculate_main_force_cost_advantage_score(self, df_index: pd.Index, close_price: pd.Series, main_force_avg_buy_price: pd.Series, main_force_avg_sell_price: pd.Series, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V1.0.0】计算主力成本优势分数。
+        分数范围 [-1, 1]，正值表示主力成本优势明显，负值表示劣势。
+        参数:
+            df_index (pd.Index): DataFrame的索引。
+            close_price (pd.Series): 收盘价序列。
+            main_force_avg_buy_price (pd.Series): 主力平均买入价格。
+            main_force_avg_sell_price (pd.Series): 主力平均卖出价格。
+            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
+        返回:
+            pd.Series: 主力成本优势分数。
+        """
+        # 避免除以零，当收盘价为0时，设为NaN
+        close_price_safe = close_price.replace(0, np.nan)
+        # 买入成本与收盘价的相对优势 (越低越好)
+        buy_advantage = (close_price_safe - main_force_avg_buy_price) / close_price_safe
+        # 卖出价格与收盘价的相对优势 (越高越好)
+        sell_advantage = (main_force_avg_sell_price - close_price_safe) / close_price_safe
+        # 综合成本优势：买入成本越低，卖出价格越高，优势越明显
+        # 归一化到 [-1, 1]
+        # 考虑主力在买入和卖出两端的综合表现
+        # 如果主力买入价格低于收盘价，且卖出价格高于收盘价，则成本优势明显
+        # 简化为：买入价格越低，卖出价格越高，分数越高
+        cost_advantage_raw = (buy_advantage.fillna(0) + sell_advantage.fillna(0)) / 2
+        # 对原始成本优势进行归一化，使其在 [-1, 1] 之间
+        main_force_cost_advantage_score = self.helper._normalize_series(cost_advantage_raw, df_index, bipolar=True)
+        _temp_debug_values["主力成本优势计算"] = {
+            "buy_advantage": buy_advantage,
+            "sell_advantage": sell_advantage,
+            "cost_advantage_raw": cost_advantage_raw,
+            "main_force_cost_advantage_score": main_force_cost_advantage_score
+        }
+        return main_force_cost_advantage_score
+
     def _calculate_main_force_net_activity_score(self, df: pd.DataFrame, df_index: pd.Index, mf_buy_amount: pd.Series, mf_sell_amount: pd.Series, mf_buy_volume: pd.Series, mf_sell_volume: pd.Series, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.0】计算主力净活动分数（MTF融合版）。
-        该方法将主力日度买卖金额和股数融合成一个双极性MTF分数。
+        【V1.0.1】计算主力净活动分数（MTF融合版）。
+        调整 `composite_net_activity_series` 的融合逻辑，使其更侧重于净买入/卖出行为。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
@@ -246,7 +348,8 @@ class CalculateMainForceControlRelationship:
         norm_net_volume = self.helper._normalize_series(net_volume_raw, df_index, bipolar=True)
         # 融合归一化后的净金额和净股数，形成一个复合净活动信号
         # 赋予金额和股数同等权重，或根据需要调整
-        composite_net_activity_series = (norm_net_amount * 0.5 + norm_net_volume * 0.5).clip(-1, 1)
+        # 确保净买入/卖出行为的强度得到体现
+        composite_net_activity_series = (norm_net_amount * 0.6 + norm_net_volume * 0.4).clip(-1, 1)
         # 对复合净活动信号进行MTF斜率和加速度融合
         mtf_main_force_net_activity_score = self.helper._get_mtf_score_from_series_slope_accel(
             composite_net_activity_series,
@@ -301,31 +404,48 @@ class CalculateMainForceControlRelationship:
         }
         return kongpan_raw
 
-    def _normalize_and_mtf_control_components(self, df: pd.DataFrame, df_index: pd.Index, kongpan_raw: pd.Series, control_solidity_raw: pd.Series, flow_credibility_raw: pd.Series, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    def _normalize_and_mtf_control_components(self, df: pd.DataFrame, df_index: pd.Index, kongpan_raw: pd.Series, control_solidity_raw: pd.Series, flow_credibility_raw: pd.Series, mf_t0_buy_efficiency: pd.Series, mf_t0_sell_efficiency: pd.Series, mf_vwap_up_guidance: pd.Series, mf_vwap_down_guidance: pd.Series, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         """
-        【V1.0.1】对控盘相关信号进行归一化和MTF融合处理。
-        移除了mtf_main_force_flow_score的计算和返回。
+        【V1.0.2】对控盘相关信号进行归一化和MTF融合处理。
+        新增对 `main_force_t0_buy_efficiency_D`、`main_force_t0_sell_efficiency_D`、
+        `main_force_vwap_up_guidance_D`、`main_force_vwap_down_guidance_D` 的归一化处理。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             df_index (pd.Index): DataFrame的索引。
             kongpan_raw (pd.Series): 原始传统控盘度。
             control_solidity_raw (pd.Series): 原始控盘稳固度。
             flow_credibility_raw (pd.Series): 原始资金流可信度。
+            mf_t0_buy_efficiency (pd.Series): 主力T0买入效率。
+            mf_t0_sell_efficiency (pd.Series): 主力T0卖出效率。
+            mf_vwap_up_guidance (pd.Series): 主力VWAP向上引导。
+            mf_vwap_down_guidance (pd.Series): 主力VWAP向下引导。
             mtf_slope_accel_weights (Dict): MTF斜率加速度权重配置。
             method_name (str): 调用此方法的名称。
             _temp_debug_values (Dict): 临时存储中间计算结果的字典。
         返回:
-            Tuple[pd.Series, pd.Series, pd.Series]: 包含归一化后的传统控盘分、MTF结构控盘分、归一化资金流可信度的元组。
+            Tuple[pd.Series, ...]: 包含归一化后的传统控盘分、MTF结构控盘分、归一化资金流可信度、
+                                   归一化主力T0买入效率、归一化主力T0卖出效率、归一化主力VWAP向上引导、
+                                   归一化主力VWAP向下引导的元组。
         """
         traditional_control_score = self.helper._normalize_series(kongpan_raw, df_index, bipolar=True)
         mtf_structural_control_score = self.helper._get_mtf_slope_accel_score(df, 'control_solidity_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         flow_credibility_norm = self.helper._normalize_series(flow_credibility_raw, df_index, bipolar=False)
+        # 新增归一化处理
+        mf_t0_buy_efficiency_norm = self.helper._normalize_series(mf_t0_buy_efficiency, df_index, bipolar=False)
+        mf_t0_sell_efficiency_norm = self.helper._normalize_series(mf_t0_sell_efficiency, df_index, bipolar=False)
+        mf_vwap_up_guidance_norm = self.helper._normalize_series(mf_vwap_up_guidance, df_index, bipolar=False)
+        mf_vwap_down_guidance_norm = self.helper._normalize_series(mf_vwap_down_guidance, df_index, bipolar=False)
         _temp_debug_values["归一化处理"] = {
             "traditional_control_score": traditional_control_score,
             "mtf_structural_control_score": mtf_structural_control_score,
-            "flow_credibility_norm": flow_credibility_norm
+            "flow_credibility_norm": flow_credibility_norm,
+            "main_force_t0_buy_efficiency_norm": mf_t0_buy_efficiency_norm,
+            "main_force_t0_sell_efficiency_norm": mf_t0_sell_efficiency_norm,
+            "main_force_vwap_up_guidance_norm": mf_vwap_up_guidance_norm,
+            "main_force_vwap_down_guidance_norm": mf_vwap_down_guidance_norm,
         }
-        return traditional_control_score, mtf_structural_control_score, flow_credibility_norm
+        return traditional_control_score, mtf_structural_control_score, flow_credibility_norm, \
+               mf_t0_buy_efficiency_norm, mf_t0_sell_efficiency_norm, mf_vwap_up_guidance_norm, mf_vwap_down_guidance_norm
 
     def _fuse_control_scores(self, traditional_control_score: pd.Series, mtf_structural_control_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
         """
@@ -343,28 +463,50 @@ class CalculateMainForceControlRelationship:
         }
         return fused_control_score
 
-    def _calculate_control_leverage_model(self, df_index: pd.Index, fused_control_score: pd.Series, mtf_main_force_net_activity_score: pd.Series, flow_credibility_norm: pd.Series, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_control_leverage_model(self, df_index: pd.Index, fused_control_score: pd.Series, mtf_main_force_net_activity_score: pd.Series, flow_credibility_norm: pd.Series, main_force_cost_advantage_score: pd.Series, mf_t0_buy_efficiency_norm: pd.Series, mf_t0_sell_efficiency_norm: pd.Series, mf_vwap_up_guidance_norm: pd.Series, mf_vwap_down_guidance_norm: pd.Series, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.1】计算控盘杠杆模型。
-        将参数 `mtf_main_force_flow_score` 替换为 `mtf_main_force_net_activity_score`。
+        【V1.0.2】计算控盘杠杆模型。
+        在 `mf_inflow_validation` 的计算中，引入 `main_force_cost_advantage_score` 和 `mf_t0_buy_efficiency_norm` 作为额外的验证因子。
+        在 `control_leverage` 的惩罚逻辑中，引入 `mf_t0_sell_efficiency_norm` 和 `mf_vwap_down_guidance_norm`。
         参数:
             df_index (pd.Index): DataFrame的索引。
             fused_control_score (pd.Series): 融合后的控盘分数。
             mtf_main_force_net_activity_score (pd.Series): MTF主力净活动分数。
             flow_credibility_norm (pd.Series): 归一化资金流可信度。
+            main_force_cost_advantage_score (pd.Series): 主力成本优势分数。
+            mf_t0_buy_efficiency_norm (pd.Series): 归一化主力T0买入效率。
+            mf_t0_sell_efficiency_norm (pd.Series): 归一化主力T0卖出效率。
+            mf_vwap_up_guidance_norm (pd.Series): 归一化主力VWAP向上引导。
+            mf_vwap_down_guidance_norm (pd.Series): 归一化主力VWAP向下引导。
             _temp_debug_values (Dict): 临时存储中间计算结果的字典。
         返回:
             pd.Series: 控盘杠杆。
         """
-        mf_inflow_validation = mtf_main_force_net_activity_score.clip(lower=0) * flow_credibility_norm
+        # 增强mf_inflow_validation：不仅看净活动和可信度，还要看成本优势和T0买入效率
+        mf_inflow_validation = (
+            mtf_main_force_net_activity_score.clip(lower=0) * 0.4 +
+            flow_credibility_norm * 0.3 +
+            main_force_cost_advantage_score.clip(lower=0) * 0.2 + # 成本优势为正才加分
+            mf_t0_buy_efficiency_norm * 0.1 # T0买入效率高才加分
+        ).clip(0, 1) # 确保验证因子在 [0, 1] 之间
         control_leverage = pd.Series(1.0, index=df_index, dtype=np.float32)
+        # 控盘强 (fused_control_score > 0)，则放大资金流入
         control_leverage = control_leverage.mask(fused_control_score > 0, 1 + fused_control_score * mf_inflow_validation)
-        control_leverage = control_leverage.mask(fused_control_score <= 0, (1 + fused_control_score) * (1 - mf_inflow_validation * 0.5))
-        control_leverage = control_leverage.clip(0, 2)
+        # 控盘弱或负 (fused_control_score <= 0)，则更强地抑制资金流入，甚至反向惩罚
+        # 惩罚因子：当控盘不强时，如果T0卖出效率高或VWAP向下引导强，则惩罚更重
+        punishment_factor = (
+            mf_t0_sell_efficiency_norm * 0.4 + # T0卖出效率高，惩罚
+            mf_vwap_down_guidance_norm * 0.3 + # VWAP向下引导强，惩罚
+            (1 - flow_credibility_norm) * 0.3 # 资金流可信度低，惩罚
+        ).clip(0, 1)
+        control_leverage = control_leverage.mask(fused_control_score <= 0, (1 + fused_control_score) * (1 - mf_inflow_validation * 0.5 - punishment_factor * 0.5)) # 惩罚力度增强
+        control_leverage = control_leverage.clip(0, 2) # 限制杠杆范围，避免过大或过小的负值
         _temp_debug_values["控盘杠杆模型"] = {
             "mf_inflow_validation": mf_inflow_validation,
+            "punishment_factor": punishment_factor,
             "control_leverage": control_leverage
         }
         return control_leverage
+
 
 
