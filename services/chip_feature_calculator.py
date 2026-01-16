@@ -1296,6 +1296,7 @@ class ChipFeatureCalculator:
                      引入 `valid_data_mask` 严格过滤无效价格和成交量，确保只有有效数据参与计算。
         - 核心修复: 调整 `_gaussian_weight` 函数，使其在输入价格无效时返回 `0` 权重。
         - 核心增强: 增加更详细的探针，追踪每个买卖档位价格和成交量的质量。
+        - 核心新增: 在 `_gaussian_weight` 函数中，当可能发生 `ValueError: cannot reindex on an axis with duplicate labels` 错误时，输出 `weights` 和 `valid_prices.index` 中重复的索引。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -1304,12 +1305,6 @@ class ChipFeatureCalculator:
             'floating_chip_cleansing_efficiency': np.nan,
         }
         realtime_df = context.get('realtime_data')
-        # stock_code = context.get('stock_code', 'UNKNOWN') # 移除调试变量
-        # trade_date = context.get('trade_date', 'UNKNOWN') # 移除调试变量
-        # debug_params = context.get('debug_params', {}) # 移除调试变量
-        # should_probe = debug_params.get('should_probe', False) # 移除调试变量
-        # probe_dates = debug_params.get('probe_dates', []) # 移除调试变量
-        # probe_active = should_probe and str(trade_date) in probe_dates # 移除调试变量
         if realtime_df is None or realtime_df.empty:
             return results
         required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
@@ -1333,6 +1328,16 @@ class ChipFeatureCalculator:
                 valid_prices = price_series_input[valid_prices_mask]
                 if valid_prices.empty:
                     return weights # 所有价格都无效，返回全0 Series
+
+                # --- 新增调试信息 ---
+                if weights.index.has_duplicates:
+                    duplicate_indices_weights = weights.index[weights.index.duplicated()].unique().tolist()
+                    print(f"  [DEBUG_ERROR] _gaussian_weight: 'weights' Series (from price_series_input) has duplicate indices: {duplicate_indices_weights}")
+                if valid_prices.index.has_duplicates:
+                    duplicate_indices_valid_prices = valid_prices.index[valid_prices.index.duplicated()].unique().tolist()
+                    print(f"  [DEBUG_ERROR] _gaussian_weight: 'valid_prices.index' has duplicate indices: {duplicate_indices_valid_prices}")
+                # --- 调试信息结束 ---
+
                 if sigma > 0:
                     weights.loc[valid_prices.index] = np.exp(-((valid_prices - center)**2) / (2 * sigma**2))
                 else: # sigma为0，只有中心点有权重1
