@@ -532,7 +532,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
                  此举作为最终防线，确保 `pd.merge_asof` 不会因类型不匹配而失败。
     - 核心增强: 在从 DAO 加载数据后，对 `trade_time` 列进行 `pd.to_datetime` 转换前，
                  增加列存在性检查，提高代码健壮性。
-    - 核心清理: 移除所有调试探针。
+    - 核心新增: 增加对 `df_realtime` 中 `trade_time` 列重复值的检查和输出。
+    - 核心新增: 在 `_process_intraday_df_to_map` 中 `set_index` 前增加重复索引检查。
     """
     import pytz
     from utils.model_helpers import (
@@ -606,6 +607,11 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
                 df_realtime = df_realtime.reset_index()
             if 'trade_time' in df_realtime.columns: # 增强健壮性：检查列是否存在
                 df_realtime['trade_time'] = pd.to_datetime(df_realtime['trade_time'], errors='coerce')
+                # --- 新增：检查 df_realtime['trade_time'] 中的重复值 ---
+                if df_realtime['trade_time'].duplicated().any():
+                    duplicate_times = df_realtime['trade_time'][df_realtime['trade_time'].duplicated()].unique().tolist()
+                    print(f"  [DEBUG_ERROR] _load_all_sources_unified: For stock {stock_code}, date {single_date}, 'df_realtime' has duplicate 'trade_time' values: {duplicate_times}")
+                # --- 调试信息结束 ---
             else:
                 logger.warning(f"[{stock_code}] [{single_date}] df_realtime 缺少 'trade_time' 列，跳过日期时间转换。")
             realtime_data_df_list.append(df_realtime)
@@ -660,6 +666,11 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         if df.empty: return {}
         # Ensure 'trade_time' is datetime before setting as index
         df['trade_time'] = pd.to_datetime(df['trade_time'], errors='coerce')
+        # --- 新增：检查 df['trade_time'] 中的重复值，在 set_index 之前 ---
+        if df['trade_time'].duplicated().any():
+            duplicate_times = df['trade_time'][df['trade_time'].duplicated()].unique().tolist()
+            print(f"  [DEBUG_ERROR] _process_intraday_df_to_map: For stock {stock_code_for_log}, data source {data_source_name}, 'trade_time' column has duplicate values before setting index: {duplicate_times}")
+        # --- 调试信息结束 ---
         # If for some reason it's still not datetime, it's a critical issue.
         if not pd.api.types.is_datetime64_any_dtype(df['trade_time']):
             logger.error(f"[{stock_code_for_log}] [{data_source_name}] CRITICAL: 'trade_time' column is not datetime64[ns] after conversion. Current dtype: {df['trade_time'].dtype}. This will likely cause merge errors.")
@@ -669,7 +680,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             df['trade_time'] = df['trade_time'].dt.tz_localize(target_tz, ambiguous='infer')
         else:
             df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
-        df = df.set_index('trade_time')
+        df = df.set_index('trade_time') # <--- This is where the index is set.
         grouped_data = {}
         for date, group_df in df.groupby(df.index.date):
             grouped_data[date] = group_df
