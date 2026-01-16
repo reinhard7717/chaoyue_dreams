@@ -56,7 +56,7 @@ class CalculateMainForceControlRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4.2 · 控盘杠杆与全息资金流验证强化版 - 拆分版】计算“主力控盘”的专属关系分数。
+        【V2.4.4 · 控盘杠杆与全息资金流验证强化版 - 拆分版】计算“主力控盘”的专属关系分数。
         - 核心重构: 创立“控盘即杠杆”模型。将“控盘度”作为调节“资金流向”影响力的核心杠杆。
                       最终分 = 主力净流入分 * (1 + 融合控盘分)。
         - 证据升级: 融合传统的均线控盘度与更现代的“控盘稳固度”，形成更立体的控盘评分。
@@ -93,7 +93,8 @@ class CalculateMainForceControlRelationship:
             'main_force_daily_buy_amount_D', 'main_force_daily_sell_amount_D',
             'main_force_daily_buy_volume_D', 'main_force_daily_sell_volume_D',
             'main_force_t0_buy_efficiency_D', 'main_force_t0_sell_efficiency_D',
-            'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D'
+            'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D',
+            'EMA_13_D', 'EMA_55_D' # 新增对EMA指标的依赖
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in ['control_solidity_index_D']: # 仅控盘稳固度需要MTF斜率/加速度
@@ -112,24 +113,14 @@ class CalculateMainForceControlRelationship:
         close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, \
         mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, \
         mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance = \
-            self._get_raw_control_signals(df, method_name, _temp_debug_values)
-        # 4. 计算传统控盘度 (直接使用数据层提供的EMA_13_D等，不再重复计算)
-        # 根据数据层提供的指标，EMA_13_D, EMA_55_D等可以直接获取
-        ema13 = self._get_safe_series(df, 'EMA_13_D', method_name=method_name)
-        varn1 = self._get_safe_series(df, 'EMA_13_D_EMA_13_D', method_name=method_name) # 假设数据层提供了EMA的EMA
-        if ema13.isnull().all() or varn1.isnull().all():
+            self._get_raw_control_signals(df, method_name, _temp_debug_values, is_debug_enabled_for_method, probe_ts) # 传递调试参数
+        # 4. 计算传统控盘度
+        kongpan_raw = self._calculate_traditional_control_score_components(df, method_name, _temp_debug_values, is_debug_enabled_for_method, probe_ts, debug_output)
+        if kongpan_raw.isnull().all():
             if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度所需EMA数据缺失，返回默认值。"] = ""
+                debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度计算失败，返回默认值。"] = ""
                 self._print_debug_info(debug_output)
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        prev_varn1 = varn1.shift(1).replace(0, np.nan)
-        kongpan_raw = (varn1 - prev_varn1) / prev_varn1 * 1000
-        _temp_debug_values["传统控盘度计算"] = {
-            "ema13": ema13,
-            "varn1": varn1,
-            "prev_varn1": prev_varn1,
-            "kongpan_raw": kongpan_raw
-        }
         # 5. 计算主力平均价格和成本优势
         main_force_avg_buy_price, main_force_avg_sell_price = self._calculate_main_force_avg_prices(df_index, close_price, mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, _temp_debug_values)
         main_force_cost_advantage_score = self._calculate_main_force_cost_advantage_score(df_index, close_price, main_force_avg_buy_price, main_force_avg_sell_price, _temp_debug_values)
@@ -171,15 +162,16 @@ class CalculateMainForceControlRelationship:
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         return actual_mtf_weights, mtf_slope_accel_weights
 
-    def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+    def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         """
-        【V1.0.2】获取主力控盘关系计算所需的原始信号。
-        新增获取 `close_D`、`main_force_t0_buy_efficiency_D`、`main_force_t0_sell_efficiency_D`、
-        `main_force_vwap_up_guidance_D`、`main_force_vwap_down_guidance_D`。
+        【V1.0.3】获取主力控盘关系计算所需的原始信号。
+        在调试模式下，针对探针日期，输出所有原始信号的具体数值。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
             method_name (str): 调用此方法的名称。
             _temp_debug_values (Dict): 临时存储中间计算结果的字典。
+            is_debug_enabled_for_method (bool): 是否启用调试。
+            probe_ts (pd.Timestamp): 探针日期。
         返回:
             Tuple[pd.Series, ...]: 包含收盘价、控盘稳固度、校准主力净流量、资金流可信度、
                                    主力日度买入金额、主力日度卖出金额、主力日度买入股数、主力日度卖出股数、
@@ -193,12 +185,13 @@ class CalculateMainForceControlRelationship:
         mf_sell_amount = self._get_safe_series(df, 'main_force_daily_sell_amount_D', 0.0, method_name=method_name)
         mf_buy_volume = self._get_safe_series(df, 'main_force_daily_buy_volume_D', 0.0, method_name=method_name)
         mf_sell_volume = self._get_safe_series(df, 'main_force_daily_sell_volume_D', 0.0, method_name=method_name)
-        # 新增的T0效率和VWAP引导指标
         mf_t0_buy_efficiency = self._get_safe_series(df, 'main_force_t0_buy_efficiency_D', 0.0, method_name=method_name)
         mf_t0_sell_efficiency = self._get_safe_series(df, 'main_force_t0_sell_efficiency_D', 0.0, method_name=method_name)
         mf_vwap_up_guidance = self._get_safe_series(df, 'main_force_vwap_up_guidance_D', 0.0, method_name=method_name)
         mf_vwap_down_guidance = self._get_safe_series(df, 'main_force_vwap_down_guidance_D', 0.0, method_name=method_name)
-        _temp_debug_values["原始信号值"] = {
+
+        # 存储所有原始信号Series
+        raw_signals_series = {
             "close_D": close_price,
             "control_solidity_index_D": control_solidity_raw,
             "main_force_net_flow_calibrated_D": main_force_net_flow_calibrated,
@@ -212,14 +205,24 @@ class CalculateMainForceControlRelationship:
             "main_force_vwap_up_guidance_D": mf_vwap_up_guidance,
             "main_force_vwap_down_guidance_D": mf_vwap_down_guidance,
         }
+        _temp_debug_values["原始信号值"] = raw_signals_series
+
+        # 在调试模式下，输出原始信号的具体数值
+        if is_debug_enabled_for_method and probe_ts:
+            debug_output_raw_values = {}
+            for sig_name, series in raw_signals_series.items():
+                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+                debug_output_raw_values[sig_name] = val
+            _temp_debug_values["原始信号值_具体数值"] = debug_output_raw_values # 存储具体数值供后续打印
+
         return close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, \
                mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, \
                mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp, final_control_score: pd.Series):
         """
-        【V1.0.2】主力控盘关系计算的调试信息输出方法。
-        更新调试输出，以反映 `_temp_debug_values` 中新增的“主力平均价格计算”、“主力成本优势计算”和“归一化处理”中的新指标。
+        【V1.0.3】主力控盘关系计算的调试信息输出方法。
+        更新调试输出，以反映 `_temp_debug_values` 中新增的“原始信号值_具体数值”部分。
         参数:
             debug_output (Dict): 调试信息字典。
             _temp_debug_values (Dict): 临时存储的中间计算结果。
@@ -228,9 +231,10 @@ class CalculateMainForceControlRelationship:
             final_control_score (pd.Series): 最终计算出的主力控盘分数。
         """
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-        for sig_name, series in _temp_debug_values["原始信号值"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
+        # 遍历并打印原始信号的具体数值
+        for sig_name, val in _temp_debug_values["原始信号值_具体数值"].items():
             debug_output[f"        '{sig_name}': {val:.4f}"] = ""
+
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 传统控盘度计算 ---"] = ""
         for key, series in _temp_debug_values["传统控盘度计算"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -368,13 +372,13 @@ class CalculateMainForceControlRelationship:
         }
         return mtf_main_force_net_activity_score
 
-    def _calculate_traditional_control_score_components(self, df: pd.DataFrame, close_price: pd.Series, method_name: str, _temp_debug_values: Dict, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp, debug_output: Dict) -> pd.Series:
+    def _calculate_traditional_control_score_components(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp, debug_output: Dict) -> pd.Series:
         """
-        【V1.0.1】计算基于EMA的传统控盘度分数。
+        【V1.0.2】计算基于EMA的传统控盘度分数。
         直接从数据层获取EMA指标，不再重新计算。
+        使用EMA_13_D作为短期EMA，EMA_55_D作为中长期平滑EMA（对应原始逻辑中的varn1）。
         参数:
             df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            close_price (pd.Series): 收盘价序列 (不再直接使用，仅为兼容签名)。
             method_name (str): 调用此方法的名称。
             _temp_debug_values (Dict): 临时存储中间计算结果的字典。
             is_debug_enabled_for_method (bool): 是否启用调试。
@@ -384,21 +388,25 @@ class CalculateMainForceControlRelationship:
             pd.Series: 传统控盘度分数。
         """
         # 直接从数据层获取EMA指标
-        ema13 = self._get_safe_series(df, 'EMA_13_D', method_name=method_name)
-        # 假设 varn1 是 EMA_13_D 的一个更长周期平滑，例如 EMA_55_D
-        varn1 = self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
-        if ema13.isnull().all() or varn1.isnull().all():
+        # ema13 对应原始逻辑中的短期EMA
+        ema13_series = self._get_safe_series(df, 'EMA_13_D', method_name=method_name)
+        # varn1 对应原始逻辑中 ema13 的二次平滑，这里使用 EMA_55_D 作为中长期平滑的替代
+        varn1_series = self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
+
+        if ema13_series.isnull().all() or varn1_series.isnull().all():
             if is_debug_enabled_for_method and probe_ts:
                 debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度所需EMA数据缺失或全为NaN，返回默认值。"] = ""
                 self._print_debug_info(debug_output)
             return pd.Series(np.nan, index=df.index, dtype=np.float32) # 返回NaN，让归一化处理
-        prev_varn1 = varn1.shift(1)
+
+        prev_varn1_series = varn1_series.shift(1)
         # 避免除以零，并处理NaN
-        kongpan_raw = (varn1 - prev_varn1) / prev_varn1.replace(0, np.nan) * 1000
+        kongpan_raw = (varn1_series - prev_varn1_series) / prev_varn1_series.replace(0, np.nan) * 1000
+        
         _temp_debug_values["传统控盘度计算"] = {
-            "ema13": ema13,
-            "varn1": varn1,
-            "prev_varn1": prev_varn1,
+            "ema13": ema13_series,
+            "varn1": varn1_series,
+            "prev_varn1": prev_varn1_series,
             "kongpan_raw": kongpan_raw
         }
         return kongpan_raw
