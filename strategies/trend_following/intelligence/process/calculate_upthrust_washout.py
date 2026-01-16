@@ -448,7 +448,7 @@ class CalculateUpthrustWashoutRelationship:
             pd.Series: 净洗盘意图分数。
         """
         # 从配置中获取放大乘数，如果未配置则使用默认值 3.0
-        amplification_multiplier = get_param_value(self.params.get('washout_amplification_multiplier'), 3.0)
+        amplification_multiplier = get_param_value(self.params.get('washout_amplification_multiplier'), 10.0)
         # 1. 计算承接与卖压的原始差值
         raw_washout_diff = absorption_rebuttal_score - selling_pressure_score
         # 初始化净洗盘意图分数，默认值为 0.0
