@@ -127,26 +127,137 @@ def _gaussian_weight_numba_core(prices_arr, center, sigma):
     直接操作NumPy数组以获得最佳性能。
     """
     weights_arr = np.zeros_like(prices_arr, dtype=np.float64)
-    # 创建一个布尔掩码，用于筛选有效价格（非NaN且大于0）
-    # Numba可以直接处理np.isnan和数组比较
     valid_mask = (prices_arr > 0) & (~np.isnan(prices_arr))
-
-    # 如果没有有效价格，直接返回全0权重数组
     if not np.any(valid_mask):
         return weights_arr
-
-    # 提取有效价格的NumPy数组
     valid_prices_values = prices_arr[valid_mask]
-
-    # 根据sigma计算权重
     if sigma > 0:
         calculated_weights_array = np.exp(-((valid_prices_values - center)**2) / (2 * sigma**2))
-    else: # sigma为0时，只有中心点有权重1
+    else:
         calculated_weights_array = np.where(valid_prices_values == center, 1.0, 0.0)
-
-    # 将计算出的权重赋值回weights_arr中对应的位置
     weights_arr[valid_mask] = calculated_weights_array
     return weights_arr
+
+@numba.jit(
+    (
+        float64[:, :],  # prices_bid_arr (N, 5)
+        float64[:, :],  # vols_bid_arr (N, 5)
+        float64[:, :],  # prices_ask_arr (N, 5)
+        float64[:, :],  # vols_ask_arr (N, 5)
+        float64,        # main_force_cost
+        float64,        # atr_half_sigma (0.5 * atr)
+        float64,        # cost_zone_low
+        float64         # cost_zone_high
+    ),
+    nopython=True,
+    cache=True
+)
+def _compute_weighted_power_numba_core(
+    prices_bid_arr, vols_bid_arr,
+    prices_ask_arr, vols_ask_arr,
+    main_force_cost, atr_half_sigma, cost_zone_low, cost_zone_high
+):
+    """
+    Numba优化核心函数，用于计算加权买卖力量。
+    直接操作NumPy数组，避免Pandas开销。
+    """
+    num_rows = prices_bid_arr.shape[0]
+    total_weighted_bid_power_arr = np.zeros(num_rows, dtype=np.float64)
+    total_weighted_ask_power_arr = np.zeros(num_rows, dtype=np.float64)
+    for i in range(5): # 遍历5个买入档位
+        price_col = prices_bid_arr[:, i]
+        vol_col = vols_bid_arr[:, i]
+        valid_data_mask = (price_col > 0) & (~np.isnan(price_col)) & \
+                          (vol_col > 0) & (~np.isnan(vol_col))
+        price_filtered = np.full_like(price_col, np.nan)
+        vol_filtered = np.full_like(vol_col, np.nan)
+        price_filtered[valid_data_mask] = price_col[valid_data_mask]
+        vol_filtered[valid_data_mask] = vol_col[valid_data_mask]
+        in_zone_mask = (price_filtered >= cost_zone_low) & (price_filtered <= cost_zone_high)
+        gravity_weight = _gaussian_weight_numba_core(price_filtered, main_force_cost, atr_half_sigma)
+        level_power = np.zeros_like(price_col, dtype=np.float64)
+        calc_mask = valid_data_mask & in_zone_mask & (~np.isnan(price_filtered)) & (~np.isnan(vol_filtered)) & (~np.isnan(gravity_weight))
+        level_power[calc_mask] = price_filtered[calc_mask] * vol_filtered[calc_mask] * gravity_weight[calc_mask]
+        total_weighted_bid_power_arr += level_power
+    for i in range(5): # 遍历5个卖出档位
+        price_col = prices_ask_arr[:, i]
+        vol_col = vols_ask_arr[:, i]
+        valid_data_mask = (price_col > 0) & (~np.isnan(price_col)) & \
+                          (vol_col > 0) & (~np.isnan(vol_col))
+        price_filtered = np.full_like(price_col, np.nan)
+        vol_filtered = np.full_like(vol_col, np.nan)
+        price_filtered[valid_data_mask] = price_col[valid_data_mask]
+        vol_filtered[valid_data_mask] = vol_col[valid_data_mask]
+        in_zone_mask = (price_filtered >= cost_zone_low) & (price_filtered <= cost_zone_high)
+        gravity_weight = _gaussian_weight_numba_core(price_filtered, main_force_cost, atr_half_sigma)
+        level_power = np.zeros_like(price_col, dtype=np.float64)
+        calc_mask = valid_data_mask & in_zone_mask & (~np.isnan(price_filtered)) & (~np.isnan(vol_filtered)) & (~np.isnan(gravity_weight))
+        level_power[calc_mask] = price_filtered[calc_mask] * vol_filtered[calc_mask] * gravity_weight[calc_mask]
+        total_weighted_ask_power_arr += level_power
+    return total_weighted_bid_power_arr, total_weighted_ask_power_arr
+
+@numba.njit(float64(float64[:], float64[:]), cache=True)
+def _numba_calculate_weighted_kurtosis_core(values_arr: np.ndarray, weights_arr: np.ndarray) -> float:
+    """
+    【Numba优化版】计算加权峰度。
+    输入为NumPy数组，避免Pandas开销。
+    """
+    if weights_arr.sum() <= 0:
+        return np.nan
+    weighted_mean = np.sum(values_arr * weights_arr) / np.sum(weights_arr)
+    diff = values_arr - weighted_mean
+    weighted_variance = np.sum(diff**2 * weights_arr) / np.sum(weights_arr)
+    if weighted_variance < 1e-9: # 避免除以零或极小值
+        return np.nan
+    m4 = np.sum(diff**4 * weights_arr) / np.sum(weights_arr)
+    kurt = m4 / (weighted_variance**2) - 3.0
+    return kurt
+
+@numba.njit(float64(float64[:]), cache=True)
+def _numba_calculate_flow_gini_core(flow_arr: np.ndarray) -> float:
+    """
+    【Numba优化版】计算流量的Gini系数。
+    输入为NumPy数组，避免Pandas开销。
+    """
+    # 过滤掉NaN值
+    flow_arr = flow_arr[~np.isnan(flow_arr)]
+    # 确保所有值都是正数，因为Gini系数通常用于非负值
+    flow_arr = np.abs(flow_arr)
+    if len(flow_arr) < 2 or flow_arr.sum() == 0:
+        return np.nan
+    flow_arr = np.sort(flow_arr)
+    n = len(flow_arr)
+    index = np.arange(1, n + 1, dtype=np.float64) # 确保index也是浮点数
+    # Gini系数公式: (2 * sum(flow * index)) / (n * sum(flow)) - (n + 1) / n
+    return ((2 * np.sum(flow_arr * index)) / (n * np.sum(flow_arr))) - (n + 1) / n
+
+@numba.njit(float64(float64[:], float64[:]), cache=True)
+def _numba_get_concentration_core(prices_arr: np.ndarray, percent_arr: np.ndarray) -> float:
+    """
+    【Numba优化版】计算筹码集中度。
+    输入为NumPy数组，避免Pandas开销。
+    """
+    if len(prices_arr) == 0 or percent_arr.sum() < 1e-6:
+        return np.nan
+    # 确保百分比归一化到100
+    current_percent_sum = percent_arr.sum()
+    if current_percent_sum <= 0:
+        return np.nan
+    normalized_percent_arr = (percent_arr / current_percent_sum) * 100.0
+    # 排序以计算累积百分比
+    sort_indices = np.argsort(prices_arr)
+    sorted_prices = prices_arr[sort_indices]
+    sorted_normalized_percent = normalized_percent_arr[sort_indices]
+    cum_percent = np.cumsum(sorted_normalized_percent)
+    # 计算加权平均成本
+    avg_cost = np.sum(sorted_prices * sorted_normalized_percent) / np.sum(sorted_normalized_percent)
+    if avg_cost <= 0:
+        return np.nan
+    # 使用 np.interp 进行插值
+    # np.interp 要求 x 轴是单调递增的，cum_percent 满足
+    price_low = np.interp(5.0, cum_percent, sorted_prices)
+    price_high = np.interp(95.0, cum_percent, sorted_prices)
+    return (price_high - price_low) / avg_cost
 
 class ChipFeatureCalculator:
     """
@@ -320,7 +431,9 @@ class ChipFeatureCalculator:
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         """
-        【V1.2 · 净胜结果重构版】
+        【V1.3 · 流量Gini Numba优化版】
+        - 核心优化: 将 `_calculate_gini_for_flow` 提取并使用 Numba 进行 JIT 编译，
+                     显著提升了流量Gini系数的计算效率。
         - 核心重构(Conviction Flow): 废弃原有的比率模型，引入“净信念流”模型。新公式 (G-D)/(G+D)
           直接量化了买卖双方交锋后的“净胜结果”，解决了因分母过小导致指数失真的“比率谬误”。
         - 核心重构(Constructive Turnover): 在原有“换手效率”基础上，乘以 (1 - 获利盘比例) 的“建设潜力因子”。
@@ -329,8 +442,8 @@ class ChipFeatureCalculator:
         results = {
             'peak_mass_transfer_rate': np.nan,
             'conviction_flow_index': np.nan,
-            'conviction_flow_buy_intensity': np.nan, # 新增行
-            'conviction_flow_sell_intensity': np.nan, # 新增行
+            'conviction_flow_buy_intensity': np.nan,
+            'conviction_flow_sell_intensity': np.nan,
             'constructive_turnover_ratio': np.nan,
             'structural_entropy_change': np.nan,
             'main_force_flow_gini': np.nan,
@@ -388,16 +501,67 @@ class ChipFeatureCalculator:
         prev_entropy = prev_metrics.get('price_volume_entropy')
         if pd.notna(today_entropy) and pd.notna(prev_entropy):
             results['structural_entropy_change'] = today_entropy - prev_entropy
-        def _calculate_gini_for_flow(flow_series: pd.Series) -> float:
-            flow = np.abs(flow_series.dropna())
-            if len(flow) < 2 or flow.sum() == 0: return np.nan
-            flow = np.sort(flow)
-            index = np.arange(1, len(flow) + 1)
-            n = len(flow)
-            return ((2 * np.sum(flow * index)) / (n * np.sum(flow))) - (n + 1) / n
+        # 替换为Numba优化后的流量Gini计算
+        # def _calculate_gini_for_flow(flow_series: pd.Series) -> float:
+        #     flow = np.abs(flow_series.dropna())
+        #     if len(flow) < 2 or flow.sum() == 0: return np.nan
+        #     flow = np.sort(flow)
+        #     index = np.arange(1, len(flow) + 1)
+        #     n = len(flow)
+        #     return ((2 * np.sum(flow * index)) / (n * np.sum(flow))) - (n + 1) / n
         if 'main_force_net_vol' in intraday_df.columns:
-            results['main_force_flow_gini'] = _calculate_gini_for_flow(intraday_df['main_force_net_vol'])
+            results['main_force_flow_gini'] = _numba_calculate_flow_gini_core(
+                intraday_df['main_force_net_vol'].to_numpy(dtype=np.float64)
+            )
         results.update(self._compute_legacy_cross_day_metrics(context))
+        return results
+
+    def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
+        """
+        【V1.1 · 流量Gini Numba优化版】
+        - 核心优化: 将 `_calculate_gini_for_flow` 提取并使用 Numba 进行 JIT 编译，
+                     显著提升了流量Gini系数的计算效率。
+        - 核心修复: 移除调试打印。
+        """
+        results = {
+            'gathering_by_support': np.nan, 'gathering_by_chasing': np.nan,
+            'dispersal_by_distribution': np.nan, 'dispersal_by_capitulation': np.nan,
+            'profit_taking_flow_ratio': np.nan, 'capitulation_flow_ratio': np.nan,
+            'winner_loser_momentum': np.nan, 'chip_fatigue_index': np.nan,
+        }
+        intraday_df = context.get('processed_intraday_df')
+        total_vol = context.get('daily_turnover_volume')
+        total_chip_vol = context.get('total_chip_volume')
+        daily_vwap = context.get('daily_vwap')
+        prev_metrics = context.get('prev_metrics', {})
+        if intraday_df.empty or pd.isna(total_vol) or total_vol <= 0 or 'main_force_net_vol' not in intraday_df.columns or pd.isna(daily_vwap):
+            return results
+        mf_net_vol = intraday_df['main_force_net_vol']
+        # 1. 四象限流量计算
+        support_zone = intraday_df['minute_vwap'] < daily_vwap
+        chasing_zone = intraday_df['minute_vwap'] > daily_vwap
+        results['gathering_by_support'] = mf_net_vol[support_zone].clip(lower=0).sum() / total_vol * 100
+        results['gathering_by_chasing'] = mf_net_vol[chasing_zone].clip(lower=0).sum() / total_vol * 100
+        results['dispersal_by_distribution'] = -mf_net_vol[chasing_zone].clip(upper=0).sum() / total_vol * 100
+        results['dispersal_by_capitulation'] = -mf_net_vol[support_zone].clip(upper=0).sum() / total_vol * 100
+        # 2. 盈亏盘流量估算
+        winner_rate = context.get('total_winner_rate', 0) / 100
+        loser_rate = context.get('total_loser_rate', 0) / 100
+        turnover_rate = total_vol / total_chip_vol if total_chip_vol > 0 else 0
+        # 假设卖方中盈亏比例与存量比例一致
+        results['profit_taking_flow_ratio'] = turnover_rate * winner_rate * 100
+        results['capitulation_flow_ratio'] = turnover_rate * loser_rate * 100
+        # 3. 盈亏动量
+        prev_winner_rate = prev_metrics.get('total_winner_rate', 0)
+        prev_loser_rate = prev_metrics.get('total_loser_rate', 0)
+        winner_change = context.get('total_winner_rate', 0) - prev_winner_rate
+        loser_change = context.get('total_loser_rate', 0) - prev_loser_rate
+        results['winner_loser_momentum'] = winner_change + loser_change # loser_change is negative
+        # 4. 筹码疲劳指数
+        prev_fatigue = prev_metrics.get('chip_fatigue_index', 0)
+        price_range = (context.get('high_price', 0) - context.get('low_price', 0)) / context.get('pre_close', 1)
+        fatigue_increment = turnover_rate * (1 + price_range) * 100
+        results['chip_fatigue_index'] = prev_fatigue * 0.9 + fatigue_increment # 每日衰减
         return results
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
@@ -552,7 +716,9 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.2 · 心理学重构版】
+        【V11.3 · 峰度与集中度Numba优化版】
+        - 核心优化: 将 `_calculate_weighted_kurtosis` 和 `_get_concentration` 提取并使用 Numba 进行 JIT 编译，
+                     显著提升了静态结构指标的计算效率。
         - 核心重构(Winner Stability): 废弃线性利润模型，引入高斯函数来模拟“利润甜蜜区”。
           新模型认为，过高（>50%）或过低的利润都会降低持股稳定性，只有在“甜蜜区”（如20%）附近，
           获利盘的结构才最为稳固，更符合A股“兑现冲动”的博弈心理。
@@ -582,14 +748,15 @@ class ChipFeatureCalculator:
         atr_14d = self.ctx.get('atr_14d')
         if self.df.empty or pd.isna(close_price) or pd.isna(atr_14d) or atr_14d <= 0:
             return results
-        def _calculate_weighted_kurtosis(values: pd.Series, weights: pd.Series) -> float:
-            if values.empty or weights.empty or weights.sum() <= 0: return np.nan
-            weighted_mean = np.average(values, weights=weights)
-            weighted_variance = np.average((values - weighted_mean)**2, weights=weights)
-            if weighted_variance < 1e-9: return np.nan
-            m4 = np.average((values - weighted_mean)**4, weights=weights)
-            kurt = m4 / (weighted_variance**2) - 3.0
-            return kurt
+        # 替换为Numba优化后的加权峰度计算
+        # def _calculate_weighted_kurtosis(values: pd.Series, weights: pd.Series) -> float:
+        #     if values.empty or weights.empty or weights.sum() <= 0: return np.nan
+        #     weighted_mean = np.average(values, weights=weights)
+        #     weighted_variance = np.average((values - weighted_mean)**2, weights=weights)
+        #     if weighted_variance < 1e-9: return np.nan
+        #     m4 = np.average((values - weighted_mean)**4, weights=weights)
+        #     kurt = m4 / (weighted_variance**2) - 3.0
+        #     return kurt
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         results['structural_node_count'] = len(peaks)
         results['vacuum_zone_magnitude'] = 0.0
@@ -606,7 +773,11 @@ class ChipFeatureCalculator:
             results['dominant_peak_volume_ratio'] = main_peak['volume']
             peak_region_df = self.df.iloc[int(main_peak['left_base']):int(main_peak['right_base'])+1]
             if not peak_region_df.empty and peak_region_df['percent'].sum() > 0:
-                results['primary_peak_kurtosis'] = _calculate_weighted_kurtosis(peak_region_df['price'], peak_region_df['percent'])
+                # 调用Numba优化后的加权峰度计算
+                results['primary_peak_kurtosis'] = _numba_calculate_weighted_kurtosis_core(
+                    peak_region_df['price'].to_numpy(dtype=np.float64),
+                    peak_region_df['percent'].to_numpy(dtype=np.float64)
+                )
             if len(peaks) > 1:
                 secondary_peak = peaks_by_prominence.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
@@ -665,18 +836,27 @@ class ChipFeatureCalculator:
             results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
             fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
             results['chip_fault_blockage_ratio'] = self.df[(self.df['price'] > fault_low) & (self.df['price'] < fault_high)]['percent'].sum()
-        def _get_concentration(chip_df: pd.DataFrame):
-            if chip_df.empty or chip_df['percent'].sum() < 1e-6: return np.nan
-            chip_df = chip_df.copy()
-            chip_df['percent'] = (chip_df['percent'] / chip_df['percent'].sum()) * 100
-            chip_df['cum_percent'] = chip_df['percent'].cumsum()
-            avg_cost = np.average(chip_df['price'], weights=chip_df['percent'])
-            if avg_cost <= 0: return np.nan
-            price_low = np.interp(5, chip_df['cum_percent'], chip_df['price'])
-            price_high = np.interp(95, chip_df['cum_percent'], chip_df['price'])
-            return (price_high - price_low) / avg_cost
-        results['winner_concentration_90pct'] = _get_concentration(winners_df)
-        results['loser_concentration_90pct'] = _get_concentration(losers_df)
+        # 调用Numba优化后的集中度计算
+        # def _get_concentration(chip_df: pd.DataFrame):
+        #     if chip_df.empty or chip_df['percent'].sum() < 1e-6: return np.nan
+        #     chip_df = chip_df.copy()
+        #     chip_df['percent'] = (chip_df['percent'] / chip_df['percent'].sum()) * 100
+        #     chip_df['cum_percent'] = chip_df['percent'].cumsum()
+        #     avg_cost = np.average(chip_df['price'], weights=chip_df['percent'])
+        #     if avg_cost <= 0: return np.nan
+        #     price_low = np.interp(5, chip_df['cum_percent'], chip_df['price'])
+        #     price_high = np.interp(95, chip_df['cum_percent'], chip_df['price'])
+        #     return (price_high - price_low) / avg_cost
+        if not winners_df.empty:
+            results['winner_concentration_90pct'] = _numba_get_concentration_core(
+                winners_df['price'].to_numpy(dtype=np.float64),
+                winners_df['percent'].to_numpy(dtype=np.float64)
+            )
+        if not losers_df.empty:
+            results['loser_concentration_90pct'] = _numba_get_concentration_core(
+                losers_df['price'].to_numpy(dtype=np.float64),
+                losers_df['percent'].to_numpy(dtype=np.float64)
+            )
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
         intraday_df = self.ctx.get('processed_intraday_df')
         daily_high = self.ctx.get('high_price')
@@ -1320,13 +1500,11 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V3.4 · Numba优化版】
-        - 核心优化: 将 `_gaussian_weight` 函数的核心计算逻辑提取并使用 Numba 进行 JIT 编译，
-                     显著提升了权重计算的效率。
+        【V3.5 · Numba深度优化版】
+        - 核心优化: 将计算加权买卖力量的循环逻辑提取到新的Numba JIT编译函数 `_compute_weighted_power_numba_core` 中，
+                     进一步提升了实时盘口指标的计算效率。
         - 核心修复: 解决了实时盘口数据中价格出现 `0.0000` 或 `NaN` 导致计算异常的问题。
                      引入 `valid_data_mask` 严格过滤无效价格和成交量，确保只有有效数据参与计算。
-        - 核心修复: 调整 `_gaussian_weight` 函数，使其在输入价格无效时返回 `0` 权重。
-        - 核心增强: 增加更详细的探针，追踪每个买卖档位价格和成交量的质量。
         - 核心修复: 修复 `_gaussian_weight` 函数中因 `DataFrame` 索引重复导致的 `ValueError: cannot reindex on an axis with duplicate labels` 错误。
         """
         results = {
@@ -1336,14 +1514,13 @@ class ChipFeatureCalculator:
             'floating_chip_cleansing_efficiency': np.nan,
         }
         realtime_df = context.get('realtime_data')
-        # --- 新增：在方法入口处检查 realtime_df 是否包含重复索引 ---
-        if realtime_df is not None and not realtime_df.empty and realtime_df.index.has_duplicates:
-            duplicate_realtime_indices = realtime_df.index[realtime_df.index.duplicated()].unique().tolist()
-            print(f"  [DEBUG_ERROR] _compute_realtime_orderbook_metrics: 'realtime_df' has duplicate indices: {duplicate_realtime_indices}")
-        # --- 调试信息结束 ---
-
         if realtime_df is None or realtime_df.empty:
             return results
+        if realtime_df.index.has_duplicates:
+            duplicate_realtime_indices = realtime_df.index[realtime_df.index.duplicated()].unique().tolist()
+            print(f"  [DEBUG_ERROR] _compute_realtime_orderbook_metrics: 'realtime_df' has duplicate indices: {duplicate_realtime_indices}")
+            realtime_df = realtime_df.loc[~realtime_df.index.duplicated(keep='last')]
+            print(f"  [DEBUG_FIX] _compute_realtime_orderbook_metrics: Removed duplicates from 'realtime_df' index. New shape: {realtime_df.shape}")
         required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
         if not all(col in realtime_df.columns for col in required_cols) or 'volume' not in realtime_df.columns:
             logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情或volume列。")
@@ -1357,46 +1534,23 @@ class ChipFeatureCalculator:
         if pd.notna(main_force_cost) and pd.notna(atr) and atr > 0:
             cost_zone_low = main_force_cost - 0.5 * atr
             cost_zone_high = main_force_cost + 0.5 * atr
-            # 修改后的_gaussian_weight函数，调用Numba优化过的核心函数
-            def _gaussian_weight(price_series_input, center, sigma):
-                # 将Pandas Series转换为NumPy数组
-                prices_arr = price_series_input.to_numpy()
-                # 调用Numba优化过的核心函数
-                weights_arr = _gaussian_weight_numba_core(prices_arr, center, sigma)
-                # 将结果NumPy数组转换回Pandas Series，并保留原始索引
-                weights = pd.Series(weights_arr, index=price_series_input.index)
-                return weights
+            atr_half_sigma = 0.5 * atr
             bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
             bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
             ask_prices_cols = [f'a{i}_p' for i in range(1, 6)]
             ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
-            total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
-            total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
-            for p_col, v_col in zip(bid_prices_cols, bid_vols_cols):
-                price_series = realtime_df[p_col]
-                vol_series = realtime_df[v_col]
-                # 严格过滤无效数据点：价格非NaN且大于0，成交量非NaN且大于0
-                valid_data_mask = (price_series.notna()) & (price_series > 0) & \
-                                  (vol_series.notna()) & (vol_series > 0)
-                # 应用掩码，使无效数据点变为NaN，这样它们不会参与后续的in_zone_mask和level_power计算
-                price_series_filtered = price_series.where(valid_data_mask, np.nan)
-                vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
-                in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
-                gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
-                # level_power只对有效且在区域内的数据计算，否则为0
-                level_power = (price_series_filtered * vol_series_filtered * gravity_weight).where(in_zone_mask, 0).fillna(0)
-                total_weighted_bid_power += level_power
-            for p_col, v_col in zip(ask_prices_cols, ask_vols_cols):
-                price_series = realtime_df[p_col]
-                vol_series = realtime_df[v_col]
-                valid_data_mask = (price_series.notna()) & (price_series > 0) & \
-                                  (vol_series.notna()) & (vol_series > 0)
-                price_series_filtered = price_series.where(valid_data_mask, np.nan)
-                vol_series_filtered = vol_series.where(valid_data_mask, np.nan)
-                in_zone_mask = (price_series_filtered >= cost_zone_low) & (price_series_filtered <= cost_zone_high)
-                gravity_weight = _gaussian_weight(price_series_filtered, center=main_force_cost, sigma=0.5 * atr)
-                level_power = (price_series_filtered * vol_series_filtered * gravity_weight).where(in_zone_mask, 0).fillna(0)
-                total_weighted_ask_power += level_power
+            prices_bid_arr = realtime_df[bid_prices_cols].to_numpy(dtype=np.float64)
+            vols_bid_arr = realtime_df[bid_vols_cols].to_numpy(dtype=np.float64)
+            prices_ask_arr = realtime_df[ask_prices_cols].to_numpy(dtype=np.float64)
+            vols_ask_arr = realtime_df[ask_vols_cols].to_numpy(dtype=np.float64)
+            total_weighted_bid_power_arr, total_weighted_ask_power_arr = \
+                _compute_weighted_power_numba_core(
+                    prices_bid_arr, vols_bid_arr,
+                    prices_ask_arr, vols_ask_arr,
+                    main_force_cost, atr_half_sigma, cost_zone_low, cost_zone_high
+                )
+            total_weighted_bid_power = pd.Series(total_weighted_bid_power_arr, index=realtime_df.index)
+            total_weighted_ask_power = pd.Series(total_weighted_ask_power_arr, index=realtime_df.index)
             total_power = total_weighted_bid_power + total_weighted_ask_power
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
             if 'volume' in realtime_df.columns:
