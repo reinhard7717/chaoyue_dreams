@@ -55,6 +55,174 @@ def _numba_calculate_attribution_modifiers(
         md_sell_modifier[i] = np.exp(-momentum_modifier_raw_arr[i] * 50)
     return impulse_modifier, lg_buy_modifier, lg_sell_modifier, md_buy_modifier, md_sell_modifier
 
+@numba.njit(cache=True)
+def _numba_calculate_level5_ofi_components(
+    buy_volumes: np.ndarray, sell_volumes: np.ndarray,
+    buy_prices: np.ndarray, sell_prices: np.ndarray,
+    q_threshold: float, weights: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, int, int, float, float, int]:
+    """
+    Numba优化版：计算Level 5订单流的组件。
+    输入：
+        buy_volumes (np.ndarray): 形状为 (N, 5) 的买盘量数组，N为时间步数，5为档位。
+        sell_volumes (np.ndarray): 形状为 (N, 5) 的卖盘量数组。
+        buy_prices (np.ndarray): 形状为 (N, 5) 的买盘价数组。
+        sell_prices (np.ndarray): 形状为 (N, 5) 的卖盘价数组。
+        q_threshold (float): 主力订单量阈值。
+        weights (np.ndarray): 形状为 (5,) 的档位权重数组。
+    返回：
+        Tuple:
+            - main_force_ofi_snapshots (np.ndarray): 主力订单流快照。
+            - retail_ofi_snapshots (np.ndarray): 散户订单流快照。
+            - mf_replenishment_bid_events (int): 主力买盘补单事件计数。
+            - mf_replenishment_ask_events (int): 主力卖盘补单事件计数。
+            - mf_cancellation_volume (float): 主力撤单量。
+            - mf_total_posted_volume (float): 主力总挂单量。
+            - num_rows (int): 处理的行数。
+    """
+    num_rows = buy_volumes.shape[0]
+    main_force_ofi_snapshots = np.zeros(num_rows, dtype=np.float64)
+    retail_ofi_snapshots = np.zeros(num_rows, dtype=np.float64)
+    mf_replenishment_bid_events = 0
+    mf_replenishment_ask_events = 0
+    mf_cancellation_volume = 0.0
+    mf_total_posted_volume = 0.0
+    # prev_row_data stores [buy_volume1..5, sell_volume1..5, buy_price1..5, sell_price1..5]
+    # Initialize with zeros for the first row's 'prev_row' logic
+    prev_buy_volumes = np.zeros(5, dtype=np.float64)
+    prev_sell_volumes = np.zeros(5, dtype=np.float64)
+    prev_buy_prices = np.zeros(5, dtype=np.float64)
+    prev_sell_prices = np.zeros(5, dtype=np.float64)
+    for i in range(num_rows):
+        main_force_bid_pressure = 0.0
+        main_force_ask_pressure = 0.0
+        retail_bid_pressure = 0.0
+        retail_ask_pressure = 0.0
+        for j in range(5): # Loop through 5 levels
+            buy_vol = buy_volumes[i, j]
+            sell_vol = sell_volumes[i, j]
+            buy_price = buy_prices[i, j]
+            sell_price = sell_prices[i, j]
+            if buy_vol > 0 and buy_price > 0:
+                if buy_vol >= q_threshold:
+                    main_force_bid_pressure += buy_vol * weights[j]
+                    mf_total_posted_volume += buy_vol
+                    if i > 0 and prev_buy_volumes[j] > 0 and buy_vol > prev_buy_volumes[j] and buy_price == prev_buy_prices[j]:
+                        mf_replenishment_bid_events += 1
+                else:
+                    retail_bid_pressure += buy_vol * weights[j]
+            if sell_vol > 0 and sell_price > 0:
+                if sell_vol >= q_threshold:
+                    main_force_ask_pressure += sell_vol * weights[j]
+                    mf_total_posted_volume += sell_vol
+                    if i > 0 and prev_sell_volumes[j] > 0 and sell_vol > prev_sell_volumes[j] and sell_price == prev_sell_prices[j]:
+                        mf_replenishment_ask_events += 1
+                else:
+                    retail_ask_pressure += sell_vol * weights[j]
+            # Cancellation logic
+            if i > 0:
+                if prev_buy_volumes[j] >= q_threshold and buy_vol < q_threshold and buy_price == prev_buy_prices[j]:
+                    mf_cancellation_volume += prev_buy_volumes[j] - buy_vol
+                if prev_sell_volumes[j] >= q_threshold and sell_vol < q_threshold and sell_price == prev_sell_prices[j]:
+                    mf_cancellation_volume += prev_sell_volumes[j] - sell_vol
+        total_mf_pressure = main_force_bid_pressure + main_force_ask_pressure
+        if total_mf_pressure > 0:
+            main_force_ofi_snapshots[i] = (main_force_bid_pressure - main_force_ask_pressure) / total_mf_pressure
+        else:
+            main_force_ofi_snapshots[i] = 0.0
+        total_retail_pressure = retail_bid_pressure + retail_ask_pressure
+        if total_retail_pressure > 0:
+            retail_ofi_snapshots[i] = (retail_bid_pressure - retail_ask_pressure) / total_retail_pressure
+        else:
+            retail_ofi_snapshots[i] = 0.0
+        # Update prev_row_data for the next iteration
+        for j in range(5):
+            prev_buy_volumes[j] = buy_volumes[i, j]
+            prev_sell_volumes[j] = sell_volumes[i, j]
+            prev_buy_prices[j] = buy_prices[i, j]
+            prev_sell_prices[j] = sell_prices[i, j]
+    return (main_force_ofi_snapshots, retail_ofi_snapshots,
+            mf_replenishment_bid_events, mf_replenishment_ask_events,
+            mf_cancellation_volume, mf_total_posted_volume, num_rows)
+
+@numba.njit(cache=True)
+def _numba_calculate_retail_fomo_panic_scores(
+    prices: np.ndarray, volumes: np.ndarray, amounts: np.ndarray, types: np.ndarray,
+    sell_price1s: np.ndarray, buy_price1s: np.ndarray,
+    is_new_highs: np.ndarray, is_new_lows: np.ndarray,
+    atr: float, cost_mf_sell: float, cost_mf_buy: float
+) -> Tuple[float, float, float, float]:
+    """
+    Numba优化版：计算零售Fomo和恐慌分数。
+    输入：
+        prices (np.ndarray): 交易价格数组。
+        volumes (np.ndarray): 交易量数组。
+        amounts (np.ndarray): 交易金额数组。
+        types (np.ndarray): 交易类型数组 (1 for buy, -1 for sell, 0 for mid).
+        sell_price1s (np.ndarray): 卖一价数组。
+        buy_price1s (np.ndarray): 买一价数组。
+        is_new_highs (np.ndarray): 是否为新高点的布尔数组。
+        is_new_lows (np.ndarray): 是否为新低点的布尔数组。
+        atr (float): 真实波动范围。
+        cost_mf_sell (float): 主力卖出成本。
+        cost_mf_buy (float): 主力买入成本。
+    返回：
+        Tuple:
+            - total_weighted_fomo_score (float)
+            - total_fomo_volume (float)
+            - total_weighted_panic_score (float)
+            - total_panic_volume (float)
+    """
+    total_weighted_fomo_score = 0.0
+    total_fomo_volume = 0.0
+    total_weighted_panic_score = 0.0
+    total_panic_volume = 0.0
+    num_trades = prices.shape[0]
+    # Calculate average retail trade volume for normalization
+    retail_buy_volumes_at_new_high_list = []
+    retail_sell_volumes_at_new_low_list = []
+    for i in range(num_trades):
+        if amounts[i] < 50000: # Retail trade threshold
+            if types[i] == 1 and is_new_highs[i]: # 'B' for buy
+                retail_buy_volumes_at_new_high_list.append(volumes[i])
+            elif types[i] == -1 and is_new_lows[i]: # 'S' for sell
+                retail_sell_volumes_at_new_low_list.append(volumes[i])
+    avg_retail_trade_vol_at_new_high = np.mean(np.array(retail_buy_volumes_at_new_high_list)) if len(retail_buy_volumes_at_new_high_list) > 0 else 0.0
+    avg_retail_trade_vol_at_new_low = np.mean(np.array(retail_sell_volumes_at_new_low_list)) if len(retail_sell_volumes_at_new_low_list) > 0 else 0.0
+    if atr <= 0:
+        return total_weighted_fomo_score, total_fomo_volume, total_weighted_panic_score, total_panic_volume
+    # Calculate FOMO scores
+    if not np.isnan(cost_mf_sell) and cost_mf_sell > 0:
+        for i in range(num_trades):
+            if amounts[i] < 50000 and types[i] == 1 and is_new_highs[i]: # Retail buy at new high
+                fomo_vol_in_event = volumes[i]
+                cost_fomo = prices[i]
+                cost_premium_component = (cost_fomo - cost_mf_sell) / atr
+                aggressive_buy = (prices[i] >= sell_price1s[i])
+                aggression_component = 1.0 if aggressive_buy else 0.5
+                volume_spike_component = 0.0
+                if avg_retail_trade_vol_at_new_high > 0:
+                    volume_spike_component = np.log1p(fomo_vol_in_event / avg_retail_trade_vol_at_new_high)
+                event_fomo_score = cost_premium_component * aggression_component * volume_spike_component
+                total_weighted_fomo_score += event_fomo_score * fomo_vol_in_event
+                total_fomo_volume += fomo_vol_in_event
+    # Calculate Panic scores
+    if not np.isnan(cost_mf_buy) and cost_mf_buy > 0:
+        for i in range(num_trades):
+            if amounts[i] < 50000 and types[i] == -1 and is_new_lows[i]: # Retail sell at new low
+                panic_vol_in_event = volumes[i]
+                cost_panic = prices[i]
+                cost_discount_component = (cost_mf_buy - cost_panic) / atr
+                aggressive_sell = (prices[i] <= buy_price1s[i])
+                aggression_component = 1.0 if aggressive_sell else 0.5
+                volume_spike_component = 0.0
+                if avg_retail_trade_vol_at_new_low > 0:
+                    volume_spike_component = np.log1p(panic_vol_in_event / avg_retail_trade_vol_at_new_low)
+                event_panic_score = cost_discount_component * aggression_component * volume_spike_component
+                total_weighted_panic_score += event_panic_score * panic_vol_in_event
+                total_panic_volume += panic_vol_in_event
+    return total_weighted_fomo_score, total_fomo_volume, total_weighted_panic_score, total_panic_volume
+
 class AdvancedFundFlowMetricsService:
     """
     【V1.4 · 主力日度净买卖股数全面捕捉版】高级资金流指标服务
@@ -1140,69 +1308,37 @@ class AdvancedFundFlowMetricsService:
             'retail_level5_sell_ofi': np.nan,
             'main_force_level5_ofi_dynamic': np.nan,
             'retail_level5_ofi_dynamic': np.nan,
-            'mf_hidden_bid_replenishment_ratio': np.nan, # 新增
-            'mf_hidden_ask_replenishment_ratio': np.nan, # 新增
-            'mf_order_cancellation_ratio': np.nan, # 新增
+            'mf_hidden_bid_replenishment_ratio': np.nan,
+            'mf_hidden_ask_replenishment_ratio': np.nan,
+            'mf_order_cancellation_ratio': np.nan,
         }
         if hf_analysis_df.empty:
             return metrics
         Q_threshold = 1000 * 100
-        weights = [1.0, 0.8, 0.6, 0.4, 0.2]
-        main_force_ofi_snapshots = []
-        retail_ofi_snapshots = []
-        mf_replenishment_events = {'bid': 0, 'ask': 0} # 新增
-        mf_cancellation_volume = 0 # 新增
-        mf_total_posted_volume = 0 # 新增
-        prev_row = None # 新增
-        for idx, row in hf_analysis_df.iterrows():
-            main_force_bid_pressure = 0.0
-            main_force_ask_pressure = 0.0
-            retail_bid_pressure = 0.0
-            retail_ask_pressure = 0.0
-            for i in range(1, 6):
-                buy_vol_col = f'buy_volume{i}'
-                buy_price_col = f'buy_price{i}'
-                sell_vol_col = f'sell_volume{i}'
-                sell_price_col = f'sell_price{i}'
-                buy_vol = row.get(buy_vol_col, 0)
-                sell_vol = row.get(sell_vol_col, 0)
-                buy_price = row.get(buy_price_col, 0)
-                sell_price = row.get(sell_price_col, 0)
-                if buy_vol > 0 and buy_price > 0:
-                    if buy_vol >= Q_threshold:
-                        main_force_bid_pressure += buy_vol * weights[i-1]
-                        mf_total_posted_volume += buy_vol # 新增
-                        if prev_row is not None and prev_row.get(buy_vol_col, 0) > 0 and buy_vol > prev_row.get(buy_vol_col, 0) and buy_price == prev_row.get(buy_price_col, 0):
-                            mf_replenishment_events['bid'] += 1 # 新增
-                    else:
-                        retail_bid_pressure += buy_vol * weights[i-1]
-                if sell_vol > 0 and sell_price > 0:
-                    if sell_vol >= Q_threshold:
-                        main_force_ask_pressure += sell_vol * weights[i-1]
-                        mf_total_posted_volume += sell_vol # 新增
-                        if prev_row is not None and prev_row.get(sell_vol_col, 0) > 0 and sell_vol > prev_row.get(sell_vol_col, 0) and sell_price == prev_row.get(sell_price_col, 0):
-                            mf_replenishment_events['ask'] += 1 # 新增
-                    else:
-                        retail_ask_pressure += sell_vol * weights[i-1]
-                # 统计主力撤单量 (简化处理：如果大单在下一刻消失或显著减少，且价格未变，则视为撤单)
-                if prev_row is not None: # 新增
-                    if prev_row.get(buy_vol_col, 0) >= Q_threshold and row.get(buy_vol_col, 0) < Q_threshold and buy_price == prev_row.get(buy_price_col, 0):
-                        mf_cancellation_volume += prev_row.get(buy_vol_col, 0) - row.get(buy_vol_col, 0) # 新增
-                    if prev_row.get(sell_vol_col, 0) >= Q_threshold and row.get(sell_vol_col, 0) < Q_threshold and sell_price == prev_row.get(sell_price_col, 0):
-                        mf_cancellation_volume += prev_row.get(sell_vol_col, 0) - row.get(sell_vol_col, 0) # 新增
-            total_mf_pressure = main_force_bid_pressure + main_force_ask_pressure
-            if total_mf_pressure > 0:
-                main_force_ofi_snapshots.append((main_force_bid_pressure - main_force_ask_pressure) / total_mf_pressure)
-            else:
-                main_force_ofi_snapshots.append(0.0)
-            total_retail_pressure = retail_bid_pressure + retail_ask_pressure
-            if total_retail_pressure > 0:
-                retail_ofi_snapshots.append((retail_bid_pressure - retail_ask_pressure) / total_retail_pressure)
-            else:
-                retail_ofi_snapshots.append(0.0)
-            prev_row = row # 新增
-        main_force_ofi_series = pd.Series(main_force_ofi_snapshots, index=hf_analysis_df.index)
-        retail_ofi_series = pd.Series(retail_ofi_snapshots, index=hf_analysis_df.index)
+        weights_arr = np.array([1.0, 0.8, 0.6, 0.4, 0.2], dtype=np.float64)
+        # Prepare data for Numba function
+        buy_volumes_cols = [f'buy_volume{i}' for i in range(1, 6)]
+        sell_volumes_cols = [f'sell_volume{i}' for i in range(1, 6)]
+        buy_prices_cols = [f'buy_price{i}' for i in range(1, 6)]
+        sell_prices_cols = [f'sell_price{i}' for i in range(1, 6)]
+        # Ensure all required columns exist, fill with 0 if not
+        for col in buy_volumes_cols + sell_volumes_cols + buy_prices_cols + sell_prices_cols:
+            if col not in hf_analysis_df.columns:
+                hf_analysis_df[col] = 0.0
+        buy_volumes_arr = hf_analysis_df[buy_volumes_cols].values.astype(np.float64)
+        sell_volumes_arr = hf_analysis_df[sell_volumes_cols].values.astype(np.float64)
+        buy_prices_arr = hf_analysis_df[buy_prices_cols].values.astype(np.float64)
+        sell_prices_arr = hf_analysis_df[sell_prices_cols].values.astype(np.float64)
+        (main_force_ofi_snapshots_arr, retail_ofi_snapshots_arr,
+         mf_replenishment_bid_events, mf_replenishment_ask_events,
+         mf_cancellation_volume, mf_total_posted_volume, num_rows) = \
+            _numba_calculate_level5_ofi_components(
+                buy_volumes_arr, sell_volumes_arr,
+                buy_prices_arr, sell_prices_arr,
+                float(Q_threshold), weights_arr
+            )
+        main_force_ofi_series = pd.Series(main_force_ofi_snapshots_arr, index=hf_analysis_df.index)
+        retail_ofi_series = pd.Series(retail_ofi_snapshots_arr, index=hf_analysis_df.index)
         time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
         total_time = time_diffs.sum()
         if total_time > 0:
@@ -1223,11 +1359,10 @@ class AdvancedFundFlowMetricsService:
             metrics['retail_level5_sell_ofi'] = retail_ofi_series.clip(upper=0).mean()
             metrics['main_force_level5_ofi_dynamic'] = main_force_ofi_series.diff().mean()
             metrics['retail_level5_ofi_dynamic'] = retail_ofi_series.diff().mean()
-        # 新增隐藏订单和撤单比率计算
-        total_replenishment_events = mf_replenishment_events['bid'] + mf_replenishment_events['ask']
+        total_replenishment_events = mf_replenishment_bid_events + mf_replenishment_ask_events
         if total_replenishment_events > 0:
-            metrics['mf_hidden_bid_replenishment_ratio'] = mf_replenishment_events['bid'] / total_replenishment_events
-            metrics['mf_hidden_ask_replenishment_ratio'] = mf_replenishment_events['ask'] / total_replenishment_events
+            metrics['mf_hidden_bid_replenishment_ratio'] = mf_replenishment_bid_events / total_replenishment_events
+            metrics['mf_hidden_ask_replenishment_ratio'] = mf_replenishment_ask_events / total_replenishment_events
         if mf_total_posted_volume > 0:
             metrics['mf_order_cancellation_ratio'] = mf_cancellation_volume / mf_total_posted_volume
         return metrics
@@ -2085,144 +2220,53 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_retail_sentiment_metrics(context: dict) -> dict:
-        """
-        【V71.0 · 终极生产版 - 空数据鲁棒性增强】
-        - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
-        """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
-        should_probe = context['debug']['should_probe']
-        stock_code = context['debug']['stock_code']
-        current_date = context['daily_data'].name.date()
-        from datetime import time
-        import pandas as pd
-        import numpy as np
         metrics = {
             'retail_fomo_premium_index': np.nan,
             'retail_panic_surrender_index': np.nan
         }
-        day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data['atr']
-        if hf_analysis_df.empty: # 增加空数据检查
-            # Fallback to intraday_data based calculation if hf_analysis_df is empty
-            continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
-            if pd.notna(atr) and atr > 0 and pd.notna(day_high) and pd.notna(day_low):
-                day_range = day_high - day_low
-                if day_range > 0:
-                    fomo_zone_threshold = day_low + 0.75 * day_range
-                    fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
-                    if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
-                        fomo_retail_df = fomo_zone_df[fomo_zone_df['retail_net_vol'] > 0]
-                        if not fomo_retail_df.empty:
-                            fomo_vol = fomo_retail_df['retail_net_vol'].sum()
-                            total_retail_buy_vol = continuous_trading_df[continuous_trading_df['retail_buy_vol'] > 0]['retail_buy_vol'].sum()
-                            if fomo_vol > 0 and total_retail_buy_vol > 0:
-                                cost_fomo = (fomo_retail_df['minute_vwap'] * fomo_retail_df['retail_net_vol']).sum() / fomo_vol
-                                cost_mf_sell = daily_data.get('avg_cost_main_sell')
-                                if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
-                                    premium = (cost_fomo / cost_mf_sell - 1)
-                                    metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
-                    panic_zone_threshold = day_low + 0.25 * day_range
-                    panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
-                    if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
-                        panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
-                        if not panic_retail_df.empty:
-                            panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
-                            total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
-                            if panic_vol > 0 and total_retail_sell_vol > 0:
-                                cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
-                                cost_mf_buy = daily_data.get('avg_cost_main_buy')
-                                if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
-                                    discount = (cost_mf_buy - cost_panic) / cost_mf_buy
-                                    metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
+        if hf_analysis_df.empty or pd.isna(atr) or atr <= 0:
             return metrics
-        if pd.notna(atr) and atr > 0:
-            hf_analysis_df['is_new_high'] = hf_analysis_df['price'] > hf_analysis_df['price'].cummax().shift(1).fillna(method='bfill')
-            retail_buy_trades_at_new_high = hf_analysis_df[
-                (hf_analysis_df['amount'] < 50000) &
-                (hf_analysis_df['type'] == 'B') &
-                (hf_analysis_df['is_new_high'])
-            ].copy()
-            if not retail_buy_trades_at_new_high.empty:
-                total_weighted_fomo_score = 0
-                total_fomo_volume = 0
-                avg_retail_trade_vol_at_new_high = retail_buy_trades_at_new_high['volume'].mean()
-                cost_mf_sell = daily_data.get('avg_cost_main_sell')
-                if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
-                    for _, trade in retail_buy_trades_at_new_high.iterrows():
-                        fomo_vol_in_event = trade['volume']
-                        cost_fomo = trade['price']
-                        cost_premium_component = (cost_fomo - cost_mf_sell) / atr
-                        aggressive_buy = (trade['price'] >= trade['sell_price1'])
-                        aggression_component = 1.0 if aggressive_buy else 0.5
-                        volume_spike_component = 0.0
-                        if pd.notna(avg_retail_trade_vol_at_new_high) and avg_retail_trade_vol_at_new_high > 0:
-                            volume_spike_component = np.log1p(trade['volume'] / avg_retail_trade_vol_at_new_high)
-                        event_fomo_score = cost_premium_component * aggression_component * volume_spike_component
-                        total_weighted_fomo_score += event_fomo_score * fomo_vol_in_event
-                        total_fomo_volume += fomo_vol_in_event
-                if total_fomo_volume > 0:
-                    weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
-                    metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * 100
-            hf_analysis_df['is_new_low'] = hf_analysis_df['price'] < hf_analysis_df['price'].cummin().shift(1).fillna(method='bfill')
-            retail_sell_trades_at_new_low = hf_analysis_df[
-                (hf_analysis_df['amount'] < 50000) &
-                (hf_analysis_df['type'] == 'S') &
-                (hf_analysis_df['is_new_low'])
-            ].copy()
-            if not retail_sell_trades_at_new_low.empty:
-                total_weighted_panic_score = 0
-                total_panic_volume = 0
-                avg_retail_trade_vol_at_new_low = retail_sell_trades_at_new_low['volume'].mean()
-                cost_mf_buy = daily_data.get('avg_cost_main_buy')
-                if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
-                    for _, trade in retail_sell_trades_at_new_low.iterrows():
-                        panic_vol_in_event = trade['volume']
-                        cost_panic = trade['price']
-                        cost_discount_component = (cost_mf_buy - cost_panic) / atr
-                        aggressive_sell = (trade['price'] <= trade['buy_price1'])
-                        aggression_component = 1.0 if aggressive_sell else 0.5
-                        volume_spike_component = 0.0
-                        if pd.notna(avg_retail_trade_vol_at_new_low) and avg_retail_trade_vol_at_new_low > 0:
-                            volume_spike_component = np.log1p(trade['volume'] / avg_retail_trade_vol_at_new_low)
-                        event_panic_score = cost_discount_component * aggression_component * volume_spike_component
-                        total_weighted_panic_score += event_panic_score * panic_vol_in_event
-                        total_panic_volume += panic_vol_in_event
-                if total_panic_volume > 0:
-                    weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
-                    metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * 100
-            continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
-            if pd.notna(day_high) and pd.notna(day_low):
-                day_range = day_high - day_low
-                if day_range > 0:
-                    fomo_zone_threshold = day_low + 0.75 * day_range
-                    fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
-                    if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
-                        fomo_retail_df = fomo_zone_df[fomo_zone_df['retail_net_vol'] > 0]
-                        if not fomo_retail_df.empty:
-                            fomo_vol = fomo_retail_df['retail_net_vol'].sum()
-                            total_retail_buy_vol = continuous_trading_df[continuous_trading_df['retail_buy_vol'] > 0]['retail_buy_vol'].sum()
-                            if fomo_vol > 0 and total_retail_buy_vol > 0:
-                                cost_fomo = (fomo_retail_df['minute_vwap'] * fomo_retail_df['retail_net_vol']).sum() / fomo_vol
-                                cost_mf_sell = daily_data.get('avg_cost_main_sell')
-                                if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
-                                    premium = (cost_fomo / cost_mf_sell - 1)
-                                    metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
-                    panic_zone_threshold = day_low + 0.25 * day_range
-                    panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
-                    if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
-                        panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
-                        if not panic_retail_df.empty:
-                            panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
-                            total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
-                            if panic_vol > 0 and total_retail_sell_vol > 0:
-                                cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
-                                cost_mf_buy = daily_data.get('avg_cost_main_buy')
-                                if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
-                                    discount = (cost_mf_buy - cost_panic) / cost_mf_buy
-                                    metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
+        # Prepare data for Numba function
+        # Ensure 'type' column is numeric (1 for B, -1 for S, 0 for M)
+        hf_analysis_df_copy = hf_analysis_df.copy()
+        hf_analysis_df_copy['type_numeric'] = np.select(
+            [hf_analysis_df_copy['type'] == 'B', hf_analysis_df_copy['type'] == 'S'],
+            [1, -1],
+            default=0
+        )
+        # Calculate is_new_high and is_new_low for the entire hf_analysis_df
+        hf_analysis_df_copy['is_new_high'] = hf_analysis_df_copy['price'] > hf_analysis_df_copy['price'].cummax().shift(1).fillna(hf_analysis_df_copy['price'].iloc[0])
+        hf_analysis_df_copy['is_new_low'] = hf_analysis_df_copy['price'] < hf_analysis_df_copy['price'].cummin().shift(1).fillna(hf_analysis_df_copy['price'].iloc[0])
+        prices_arr = hf_analysis_df_copy['price'].values.astype(np.float64)
+        volumes_arr = hf_analysis_df_copy['volume'].values.astype(np.float64)
+        amounts_arr = hf_analysis_df_copy['amount'].values.astype(np.float64)
+        types_arr = hf_analysis_df_copy['type_numeric'].values.astype(np.int8)
+        sell_price1s_arr = hf_analysis_df_copy['sell_price1'].values.astype(np.float64)
+        buy_price1s_arr = hf_analysis_df_copy['buy_price1'].values.astype(np.float64)
+        is_new_highs_arr = hf_analysis_df_copy['is_new_high'].values
+        is_new_lows_arr = hf_analysis_df_copy['is_new_low'].values
+        cost_mf_sell = daily_data.get('avg_cost_main_sell', np.nan)
+        cost_mf_buy = daily_data.get('avg_cost_main_buy', np.nan)
+        (total_weighted_fomo_score, total_fomo_volume,
+         total_weighted_panic_score, total_panic_volume) = \
+            _numba_calculate_retail_fomo_panic_scores(
+                prices_arr, volumes_arr, amounts_arr, types_arr,
+                sell_price1s_arr, buy_price1s_arr,
+                is_new_highs_arr, is_new_lows_arr,
+                float(atr), float(cost_mf_sell) if pd.notna(cost_mf_sell) else np.nan,
+                float(cost_mf_buy) if pd.notna(cost_mf_buy) else np.nan
+            )
+        if total_fomo_volume > 0:
+            weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
+            metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * 100
+        if total_panic_volume > 0:
+            weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
+            metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * 100
         return metrics
 
     @staticmethod
