@@ -430,46 +430,87 @@ class CalculateUpthrustWashoutRelationship:
         selling_pressure_score = (upper_shadow_pressure_norm * 0.7 + is_down_day * adjusted_down_day_weight).clip(0, 1)
         return selling_pressure_score
 
-    def _calculate_net_washout_intent(self, absorption_rebuttal_score: pd.Series, selling_pressure_score: pd.Series, pct_change: pd.Series, df_index: pd.Index) -> pd.Series:
+    def _calculate_net_washout_intent(self, absorption_rebuttal_score: pd.Series, selling_pressure_score: pd.Series, pct_change: pd.Series, df_index: pd.Index, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict, temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.0 · 净洗盘意图计算器 - 背离放大版】
-        - 核心职责: 计算净洗盘意图，并在承接大于卖压且股价下跌时，非线性放大该意图。
-        - 核心逻辑:
-            1. 计算承接与卖压的原始差值。
-            2. 如果原始差值为正且股价下跌，则应用一个基于股价跌幅的非线性放大因子。
-            3. 放大因子 = 1 + (abs(pct_change) / 100 * amplification_multiplier)。
-            4. 最终结果裁剪到 [0, 1]。
+        【V1.0.2 · 净洗盘意图计算器 - 背离基础分版】
+        - 核心职责: 计算净洗盘意图，并在承接大于卖压且股价下跌时，将“股价下跌百分比 * 10”作为基础分。
+        - 核心升级:
+            1. 调整 `amplification_multiplier` 的默认值。
+            2. 在背离情境下，计算基于股价下跌幅度的基础分。
+            3. 最终净洗盘意图取“基础分”与“经过放大的承接减卖压差值”的较大者。
         参数:
             absorption_rebuttal_score (pd.Series): 承接审判分数。
             selling_pressure_score (pd.Series): 卖压审判分数。
             pct_change (pd.Series): 涨跌幅 (百分比)。
             df_index (pd.Index): DataFrame的索引。
+            is_debug_enabled_for_method (bool): 是否启用调试。
+            probe_ts (Optional[pd.Timestamp]): 探针日期。
+            debug_output (Dict): 调试输出字典。
+            temp_debug_values (Dict): 临时调试值字典，用于存储中间结果。
         返回:
             pd.Series: 净洗盘意图分数。
         """
-        # 从配置中获取放大乘数，如果未配置则使用默认值 3.0
-        amplification_multiplier = get_param_value(self.params.get('washout_amplification_multiplier'), 10.0)
+        # 从配置中获取放大乘数，如果未配置则使用默认值 5.0
+        amplification_multiplier = get_param_value(self.params.get('washout_amplification_multiplier'), 5.0)
+
         # 1. 计算承接与卖压的原始差值
         raw_washout_diff = absorption_rebuttal_score - selling_pressure_score
+
         # 初始化净洗盘意图分数，默认值为 0.0
-        net_washout_intent = pd.Series(0.0, index=df_index, dtype=np.float32)
+        net_washout_intent_series = pd.Series(0.0, index=df_index, dtype=np.float32)
+
         # 2. 识别“背离”情境：承接大于卖压 (raw_washout_diff > 0) 且股价下跌 (pct_change < 0)
         divergence_mask = (raw_washout_diff > 0) & (pct_change < 0)
-        # 3. 计算放大因子
+
+        # 3. 计算基于股价下跌幅度的基础分 (仅在背离情境下有意义)
+        # 股价下跌的百分比 * 10 作为基础分，并裁剪到 [0, 1] 范围
+        base_score_from_pct_change = (pct_change.abs() / 100 * 10).clip(0, 1)
+
+        # 4. 计算放大因子
         # pct_change 是百分比，所以除以 100 转换为小数
         # 确保 pct_change.abs() 避免负值
         amplification_factor = 1 + (pct_change.abs() / 100 * amplification_multiplier)
         # 确保 amplification_factor 至少为 1 (不缩小)
         amplification_factor = amplification_factor.clip(lower=1.0)
-        # 4. 在背离情境下，应用放大因子
-        net_washout_intent.loc[divergence_mask] = (raw_washout_diff * amplification_factor).loc[divergence_mask]
-        # 5. 对于非背离情境 (raw_washout_diff <= 0 或 pct_change >= 0)，直接使用原始差值 (但要确保非负)
+
+        # 5. 计算经过放大的原始净吸收差值
+        amplified_raw_washout_diff = raw_washout_diff * amplification_factor
+
+        # 6. 在背离情境下，融合基础分和经过放大的原始净吸收差值
+        # 取两者中的较大值，确保洗盘意图分数既能反映下跌幅度，也能反映净吸收强度
+        net_washout_intent_series.loc[divergence_mask] = np.maximum(
+            base_score_from_pct_change.loc[divergence_mask],
+            amplified_raw_washout_diff.loc[divergence_mask]
+        )
+
+        # 7. 对于非背离情境 (raw_washout_diff <= 0 或 pct_change >= 0)，直接使用原始差值 (但要确保非负)
         # 如果 raw_washout_diff > 0 但 pct_change >= 0，不应该放大，只取 raw_washout_diff
         # 如果 raw_washout_diff <= 0，则意图为 0
         non_divergence_mask = ~divergence_mask
-        net_washout_intent.loc[non_divergence_mask] = raw_washout_diff.loc[non_divergence_mask].clip(lower=0)
-        # 6. 最终裁剪到 [0, 1] 范围
-        return net_washout_intent.clip(0, 1)
+        net_washout_intent_series.loc[non_divergence_mask] = raw_washout_diff.loc[non_divergence_mask].clip(lower=0)
+
+        # 8. 最终裁剪到 [0, 1] 范围
+        final_net_washout_intent = net_washout_intent_series.clip(0, 1)
+
+        # 调试输出
+        if is_debug_enabled_for_method and probe_ts:
+            val_raw_washout_diff = raw_washout_diff.loc[probe_ts] if probe_ts in raw_washout_diff.index else np.nan
+            val_pct_change = pct_change.loc[probe_ts] if probe_ts in pct_change.index else np.nan
+            val_divergence_mask = divergence_mask.loc[probe_ts] if probe_ts in divergence_mask.index else False
+            val_base_score_from_pct_change = base_score_from_pct_change.loc[probe_ts] if probe_ts in base_score_from_pct_change.index else np.nan
+            val_amplification_factor = amplification_factor.loc[probe_ts] if probe_ts in amplification_factor.index else np.nan
+            val_amplified_raw_washout_diff = amplified_raw_washout_diff.loc[probe_ts] if probe_ts in amplified_raw_washout_diff.index else np.nan
+            temp_debug_values["净洗盘意图_详情"] = {
+                "raw_washout_diff": val_raw_washout_diff,
+                "pct_change": val_pct_change,
+                "divergence_mask": val_divergence_mask,
+                "amplification_multiplier": amplification_multiplier,
+                "amplification_factor": val_amplification_factor,
+                "base_score_from_pct_change": val_base_score_from_pct_change,
+                "amplified_raw_washout_diff": val_amplified_raw_washout_diff,
+                "final_net_washout_intent": final_net_washout_intent.loc[probe_ts]
+            }
+        return final_net_washout_intent
 
     def _assess_absorption_rebuttal(self, active_buying_norm: pd.Series,
                                     lower_shadow_strength: pd.Series, power_transfer_norm: pd.Series) -> pd.Series:
@@ -576,6 +617,16 @@ class CalculateUpthrustWashoutRelationship:
         for key, series in temp_debug_values["承接审判分"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
             debug_output[f"        {key}: {val:.4f}"] = ""
+
+        # 新增：打印净洗盘意图的详细调试信息
+        if "净洗盘意图_详情" in temp_debug_values:
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 净洗盘意图 (详细计算) ---"] = ""
+            for key, val in temp_debug_values["净洗盘意图_详情"].items():
+                if isinstance(val, (float, np.float32, np.float64)):
+                    debug_output[f"        {key}: {val:.4f}"] = ""
+                else:
+                    debug_output[f"        {key}: {val}"] = ""
+
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 净洗盘意图 ---"] = ""
         for key, series in temp_debug_values["净洗盘意图"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
