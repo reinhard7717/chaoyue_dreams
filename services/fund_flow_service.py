@@ -6,6 +6,7 @@ from django.utils import timezone
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime, time
+from scipy.signal import find_peaks
 from typing import Tuple
 import numba
 from asgiref.sync import sync_to_async
@@ -1263,7 +1264,7 @@ class AdvancedFundFlowMetricsService:
         results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_opening_battle_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_shadow_metrics(context))
-        results.update(AdvancedFundFlowMetricsService._calculate_dip_rally_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_dip_rally_metrics(context, raw_hf_df))
         results.update(AdvancedFundFlowMetricsService._calculate_reversal_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_panic_cascade_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_cmf_metrics(context))
@@ -1753,83 +1754,171 @@ class AdvancedFundFlowMetricsService:
         return metrics
 
     @staticmethod
-    def _calculate_dip_rally_metrics(context: dict) -> dict:
+    def _calculate_dip_rally_metrics(context: dict, raw_hf_df: pd.DataFrame) -> dict:
         """
-        【V72.5 · 时区兼容修复版 - 空数据鲁棒性增强】
-        - 核心修复: 解决 `TypeError: Cannot compare tz-naive and tz-aware timestamps`。
-                    在对 `mf_trades.index.values` (被视为时区-naive的 `datetime64[ns]` 数组)
-                    与 `start_time` 和 `end_time` (时区-aware的 `pd.Timestamp` 对象) 进行比较时，
-                    将 `start_time` 和 `end_time` 显式转换为时区-naive，以确保比较操作的时区一致性。
-        - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
+        【V73.1 · 高频数据深度整合版】
+        核心优化:
+        1. 深度整合raw_hf_df高频逐笔数据，实现更精确的主力散户行为识别
+        2. 使用原始Level5盘口数据计算实时的支撑阻力强度
+        3. 结合逐笔成交类型和盘口变化，增强下跌吸收和反弹分布指标的精度
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        hf_features = context['hf_features']
-        should_probe = context['debug']['should_probe']
-        stock_code = context['debug']['stock_code']
-        current_date = context['daily_data'].name.date()
-        from scipy.signal import find_peaks
-        from datetime import time
-        import numpy as np
-        import pandas as pd
         metrics = {}
-        if hf_analysis_df.empty: # 增加空数据检查
+        if hf_analysis_df.empty or intraday_data.empty or raw_hf_df.empty:
             return metrics
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
         daily_total_amount = common_data.get('daily_total_amount', 0)
+        day_open = common_data.get('day_open', daily_vwap)
         day_high, day_low = common_data['day_high'], common_data['day_low']
+        day_range = day_high - day_low if day_high > day_low else atr * 0.1
+        # 1. 精细化下跌吸收指标计算 - 整合raw_hf_df高频数据
+        if pd.notna(daily_vwap) and pd.notna(atr) and atr > 0:
+            # 使用raw_hf_df原始高频数据计算更精确的主力行为
+            # 定义下跌区域：价格低于VWAP的区域
+            dip_mask = raw_hf_df['price'] < daily_vwap
+            dip_hf_df = raw_hf_df[dip_mask].copy()
+            if not dip_hf_df.empty:
+                # 基于原始成交类型识别主力行为（假设大单为主力）
+                volume_threshold = dip_hf_df['volume'].quantile(0.8)  # 成交量前20%为大单
+                mf_trades_in_dip = dip_hf_df[dip_hf_df['volume'] >= volume_threshold]
+                retail_trades_in_dip = dip_hf_df[dip_hf_df['volume'] < volume_threshold]
+                # 主力在下跌区的主动买入和卖出
+                mf_aggressive_buy = mf_trades_in_dip[mf_trades_in_dip['type'] == 'B']['volume'].sum()
+                mf_aggressive_sell = mf_trades_in_dip[mf_trades_in_dip['type'] == 'S']['volume'].sum()
+                mf_net_aggressive = mf_aggressive_buy - mf_aggressive_sell
+                # 散户在下跌区的主动卖出（散户恐慌性抛售）
+                retail_aggressive_sell = retail_trades_in_dip[retail_trades_in_dip['type'] == 'S']['volume'].sum()
+                retail_aggressive_buy = retail_trades_in_dip[retail_trades_in_dip['type'] == 'B']['volume'].sum()
+                retail_net_aggressive_sell = retail_aggressive_sell - retail_aggressive_buy
+                # 计算盘口支撑强度：下跌时买盘挂单的变化
+                dip_hf_df['bid_depth'] = dip_hf_df[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
+                dip_hf_df['ask_depth'] = dip_hf_df[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
+                avg_bid_ask_ratio = (dip_hf_df['bid_depth'] / (dip_hf_df['ask_depth'] + 1e-10)).mean()
+                # 价格深度加权：距离VWAP越远，权重越高
+                price_depth = (daily_vwap - dip_hf_df['price']).clip(lower=0)
+                total_price_weighted_volume = (price_depth * dip_hf_df['volume']).sum()
+                # 复合吸收能力指标
+                if total_price_weighted_volume > 0:
+                    # 主力吸收效率：净主动买入 vs 价格加权成交量
+                    absorption_efficiency = mf_net_aggressive / total_price_weighted_volume if mf_net_aggressive > 0 else 0
+                    # 散户抛压比率：散户净主动卖出 vs 总成交量
+                    retail_pressure_ratio = retail_net_aggressive_sell / dip_hf_df['volume'].sum() if dip_hf_df['volume'].sum() > 0 else 0
+                    # 盘口支撑因子：买一卖一挂单比率
+                    bid_ask_support = avg_bid_ask_ratio if avg_bid_ask_ratio > 0 else 0.5
+                    # 复合吸收能力 = 吸收效率 * (1 - 散户抛压) * 盘口支撑 * ATR归一化
+                    composite_absorption = absorption_efficiency * max(0, 1 - retail_pressure_ratio) * bid_ask_support * atr
+                    metrics['dip_absorption_power'] = np.tanh(composite_absorption) * 100
+                    # 精细化买入吸收强度：考虑主力大单的集中度
+                    if mf_aggressive_buy > 0:
+                        mf_buy_concentration = (mf_trades_in_dip[mf_trades_in_dip['type'] == 'B']['volume'].max() / mf_aggressive_buy) if mf_aggressive_buy > 0 else 0
+                        concentration_factor = 1 + mf_buy_concentration  # 大单越集中，强度越高
+                        absorption_strength = absorption_efficiency * concentration_factor * bid_ask_support * atr
+                        metrics['dip_buy_absorption_strength'] = np.tanh(absorption_strength) * 100
+                    # 精细化卖出压力抵抗：散户抛压 vs 主力吸收 vs 盘口支撑
+                    if retail_net_aggressive_sell > 0 and mf_net_aggressive > 0:
+                        resistance_ratio = retail_net_aggressive_sell / mf_net_aggressive
+                        # 盘口抵抗因子：卖盘挂单减少速度（卖盘被吸收）
+                        ask_depth_change = dip_hf_df['ask_depth'].pct_change().mean() if len(dip_hf_df) > 1 else 0
+                        ask_reduction_factor = max(0, -ask_depth_change)  # 卖盘挂单减少为正
+                        resistance_strength = resistance_ratio * (1 + ask_reduction_factor) * bid_ask_support * atr
+                        metrics['dip_sell_pressure_resistance'] = np.tanh(resistance_strength) * 100
+        # 2. 精细化反弹分布指标计算 - 整合raw_hf_df高频数据
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if not continuous_trading_df.empty and 'minute_vwap' in continuous_trading_df.columns:
-            peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
-            troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
+            # 使用更灵敏的峰值检测
+            peaks, peak_properties = find_peaks(continuous_trading_df['minute_vwap'].values, prominence=0.002*atr, width=3)
+            troughs, trough_properties = find_peaks(-continuous_trading_df['minute_vwap'].values, prominence=0.002*atr, width=3)
             turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(continuous_trading_df)-1])))))
-            if pd.notna(daily_vwap) and pd.notna(atr) and atr > 0:
-                absorption_zone_hf = hf_analysis_df[hf_analysis_df['price'] < daily_vwap]
-                if not absorption_zone_hf.empty:
-                    mf_net_buy_vol = absorption_zone_hf['main_force_ofi'].clip(lower=0).sum()
-                    mf_net_sell_vol = absorption_zone_hf['main_force_ofi'].clip(upper=0).sum()
-                    price_drop_vs_vwap = (daily_vwap - absorption_zone_hf['price']).clip(lower=0)
-                    price_weighted_effort = (price_drop_vs_vwap * absorption_zone_hf['volume']).sum()
-                    if price_weighted_effort > 0:
-                        absorption_efficiency = mf_net_buy_vol / price_weighted_effort
-                        metrics['dip_absorption_power'] = np.tanh(absorption_efficiency * atr) * 100
-                        metrics['dip_buy_absorption_strength'] = np.tanh(mf_net_buy_vol / price_weighted_effort * atr) * 100
-                        if mf_net_sell_vol < 0:
-                            resistance_efficiency = abs(mf_net_sell_vol) / price_weighted_effort
-                            metrics['dip_sell_pressure_resistance'] = np.tanh(resistance_efficiency * atr) * 100
-                total_mf_net_sell_amount_in_rallies = 0
-                total_mf_net_buy_amount_in_rallies = 0
-                total_rally_price_change_norm = 0
-                mf_trades = hf_features['mf_trades']
-                for i in range(len(turning_points) - 1):
-                    start_idx, end_idx = turning_points[i], turning_points[i+1]
-                    window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
-                    if window_df.empty or len(window_df) < 2: continue
-                    if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]:
-                        start_time, end_time = window_df.index[0], window_df.index[-1]
-                        start_time_naive = start_time.tz_localize(None) if start_time.tz is not None else start_time
-                        end_time_naive = end_time.tz_localize(None) if end_time.tz is not None else end_time
-                        mf_trades_in_rally = mf_trades[(mf_trades.index.values >= start_time_naive) & (mf_trades.index.values <= end_time_naive)]
-                        if not mf_trades_in_rally.empty:
-                            mf_buy_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['amount'].sum()
-                            mf_sell_amount = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['amount'].sum()
-                            total_mf_net_sell_amount_in_rallies += (mf_sell_amount - mf_buy_amount)
-                            total_mf_net_buy_amount_in_rallies += (mf_buy_amount - mf_sell_amount)
-                            price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
-                            total_rally_price_change_norm += (price_change_in_rally / atr)
-                day_range = day_high - day_low
-                if total_rally_price_change_norm > 0 and day_range > 0 and daily_total_amount > 0:
-                    deception_coeff = (total_mf_net_sell_amount_in_rallies / 10000) / total_rally_price_change_norm
-                    market_price_cost = (daily_total_amount / 10000) / (day_range / atr)
-                    if market_price_cost > 0:
-                        normalized_pressure = deception_coeff / market_price_cost
-                        metrics['rally_distribution_pressure'] = np.tanh(normalized_pressure) * 100
-                        metrics['rally_sell_distribution_intensity'] = np.tanh(deception_coeff / market_price_cost) * 100
-                        if total_mf_net_buy_amount_in_rallies < 0:
-                            weakness_coeff = (abs(total_mf_net_buy_amount_in_rallies) / 10000) / total_rally_price_change_norm
-                            metrics['rally_buy_support_weakness'] = np.tanh(weakness_coeff / market_price_cost) * 100
+            total_mf_net_sell_amount_in_rallies = 0
+            total_mf_net_buy_amount_in_rallies = 0
+            total_rally_price_change_norm = 0
+            total_rally_volume = 0
+            rally_distribution_pressures = []
+            rally_buy_weakness_ratios = []
+            # 遍历每个反弹波段
+            for i in range(len(turning_points) - 1):
+                start_idx, end_idx = turning_points[i], turning_points[i+1]
+                window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
+                if window_df.empty or len(window_df) < 2: continue
+                vwap_start, vwap_end = window_df['minute_vwap'].iloc[0], window_df['minute_vwap'].iloc[-1]
+                price_change = vwap_end - vwap_start
+                # 只处理显著上涨波段（涨幅超过0.1%）
+                if price_change > 0 and price_change/vwap_start > 0.001:
+                    start_time, end_time = window_df.index[0], window_df.index[-1]
+                    start_time_naive = start_time.tz_localize(None) if start_time.tz is not None else start_time
+                    end_time_naive = end_time.tz_localize(None) if end_time.tz is not None else end_time
+                    # 获取反弹期间的高频数据
+                    rally_hf_mask = (raw_hf_df.index >= start_time_naive) & (raw_hf_df.index <= end_time_naive)
+                    rally_hf_df = raw_hf_df[rally_hf_mask].copy()
+                    if rally_hf_df.empty: continue
+                    # 计算反弹成交量
+                    rally_volume = rally_hf_df['volume'].sum()
+                    total_rally_volume += rally_volume
+                    # 基于高频数据识别主力行为
+                    volume_threshold_rally = rally_hf_df['volume'].quantile(0.8)
+                    mf_trades_in_rally = rally_hf_df[rally_hf_df['volume'] >= volume_threshold_rally]
+                    # 主力在反弹期间的主动卖出（分布行为）
+                    mf_aggressive_sell_amt = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['amount'].sum()
+                    mf_aggressive_buy_amt = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['amount'].sum()
+                    mf_net_aggressive_sell = mf_aggressive_sell_amt - mf_aggressive_buy_amt
+                    total_mf_net_sell_amount_in_rallies += mf_net_aggressive_sell
+                    # 散户在反弹期间的主动买入（追高行为）
+                    retail_trades_in_rally = rally_hf_df[rally_hf_df['volume'] < volume_threshold_rally]
+                    retail_aggressive_buy_amt = retail_trades_in_rally[retail_trades_in_rally['type'] == 'B']['amount'].sum()
+                    retail_aggressive_sell_amt = retail_trades_in_rally[retail_trades_in_rally['type'] == 'S']['amount'].sum()
+                    retail_net_aggressive_buy = retail_aggressive_buy_amt - retail_aggressive_sell_amt
+                    total_mf_net_buy_amount_in_rallies += retail_net_aggressive_buy  # 散户买入记为负向支持
+                    # 计算盘口阻力变化：反弹过程中卖盘挂单增加
+                    rally_hf_df['ask_depth'] = rally_hf_df[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
+                    ask_depth_change_rally = rally_hf_df['ask_depth'].pct_change().mean() if len(rally_hf_df) > 1 else 0
+                    # 计算价格弹性：涨幅 vs 成交量
+                    price_change_norm = price_change / atr if atr > 0 else price_change / (vwap_start * 0.01)
+                    total_rally_price_change_norm += price_change_norm
+                    # 反弹动量衰减：后期涨幅衰减程度
+                    if len(rally_hf_df) >= 10:
+                        first_third = len(rally_hf_df) // 3
+                        last_third = len(rally_hf_df) - first_third
+                        first_half_price_change = rally_hf_df.iloc[first_third]['price'] - rally_hf_df.iloc[0]['price']
+                        second_half_price_change = rally_hf_df.iloc[-1]['price'] - rally_hf_df.iloc[last_third]['price']
+                        momentum_decay = second_half_price_change / first_half_price_change if first_half_price_change > 0 else 1.0
+                    else:
+                        momentum_decay = 1.0
+                    # 分布压力系数：主力净卖出 * 卖盘挂单增加 * 动量衰减 / 价格变化
+                    if price_change_norm > 0 and rally_volume > 0:
+                        ask_pressure_factor = 1 + max(0, ask_depth_change_rally)  # 卖盘挂单增加增加压力
+                        distribution_pressure = (mf_net_aggressive_sell / 10000) * ask_pressure_factor * momentum_decay / price_change_norm
+                        rally_distribution_pressures.append(distribution_pressure)
+                    # 买入支持弱势：散户追高买入 vs 主力卖出
+                    if mf_net_aggressive_sell > 0 and retail_net_aggressive_buy > 0:
+                        weakness_ratio = retail_net_aggressive_buy / mf_net_aggressive_sell
+                        rally_buy_weakness_ratios.append(weakness_ratio)
+            # 计算复合分布压力指标
+            if total_rally_price_change_norm > 0 and day_range > 0 and daily_total_amount > 0:
+                # 市场推动成本
+                market_price_cost = (daily_total_amount / 10000) / (day_range / atr) if (day_range / atr) > 0 else 1.0
+                # 平均反弹分布压力
+                if rally_distribution_pressures:
+                    avg_rally_pressure = np.mean(rally_distribution_pressures)
+                    # 成交量权重调整
+                    volume_weight = total_rally_volume / daily_total_amount if daily_total_amount > 0 else 1.0
+                    normalized_pressure = avg_rally_pressure * volume_weight / market_price_cost if market_price_cost > 0 else avg_rally_pressure
+                    metrics['rally_distribution_pressure'] = np.tanh(normalized_pressure) * 100
+                    # 分布强度：考虑压力一致性（标准差越小，强度越集中）
+                    pressure_std = np.std(rally_distribution_pressures) if len(rally_distribution_pressures) > 1 else 0
+                    pressure_concentration = 1.0 / (1.0 + pressure_std) if pressure_std > 0 else 1.0
+                    distribution_intensity = normalized_pressure * pressure_concentration
+                    metrics['rally_sell_distribution_intensity'] = np.tanh(distribution_intensity) * 100
+                # 买入支持弱势指标
+                if rally_buy_weakness_ratios:
+                    avg_weakness_ratio = np.mean(rally_buy_weakness_ratios)
+                    # 弱势系数：散户追高买入 vs 主力卖出，考虑反弹成交量权重
+                    weakness_coeff = avg_weakness_ratio * (total_mf_net_sell_amount_in_rallies / 10000) / total_rally_price_change_norm
+                    volume_adjusted_weakness = weakness_coeff * (total_rally_volume / daily_total_amount) if daily_total_amount > 0 else weakness_coeff
+                    normalized_weakness = volume_adjusted_weakness / market_price_cost if market_price_cost > 0 else volume_adjusted_weakness
+                    metrics['rally_buy_support_weakness'] = np.tanh(normalized_weakness) * 100
         return metrics
 
     @staticmethod
