@@ -828,6 +828,25 @@ class AdvancedFundFlowMetricsService:
         remaining_passive_sell = remaining_neutral[remaining_neutral['mid_price_change'] < 0]
         mf_passive_buy_trades = pd.concat([mf_passive_buy_trades, remaining_passive_buy])
         mf_passive_sell_trades = pd.concat([mf_passive_sell_trades, remaining_passive_sell])
+        # 5. 多层级集群分析
+        # 确保 group_stats 和 volume_group_stats 在任何情况下都已定义
+        group_stats = pd.DataFrame()
+        volume_group_stats = pd.DataFrame()
+        if not mf_trades.empty:
+            group_stats = hf_analysis_df[hf_analysis_df['trade_group'] > 0].groupby('trade_group').agg({
+                'volume': 'sum',
+                'amount': 'sum',
+                'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
+                'net_active_volume': 'sum',
+                'order_renewal_signal': 'mean',
+                'wash_trade_signal': 'max'
+            })
+            volume_group_stats = hf_analysis_df[hf_analysis_df['volume_group'] > 0].groupby('volume_group').agg({
+                'volume': 'sum',
+                'amount': 'sum',
+                'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
+                'net_active_volume': 'sum'
+            })
         # 6. 精准的主力交易分类（排除对倒，考虑订单再生）
         # 主动买入：排除对倒，考虑订单再生
         mf_aggressive_buy_trades = mf_trades[(mf_trades['type'] == 'B') & 
@@ -850,6 +869,21 @@ class AdvancedFundFlowMetricsService:
         mf_passive_sell_trades = pd.concat([mf_passive_sell_trades, remaining_passive_sell])
         # 7. 极致精细的主力日度数据计算
         # 7.1 时间聚类集群成交量
+        # 探针：检查 group_stats 在使用前是否为空
+        should_probe = context['debug'].get('should_probe', False)
+        if should_probe:
+            stock_code = context['debug']['stock_code']
+            current_date = context['daily_data'].name.date()
+            print(f"\n--- [探针 _engineer_hf_features - Before clustered_buy_groups] {stock_code} {current_date} ---")
+            print(f"  - mf_trades.empty: {mf_trades.empty}")
+            print(f"  - group_stats.empty: {group_stats.empty}")
+            print(f"  - group_stats columns: {group_stats.columns.tolist()}")
+            if not group_stats.empty:
+                print(f"  - group_stats head:\n{group_stats.head().to_string()}")
+            else:
+                print(f"  - group_stats is empty.")
+            print(f"--- [探针 _engineer_hf_features - End Before clustered_buy_groups] ---")
+
         clustered_buy_groups = group_stats[(group_stats['net_active_volume'] > 0) & 
                                           (group_stats['volume'] >= volume_cluster_threshold) &
                                           (group_stats['wash_trade_signal'] == 0)]
