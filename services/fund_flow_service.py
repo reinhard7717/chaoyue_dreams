@@ -1851,10 +1851,8 @@ class AdvancedFundFlowMetricsService:
                 # 只处理显著上涨波段（涨幅超过0.1%）
                 if price_change > 0 and price_change/vwap_start > 0.001:
                     start_time, end_time = window_df.index[0], window_df.index[-1]
-                    start_time_naive = start_time.tz_localize(None) if start_time.tz is not None else start_time
-                    end_time_naive = end_time.tz_localize(None) if end_time.tz is not None else end_time
                     # 获取反弹期间的高频数据
-                    rally_hf_mask = (raw_hf_df.index >= start_time_naive) & (raw_hf_df.index <= end_time_naive)
+                    rally_hf_mask = (raw_hf_df.index >= start_time) & (raw_hf_df.index <= end_time)
                     rally_hf_df = raw_hf_df[rally_hf_mask].copy()
                     if rally_hf_df.empty: continue
                     # 计算反弹成交量
