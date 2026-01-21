@@ -2728,7 +2728,7 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df_copy = hf_analysis_df.copy()
         
         # 1. 精细化交易者身份识别（使用改进后的识别逻辑）
-        is_main_force_trade, is_retail_trade = QuantModelEnhanced._identify_trade_participants(hf_analysis_df_copy)
+        is_main_force_trade, is_retail_trade = AdvancedFundFlowMetricsService._identify_trade_participants(hf_analysis_df_copy)
         hf_analysis_df_copy['is_retail_trade'] = is_retail_trade
         hf_analysis_df_copy['is_main_force_trade'] = is_main_force_trade
         
