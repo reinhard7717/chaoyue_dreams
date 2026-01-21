@@ -2820,7 +2820,8 @@ class AdvancedFundFlowMetricsService:
         # 复制数据以避免修改原始数据
         hf_analysis_df_copy = hf_analysis_df.copy()
         # 1. 精细化交易者身份识别（使用改进后的识别逻辑）
-        is_main_force_trade, is_retail_trade = AdvancedFundFlowMetricsService._identify_trade_participants(hf_analysis_df_copy)
+        # 修正：传入 context 参数
+        is_main_force_trade, is_retail_trade = AdvancedFundFlowMetricsService._identify_trade_participants(hf_analysis_df_copy, context)
         hf_analysis_df_copy['is_retail_trade'] = is_retail_trade
         hf_analysis_df_copy['is_main_force_trade'] = is_main_force_trade
         if should_probe:
