@@ -2698,7 +2698,10 @@ class AdvancedFundFlowMetricsService:
         daily_data = context['daily_data']
         common_data = context['common_data']
         hf_features = context.get('hf_features', {})
-        
+        # 获取调试信息
+        should_probe = context['debug']['should_probe']
+        stock_code = context['debug']['stock_code']
+        current_date = context['daily_data'].name.date()
         # 初始化指标
         metrics = {
             'retail_fomo_premium_index': np.nan,
@@ -2708,55 +2711,44 @@ class AdvancedFundFlowMetricsService:
             'retail_fomo_intensity': np.nan,         # FOMO强度（基于多维度）
             'retail_panic_intensity': np.nan         # 恐慌强度（基于多维度）
         }
-        
         # 基础验证
         atr = common_data['atr']
         if hf_analysis_df.empty or pd.isna(atr) or atr <= 0:
             return metrics
-        
         # 获取主力成本数据（如果有的话）
         cost_mf_sell = daily_data.get('avg_cost_main_sell', np.nan)
         cost_mf_buy = daily_data.get('avg_cost_main_buy', np.nan)
-        
         # 如果主力成本缺失，使用当日VWAP作为替代参考
         if pd.isna(cost_mf_sell) or cost_mf_sell <= 0:
             cost_mf_sell = common_data.get('daily_vwap', np.nan)
         if pd.isna(cost_mf_buy) or cost_mf_buy <= 0:
             cost_mf_buy = common_data.get('daily_vwap', np.nan)
-        
         # 复制数据以避免修改原始数据
         hf_analysis_df_copy = hf_analysis_df.copy()
-        
         # 1. 精细化交易者身份识别（使用改进后的识别逻辑）
         is_main_force_trade, is_retail_trade = AdvancedFundFlowMetricsService._identify_trade_participants(hf_analysis_df_copy)
         hf_analysis_df_copy['is_retail_trade'] = is_retail_trade
         hf_analysis_df_copy['is_main_force_trade'] = is_main_force_trade
-        
         # 2. 计算价格极值点（更精确的定义）
         # 基于滚动窗口计算局部极值，避免短期噪声干扰
         window_size = max(10, min(100, len(hf_analysis_df_copy) // 100))  # 自适应窗口
         hf_analysis_df_copy['rolling_max_20'] = hf_analysis_df_copy['price'].rolling(window=window_size, min_periods=1).max()
         hf_analysis_df_copy['rolling_min_20'] = hf_analysis_df_copy['price'].rolling(window=window_size, min_periods=1).min()
-        
         # 真正的新高：超过过去N笔交易的最高价
         hf_analysis_df_copy['is_true_new_high'] = (hf_analysis_df_copy['price'] > hf_analysis_df_copy['rolling_max_20'].shift(1)) & \
                                                  (hf_analysis_df_copy['price'] > hf_analysis_df_copy['price'].shift(1))
-        
         # 真正的新低：低于过去N笔交易的最低价
         hf_analysis_df_copy['is_true_new_low'] = (hf_analysis_df_copy['price'] < hf_analysis_df_copy['rolling_min_20'].shift(1)) & \
                                                 (hf_analysis_df_copy['price'] < hf_analysis_df_copy['price'].shift(1))
-        
         # 3. 计算价格动量加速度（捕捉FOMO/恐慌的加速特征）
         hf_analysis_df_copy['price_change'] = hf_analysis_df_copy['price'].diff()
         hf_analysis_df_copy['price_change_abs'] = hf_analysis_df_copy['price_change'].abs()
         hf_analysis_df_copy['price_change_pct'] = hf_analysis_df_copy['price_change'] / hf_analysis_df_copy['price'].shift(1)
         hf_analysis_df_copy['price_acceleration'] = hf_analysis_df_copy['price_change_pct'].diff()  # 价格变化加速度
-        
         # 4. 计算盘口冲击指标（衡量交易对市场深度的影响）
         if all(col in hf_analysis_df_copy.columns for col in ['mid_price', 'prev_mid_price']):
             hf_analysis_df_copy['mid_price_change'] = hf_analysis_df_copy['mid_price'] - hf_analysis_df_copy['prev_mid_price']
             hf_analysis_df_copy['mid_price_change_pct'] = hf_analysis_df_copy['mid_price_change'] / hf_analysis_df_copy['prev_mid_price']
-        
         # 5. 计算主动被动成交识别（更精确）
         # 主动买入：类型为B且成交价>=卖一价
         # 主动卖出：类型为S且成交价<=买一价
@@ -2765,25 +2757,20 @@ class AdvancedFundFlowMetricsService:
                                                (hf_analysis_df_copy['price'] >= hf_analysis_df_copy['sell_price1'] * 0.999)
         hf_analysis_df_copy['aggressive_sell'] = (hf_analysis_df_copy['type'] == 'S') & \
                                                 (hf_analysis_df_copy['price'] <= hf_analysis_df_copy['buy_price1'] * 1.001)
-        
         # 6. 计算时间维度特征（FOMO/恐慌的时间聚集效应）
         if isinstance(hf_analysis_df_copy.index, pd.DatetimeIndex):
             hf_analysis_df_copy['time_seconds'] = (hf_analysis_df_copy.index - hf_analysis_df_copy.index[0]).total_seconds()
             hf_analysis_df_copy['time_since_last_fomo'] = np.nan
             hf_analysis_df_copy['time_since_last_panic'] = np.nan
-            
             # 计算连续FOMO/恐慌事件的时间间隔
             fomo_mask = is_retail_trade & (hf_analysis_df_copy['type'] == 'B') & hf_analysis_df_copy['is_true_new_high']
             panic_mask = is_retail_trade & (hf_analysis_df_copy['type'] == 'S') & hf_analysis_df_copy['is_true_new_low']
-            
             if fomo_mask.any():
                 fomo_indices = hf_analysis_df_copy.index[fomo_mask]
                 hf_analysis_df_copy.loc[fomo_mask, 'time_since_last_fomo'] = fomo_indices.to_series().diff().dt.total_seconds()
-            
             if panic_mask.any():
                 panic_indices = hf_analysis_df_copy.index[panic_mask]
                 hf_analysis_df_copy.loc[panic_mask, 'time_since_last_panic'] = panic_indices.to_series().diff().dt.total_seconds()
-        
         # 7. 计算成交量异常度（相对于近期平均）
         if is_retail_trade.any():
             retail_trades = hf_analysis_df_copy[is_retail_trade]
@@ -2792,14 +2779,12 @@ class AdvancedFundFlowMetricsService:
             hf_analysis_df_copy['retail_volume_std_50'] = retail_trades['volume'].rolling(window=50, min_periods=1).std().reindex(hf_analysis_df_copy.index)
             hf_analysis_df_copy['volume_zscore'] = (hf_analysis_df_copy['volume'] - hf_analysis_df_copy['retail_volume_ma_50']) / \
                                                   (hf_analysis_df_copy['retail_volume_std_50'] + 1e-10)
-        
         # 8. 准备Numba函数需要的数据数组
         hf_analysis_df_copy['type_numeric'] = np.select(
             [hf_analysis_df_copy['type'] == 'B', hf_analysis_df_copy['type'] == 'S'],
             [1, -1],
             default=0
         )
-        
         # 创建数据数组
         prices_arr = hf_analysis_df_copy['price'].values.astype(np.float64)
         volumes_arr = hf_analysis_df_copy['volume'].values.astype(np.float64)
@@ -2807,14 +2792,36 @@ class AdvancedFundFlowMetricsService:
         types_arr = hf_analysis_df_copy['type_numeric'].values.astype(np.int8)
         sell_price1s_arr = hf_analysis_df_copy['sell_price1'].values.astype(np.float64)
         buy_price1s_arr = hf_analysis_df_copy['buy_price1'].values.astype(np.float64)
-        is_new_highs_arr = hf_analysis_df_copy['is_true_new_high'].values.astype(np.bool_)
-        is_new_lows_arr = hf_analysis_df_copy['is_true_new_low'].values.astype(np.bool_)
-        is_retail_arr = hf_analysis_df_copy['is_retail_trade'].values.astype(np.bool_)
-        aggressive_buy_arr = hf_analysis_df_copy['aggressive_buy'].values.astype(np.bool_)
-        aggressive_sell_arr = hf_analysis_df_copy['aggressive_sell'].values.astype(np.bool_)
-        price_acceleration_arr = hf_analysis_df_copy.get('price_acceleration', np.zeros_like(prices_arr)).astype(np.float64)
-        volume_zscore_arr = hf_analysis_df_copy.get('volume_zscore', np.zeros_like(prices_arr)).astype(np.float64)
-        
+        is_new_highs_arr = hf_analysis_df_copy['is_true_new_high'].values
+        is_new_lows_arr = hf_analysis_df_copy['is_true_new_low'].values
+        is_retail_arr = hf_analysis_df_copy['is_retail_trade'].values
+        aggressive_buy_arr = hf_analysis_df_copy['aggressive_buy'].values
+        aggressive_sell_arr = hf_analysis_df_copy['aggressive_sell'].values
+        # 确保 price_acceleration_arr 和 volume_zscore_arr 始终是 NumPy 数组
+        price_acceleration_series_or_array = hf_analysis_df_copy.get('price_acceleration', np.zeros_like(prices_arr))
+        if isinstance(price_acceleration_series_or_array, pd.Series):
+            price_acceleration_arr = price_acceleration_series_or_array.values
+        else:
+            price_acceleration_arr = price_acceleration_series_or_array
+        price_acceleration_arr = price_acceleration_arr.astype(np.float64)
+        volume_zscore_series_or_array = hf_analysis_df_copy.get('volume_zscore', np.zeros_like(prices_arr))
+        if isinstance(volume_zscore_series_or_array, pd.Series):
+            volume_zscore_arr = volume_zscore_series_or_array.values
+        else:
+            volume_zscore_arr = volume_zscore_series_or_array
+        volume_zscore_arr = volume_zscore_arr.astype(np.float64)
+        # 调试信息
+        if should_probe:
+            print(f"--- [DEBUG Numba Call] {stock_code} {current_date} ---")
+            print(f"Type of price_acceleration_arr: {type(price_acceleration_arr)}")
+            print(f"Shape of price_acceleration_arr: {price_acceleration_arr.shape}")
+            if price_acceleration_arr.size > 0:
+                print(f"Last value of price_acceleration_arr: {price_acceleration_arr[-1]}")
+            print(f"Type of volume_zscore_arr: {type(volume_zscore_arr)}")
+            print(f"Shape of volume_zscore_arr: {volume_zscore_arr.shape}")
+            if volume_zscore_arr.size > 0:
+                print(f"Last value of volume_zscore_arr: {volume_zscore_arr[-1]}")
+            print(f"--- [END DEBUG Numba Call] ---")
         # 9. 调用改进的Numba函数进行精细化计算
         (total_weighted_fomo_score, total_fomo_volume, total_fomo_amount,
          total_weighted_panic_score, total_panic_volume, total_panic_amount,
@@ -2828,57 +2835,46 @@ class AdvancedFundFlowMetricsService:
                 float(atr), float(cost_mf_sell) if pd.notna(cost_mf_sell) else np.nan,
                 float(cost_mf_buy) if pd.notna(cost_mf_buy) else np.nan
             )
-        
         # 10. 计算最终指标（增加多重验证和归一化）
         total_retail_volume = hf_analysis_df_copy.loc[is_retail_trade, 'volume'].sum()
         total_retail_amount = hf_analysis_df_copy.loc[is_retail_trade, 'amount'].sum()
-        
         # FOMO指数计算
         if total_fomo_volume > 0 and total_fomo_amount > 0:
             # 计算加权平均FOMO分数（考虑成交量和价格加速度）
             weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
-            
             # 计算FOMO成交量占比
             fomo_volume_ratio = total_fomo_volume / total_retail_volume if total_retail_volume > 0 else 0
-            
             # 计算FOMO强度（基于多维度）
             if total_retail_amount > 0:
                 avg_fomo_trade_amount = total_fomo_amount / fomo_count if fomo_count > 0 else 0
                 avg_retail_trade_amount = total_retail_amount / is_retail_trade.sum() if is_retail_trade.sum() > 0 else 0
                 fomo_amount_ratio = avg_fomo_trade_amount / avg_retail_trade_amount if avg_retail_trade_amount > 0 else 1
-            
             # 最终FOMO指数：基础分数 * 成交量权重 * 强度因子
             fomo_intensity_factor = 1.0 + min(2.0, fomo_volume_ratio * 5)  # 成交量越大，强度越高
             metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * fomo_intensity_factor * 100
             metrics['retail_fomo_volume_ratio'] = fomo_volume_ratio
             metrics['retail_fomo_intensity'] = fomo_intensity_factor
-        
         # 恐慌指数计算
         if total_panic_volume > 0 and total_panic_amount > 0:
             # 计算加权平均恐慌分数
             weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
-            
             # 计算恐慌成交量占比
             panic_volume_ratio = total_panic_volume / total_retail_volume if total_retail_volume > 0 else 0
-            
             # 计算恐慌强度
             if total_retail_amount > 0:
                 avg_panic_trade_amount = total_panic_amount / panic_count if panic_count > 0 else 0
                 avg_retail_trade_amount = total_retail_amount / is_retail_trade.sum() if is_retail_trade.sum() > 0 else 0
                 panic_amount_ratio = avg_panic_trade_amount / avg_retail_trade_amount if avg_retail_trade_amount > 0 else 1
-            
             # 最终恐慌指数：基础分数 * 成交量权重 * 强度因子
             panic_intensity_factor = 1.0 + min(2.0, panic_volume_ratio * 5)
             metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * panic_intensity_factor * 100
             metrics['retail_panic_volume_ratio'] = panic_volume_ratio
             metrics['retail_panic_intensity'] = panic_intensity_factor
-        
         # 11. 增加极端值检测和截断处理
         for key in ['retail_fomo_premium_index', 'retail_panic_surrender_index']:
             if pd.notna(metrics[key]):
                 # 防止极端值，截断到合理范围[-100, 100]
                 metrics[key] = max(-100.0, min(100.0, metrics[key]))
-        
         return metrics
 
     @staticmethod
