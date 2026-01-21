@@ -2188,9 +2188,6 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_closing_metrics(context: dict) -> dict:
-        """
-        【优化版】使用 between_time 替代 index.time 比较，优化收盘阶段数据切片。
-        """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -2201,17 +2198,14 @@ class AdvancedFundFlowMetricsService:
         day_close = common_data['day_close']
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
-        # 优化点：使用 between_time，start_time 设为 00:00 (或 09:30) 以匹配所有早于 14:57 的数据
-        continuous_trading_df = intraday_data.between_time('00:00', '14:57', include_end=False).copy()
+        continuous_trading_df = intraday_data.between_time('00:00', '14:57', inclusive='left').copy()
         if not continuous_trading_df.empty and pd.notna(atr) and atr > 0:
-            # 优化点：切片集合竞价时段
-            auction_df = intraday_data.between_time('14:57', '15:00', include_end=True)
+            auction_df = intraday_data.between_time('14:57', '15:00', inclusive='both')
             if not auction_df.empty:
                 avg_minute_vol = continuous_trading_df['vol_shares'].mean()
                 auction_vol = auction_df['vol_shares'].sum()
                 VolumeAnomaly = np.log1p((auction_vol / 3) / avg_minute_vol) if avg_minute_vol > 0 else 0.0
-                # 优化点：高频数据同理
-                pre_auction_df = hf_analysis_df.between_time('00:00', '14:57', include_end=False)
+                pre_auction_df = hf_analysis_df.between_time('00:00', '14:57', inclusive='left')
                 if not pre_auction_df.empty:
                     pre_auction_snapshot = pre_auction_df.iloc[-1]
                     pre_auction_mid = pre_auction_snapshot['mid_price']
@@ -2219,7 +2213,6 @@ class AdvancedFundFlowMetricsService:
                     PriceDeviation = (day_close - pre_auction_mid) / atr if pd.notna(pre_auction_mid) else 0.0
                     Deception = -np.sign(PriceDeviation) * pre_auction_imbalance if pd.notna(pre_auction_imbalance) else 0.0
                     metrics['closing_auction_ambush'] = PriceDeviation * VolumeAnomaly * (1 + Deception) * 100
-                    # 优化点：使用 between_time 过滤高频数据，避免在循环或复杂表达式中调用 time()
                     auction_hf_df = hf_analysis_df.between_time('14:57', '15:00')
                     large_auction_trades = auction_hf_df[auction_hf_df['amount'] > 200000]
                     mf_auction_buy_vol = large_auction_trades[large_auction_trades['type'] == 'B']['volume'].sum()
@@ -2238,7 +2231,6 @@ class AdvancedFundFlowMetricsService:
                     if total_auction_vol_fallback > 0:
                         metrics['closing_auction_buy_ambush'] = (mf_auction_buy_vol_fallback / total_auction_vol_fallback) * PriceImpact * VolumeAnomaly * 100
                         metrics['closing_auction_sell_ambush'] = (mf_auction_sell_vol_fallback / total_auction_vol_fallback) * PriceImpact * VolumeAnomaly * 100
-            # 优化点：尾盘姿态切片
             posturing_df = continuous_trading_df.between_time('14:30', '15:00')
             if pd.notna(daily_vwap) and not posturing_df.empty:
                 posturing_hf_df = hf_analysis_df.between_time('14:30', '15:00')
@@ -2996,9 +2988,6 @@ class AdvancedFundFlowMetricsService:
 
     @staticmethod
     def _calculate_misc_minute_metrics(context: dict) -> dict:
-        """
-        【优化版】使用 between_time 优化连续交易时段切片。
-        """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -3014,8 +3003,7 @@ class AdvancedFundFlowMetricsService:
                 if mf_activity_ratio > 0:
                     price_outcome = (day_close - day_open) / atr
                     metrics['trend_alignment_index'] = price_outcome / mf_activity_ratio
-            # 优化点：使用 between_time
-            continuous_trading_df = intraday_data.between_time('00:00', '14:57', include_end=False).copy()
+            continuous_trading_df = intraday_data.between_time('00:00', '14:57', inclusive='left').copy()
             if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
                 up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
                 down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
@@ -3060,8 +3048,7 @@ class AdvancedFundFlowMetricsService:
                 if mf_activity_ratio > 0:
                     price_outcome = (day_close - day_open) / atr
                     metrics['trend_alignment_index'] = price_outcome / mf_activity_ratio
-            # 优化点：使用 between_time
-            continuous_trading_df = intraday_data.between_time('00:00', '14:57', include_end=False).copy()
+            continuous_trading_df = intraday_data.between_time('00:00', '14:57', inclusive='left').copy()
             if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
                 up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
                 down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
