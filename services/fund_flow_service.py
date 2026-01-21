@@ -2680,7 +2680,14 @@ class AdvancedFundFlowMetricsService:
         }
         # 基础验证
         atr = common_data['atr']
+        if should_probe:
+            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 初始检查] {stock_code} {current_date} ---")
+            print(f"  - hf_analysis_df.empty: {hf_analysis_df.empty}")
+            print(f"  - atr: {atr}")
+            print(f"  - daily_vwap: {common_data.get('daily_vwap')}")
         if hf_analysis_df.empty or pd.isna(atr) or atr <= 0:
+            if should_probe:
+                print(f"  - 提前返回，因为 hf_analysis_df 为空或 atr 无效。")
             return metrics
         # 获取主力成本数据（如果有的话）
         cost_mf_sell = daily_data.get('avg_cost_main_sell', np.nan)
@@ -2690,12 +2697,18 @@ class AdvancedFundFlowMetricsService:
             cost_mf_sell = common_data.get('daily_vwap', np.nan)
         if pd.isna(cost_mf_buy) or cost_mf_buy <= 0:
             cost_mf_buy = common_data.get('daily_vwap', np.nan)
+        if should_probe:
+            print(f"  - cost_mf_sell (after fallback): {cost_mf_sell}")
+            print(f"  - cost_mf_buy (after fallback): {cost_mf_buy}")
         # 复制数据以避免修改原始数据
         hf_analysis_df_copy = hf_analysis_df.copy()
         # 1. 精细化交易者身份识别（使用改进后的识别逻辑）
         is_main_force_trade, is_retail_trade = AdvancedFundFlowMetricsService._identify_trade_participants(hf_analysis_df_copy)
         hf_analysis_df_copy['is_retail_trade'] = is_retail_trade
         hf_analysis_df_copy['is_main_force_trade'] = is_main_force_trade
+        if should_probe:
+            print(f"  - is_retail_trade count: {is_retail_trade.sum()}")
+            print(f"  - is_main_force_trade count: {is_main_force_trade.sum()}")
         # 2. 计算价格极值点（更精确的定义）
         # 基于滚动窗口计算局部极值，避免短期噪声干扰
         window_size = max(10, min(100, len(hf_analysis_df_copy) // 100))  # 自适应窗口
@@ -2707,6 +2720,9 @@ class AdvancedFundFlowMetricsService:
         # 真正的新低：低于过去N笔交易的最低价
         hf_analysis_df_copy['is_true_new_low'] = (hf_analysis_df_copy['price'] < hf_analysis_df_copy['rolling_min_20'].shift(1)) & \
                                                 (hf_analysis_df_copy['price'] < hf_analysis_df_copy['price'].shift(1))
+        if should_probe:
+            print(f"  - is_true_new_high count: {hf_analysis_df_copy['is_true_new_high'].sum()}")
+            print(f"  - is_true_new_low count: {hf_analysis_df_copy['is_true_new_low'].sum()}")
         # 3. 计算价格动量加速度（捕捉FOMO/恐慌的加速特征）
         hf_analysis_df_copy['price_change'] = hf_analysis_df_copy['price'].diff()
         hf_analysis_df_copy['price_change_abs'] = hf_analysis_df_copy['price_change'].abs()
@@ -2777,18 +2793,24 @@ class AdvancedFundFlowMetricsService:
         else:
             volume_zscore_arr = volume_zscore_series_or_array
         volume_zscore_arr = volume_zscore_arr.astype(np.float64)
-        # 调试信息
         if should_probe:
-            print(f"--- [DEBUG Numba Call] {stock_code} {current_date} ---")
-            print(f"Type of price_acceleration_arr: {type(price_acceleration_arr)}")
-            print(f"Shape of price_acceleration_arr: {price_acceleration_arr.shape}")
-            if price_acceleration_arr.size > 0:
-                print(f"Last value of price_acceleration_arr: {price_acceleration_arr[-1]}")
-            print(f"Type of volume_zscore_arr: {type(volume_zscore_arr)}")
-            print(f"Shape of volume_zscore_arr: {volume_zscore_arr.shape}")
-            if volume_zscore_arr.size > 0:
-                print(f"Last value of volume_zscore_arr: {volume_zscore_arr[-1]}")
-            print(f"--- [END DEBUG Numba Call] ---")
+            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - Numba输入检查] {stock_code} {current_date} ---")
+            print(f"  - prices_arr shape: {prices_arr.shape}, dtype: {prices_arr.dtype}, sample: {prices_arr[:5]}")
+            print(f"  - volumes_arr shape: {volumes_arr.shape}, dtype: {volumes_arr.dtype}, sample: {volumes_arr[:5]}")
+            print(f"  - amounts_arr shape: {amounts_arr.shape}, dtype: {amounts_arr.dtype}, sample: {amounts_arr[:5]}")
+            print(f"  - types_arr shape: {types_arr.shape}, dtype: {types_arr.dtype}, sample: {types_arr[:5]}")
+            print(f"  - sell_price1s_arr shape: {sell_price1s_arr.shape}, dtype: {sell_price1s_arr.dtype}, sample: {sell_price1s_arr[:5]}")
+            print(f"  - buy_price1s_arr shape: {buy_price1s_arr.shape}, dtype: {buy_price1s_arr.dtype}, sample: {buy_price1s_arr[:5]}")
+            print(f"  - is_new_highs_arr shape: {is_new_highs_arr.shape}, dtype: {is_new_highs_arr.dtype}, sum: {is_new_highs_arr.sum()}")
+            print(f"  - is_new_lows_arr shape: {is_new_lows_arr.shape}, dtype: {is_new_lows_arr.dtype}, sum: {is_new_lows_arr.sum()}")
+            print(f"  - is_retail_arr shape: {is_retail_arr.shape}, dtype: {is_retail_arr.dtype}, sum: {is_retail_arr.sum()}")
+            print(f"  - aggressive_buy_arr shape: {aggressive_buy_arr.shape}, dtype: {aggressive_buy_arr.dtype}, sum: {aggressive_buy_arr.sum()}")
+            print(f"  - aggressive_sell_arr shape: {aggressive_sell_arr.shape}, dtype: {aggressive_sell_arr.dtype}, sum: {aggressive_sell_arr.sum()}")
+            print(f"  - price_acceleration_arr shape: {price_acceleration_arr.shape}, dtype: {price_acceleration_arr.dtype}, sample: {price_acceleration_arr[:5]}")
+            print(f"  - volume_zscore_arr shape: {volume_zscore_arr.shape}, dtype: {volume_zscore_arr.dtype}, sample: {volume_zscore_arr[:5]}")
+            print(f"  - atr (float): {float(atr)}")
+            print(f"  - cost_mf_sell (float): {float(cost_mf_sell) if pd.notna(cost_mf_sell) else np.nan}")
+            print(f"  - cost_mf_buy (float): {float(cost_mf_buy) if pd.notna(cost_mf_buy) else np.nan}")
         # 9. 调用改进的Numba函数进行精细化计算
         (total_weighted_fomo_score, total_fomo_volume, total_fomo_amount,
          total_weighted_panic_score, total_panic_volume, total_panic_amount,
@@ -2802,9 +2824,25 @@ class AdvancedFundFlowMetricsService:
                 float(atr), float(cost_mf_sell) if pd.notna(cost_mf_sell) else np.nan,
                 float(cost_mf_buy) if pd.notna(cost_mf_buy) else np.nan
             )
+        if should_probe:
+            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - Numba输出检查] {stock_code} {current_date} ---")
+            print(f"  - total_weighted_fomo_score: {total_weighted_fomo_score}")
+            print(f"  - total_fomo_volume: {total_fomo_volume}")
+            print(f"  - total_fomo_amount: {total_fomo_amount}")
+            print(f"  - fomo_count: {fomo_count}")
+            print(f"  - total_weighted_panic_score: {total_weighted_panic_score}")
+            print(f"  - total_panic_volume: {total_panic_volume}")
+            print(f"  - total_panic_amount: {total_panic_amount}")
+            print(f"  - panic_count: {panic_count}")
         # 10. 计算最终指标（增加多重验证和归一化）
         total_retail_volume = hf_analysis_df_copy.loc[is_retail_trade, 'volume'].sum()
         total_retail_amount = hf_analysis_df_copy.loc[is_retail_trade, 'amount'].sum()
+        if should_probe:
+            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 最终指标条件检查] {stock_code} {current_date} ---")
+            print(f"  - total_retail_volume: {total_retail_volume}")
+            print(f"  - total_retail_amount: {total_retail_amount}")
+            print(f"  - Condition for FOMO: total_fomo_volume > 0 ({total_fomo_volume > 0}) and total_fomo_amount > 0 ({total_fomo_amount > 0})")
+            print(f"  - Condition for Panic: total_panic_volume > 0 ({total_panic_volume > 0}) and total_panic_amount > 0 ({total_panic_amount > 0})")
         # FOMO指数计算
         if total_fomo_volume > 0 and total_fomo_amount > 0:
             # 计算加权平均FOMO分数（考虑成交量和价格加速度）
@@ -2844,7 +2882,7 @@ class AdvancedFundFlowMetricsService:
                 metrics[key] = max(-100.0, min(100.0, metrics[key]))
         # 探针：检查计算后的 retail_fomo_premium_index 和 retail_panic_surrender_index
         if should_probe:
-            print(f"\n--- [探针 _calculate_retail_sentiment_metrics] {stock_code} {current_date} ---")
+            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 最终结果] {stock_code} {current_date} ---")
             print(f"  - retail_fomo_premium_index: {metrics.get('retail_fomo_premium_index', np.nan):.4f}")
             print(f"  - retail_panic_surrender_index: {metrics.get('retail_panic_surrender_index', np.nan):.4f}")
             print(f"--- [探针 _calculate_retail_sentiment_metrics 结束] ---")
