@@ -2665,13 +2665,12 @@ class AdvancedFundFlowMetricsService:
         return metrics
 
     @staticmethod
-    def _calculate_retail_sentiment_metrics(context: dict, raw_hf_df: pd.DataFrame) -> dict:
+    def _calculate_retail_sentiment_metrics(context: dict) -> dict:
         """
         精细化计算零售投资者情绪指标：FOMO狂热指数和恐慌投降指数。
         基于中国A股市场特性，从价格、成交量、市场微观结构、心理博弈等多维度精细化计算。
         参数:
             context (dict): 包含所有计算数据和中间结果的上下文字典。
-            raw_hf_df (pd.DataFrame): 原始高频交易数据。
         返回:
             dict: 包含零售投资者情绪指标的字典。
         """
