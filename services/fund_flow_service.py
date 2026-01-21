@@ -2007,22 +2007,25 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_order_book_metrics(context: dict) -> dict:
         """
-        【V71.0 · 终极生产版 - 空数据鲁棒性增强】
-        【V72.0 · 资金流拆分版】
-        - 核心增强: 拆分 `order_book_clearing_rate` 和 `order_book_imbalance` 为买卖双方贡献。
-        - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
-        - 核心修复: 在访问 `imbalance` 和 `liquidity_supply_ratio` 之前，增加列存在性检查。
+        【V73.0 · 幻方量化重构版】
+        - 核心重构: `imbalance_effectiveness` 信号逻辑完全重构，采用更符合中国A股特性的订单簿有效性评估模型
+        - 核心理念: 结合3秒聚合数据的时序特性，引入延迟效应和累积效应评估订单流不平衡对价格的实际影响力
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         import numpy as np
+        import pandas as pd
+        from scipy import stats
+        
         metrics = {}
         if hf_analysis_df.empty:
             return metrics
+        
         daily_total_volume = common_data['daily_total_volume']
         large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
         if not large_orders_df.empty:
             metrics['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
+        
         up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
         down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
         if not up_ticks.empty and not down_ticks.empty and up_ticks['mid_price_change'].sum() > 0 and down_ticks['mid_price_change'].abs().sum() > 0:
@@ -2031,6 +2034,7 @@ class AdvancedFundFlowMetricsService:
             if vol_per_tick_down > 1e-9:
                 asymmetry_ratio = vol_per_tick_up / vol_per_tick_down
                 metrics['micro_price_impact_asymmetry'] = np.log(asymmetry_ratio) if asymmetry_ratio > 1e-9 else np.nan
+        
         if 'prev_a1_p' in hf_analysis_df.columns and 'prev_b1_p' in hf_analysis_df.columns:
             ask_clearing_mask = (hf_analysis_df['type'] == 'B') & (hf_analysis_df['price'] == hf_analysis_df['prev_a1_p'])
             ask_clearing_vol = hf_analysis_df.loc[ask_clearing_mask, 'volume'].sum()
@@ -2041,30 +2045,77 @@ class AdvancedFundFlowMetricsService:
                 metrics['order_book_clearing_rate'] = (total_cleared_vol / daily_total_volume) * 100
                 metrics['buy_order_book_clearing_rate'] = (ask_clearing_vol / daily_total_volume) * 100
                 metrics['sell_order_book_clearing_rate'] = (bid_clearing_vol / daily_total_volume) * 100
+        
         try:
             time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
             if time_diffs.sum() > 0:
-                if 'imbalance' in hf_analysis_df.columns: # 增加列存在性检查
+                if 'imbalance' in hf_analysis_df.columns:
                     metrics['order_book_imbalance'] = np.average(hf_analysis_df['imbalance'].dropna(), weights=time_diffs[hf_analysis_df['imbalance'].notna()]) * 100
-                if 'liquidity_supply_ratio' in hf_analysis_df.columns: # 增加列存在性检查
+                if 'liquidity_supply_ratio' in hf_analysis_df.columns:
                     metrics['order_book_liquidity_supply'] = np.average(hf_analysis_df['liquidity_supply_ratio'].dropna(), weights=time_diffs[hf_analysis_df['liquidity_supply_ratio'].notna()])
                 bid_liquidity_cols = [f'buy_volume{i}' for i in range(1, 6)]
                 ask_liquidity_cols = [f'sell_volume{i}' for i in range(1, 6)]
-                # 检查所有 Level 5 订单簿列是否存在
                 if all(col in hf_analysis_df.columns for col in bid_liquidity_cols) and all(col in hf_analysis_df.columns for col in ask_liquidity_cols):
                     bid_depth_series = hf_analysis_df[bid_liquidity_cols].sum(axis=1)
                     ask_depth_series = hf_analysis_df[ask_liquidity_cols].sum(axis=1)
                     metrics['bid_side_liquidity'] = np.average(bid_depth_series.dropna(), weights=time_diffs[bid_depth_series.notna()]) if bid_depth_series.notna().any() else np.nan
                     metrics['ask_side_liquidity'] = np.average(ask_depth_series.dropna(), weights=time_diffs[ask_depth_series.notna()]) if ask_depth_series.notna().any() else np.nan
-                if 'market_vol_delta' in hf_analysis_df.columns and 'imbalance' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
-                    correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
-                    metrics['imbalance_effectiveness'] = correlation_value
+                
+                # 【重构核心】imbalance_effectiveness信号完全重构
+                if 'imbalance' in hf_analysis_df.columns and hf_analysis_df['imbalance'].notna().sum() > 10:
+                    # 1. 计算订单流不平衡与价格变动的时滞相关性（A股订单簿延迟效应）
+                    mid_price_returns = hf_analysis_df['mid_price'].pct_change().shift(-1)  # 未来一期收益率
+                    valid_idx = hf_analysis_df['imbalance'].notna() & mid_price_returns.notna()
+                    if valid_idx.sum() > 10:
+                        # 基础相关性：当前imbalance对未来3秒收益率的影响
+                        base_corr = hf_analysis_df.loc[valid_idx, 'imbalance'].corr(mid_price_returns[valid_idx])
+                        
+                        # 2. 计算累积效应：过去N期imbalance的累积对未来收益率的影响（A股趋势惯性）
+                        imbalance_cumulative = hf_analysis_df['imbalance'].rolling(window=5, min_periods=3).sum()
+                        cumulative_corr = imbalance_cumulative[valid_idx].corr(mid_price_returns[valid_idx])
+                        
+                        # 3. 计算订单流不平衡的动量效应：imbalance变化率对未来收益率的影响
+                        imbalance_momentum = hf_analysis_df['imbalance'].diff(3)  # 3期变化（9秒动量）
+                        momentum_corr = imbalance_momentum[valid_idx].corr(mid_price_returns[valid_idx])
+                        
+                        # 4. 计算方向一致性：imbalance符号与价格变动方向的一致性比例
+                        direction_match = ((hf_analysis_df['imbalance'] > 0) & (mid_price_returns > 0)) | \
+                                         ((hf_analysis_df['imbalance'] < 0) & (mid_price_returns < 0))
+                        direction_consistency = direction_match[valid_idx].mean() * 100
+                        
+                        # 5. 计算有效性得分：综合四个维度，使用权重调整
+                        # 基础相关性权重0.3，累积效应权重0.3，动量效应权重0.2，方向一致性权重0.2
+                        # 每个维度归一化到[-1,1]或[0,100]区间
+                        base_score = base_corr * 0.3
+                        cumulative_score = cumulative_corr * 0.3
+                        momentum_score = momentum_corr * 0.2
+                        consistency_score = (direction_consistency - 50) / 50 * 0.2  # 将[0,100]归一化到[-0.2,0.2]
+                        
+                        total_score = base_score + cumulative_score + momentum_score + consistency_score
+                        
+                        # 6. 统计显著性检验：计算p值，确保结果不是随机波动
+                        try:
+                            # 使用z检验计算统计显著性
+                            n = valid_idx.sum()
+                            z_score = total_score * np.sqrt(n-1)
+                            # 使用t分布计算双侧p值（更保守的估计）
+                            p_value = 2 * (1 - stats.t.cdf(abs(z_score), df=n-1))
+                            
+                            # 7. 最终信号：只有当统计显著(p<0.1)且样本足够时，才认为有效
+                            if p_value < 0.1 and n > 20:
+                                metrics['imbalance_effectiveness'] = total_score
+                                metrics['imbalance_p_value'] = p_value  # 新增：记录统计显著性
+                                metrics['imbalance_direction_consistency'] = direction_consistency  # 新增：记录方向一致性
+                            else:
+                                metrics['imbalance_effectiveness'] = np.nan
+                        except:
+                            metrics['imbalance_effectiveness'] = total_score  # 回退到简单版本
         except Exception:
             pass
+        
         try:
             df_static = hf_analysis_df.copy()
             large_order_threshold_value = 500000
-            # 检查 Level 5 订单簿列是否存在
             required_level5_cols_for_pressure = ['sell_volume1', 'sell_price1', 'sell_volume2', 'sell_price2', 'buy_volume1', 'buy_price1', 'buy_volume2', 'buy_price2']
             if all(col in df_static.columns for col in required_level5_cols_for_pressure):
                 pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
@@ -2086,6 +2137,7 @@ class AdvancedFundFlowMetricsService:
                 metrics['large_order_pressure'] = np.nan; metrics['large_order_support'] = np.nan
         except Exception:
             metrics['large_order_pressure'] = np.nan; metrics['large_order_support'] = np.nan
+        
         if 'prev_a1_p' in hf_analysis_df.columns and 'prev_b1_p' in hf_analysis_df.columns and 'prev_a1_v' in hf_analysis_df.columns and 'prev_b1_v' in hf_analysis_df.columns:
             try:
                 buy_exhaustion_mask = hf_analysis_df['sell_price1'] > hf_analysis_df['prev_a1_p']
@@ -2097,6 +2149,7 @@ class AdvancedFundFlowMetricsService:
                     metrics['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
             except Exception:
                 metrics['buy_quote_exhaustion_rate'] = np.nan; metrics['sell_quote_exhaustion_rate'] = np.nan
+        
         return metrics
 
     @staticmethod
