@@ -2840,7 +2840,9 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df_copy['price_change'] = hf_analysis_df_copy['price'].diff()
         hf_analysis_df_copy['price_change_abs'] = hf_analysis_df_copy['price_change'].abs()
         hf_analysis_df_copy['price_change_pct'] = hf_analysis_df_copy['price_change'] / hf_analysis_df_copy['price'].shift(1)
-        hf_analysis_df_copy['price_acceleration'] = hf_analysis_df_copy['price_change_pct'].diff()  # 价格变化加速度
+        # 修复：填充 NaN 为 0，防止 Numba 计算异常
+        hf_analysis_df_copy['price_acceleration'] = hf_analysis_df_copy['price_change_pct'].diff().fillna(0)
+        
         # 4. 计算盘口冲击指标（衡量交易对市场深度的影响）
         if all(col in hf_analysis_df_copy.columns for col in ['mid_price', 'prev_mid_price']):
             hf_analysis_df_copy['mid_price_change'] = hf_analysis_df_copy['mid_price'] - hf_analysis_df_copy['prev_mid_price']
@@ -2870,21 +2872,26 @@ class AdvancedFundFlowMetricsService:
         # 7. 计算成交量异常度（相对于近期平均）
         # 初始化 volume_zscore 为 0.0，确保所有位置都有值
         hf_analysis_df_copy['volume_zscore'] = 0.0
+
         if is_retail_trade.any():
             # 仅对被识别为散户的交易进行处理
             retail_indices = hf_analysis_df_copy.index[is_retail_trade]
             retail_volumes = hf_analysis_df_copy.loc[retail_indices, 'volume']
+
             if len(retail_volumes) > 1: # 至少需要两个零售交易才能计算有意义的标准差
                 # 计算零售交易成交量的滚动平均和标准差
                 # 注意：这里滚动计算是在 retail_volumes 这个 Series 上进行的
                 retail_volume_ma_50 = retail_volumes.rolling(window=50, min_periods=1).mean()
                 retail_volume_std_50 = retail_volumes.rolling(window=50, min_periods=1).std()
+
                 # 确保标准差不为0，避免除以零。使用一个小的正数代替0。
                 # 并且只对零售交易的z-score进行赋值
                 std_dev_safe = retail_volume_std_50.replace(0, 1e-10).fillna(1e-10) # Replace 0 and NaN with a small number
+                
                 # 计算z-score，并将其赋值回 hf_analysis_df_copy 的相应位置
                 hf_analysis_df_copy.loc[retail_indices, 'volume_zscore'] = \
                     (retail_volumes - retail_volume_ma_50) / std_dev_safe
+                
                 # 探针：检查零售交易的z-score
                 if should_probe:
                     print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 零售交易量统计] {stock_code} {current_date} ---")
@@ -2904,6 +2911,7 @@ class AdvancedFundFlowMetricsService:
         # Numba函数会根据 is_retail_arr 过滤，所以非零售交易的z-score值不影响结果
         # 但为了安全，可以填充NaN为0
         hf_analysis_df_copy['volume_zscore'].fillna(0, inplace=True)
+
         # 8. 准备Numba函数需要的数据数组
         hf_analysis_df_copy['type_numeric'] = np.select(
             [hf_analysis_df_copy['type'] == 'B', hf_analysis_df_copy['type'] == 'S'],
