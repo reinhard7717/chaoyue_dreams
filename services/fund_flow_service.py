@@ -220,29 +220,24 @@ def _numba_calculate_retail_fomo_panic_scores_enhanced(
                 fomo_volume = volumes[i]
                 fomo_amount = amounts[i]
                 fomo_price = prices[i]
-                
                 # 1. 成本溢价成分：相对于主力卖出成本的溢价
                 cost_premium_component = 0.0
                 if not np.isnan(cost_mf_sell) and cost_mf_sell > 0:
                     cost_premium_component = (fomo_price - cost_mf_sell) / atr
-                
                 # 2. 攻击性成分：主动买入的惩罚
                 aggression_component = 1.0
                 if aggressive_buy[i]:
                     aggression_component = 1.5  # 主动买入显示更强的FOMO
                 else:
                     aggression_component = 0.7  # 被动买入显示较弱的FOMO
-                
                 # 3. 成交量异常成分：相对于近期平均成交量的倍数
                 volume_anomaly_component = 1.0
                 if volume_zscore[i] > 1.0:  # 成交量超过1个标准差
                     volume_anomaly_component = 1.0 + min(2.0, volume_zscore[i] * 0.5)
-                
                 # 4. 价格加速度成分：价格上涨的加速度
                 price_momentum_component = 1.0
                 if price_acceleration[i] > 0:
                     price_momentum_component = 1.0 + min(1.0, price_acceleration[i] * 100)
-                
                 # 5. 盘口压力成分：卖一价与成交价的接近程度
                 spread_component = 1.0
                 if sell_price1s[i] > 0:
@@ -251,12 +246,10 @@ def _numba_calculate_retail_fomo_panic_scores_enhanced(
                         spread_component = 1.2
                     elif spread_ratio > 0.005:  # 明显高于卖一价
                         spread_component = 1.5  # 显示强烈追涨意愿
-                
                 # 综合FOMO分数 = 成本溢价 × 攻击性 × 成交量异常 × 价格动量 × 盘口压力
                 event_fomo_score = (cost_premium_component * aggression_component * 
                                    volume_anomaly_component * price_momentum_component * 
                                    spread_component)
-                
                 # 加权累加
                 weight = fomo_volume * (1.0 + min(1.0, volume_anomaly_component - 1.0))
                 total_weighted_fomo_score += event_fomo_score * weight
@@ -274,29 +267,24 @@ def _numba_calculate_retail_fomo_panic_scores_enhanced(
                 panic_volume = volumes[i]
                 panic_amount = amounts[i]
                 panic_price = prices[i]
-                
                 # 1. 成本折价成分：相对于主力买入成本的折价
                 cost_discount_component = 0.0
                 if not np.isnan(cost_mf_buy) and cost_mf_buy > 0:
                     cost_discount_component = (cost_mf_buy - panic_price) / atr
-                
                 # 2. 攻击性成分：主动卖出的惩罚
                 aggression_component = 1.0
                 if aggressive_sell[i]:
                     aggression_component = 1.5  # 主动卖出显示更强的恐慌
                 else:
                     aggression_component = 0.7  # 被动卖出显示较弱的恐慌
-                
                 # 3. 成交量异常成分
                 volume_anomaly_component = 1.0
                 if volume_zscore[i] > 1.0:
                     volume_anomaly_component = 1.0 + min(2.0, volume_zscore[i] * 0.5)
-                
                 # 4. 价格加速度成分：价格下跌的加速度
                 price_momentum_component = 1.0
                 if price_acceleration[i] < 0:
                     price_momentum_component = 1.0 + min(1.0, abs(price_acceleration[i]) * 100)
-                
                 # 5. 盘口压力成分：买一价与成交价的接近程度
                 spread_component = 1.0
                 if buy_price1s[i] > 0:
@@ -305,12 +293,10 @@ def _numba_calculate_retail_fomo_panic_scores_enhanced(
                         spread_component = 1.2
                     elif spread_ratio > 0.005:  # 明显低于买一价
                         spread_component = 1.5  # 显示强烈恐慌抛售
-                
                 # 综合恐慌分数 = 成本折价 × 攻击性 × 成交量异常 × 价格动量 × 盘口压力
                 event_panic_score = (cost_discount_component * aggression_component * 
                                     volume_anomaly_component * price_momentum_component * 
                                     spread_component)
-                
                 # 加权累加
                 weight = panic_volume * (1.0 + min(1.0, volume_anomaly_component - 1.0))
                 total_weighted_panic_score += event_panic_score * weight
@@ -883,7 +869,6 @@ class AdvancedFundFlowMetricsService:
             else:
                 print(f"  - group_stats is empty.")
             print(f"--- [探针 _engineer_hf_features - End Before clustered_buy_groups] ---")
-
         clustered_buy_groups = group_stats[(group_stats['net_active_volume'] > 0) & 
                                           (group_stats['volume'] >= volume_cluster_threshold) &
                                           (group_stats['wash_trade_signal'] == 0)]
@@ -1505,21 +1490,18 @@ class AdvancedFundFlowMetricsService:
         should_probe = context['debug'].get('should_probe', False)
         stock_code = context['debug']['stock_code']
         current_date = context['daily_data'].name.date()
-
         if hf_analysis_df.empty:
             empty_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
             if should_probe:
                 print(f"\n--- [探针 _identify_trade_participants] {stock_code} {current_date} ---")
                 print(f"  - hf_analysis_df is empty, returning empty masks.")
             return empty_mask, empty_mask
-        
         # 探针：检查输入数据
         if should_probe:
             print(f"\n--- [探针 _identify_trade_participants - 输入数据检查] {stock_code} {current_date} ---")
             print(f"  - hf_analysis_df shape: {hf_analysis_df.shape}")
             print(f"  - hf_analysis_df['amount'] describe:\n{hf_analysis_df['amount'].describe()}")
             print(f"  - hf_analysis_df['volume'] describe:\n{hf_analysis_df['volume'].describe()}")
-        
         # 基于3秒聚合数据的特性调整参数
         # 1. 数据特性分析：3秒聚合意味着单笔交易可能是多个原始交易的合并
         #    因此需要更高的阈值来区分主力和散户
@@ -1527,30 +1509,24 @@ class AdvancedFundFlowMetricsService:
         median_amount = hf_analysis_df['amount'].median()
         mean_amount = hf_analysis_df['amount'].mean()
         std_amount = hf_analysis_df['amount'].std()
-        
         # 2. 动态阈值计算
         # 散户交易阈值：基于数据分布的第10-20百分位
         retail_amount_percentile = 20  # 使用第20百分位作为散户上限
         retail_amount_threshold = hf_analysis_df['amount'].quantile(retail_amount_percentile / 100.0)
-        
         # 主力交易阈值：基于数据分布的第80百分位
         main_force_amount_percentile = 80  # 使用第80百分位作为主力下限
         main_force_amount_threshold = hf_analysis_df['amount'].quantile(main_force_amount_percentile / 100.0)
-        
         # 成交量阈值：基于成交量分布
         retail_volume_percentile = 20  # 使用第20百分位作为散户成交量上限
         retail_volume_threshold = hf_analysis_df['volume'].quantile(retail_volume_percentile / 100.0)
-        
         main_force_volume_percentile = 80  # 使用第80百分位作为主力成交量下限
         main_force_volume_threshold = hf_analysis_df['volume'].quantile(main_force_volume_percentile / 100.0)
-        
         # 3. 微观市场结构特征计算
         # 3.1 盘口压力指标
         if all(col in hf_analysis_df.columns for col in ['buy_volume1', 'sell_volume1', 'buy_price1', 'sell_price1']):
             hf_analysis_df['bid_ask_pressure_ratio'] = hf_analysis_df['buy_volume1'] / (hf_analysis_df['sell_volume1'] + 1e-10)
             hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
             hf_analysis_df['price_impact'] = (hf_analysis_df['price'] - hf_analysis_df['mid_price']) / hf_analysis_df['mid_price']
-            
             # 对于3秒聚合数据，我们使用前后价格变化来计算价格动量
             if len(hf_analysis_df) > 1:
                 hf_analysis_df['price_change_pct'] = hf_analysis_df['price'].pct_change()
@@ -1560,7 +1536,6 @@ class AdvancedFundFlowMetricsService:
             hf_analysis_df['mid_price'] = np.nan
             hf_analysis_df['price_impact'] = np.nan
             hf_analysis_df['price_momentum_3s'] = np.nan
-
         # 3.2 订单流特征
         if 'type' in hf_analysis_df.columns and 'sell_price1' in hf_analysis_df.columns and 'buy_price1' in hf_analysis_df.columns:
             # 主动买入：价格接近或高于卖一价
@@ -1571,7 +1546,6 @@ class AdvancedFundFlowMetricsService:
             mid_price_trade = (hf_analysis_df['type'] == 'M') | \
                              ((hf_analysis_df['price'] > hf_analysis_df['buy_price1'] * 1.001) & \
                               (hf_analysis_df['price'] < hf_analysis_df['sell_price1'] * 0.999))
-            
             hf_analysis_df['aggressive_buy'] = aggressive_buy_mask.astype(int)
             hf_analysis_df['aggressive_sell'] = aggressive_sell_mask.astype(int)
             hf_analysis_df['mid_price_trade'] = mid_price_trade.astype(int)
@@ -1579,37 +1553,30 @@ class AdvancedFundFlowMetricsService:
             hf_analysis_df['aggressive_buy'] = 0
             hf_analysis_df['aggressive_sell'] = 0
             hf_analysis_df['mid_price_trade'] = 0
-        
         # 4. 散户交易识别逻辑（优先识别）
         is_retail_trade = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
-        
         # 4.1 基础条件：金额和成交量都较小
         # 对于3秒聚合数据，散户交易应该是金额和成交量都较小的交易
         small_amount_mask = hf_analysis_df['amount'] <= retail_amount_threshold
         small_volume_mask = hf_analysis_df['volume'] <= retail_volume_threshold
-        
         # 4.2 微观特征：无显著价格冲击
         normal_price_impact = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
         if 'price_impact' in hf_analysis_df.columns:
             # 对于3秒数据，价格冲击阈值可以适当放宽
             normal_price_impact = hf_analysis_df['price_impact'].abs() <= 0.002  # 0.2%的价格冲击
-        
         # 4.3 交易模式：非攻击性交易（中间价成交）
         non_aggressive_trade = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
         if 'mid_price_trade' in hf_analysis_df.columns:
             non_aggressive_trade = hf_analysis_df['mid_price_trade'] == 1
-        
         # 4.4 盘口压力：正常范围内的盘口压力
         normal_bid_ask_pressure = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
         if 'bid_ask_pressure_ratio' in hf_analysis_df.columns:
             # 买盘压力在0.5到2倍之间视为正常
             normal_bid_ask_pressure = (hf_analysis_df['bid_ask_pressure_ratio'] >= 0.5) & \
                                      (hf_analysis_df['bid_ask_pressure_ratio'] <= 2.0)
-        
         # 4.5 综合判断散户交易
         # 散户交易需要同时满足：小金额、小成交量、正常价格冲击、非攻击性交易、正常盘口压力
         is_retail_trade = small_amount_mask & small_volume_mask & normal_price_impact & non_aggressive_trade & normal_bid_ask_pressure
-        
         if should_probe:
             print(f"  - 动态阈值计算:")
             print(f"    - retail_amount_threshold (P{retail_amount_percentile}): {retail_amount_threshold:.2f}")
@@ -1619,40 +1586,31 @@ class AdvancedFundFlowMetricsService:
             print(f"  - small_amount_mask count (amount <= {retail_amount_threshold:.2f}): {small_amount_mask.sum()}")
             print(f"  - small_volume_mask count (volume <= {retail_volume_threshold:.2f}): {small_volume_mask.sum()}")
             print(f"  - is_retail_trade count (after all conditions): {is_retail_trade.sum()}")
-        
         # 5. 主力交易识别逻辑（在排除散户后进行）
         is_main_force_trade = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
-        
         # 5.1 绝对阈值条件：金额或成交量显著超过阈值
         large_amount_mask = hf_analysis_df['amount'] >= main_force_amount_threshold
         large_volume_mask = hf_analysis_df['volume'] >= main_force_volume_threshold
-        
         # 5.2 相对异常条件：显著超过平均水平
         # 对于3秒数据，使用3倍标准差作为异常阈值
         amount_anomaly_mask = hf_analysis_df['amount'] > (mean_amount + 2 * std_amount)
-        
         # 5.3 微观结构特征条件
         microstructure_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
-        
         if 'price_impact' in hf_analysis_df.columns and 'bid_ask_pressure_ratio' in hf_analysis_df.columns:
             # 条件1：显著价格冲击的大额交易
             large_trade_with_impact = (hf_analysis_df['amount'] > median_amount) & \
                                      (hf_analysis_df['price_impact'].abs() > 0.005)  # 0.5%的价格冲击
-            
             # 条件2：异常盘口压力下的大额交易
             abnormal_pressure_trade = (hf_analysis_df['amount'] > median_amount) & \
                                      ((hf_analysis_df['bid_ask_pressure_ratio'] > 3.0) | \
                                       (hf_analysis_df['bid_ask_pressure_ratio'] < 0.33))
-            
             microstructure_mask = large_trade_with_impact | abnormal_pressure_trade
-        
         # 5.4 订单流特征条件
         order_flow_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
         if 'aggressive_buy' in hf_analysis_df.columns and 'aggressive_sell' in hf_analysis_df.columns:
             # 主动攻击性大额交易
             aggressive_large_trade = (hf_analysis_df['amount'] > median_amount) & \
                                     ((hf_analysis_df['aggressive_buy'] == 1) | (hf_analysis_df['aggressive_sell'] == 1))
-            
             # 动量跟随的大额交易
             if 'price_momentum_3s' in hf_analysis_df.columns:
                 momentum_follow_trade = (hf_analysis_df['amount'] > median_amount) & \
@@ -1661,19 +1619,16 @@ class AdvancedFundFlowMetricsService:
                 order_flow_mask = aggressive_large_trade | momentum_follow_trade
             else:
                 order_flow_mask = aggressive_large_trade
-        
         # 5.5 价格趋势中的大单
         trend_following_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
         if 'price_change_pct' in hf_analysis_df.columns:
             # 在价格大幅波动时的大额交易
             significant_price_move = hf_analysis_df['price_change_pct'].abs() > 0.01  # 1%的价格变动
             trend_following_mask = significant_price_move & (hf_analysis_df['amount'] > median_amount)
-        
         # 5.6 综合判断主力交易
         # 满足任一主力条件，且不是散户交易
         is_main_force_trade = (large_amount_mask | large_volume_mask | amount_anomaly_mask | 
                               microstructure_mask | order_flow_mask | trend_following_mask) & (~is_retail_trade)
-        
         # 6. 处理未分类的交易（既不是主力也不是散户）
         # 对于未分类的交易，根据其金额和成交量进行最终判断
         unclassified_mask = ~(is_main_force_trade | is_retail_trade)
@@ -1683,13 +1638,11 @@ class AdvancedFundFlowMetricsService:
             for idx in unclassified_indices:
                 amount = hf_analysis_df.loc[idx, 'amount']
                 volume = hf_analysis_df.loc[idx, 'volume']
-                
                 # 简单规则：如果金额或成交量超过各自的中位数，则认为是主力
                 if amount > median_amount or volume > hf_analysis_df['volume'].median():
                     is_main_force_trade.loc[idx] = True
                 else:
                     is_retail_trade.loc[idx] = True
-        
         if should_probe:
             print(f"  - large_amount_mask count (amount >= {main_force_amount_threshold:.2f}): {large_amount_mask.sum()}")
             print(f"  - large_volume_mask count (volume >= {main_force_volume_threshold:.2f}): {large_volume_mask.sum()}")
@@ -1700,7 +1653,6 @@ class AdvancedFundFlowMetricsService:
             print(f"    - 散户交易: {is_retail_trade.sum()} ({is_retail_trade.sum()/total_trades*100:.1f}%)")
             print(f"    - 未分类: {total_trades - is_main_force_trade.sum() - is_retail_trade.sum()}")
             print(f"--- [探针 _identify_trade_participants 结束] ---")
-        
         return is_main_force_trade, is_retail_trade
 
     @staticmethod
@@ -2916,13 +2868,42 @@ class AdvancedFundFlowMetricsService:
                 panic_indices = hf_analysis_df_copy.index[panic_mask]
                 hf_analysis_df_copy.loc[panic_mask, 'time_since_last_panic'] = panic_indices.to_series().diff().dt.total_seconds()
         # 7. 计算成交量异常度（相对于近期平均）
+        # 初始化 volume_zscore 为 0.0，确保所有位置都有值
+        hf_analysis_df_copy['volume_zscore'] = 0.0
         if is_retail_trade.any():
-            retail_trades = hf_analysis_df_copy[is_retail_trade]
-            # 计算零售交易成交量的滚动平均和标准差
-            hf_analysis_df_copy['retail_volume_ma_50'] = retail_trades['volume'].rolling(window=50, min_periods=1).mean().reindex(hf_analysis_df_copy.index)
-            hf_analysis_df_copy['retail_volume_std_50'] = retail_trades['volume'].rolling(window=50, min_periods=1).std().reindex(hf_analysis_df_copy.index)
-            hf_analysis_df_copy['volume_zscore'] = (hf_analysis_df_copy['volume'] - hf_analysis_df_copy['retail_volume_ma_50']) / \
-                                                  (hf_analysis_df_copy['retail_volume_std_50'] + 1e-10)
+            # 仅对被识别为散户的交易进行处理
+            retail_indices = hf_analysis_df_copy.index[is_retail_trade]
+            retail_volumes = hf_analysis_df_copy.loc[retail_indices, 'volume']
+            if len(retail_volumes) > 1: # 至少需要两个零售交易才能计算有意义的标准差
+                # 计算零售交易成交量的滚动平均和标准差
+                # 注意：这里滚动计算是在 retail_volumes 这个 Series 上进行的
+                retail_volume_ma_50 = retail_volumes.rolling(window=50, min_periods=1).mean()
+                retail_volume_std_50 = retail_volumes.rolling(window=50, min_periods=1).std()
+                # 确保标准差不为0，避免除以零。使用一个小的正数代替0。
+                # 并且只对零售交易的z-score进行赋值
+                std_dev_safe = retail_volume_std_50.replace(0, 1e-10).fillna(1e-10) # Replace 0 and NaN with a small number
+                # 计算z-score，并将其赋值回 hf_analysis_df_copy 的相应位置
+                hf_analysis_df_copy.loc[retail_indices, 'volume_zscore'] = \
+                    (retail_volumes - retail_volume_ma_50) / std_dev_safe
+                # 探针：检查零售交易的z-score
+                if should_probe:
+                    print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 零售交易量统计] {stock_code} {current_date} ---")
+                    print(f"  - retail_volume_ma_50 (for retail trades) head:\n{retail_volume_ma_50.head().to_string()}")
+                    print(f"  - retail_volume_ma_50 (for retail trades) NaNs: {retail_volume_ma_50.isna().sum()}")
+                    print(f"  - retail_volume_std_50 (for retail trades) head:\n{retail_volume_std_50.head().to_string()}")
+                    print(f"  - retail_volume_std_50 (for retail trades) NaNs: {retail_volume_std_50.isna().sum()}")
+                    print(f"  - volume_zscore (for retail trades) head:\n{hf_analysis_df_copy.loc[retail_indices, 'volume_zscore'].head().to_string()}")
+                    print(f"  - volume_zscore (for retail trades) NaNs: {hf_analysis_df_copy.loc[retail_indices, 'volume_zscore'].isna().sum()}")
+            else:
+                # 如果只有一个或没有零售交易，则z-score保持为0.0
+                if should_probe:
+                    print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 零售交易量统计] {stock_code} {current_date} ---")
+                    print(f"  - Not enough retail trades ({len(retail_volumes)}) to calculate rolling z-score. volume_zscore will remain 0.0 for these.")
+        
+        # 最终确保 volume_zscore_arr 传递给 Numba 时没有 NaN
+        # Numba函数会根据 is_retail_arr 过滤，所以非零售交易的z-score值不影响结果
+        # 但为了安全，可以填充NaN为0
+        hf_analysis_df_copy['volume_zscore'].fillna(0, inplace=True)
         # 8. 准备Numba函数需要的数据数组
         hf_analysis_df_copy['type_numeric'] = np.select(
             [hf_analysis_df_copy['type'] == 'B', hf_analysis_df_copy['type'] == 'S'],
