@@ -1492,7 +1492,7 @@ class AdvancedFundFlowMetricsService:
     def _identify_trade_participants(hf_analysis_df: pd.DataFrame, context: dict) -> Tuple[pd.Series, pd.Series]:
         """
         精确识别高频交易数据中的主力交易和散户交易。
-        重构逻辑：基于多维度微观市场结构特征进行精细化识别。
+        重构逻辑：基于3秒聚合数据的特性，结合多维度微观市场结构特征进行精细化识别。
         参数:
             hf_analysis_df (pd.DataFrame): 包含高频交易数据和Level5盘口数据的DataFrame
             context (dict): 包含调试信息等上下文的字典。
@@ -1517,145 +1517,188 @@ class AdvancedFundFlowMetricsService:
         if should_probe:
             print(f"\n--- [探针 _identify_trade_participants - 输入数据检查] {stock_code} {current_date} ---")
             print(f"  - hf_analysis_df shape: {hf_analysis_df.shape}")
-            # 尝试获取索引频率，如果索引不是DatetimeIndex，则可能没有freq属性
-            index_freq = None
-            if isinstance(hf_analysis_df.index, pd.DatetimeIndex):
-                index_freq = pd.infer_freq(hf_analysis_df.index)
-            print(f"  - hf_analysis_df index frequency: {index_freq}")
             print(f"  - hf_analysis_df['amount'] describe:\n{hf_analysis_df['amount'].describe()}")
             print(f"  - hf_analysis_df['volume'] describe:\n{hf_analysis_df['volume'].describe()}")
-            # 打印前5行，避免输出过长
-            print(f"  - hf_analysis_df head:\n{hf_analysis_df.head().to_string()}")
-
-        # 基础参数设置
-        # 散户交易的最大金额阈值，低于此金额的交易是散户的候选
-        RETAIL_MAX_AMOUNT = 50000 
-        # 主力交易的最小金额阈值，高于此金额的交易是主力的强力候选
-        MAIN_FORCE_MIN_AMOUNT = 200000 
-        # 用于某些主力特征的最小成交量阈值
-        MIN_ABSOLUTE_VOLUME_THRESHOLD = 5000 
         
-        # 1. 基础金额和成交量分析
-        avg_trade_amount = hf_analysis_df['amount'].mean()
-        avg_trade_volume = hf_analysis_df['volume'].mean()
+        # 基于3秒聚合数据的特性调整参数
+        # 1. 数据特性分析：3秒聚合意味着单笔交易可能是多个原始交易的合并
+        #    因此需要更高的阈值来区分主力和散户
+        total_trades = len(hf_analysis_df)
+        median_amount = hf_analysis_df['amount'].median()
+        mean_amount = hf_analysis_df['amount'].mean()
+        std_amount = hf_analysis_df['amount'].std()
         
-        # 2. 微观市场结构特征计算 (保持不变)
-        # 2.1 盘口压力指标
-        # 确保所有必要的列都存在，否则跳过相关计算
+        # 2. 动态阈值计算
+        # 散户交易阈值：基于数据分布的第10-20百分位
+        retail_amount_percentile = 20  # 使用第20百分位作为散户上限
+        retail_amount_threshold = hf_analysis_df['amount'].quantile(retail_amount_percentile / 100.0)
+        
+        # 主力交易阈值：基于数据分布的第80百分位
+        main_force_amount_percentile = 80  # 使用第80百分位作为主力下限
+        main_force_amount_threshold = hf_analysis_df['amount'].quantile(main_force_amount_percentile / 100.0)
+        
+        # 成交量阈值：基于成交量分布
+        retail_volume_percentile = 20  # 使用第20百分位作为散户成交量上限
+        retail_volume_threshold = hf_analysis_df['volume'].quantile(retail_volume_percentile / 100.0)
+        
+        main_force_volume_percentile = 80  # 使用第80百分位作为主力成交量下限
+        main_force_volume_threshold = hf_analysis_df['volume'].quantile(main_force_volume_percentile / 100.0)
+        
+        # 3. 微观市场结构特征计算
+        # 3.1 盘口压力指标
         if all(col in hf_analysis_df.columns for col in ['buy_volume1', 'sell_volume1', 'buy_price1', 'sell_price1']):
             hf_analysis_df['bid_ask_pressure_ratio'] = hf_analysis_df['buy_volume1'] / (hf_analysis_df['sell_volume1'] + 1e-10)
             hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
             hf_analysis_df['price_impact'] = (hf_analysis_df['price'] - hf_analysis_df['mid_price']) / hf_analysis_df['mid_price']
-            if 'prev_a1_v' in hf_analysis_df.columns and 'prev_b1_v' in hf_analysis_df.columns:
-                hf_analysis_df['ask_depth_change'] = (hf_analysis_df['sell_volume1'] - hf_analysis_df['prev_a1_v']) / (hf_analysis_df['prev_a1_v'] + 1e-10)
-                hf_analysis_df['bid_depth_change'] = (hf_analysis_df['buy_volume1'] - hf_analysis_df['prev_b1_v']) / (hf_analysis_df['prev_b1_v'] + 1e-10)
-            else:
-                hf_analysis_df['ask_depth_change'] = np.nan
-                hf_analysis_df['bid_depth_change'] = np.nan
+            
+            # 对于3秒聚合数据，我们使用前后价格变化来计算价格动量
+            if len(hf_analysis_df) > 1:
+                hf_analysis_df['price_change_pct'] = hf_analysis_df['price'].pct_change()
+                hf_analysis_df['price_momentum_3s'] = hf_analysis_df['price_change_pct'].rolling(window=3, min_periods=1).mean()
         else:
-            # 如果缺少关键列，则将相关特征初始化为默认值
             hf_analysis_df['bid_ask_pressure_ratio'] = np.nan
             hf_analysis_df['mid_price'] = np.nan
             hf_analysis_df['price_impact'] = np.nan
-            hf_analysis_df['ask_depth_change'] = np.nan
-            hf_analysis_df['bid_depth_change'] = np.nan
+            hf_analysis_df['price_momentum_3s'] = np.nan
 
-        # 2.2 订单流特征
+        # 3.2 订单流特征
         if 'type' in hf_analysis_df.columns and 'sell_price1' in hf_analysis_df.columns and 'buy_price1' in hf_analysis_df.columns:
+            # 主动买入：价格接近或高于卖一价
             aggressive_buy_mask = (hf_analysis_df['type'] == 'B') & (hf_analysis_df['price'] >= hf_analysis_df['sell_price1'] * 0.999)
+            # 主动卖出：价格接近或低于买一价
             aggressive_sell_mask = (hf_analysis_df['type'] == 'S') & (hf_analysis_df['price'] <= hf_analysis_df['buy_price1'] * 1.001)
-            hf_analysis_df['aggressive_buy_pressure'] = aggressive_buy_mask.astype(int)
-            hf_analysis_df['aggressive_sell_pressure'] = aggressive_sell_mask.astype(int)
-        else:
-            hf_analysis_df['aggressive_buy_pressure'] = 0
-            hf_analysis_df['aggressive_sell_pressure'] = 0
-        
-        # 2.3 价格动量特征
-        if 'price' in hf_analysis_df.columns:
-            hf_analysis_df['price_sma_5'] = hf_analysis_df['price'].rolling(window=5, min_periods=1).mean()
-            hf_analysis_df['price_momentum'] = (hf_analysis_df['price'] - hf_analysis_df['price_sma_5']) / hf_analysis_df['price_sma_5']
-        else:
-            hf_analysis_df['price_momentum'] = np.nan
-        
-        # --- 3. 散户交易识别逻辑 (优先识别) ---
-        is_retail_trade = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
-        
-        # 3.1 基础条件：金额小于 RETAIL_MAX_AMOUNT
-        small_amount_mask = hf_analysis_df['amount'] < RETAIL_MAX_AMOUNT
-        if should_probe:
-            print(f"  - small_amount_mask count (amount < {RETAIL_MAX_AMOUNT}): {small_amount_mask.sum()}")
-        
-        # 3.2 微观特征：无显著价格冲击、盘口压力正常
-        normal_microstructure = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
-        if 'price_impact' in hf_analysis_df.columns:
-            normal_microstructure = normal_microstructure & (hf_analysis_df['price_impact'].abs() <= 0.0005)  # 价格冲击小于0.05%
-        if 'bid_ask_pressure_ratio' in hf_analysis_df.columns:
-            normal_microstructure = normal_microstructure & (hf_analysis_df['bid_ask_pressure_ratio'] >= 0.8) & \
-                                                         (hf_analysis_df['bid_ask_pressure_ratio'] <= 1.2)  # 盘口压力平衡
-        
-        # 3.3 交易模式：非攻击性交易 (中间价成交或被动成交)
-        non_aggressive_trade = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
-        if 'type' in hf_analysis_df.columns and 'price' in hf_analysis_df.columns and 'sell_price1' in hf_analysis_df.columns and 'buy_price1' in hf_analysis_df.columns:
+            # 中间价成交：价格在买卖一价之间
             mid_price_trade = (hf_analysis_df['type'] == 'M') | \
                              ((hf_analysis_df['price'] > hf_analysis_df['buy_price1'] * 1.001) & \
                               (hf_analysis_df['price'] < hf_analysis_df['sell_price1'] * 0.999))
-            non_aggressive_trade = non_aggressive_trade & mid_price_trade
+            
+            hf_analysis_df['aggressive_buy'] = aggressive_buy_mask.astype(int)
+            hf_analysis_df['aggressive_sell'] = aggressive_sell_mask.astype(int)
+            hf_analysis_df['mid_price_trade'] = mid_price_trade.astype(int)
+        else:
+            hf_analysis_df['aggressive_buy'] = 0
+            hf_analysis_df['aggressive_sell'] = 0
+            hf_analysis_df['mid_price_trade'] = 0
         
-        # 3.4 综合判断散户交易：必须满足金额小、微观结构正常、非攻击性
-        is_retail_trade = small_amount_mask & normal_microstructure & non_aggressive_trade
+        # 4. 散户交易识别逻辑（优先识别）
+        is_retail_trade = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
+        
+        # 4.1 基础条件：金额和成交量都较小
+        # 对于3秒聚合数据，散户交易应该是金额和成交量都较小的交易
+        small_amount_mask = hf_analysis_df['amount'] <= retail_amount_threshold
+        small_volume_mask = hf_analysis_df['volume'] <= retail_volume_threshold
+        
+        # 4.2 微观特征：无显著价格冲击
+        normal_price_impact = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
+        if 'price_impact' in hf_analysis_df.columns:
+            # 对于3秒数据，价格冲击阈值可以适当放宽
+            normal_price_impact = hf_analysis_df['price_impact'].abs() <= 0.002  # 0.2%的价格冲击
+        
+        # 4.3 交易模式：非攻击性交易（中间价成交）
+        non_aggressive_trade = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
+        if 'mid_price_trade' in hf_analysis_df.columns:
+            non_aggressive_trade = hf_analysis_df['mid_price_trade'] == 1
+        
+        # 4.4 盘口压力：正常范围内的盘口压力
+        normal_bid_ask_pressure = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
+        if 'bid_ask_pressure_ratio' in hf_analysis_df.columns:
+            # 买盘压力在0.5到2倍之间视为正常
+            normal_bid_ask_pressure = (hf_analysis_df['bid_ask_pressure_ratio'] >= 0.5) & \
+                                     (hf_analysis_df['bid_ask_pressure_ratio'] <= 2.0)
+        
+        # 4.5 综合判断散户交易
+        # 散户交易需要同时满足：小金额、小成交量、正常价格冲击、非攻击性交易、正常盘口压力
+        is_retail_trade = small_amount_mask & small_volume_mask & normal_price_impact & non_aggressive_trade & normal_bid_ask_pressure
+        
         if should_probe:
-            print(f"  - is_retail_trade count (after all retail conditions): {is_retail_trade.sum()}")
+            print(f"  - 动态阈值计算:")
+            print(f"    - retail_amount_threshold (P{retail_amount_percentile}): {retail_amount_threshold:.2f}")
+            print(f"    - main_force_amount_threshold (P{main_force_amount_percentile}): {main_force_amount_threshold:.2f}")
+            print(f"    - retail_volume_threshold (P{retail_volume_percentile}): {retail_volume_threshold:.2f}")
+            print(f"    - main_force_volume_threshold (P{main_force_volume_percentile}): {main_force_volume_threshold:.2f}")
+            print(f"  - small_amount_mask count (amount <= {retail_amount_threshold:.2f}): {small_amount_mask.sum()}")
+            print(f"  - small_volume_mask count (volume <= {retail_volume_threshold:.2f}): {small_volume_mask.sum()}")
+            print(f"  - is_retail_trade count (after all conditions): {is_retail_trade.sum()}")
         
-        # --- 4. 主力交易识别逻辑 (在排除散户后进行) ---
+        # 5. 主力交易识别逻辑（在排除散户后进行）
         is_main_force_trade = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
         
-        # 4.1 绝对金额阈值 - 大额交易直接认定为主力
-        absolute_amount_mask = hf_analysis_df['amount'] >= MAIN_FORCE_MIN_AMOUNT
-        if should_probe:
-            print(f"  - absolute_amount_mask count (amount >= {MAIN_FORCE_MIN_AMOUNT}): {absolute_amount_mask.sum()}")
+        # 5.1 绝对阈值条件：金额或成交量显著超过阈值
+        large_amount_mask = hf_analysis_df['amount'] >= main_force_amount_threshold
+        large_volume_mask = hf_analysis_df['volume'] >= main_force_volume_threshold
         
-        # 4.2 相对金额和成交量异常 - 显著高于平均水平 (适用于非散户交易)
-        amount_multiplier_threshold = 5.0
-        volume_multiplier_threshold = 5.0
-        relative_anomaly_mask = (hf_analysis_df['amount'] > amount_multiplier_threshold * avg_trade_amount) | \
-                               (hf_analysis_df['volume'] > volume_multiplier_threshold * avg_trade_volume)
+        # 5.2 相对异常条件：显著超过平均水平
+        # 对于3秒数据，使用3倍标准差作为异常阈值
+        amount_anomaly_mask = hf_analysis_df['amount'] > (mean_amount + 2 * std_amount)
         
-        # 4.3 微观结构特征识别 - 基于盘口压力和大单行为 (适用于非散户交易)
+        # 5.3 微观结构特征条件
         microstructure_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
-        if 'bid_ask_pressure_ratio' in hf_analysis_df.columns and 'price_impact' in hf_analysis_df.columns:
-            # 条件1：金额大于 RETAIL_MAX_AMOUNT 且伴随显著的价格冲击
-            large_trade_with_impact = (hf_analysis_df['amount'] >= RETAIL_MAX_AMOUNT) & \
-                                     (hf_analysis_df['price_impact'].abs() > 0.001)
-            # 条件2：金额大于 RETAIL_MAX_AMOUNT 且异常盘口压力下的交易
-            abnormal_pressure_trade = (hf_analysis_df['amount'] >= RETAIL_MAX_AMOUNT) & \
-                                     ((hf_analysis_df['bid_ask_pressure_ratio'] > 2.0) | (hf_analysis_df['bid_ask_pressure_ratio'] < 0.5))
-            # 条件3：金额大于 RETAIL_MAX_AMOUNT 且挂单深度显著变化时的交易
-            if 'ask_depth_change' in hf_analysis_df.columns and 'bid_depth_change' in hf_analysis_df.columns:
-                depth_change_trade = (hf_analysis_df['amount'] >= RETAIL_MAX_AMOUNT) & \
-                                    ((hf_analysis_df['ask_depth_change'].abs() > 0.3) | (hf_analysis_df['bid_depth_change'].abs() > 0.3))
-                microstructure_mask = large_trade_with_impact | abnormal_pressure_trade | depth_change_trade
-            else:
-                microstructure_mask = large_trade_with_impact | abnormal_pressure_trade
         
-        # 4.4 订单流特征识别 - 主动攻击性大单 (适用于非散户交易)
+        if 'price_impact' in hf_analysis_df.columns and 'bid_ask_pressure_ratio' in hf_analysis_df.columns:
+            # 条件1：显著价格冲击的大额交易
+            large_trade_with_impact = (hf_analysis_df['amount'] > median_amount) & \
+                                     (hf_analysis_df['price_impact'].abs() > 0.005)  # 0.5%的价格冲击
+            
+            # 条件2：异常盘口压力下的大额交易
+            abnormal_pressure_trade = (hf_analysis_df['amount'] > median_amount) & \
+                                     ((hf_analysis_df['bid_ask_pressure_ratio'] > 3.0) | \
+                                      (hf_analysis_df['bid_ask_pressure_ratio'] < 0.33))
+            
+            microstructure_mask = large_trade_with_impact | abnormal_pressure_trade
+        
+        # 5.4 订单流特征条件
         order_flow_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
-        if 'aggressive_buy_pressure' in hf_analysis_df.columns and 'aggressive_sell_pressure' in hf_analysis_df.columns:
-            # 主动攻击性且金额大于 RETAIL_MAX_AMOUNT
-            aggressive_large_trade = (hf_analysis_df['amount'] >= RETAIL_MAX_AMOUNT) & \
-                                    ((hf_analysis_df['aggressive_buy_pressure'] == 1) | (hf_analysis_df['aggressive_sell_pressure'] == 1))
-            # 动量跟随且金额大于 RETAIL_MAX_AMOUNT
-            if 'price_momentum' in hf_analysis_df.columns:
-                momentum_follow_trade = (hf_analysis_df['amount'] >= RETAIL_MAX_AMOUNT) & \
-                                       (hf_analysis_df['price_momentum'].abs() > 0.001) & \
-                                       (hf_analysis_df['volume'] >= MIN_ABSOLUTE_VOLUME_THRESHOLD)
+        if 'aggressive_buy' in hf_analysis_df.columns and 'aggressive_sell' in hf_analysis_df.columns:
+            # 主动攻击性大额交易
+            aggressive_large_trade = (hf_analysis_df['amount'] > median_amount) & \
+                                    ((hf_analysis_df['aggressive_buy'] == 1) | (hf_analysis_df['aggressive_sell'] == 1))
+            
+            # 动量跟随的大额交易
+            if 'price_momentum_3s' in hf_analysis_df.columns:
+                momentum_follow_trade = (hf_analysis_df['amount'] > median_amount) & \
+                                       (hf_analysis_df['price_momentum_3s'].abs() > 0.001) & \
+                                       (hf_analysis_df['volume'] > retail_volume_threshold)
                 order_flow_mask = aggressive_large_trade | momentum_follow_trade
             else:
                 order_flow_mask = aggressive_large_trade
         
-        # 4.5 综合判断主力交易 - 满足任一条件即可，且不能是已识别的散户交易
-        is_main_force_trade = (absolute_amount_mask | relative_anomaly_mask | microstructure_mask | order_flow_mask) & (~is_retail_trade)
+        # 5.5 价格趋势中的大单
+        trend_following_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
+        if 'price_change_pct' in hf_analysis_df.columns:
+            # 在价格大幅波动时的大额交易
+            significant_price_move = hf_analysis_df['price_change_pct'].abs() > 0.01  # 1%的价格变动
+            trend_following_mask = significant_price_move & (hf_analysis_df['amount'] > median_amount)
+        
+        # 5.6 综合判断主力交易
+        # 满足任一主力条件，且不是散户交易
+        is_main_force_trade = (large_amount_mask | large_volume_mask | amount_anomaly_mask | 
+                              microstructure_mask | order_flow_mask | trend_following_mask) & (~is_retail_trade)
+        
+        # 6. 处理未分类的交易（既不是主力也不是散户）
+        # 对于未分类的交易，根据其金额和成交量进行最终判断
+        unclassified_mask = ~(is_main_force_trade | is_retail_trade)
+        if unclassified_mask.any():
+            # 对于未分类的交易，如果金额大于中位数，则归为主力，否则归为散户
+            unclassified_indices = hf_analysis_df.index[unclassified_mask]
+            for idx in unclassified_indices:
+                amount = hf_analysis_df.loc[idx, 'amount']
+                volume = hf_analysis_df.loc[idx, 'volume']
+                
+                # 简单规则：如果金额或成交量超过各自的中位数，则认为是主力
+                if amount > median_amount or volume > hf_analysis_df['volume'].median():
+                    is_main_force_trade.loc[idx] = True
+                else:
+                    is_retail_trade.loc[idx] = True
+        
         if should_probe:
-            print(f"  - is_main_force_trade count (after all main force conditions and excluding retail): {is_main_force_trade.sum()}")
+            print(f"  - large_amount_mask count (amount >= {main_force_amount_threshold:.2f}): {large_amount_mask.sum()}")
+            print(f"  - large_volume_mask count (volume >= {main_force_volume_threshold:.2f}): {large_volume_mask.sum()}")
+            print(f"  - amount_anomaly_mask count (amount > mean+2*std): {amount_anomaly_mask.sum()}")
+            print(f"  - is_main_force_trade count (after all conditions): {is_main_force_trade.sum()}")
+            print(f"  - 最终分类统计:")
+            print(f"    - 主力交易: {is_main_force_trade.sum()} ({is_main_force_trade.sum()/total_trades*100:.1f}%)")
+            print(f"    - 散户交易: {is_retail_trade.sum()} ({is_retail_trade.sum()/total_trades*100:.1f}%)")
+            print(f"    - 未分类: {total_trades - is_main_force_trade.sum() - is_retail_trade.sum()}")
             print(f"--- [探针 _identify_trade_participants 结束] ---")
         
         return is_main_force_trade, is_retail_trade
