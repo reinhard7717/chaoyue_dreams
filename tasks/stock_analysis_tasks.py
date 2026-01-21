@@ -707,38 +707,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             data_dfs[name] = pd.DataFrame()
     return data_dfs
 
-# 核心定义“司令部”汇总任务
-@celery_app.task(name='tasks.stock_analysis_tasks.summarize_computation_failures', queue='celery')
-def summarize_computation_failures(results):
-    """
-    【汇总报告任务】收集所有子任务的计算失败记录并统一输出。
-    """
-    all_failures = []
-    for result in results:
-        # 健壮性检查，以防某个任务彻底失败未返回标准字典
-        if isinstance(result, dict) and 'failures' in result:
-            failures = result.get('failures', [])
-            if failures:
-                all_failures.extend(failures)
-    if not all_failures:
-        logger.info("【汇总报告】所有股票计算任务均未报告数据缺失问题。系统健康。")
-        return {"status": "success", "total_failures": 0}
-    logger.warning("【汇总报告】在计算过程中发现以下数据缺失问题：")
-    # 按股票代码对失败记录进行分组，以便更清晰地展示
-    failures_by_stock = {}
-    for failure in all_failures:
-        stock_code = failure.get('stock_code', 'UNKNOWN')
-        if stock_code not in failures_by_stock:
-            failures_by_stock[stock_code] = []
-        failures_by_stock[stock_code].append(failure)
-    for stock_code, failures in sorted(failures_by_stock.items()):
-        logger.warning(f"--- 股票代码: {stock_code} ---")
-        # 按日期排序
-        sorted_failures = sorted(failures, key=lambda x: x['trade_date'])
-        for f in sorted_failures:
-            logger.warning(f"  - 日期: {f['trade_date']}, 原因: {f['reason']}")
-    return {"status": "success", "total_failures": len(all_failures), "details": failures_by_stock}
-
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_structural_metrics_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
@@ -1273,6 +1241,38 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
     except Exception as e:
         logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=300, max_retries=3)
+
+# 核心定义“司令部”汇总任务
+@celery_app.task(name='tasks.stock_analysis_tasks.summarize_computation_failures', queue='celery')
+def summarize_computation_failures(results):
+    """
+    【汇总报告任务】收集所有子任务的计算失败记录并统一输出。
+    """
+    all_failures = []
+    for result in results:
+        # 健壮性检查，以防某个任务彻底失败未返回标准字典
+        if isinstance(result, dict) and 'failures' in result:
+            failures = result.get('failures', [])
+            if failures:
+                all_failures.extend(failures)
+    if not all_failures:
+        logger.info("【汇总报告】所有股票计算任务均未报告数据缺失问题。系统健康。")
+        return {"status": "success", "total_failures": 0}
+    logger.warning("【汇总报告】在计算过程中发现以下数据缺失问题：")
+    # 按股票代码对失败记录进行分组，以便更清晰地展示
+    failures_by_stock = {}
+    for failure in all_failures:
+        stock_code = failure.get('stock_code', 'UNKNOWN')
+        if stock_code not in failures_by_stock:
+            failures_by_stock[stock_code] = []
+        failures_by_stock[stock_code].append(failure)
+    for stock_code, failures in sorted(failures_by_stock.items()):
+        logger.warning(f"--- 股票代码: {stock_code} ---")
+        # 按日期排序
+        sorted_failures = sorted(failures, key=lambda x: x['trade_date'])
+        for f in sorted_failures:
+            logger.warning(f"  - 日期: {f['trade_date']}, 原因: {f['reason']}")
+    return {"status": "success", "total_failures": len(all_failures), "details": failures_by_stock}
 
 @celery_app.task(name='tasks.stock_analysis_tasks._trigger_geometric_patterns_computation', queue='SaveHistoryData_TimeTrade')
 def _trigger_geometric_patterns_computation(previous_results, stock_code: str, start_date_str: str = None):
