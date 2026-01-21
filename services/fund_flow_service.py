@@ -584,6 +584,11 @@ class AdvancedFundFlowMetricsService:
         buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
+
+        # 重新计算平均交易金额和交易量，供本方法内部使用
+        avg_trade_amount = hf_analysis_df['amount'].mean() if not hf_analysis_df.empty else 0.0
+        avg_trade_volume = hf_analysis_df['volume'].mean() if not hf_analysis_df.empty else 0.0
+
         # 调用新方法识别主力交易和散户交易
         is_main_force_trade, is_retail_trade = self._identify_trade_participants(hf_analysis_df)
         net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
@@ -700,6 +705,13 @@ class AdvancedFundFlowMetricsService:
         # 获取与mf_trades索引对齐的订单再生信号和对倒信号
         mf_order_renewal_signal = hf_analysis_df.loc[mf_trades.index, 'order_renewal_signal']
         mf_wash_trade_signal = hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal']
+
+        # 初始化这些DataFrame，以防后续concat操作时它们为空
+        mf_aggressive_buy_trades = pd.DataFrame()
+        mf_aggressive_sell_trades = pd.DataFrame()
+        mf_passive_buy_trades = pd.DataFrame()
+        mf_passive_sell_trades = pd.DataFrame()
+
         # 4.1 价格穿透深度分析
         price_penetration_buy = neutral_mask & (
             (mf_trades['price'] >= mf_trades['prev_a1_p'] * 0.999) &  # 轻微穿透卖一
@@ -736,20 +748,26 @@ class AdvancedFundFlowMetricsService:
         mf_passive_buy_trades = pd.concat([mf_passive_buy_trades, remaining_passive_buy])
         mf_passive_sell_trades = pd.concat([mf_passive_sell_trades, remaining_passive_sell])
         # 5. 多层级集群分析
-        group_stats = hf_analysis_df[hf_analysis_df['trade_group'] > 0].groupby('trade_group').agg({
-            'volume': 'sum',
-            'amount': 'sum',
-            'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
-            'net_active_volume': 'sum',
-            'order_renewal_signal': 'mean',
-            'wash_trade_signal': 'max'
-        })
-        volume_group_stats = hf_analysis_df[hf_analysis_df['volume_group'] > 0].groupby('volume_group').agg({
-            'volume': 'sum',
-            'amount': 'sum',
-            'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
-            'net_active_volume': 'sum'
-        })
+        # 确保 group_stats 和 volume_group_stats 在 mf_trades 为空时也能正确初始化为空 DataFrame
+        if not mf_trades.empty:
+            group_stats = hf_analysis_df[hf_analysis_df['trade_group'] > 0].groupby('trade_group').agg({
+                'volume': 'sum',
+                'amount': 'sum',
+                'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
+                'net_active_volume': 'sum',
+                'order_renewal_signal': 'mean',
+                'wash_trade_signal': 'max'
+            })
+            volume_group_stats = hf_analysis_df[hf_analysis_df['volume_group'] > 0].groupby('volume_group').agg({
+                'volume': 'sum',
+                'amount': 'sum',
+                'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
+                'net_active_volume': 'sum'
+            })
+        else:
+            group_stats = pd.DataFrame()
+            volume_group_stats = pd.DataFrame()
+
         # 6. 精准的主力交易分类（排除对倒，考虑订单再生）
         # 主动买入：排除对倒，考虑订单再生
         mf_aggressive_buy_trades = mf_trades[(mf_trades['type'] == 'B') & 
@@ -838,8 +856,9 @@ class AdvancedFundFlowMetricsService:
         # 8. 计算伪装比例和净流入比率
         total_camouflage_volume = mf_trades[(mf_trades['volume'] < 0.5 * avg_trade_volume) & 
                                            (mf_wash_trade_signal == 0)]['volume'].sum()
-        total_mf_volume = mf_trades[mf_wash_trade_signal == 0]['volume'].sum()
-        features['main_force_camouflage_ratio'] = total_camouflage_volume / total_mf_volume if total_mf_volume > 0 else 0
+        # 修正 total_mf_volume 的计算，直接使用 mf_trades 中非对倒交易的成交量
+        total_mf_volume_for_camouflage = mf_trades[mf_wash_trade_signal == 0]['volume'].sum()
+        features['main_force_camouflage_ratio'] = total_camouflage_volume / total_mf_volume_for_camouflage if total_mf_volume_for_camouflage > 0 else 0
         total_mf_amount = features['main_force_daily_buy_amount'] + features['main_force_daily_sell_amount']
         features['main_force_net_flow_ratio'] = (features['main_force_daily_buy_amount'] - features['main_force_daily_sell_amount']) / total_mf_amount if total_mf_amount > 0 else 0
         # 保留原有特征计算
