@@ -309,84 +309,106 @@ def _numba_calculate_retail_fomo_panic_scores_enhanced(
            fomo_count, panic_count
 
 @numba.njit(cache=True)
-def _numba_process_hf_clustering_and_signals(
+def _numba_process_hf_features_and_clustering(
     times: np.ndarray,
     prices: np.ndarray,
     volumes: np.ndarray,
-    types: np.ndarray,
-    time_gap_ns: int,
-    vol_cluster_thresh: float,
-    price_tolerance: float
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    types: np.ndarray, # 1=B, -1=S, 0=M
+    buy_vol1: np.ndarray,
+    sell_vol1: np.ndarray,
+    avg_trade_volume: float,
+    volume_cluster_threshold: float,
+    time_gap_ns: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Numba加速版：处理高频交易的聚类（时间/成交量/价格）及对倒信号检测。
-    输入为主力交易数据的NumPy数组。
+    Numba加速版：处理高频特征工程中的聚类、对倒和订单再生信号。
     """
     n = len(times)
     trade_groups = np.zeros(n, dtype=np.int64)
     volume_groups = np.zeros(n, dtype=np.int64)
     price_groups = np.zeros(n, dtype=np.int64)
     wash_signals = np.zeros(n, dtype=np.int8)
-    # 聚类初始化
+    order_renewal_signals = np.zeros(n, dtype=np.int8)
+
+    # --- 1. 订单再生信号 (Order Renewal) ---
+    # 逻辑：检测主动买入后卖盘减少且随后增加，或主动卖出后买盘减少且随后增加
+    for i in range(1, n - 1):
+        if types[i] == 1: # Buy
+            # 买入后，卖一量减少（被吃掉），且下一刻卖一量显著增加（补单）
+            if sell_vol1[i] < sell_vol1[i-1] and sell_vol1[i+1] > sell_vol1[i] * 1.2:
+                order_renewal_signals[i] = 1
+        elif types[i] == -1: # Sell
+            # 卖出后，买一量减少（被砸掉），且下一刻买一量显著增加（补单）
+            if buy_vol1[i] < buy_vol1[i-1] and buy_vol1[i+1] > buy_vol1[i] * 1.2:
+                order_renewal_signals[i] = -1
+
+    # --- 2. 聚类分析 (Clustering) ---
     group_id = 1
-    current_group_vol = 0.0
-    last_time = times[0]
-    trade_groups[0] = group_id
-    current_group_vol = volumes[0]
-    # 成交量聚类初始化
     vol_group_id = 1
-    current_vol_group_vol = volumes[0]
-    volume_groups[0] = vol_group_id
-    # 价格聚类初始化
     price_group_id = 1
-    last_price = prices[0]
-    price_groups[0] = price_group_id
-    # 1. 聚类循环 (从第2个元素开始)
-    for i in range(1, n):
-        # --- 时间聚类 ---
-        if (times[i] - last_time) <= time_gap_ns and current_group_vol < vol_cluster_thresh:
-            trade_groups[i] = group_id
-            current_group_vol += volumes[i]
-        else:
-            group_id += 1
-            trade_groups[i] = group_id
-            current_group_vol = volumes[i]
-        last_time = times[i]
-        # --- 成交量聚类 (不考虑时间) ---
-        if current_vol_group_vol < vol_cluster_thresh:
-            volume_groups[i] = vol_group_id
-            current_vol_group_vol += volumes[i]
-        else:
-            vol_group_id += 1
-            volume_groups[i] = vol_group_id
-            current_vol_group_vol = volumes[i]
-        # --- 价格聚类 ---
-        if abs(prices[i] - last_price) / last_price <= price_tolerance:
-            price_groups[i] = price_group_id
-        else:
-            price_group_id += 1
-            price_groups[i] = price_group_id
-        last_price = prices[i]
-    # 2. 对倒交易检测循环
-    # 预设对倒时间阈值 1秒 (1e9 ns)
-    wash_time_thresh = 1000000000
+    
+    # 初始化第一个点
+    if n > 0:
+        trade_groups[0] = group_id
+        volume_groups[0] = vol_group_id
+        price_groups[0] = price_group_id
+        
+        current_group_vol = volumes[0]
+        current_vol_group_vol = volumes[0]
+        last_time = times[0]
+        last_price = prices[0]
+
+        price_tolerance = 0.001
+
+        for i in range(1, n):
+            # A. 时间聚类
+            # 如果时间间隔小 且 当前组累积量未超标
+            if (times[i] - last_time) <= time_gap_ns and current_group_vol < volume_cluster_threshold:
+                trade_groups[i] = group_id
+                current_group_vol += volumes[i]
+            else:
+                group_id += 1
+                trade_groups[i] = group_id
+                current_group_vol = volumes[i]
+            last_time = times[i]
+
+            # B. 成交量聚类 (不考虑时间)
+            if current_vol_group_vol < volume_cluster_threshold:
+                volume_groups[i] = vol_group_id
+                current_vol_group_vol += volumes[i]
+            else:
+                vol_group_id += 1
+                volume_groups[i] = vol_group_id
+                current_vol_group_vol = volumes[i]
+
+            # C. 价格聚类
+            if abs(prices[i] - last_price) / last_price <= price_tolerance:
+                price_groups[i] = price_group_id
+            else:
+                price_group_id += 1
+                price_groups[i] = price_group_id
+            last_price = prices[i]
+
+    # --- 3. 对倒交易检测 (Wash Trade) ---
+    wash_time_thresh = 1000000000 # 1秒 in ns
     for i in range(n - 1):
         t1, t2 = times[i], times[i+1]
         if (t2 - t1) <= wash_time_thresh:
             p1, p2 = prices[i], prices[i+1]
             v1, v2 = volumes[i], volumes[i+1]
             type1, type2 = types[i], types[i+1]
-            # 对倒特征：价格接近(0.05%)，成交量相近(20%)，方向相反(1 vs -1)
-            if (abs(p1 - p2) / p1 <= 0.0005):
+            
+            # 价格接近 (0.05%)
+            if abs(p1 - p2) / p1 <= 0.0005:
                 max_v = max(v1, v2)
-                if max_v > 0 and (abs(v1 - v2) / max_v <= 0.2):
-                    # 类型需一买一卖 (1:B, -1:S, 0:M)
+                # 成交量相近 (20%)
+                if max_v > 0 and abs(v1 - v2) / max_v <= 0.2:
+                    # 方向相反 (一买一卖)
                     if (type1 == 1 and type2 == -1) or (type1 == -1 and type2 == 1):
                         wash_signals[i] = 1
                         wash_signals[i+1] = 1
-    return trade_groups, volume_groups, price_groups, wash_signals
 
-
+    return trade_groups, volume_groups, price_groups, wash_signals, order_renewal_signals
 
 class AdvancedFundFlowMetricsService:
     """
@@ -648,158 +670,199 @@ class AdvancedFundFlowMetricsService:
         }
         if raw_hf_df is None or raw_hf_df.empty:
             return pd.DataFrame(), features
+        
+        # 复制数据，避免修改原始数据
         hf_analysis_df = raw_hf_df.copy()
-        hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
-        hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
-        hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff()
-        buy_pressure_quote = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
-        sell_pressure_quote = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
-        hf_analysis_df['ofi'] = buy_pressure_quote - sell_pressure_quote
-        # 重新计算平均交易金额和交易量，供本方法内部使用
+        
+        # --- 1. 基础特征向量化计算 ---
+        # 使用 NumPy 数组进行计算以提高性能
+        buy_price1 = hf_analysis_df['buy_price1'].values
+        sell_price1 = hf_analysis_df['sell_price1'].values
+        mid_price = (buy_price1 + sell_price1) / 2
+        hf_analysis_df['mid_price'] = mid_price
+        
+        # 计算 mid_price 变化和 OFI
+        # 使用 shift(1) 的 NumPy 等价操作
+        prev_mid_price = np.empty_like(mid_price)
+        prev_mid_price[0] = np.nan
+        prev_mid_price[1:] = mid_price[:-1]
+        hf_analysis_df['prev_mid_price'] = prev_mid_price
+        hf_analysis_df['mid_price_change'] = mid_price - prev_mid_price
+        
+        buy_vol1 = hf_analysis_df['buy_volume1'].values
+        sell_vol1 = hf_analysis_df['sell_volume1'].values
+        
+        prev_buy_vol1 = np.zeros_like(buy_vol1)
+        prev_buy_vol1[1:] = buy_vol1[:-1]
+        prev_sell_vol1 = np.zeros_like(sell_vol1)
+        prev_sell_vol1[1:] = sell_vol1[:-1]
+        
+        # OFI 计算
+        buy_pressure = np.where(mid_price >= prev_mid_price, prev_buy_vol1, 0)
+        sell_pressure = np.where(mid_price <= prev_mid_price, prev_sell_vol1, 0)
+        hf_analysis_df['ofi'] = buy_pressure - sell_pressure
+
+        # 重新计算平均交易金额和交易量
         avg_trade_amount = hf_analysis_df['amount'].mean() if not hf_analysis_df.empty else 0.0
         avg_trade_volume = hf_analysis_df['volume'].mean()
-        # 调用新方法识别主力交易和散户交易，并传入 context
+
+        # 调用识别方法
         is_main_force_trade, is_retail_trade = AdvancedFundFlowMetricsService._identify_trade_participants(hf_analysis_df, context)
-        net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
-        active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
-        active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
-        net_active_volume_series.loc[active_buy_mask] = hf_analysis_df.loc[active_buy_mask, 'volume']
-        net_active_volume_series.loc[active_sell_mask] = -hf_analysis_df.loc[active_sell_mask, 'volume']
-        hf_analysis_df['net_active_volume'] = net_active_volume_series
-        hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['net_active_volume'], 0)
-        hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['net_active_volume'], 0)
+        
+        # 计算净主动成交量 (Vectorized)
+        prices = hf_analysis_df['price'].values
+        volumes = hf_analysis_df['volume'].values
+        
+        active_buy_mask = prices >= sell_price1
+        active_sell_mask = prices <= buy_price1
+        
+        net_active_volume = np.zeros_like(volumes)
+        net_active_volume[active_buy_mask] = volumes[active_buy_mask]
+        net_active_volume[active_sell_mask] = -volumes[active_sell_mask]
+        hf_analysis_df['net_active_volume'] = net_active_volume
+        
+        hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, net_active_volume, 0)
+        hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, net_active_volume, 0)
+        
+        # 保存前一笔的盘口数据
         hf_analysis_df['prev_a1_p'] = hf_analysis_df['sell_price1'].shift(1)
         hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
         hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
         hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
+
+        # --- 2. Level 5 数据计算优化 (NumPy Broadcasting) ---
         hf_analysis_df['imbalance'] = np.nan
         hf_analysis_df['liquidity_supply_ratio'] = np.nan
         try:
-            required_level5_cols = [f'{side}_{col}{i}' for i in range(1, 6) for side in ['buy', 'sell'] for col in ['volume', 'price']]
-            if all(col in hf_analysis_df.columns for col in required_level5_cols):
-                weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index)
-                weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
-                total_buy_value = pd.Series(0, index=hf_analysis_df.index)
-                total_sell_value = pd.Series(0, index=hf_analysis_df.index)
+            # 检查列是否存在
+            l5_cols_exist = True
+            for i in range(1, 6):
+                if not all(col in hf_analysis_df.columns for col in [f'buy_volume{i}', f'sell_volume{i}', f'buy_price{i}', f'sell_price{i}']):
+                    l5_cols_exist = False
+                    break
+            
+            if l5_cols_exist:
+                weighted_buy_vol = np.zeros(len(hf_analysis_df))
+                weighted_sell_vol = np.zeros(len(hf_analysis_df))
+                total_buy_value = np.zeros(len(hf_analysis_df))
+                total_sell_value = np.zeros(len(hf_analysis_df))
+                
                 for i in range(1, 6):
-                    weight = 1 / i
-                    weighted_buy_vol += hf_analysis_df[f'buy_volume{i}'] * weight
-                    weighted_sell_vol += hf_analysis_df[f'sell_volume{i}'] * weight
-                    total_buy_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'buy_price{i}']
-                    total_sell_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'sell_price{i}']
-                sum_weighted_vol = (weighted_buy_vol + weighted_sell_vol)
-                if (sum_weighted_vol > 1e-9).any():
-                    hf_analysis_df['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / sum_weighted_vol.replace(0, np.nan)
-                if (total_sell_value > 1e-9).any():
-                    hf_analysis_df['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
-        except Exception as e:
+                    weight = 1.0 / i
+                    b_vol = hf_analysis_df[f'buy_volume{i}'].values
+                    s_vol = hf_analysis_df[f'sell_volume{i}'].values
+                    b_price = hf_analysis_df[f'buy_price{i}'].values
+                    s_price = hf_analysis_df[f'sell_price{i}'].values
+                    
+                    weighted_buy_vol += b_vol * weight
+                    weighted_sell_vol += s_vol * weight
+                    total_buy_value += b_vol * b_price
+                    total_sell_value += s_vol * s_price
+                
+                sum_weighted_vol = weighted_buy_vol + weighted_sell_vol
+                # 避免除以0
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    hf_analysis_df['imbalance'] = np.where(sum_weighted_vol > 1e-9, (weighted_buy_vol - weighted_sell_vol) / sum_weighted_vol, np.nan)
+                    hf_analysis_df['liquidity_supply_ratio'] = np.where(total_sell_value > 1e-9, total_buy_value / total_sell_value, np.nan)
+        except Exception:
             pass
+
+        # 筛选主力交易
         mf_trades = hf_analysis_df[is_main_force_trade].copy()
         if mf_trades.empty:
             return hf_analysis_df, features
+        
         features['mf_trades'] = mf_trades
-        # --- 极致精细的主力意图识别逻辑 ---
-        # 1. 订单再生模式检测：主力在撤单后立即重新挂单进行反复吸筹/出货
-        hf_analysis_df['order_renewal_signal'] = 0
-        if len(hf_analysis_df) > 1:
-            # 检测主动买入后的卖盘委托变化
-            buy_after_ask_change = ((hf_analysis_df['type'] == 'B') & 
-                                   (hf_analysis_df['sell_volume1'] < hf_analysis_df['sell_volume1'].shift(1).where(hf_analysis_df.index > hf_analysis_df.index[0], 0)) &
-                                   (hf_analysis_df['sell_volume1'].shift(-1) > hf_analysis_df['sell_volume1'] * 1.2)).shift(1, fill_value=False)
-            # 检测主动卖出后的买盘委托变化
-            sell_after_bid_change = ((hf_analysis_df['type'] == 'S') & 
-                                    (hf_analysis_df['buy_volume1'] < hf_analysis_df['buy_volume1'].shift(1).where(hf_analysis_df.index > hf_analysis_df.index[0], 0)) &
-                                    (hf_analysis_df['buy_volume1'].shift(-1) > hf_analysis_df['buy_volume1'] * 1.2)).shift(1, fill_value=False)
-            hf_analysis_df.loc[buy_after_ask_change, 'order_renewal_signal'] = 1  # 买入后卖盘再生
-            hf_analysis_df.loc[sell_after_bid_change, 'order_renewal_signal'] = -1  # 卖出后买盘再生
-        # 2. 多维度拆单集群检测
-        hf_analysis_df['trade_group'] = 0
-        hf_analysis_df['volume_group'] = 0
-        hf_analysis_df['price_group'] = 0
-        group_id = 1
-        volume_group_id = 1
-        price_group_id = 1
-        time_gap_threshold = pd.Timedelta('2s')
-        # 定义用于聚类分析的绝对主力金额阈值
+
+        # --- 3. Numba 加速核心逻辑 (聚类、对倒、订单再生) ---
+        # 准备 Numba 需要的数组
+        # 将 type 转换为数值: B=1, S=-1, M=0
+        type_map = {'B': 1, 'S': -1, 'M': 0}
+        # 使用 map 可能会慢，如果 type 列已经是 category 或 object，可以用 numpy select 或 searchsorted
+        # 这里假设 type 是字符串，使用 numpy.select 比较快
+        types_arr = np.select(
+            [mf_trades['type'] == 'B', mf_trades['type'] == 'S'],
+            [1, -1],
+            default=0
+        ).astype(np.int8)
+        
+        times_arr = mf_trades.index.values.astype(np.int64) # 纳秒
+        prices_arr = mf_trades['price'].values
+        volumes_arr = mf_trades['volume'].values
+        buy_vol1_arr = mf_trades['buy_volume1'].values
+        sell_vol1_arr = mf_trades['sell_volume1'].values
+        
+        # 定义聚类参数
         ABSOLUTE_MAIN_FORCE_AMOUNT_FOR_CLUSTERING = 200000
         volume_cluster_threshold = 0.7 * ABSOLUTE_MAIN_FORCE_AMOUNT_FOR_CLUSTERING / mf_trades['price'].mean() if not mf_trades.empty else 10000
-        price_tolerance = 0.001  # 0.1%价格容忍度
-        last_time = None
-        last_price = None
-        current_group_volume = 0
-        current_volume_group_volume = 0
-        for idx, row in mf_trades.iterrows():
-            # 时间聚类
-            if last_time is not None and (idx - last_time) <= time_gap_threshold and current_group_volume < volume_cluster_threshold:
-                hf_analysis_df.at[idx, 'trade_group'] = group_id
-                current_group_volume += row['volume']
-            else:
-                group_id += 1
-                hf_analysis_df.at[idx, 'trade_group'] = group_id
-                current_group_volume = row['volume']
-            last_time = idx
-            # 成交量聚类（不考虑时间）
-            if current_volume_group_volume < volume_cluster_threshold:
-                hf_analysis_df.at[idx, 'volume_group'] = volume_group_id
-                current_volume_group_volume += row['volume']
-            else:
-                volume_group_id += 1
-                hf_analysis_df.at[idx, 'volume_group'] = volume_group_id
-                current_volume_group_volume = row['volume']
-            # 价格聚类
-            if last_price is not None and abs(row['price'] - last_price) / last_price <= price_tolerance:
-                hf_analysis_df.at[idx, 'price_group'] = price_group_id
-            else:
-                price_group_id += 1
-                hf_analysis_df.at[idx, 'price_group'] = price_group_id
-            last_price = row['price']
-        # 3. 对倒交易检测（自买自卖制造活跃假象）
-        hf_analysis_df['wash_trade_signal'] = 0
-        if len(mf_trades) > 1:
-            mf_indices = mf_trades.index
-            for i in range(len(mf_indices) - 1):
-                idx1 = mf_indices[i]
-                idx2 = mf_indices[i + 1]
-                if (idx2 - idx1) <= pd.Timedelta('1s'):
-                    row1 = mf_trades.loc[idx1]
-                    row2 = mf_trades.loc[idx2]
-                    # 对倒特征：时间接近、价格相同或接近、成交量相近、方向相反
-                    if (abs(row1['price'] - row2['price']) / row1['price'] <= 0.0005 and
-                        abs(row1['volume'] - row2['volume']) / max(row1['volume'], row2['volume']) <= 0.2 and
-                        ((row1['type'] == 'B' and row2['type'] == 'S') or (row1['type'] == 'S' and row2['type'] == 'B'))):
-                        hf_analysis_df.loc[idx1, 'wash_trade_signal'] = 1
-                        hf_analysis_df.loc[idx2, 'wash_trade_signal'] = 1
-        # 4. 复杂的中性单意图识别
+        time_gap_ns = 2 * 1_000_000_000 # 2秒转换为纳秒
+
+        # 调用 Numba 函数
+        trade_groups, volume_groups, price_groups, wash_signals, order_renewal_signals = \
+            _numba_process_hf_features_and_clustering(
+                times_arr, prices_arr, volumes_arr, types_arr,
+                buy_vol1_arr, sell_vol1_arr,
+                avg_trade_volume, float(volume_cluster_threshold), time_gap_ns
+            )
+        
+        # 将结果赋值回 DataFrame (注意：需要对齐索引)
+        # 因为我们只对 mf_trades 进行了计算，所以需要将结果映射回 hf_analysis_df
+        # 但为了后续计算方便，我们先在 mf_trades 上保存
+        mf_trades['trade_group'] = trade_groups
+        mf_trades['volume_group'] = volume_groups
+        mf_trades['price_group'] = price_groups
+        mf_trades['wash_trade_signal'] = wash_signals
+        mf_trades['order_renewal_signal'] = order_renewal_signals
+        
+        # 将 mf_trades 的计算结果更新回 hf_analysis_df (如果需要的话，主要是为了后续可视化或全量分析)
+        # 注意：这里只更新了主力交易的部分，非主力交易这些值为默认值
+        hf_analysis_df.loc[mf_trades.index, 'trade_group'] = trade_groups
+        hf_analysis_df.loc[mf_trades.index, 'volume_group'] = volume_groups
+        hf_analysis_df.loc[mf_trades.index, 'price_group'] = price_groups
+        hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal'] = wash_signals
+        hf_analysis_df.loc[mf_trades.index, 'order_renewal_signal'] = order_renewal_signals
+        
+        # 填充非主力交易的默认值 (虽然初始化时已经是0，但为了保险)
+        hf_analysis_df['trade_group'].fillna(0, inplace=True)
+        hf_analysis_df['volume_group'].fillna(0, inplace=True)
+        hf_analysis_df['wash_trade_signal'].fillna(0, inplace=True)
+        hf_analysis_df['order_renewal_signal'].fillna(0, inplace=True)
+
+        # --- 4. 复杂的中性单意图识别 (保持向量化) ---
         neutral_mask = mf_trades['type'] == 'M'
-        # 获取与mf_trades索引对齐的订单再生信号和对倒信号
-        mf_order_renewal_signal = hf_analysis_df.loc[mf_trades.index, 'order_renewal_signal']
-        mf_wash_trade_signal = hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal']
-        # 初始化这些DataFrame，以防后续concat操作时它们为空
+        mf_order_renewal_signal = mf_trades['order_renewal_signal']
+        mf_wash_trade_signal = mf_trades['wash_trade_signal']
+
+        # 初始化结果 DataFrame
         mf_aggressive_buy_trades = pd.DataFrame()
         mf_aggressive_sell_trades = pd.DataFrame()
         mf_passive_buy_trades = pd.DataFrame()
         mf_passive_sell_trades = pd.DataFrame()
+
         # 4.1 价格穿透深度分析
         price_penetration_buy = neutral_mask & (
-            (mf_trades['price'] >= mf_trades['prev_a1_p'] * 0.999) &  # 轻微穿透卖一
-            (mf_trades['price'] <= mf_trades['sell_price1'] * 1.001)  # 在当前卖一附近
+            (mf_trades['price'] >= mf_trades['prev_a1_p'] * 0.999) &
+            (mf_trades['price'] <= mf_trades['sell_price1'] * 1.001)
         )
         price_penetration_sell = neutral_mask & (
-            (mf_trades['price'] <= mf_trades['prev_b1_p'] * 1.001) &  # 轻微穿透买一
-            (mf_trades['price'] >= mf_trades['buy_price1'] * 0.999)   # 在当前买一附近
+            (mf_trades['price'] <= mf_trades['prev_b1_p'] * 1.001) &
+            (mf_trades['price'] >= mf_trades['buy_price1'] * 0.999)
         )
+
         # 4.2 盘口压力分析
         bid_ask_pressure_buy = neutral_mask & (
-            (mf_trades['buy_volume1'] > mf_trades['sell_volume1'] * 1.5) &  # 买盘压力大
-            (mf_trades['mid_price_change'] >= 0)  # 价格在上涨
+            (mf_trades['buy_volume1'] > mf_trades['sell_volume1'] * 1.5) &
+            (mf_trades['mid_price_change'] >= 0)
         )
         bid_ask_pressure_sell = neutral_mask & (
-            (mf_trades['sell_volume1'] > mf_trades['buy_volume1'] * 1.5) &  # 卖盘压力大
-            (mf_trades['mid_price_change'] < 0)  # 价格在下跌
+            (mf_trades['sell_volume1'] > mf_trades['buy_volume1'] * 1.5) &
+            (mf_trades['mid_price_change'] < 0)
         )
+
         # 4.3 结合订单再生信号
         order_renewal_buy = neutral_mask & (mf_order_renewal_signal == 1)
         order_renewal_sell = neutral_mask & (mf_order_renewal_signal == -1)
+
         # 综合判断被动买卖
         passive_buy_from_neutral = (price_penetration_buy | bid_ask_pressure_buy | order_renewal_buy) & \
                                    (mf_trades['volume'] > 0.3 * avg_trade_volume) & \
@@ -807,55 +870,51 @@ class AdvancedFundFlowMetricsService:
         passive_sell_from_neutral = (price_penetration_sell | bid_ask_pressure_sell | order_renewal_sell) & \
                                     (mf_trades['volume'] > 0.3 * avg_trade_volume) & \
                                     (mf_wash_trade_signal == 0)
-        # 剩余中性单按价格变化方向划分（保守策略）
+
+        # 剩余中性单按价格变化方向划分
         remaining_neutral = mf_trades[neutral_mask & ~passive_buy_from_neutral & ~passive_sell_from_neutral &
                                      (mf_wash_trade_signal == 0)]
         remaining_passive_buy = remaining_neutral[remaining_neutral['mid_price_change'] >= 0]
         remaining_passive_sell = remaining_neutral[remaining_neutral['mid_price_change'] < 0]
-        mf_passive_buy_trades = pd.concat([mf_passive_buy_trades, remaining_passive_buy])
-        mf_passive_sell_trades = pd.concat([mf_passive_sell_trades, remaining_passive_sell])
-        # 5. 多层级集群分析
+
+        mf_passive_buy_trades = pd.concat([mf_trades[passive_buy_from_neutral], remaining_passive_buy])
+        mf_passive_sell_trades = pd.concat([mf_trades[passive_sell_from_neutral], remaining_passive_sell])
+
+        # --- 5. 多层级集群分析 (优化聚合) ---
         # 确保 group_stats 和 volume_group_stats 在任何情况下都已定义
         group_stats = pd.DataFrame()
         volume_group_stats = pd.DataFrame()
+        
         if not mf_trades.empty:
-            group_stats = hf_analysis_df[hf_analysis_df['trade_group'] > 0].groupby('trade_group').agg({
-                'volume': 'sum',
-                'amount': 'sum',
-                'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
-                'net_active_volume': 'sum',
-                'order_renewal_signal': 'mean',
-                'wash_trade_signal': 'max'
-            })
-            volume_group_stats = hf_analysis_df[hf_analysis_df['volume_group'] > 0].groupby('volume_group').agg({
-                'volume': 'sum',
-                'amount': 'sum',
-                'type': lambda x: x.mode()[0] if not x.mode().empty else 'M',
-                'net_active_volume': 'sum'
-            })
-        # 6. 精准的主力交易分类（排除对倒，考虑订单再生）
-        # 主动买入：排除对倒，考虑订单再生
-        mf_aggressive_buy_trades = mf_trades[(mf_trades['type'] == 'B') & 
-                                            (mf_wash_trade_signal == 0)]
-        # 主动卖出：排除对倒，考虑订单再生
-        mf_aggressive_sell_trades = mf_trades[(mf_trades['type'] == 'S') & 
-                                             (mf_wash_trade_signal == 0)]
-        # 被动买入：综合判断
-        mf_passive_buy_trades = mf_trades[passive_buy_from_neutral & 
-                                         (mf_wash_trade_signal == 0)]
-        # 被动卖出：综合判断
-        mf_passive_sell_trades = mf_trades[passive_sell_from_neutral & 
-                                          (mf_wash_trade_signal == 0)]
-        # 剩余中性单按价格变化方向划分（保守策略）
-        remaining_neutral = mf_trades[neutral_mask & ~passive_buy_from_neutral & ~passive_sell_from_neutral &
-                                     (mf_wash_trade_signal == 0)]
-        remaining_passive_buy = remaining_neutral[remaining_neutral['mid_price_change'] >= 0]
-        remaining_passive_sell = remaining_neutral[remaining_neutral['mid_price_change'] < 0]
-        mf_passive_buy_trades = pd.concat([mf_passive_buy_trades, remaining_passive_buy])
-        mf_passive_sell_trades = pd.concat([mf_passive_sell_trades, remaining_passive_sell])
+            # 优化：只对有组号的进行聚合
+            valid_groups = mf_trades[mf_trades['trade_group'] > 0]
+            if not valid_groups.empty:
+                # 优化：避免使用 lambda x: x.mode()，改用 first (假设同组类型一致) 或其他快速方法
+                # 这里为了保持逻辑，我们假设同组类型通常一致，取第一个即可，这比 mode 快得多
+                group_stats = valid_groups.groupby('trade_group').agg({
+                    'volume': 'sum',
+                    'amount': 'sum',
+                    'type': 'first', # 优化点：从 mode 改为 first
+                    'net_active_volume': 'sum',
+                    'order_renewal_signal': 'mean',
+                    'wash_trade_signal': 'max'
+                })
+            
+            valid_vol_groups = mf_trades[mf_trades['volume_group'] > 0]
+            if not valid_vol_groups.empty:
+                volume_group_stats = valid_vol_groups.groupby('volume_group').agg({
+                    'volume': 'sum',
+                    'amount': 'sum',
+                    'type': 'first', # 优化点
+                    'net_active_volume': 'sum'
+                })
+
+        # 6. 精准的主力交易分类
+        mf_aggressive_buy_trades = mf_trades[(mf_trades['type'] == 'B') & (mf_wash_trade_signal == 0)]
+        mf_aggressive_sell_trades = mf_trades[(mf_trades['type'] == 'S') & (mf_wash_trade_signal == 0)]
+
         # 7. 极致精细的主力日度数据计算
-        # 7.1 时间聚类集群成交量
-        # 探针：检查 group_stats 在使用前是否为空
+        # 探针
         should_probe = context['debug'].get('should_probe', False)
         if should_probe:
             stock_code = context['debug']['stock_code']
@@ -863,24 +922,23 @@ class AdvancedFundFlowMetricsService:
             print(f"\n--- [探针 _engineer_hf_features - Before clustered_buy_groups] {stock_code} {current_date} ---")
             print(f"  - mf_trades.empty: {mf_trades.empty}")
             print(f"  - group_stats.empty: {group_stats.empty}")
-            print(f"  - group_stats columns: {group_stats.columns.tolist()}")
             if not group_stats.empty:
                 print(f"  - group_stats head:\n{group_stats.head().to_string()}")
-            else:
-                print(f"  - group_stats is empty.")
             print(f"--- [探针 _engineer_hf_features - End Before clustered_buy_groups] ---")
+
         clustered_buy_groups = group_stats[(group_stats['net_active_volume'] > 0) & 
                                           (group_stats['volume'] >= volume_cluster_threshold) &
                                           (group_stats['wash_trade_signal'] == 0)]
         clustered_sell_groups = group_stats[(group_stats['net_active_volume'] < 0) & 
                                            (group_stats['volume'] >= volume_cluster_threshold) &
                                            (group_stats['wash_trade_signal'] == 0)]
-        # 7.2 成交量聚类集群（不考虑时间）
+        
         volume_clustered_buy = volume_group_stats[(volume_group_stats['net_active_volume'] > 0) & 
                                                  (volume_group_stats['volume'] >= volume_cluster_threshold)]
         volume_clustered_sell = volume_group_stats[(volume_group_stats['net_active_volume'] < 0) & 
                                                   (volume_group_stats['volume'] >= volume_cluster_threshold)]
-        # 7.3 计算集群成交量（取两种聚类方法的并集）
+
+        # 7.3 计算集群成交量
         all_clustered_buy_volume = max(
             clustered_buy_groups['volume'].sum() if not clustered_buy_groups.empty else 0,
             volume_clustered_buy['volume'].sum() if not volume_clustered_buy.empty else 0
@@ -891,30 +949,28 @@ class AdvancedFundFlowMetricsService:
         )
         features['main_force_clustered_buy_volume'] = all_clustered_buy_volume
         features['main_force_clustered_sell_volume'] = all_clustered_sell_volume
-        # 7.4 主力日度数据计算（优先级：集群识别 > 订单再生增强 > 基础分类）
-        # 买入端计算
+
+        # 7.4 主力日度数据计算
+        # 买入端
         if all_clustered_buy_volume > 0:
-            # 使用集群识别结果
             clustered_buy_amount = clustered_buy_groups['amount'].sum() if not clustered_buy_groups.empty else 0
             volume_clustered_buy_amount = volume_clustered_buy['amount'].sum() if not volume_clustered_buy.empty else 0
             features['main_force_daily_buy_amount'] = max(clustered_buy_amount, volume_clustered_buy_amount)
             features['main_force_daily_buy_volume'] = all_clustered_buy_volume
         else:
-            # 基础分类计算，但考虑订单再生增强
             base_buy_amount = mf_aggressive_buy_trades['amount'].sum() + mf_passive_buy_trades['amount'].sum()
             base_buy_volume = mf_aggressive_buy_trades['volume'].sum() + mf_passive_buy_trades['volume'].sum()
-            # 查找订单再生相关的交易
             order_renewal_buy_trades = mf_trades[mf_order_renewal_signal == 1]
             renewal_buy_amount = order_renewal_buy_trades['amount'].sum()
             renewal_buy_volume = order_renewal_buy_trades['volume'].sum()
-            # 如果订单再生交易量显著，则增强买入信号
             if renewal_buy_volume > 0.3 * base_buy_volume:
-                features['main_force_daily_buy_amount'] = base_buy_amount + renewal_buy_amount * 0.7  # 打折计入
+                features['main_force_daily_buy_amount'] = base_buy_amount + renewal_buy_amount * 0.7
                 features['main_force_daily_buy_volume'] = base_buy_volume + renewal_buy_volume * 0.7
             else:
                 features['main_force_daily_buy_amount'] = base_buy_amount
                 features['main_force_daily_buy_volume'] = base_buy_volume
-        # 卖出端计算
+
+        # 卖出端
         if all_clustered_sell_volume > 0:
             clustered_sell_amount = clustered_sell_groups['amount'].sum() if not clustered_sell_groups.empty else 0
             volume_clustered_sell_amount = volume_clustered_sell['amount'].sum() if not volume_clustered_sell.empty else 0
@@ -932,14 +988,16 @@ class AdvancedFundFlowMetricsService:
             else:
                 features['main_force_daily_sell_amount'] = base_sell_amount
                 features['main_force_daily_sell_volume'] = base_sell_volume
+
         # 8. 计算伪装比例和净流入比率
         total_camouflage_volume = mf_trades[(mf_trades['volume'] < 0.5 * avg_trade_volume) & 
                                            (mf_wash_trade_signal == 0)]['volume'].sum()
-        # 修正 total_mf_volume 的计算，直接使用 mf_trades 中非对倒交易的成交量
         total_mf_volume_for_camouflage = mf_trades[mf_wash_trade_signal == 0]['volume'].sum()
         features['main_force_camouflage_ratio'] = total_camouflage_volume / total_mf_volume_for_camouflage if total_mf_volume_for_camouflage > 0 else 0
+        
         total_mf_amount = features['main_force_daily_buy_amount'] + features['main_force_daily_sell_amount']
         features['main_force_net_flow_ratio'] = (features['main_force_daily_buy_amount'] - features['main_force_daily_sell_amount']) / total_mf_amount if total_mf_amount > 0 else 0
+
         # 保留原有特征计算
         features['main_force_aggressive_buy_volume'] = mf_aggressive_buy_trades['volume'].sum()
         features['main_force_aggressive_sell_volume'] = mf_aggressive_sell_trades['volume'].sum()
@@ -947,23 +1005,35 @@ class AdvancedFundFlowMetricsService:
         features['main_force_passive_sell_volume'] = mf_passive_sell_trades['volume'].sum()
         features['offensive_volume'] = features['main_force_aggressive_buy_volume'] + features['main_force_aggressive_sell_volume']
         features['passive_volume'] = features['main_force_passive_buy_volume'] + features['main_force_passive_sell_volume']
+
         total_mf_buy_trades_for_vwap = pd.concat([mf_aggressive_buy_trades, mf_passive_buy_trades])
         if not total_mf_buy_trades_for_vwap.empty and total_mf_buy_trades_for_vwap['volume'].sum() > 0:
             features['hf_mf_buy_vwap'] = (total_mf_buy_trades_for_vwap['price'] * total_mf_buy_trades_for_vwap['volume']).sum() / total_mf_buy_trades_for_vwap['volume'].sum()
+        
         total_mf_sell_trades_for_vwap = pd.concat([mf_aggressive_sell_trades, mf_passive_sell_trades])
         if not total_mf_sell_trades_for_vwap.empty and total_mf_sell_trades_for_vwap['volume'].sum() > 0:
             features['hf_mf_sell_vwap'] = (total_mf_sell_trades_for_vwap['price'] * total_mf_sell_trades_for_vwap['volume']).sum() / total_mf_sell_trades_for_vwap['volume'].sum()
+        
         features['total_mf_vol'] = features['main_force_daily_buy_volume'] + features['main_force_daily_sell_volume']
+
+        # 计算价格冲击
         mf_trades['price_impact'] = np.nan
         offensive_buy_mask = mf_aggressive_buy_trades.index
         offensive_sell_mask = mf_aggressive_sell_trades.index
-        mf_trades.loc[offensive_buy_mask, 'price_impact'] = (mf_trades.loc[offensive_buy_mask, 'price'] - mf_trades.loc[offensive_buy_mask, 'prev_mid_price']).values
-        mf_trades.loc[offensive_sell_mask, 'price_impact'] = (mf_trades.loc[offensive_sell_mask, 'prev_mid_price'] - mf_trades.loc[offensive_sell_mask, 'price']).values
+        
+        # 向量化计算 price_impact
+        if not offensive_buy_mask.empty:
+            mf_trades.loc[offensive_buy_mask, 'price_impact'] = (mf_trades.loc[offensive_buy_mask, 'price'] - mf_trades.loc[offensive_buy_mask, 'prev_mid_price'])
+        if not offensive_sell_mask.empty:
+            mf_trades.loc[offensive_sell_mask, 'price_impact'] = (mf_trades.loc[offensive_sell_mask, 'prev_mid_price'] - mf_trades.loc[offensive_sell_mask, 'price'])
+        
         mf_trades['price_impact'] = mf_trades['price_impact'].clip(lower=0)
+        
         if features['offensive_volume'] > 0:
             aggressive_trades_for_impact = mf_trades[mf_trades['type'].isin(['B', 'S'])]
             if not aggressive_trades_for_impact.empty and aggressive_trades_for_impact['volume'].sum() > 0:
                 features['main_force_avg_price_impact'] = (aggressive_trades_for_impact['price_impact'] * aggressive_trades_for_impact['volume']).sum() / aggressive_trades_for_impact['volume'].sum()
+        
         return hf_analysis_df, features
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
