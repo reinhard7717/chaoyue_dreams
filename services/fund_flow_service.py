@@ -2508,6 +2508,9 @@ class AdvancedFundFlowMetricsService:
     def _calculate_vpoc_metrics(context: dict) -> dict:
         """
         【优化版】使用 np.histogram 替代 pd.cut/groupby 提升性能。
+        【V72.4 · VPOC鲁棒性增强版】
+        - 核心修复: 增强 _calculate_vpoc_fast 函数的鲁棒性，处理输入价格数组中包含 NaN 值、
+                     所有价格相同或有效数据点不足的情况，避免 np.histogram 抛出 ValueError。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -2523,17 +2526,35 @@ class AdvancedFundFlowMetricsService:
             'main_force_on_peak_sell_flow': np.nan,
         }
         daily_total_amount = common_data['daily_total_amount']
-        
         # 优化后的静态内部函数，使用numpy直方图计算VPOC
         def _calculate_vpoc_fast(price_arr: np.ndarray, vol_arr: np.ndarray, bins: int = 50) -> tuple[float, float, float]:
-            if len(price_arr) < 2:
+            # 过滤掉价格或成交量为NaN的条目，以及成交量为0的条目
+            valid_mask = ~np.isnan(price_arr) & ~np.isnan(vol_arr) & (vol_arr > 0)
+            filtered_price_arr = price_arr[valid_mask]
+            filtered_vol_arr = vol_arr[valid_mask]
+            if len(filtered_price_arr) < 2:
+                # 如果有效数据点少于2个，无法形成有效的直方图
                 return np.nan, np.nan, np.nan
-            counts, bin_edges = np.histogram(price_arr, bins=bins, weights=vol_arr)
+            min_price = np.min(filtered_price_arr)
+            max_price = np.max(filtered_price_arr)
+            if min_price == max_price:
+                # 如果所有有效价格都相同，则VPOC就是这个价格，没有范围
+                # 此时 np.histogram 可能会报错，直接返回该价格
+                return min_price, min_price, min_price
+            # 确保 bin 范围有效，避免 np.histogram 内部自动检测范围时出现 [nan, nan]
+            # 或者 [value, value] 导致 ValueError
+            hist_range = (min_price, max_price)
+            # 再次检查，以防万一 min_price 和 max_price 在浮点数比较时出现微小差异
+            if np.isclose(hist_range[0], hist_range[1]):
+                return min_price, min_price, min_price
+            counts, bin_edges = np.histogram(filtered_price_arr, bins=bins, range=hist_range, weights=filtered_vol_arr)
+            # 检查 counts 是否为空或全为零，这可能发生在所有数据点都落在 bin 范围之外（尽管我们已经设置了范围）
+            # 或者所有权重都为零
+            if counts.size == 0 or np.all(counts == 0):
+                return np.nan, np.nan, np.nan
             max_idx = np.argmax(counts)
-            # 返回 VPOC 价格, 区间下界, 区间上界
             vpoc = (bin_edges[max_idx] + bin_edges[max_idx+1]) / 2
             return vpoc, bin_edges[max_idx], bin_edges[max_idx+1]
-
         if hf_analysis_df.empty:
             if 'main_force_net_vol' in intraday_data.columns and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
                 price_arr = intraday_data['minute_vwap'].values
@@ -2551,14 +2572,14 @@ class AdvancedFundFlowMetricsService:
                         if daily_total_amount > 0:
                             metrics['main_force_on_peak_buy_flow'] = np.tanh((mf_buy_vol_on_peak * global_vpoc_price) / daily_total_amount)
                             metrics['main_force_on_peak_sell_flow'] = np.tanh((mf_sell_vol_on_peak * global_vpoc_price) / daily_total_amount)
-                mf_net_buy_mask = intraday_data['main_force_net_vol'] > 0
-                if mf_net_buy_mask.any():
-                    mf_vwap_arr = intraday_data.loc[mf_net_buy_mask, 'minute_vwap'].values
-                    mf_net_vol_arr = intraday_data.loc[mf_net_buy_mask, 'main_force_net_vol'].values
-                    mf_vpoc, _, _ = _calculate_vpoc_fast(mf_vwap_arr, mf_net_vol_arr, bins=30)
-                    metrics['main_force_vpoc'] = mf_vpoc
-                    if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
-                        metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
+            mf_net_buy_mask = intraday_data['main_force_net_vol'] > 0
+            if mf_net_buy_mask.any():
+                mf_vwap_arr = intraday_data.loc[mf_net_buy_mask, 'minute_vwap'].values
+                mf_net_vol_arr = intraday_data.loc[mf_net_buy_mask, 'main_force_net_vol'].values
+                mf_vpoc, _, _ = _calculate_vpoc_fast(mf_vwap_arr, mf_net_vol_arr, bins=30)
+                metrics['main_force_vpoc'] = mf_vpoc
+                if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
+                    metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
             return metrics
         # 使用 numpy 优化计算全局 VPOC
         global_vpoc_price, global_left, global_right = _calculate_vpoc_fast(
@@ -2593,7 +2614,6 @@ class AdvancedFundFlowMetricsService:
                         metrics['main_force_on_peak_buy_flow'] = np.tanh(mf_buy_amount_on_peak / daily_total_amount)
                         metrics['main_force_on_peak_sell_flow'] = np.tanh(mf_sell_amount_on_peak / daily_total_amount)
         else:
-             # Fallback logic identical to empty hf_analysis_df branch (omitted for brevity as it's unreachable with empty mf_trades check above logically, but good for safety)
              pass
         return metrics
 
