@@ -526,7 +526,7 @@ class AdvancedFundFlowMetricsService:
                     weighted_buy_vol += hf_analysis_df[f'buy_volume{i}'] * weight
                     weighted_sell_vol += hf_analysis_df[f'sell_volume{i}'] * weight
                     total_buy_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'buy_price{i}']
-                    total_sell_value += hf_analysis_df[f'sell_volume{i}'] * hf_analysis_df[f'sell_price{i}']
+                    total_sell_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'sell_price{i}']
                 sum_weighted_vol = (weighted_buy_vol + weighted_sell_vol)
                 if (sum_weighted_vol > 1e-9).any():
                     hf_analysis_df['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / sum_weighted_vol.replace(0, np.nan)
@@ -609,6 +609,9 @@ class AdvancedFundFlowMetricsService:
                         hf_analysis_df.loc[idx2, 'wash_trade_signal'] = 1
         # 4. 复杂的中性单意图识别
         neutral_mask = mf_trades['type'] == 'M'
+        # 获取与mf_trades索引对齐的订单再生信号和对倒信号
+        mf_order_renewal_signal = hf_analysis_df.loc[mf_trades.index, 'order_renewal_signal']
+        mf_wash_trade_signal = hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal']
         # 4.1 价格穿透深度分析
         price_penetration_buy = neutral_mask & (
             (mf_trades['price'] >= mf_trades['prev_a1_p'] * 0.999) &  # 轻微穿透卖一
@@ -628,15 +631,15 @@ class AdvancedFundFlowMetricsService:
             (mf_trades['mid_price_change'] < 0)  # 价格在下跌
         )
         # 4.3 结合订单再生信号
-        order_renewal_buy = neutral_mask & (hf_analysis_df.loc[neutral_mask, 'order_renewal_signal'] == 1)
-        order_renewal_sell = neutral_mask & (hf_analysis_df.loc[neutral_mask, 'order_renewal_signal'] == -1)
+        order_renewal_buy = neutral_mask & (mf_order_renewal_signal == 1)
+        order_renewal_sell = neutral_mask & (mf_order_renewal_signal == -1)
         # 综合判断被动买卖
         passive_buy_from_neutral = (price_penetration_buy | bid_ask_pressure_buy | order_renewal_buy) & \
                                    (mf_trades['volume'] > 0.3 * avg_trade_volume) & \
-                                   (hf_analysis_df.loc[neutral_mask, 'wash_trade_signal'] == 0)
+                                   (mf_wash_trade_signal == 0)
         passive_sell_from_neutral = (price_penetration_sell | bid_ask_pressure_sell | order_renewal_sell) & \
                                     (mf_trades['volume'] > 0.3 * avg_trade_volume) & \
-                                    (hf_analysis_df.loc[neutral_mask, 'wash_trade_signal'] == 0)
+                                    (mf_wash_trade_signal == 0)
         # 5. 多层级集群分析
         group_stats = hf_analysis_df[hf_analysis_df['trade_group'] > 0].groupby('trade_group').agg({
             'volume': 'sum',
@@ -655,19 +658,19 @@ class AdvancedFundFlowMetricsService:
         # 6. 精准的主力交易分类（排除对倒，考虑订单再生）
         # 主动买入：排除对倒，考虑订单再生
         mf_aggressive_buy_trades = mf_trades[(mf_trades['type'] == 'B') & 
-                                            (hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal'] == 0)]
+                                            (mf_wash_trade_signal == 0)]
         # 主动卖出：排除对倒，考虑订单再生
         mf_aggressive_sell_trades = mf_trades[(mf_trades['type'] == 'S') & 
-                                             (hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal'] == 0)]
+                                             (mf_wash_trade_signal == 0)]
         # 被动买入：综合判断
         mf_passive_buy_trades = mf_trades[passive_buy_from_neutral & 
-                                         (hf_analysis_df.loc[passive_buy_from_neutral.index, 'wash_trade_signal'] == 0)]
+                                         (mf_wash_trade_signal == 0)]
         # 被动卖出：综合判断
         mf_passive_sell_trades = mf_trades[passive_sell_from_neutral & 
-                                          (hf_analysis_df.loc[passive_sell_from_neutral.index, 'wash_trade_signal'] == 0)]
+                                          (mf_wash_trade_signal == 0)]
         # 剩余中性单按价格变化方向划分（保守策略）
         remaining_neutral = mf_trades[neutral_mask & ~passive_buy_from_neutral & ~passive_sell_from_neutral &
-                                     (hf_analysis_df.loc[neutral_mask.index, 'wash_trade_signal'] == 0)]
+                                     (mf_wash_trade_signal == 0)]
         remaining_passive_buy = remaining_neutral[remaining_neutral['mid_price_change'] >= 0]
         remaining_passive_sell = remaining_neutral[remaining_neutral['mid_price_change'] < 0]
         mf_passive_buy_trades = pd.concat([mf_passive_buy_trades, remaining_passive_buy])
@@ -709,7 +712,7 @@ class AdvancedFundFlowMetricsService:
             base_buy_amount = mf_aggressive_buy_trades['amount'].sum() + mf_passive_buy_trades['amount'].sum()
             base_buy_volume = mf_aggressive_buy_trades['volume'].sum() + mf_passive_buy_trades['volume'].sum()
             # 查找订单再生相关的交易
-            order_renewal_buy_trades = mf_trades[hf_analysis_df.loc[mf_trades.index, 'order_renewal_signal'] == 1]
+            order_renewal_buy_trades = mf_trades[mf_order_renewal_signal == 1]
             renewal_buy_amount = order_renewal_buy_trades['amount'].sum()
             renewal_buy_volume = order_renewal_buy_trades['volume'].sum()
             # 如果订单再生交易量显著，则增强买入信号
@@ -728,7 +731,7 @@ class AdvancedFundFlowMetricsService:
         else:
             base_sell_amount = mf_aggressive_sell_trades['amount'].sum() + mf_passive_sell_trades['amount'].sum()
             base_sell_volume = mf_aggressive_sell_trades['volume'].sum() + mf_passive_sell_trades['volume'].sum()
-            order_renewal_sell_trades = mf_trades[hf_analysis_df.loc[mf_trades.index, 'order_renewal_signal'] == -1]
+            order_renewal_sell_trades = mf_trades[mf_order_renewal_signal == -1]
             renewal_sell_amount = order_renewal_sell_trades['amount'].sum()
             renewal_sell_volume = order_renewal_sell_trades['volume'].sum()
             if renewal_sell_volume > 0.3 * base_sell_volume:
@@ -739,8 +742,8 @@ class AdvancedFundFlowMetricsService:
                 features['main_force_daily_sell_volume'] = base_sell_volume
         # 8. 计算伪装比例和净流入比率
         total_camouflage_volume = mf_trades[(mf_trades['volume'] < 0.5 * avg_trade_volume) & 
-                                           (hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal'] == 0)]['volume'].sum()
-        total_mf_volume = mf_trades[hf_analysis_df.loc[mf_trades.index, 'wash_trade_signal'] == 0]['volume'].sum()
+                                           (mf_wash_trade_signal == 0)]['volume'].sum()
+        total_mf_volume = mf_trades[mf_wash_trade_signal == 0]['volume'].sum()
         features['main_force_camouflage_ratio'] = total_camouflage_volume / total_mf_volume if total_mf_volume > 0 else 0
         total_mf_amount = features['main_force_daily_buy_amount'] + features['main_force_daily_sell_amount']
         features['main_force_net_flow_ratio'] = (features['main_force_daily_buy_amount'] - features['main_force_daily_sell_amount']) / total_mf_amount if total_mf_amount > 0 else 0
