@@ -15,7 +15,7 @@ from stock_models.time_trade import (
 )
 from stock_models.advanced_metrics import (
     AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC, AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ,
-    # AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ,
+    AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ,
     AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_BJ,
     PlatformFeature_CY, PlatformFeature_SZ, PlatformFeature_KC, PlatformFeature_SH, PlatformFeature_BJ,
     TrendlineFeature_CY, TrendlineFeature_SZ, TrendlineFeature_KC, TrendlineFeature_SH, TrendlineFeature_BJ,
