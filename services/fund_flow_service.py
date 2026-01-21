@@ -1410,10 +1410,33 @@ class AdvancedFundFlowMetricsService:
                 - is_main_force_trade (pd.Series): 布尔Series，标记是否为主力交易
                 - is_retail_trade (pd.Series): 布尔Series，标记是否为散户交易
         """
+        # 获取调试信息
+        # 注意：_identify_trade_participants是静态方法，无法直接访问self.debug_params
+        # 需要从context中传递debug信息，或者暂时假设should_probe为True进行调试
+        # 这里我们假设context['debug']信息已在调用链上层传递并可访问
+        # 实际运行时，如果context不可用，需要调整调用方式或临时硬编码should_probe
+        should_probe = False # 默认关闭，除非通过context传递
+        if 'debug' in context and context['debug'].get('should_probe', False):
+            should_probe = True
+            stock_code = context['debug']['stock_code']
+            current_date = context['daily_data'].name.date()
+
         if hf_analysis_df.empty:
             empty_mask = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
+            if should_probe:
+                print(f"\n--- [探针 _identify_trade_participants] {stock_code} {current_date} ---")
+                print(f"  - hf_analysis_df is empty, returning empty masks.")
             return empty_mask, empty_mask
         
+        # 探针：检查输入数据
+        if should_probe:
+            print(f"\n--- [探针 _identify_trade_participants - 输入数据检查] {stock_code} {current_date} ---")
+            print(f"  - hf_analysis_df shape: {hf_analysis_df.shape}")
+            print(f"  - hf_analysis_df index frequency: {hf_analysis_df.index.freq}")
+            print(f"  - hf_analysis_df['amount'] describe:\n{hf_analysis_df['amount'].describe()}")
+            print(f"  - hf_analysis_df['volume'] describe:\n{hf_analysis_df['volume'].describe()}")
+            print(f"  - hf_analysis_df head:\n{hf_analysis_df.head()}")
+
         # 基础参数设置
         # 散户交易的最大金额阈值，低于此金额的交易是散户的候选
         RETAIL_MAX_AMOUNT = 50000 
@@ -1466,6 +1489,8 @@ class AdvancedFundFlowMetricsService:
         
         # 3.1 基础条件：金额小于 RETAIL_MAX_AMOUNT
         small_amount_mask = hf_analysis_df['amount'] < RETAIL_MAX_AMOUNT
+        if should_probe:
+            print(f"  - small_amount_mask count (amount < {RETAIL_MAX_AMOUNT}): {small_amount_mask.sum()}")
         
         # 3.2 微观特征：无显著价格冲击、盘口压力正常
         normal_microstructure = pd.Series(True, index=hf_analysis_df.index, dtype=bool)
@@ -1485,12 +1510,16 @@ class AdvancedFundFlowMetricsService:
         
         # 3.4 综合判断散户交易：必须满足金额小、微观结构正常、非攻击性
         is_retail_trade = small_amount_mask & normal_microstructure & non_aggressive_trade
+        if should_probe:
+            print(f"  - is_retail_trade count (after all retail conditions): {is_retail_trade.sum()}")
         
         # --- 4. 主力交易识别逻辑 (在排除散户后进行) ---
         is_main_force_trade = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
         
         # 4.1 绝对金额阈值 - 大额交易直接认定为主力
         absolute_amount_mask = hf_analysis_df['amount'] >= MAIN_FORCE_MIN_AMOUNT
+        if should_probe:
+            print(f"  - absolute_amount_mask count (amount >= {MAIN_FORCE_MIN_AMOUNT}): {absolute_amount_mask.sum()}")
         
         # 4.2 相对金额和成交量异常 - 显著高于平均水平 (适用于非散户交易)
         amount_multiplier_threshold = 5.0
@@ -1532,9 +1561,9 @@ class AdvancedFundFlowMetricsService:
         
         # 4.5 综合判断主力交易 - 满足任一条件即可，且不能是已识别的散户交易
         is_main_force_trade = (absolute_amount_mask | relative_anomaly_mask | microstructure_mask | order_flow_mask) & (~is_retail_trade)
-        
-        # 5. 后处理：确保主力交易和散户交易互斥 (再次强调，虽然逻辑上已经互斥，但为了健壮性)
-        # 任何未被明确分类为主力或散户的交易，可以认为是中性交易，不计入主力或散户统计
+        if should_probe:
+            print(f"  - is_main_force_trade count (after all main force conditions and excluding retail): {is_main_force_trade.sum()}")
+            print(f"--- [探针 _identify_trade_participants 结束] ---")
         
         return is_main_force_trade, is_retail_trade
 
