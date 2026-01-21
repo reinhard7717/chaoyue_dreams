@@ -6,7 +6,6 @@ from django.utils import timezone
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime, time
-from scipy.signal import find_peaks
 from typing import Tuple
 import numba
 from asgiref.sync import sync_to_async
@@ -1765,6 +1764,10 @@ class AdvancedFundFlowMetricsService:
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
+        from scipy.signal import find_peaks
+        from datetime import time
+        import numpy as np
+        import pandas as pd
         metrics = {}
         if hf_analysis_df.empty or intraday_data.empty or raw_hf_df.empty:
             return metrics
