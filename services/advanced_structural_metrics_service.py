@@ -1162,7 +1162,6 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
     for i in range(1, len(all_extrema)-1):
         current = all_extrema[i]
         next_ext = all_extrema[i+1]
-        
         # 检查是否为低点-高点模式
         # 优化：避免使用 'in' 操作符和列表推导式，改用显式循环
         is_trough = False
@@ -1170,7 +1169,6 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
             if t == current:
                 is_trough = True
                 break
-        
         if not is_trough:
             continue
             
@@ -1179,7 +1177,6 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
             if p == next_ext:
                 is_next_peak = True
                 break
-        
         if is_next_peak:
             # 找前一个高点
             prev_peak = -1
@@ -1187,10 +1184,8 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
                 if p < current:
                     if p > prev_peak:
                         prev_peak = p
-            
             if prev_peak == -1:
                 continue
-            
             # 计算下跌阶段
             fall_start = prev_peak
             fall_end = current
@@ -1733,44 +1728,35 @@ class ThematicMetricsCalculators:
         atr_14 = context['atr_14']
         prev_day_metrics = context['prev_day_metrics']
         total_volume_safe = context['total_volume_safe']
-        
         # 优先使用tick_df进行精细化计算，如果不可用则降级到分钟数据
         if tick_df is not None and not tick_df.empty and tick_df['volume'].sum() > 100:
             # 使用高频tick数据计算价格-成交量分布
             price_vol_df = tick_df.groupby('price')['volume'].sum().reset_index()
             price_vol_df.columns = ['price', 'volume']
-            
             # 计算总成交量
             total_volume = price_vol_df['volume'].sum()
-            
             # 1. 计算POC（成交量控制点）- 精细化版本
             poc_idx = price_vol_df['volume'].idxmax()
             poc_price = price_vol_df.loc[poc_idx, 'price']
-            
             # 2. 计算价值区(VAH/VAL) - 基于累计成交量百分比的精确算法
             # 按价格排序
             price_vol_sorted = price_vol_df.sort_values('price').reset_index(drop=True)
             # 计算累计百分比
             price_vol_sorted['cum_pct'] = price_vol_sorted['volume'].cumsum() / total_volume
-            
             # 找到POC在排序后的位置
             poc_position = price_vol_sorted[price_vol_sorted['price'] == poc_price].index[0]
-            
             # 从POC开始向两边扩展，直到累计成交量达到70%
             left_idx = poc_position
             right_idx = poc_position
             current_volume_pct = price_vol_sorted.loc[poc_position, 'volume'] / total_volume
-            
             while current_volume_pct < 0.70 and (left_idx > 0 or right_idx < len(price_vol_sorted)-1):
                 # 检查左边和右边的下一个价格档位
                 left_volume = 0
                 right_volume = 0
-                
                 if left_idx > 0:
                     left_volume = price_vol_sorted.loc[left_idx-1, 'volume']
                 if right_idx < len(price_vol_sorted)-1:
                     right_volume = price_vol_sorted.loc[right_idx+1, 'volume']
-                
                 # 优先扩展成交量更大的一侧（更符合市场真实情况）
                 if left_volume >= right_volume and left_idx > 0:
                     left_idx -= 1
@@ -1783,10 +1769,8 @@ class ThematicMetricsCalculators:
                     current_volume_pct += left_volume / total_volume
                 else:
                     break
-            
             value_area_low = price_vol_sorted.loc[left_idx, 'price']
             value_area_high = price_vol_sorted.loc[right_idx, 'price']
-            
             # 3. 计算轮廓偏度 - 使用加权偏度，权重为成交量
             prices_array = price_vol_df['price'].values
             volumes_array = price_vol_df['volume'].values
@@ -1796,13 +1780,11 @@ class ThematicMetricsCalculators:
                 profile_skewness = np.average(((prices_array - weighted_mean) / weighted_std)**3, weights=volumes_array)
             else:
                 profile_skewness = 0.0
-            
             # 4. 计算轮廓峰度 - 使用加权峰度
             if weighted_std > 1e-10:
                 profile_kurtosis = np.average(((prices_array - weighted_mean) / weighted_std)**4, weights=volumes_array)
             else:
                 profile_kurtosis = 0.0
-            
             # 5. 计算价值区宽度 - 相对宽度
             if poc_price != 0:
                 value_area_width = (value_area_high - value_area_low) / poc_price
@@ -1813,7 +1795,6 @@ class ThematicMetricsCalculators:
             # 使用分钟数据计算价格-成交量分布
             # 更精细化的分箱策略：基于ATR动态确定箱体数量
             price_range = continuous_group['close'].max() - continuous_group['close'].min()
-            
             # 动态确定分箱数量：价格范围越大，分箱越多
             if price_range > 0 and atr_14 > 0:
                 # 确保每个箱体大约包含2个ATR的价格范围
@@ -1834,19 +1815,16 @@ class ThematicMetricsCalculators:
                     # 回退方案：等宽分箱
                     bins = pd.cut(continuous_group['close'], bins=num_bins, duplicates='drop')
                     vp_minute = continuous_group.groupby(bins)['vol'].sum()
-            
             # 计算POC
             if not vp_minute.empty:
                 poc_interval = vp_minute.idxmax()
                 poc_price = poc_interval.mid if hasattr(poc_interval, 'mid') else float(poc_interval)
             else:
                 poc_price = np.nan
-            
             # 计算价值区
-            value_area_high, value_area_low = MarketProfileCalculator._calculate_value_area_advanced(
+            value_area_high, value_area_low = ThematicMetricsCalculators._calculate_value_area_advanced(
                 vp_minute, continuous_group['vol'].sum(), poc_price
             )
-            
             # 计算偏度和峰度 - 基于分钟数据
             if not vp_minute.empty:
                 # 提取价格区间中点作为价格值
@@ -1855,7 +1833,6 @@ class ThematicMetricsCalculators:
                 else:
                     prices = [float(price) for price in vp_minute.index]
                 volumes = vp_minute.values
-                
                 weighted_mean = np.average(prices, weights=volumes)
                 weighted_std = np.sqrt(np.average((np.array(prices) - weighted_mean)**2, weights=volumes))
                 if weighted_std > 1e-10:
@@ -1867,13 +1844,11 @@ class ThematicMetricsCalculators:
             else:
                 profile_skewness = np.nan
                 profile_kurtosis = np.nan
-            
             # 计算价值区宽度
             if poc_price != 0 and not np.isnan(value_area_high) and not np.isnan(value_area_low):
                 value_area_width = (value_area_high - value_area_low) / poc_price
             else:
                 value_area_width = np.nan
-        
         # 6. 计算开盘-价值关系（相对于前一日价值区）
         open_relative_to_value = 0  # 默认值：区间震荡
         if 'prev_vah' in prev_day_metrics and 'prev_val' in prev_day_metrics:
@@ -1884,7 +1859,6 @@ class ThematicMetricsCalculators:
                     open_relative_to_value = 1  # 强势跳空
                 elif day_open_qfq < prev_val:
                     open_relative_to_value = -1  # 弱势跳空
-        
         # 7. 计算收盘-价值关系（相对于当日价值区）
         close_relative_to_value = 0  # 默认值：区间震荡
         if not np.isnan(value_area_high) and not np.isnan(value_area_low):
@@ -1892,7 +1866,6 @@ class ThematicMetricsCalculators:
                 close_relative_to_value = 1  # 收盘强势
             elif day_close_qfq < value_area_low:
                 close_relative_to_value = -1  # 收盘弱势
-        
         # 构建返回结果
         results = {
             'value_area_high': value_area_high,
@@ -1904,7 +1877,6 @@ class ThematicMetricsCalculators:
             'open_relative_to_value': open_relative_to_value,
             'close_relative_to_value': close_relative_to_value,
         }
-        
         return results
     
     @staticmethod
@@ -1912,7 +1884,6 @@ class ThematicMetricsCalculators:
         """高级价值区计算算法，考虑A股市场特性"""
         if vp_minute.empty or total_volume <= 0 or np.isnan(poc_price):
             return np.nan, np.nan
-        
         # 转换成交量序列为DataFrame以便处理
         if hasattr(vp_minute.index[0], 'mid'):
             # 区间索引
@@ -1930,29 +1901,23 @@ class ThematicMetricsCalculators:
             })
             vp_df['price_left'] = vp_df['price_mid']
             vp_df['price_right'] = vp_df['price_mid']
-        
         # 按价格排序
         vp_df = vp_df.sort_values('price_mid').reset_index(drop=True)
-        
         # 找到POC所在位置
         poc_idx = (vp_df['price_mid'] - poc_price).abs().idxmin()
-        
         # 从POC开始向两边扩展，直到累计成交量达到70%
         left_idx = poc_idx
         right_idx = poc_idx
         current_volume = vp_df.loc[poc_idx, 'volume']
         target_volume = total_volume * 0.70
-        
         while current_volume < target_volume and (left_idx > 0 or right_idx < len(vp_df)-1):
             # 计算可扩展的候选方向
             left_available = left_idx > 0
             right_available = right_idx < len(vp_df) - 1
-            
             # 如果两边都可用，选择成交量更大的一边
             if left_available and right_available:
                 left_volume = vp_df.loc[left_idx-1, 'volume']
                 right_volume = vp_df.loc[right_idx+1, 'volume']
-                
                 if left_volume >= right_volume:
                     left_idx -= 1
                     current_volume += left_volume
@@ -1967,11 +1932,9 @@ class ThematicMetricsCalculators:
                 current_volume += vp_df.loc[right_idx, 'volume']
             else:
                 break
-        
         # 返回价值区的高低点
         value_area_low = vp_df.loc[left_idx, 'price_left']
         value_area_high = vp_df.loc[right_idx, 'price_right']
-        
         return float(value_area_high), float(value_area_low)
 
     @staticmethod
@@ -2184,7 +2147,6 @@ def _numba_calculate_vpin_buckets(cum_vol_arr, volume_arr, buy_vol_arr, sell_vol
     current_bucket_buy = 0.0
     current_bucket_sell = 0.0
     bucket_counter = 0
-    
     for i in range(num_ticks):
         current_bucket_vol += volume_arr[i]
         current_bucket_buy += buy_vol_arr[i]
@@ -2499,7 +2461,6 @@ class MicrostructureDynamicsCalculators:
         # 精确计算扫单强度 - 使用3秒聚合的tick数据
         # 数据预处理：确保时间排序和价格有效性
         tick_df = tick_df.copy()
-        
         # 修复：确保 'time' 列存在，用于排序和后续计算
         if 'time' not in tick_df.columns:
             if 'trade_time' in tick_df.columns:
