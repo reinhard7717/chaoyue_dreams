@@ -1202,8 +1202,10 @@ class IndicatorCalculator:
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
-        【V2.5 · 探针增强与语法修复版】对手盘衰竭指数精细化计算
-        修复关键问题：1) asyncio.to_thread调用语法 2) 探针输出重定向 3) 返回数据验证
+        【V2.6 · A股适配修复版】对手盘衰竭指数精细化计算
+        修复关键问题：
+        1. 修正数据量校验逻辑，适配A股交易时间（240分钟/天）及不同分钟周期（如60分钟线）。
+        2. 使用时间跨度而非单纯行数来校验数据充足性。
         """
         # 探针1：检查基础输入数据
         print(f"🛰️ 探针1: 函数被调用，输入数据形状: {df_minute.shape if df_minute is not None else 'None'}")
@@ -1212,10 +1214,50 @@ class IndicatorCalculator:
             print("❌ 探针1: 输入数据为空")
             return None
         
-        required_minutes = efficiency_window * 1440
-        if len(df_minute) < required_minutes:
-            print(f"❌ 探针2: 数据量不足，需要至少{required_minutes}分钟数据，当前{len(df_minute)}分钟")
-            return None
+        # 【修复】数据量校验逻辑
+        # A股每天交易240分钟。
+        # 校验逻辑：检查数据的时间跨度是否覆盖了 efficiency_window 天。
+        # 假设 df_minute 索引是 datetime 类型且已排序。
+        if not isinstance(df_minute.index, pd.DatetimeIndex):
+             # 尝试转换索引
+             try:
+                 df_minute.index = pd.to_datetime(df_minute.index, utc=True)
+             except:
+                 print("❌ 探针2: 索引不是DatetimeIndex且无法转换")
+                 return None
+
+        time_span_days = (df_minute.index[-1] - df_minute.index[0]).days
+        # 考虑到非交易日，实际跨度应大于 efficiency_window * 1.4 (粗略估计周末)
+        # 或者简单点，只要覆盖的天数足够即可。
+        # 这里使用更宽松的检查：只要行数满足该周期下的最低要求。
+        # 例如：60分钟线，每天4根。21天需要 21 * 4 = 84 根。
+        # 1分钟线，每天240根。21天需要 21 * 240 = 5040 根。
+        
+        # 估算每根K线代表的分钟数
+        if len(df_minute) > 1:
+            time_diff = df_minute.index[1] - df_minute.index[0]
+            bar_minutes = time_diff.total_seconds() / 60
+            # 处理可能的非连续数据（如跨日），取中位数或最小值
+            # 简单起见，假设如果行数太少，直接报错
+        else:
+            bar_minutes = 1 # 默认
+
+        # 计算所需的最小行数 (A股每天240分钟)
+        # 如果是60分钟线，bar_minutes=60，每天4根。
+        # 如果是1分钟线，bar_minutes=1，每天240根。
+        # 这里的 bar_minutes 只是估算，更稳妥的是直接检查时间跨度。
+        
+        if time_span_days < efficiency_window * 0.7: # 允许一定的数据缺失，但时间跨度必须大致够
+             print(f"❌ 探针2: 数据时间跨度不足。跨度: {time_span_days}天，需要窗口: {efficiency_window}天")
+             # 注意：如果数据是最近的，可能跨度不够但行数够（高频）。
+             # 所以保留行数检查作为辅助。
+             
+             # 回退到行数检查，但基于A股逻辑
+             # 假设最坏情况是60分钟线（每天4根）
+             min_required_rows = efficiency_window * 4
+             if len(df_minute) < min_required_rows:
+                 print(f"❌ 探针2b: 数据行数严重不足。当前: {len(df_minute)}，至少需要: {min_required_rows} (基于60分钟线估算)")
+                 return None
         
         # 精确匹配列名，支持大小写变体
         open_col = next((c for c in df_minute.columns if c.lower().startswith('open')), None)

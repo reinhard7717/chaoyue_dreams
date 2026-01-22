@@ -518,16 +518,12 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.5 · pct_change原始数据保留版】
+        【V8.6 · 分钟线动态扩容版】
         为策略准备数据的统一入口，彻底重构数据合并和命名规则。
-        - 核心修复: 修正了 `FundFlowDao` 和 `StrategiesDAO` 实例中不存在 `get_fund_flow_model_by_code`
-                  和 `get_price_limit_data` 方法的错误。
-                  `get_fund_flow_model_by_code` 应该从 `utils.model_helpers` 导入。
-                  `get_price_limit_data` 应该通过 `self.stock_trade_dao` 实例调用。
+        - 核心修复: 针对分钟线数据（如60min, 1min），自动根据A股交易时间（240分钟/天）计算所需的条数，
+                  解决了直接使用日线条数导致分钟线时间跨度严重不足的问题。
         - 统一命名: 所有日线数据列名统一以 `_D` 结尾。
         - 迭代合并: 逐个合并补充 DataFrame，明确处理列名冲突。
-        - 【新增】保留原始数据中的 `pct_change` 和 `pre_close` 列，并将其标准化为 `_D` 后缀，不再重新计算 `pct_change_D`。
-        - 【修复】确保所有启用的补充特征相关列在合并后始终存在，即使数据为空，以避免后续计算报错。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -559,11 +555,30 @@ class IndicatorService:
         # --- 步骤 1: 并发获取所有原始数据 ---
         tasks = []
         # OHLCV 数据
-        async def _fetch_and_tag_ohlcv_data(tf_to_fetch, trade_time_str):
-            df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
+        # 修改：增加 limit 参数，允许针对不同周期动态调整获取条数
+        async def _fetch_and_tag_ohlcv_data(tf_to_fetch, trade_time_str, limit):
+            df = await self._get_ohlcv_data(stock_code, tf_to_fetch, limit, trade_time_str)
             return (tf_to_fetch, df)
+        
         for tf in base_tfs_to_fetch:
-            tasks.append(_fetch_and_tag_ohlcv_data(tf, trade_time))
+            # 【动态计算分钟线条数】
+            # A股每天交易240分钟。如果base_needed_bars是天数，则分钟线需要相应放大。
+            current_limit = base_needed_bars
+            if tf.isdigit(): # 分钟线
+                try:
+                    tf_minutes = int(tf)
+                    # 计算倍数：每天240分钟 / 当前周期分钟数
+                    # 例如：60分钟线 -> 240/60 = 4倍；1分钟线 -> 240/1 = 240倍
+                    multiplier = 240 / tf_minutes
+                    # 加上1.2倍的安全冗余，确保覆盖足够的天数
+                    current_limit = int(base_needed_bars * multiplier * 1.2)
+                    # 设置一个合理的上限，防止请求过多数据（例如上限50000条）
+                    current_limit = min(current_limit, 50000)
+                    logger.info(f"[{stock_code}] 分钟周期 '{tf}' 动态调整获取条数: {base_needed_bars} (基准) -> {current_limit} (扩容)")
+                except ValueError:
+                    pass
+            
+            tasks.append(_fetch_and_tag_ohlcv_data(tf, trade_time, current_limit))
         # 补充数据 (各种高级指标和基本面数据)
         trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
         trade_time_dt_date = trade_time_dt.date() if trade_time_dt else datetime.datetime.now().date()
