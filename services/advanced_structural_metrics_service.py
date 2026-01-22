@@ -2532,46 +2532,56 @@ class MicrostructureDynamicsCalculators:
         }
         if total_volume <= 0:
             return results
-        # 1. OFI 计算 (使用Numba)
         if level5_df is not None and not level5_df.empty and len(level5_df) > 1:
-            # 提取5档数据到连续数组
             buy_prices = level5_df[[f'buy_price{i}' for i in range(1, 6)]].values.astype(np.float64)
             buy_volumes = level5_df[[f'buy_volume{i}' for i in range(1, 6)]].values.astype(np.float64)
             sell_prices = level5_df[[f'sell_price{i}' for i in range(1, 6)]].values.astype(np.float64)
             sell_volumes = level5_df[[f'sell_volume{i}' for i in range(1, 6)]].values.astype(np.float64)
             weights = np.array([0.35, 0.25, 0.15, 0.15, 0.10], dtype=np.float64)
-            # 调用Numba函数
             total_ofi = _numba_calculate_ofi_level5(buy_prices, buy_volumes, sell_prices, sell_volumes, weights)
             results['order_flow_imbalance_score'] = total_ofi / total_volume * 1000
-        # 2. 扫单强度计算 (使用Numba)
         if tick_df is not None and not tick_df.empty:
-            # 准备Tick数据数组
-            # 确保时间为秒数
-            if 'time' not in tick_df.columns:
-                 # 假设index是datetime或trade_time列存在
-                times_series = pd.to_datetime(tick_df['trade_time']) if 'trade_time' in tick_df.columns else pd.to_datetime(tick_df.index)
-                # 转为当日秒数 (从0点开始)
-                time_seconds = times_series.dt.hour * 3600 + times_series.dt.minute * 60 + times_series.dt.second + times_series.dt.microsecond / 1e6
+            if 'trade_time' in tick_df.columns:
+                times_obj = pd.to_datetime(tick_df['trade_time'])
+                h = times_obj.dt.hour
+                m = times_obj.dt.minute
+                s = times_obj.dt.second
+                ms = times_obj.dt.microsecond
+            else:
+                times_obj = pd.to_datetime(tick_df.index)
+                if isinstance(times_obj, pd.DatetimeIndex):
+                    h = times_obj.hour
+                    m = times_obj.minute
+                    s = times_obj.second
+                    ms = times_obj.microsecond
+                else:
+                    times_series = pd.Series(times_obj)
+                    if pd.api.types.is_datetime64_any_dtype(times_series):
+                        h = times_series.dt.hour
+                        m = times_series.dt.minute
+                        s = times_series.dt.second
+                        ms = times_series.dt.microsecond
+                    else:
+                        times_series = pd.to_datetime(times_series)
+                        h = times_series.dt.hour
+                        m = times_series.dt.minute
+                        s = times_series.dt.second
+                        ms = times_series.dt.microsecond
+            time_seconds = h * 3600 + m * 60 + s + ms / 1e6
+            if hasattr(time_seconds, 'values'):
                 tick_times = time_seconds.values.astype(np.float64)
             else:
-                # 如果time列已经是某种格式，需适配，这里假设已转或回退到index
-                times_series = pd.to_datetime(tick_df.index)
-                time_seconds = times_series.dt.hour * 3600 + times_series.dt.minute * 60 + times_series.dt.second
-                tick_times = time_seconds.values.astype(np.float64)
+                tick_times = np.array(time_seconds, dtype=np.float64)
             prices = tick_df['price'].values.astype(np.float64)
             volumes = tick_df['volume'].values.astype(np.float64)
-            # 转换类型为Int: B=1, S=-1, 其他=0
             types = np.zeros(len(tick_df), dtype=np.int8)
             type_vals = tick_df['type'].values
-            # 向量化转换
             types[type_vals == 'B'] = 1
             types[type_vals == 'S'] = -1
-            # 调用Numba函数
             buy_sweep_vol, sell_sweep_vol = _numba_detect_sweeps(
                 prices, volumes, tick_times, types,
                 min_len=3, price_mom_thresh=0.001, vol_conc_thresh=0.7
             )
-            # 计算总买卖量用于归一化
             total_buy = np.sum(volumes[types == 1])
             total_sell = np.sum(volumes[types == -1])
             if total_buy > 0:
