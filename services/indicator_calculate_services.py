@@ -1205,33 +1205,63 @@ class IndicatorCalculator:
         【V2.4 · 精确重构版】对手盘衰竭指数精细化计算
         核心逻辑：通过方向推力与总能量的效率背离，识别多空力量的边际衰减
         精确性原则：1) 确保时间对齐 2) 避免零值异常 3) 使用滚动标准化
+        新增探针机制：在每个计算节点验证数据完整性
         """
-        if df_minute is None or df_minute.empty or len(df_minute) < efficiency_window * 1440:
+        # 探针1：检查基础输入数据
+        if df_minute is None or df_minute.empty:
+            print("探针1: 输入数据为空")
             return None
+        
+        if len(df_minute) < efficiency_window * 1440:
+            print(f"探针2: 数据量不足，需要至少{efficiency_window*1440}分钟数据，当前{len(df_minute)}分钟")
+            return None
+        
         # 精确匹配列名，支持大小写变体
         open_col = next((c for c in df_minute.columns if c.lower().startswith('open')), None)
         high_col = next((c for c in df_minute.columns if c.lower().startswith('high')), None)
         low_col = next((c for c in df_minute.columns if c.lower().startswith('low')), None)
         close_col = next((c for c in df_minute.columns if c.lower().startswith('close')), None)
         volume_col = next((c for c in df_minute.columns if c.lower().startswith('volume')), None)
+        
         required_cols = [open_col, high_col, low_col, close_col, volume_col]
         if not all(required_cols):
+            missing = [name for name, col in zip(['open', 'high', 'low', 'close', 'volume'], required_cols) if col is None]
+            print(f"探针3: 缺失必要列: {missing}")
             return None
+        
+        # 探针4：检查列数据类型
+        for col_name, col in zip(['open', 'high', 'low', 'close', 'volume'], [open_col, high_col, low_col, close_col, volume_col]):
+            if not pd.api.types.is_numeric_dtype(df_minute[col]):
+                print(f"探针4: 列{col_name}({col})非数值类型")
+                return None
+        
         try:
             def _sync_calc():
                 df = df_minute.copy()
-                # 1. 分钟级别能量计算：使用绝对差值避免负值，加入微小常数防止零除
+                # 探针5：检查分钟数据时间连续性
+                time_diff = df.index.to_series().diff().dropna()
+                if time_diff.min() < pd.Timedelta(minutes=30):
+                    print(f"探针5: 时间间隔异常，最小间隔{time_diff.min()}")
+                
+                # 1. 分钟级别能量计算
                 price_precision = 1e-6
                 df['directional_thrust'] = (df[close_col] - df[open_col]).abs() * df[volume_col]
                 df['total_energy'] = (df[high_col] - df[low_col] + price_precision) * df[volume_col]
-                # 2. 严格按自然日聚合：确保开盘价为当日第一笔，收盘价为当日最后一笔
+                
+                # 探针6：检查分钟级衍生列
+                if df['directional_thrust'].isnull().any() or df['total_energy'].isnull().any():
+                    print("探针6: 分钟级衍生列存在空值")
+                    return None
+                
+                # 2. 严格按自然日聚合
                 daily_open = df[open_col].resample('D').first()
                 daily_close = df[close_col].resample('D').last()
                 daily_high = df[high_col].resample('D').max()
                 daily_low = df[low_col].resample('D').min()
                 daily_thrust = df['directional_thrust'].resample('D').sum()
                 daily_energy = df['total_energy'].resample('D').sum()
-                # 3. 构建日级DataFrame，对齐索引
+                
+                # 3. 构建日级DataFrame
                 daily_agg = pd.DataFrame({
                     'open': daily_open,
                     'close': daily_close,
@@ -1240,21 +1270,40 @@ class IndicatorCalculator:
                     'daily_thrust': daily_thrust,
                     'daily_energy': daily_energy
                 }).dropna()
-                if len(daily_agg) < efficiency_window:
+                
+                # 探针7：检查日级聚合结果
+                if daily_agg.empty:
+                    print("探针7: 日级聚合结果为空")
                     return None
-                # 4. 计算日涨跌幅：使用对数收益率提升对称性，避免开盘价为零
+                if len(daily_agg) < efficiency_window:
+                    print(f"探针8: 日级数据不足{len(daily_agg)}天，需要{efficiency_window}天")
+                    return None
+                
+                # 4. 计算日涨跌幅
                 daily_agg['daily_return'] = np.where(
                     daily_agg['open'] > price_precision,
                     np.log(daily_agg['close'] / daily_agg['open']),
                     0
                 )
-                # 5. 转换效率计算：加入平滑处理，使用指数加权移动标准差提升稳定性
+                
+                # 探针9：检查收益率计算
+                if daily_agg['daily_return'].isnull().any():
+                    print("探针9: 日收益率存在空值")
+                    return None
+                
+                # 5. 转换效率计算
                 daily_agg['conversion_efficiency'] = np.where(
                     daily_agg['daily_energy'] > 0,
                     daily_agg['daily_thrust'] / daily_agg['daily_energy'],
                     0
                 )
-                # 6. 效率Z-Score：使用滚动统计，加入稳定性常数
+                
+                # 探针10：检查转换效率
+                if daily_agg['conversion_efficiency'].isnull().any():
+                    print("探针10: 转换效率存在空值")
+                    return None
+                
+                # 6. 效率Z-Score
                 rolling_mean = daily_agg['conversion_efficiency'].rolling(
                     window=efficiency_window, min_periods=int(efficiency_window*0.7)
                 ).mean()
@@ -1263,20 +1312,57 @@ class IndicatorCalculator:
                 ).std()
                 stability_constant = 1e-9
                 efficiency_zscore = (daily_agg['conversion_efficiency'] - rolling_mean) / (rolling_std + stability_constant)
-                # 7. 精确衰竭信号：加入幅度过滤，避免微小波动误判
-                return_threshold = 0.001  # 0.1%最小涨跌幅要求
+                
+                # 探针11：检查Z-Score计算
+                if efficiency_zscore.isnull().any():
+                    print("探针11: Z-Score存在空值")
+                    return None
+                
+                # 7. 精确衰竭信号
+                return_threshold = 0.001
                 is_buying_exhaustion = (daily_agg['daily_return'] > return_threshold) & (efficiency_zscore < -0.8)
                 is_selling_exhaustion = (daily_agg['daily_return'] < -return_threshold) & (efficiency_zscore > 0.8)
-                # 8. 生成衰竭指数：-1表示买入衰竭，1表示卖出衰竭，0表示无信号
+                
+                # 探针12：检查信号生成
+                print(f"探针12: 买入衰竭信号数: {is_buying_exhaustion.sum()}, 卖出衰竭信号数: {is_selling_exhaustion.sum()}")
+                
+                # 8. 生成衰竭指数
                 exhaustion_index = pd.Series(0, index=daily_agg.index)
                 exhaustion_index[is_selling_exhaustion] = 1
                 exhaustion_index[is_buying_exhaustion] = -1
-                # 9. 后处理：连续同向信号只保留第一个（避免信号冗余）
+                
+                # 9. 后处理
                 exhaustion_index = exhaustion_index.replace(to_replace=0, method='ffill', limit=1)
                 exhaustion_index = exhaustion_index.diff().where(exhaustion_index.diff() != 0, exhaustion_index)
-                return pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
-            return await asyncio.to_thread(_sync_calc)
+                
+                # 探针13：检查最终输出
+                result_df = pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
+                if 'counterparty_exhaustion_index' not in result_df.columns:
+                    print("探针13: 结果DataFrame中未找到'counterparty_exhaustion_index'列")
+                    return None
+                
+                print(f"探针14: 成功生成衰竭指数，形状: {result_df.shape}, 索引范围: {result_df.index.min()} 到 {result_df.index.max()}")
+                print(f"探针15: 衰竭指数取值分布: {result_df['counterparty_exhaustion_index'].value_counts().to_dict()}")
+                
+                return result_df
+            
+            # 执行同步计算
+            result = await asyncio.to_thread(_sync_calc)
+            
+            # 探针16：检查最终返回结果
+            if result is None:
+                print("探针16: 计算函数返回None")
+            elif result.empty:
+                print("探针17: 计算函数返回空DataFrame")
+            else:
+                print(f"探针18: 成功返回DataFrame，形状: {result.shape}")
+            
+            return result
+            
         except Exception as e:
+            print(f"探针19: 发生未捕获异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
