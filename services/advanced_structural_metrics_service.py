@@ -2119,7 +2119,8 @@ def _numba_calculate_active_volume_price_efficiency(
     
     return float(correlation)
 
-@jit(nopython=True, parallel=True, nogil=True, cache=True)
+# 修改点 1: 移除 parallel=True
+@jit(nopython=True, cache=True) 
 def _numba_calculate_liquidity_authenticity_score(
     buy_price1_arr, buy_volume1_arr, sell_price1_arr, sell_volume1_arr,
     tick_prices_arr, tick_times_arr, level5_times_arr,
@@ -2143,7 +2144,8 @@ def _numba_calculate_liquidity_authenticity_score(
     commitments = []
     
     # 步骤1：识别异常大单（承诺）
-    for i in prange(n_level5):
+    # 修改点 2: 将 prange 改为普通的 range
+    for i in range(n_level5):
         # 识别买方大单
         if buy_volume1_arr[i] >= buy_commitment_threshold and buy_price1_arr[i] > 0:
             commitments.append((level5_times_arr[i], buy_price1_arr[i], 1, buy_volume1_arr[i]))
@@ -2152,7 +2154,8 @@ def _numba_calculate_liquidity_authenticity_score(
             commitments.append((level5_times_arr[i], sell_price1_arr[i], -1, sell_volume1_arr[i]))
     
     # 步骤2：追踪每个大单的命运
-    for i in prange(len(commitments)):
+    # 修改点 3: 将 prange 改为普通的 range (虽然这里并行没问题，但既然为了稳定关掉了parallel，这里也改回range)
+    for i in range(len(commitments)):
         commit_time, commit_price, direction, commit_volume = commitments[i]
         # 在tick数据中寻找后续的价格触及和成交情况
         found_touch = False
