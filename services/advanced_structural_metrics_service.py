@@ -1149,8 +1149,10 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
     if len(peaks) < 2 or len(troughs) < 2:
         return 0.0, 0.0, 0.0
     
-    # 合并排序
-    all_extrema = np.sort(np.concatenate([np.array(peaks), np.array(troughs)]))
+    # 合并排序 - 修复concatenate参数类型问题，使用元组而非列表
+    peaks_arr = np.array(peaks)
+    troughs_arr = np.array(troughs)
+    all_extrema = np.sort(np.concatenate((peaks_arr, troughs_arr)))
     
     total_momentum = 0.0
     positive_count = 0
@@ -1161,12 +1163,28 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
         current = all_extrema[i]
         next_ext = all_extrema[i+1]
         # 检查是否为低点-高点模式
-        if current in troughs and next_ext in peaks:
+        # 优化：避免使用 'in' 操作符和列表推导式，改用显式循环
+        is_trough = False
+        for t in troughs:
+            if t == current:
+                is_trough = True
+                break
+        if not is_trough:
+            continue
+        is_next_peak = False
+        for p in peaks:
+            if p == next_ext:
+                is_next_peak = True
+                break
+        if is_next_peak:
             # 找前一个高点
-            prev_peaks = [p for p in peaks if p < current]
-            if not prev_peaks:
+            prev_peak = -1
+            for p in peaks:
+                if p < current:
+                    if p > prev_peak:
+                        prev_peak = p
+            if prev_peak == -1:
                 continue
-            prev_peak = max(prev_peaks)
             # 计算下跌阶段
             fall_start = prev_peak
             fall_end = current
@@ -1200,10 +1218,8 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
             if momentum > 0:
                 positive_count += 1
                 recovery_sum += recovery_ratio
-    
     if valid_reversals == 0:
         return 0.0, 0.0, 0.0
-    
     # 计算最终指标
     avg_momentum = total_momentum / valid_reversals
     conviction_rate = positive_count / valid_reversals if valid_reversals > 0 else 0.0
