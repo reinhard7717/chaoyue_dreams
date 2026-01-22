@@ -1555,7 +1555,11 @@ class StructuralMetricsCalculators:
                     tail_thrust_purity = (buy_vol - sell_vol) / tail_total_vol
             
             # 获取VPOC
-            vpoc = context.get('today_vpoc', np.nan)
+            vpoc = context.get('today_vpoc') or context.get('poc_price') or context.get('_today_vpoc')
+            
+            # 确保 vpoc 是有效的数值（排除 None 或 NaN）
+            if vpoc is not None and not np.isfinite(vpoc):
+                vpoc = np.nan
             
             # ========================= [DIAGNOSTIC PROBE START] =========================
             if is_target_date:
