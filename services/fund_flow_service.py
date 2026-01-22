@@ -2965,7 +2965,6 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df_copy['price_change_pct'] = hf_analysis_df_copy['price_change'] / hf_analysis_df_copy['price'].shift(1)
         # 修复：填充 NaN 为 0，防止 Numba 计算异常
         hf_analysis_df_copy['price_acceleration'] = hf_analysis_df_copy['price_change_pct'].diff().fillna(0)
-        
         # 4. 计算盘口冲击指标（衡量交易对市场深度的影响）
         if all(col in hf_analysis_df_copy.columns for col in ['mid_price', 'prev_mid_price']):
             hf_analysis_df_copy['mid_price_change'] = hf_analysis_df_copy['mid_price'] - hf_analysis_df_copy['prev_mid_price']
@@ -2995,46 +2994,21 @@ class AdvancedFundFlowMetricsService:
         # 7. 计算成交量异常度（相对于近期平均）
         # 初始化 volume_zscore 为 0.0，确保所有位置都有值
         hf_analysis_df_copy['volume_zscore'] = 0.0
-
         if is_retail_trade.any():
             # 仅对被识别为散户的交易进行处理
             retail_indices = hf_analysis_df_copy.index[is_retail_trade]
             retail_volumes = hf_analysis_df_copy.loc[retail_indices, 'volume']
-
             if len(retail_volumes) > 1: # 至少需要两个零售交易才能计算有意义的标准差
                 # 计算零售交易成交量的滚动平均和标准差
-                # 注意：这里滚动计算是在 retail_volumes 这个 Series 上进行的
                 retail_volume_ma_50 = retail_volumes.rolling(window=50, min_periods=1).mean()
                 retail_volume_std_50 = retail_volumes.rolling(window=50, min_periods=1).std()
-
                 # 确保标准差不为0，避免除以零。使用一个小的正数代替0。
-                # 并且只对零售交易的z-score进行赋值
-                std_dev_safe = retail_volume_std_50.replace(0, 1e-10).fillna(1e-10) # Replace 0 and NaN with a small number
-                
+                std_dev_safe = retail_volume_std_50.replace(0, 1e-10).fillna(1e-10)
                 # 计算z-score，并将其赋值回 hf_analysis_df_copy 的相应位置
                 hf_analysis_df_copy.loc[retail_indices, 'volume_zscore'] = \
                     (retail_volumes - retail_volume_ma_50) / std_dev_safe
-                
-                # 探针：检查零售交易的z-score
-                if should_probe:
-                    print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 零售交易量统计] {stock_code} {current_date} ---")
-                    print(f"  - retail_volume_ma_50 (for retail trades) head:\n{retail_volume_ma_50.head().to_string()}")
-                    print(f"  - retail_volume_ma_50 (for retail trades) NaNs: {retail_volume_ma_50.isna().sum()}")
-                    print(f"  - retail_volume_std_50 (for retail trades) head:\n{retail_volume_std_50.head().to_string()}")
-                    print(f"  - retail_volume_std_50 (for retail trades) NaNs: {retail_volume_std_50.isna().sum()}")
-                    print(f"  - volume_zscore (for retail trades) head:\n{hf_analysis_df_copy.loc[retail_indices, 'volume_zscore'].head().to_string()}")
-                    print(f"  - volume_zscore (for retail trades) NaNs: {hf_analysis_df_copy.loc[retail_indices, 'volume_zscore'].isna().sum()}")
-            else:
-                # 如果只有一个或没有零售交易，则z-score保持为0.0
-                if should_probe:
-                    print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 零售交易量统计] {stock_code} {current_date} ---")
-                    print(f"  - Not enough retail trades ({len(retail_volumes)}) to calculate rolling z-score. volume_zscore will remain 0.0 for these.")
-        
         # 最终确保 volume_zscore_arr 传递给 Numba 时没有 NaN
-        # Numba函数会根据 is_retail_arr 过滤，所以非零售交易的z-score值不影响结果
-        # 但为了安全，可以填充NaN为0
         hf_analysis_df_copy['volume_zscore'].fillna(0, inplace=True)
-
         # 8. 准备Numba函数需要的数据数组
         hf_analysis_df_copy['type_numeric'] = np.select(
             [hf_analysis_df_copy['type'] == 'B', hf_analysis_df_copy['type'] == 'S'],
@@ -3811,14 +3785,6 @@ class AdvancedFundFlowMetricsService:
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
         # 探针：检查即将保存的数据中 retail_fomo_premium_index 和 retail_panic_surrender_index 的值
         should_probe = self.debug_params.get('should_probe', False)
-        if should_probe and not df_filtered.empty:
-            print(f"\n--- [探针 _prepare_and_save_data] {stock_code} - 准备保存数据 ---")
-            last_row = df_filtered.iloc[-1]
-            last_date = df_filtered.index[-1].strftime('%Y-%m-%d')
-            print(f"  - 日期: {last_date}")
-            print(f"  - retail_fomo_premium_index (最后一行): {last_row.get('retail_fomo_premium_index', np.nan):.4f}")
-            print(f"  - retail_panic_surrender_index (最后一行): {last_row.get('retail_panic_surrender_index', np.nan):.4f}")
-            print(f"--- [探针 _prepare_and_save_data 结束] ---")
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):
