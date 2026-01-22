@@ -1567,11 +1567,11 @@ class AdvancedFundFlowMetricsService:
                 print(f"  - hf_analysis_df is empty, returning empty masks.")
             return empty_mask, empty_mask
         # 探针：检查输入数据
-        if should_probe:
-            print(f"\n--- [探针 _identify_trade_participants - 输入数据检查] {stock_code} {current_date} ---")
-            print(f"  - hf_analysis_df shape: {hf_analysis_df.shape}")
-            print(f"  - hf_analysis_df['amount'] describe:\n{hf_analysis_df['amount'].describe()}")
-            print(f"  - hf_analysis_df['volume'] describe:\n{hf_analysis_df['volume'].describe()}")
+        # if should_probe:
+        #     print(f"\n--- [探针 _identify_trade_participants - 输入数据检查] {stock_code} {current_date} ---")
+        #     print(f"  - hf_analysis_df shape: {hf_analysis_df.shape}")
+        #     print(f"  - hf_analysis_df['amount'] describe:\n{hf_analysis_df['amount'].describe()}")
+        #     print(f"  - hf_analysis_df['volume'] describe:\n{hf_analysis_df['volume'].describe()}")
         # 基于3秒聚合数据的特性调整参数
         # 1. 数据特性分析：3秒聚合意味着单笔交易可能是多个原始交易的合并
         #    因此需要更高的阈值来区分主力和散户
@@ -1647,15 +1647,15 @@ class AdvancedFundFlowMetricsService:
         # 4.5 综合判断散户交易
         # 散户交易需要同时满足：小金额、小成交量、正常价格冲击、非攻击性交易、正常盘口压力
         is_retail_trade = small_amount_mask & small_volume_mask & normal_price_impact & non_aggressive_trade & normal_bid_ask_pressure
-        if should_probe:
-            print(f"  - 动态阈值计算:")
-            print(f"    - retail_amount_threshold (P{retail_amount_percentile}): {retail_amount_threshold:.2f}")
-            print(f"    - main_force_amount_threshold (P{main_force_amount_percentile}): {main_force_amount_threshold:.2f}")
-            print(f"    - retail_volume_threshold (P{retail_volume_percentile}): {retail_volume_threshold:.2f}")
-            print(f"    - main_force_volume_threshold (P{main_force_volume_percentile}): {main_force_volume_threshold:.2f}")
-            print(f"  - small_amount_mask count (amount <= {retail_amount_threshold:.2f}): {small_amount_mask.sum()}")
-            print(f"  - small_volume_mask count (volume <= {retail_volume_threshold:.2f}): {small_volume_mask.sum()}")
-            print(f"  - is_retail_trade count (after all conditions): {is_retail_trade.sum()}")
+        # if should_probe:
+        #     print(f"  - 动态阈值计算:")
+        #     print(f"    - retail_amount_threshold (P{retail_amount_percentile}): {retail_amount_threshold:.2f}")
+        #     print(f"    - main_force_amount_threshold (P{main_force_amount_percentile}): {main_force_amount_threshold:.2f}")
+        #     print(f"    - retail_volume_threshold (P{retail_volume_percentile}): {retail_volume_threshold:.2f}")
+        #     print(f"    - main_force_volume_threshold (P{main_force_volume_percentile}): {main_force_volume_threshold:.2f}")
+        #     print(f"  - small_amount_mask count (amount <= {retail_amount_threshold:.2f}): {small_amount_mask.sum()}")
+        #     print(f"  - small_volume_mask count (volume <= {retail_volume_threshold:.2f}): {small_volume_mask.sum()}")
+        #     print(f"  - is_retail_trade count (after all conditions): {is_retail_trade.sum()}")
         # 5. 主力交易识别逻辑（在排除散户后进行）
         is_main_force_trade = pd.Series(False, index=hf_analysis_df.index, dtype=bool)
         # 5.1 绝对阈值条件：金额或成交量显著超过阈值
@@ -1713,16 +1713,16 @@ class AdvancedFundFlowMetricsService:
                     is_main_force_trade.loc[idx] = True
                 else:
                     is_retail_trade.loc[idx] = True
-        if should_probe:
-            print(f"  - large_amount_mask count (amount >= {main_force_amount_threshold:.2f}): {large_amount_mask.sum()}")
-            print(f"  - large_volume_mask count (volume >= {main_force_volume_threshold:.2f}): {large_volume_mask.sum()}")
-            print(f"  - amount_anomaly_mask count (amount > mean+2*std): {amount_anomaly_mask.sum()}")
-            print(f"  - is_main_force_trade count (after all conditions): {is_main_force_trade.sum()}")
-            print(f"  - 最终分类统计:")
-            print(f"    - 主力交易: {is_main_force_trade.sum()} ({is_main_force_trade.sum()/total_trades*100:.1f}%)")
-            print(f"    - 散户交易: {is_retail_trade.sum()} ({is_retail_trade.sum()/total_trades*100:.1f}%)")
-            print(f"    - 未分类: {total_trades - is_main_force_trade.sum() - is_retail_trade.sum()}")
-            print(f"--- [探针 _identify_trade_participants 结束] ---")
+        # if should_probe:
+        #     print(f"  - large_amount_mask count (amount >= {main_force_amount_threshold:.2f}): {large_amount_mask.sum()}")
+        #     print(f"  - large_volume_mask count (volume >= {main_force_volume_threshold:.2f}): {large_volume_mask.sum()}")
+        #     print(f"  - amount_anomaly_mask count (amount > mean+2*std): {amount_anomaly_mask.sum()}")
+        #     print(f"  - is_main_force_trade count (after all conditions): {is_main_force_trade.sum()}")
+        #     print(f"  - 最终分类统计:")
+        #     print(f"    - 主力交易: {is_main_force_trade.sum()} ({is_main_force_trade.sum()/total_trades*100:.1f}%)")
+        #     print(f"    - 散户交易: {is_retail_trade.sum()} ({is_retail_trade.sum()/total_trades*100:.1f}%)")
+        #     print(f"    - 未分类: {total_trades - is_main_force_trade.sum() - is_retail_trade.sum()}")
+        #     print(f"--- [探针 _identify_trade_participants 结束] ---")
         return is_main_force_trade, is_retail_trade
 
     @staticmethod
@@ -2915,11 +2915,11 @@ class AdvancedFundFlowMetricsService:
         }
         # 基础验证
         atr = common_data['atr']
-        if should_probe:
-            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 初始检查] {stock_code} {current_date} ---")
-            print(f"  - hf_analysis_df.empty: {hf_analysis_df.empty}")
-            print(f"  - atr: {atr}")
-            print(f"  - daily_vwap: {common_data.get('daily_vwap')}")
+        # if should_probe:
+        #     print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 初始检查] {stock_code} {current_date} ---")
+        #     print(f"  - hf_analysis_df.empty: {hf_analysis_df.empty}")
+        #     print(f"  - atr: {atr}")
+        #     print(f"  - daily_vwap: {common_data.get('daily_vwap')}")
         if hf_analysis_df.empty or pd.isna(atr) or atr <= 0:
             if should_probe:
                 print(f"  - 提前返回，因为 hf_analysis_df 为空或 atr 无效。")
@@ -3040,24 +3040,24 @@ class AdvancedFundFlowMetricsService:
         else:
             volume_zscore_arr = volume_zscore_series_or_array
         volume_zscore_arr = volume_zscore_arr.astype(np.float64)
-        if should_probe:
-            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - Numba输入检查] {stock_code} {current_date} ---")
-            print(f"  - prices_arr shape: {prices_arr.shape}, dtype: {prices_arr.dtype}, sample: {prices_arr[:5]}")
-            print(f"  - volumes_arr shape: {volumes_arr.shape}, dtype: {volumes_arr.dtype}, sample: {volumes_arr[:5]}")
-            print(f"  - amounts_arr shape: {amounts_arr.shape}, dtype: {amounts_arr.dtype}, sample: {amounts_arr[:5]}")
-            print(f"  - types_arr shape: {types_arr.shape}, dtype: {types_arr.dtype}, sample: {types_arr[:5]}")
-            print(f"  - sell_price1s_arr shape: {sell_price1s_arr.shape}, dtype: {sell_price1s_arr.dtype}, sample: {sell_price1s_arr[:5]}")
-            print(f"  - buy_price1s_arr shape: {buy_price1s_arr.shape}, dtype: {buy_price1s_arr.dtype}, sample: {buy_price1s_arr[:5]}")
-            print(f"  - is_new_highs_arr shape: {is_new_highs_arr.shape}, dtype: {is_new_highs_arr.dtype}, sum: {is_new_highs_arr.sum()}")
-            print(f"  - is_new_lows_arr shape: {is_new_lows_arr.shape}, dtype: {is_new_lows_arr.dtype}, sum: {is_new_lows_arr.sum()}")
-            print(f"  - is_retail_arr shape: {is_retail_arr.shape}, dtype: {is_retail_arr.dtype}, sum: {is_retail_arr.sum()}")
-            print(f"  - aggressive_buy_arr shape: {aggressive_buy_arr.shape}, dtype: {aggressive_buy_arr.dtype}, sum: {aggressive_buy_arr.sum()}")
-            print(f"  - aggressive_sell_arr shape: {aggressive_sell_arr.shape}, dtype: {aggressive_sell_arr.dtype}, sum: {aggressive_sell_arr.sum()}")
-            print(f"  - price_acceleration_arr shape: {price_acceleration_arr.shape}, dtype: {price_acceleration_arr.dtype}, sample: {price_acceleration_arr[:5]}")
-            print(f"  - volume_zscore_arr shape: {volume_zscore_arr.shape}, dtype: {volume_zscore_arr.dtype}, sample: {volume_zscore_arr[:5]}")
-            print(f"  - atr (float): {float(atr)}")
-            print(f"  - cost_mf_sell (float): {float(cost_mf_sell) if pd.notna(cost_mf_sell) else np.nan}")
-            print(f"  - cost_mf_buy (float): {float(cost_mf_buy) if pd.notna(cost_mf_buy) else np.nan}")
+        # if should_probe:
+        #     print(f"\n--- [探针 _calculate_retail_sentiment_metrics - Numba输入检查] {stock_code} {current_date} ---")
+        #     print(f"  - prices_arr shape: {prices_arr.shape}, dtype: {prices_arr.dtype}, sample: {prices_arr[:5]}")
+        #     print(f"  - volumes_arr shape: {volumes_arr.shape}, dtype: {volumes_arr.dtype}, sample: {volumes_arr[:5]}")
+        #     print(f"  - amounts_arr shape: {amounts_arr.shape}, dtype: {amounts_arr.dtype}, sample: {amounts_arr[:5]}")
+        #     print(f"  - types_arr shape: {types_arr.shape}, dtype: {types_arr.dtype}, sample: {types_arr[:5]}")
+        #     print(f"  - sell_price1s_arr shape: {sell_price1s_arr.shape}, dtype: {sell_price1s_arr.dtype}, sample: {sell_price1s_arr[:5]}")
+        #     print(f"  - buy_price1s_arr shape: {buy_price1s_arr.shape}, dtype: {buy_price1s_arr.dtype}, sample: {buy_price1s_arr[:5]}")
+        #     print(f"  - is_new_highs_arr shape: {is_new_highs_arr.shape}, dtype: {is_new_highs_arr.dtype}, sum: {is_new_highs_arr.sum()}")
+        #     print(f"  - is_new_lows_arr shape: {is_new_lows_arr.shape}, dtype: {is_new_lows_arr.dtype}, sum: {is_new_lows_arr.sum()}")
+        #     print(f"  - is_retail_arr shape: {is_retail_arr.shape}, dtype: {is_retail_arr.dtype}, sum: {is_retail_arr.sum()}")
+        #     print(f"  - aggressive_buy_arr shape: {aggressive_buy_arr.shape}, dtype: {aggressive_buy_arr.dtype}, sum: {aggressive_buy_arr.sum()}")
+        #     print(f"  - aggressive_sell_arr shape: {aggressive_sell_arr.shape}, dtype: {aggressive_sell_arr.dtype}, sum: {aggressive_sell_arr.sum()}")
+        #     print(f"  - price_acceleration_arr shape: {price_acceleration_arr.shape}, dtype: {price_acceleration_arr.dtype}, sample: {price_acceleration_arr[:5]}")
+        #     print(f"  - volume_zscore_arr shape: {volume_zscore_arr.shape}, dtype: {volume_zscore_arr.dtype}, sample: {volume_zscore_arr[:5]}")
+        #     print(f"  - atr (float): {float(atr)}")
+        #     print(f"  - cost_mf_sell (float): {float(cost_mf_sell) if pd.notna(cost_mf_sell) else np.nan}")
+        #     print(f"  - cost_mf_buy (float): {float(cost_mf_buy) if pd.notna(cost_mf_buy) else np.nan}")
         # 9. 调用改进的Numba函数进行精细化计算
         (total_weighted_fomo_score, total_fomo_volume, total_fomo_amount,
          total_weighted_panic_score, total_panic_volume, total_panic_amount,
@@ -3071,25 +3071,25 @@ class AdvancedFundFlowMetricsService:
                 float(atr), float(cost_mf_sell) if pd.notna(cost_mf_sell) else np.nan,
                 float(cost_mf_buy) if pd.notna(cost_mf_buy) else np.nan
             )
-        if should_probe:
-            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - Numba输出检查] {stock_code} {current_date} ---")
-            print(f"  - total_weighted_fomo_score: {total_weighted_fomo_score}")
-            print(f"  - total_fomo_volume: {total_fomo_volume}")
-            print(f"  - total_fomo_amount: {total_fomo_amount}")
-            print(f"  - fomo_count: {fomo_count}")
-            print(f"  - total_weighted_panic_score: {total_weighted_panic_score}")
-            print(f"  - total_panic_volume: {total_panic_volume}")
-            print(f"  - total_panic_amount: {total_panic_amount}")
-            print(f"  - panic_count: {panic_count}")
+        # if should_probe:
+        #     print(f"\n--- [探针 _calculate_retail_sentiment_metrics - Numba输出检查] {stock_code} {current_date} ---")
+        #     print(f"  - total_weighted_fomo_score: {total_weighted_fomo_score}")
+        #     print(f"  - total_fomo_volume: {total_fomo_volume}")
+        #     print(f"  - total_fomo_amount: {total_fomo_amount}")
+        #     print(f"  - fomo_count: {fomo_count}")
+        #     print(f"  - total_weighted_panic_score: {total_weighted_panic_score}")
+        #     print(f"  - total_panic_volume: {total_panic_volume}")
+        #     print(f"  - total_panic_amount: {total_panic_amount}")
+        #     print(f"  - panic_count: {panic_count}")
         # 10. 计算最终指标（增加多重验证和归一化）
         total_retail_volume = hf_analysis_df_copy.loc[is_retail_trade, 'volume'].sum()
         total_retail_amount = hf_analysis_df_copy.loc[is_retail_trade, 'amount'].sum()
-        if should_probe:
-            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 最终指标条件检查] {stock_code} {current_date} ---")
-            print(f"  - total_retail_volume: {total_retail_volume}")
-            print(f"  - total_retail_amount: {total_retail_amount}")
-            print(f"  - Condition for FOMO: total_fomo_volume > 0 ({total_fomo_volume > 0}) and total_fomo_amount > 0 ({total_fomo_amount > 0})")
-            print(f"  - Condition for Panic: total_panic_volume > 0 ({total_panic_volume > 0}) and total_panic_amount > 0 ({total_panic_amount > 0})")
+        # if should_probe:
+        #     print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 最终指标条件检查] {stock_code} {current_date} ---")
+        #     print(f"  - total_retail_volume: {total_retail_volume}")
+        #     print(f"  - total_retail_amount: {total_retail_amount}")
+        #     print(f"  - Condition for FOMO: total_fomo_volume > 0 ({total_fomo_volume > 0}) and total_fomo_amount > 0 ({total_fomo_amount > 0})")
+        #     print(f"  - Condition for Panic: total_panic_volume > 0 ({total_panic_volume > 0}) and total_panic_amount > 0 ({total_panic_amount > 0})")
         # FOMO指数计算
         if total_fomo_volume > 0 and total_fomo_amount > 0:
             # 计算加权平均FOMO分数（考虑成交量和价格加速度）
@@ -3128,11 +3128,11 @@ class AdvancedFundFlowMetricsService:
                 # 防止极端值，截断到合理范围[-100, 100]
                 metrics[key] = max(-100.0, min(100.0, metrics[key]))
         # 探针：检查计算后的 retail_fomo_premium_index 和 retail_panic_surrender_index
-        if should_probe:
-            print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 最终结果] {stock_code} {current_date} ---")
-            print(f"  - retail_fomo_premium_index: {metrics.get('retail_fomo_premium_index', np.nan):.4f}")
-            print(f"  - retail_panic_surrender_index: {metrics.get('retail_panic_surrender_index', np.nan):.4f}")
-            print(f"--- [探针 _calculate_retail_sentiment_metrics 结束] ---")
+        # if should_probe:
+        #     print(f"\n--- [探针 _calculate_retail_sentiment_metrics - 最终结果] {stock_code} {current_date} ---")
+        #     print(f"  - retail_fomo_premium_index: {metrics.get('retail_fomo_premium_index', np.nan):.4f}")
+        #     print(f"  - retail_panic_surrender_index: {metrics.get('retail_panic_surrender_index', np.nan):.4f}")
+        #     print(f"--- [探针 _calculate_retail_sentiment_metrics 结束] ---")
         return metrics
 
     @staticmethod
