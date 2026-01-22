@@ -535,7 +535,7 @@ class IndicatorService:
             minute_tf = pattern_enhancement_params.get('minute_level_tf')
             if minute_tf:
                 required_tfs.add(minute_tf)
-                logger.info(f"检测到形态增强信号已启用，已将分钟周期 '{minute_tf}' 加入数据获取计划。")
+                print(f"检测到形态增强信号已启用，已将分钟周期 '{minute_tf}' 加入数据获取计划。")
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
