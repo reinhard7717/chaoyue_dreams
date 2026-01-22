@@ -7,6 +7,8 @@ from scipy.stats import norm, linregress
 import numba
 from typing import Tuple
 from asgiref.sync import sync_to_async
+from scipy.signal import find_peaks
+from sklearn.preprocessing import minmax_scale
 from stock_models.stock_basic import StockInfo
 from stock_models.advanced_metrics import BaseAdvancedStructuralMetrics
 from utils.model_helpers import (
@@ -1260,10 +1262,12 @@ class StructuralMetricsCalculators:
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
+        # 计算日内能量密度
         if pd.notna(atr_14) and atr_14 > 0:
-            turnover_rate_f = context.get('turnover_rate_f') # 从 context 中获取 turnover_rate_f
+            turnover_rate_f = context.get('turnover_rate_f')
             if pd.notna(turnover_rate_f):
                 results['intraday_energy_density'] = np.log1p(turnover_rate_f) / atr_14
+        # 计算日内推力纯度
         if tick_df is not None and not tick_df.empty:
             total_volume = tick_df['volume'].sum()
             if total_volume > 0:
@@ -1283,138 +1287,537 @@ class StructuralMetricsCalculators:
             total_energy = absolute_energy.sum()
             if total_energy > 0:
                 results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
+        # 重构成交量爆发性指数
         if tick_df is not None and not tick_df.empty:
-            results['volume_burstiness_index'] = StructuralMetricsCalculators.calculate_gini(tick_df['volume'].values)
+            volume_series = tick_df['volume']
+            mean_volume = volume_series.mean()
+            if mean_volume > 0:
+                cv = volume_series.std() / mean_volume
+                kurtosis = volume_series.kurtosis()
+                burst_ratio = (volume_series > 2 * mean_volume).sum() / len(volume_series)
+                burst_intensity = volume_series[volume_series > 2 * mean_volume].mean() / mean_volume if burst_ratio > 0 else 1.0
+                results['volume_burstiness_index'] = np.tanh(
+                    0.4 * np.log1p(cv) + 
+                    0.3 * np.log1p(max(0, kurtosis)) + 
+                    0.2 * burst_ratio + 
+                    0.1 * np.log1p(burst_intensity)
+                )
+            else:
+                results['volume_burstiness_index'] = 0.0
         else:
-            results['volume_burstiness_index'] = StructuralMetricsCalculators.calculate_gini(group['vol'].values)
+            volume_series = group['vol']
+            mean_volume = volume_series.mean()
+            if mean_volume > 0:
+                cv = volume_series.std() / mean_volume
+                kurtosis = volume_series.kurtosis()
+                burst_ratio = (volume_series > 2 * mean_volume).sum() / len(volume_series)
+                burst_intensity = volume_series[volume_series > 2 * mean_volume].mean() / mean_volume if burst_ratio > 0 else 1.0
+                results['volume_burstiness_index'] = np.tanh(
+                    0.4 * np.log1p(cv) + 
+                    0.3 * np.log1p(max(0, kurtosis)) + 
+                    0.2 * burst_ratio + 
+                    0.1 * np.log1p(burst_intensity)
+                )
+            else:
+                results['volume_burstiness_index'] = 0.0
+        # 重构集合竞价影响分数
         if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
             gap_magnitude = (day_open_qfq - pre_close_qfq) / atr_14
             if tick_df is not None and not tick_df.empty and level5_df is not None and not level5_df.empty:
-                opening_ticks = tick_df[tick_df.index.time < time(9, 35)]
-                opening_level5 = level5_df[level5_df.index.time < time(9, 35)]
-                if not opening_ticks.empty and not opening_level5.empty:
-                    merged_hf = pd.merge_asof(opening_ticks.sort_index(), opening_level5.sort_index(), on='trade_time', direction='backward')
+                auction_ticks = tick_df[tick_df.index.time < time(9, 25)]
+                auction_level5 = level5_df[level5_df.index.time < time(9, 25)]
+                if len(auction_ticks) < 5 or len(auction_level5) < 5:
+                    auction_ticks = tick_df[tick_df.index.time < time(9, 35)]
+                    auction_level5 = level5_df[level5_df.index.time < time(9, 35)]
+                if not auction_ticks.empty and not auction_level5.empty:
+                    merged_hf = pd.merge_asof(
+                        auction_ticks.sort_index(), 
+                        auction_level5.sort_index(), 
+                        left_index=True, 
+                        right_index=True,
+                        direction='backward',
+                        tolerance=pd.Timedelta('2s')
+                    )
                     merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
+                    merged_hf['bid_ask_spread'] = merged_hf['sell_price1'] - merged_hf['buy_price1']
                     merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
-                    buy_pressure = np.where(merged_hf['mid_price'] >= merged_hf['prev_mid_price'], merged_hf['buy_volume1'].shift(1), 0)
-                    sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
+                    buy_pressure = np.where(
+                        merged_hf['mid_price'] > merged_hf['prev_mid_price'],
+                        merged_hf['buy_volume1'].shift(1) / (merged_hf['bid_ask_spread'].shift(1) + 1e-6),
+                        0
+                    )
+                    sell_pressure = np.where(
+                        merged_hf['mid_price'] < merged_hf['prev_mid_price'],
+                        merged_hf['sell_volume1'].shift(1) / (merged_hf['bid_ask_spread'].shift(1) + 1e-6),
+                        0
+                    )
                     merged_hf['ofi'] = buy_pressure - sell_pressure
-                    opening_ofi = merged_hf['ofi'].sum()
+                    cumulative_ofi = merged_hf['ofi'].cumsum()
                     opening_volume = merged_hf['volume'].sum()
                     if opening_volume > 0:
-                        conviction_factor = np.tanh(opening_ofi / opening_volume)
-                        results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor * np.sign(gap_magnitude))
+                        price_range = merged_hf['price'].max() - merged_hf['price'].min()
+                        if price_range > 0:
+                            ofi_efficiency = cumulative_ofi.iloc[-1] / (price_range * opening_volume + 1e-6)
+                            price_change = merged_hf['price'].iloc[-1] - merged_hf['price'].iloc[0]
+                            direction_consistency = np.sign(price_change) * np.sign(cumulative_ofi.iloc[-1])
+                            conviction_factor = np.tanh(
+                                0.7 * (cumulative_ofi.iloc[-1] / (opening_volume + 1e-6)) + 
+                                0.3 * ofi_efficiency
+                            ) * max(0, direction_consistency)
+                            results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor)
+                        else:
+                            results['auction_impact_score'] = gap_magnitude
                     else:
                         results['auction_impact_score'] = gap_magnitude
                 else:
                     results['auction_impact_score'] = gap_magnitude
             else:
                 results['auction_impact_score'] = gap_magnitude
+        # 重构动态反转强度、反转确信率和反转恢复率
         try:
-            from scipy.signal import find_peaks
-            prominence_source = "静态回退"
             if pd.notna(atr_14) and atr_14 > 0:
-                dynamic_prominence = atr_14 * 0.05
-                prominence_source = f"动态ATR({atr_14:.2f}*5%)"
+                price_prominence = atr_14 * 0.03
+                volume_threshold = group['vol'].mean() * 1.2
             else:
-                dynamic_prominence = 0.01
-            peaks, _ = find_peaks(group['high'], distance=5, prominence=dynamic_prominence)
-            troughs, _ = find_peaks(-group['low'], distance=5, prominence=dynamic_prominence)
-            if len(troughs) > 0 and len(peaks) > 0:
-                reversal_details = []
-                all_extrema = sorted(np.concatenate([peaks, troughs]))
-                first_trough_idx = -1
-                for i, extremum_pos in enumerate(all_extrema):
-                    if extremum_pos in troughs:
-                        first_trough_idx = i
-                        break
-                if first_trough_idx != -1:
-                    for i in range(first_trough_idx, len(all_extrema) - 1):
-                        if all_extrema[i] in troughs and all_extrema[i+1] in peaks:
-                            trough_pos = all_extrema[i]
-                            peak_pos = all_extrema[i+1]
-                            prev_peak_candidates = peaks[peaks < trough_pos]
-                            if len(prev_peak_candidates) > 0:
-                                prev_peak_pos = prev_peak_candidates[-1]
-                                falling_phase = group.iloc[prev_peak_pos:trough_pos+1]
-                                rebounding_phase = group.iloc[trough_pos:peak_pos+1]
-                                vol_fall = falling_phase['vol'].sum()
-                                vol_rebound = rebounding_phase['vol'].sum()
-                                if not falling_phase.empty and not rebounding_phase.empty and \
-                                   vol_fall > 0 and vol_rebound > 0:
-                                    vwap_fall = falling_phase['amount'].sum() / vol_fall
-                                    vwap_rebound = rebounding_phase['amount'].sum() / vol_rebound
-                                    if vwap_fall > 0:
-                                        price_momentum = (vwap_rebound / vwap_fall - 1)
-                                        fall_magnitude = group.iloc[prev_peak_pos]['high'] - group.iloc[trough_pos]['low']
-                                        rebound_magnitude = group.iloc[peak_pos]['high'] - group.iloc[trough_pos]['low']
-                                        recovery_rate = rebound_magnitude / fall_magnitude if fall_magnitude > 0 else 0
-                                        if recovery_rate > 1:
-                                            volume_factor = np.log1p(vol_rebound / vol_fall)
-                                        else:
-                                            volume_factor = np.log1p(vol_fall / vol_rebound)
-                                        momentum = (price_momentum * volume_factor) * 100
-                                        reversal_details.append({
-                                            "momentum": momentum,
-                                            "fall_magnitude": fall_magnitude,
-                                            "rebound_magnitude": rebound_magnitude
-                                        })
+                price_prominence = 0.01
+                volume_threshold = group['vol'].mean()
+            high_price_peaks, high_properties = find_peaks(
+                group['high'], 
+                distance=8,
+                prominence=price_prominence,
+                width=3
+            )
+            low_price_peaks, low_properties = find_peaks(
+                -group['low'], 
+                distance=8,
+                prominence=price_prominence,
+                width=3
+            )
+            valid_high_peaks = []
+            valid_low_peaks = []
+            for peak_idx in high_price_peaks:
+                if peak_idx < 5 or peak_idx > len(group) - 5:
+                    continue
+                window_start = max(0, peak_idx - 3)
+                window_end = min(len(group), peak_idx + 3)
+                peak_volume = group.iloc[peak_idx]['vol']
+                window_volumes = group.iloc[window_start:window_end]['vol']
+                avg_window_volume = window_volumes.mean()
+                if peak_volume > avg_window_volume * 0.8:
+                    valid_high_peaks.append(peak_idx)
+            for trough_idx in low_price_peaks:
+                if trough_idx < 5 or trough_idx > len(group) - 5:
+                    continue
+                window_start = max(0, trough_idx - 3)
+                window_end = min(len(group), trough_idx + 3)
+                trough_volume = group.iloc[trough_idx]['vol']
+                window_volumes = group.iloc[window_start:window_end]['vol']
+                avg_window_volume = window_volumes.mean()
+                if trough_volume > avg_window_volume * 0.7:
+                    valid_low_peaks.append(trough_idx)
+            if len(valid_high_peaks) < 2 or len(valid_low_peaks) < 2:
+                valid_high_peaks = high_price_peaks.tolist()
+                valid_low_peaks = low_price_peaks.tolist()
+            all_extrema = sorted(set(valid_high_peaks + valid_low_peaks))
+            reversal_details = []
+            for i in range(len(all_extrema) - 1):
+                current_idx = all_extrema[i]
+                next_idx = all_extrema[i + 1]
+                if current_idx in valid_low_peaks and next_idx in valid_high_peaks:
+                    prev_high_candidates = [idx for idx in valid_high_peaks if idx < current_idx]
+                    if not prev_high_candidates:
+                        continue
+                    prev_high_idx = prev_high_candidates[-1]
+                    falling_start_idx = prev_high_idx
+                    falling_end_idx = current_idx
+                    rebound_start_idx = current_idx
+                    rebound_end_idx = next_idx
+                    falling_length = falling_end_idx - falling_start_idx
+                    rebound_length = rebound_end_idx - rebound_start_idx
+                    if falling_length < 3 or rebound_length < 3:
+                        continue
+                    falling_phase = group.iloc[falling_start_idx:falling_end_idx+1]
+                    rebounding_phase = group.iloc[rebound_start_idx:rebound_end_idx+1]
+                    vol_fall = falling_phase['vol'].sum()
+                    vol_rebound = rebounding_phase['vol'].sum()
+                    if vol_fall == 0 or vol_rebound == 0:
+                        continue
+                    vwap_fall = falling_phase['amount'].sum() / vol_fall
+                    vwap_rebound = rebounding_phase['amount'].sum() / vol_rebound
+                    price_change_fall = falling_phase.iloc[0]['high'] - falling_phase.iloc[-1]['low']
+                    price_change_rebound = rebounding_phase.iloc[-1]['high'] - rebounding_phase.iloc[0]['low']
+                    if pd.notna(atr_14) and atr_14 > 0:
+                        normalized_fall = price_change_fall / atr_14
+                        normalized_rebound = price_change_rebound / atr_14
+                    else:
+                        normalized_fall = price_change_fall / (day_high_qfq - day_low_qfq + 1e-6)
+                        normalized_rebound = price_change_rebound / (day_high_qfq - day_low_qfq + 1e-6)
+                    volume_ratio = np.log1p(vol_rebound / vol_fall)
+                    vwap_momentum = (vwap_rebound / vwap_fall - 1) * 100
+                    recovery_ratio = price_change_rebound / price_change_fall if price_change_fall > 0 else 0
+                    rebound_prices = rebounding_phase['close'].values
+                    rebound_times = np.arange(len(rebound_prices))
+                    if len(rebound_times) >= 3:
+                        slope, _, r_value, _, _ = linregress(rebound_times, rebound_prices)
+                        trend_strength = r_value ** 2 * np.sign(slope)
+                    else:
+                        trend_strength = 0
+                    composite_strength = (
+                        0.4 * recovery_ratio + 
+                        0.3 * np.tanh(volume_ratio) + 
+                        0.2 * np.tanh(vwap_momentum / 100) + 
+                        0.1 * trend_strength
+                    )
+                    normalized_strength = np.tanh(composite_strength * 2)
+                    confidence_factors = []
+                    if recovery_ratio > 0.5:
+                        confidence_factors.append(1.0)
+                    else:
+                        confidence_factors.append(recovery_ratio)
+                    if volume_ratio > 0:
+                        confidence_factors.append(1.0)
+                    else:
+                        confidence_factors.append(0.3)
+                    if vwap_momentum > 0:
+                        confidence_factors.append(1.0)
+                    else:
+                        confidence_factors.append(0.5)
+                    if trend_strength > 0:
+                        confidence_factors.append(1.0)
+                    else:
+                        confidence_factors.append(0.5)
+                    confidence_score = np.mean(confidence_factors) if confidence_factors else 0.5
+                    final_momentum = normalized_strength * confidence_score
+                    reversal_details.append({
+                        "momentum": final_momentum,
+                        "recovery_ratio": recovery_ratio,
+                        "volume_ratio": volume_ratio,
+                        "vwap_momentum": vwap_momentum,
+                        "trend_strength": trend_strength,
+                        "confidence": confidence_score,
+                        "fall_magnitude": price_change_fall,
+                        "rebound_magnitude": price_change_rebound,
+                        "normalized_fall": normalized_fall,
+                        "normalized_rebound": normalized_rebound
+                    })
+            if reversal_details:
+                all_momentums = [r['momentum'] for r in reversal_details]
+                weights = [r['recovery_ratio'] for r in reversal_details]
+                weighted_momentum = np.average(all_momentums, weights=weights)
+                results['dynamic_reversal_strength'] = weighted_momentum
+                positive_reversals = [r for r in reversal_details if r['momentum'] > 0]
                 if reversal_details:
-                    positive_momentums = [r['momentum'] for r in reversal_details if r['momentum'] > 0]
-                    negative_momentums = [r['momentum'] for r in reversal_details if r['momentum'] <= 0]
-                    sum_positive_momentum = np.sum(positive_momentums)
-                    sum_abs_negative_momentum = np.sum(np.abs(negative_momentums))
-                    total_abs_momentum = sum_positive_momentum + sum_abs_negative_momentum
-                    conviction_rate = 0.0
-                    if total_abs_momentum > 0:
-                        conviction_rate = sum_positive_momentum / total_abs_momentum
-                    results['reversal_conviction_rate'] = conviction_rate
-                    if positive_momentums:
-                        raw_strength = np.mean(positive_momentums)
-                        final_strength = raw_strength * conviction_rate
-                        results['dynamic_reversal_strength'] = final_strength
-                        successful_reversals = [r for r in reversal_details if r['momentum'] > 0]
-                        recovery_ratios = [
-                            r['rebound_magnitude'] / r['fall_magnitude']
-                            for r in successful_reversals if r['fall_magnitude'] > 0
-                        ]
-                        if recovery_ratios:
-                            results['reversal_recovery_rate'] = np.mean(recovery_ratios)
-        except ImportError:
-            pass
+                    results['reversal_conviction_rate'] = len(positive_reversals) / len(reversal_details)
+                else:
+                    results['reversal_conviction_rate'] = 0.0
+                if positive_reversals:
+                    recovery_ratios = [r['recovery_ratio'] for r in positive_reversals]
+                    confidences = [r['confidence'] for r in positive_reversals]
+                    weighted_recovery = np.average(recovery_ratios, weights=confidences)
+                    results['reversal_recovery_rate'] = weighted_recovery
+                else:
+                    results['reversal_recovery_rate'] = 0.0
+            else:
+                results['dynamic_reversal_strength'] = 0.0
+                results['reversal_conviction_rate'] = 0.0
+                results['reversal_recovery_rate'] = 0.0
+        except Exception as e:
+            if enable_probe:
+                print(f"反转指标计算异常: {e}")
+            results['dynamic_reversal_strength'] = np.nan
+            results['reversal_conviction_rate'] = np.nan
+            results['reversal_recovery_rate'] = np.nan
+        # 重构高位整理成交量指标
         price_range = day_high_qfq - day_low_qfq
         if price_range > 0 and pd.notna(atr_14) and atr_14 > 0:
-            high_level_threshold = day_high_qfq - 0.25 * price_range
-            volume_ratio = 0.0
+            # 定义多层次高位区域：使用分位数定义不同高位级别
+            # 区域1：最高价到最高价的95%（前5%价格区间）
+            high_zone_1_start = day_high_qfq - 0.05 * price_range
+            # 区域2：最高价的95%到90%（前5-10%价格区间）
+            high_zone_2_start = day_high_qfq - 0.10 * price_range
+            # 区域3：最高价的90%到85%（前10-15%价格区间）
+            high_zone_3_start = day_high_qfq - 0.15 * price_range
+            # 计算各区域成交量比例
             if tick_df is not None and not tick_df.empty:
-                high_vol = tick_df[tick_df['price'] >= high_level_threshold]['volume'].sum()
                 total_vol = tick_df['volume'].sum()
                 if total_vol > 0:
-                    volume_ratio = high_vol / total_vol
+                    # 计算各区域成交量
+                    zone1_vol = tick_df[tick_df['price'] >= high_zone_1_start]['volume'].sum()
+                    zone2_vol = tick_df[(tick_df['price'] >= high_zone_2_start) & 
+                                         (tick_df['price'] < high_zone_1_start)]['volume'].sum()
+                    zone3_vol = tick_df[(tick_df['price'] >= high_zone_3_start) & 
+                                         (tick_df['price'] < high_zone_2_start)]['volume'].sum()
+                    # 计算区域成交量比例
+                    zone1_ratio = zone1_vol / total_vol
+                    zone2_ratio = zone2_vol / total_vol
+                    zone3_ratio = zone3_vol / total_vol
+                    # 加权计算高位成交量比例：越靠近顶部权重越高
+                    weighted_high_volume_ratio = zone1_ratio * 1.0 + zone2_ratio * 0.7 + zone3_ratio * 0.4
+                    # 计算高位区域的停留时间比例（如果有时间信息）
+                    zone1_time_ratio = len(tick_df[tick_df['price'] >= high_zone_1_start]) / len(tick_df)
+                    zone2_time_ratio = len(tick_df[(tick_df['price'] >= high_zone_2_start) & 
+                                                    (tick_df['price'] < high_zone_1_start)]) / len(tick_df)
+                    zone3_time_ratio = len(tick_df[(tick_df['price'] >= high_zone_3_start) & 
+                                                    (tick_df['price'] < high_zone_2_start)]) / len(tick_df)
+                    # 计算高位区域的成交量密集度（单位时间的成交量）
+                    if zone1_time_ratio > 0:
+                        zone1_density = zone1_ratio / zone1_time_ratio
+                    else:
+                        zone1_density = 0
+                    if zone2_time_ratio > 0:
+                        zone2_density = zone2_ratio / zone2_time_ratio
+                    else:
+                        zone2_density = 0
+                    if zone3_time_ratio > 0:
+                        zone3_density = zone3_ratio / zone3_time_ratio
+                    else:
+                        zone3_density = 0
+                    # 计算综合密度分数
+                    density_score = zone1_density * 1.0 + zone2_density * 0.6 + zone3_density * 0.3
+                    # 计算收盘价相对于高位区域的位置
+                    if day_close_qfq >= high_zone_1_start:
+                        close_position_score = 1.0
+                        position_weight = 1.0
+                    elif day_close_qfq >= high_zone_2_start:
+                        close_position_score = 0.8
+                        position_weight = 0.8
+                    elif day_close_qfq >= high_zone_3_start:
+                        close_position_score = 0.6
+                        position_weight = 0.6
+                    else:
+                        close_position_score = 0.0
+                        position_weight = 0.3
+                    # 计算高位区域的稳定性：价格在高位区域的波动率
+                    high_zone_prices = tick_df[tick_df['price'] >= high_zone_3_start]['price']
+                    if len(high_zone_prices) > 5:
+                        high_zone_volatility = high_zone_prices.std() / atr_14
+                        # 波动率越低，稳定性越高
+                        stability_score = np.exp(-high_zone_volatility)
+                    else:
+                        stability_score = 0.5
+                    # 计算最终的高位整理成交量指标
+                    # 权重：成交量比例40%，密度分数30%，收盘位置20%，稳定性10%
+                    base_value = (
+                        0.4 * weighted_high_volume_ratio + 
+                        0.3 * np.tanh(density_score) + 
+                        0.2 * close_position_score + 
+                        0.1 * stability_score
+                    )
+                    # 使用位置权重调整
+                    final_value = base_value * position_weight
+                    # 使用tanh归一化到0-1范围
+                    results['high_level_consolidation_volume'] = np.tanh(final_value)
+                else:
+                    results['high_level_consolidation_volume'] = 0.0
             else:
+                # 使用分钟数据回退
                 total_volume = group['vol'].sum()
                 if total_volume > 0:
-                    volume_ratio = group[group['high'] >= high_level_threshold]['vol'].sum() / total_volume
-            distance_from_threshold = day_close_qfq - high_level_threshold
-            normalized_distance = distance_from_threshold / atr_14
-            confirmation_factor = np.tanh(normalized_distance)
-            results['high_level_consolidation_volume'] = volume_ratio * confirmation_factor
+                    # 计算各区域成交量
+                    zone1_vol = group[group['high'] >= high_zone_1_start]['vol'].sum()
+                    zone2_vol = group[(group['high'] >= high_zone_2_start) & 
+                                       (group['high'] < high_zone_1_start)]['vol'].sum()
+                    zone3_vol = group[(group['high'] >= high_zone_3_start) & 
+                                       (group['high'] < high_zone_2_start)]['vol'].sum()
+                    # 计算区域成交量比例
+                    zone1_ratio = zone1_vol / total_volume
+                    zone2_ratio = zone2_vol / total_volume
+                    zone3_ratio = zone3_vol / total_volume
+                    # 加权计算高位成交量比例
+                    weighted_high_volume_ratio = zone1_ratio * 1.0 + zone2_ratio * 0.7 + zone3_ratio * 0.4
+                    # 计算高位区域的时间比例
+                    zone1_time_ratio = len(group[group['high'] >= high_zone_1_start]) / len(group)
+                    zone2_time_ratio = len(group[(group['high'] >= high_zone_2_start) & 
+                                                  (group['high'] < high_zone_1_start)]) / len(group)
+                    zone3_time_ratio = len(group[(group['high'] >= high_zone_3_start) & 
+                                                  (group['high'] < high_zone_2_start)]) / len(group)
+                    # 计算高位区域的成交量密集度
+                    if zone1_time_ratio > 0:
+                        zone1_density = zone1_ratio / zone1_time_ratio
+                    else:
+                        zone1_density = 0
+                    if zone2_time_ratio > 0:
+                        zone2_density = zone2_ratio / zone2_time_ratio
+                    else:
+                        zone2_density = 0
+                    if zone3_time_ratio > 0:
+                        zone3_density = zone3_ratio / zone3_time_ratio
+                    else:
+                        zone3_density = 0
+                    # 计算综合密度分数
+                    density_score = zone1_density * 1.0 + zone2_density * 0.6 + zone3_density * 0.3
+                    # 计算收盘价相对于高位区域的位置
+                    if day_close_qfq >= high_zone_1_start:
+                        close_position_score = 1.0
+                        position_weight = 1.0
+                    elif day_close_qfq >= high_zone_2_start:
+                        close_position_score = 0.8
+                        position_weight = 0.8
+                    elif day_close_qfq >= high_zone_3_start:
+                        close_position_score = 0.6
+                        position_weight = 0.6
+                    else:
+                        close_position_score = 0.0
+                        position_weight = 0.3
+                    # 计算高位区域的稳定性
+                    high_zone_prices = group[group['high'] >= high_zone_3_start]['close']
+                    if len(high_zone_prices) > 5:
+                        high_zone_volatility = high_zone_prices.std() / atr_14
+                        stability_score = np.exp(-high_zone_volatility)
+                    else:
+                        stability_score = 0.5
+                    # 计算最终指标
+                    base_value = (
+                        0.4 * weighted_high_volume_ratio + 
+                        0.3 * np.tanh(density_score) + 
+                        0.2 * close_position_score + 
+                        0.1 * stability_score
+                    )
+                    final_value = base_value * position_weight
+                    results['high_level_consolidation_volume'] = np.tanh(final_value)
+                else:
+                    results['high_level_consolidation_volume'] = 0.0
+        else:
+            results['high_level_consolidation_volume'] = np.nan
+        # 重构开盘期间推力指标
         if tick_df is not None and not tick_df.empty:
-            opening_ticks = tick_df.between_time('09:30:00', '09:59:59')
+            # 定义开盘期间为9:30-10:30（第一个小时）
+            opening_ticks = tick_df.between_time('09:30:00', '10:29:59')
             if not opening_ticks.empty:
-                opening_total_vol = opening_ticks['volume'].sum()
+                # 将开盘期间分为6个10分钟子区间
+                subperiods = []
+                for i in range(6):
+                    start_min = 30 + i * 10
+                    end_min = 30 + (i + 1) * 10
+                    if end_min > 90:  # 10:30
+                        break
+                    start_time = f'09:{start_min:02d}:00' if start_min < 60 else f'10:{start_min-60:02d}:00'
+                    end_time = f'09:{end_min:02d}:00' if end_min < 60 else f'10:{end_min-60:02d}:00'
+                    subperiod = opening_ticks.between_time(start_time, end_time)
+                    if not subperiod.empty:
+                        subperiods.append(subperiod)
+                if subperiods:
+                    subperiod_metrics = []
+                    # 计算每个子区间的推力指标
+                    for i, subperiod in enumerate(subperiods):
+                        subperiod_total_vol = subperiod['volume'].sum()
+                        if subperiod_total_vol > 0:
+                            # 计算价格变化
+                            price_change = subperiod['price'].iloc[-1] - subperiod['price'].iloc[0]
+                            # 计算成交量加权的价格变化（净推力）
+                            if 'price_change' in subperiod.columns:
+                                self_calculated_change = subperiod['price'].diff().fillna(0)
+                                zero_change_mask = subperiod['price_change'] == 0
+                                effective_price_change = np.where(zero_change_mask, self_calculated_change, subperiod['price_change'])
+                                net_thrust_volume = (subperiod['volume'] * np.sign(effective_price_change)).sum()
+                                thrust_purity = net_thrust_volume / subperiod_total_vol
+                            elif 'type' in subperiod.columns:
+                                buy_vol = subperiod[subperiod['type'] == 'B']['volume'].sum()
+                                sell_vol = subperiod[subperiod['type'] == 'S']['volume'].sum()
+                                thrust_purity = (buy_vol - sell_vol) / subperiod_total_vol
+                            else:
+                                # 使用分钟数据回退方法
+                                price_vector = (subperiod['price'].iloc[-1] - subperiod['price'].iloc[0]) * subperiod_total_vol
+                                thrust_purity = price_vector / subperiod_total_vol / (subperiod['price'].std() + 1e-6)
+                            # 计算子区间的价格趋势强度
+                            if len(subperiod) >= 3:
+                                subperiod_prices = subperiod['price'].values
+                                subperiod_times = np.arange(len(subperiod_prices))
+                                slope, intercept, r_value, p_value, std_err = linregress(subperiod_times, subperiod_prices)
+                                trend_strength = r_value ** 2 * np.sign(slope)
+                            else:
+                                trend_strength = 0
+                            # 计算子区间的成交量爆发性
+                            subperiod_volume_mean = subperiod['volume'].mean()
+                            if subperiod_volume_mean > 0:
+                                subperiod_volume_cv = subperiod['volume'].std() / subperiod_volume_mean
+                                volume_burstiness = np.tanh(subperiod_volume_cv)
+                            else:
+                                volume_burstiness = 0
+                            # 计算子区间的综合推力分数
+                            # 权重：推力纯度50%，趋势强度30%，成交量爆发性20%
+                            subperiod_score = (
+                                0.5 * thrust_purity + 
+                                0.3 * trend_strength + 
+                                0.2 * volume_burstiness
+                            )
+                            # 时间衰减权重：越靠近开盘权重越高（指数衰减）
+                            time_decay_weight = np.exp(-i * 0.3)  # i越大，衰减越多
+                            subperiod_metrics.append({
+                                'score': subperiod_score,
+                                'weight': time_decay_weight,
+                                'thrust_purity': thrust_purity,
+                                'trend_strength': trend_strength,
+                                'volume_burstiness': volume_burstiness,
+                                'price_change': price_change
+                            })
+                    if subperiod_metrics:
+                        # 计算加权平均推力分数
+                        total_weight = sum([m['weight'] for m in subperiod_metrics])
+                        weighted_score = sum([m['score'] * m['weight'] for m in subperiod_metrics]) / total_weight
+                        # 计算开盘期间整体价格变化（标准化）
+                        opening_price_change = opening_ticks['price'].iloc[-1] - opening_ticks['price'].iloc[0]
+                        opening_price_range = opening_ticks['price'].max() - opening_ticks['price'].min()
+                        if opening_price_range > 0:
+                            normalized_price_change = opening_price_change / opening_price_range
+                        else:
+                            normalized_price_change = 0
+                        # 计算开盘期间整体成交量
+                        opening_total_vol = opening_ticks['volume'].sum()
+                        # 计算开盘期间整体推力纯度
+                        if 'price_change' in opening_ticks.columns:
+                            self_calculated_change = opening_ticks['price'].diff().fillna(0)
+                            zero_change_mask = opening_ticks['price_change'] == 0
+                            effective_price_change = np.where(zero_change_mask, self_calculated_change, opening_ticks['price_change'])
+                            net_thrust_volume = (opening_ticks['volume'] * np.sign(effective_price_change)).sum()
+                            overall_thrust_purity = net_thrust_volume / opening_total_vol
+                        elif 'type' in opening_ticks.columns:
+                            buy_vol = opening_ticks[opening_ticks['type'] == 'B']['volume'].sum()
+                            sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
+                            overall_thrust_purity = (buy_vol - sell_vol) / opening_total_vol
+                        else:
+                            overall_thrust_purity = weighted_score  # 回退使用加权分数
+                        # 计算最终开盘期间推力指标
+                        # 组合：加权子区间分数40%，整体推力纯度30%，标准化价格变化30%
+                        final_opening_thrust = (
+                            0.4 * weighted_score + 
+                            0.3 * overall_thrust_purity + 
+                            0.3 * normalized_price_change
+                        )
+                        # 使用tanh归一化到-1到1范围
+                        results['opening_period_thrust'] = np.tanh(final_opening_thrust)
+                    else:
+                        results['opening_period_thrust'] = np.nan
+                else:
+                    # 如果没有子区间，使用原始方法
+                    opening_total_vol = opening_ticks['volume'].sum()
+                    if opening_total_vol > 0:
+                        if 'price_change' not in opening_ticks.columns:
+                            opening_ticks['price_change'] = opening_ticks['price'].diff().fillna(0)
+                        self_calculated_change = opening_ticks['price'].diff().fillna(0)
+                        zero_change_mask = opening_ticks['price_change'] == 0
+                        effective_price_change = np.where(zero_change_mask, self_calculated_change, opening_ticks['price_change'])
+                        net_thrust_volume = (opening_ticks['volume'] * np.sign(effective_price_change)).sum()
+                        results['opening_period_thrust'] = net_thrust_volume / opening_total_vol
+                    elif 'type' in opening_ticks.columns:
+                        opening_buy_vol = opening_ticks[opening_ticks['type'] == 'B']['volume'].sum()
+                        opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
+                        results['opening_period_thrust'] = (opening_buy_vol - opening_sell_vol) / opening_total_vol
+            else:
+                results['opening_period_thrust'] = np.nan
+        else:
+            # 分钟数据回退逻辑
+            # 这里可以添加分钟数据的类似处理，但为了简洁，使用原始方法
+            opening_group = group.between_time('09:30:00', '10:29:59')
+            if not opening_group.empty:
+                opening_total_vol = opening_group['vol'].sum()
                 if opening_total_vol > 0:
-                    if 'price_change' not in opening_ticks.columns:
-                        opening_ticks['price_change'] = opening_ticks['price'].diff().fillna(0)
-                    self_calculated_change = opening_ticks['price'].diff().fillna(0)
-                    zero_change_mask = opening_ticks['price_change'] == 0
-                    effective_price_change = np.where(zero_change_mask, self_calculated_change, opening_ticks['price_change'])
-                    net_thrust_volume = (opening_ticks['volume'] * np.sign(effective_price_change)).sum()
-                    results['opening_period_thrust'] = net_thrust_volume / opening_total_vol
-                elif 'type' in opening_ticks.columns:
-                    opening_buy_vol = opening_ticks[opening_ticks['type'] == 'B']['volume'].sum()
-                    opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
-                    results['opening_period_thrust'] = (opening_buy_vol - opening_sell_vol) / opening_total_vol
+                    # 计算价格变化向量
+                    price_vector = (opening_group['close'] - opening_group['open']) * opening_group['vol']
+                    absolute_energy = abs(opening_group['close'] - opening_group['open']) * opening_group['vol']
+                    total_energy = absolute_energy.sum()
+                    if total_energy > 0:
+                        results['opening_period_thrust'] = price_vector.sum() / total_energy
         return results
 
     @staticmethod
