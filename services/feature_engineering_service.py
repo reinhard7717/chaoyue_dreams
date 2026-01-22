@@ -851,6 +851,7 @@ class FeatureEngineeringService:
             tasks.append(self.calculator.calculate_intraday_vwap_divergence_index(df_minute))
         exhaustion_params = params.get('counterparty_exhaustion', {})
         if exhaustion_params.get('enabled') and df_minute is not None:
+            print(f"DEBUG: 准备调用对手盘衰竭指数计算，分钟数据形状: {df_minute.shape}")
             tasks.append(self.calculator.calculate_counterparty_exhaustion_index(df_minute, exhaustion_params.get('efficiency_window', 21)))
         if not tasks:
             return all_dfs
