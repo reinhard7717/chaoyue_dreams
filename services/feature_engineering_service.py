@@ -704,6 +704,8 @@ class FeatureEngineeringService:
         tasks = []
         vwap_params = params.get('intraday_vwap_divergence', {})
         if vwap_params.get('enabled') and df_minute is not None:
+            print("    - [计算] 正在计算日内vwap背离索引...")
+            print(df_minute)
             tasks.append(self.calculator.calculate_intraday_vwap_divergence_index(df_minute))
         exhaustion_params = params.get('counterparty_exhaustion', {})
         if exhaustion_params.get('enabled') and df_minute is not None:
