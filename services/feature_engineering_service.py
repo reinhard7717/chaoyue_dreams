@@ -687,9 +687,10 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         return all_dfs
 
-    async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
+    async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.4 · 后门封堵与命名修复版】形态增强信号编排器
+        【V1.5 · 依赖注入修复版】形态增强信号编排器
+        - 核心修复: 移除 calculator 参数，改用 self.calculator，确保调用的是已初始化的实例。
         - 核心修复: 调整了命名协议的强制执行逻辑，确保只对**不以 '_D' 结尾**的列添加 '_D' 后缀，避免重复。
         """
         params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -703,10 +704,10 @@ class FeatureEngineeringService:
         tasks = []
         vwap_params = params.get('intraday_vwap_divergence', {})
         if vwap_params.get('enabled') and df_minute is not None:
-            tasks.append(calculator.calculate_intraday_vwap_divergence_index(df_minute))
+            tasks.append(self.calculator.calculate_intraday_vwap_divergence_index(df_minute))
         exhaustion_params = params.get('counterparty_exhaustion', {})
         if exhaustion_params.get('enabled') and df_minute is not None:
-            tasks.append(calculator.calculate_counterparty_exhaustion_index(df_minute, exhaustion_params.get('efficiency_window', 21)))
+            tasks.append(self.calculator.calculate_counterparty_exhaustion_index(df_minute, exhaustion_params.get('efficiency_window', 21)))
         if not tasks:
             return all_dfs
         results = await asyncio.gather(*tasks)
@@ -727,6 +728,62 @@ class FeatureEngineeringService:
             df_daily[final_new_cols] = df_daily[final_new_cols].ffill()
         all_dfs['D'] = df_daily
         logger.info("分钟级形态增强信号计算完成并已集成。")
+        return all_dfs
+
+    async def calculate_breakout_quality(self, all_dfs: Dict, params: dict) -> Dict:
+        """
+        【V3.4 · 依赖注入修复版】突破质量分计算专用通道
+        - 核心修复: 移除 calculator 参数，改用 self.calculator。
+        - 核心修复: 增加幂等性检查。在计算前判断 `breakout_quality_score_D` 列是否已存在，
+                  如果存在则跳过计算，避免重复处理和潜在的数据覆盖。
+        - 核心修复: 协同 IndicatorCalculator V2.5 修复了接口契约。本方法现在能正确接收不带后缀的
+                  'breakout_quality_score'，并执行重命名与填充，确保数据流的绝对标准化和健壮性。
+        """
+        if not params.get('enabled', False):
+            return all_dfs
+        timeframe = 'D'
+        if timeframe not in all_dfs or all_dfs[timeframe] is None:
+            return all_dfs
+        df_daily = all_dfs[timeframe]
+        # 新增幂等性检查
+        if 'breakout_quality_score_D' in df_daily.columns:
+            logger.debug(f"突破质量分 (breakout_quality_score_D) 已存在于周期 '{timeframe}' 的DataFrame中，跳过重复计算。")
+            return all_dfs
+        # 修改代码行: 补充 calculate_breakout_quality_score 所需的所有列
+        required_materials = [
+            'volume', 'VOL_MA_21', 'main_force_flow_directionality',
+            'open', 'high', 'low', 'close',
+            'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY',
+            'main_force_buy_execution_alpha', 'upward_impulse_strength',
+            'buy_order_book_clearing_rate', 'bid_side_liquidity',
+            'vwap_cross_up_intensity', 'opening_buy_strength',
+            'floating_chip_cleansing_efficiency',
+            'VPA_BUY_EFFICIENCY',
+            'deception_lure_long_intensity', 'wash_trade_buy_volume'
+        ]
+        df_standardized = pd.DataFrame(index=df_daily.index)
+        missing_materials = []
+        for material in required_materials:
+            source_col_with_suffix = f"{material}_{timeframe}"
+            if source_col_with_suffix in df_daily.columns:
+                df_standardized[material] = df_daily[source_col_with_suffix]
+            else:
+                missing_materials.append(source_col_with_suffix)
+        if missing_materials:
+            logger.warning(f"突破质量分计算中止，缺少标准化原材料: {missing_materials}")
+            return all_dfs
+        result_df = await self.calculator.calculate_breakout_quality_score(df_daily=df_standardized, params=params)
+        if result_df is not None and not result_df.empty:
+            df_daily = df_daily.join(result_df, how='left')
+            # --- 命名协议强制执行 ---
+            # 将合并进来的、不带后缀的列，强制重命名为带 '_D' 后缀的标准格式
+            if 'breakout_quality_score' in df_daily.columns:
+                df_daily.rename(columns={'breakout_quality_score': 'breakout_quality_score_D'}, inplace=True)
+                df_daily['breakout_quality_score_D'] = df_daily['breakout_quality_score_D'].ffill()
+            all_dfs[timeframe] = df_daily
+            logger.info("突破质量分计算完成并已集成。")
+        else:
+            logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
         return all_dfs
 
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
@@ -787,61 +844,6 @@ class FeatureEngineeringService:
                 df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = compression_rate.astype(np.float32)
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
-        return all_dfs
-
-    async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
-        """
-        【V3.3 · 幂等性优化版】突破质量分计算专用通道
-        - 核心修复: 增加幂等性检查。在计算前判断 `breakout_quality_score_D` 列是否已存在，
-                  如果存在则跳过计算，避免重复处理和潜在的数据覆盖。
-        - 核心修复: 协同 IndicatorCalculator V2.5 修复了接口契约。本方法现在能正确接收不带后缀的
-                  'breakout_quality_score'，并执行重命名与填充，确保数据流的绝对标准化和健壮性。
-        """
-        if not params.get('enabled', False):
-            return all_dfs
-        timeframe = 'D'
-        if timeframe not in all_dfs or all_dfs[timeframe] is None:
-            return all_dfs
-        df_daily = all_dfs[timeframe]
-        # 新增幂等性检查
-        if 'breakout_quality_score_D' in df_daily.columns:
-            logger.debug(f"突破质量分 (breakout_quality_score_D) 已存在于周期 '{timeframe}' 的DataFrame中，跳过重复计算。")
-            return all_dfs
-        # 修改代码行: 补充 calculate_breakout_quality_score 所需的所有列
-        required_materials = [
-            'volume', 'VOL_MA_21', 'main_force_flow_directionality',
-            'open', 'high', 'low', 'close',
-            'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY',
-            'main_force_buy_execution_alpha', 'upward_impulse_strength',
-            'buy_order_book_clearing_rate', 'bid_side_liquidity',
-            'vwap_cross_up_intensity', 'opening_buy_strength',
-            'floating_chip_cleansing_efficiency',
-            'VPA_BUY_EFFICIENCY',
-            'deception_lure_long_intensity', 'wash_trade_buy_volume'
-        ]
-        df_standardized = pd.DataFrame(index=df_daily.index)
-        missing_materials = []
-        for material in required_materials:
-            source_col_with_suffix = f"{material}_{timeframe}"
-            if source_col_with_suffix in df_daily.columns:
-                df_standardized[material] = df_daily[source_col_with_suffix]
-            else:
-                missing_materials.append(source_col_with_suffix)
-        if missing_materials:
-            logger.warning(f"突破质量分计算中止，缺少标准化原材料: {missing_materials}")
-            return all_dfs
-        result_df = await calculator.calculate_breakout_quality_score(df_daily=df_standardized, params=params)
-        if result_df is not None and not result_df.empty:
-            df_daily = df_daily.join(result_df, how='left')
-            # --- 命名协议强制执行 ---
-            # 将合并进来的、不带后缀的列，强制重命名为带 '_D' 后缀的标准格式
-            if 'breakout_quality_score' in df_daily.columns:
-                df_daily.rename(columns={'breakout_quality_score': 'breakout_quality_score_D'}, inplace=True)
-                df_daily['breakout_quality_score_D'] = df_daily['breakout_quality_score_D'].ffill()
-            all_dfs[timeframe] = df_daily
-            logger.info("突破质量分计算完成并已集成。")
-        else:
-            logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
         return all_dfs
 
     async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:

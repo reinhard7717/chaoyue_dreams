@@ -343,7 +343,9 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.4 · OCH时序修复版】为策略准备数据的统一入口。
+        【V8.6 · 依赖注入调用修复版】为策略准备数据的统一入口。
+        - 核心修复: 调用 calculate_pattern_enhancement_signals 和 calculate_breakout_quality 时不再传递 calculator 参数，
+                  因为 FeatureEngineeringService 内部已持有 self.calculator。
         - 核心修复: 调整了 `calculate_och` 的执行时序，确保其在所有依赖的元特征和上下文信号（如波动率不稳定性、市场情绪）计算并合并到DataFrame之后才执行。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
         - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
@@ -354,13 +356,15 @@ class IndicatorService:
             return {}
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         # --- 步骤 2: 【形态增强信号计算】 ---
-        all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config, self.calculator)
+        # 修复: 移除 self.calculator 参数
+        all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config)
         # --- 步骤 3: 【VPA效率指标计算】 ---
         all_dfs = await self.feature_service.calculate_vpa_features(all_dfs, config)
         # --- 步骤 4: 【突破质量分计算】(移至此处，确保依赖项已就绪) ---
         bqs_params = indicators_config.get('breakout_quality_score', {})
         if bqs_params.get('enabled', False):
-            all_dfs = await self.feature_service.calculate_breakout_quality(all_dfs, bqs_params, self.calculator)
+            # 修复: 移除 self.calculator 参数
+            all_dfs = await self.feature_service.calculate_breakout_quality(all_dfs, bqs_params)
         # --- 5. 【元特征计算】 ---
         all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
         # --- 6. 【均线势能计算】 ---
