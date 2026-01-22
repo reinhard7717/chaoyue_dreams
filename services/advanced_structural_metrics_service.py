@@ -716,6 +716,76 @@ def _numba_calculate_absorption(
         return mf_buy_dip / total_vol_dip
     return np.nan
 
+@jit(nopython=True, cache=True)
+def _numba_calculate_vwap_reversion_corr(
+    amounts: np.ndarray, 
+    volumes: np.ndarray, 
+    daily_vwap: float
+) -> float:
+    """
+    【Numba新增】一次性计算日内VWAP序列及其与全天均值的回归相关性。
+    避免Pandas层面的多次数组拷贝和中间变量生成。
+    """
+    n = len(amounts)
+    if n < 10 or daily_vwap == 0:
+        return np.nan
+        
+    # 1. 计算日内实时VWAP和偏差 (单次遍历)
+    deviations = np.empty(n, dtype=np.float64)
+    cum_amt = 0.0
+    cum_vol = 0.0
+    
+    for i in range(n):
+        cum_amt += amounts[i]
+        cum_vol += volumes[i]
+        if cum_vol > 0:
+            current_vwap = cum_amt / cum_vol
+            deviations[i] = current_vwap - daily_vwap
+        else:
+            deviations[i] = 0.0
+            
+    # 2. 过滤异常值 (5倍标准差)
+    std_dev = np.std(deviations)
+    if std_dev == 0:
+        return np.nan
+        
+    # Numba 支持布尔索引，但为了效率和内存，这里可以使用掩码或直接构建新数组
+    # 由于Numba对数组操作优化很好，直接布尔索引即可
+    mask = np.abs(deviations) <= 5 * std_dev
+    filtered_dev = deviations[mask]
+    
+    m = len(filtered_dev)
+    if m < 5:
+        return np.nan
+        
+    # 3. 计算滞后1期的自相关系数
+    # x = t, y = t+1
+    x = filtered_dev[:-1]
+    y = filtered_dev[1:]
+    
+    # 手动计算相关系数以避免调用 np.corrcoef 带来的额外开销
+    x_mean = np.mean(x)
+    y_mean = np.mean(y)
+    
+    # 协方差与方差
+    cov = 0.0
+    var_x = 0.0
+    var_y = 0.0
+    
+    k = len(x)
+    for i in range(k):
+        dx = x[i] - x_mean
+        dy = y[i] - y_mean
+        cov += dx * dy
+        var_x += dx * dx
+        var_y += dy * dy
+        
+    if var_x > 0 and var_y > 0:
+        return cov / np.sqrt(var_x * var_y)
+    else:
+        return 0.0
+
+
 class AdvancedStructuralMetricsService:
     """
     【V1.0 · 结构与行为锻造中心】
@@ -2160,35 +2230,38 @@ class ThematicMetricsCalculators:
         day_close_qfq = context['day_close_qfq']
         atr_14 = context['atr_14']
         prev_day_metrics = context.get('prev_day_metrics', {})
+        # 调试信息
         debug_info = context.get('debug', {})
-        is_target_date = debug_info.get('is_target_date', False)
-        enable_probe = debug_info.get('enable_probe', False)
-        trade_date_str = debug_info.get('trade_date_str', 'N/A')
-        stock_code = context.get('stock_code', 'N/A') # 从 context 中获取 stock_code
+        today_vpoc = context.get('_today_vpoc')
+        total_volume_safe = context['total_volume_safe']
         results = {}
-        from scipy.stats import linregress # 确保 linregress 被导入
+        # 1. 趋势加速分 (优化：使用 Numba 替代 linregress)
         if not continuous_group.empty and len(continuous_group) > 1 and pd.notna(atr_14) and atr_14 > 0:
             am_session = continuous_group.between_time('09:30', '11:30')
             pm_session = continuous_group.between_time('13:00', '15:00')
             if len(am_session) > 2 and len(pm_session) > 2:
-                y_am = am_session['close'].values
-                x_am = np.arange(len(y_am))
-                slope_am, _, _, _, _ = linregress(x_am, y_am)
-                y_pm = pm_session['close'].values
-                x_pm = np.arange(len(y_pm))
-                slope_pm, _, _, _, _ = linregress(x_pm, y_pm)
+                # 复用 _numba_calculate_trend_metrics
+                # 该函数输入数组，返回 (slope, r_squared)
+                slope_am, _ = _numba_calculate_trend_metrics(am_session['close'].values.astype(np.float64))
+                slope_pm, _ = _numba_calculate_trend_metrics(pm_session['close'].values.astype(np.float64))
                 results['trend_acceleration_score'] = (slope_pm - slope_am) / atr_14
+        # 2. 尾盘冲锋强度
         def _calculate_thrust_purity_for_period(period_df: pd.DataFrame, period_ticks: pd.DataFrame | None) -> float:
+            # 内部逻辑保持不变，利用了向量化操作
             if period_ticks is not None and not period_ticks.empty:
                 total_vol = period_ticks['volume'].sum()
                 if total_vol > 0:
                     if 'price_change' not in period_ticks.columns:
+                        # 向量化 diff
+                        period_ticks = period_ticks.copy() # 避免 SettingWithCopy
                         period_ticks['price_change'] = period_ticks['price'].diff().fillna(0)
+                    # 向量化乘法和求和
                     net_thrust_vol = (period_ticks['volume'] * np.sign(period_ticks['price_change'])).sum()
                     return net_thrust_vol / total_vol
             if not period_df.empty:
                 total_vol = period_df['vol'].sum()
                 if total_vol > 0:
+                    # 向量化
                     thrust_vector = (period_df['close'] - period_df['open']) * period_df['vol']
                     absolute_energy = abs(period_df['close'] - period_df['open']) * period_df['vol']
                     total_energy = absolute_energy.sum()
@@ -2207,6 +2280,7 @@ class ThematicMetricsCalculators:
             if vol_pre > 0:
                 vol_ratio = vol_final / vol_pre
                 results['final_charge_intensity'] = (purity_final - purity_pre) * np.log1p(vol_ratio)
+        # 3. 量能结构偏度 (向量化 mean)
         open_rhythm_df = continuous_group.between_time('09:30', '10:00')
         mid_rhythm_df = continuous_group.between_time('10:00', '14:30')
         tail_rhythm_df = continuous_group.between_time('14:30', '15:00')
@@ -2219,45 +2293,50 @@ class ThematicMetricsCalculators:
                 results['volume_structure_skew'] = (avg_vol_mid - avg_vol_ends) / avg_vol_ends
             else:
                 results['volume_structure_skew'] = 0.0
+        # 4. 突破/防守确信度 (Pandas 过滤 + 向量化计算)
         prev_day_high = prev_day_metrics.get('high')
+        prev_day_low = prev_day_metrics.get('low')
         day_high_qfq = context['day_high_qfq']
+        day_low_qfq = context['day_low_qfq']
+        # 突破
         if tick_df is not None and not tick_df.empty and pd.notna(prev_day_high) and pd.notna(atr_14) and atr_14 > 0:
             if day_high_qfq > prev_day_high:
-                breakthrough_zone_ticks = tick_df[tick_df['price'] >= prev_day_high].copy()
+                # 向量化过滤
+                breakthrough_zone_ticks = tick_df[tick_df['price'] >= prev_day_high]
                 if not breakthrough_zone_ticks.empty:
                     total_breakthrough_vol = breakthrough_zone_ticks['volume'].sum()
                     if total_breakthrough_vol > 0:
-                        breakthrough_zone_ticks['price_change'] = breakthrough_zone_ticks['price'].diff().fillna(0)
-                        net_thrust_vol = (breakthrough_zone_ticks['volume'] * np.sign(breakthrough_zone_ticks['price_change'])).sum()
+                        # 避免 SettingWithCopy，且只计算需要的列
+                        price_change = breakthrough_zone_ticks['price'].diff().fillna(0).values
+                        vols = breakthrough_zone_ticks['volume'].values
+                        net_thrust_vol = np.sum(vols * np.sign(price_change))
+                        
                         breakthrough_thrust_purity = net_thrust_vol / total_breakthrough_vol
                         confirmation_raw = (day_close_qfq - prev_day_high) / atr_14
                         confirmation_factor = np.tanh(confirmation_raw)
-                        score = confirmation_factor * (1 + breakthrough_thrust_purity)
-                        results['breakthrough_conviction_score'] = score
-        prev_day_low = prev_day_metrics.get('low')
-        day_low_qfq = context['day_low_qfq']
+                        results['breakthrough_conviction_score'] = confirmation_factor * (1 + breakthrough_thrust_purity)
+        # 防守
         if tick_df is not None and not tick_df.empty and pd.notna(prev_day_low) and pd.notna(atr_14) and atr_14 > 0:
             if day_low_qfq < prev_day_low:
-                defense_zone_ticks = tick_df[tick_df['price'] <= prev_day_low].copy()
+                defense_zone_ticks = tick_df[tick_df['price'] <= prev_day_low]
                 if not defense_zone_ticks.empty:
                     total_defense_vol = defense_zone_ticks['volume'].sum()
                     if total_defense_vol > 0:
-                        defense_zone_ticks['price_change'] = defense_zone_ticks['price'].diff().fillna(0)
-                        net_thrust_vol = (defense_zone_ticks['volume'] * np.sign(defense_zone_ticks['price_change'])).sum()
+                        price_change = defense_zone_ticks['price'].diff().fillna(0).values
+                        vols = defense_zone_ticks['volume'].values
+                        net_thrust_vol = np.sum(vols * np.sign(price_change))
+                        
                         defense_thrust_purity = net_thrust_vol / total_defense_vol
                         rejection_raw = (day_close_qfq - prev_day_low) / atr_14
                         rejection_factor = np.tanh(rejection_raw)
-                        score = rejection_factor * (1 + defense_thrust_purity)
-                        results['defense_solidity_score'] = score
+                        results['defense_solidity_score'] = rejection_factor * (1 + defense_thrust_purity)
+        # 5. 平衡压缩 (标量计算)
         prev_high = prev_day_metrics.get('high')
-        prev_low = prev_day_metrics.get('low')
         prev_volume = prev_day_metrics.get('volume')
         prev_vpoc = prev_day_metrics.get('vpoc')
-        today_vpoc = context.get('_today_vpoc')
-        total_volume_safe = context['total_volume_safe']
-        if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc]):
-            if day_high_qfq <= prev_high and day_low_qfq >= prev_low:
-                prev_range = prev_high - prev_low
+        if all(pd.notna(v) for v in [prev_high, prev_day_low, prev_vpoc, prev_volume, today_vpoc]):
+            if day_high_qfq <= prev_high and day_low_qfq >= prev_day_low:
+                prev_range = prev_high - prev_day_low
                 today_range = day_high_qfq - day_low_qfq
                 if prev_range > 0 and prev_volume > 0:
                     space_compression = 1 - (today_range / prev_range)
@@ -2265,6 +2344,7 @@ class ThematicMetricsCalculators:
                     volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
                     score = space_compression * positional_balance * (1 + volume_intensity)
                     results['equilibrium_compression_index'] = score
+                    
         return results
 
     @staticmethod
@@ -2593,45 +2673,35 @@ class MicrostructureDynamicsCalculators:
     @staticmethod
     def _calculate_vpin(context: dict) -> dict:
         """
-        【VPIN计算优化】使用Numba加速中性盘处理
+        【VPIN计算优化】使用Numba加速中性盘处理 + 向量化CDF计算
         """
         tick_df = context.get('tick_df')
         total_volume = context.get('total_volume_safe')
         results = {'vpin_score': np.nan}
         if tick_df is None or tick_df.empty or total_volume <= 0:
             return results
-        # 准备数据数组
-        # 确保按时间排序
-        if hasattr(tick_df.index, 'name') and tick_df.index.name == 'time':
-             pass # 已是time index
-        elif 'trade_time' in tick_df.columns:
-             pass # 后续处理
         prices = tick_df['price'].values.astype(np.float64)
         volumes = tick_df['volume'].values.astype(np.float64)
         # 转换 Type: 0=M, 1=B, 2=S
         type_str = tick_df['type'].values
         types = np.zeros(len(prices), dtype=np.int8)
-        # 向量化转换
         types[type_str == 'B'] = 1
         types[type_str == 'S'] = 2
-        # M is 0
-        # 初始化买卖量数组
         buy_vols = np.zeros(len(prices), dtype=np.float64)
         sell_vols = np.zeros(len(prices), dtype=np.float64)
-        # 预填充确定性数据
         mask_b = types == 1
         mask_s = types == 2
         buy_vols[mask_b] = volumes[mask_b]
         sell_vols[mask_s] = volumes[mask_s]
-        # 使用Numba处理中性盘
         if np.any(types == 0):
             _numba_process_neutral_trades(prices, volumes, types, buy_vols, sell_vols)
-        # 计算 VPIN Buckets
+            
         cum_vol_arr = np.cumsum(volumes)
         target_bucket_count = 50
         bucket_size = total_volume / target_bucket_count
         if bucket_size < 100:
              bucket_size = total_volume / max(20, int(total_volume / 100))
+             
         imbalance_values, bucket_indices = _numba_calculate_vpin_buckets(
             cum_vol_arr, volumes, buy_vols, sell_vols, bucket_size
         )
@@ -2641,9 +2711,63 @@ class MicrostructureDynamicsCalculators:
             roll_std = imb_series.rolling(vpin_window, min_periods=int(vpin_window*0.7)).std().bfill()
             roll_std.replace(0, 1e-10, inplace=True)
             z_score = imb_series.abs() / roll_std
-            # 这里的norm.cdf无法在numba中简单实现，保留pandas apply或使用math.erf
-            vpin_vals = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
-            results['vpin_score'] = float(vpin_vals.mean())
+            # 【优化点】使用向量化 norm.cdf 替代 apply
+            # scipy.stats.norm.cdf 可以直接处理 numpy array
+            vpin_vals = norm.cdf(z_score.values)
+            results['vpin_score'] = float(np.nanmean(vpin_vals))
+            
+        return results
+
+    @staticmethod
+    def _calculate_vwap_reversion(context: dict) -> dict:
+        """计算VWAP均值回归相关性 - Numba优化版"""
+        results = {'vwap_mean_reversion_corr': np.nan}
+        # 优先级1：使用高频tick数据 (Numba加速)
+        tick_df = context.get('tick_df')
+        if tick_df is not None and not tick_df.empty and len(tick_df) > 10:
+            try:
+                # 准备Numba所需数组
+                amounts = tick_df['amount'].values.astype(np.float64)
+                volumes = tick_df['volume'].values.astype(np.float64)
+                # 计算全天VWAP
+                total_volume = context.get('total_volume_safe')
+                if pd.notna(total_volume) and total_volume > 0:
+                    daily_vwap = np.sum(amounts) / total_volume
+                else:
+                    daily_vwap = np.sum(amounts) / np.sum(volumes)
+                    
+                if pd.notna(daily_vwap) and daily_vwap > 0:
+                    # 调用Numba函数一次性计算
+                    corr = _numba_calculate_vwap_reversion_corr(amounts, volumes, daily_vwap)
+                    results['vwap_mean_reversion_corr'] = corr
+            except Exception:
+                pass # 降级处理
+        # 优先级2：使用连续分钟数据 (如果高频失败)
+        if pd.isna(results['vwap_mean_reversion_corr']):
+            minute_df = context.get('continuous_group')
+            if minute_df is not None and not minute_df.empty:
+                # 分钟级数据量小，保持Pandas向量化计算即可，无需过度优化
+                try:
+                    required_cols = ['minute_vwap', 'amount', 'vol']
+                    if all(col in minute_df.columns for col in required_cols):
+                        total_amount = minute_df['amount'].sum()
+                        total_volume = minute_df['vol'].sum()
+                        if total_volume > 0:
+                            daily_vwap = total_amount / total_volume
+                            deviation = minute_df['minute_vwap'] - daily_vwap
+                            if len(deviation) > 10:
+                                deviation = deviation.iloc[5:-5] # 去除开盘收盘噪点
+                            if len(deviation) > 2:
+                                # 简单的向量化相关性计算
+                                corr = deviation.autocorr(lag=1)
+                                results['vwap_mean_reversion_corr'] = float(corr)
+                except Exception:
+                    pass
+                    
+        # 结果边界处理
+        if pd.notna(results['vwap_mean_reversion_corr']):
+            results['vwap_mean_reversion_corr'] = max(min(results['vwap_mean_reversion_corr'], 1.0), -1.0)
+            
         return results
 
     @staticmethod
@@ -2830,123 +2954,6 @@ class MicrostructureDynamicsCalculators:
             )
             total = fulfill + defaults
             results['liquidity_authenticity_score'] = (fulfill + 6) / (total + 10) if total >= 0 else 0.6
-        return results
-
-    @staticmethod
-    def _calculate_vwap_reversion(context: dict) -> dict:
-        """计算VWAP均值回归相关性 - 精细化高频版本"""
-        # 初始化结果
-        results = {'vwap_mean_reversion_corr': np.nan}
-        # 优先级1：使用3秒高频tick数据（最精确）
-        tick_df = context.get('tick_df')
-        if tick_df is not None and not tick_df.empty and len(tick_df) > 10:
-            try:
-                # 精确计算日内VWAP时间序列（3秒级别）
-                tick_df = tick_df.copy()
-                tick_df['cum_amount'] = tick_df['amount'].cumsum()
-                tick_df['cum_volume'] = tick_df['volume'].cumsum()
-                tick_df['intraday_vwap'] = tick_df['cum_amount'] / tick_df['cum_volume']
-                # 计算全天的整体VWAP（分母使用总成交量确保精确）
-                total_volume = context.get('total_volume_safe')
-                if pd.notna(total_volume) and total_volume > 0:
-                    daily_vwap = tick_df['amount'].sum() / total_volume
-                else:
-                    daily_vwap = tick_df['amount'].sum() / tick_df['volume'].sum()
-                if pd.notna(daily_vwap):
-                    # 计算每个3秒bar的VWAP与全天VWAP的偏差
-                    deviation = tick_df['intraday_vwap'] - daily_vwap
-                    # 移除极端的异常值（超过5倍标准差）
-                    std_dev = deviation.std()
-                    if pd.notna(std_dev) and std_dev > 0:
-                        mask = np.abs(deviation) <= 5 * std_dev
-                        deviation = deviation[mask]
-                    if len(deviation) > 2:
-                        # 使用滚动窗口计算自相关性（更稳健）
-                        lag = 1  # 使用1个周期滞后
-                        # 使用精确的皮尔逊相关系数公式
-                        x = deviation.iloc[:-lag].values
-                        y = deviation.iloc[lag:].values
-                        # 确保长度匹配
-                        min_len = min(len(x), len(y))
-                        x = x[:min_len]
-                        y = y[:min_len]
-                        if min_len > 10:
-                            # 计算相关系数
-                            x_mean = np.mean(x)
-                            y_mean = np.mean(y)
-                            x_std = np.std(x)
-                            y_std = np.std(y)
-                            if x_std > 1e-10 and y_std > 1e-10:
-                                # 使用向量化计算提高精度
-                                covariance = np.mean((x - x_mean) * (y - y_mean))
-                                correlation = covariance / (x_std * y_std)
-                                results['vwap_mean_reversion_corr'] = float(correlation)
-            except Exception as e:
-                # 如果高频计算失败，降级到分钟级
-                pass
-        # 优先级2：使用连续分钟数据（降级处理）
-        if pd.isna(results['vwap_mean_reversion_corr']):
-            minute_df = context.get('continuous_group')
-            if minute_df is not None and not minute_df.empty:
-                try:
-                    # 使用分钟级VWAP，确保数据质量
-                    required_cols = ['minute_vwap', 'amount', 'vol']
-                    if all(col in minute_df.columns for col in required_cols):
-                        # 精确计算日度VWAP（考虑成交量权重）
-                        total_amount = minute_df['amount'].sum()
-                        total_volume = minute_df['vol'].sum()
-                        if total_volume > 0:
-                            daily_vwap = total_amount / total_volume
-                        else:
-                            daily_vwap = np.nan
-                        if pd.notna(daily_vwap):
-                            deviation = minute_df['minute_vwap'] - daily_vwap
-                            # 数据清洗：移除开盘和收盘的特殊时段（前5分钟和最后5分钟）
-                            if len(deviation) > 10:
-                                deviation = deviation.iloc[5:-5]
-                            if len(deviation) > 2:
-                                # 使用偏差的百分比变化而不是绝对值（更稳定）
-                                deviation_pct = deviation / daily_vwap
-                                # 计算滞后相关性（确保时间对齐）
-                                lag = 1
-                                x = deviation_pct.iloc[:-lag].values
-                                y = deviation_pct.iloc[lag:].values
-                                min_len = min(len(x), len(y))
-                                x = x[:min_len]
-                                y = y[:min_len]
-                                if min_len > 5:
-                                    # 使用加权相关系数（成交量加权）
-                                    volumes = minute_df['vol'].iloc[lag:lag+min_len].values
-                                    weights = volumes / volumes.sum() if volumes.sum() > 0 else None
-                                    if weights is not None:
-                                        # 加权相关系数计算
-                                        x_weighted_mean = np.average(x, weights=weights)
-                                        y_weighted_mean = np.average(y, weights=weights)
-                                        x_weighted_var = np.average((x - x_weighted_mean)**2, weights=weights)
-                                        y_weighted_var = np.average((y - y_weighted_mean)**2, weights=weights)
-                                        if x_weighted_var > 1e-12 and y_weighted_var > 1e-12:
-                                            cov_weighted = np.average((x - x_weighted_mean) * (y - y_weighted_mean), weights=weights)
-                                            correlation = cov_weighted / np.sqrt(x_weighted_var * y_weighted_var)
-                                            results['vwap_mean_reversion_corr'] = float(correlation)
-                                    else:
-                                        # 退化为普通相关系数
-                                        x_mean = np.mean(x)
-                                        y_mean = np.mean(y)
-                                        x_std = np.std(x)
-                                        y_std = np.std(y)
-                                        if x_std > 1e-10 and y_std > 1e-10:
-                                            covariance = np.mean((x - x_mean) * (y - y_mean))
-                                            correlation = covariance / (x_std * y_std)
-                                            results['vwap_mean_reversion_corr'] = float(correlation)
-                except Exception as e:
-                    results['vwap_mean_reversion_corr'] = np.nan
-        # 后处理：确保相关性在[-1, 1]范围内
-        if pd.notna(results['vwap_mean_reversion_corr']):
-            corr = results['vwap_mean_reversion_corr']
-            if corr < -1.0:
-                results['vwap_mean_reversion_corr'] = -1.0
-            elif corr > 1.0:
-                results['vwap_mean_reversion_corr'] = 1.0
         return results
 
 
