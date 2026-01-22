@@ -49,6 +49,244 @@ def _numba_rolling_fft_energy_ratio_core(
         
     return results
 
+@numba.njit(cache=True)
+def _numba_rolling_slope(data: np.ndarray, window: int) -> np.ndarray:
+    """
+    【Numba优化】计算滚动线性回归斜率。
+    原理: 最小二乘法 (OLS)
+    Slope = (N * Σ(xy) - Σx * Σy) / (N * Σ(x^2) - (Σx)^2)
+    其中 x 为时间序列 0, 1, ..., N-1，Σx 和 Σ(x^2) 对于固定窗口是常数。
+    """
+    n = len(data)
+    result = np.full(n, np.nan, dtype=np.float64)
+    if n < window:
+        return result
+
+    # 预计算 x 的相关项 (x 为 0 到 window-1)
+    sum_x = (window - 1) * window / 2.0
+    sum_x_sq = (window - 1) * window * (2 * window - 1) / 6.0
+    denominator = window * sum_x_sq - sum_x * sum_x
+    
+    # 如果分母为0（窗口为1），则无法计算
+    if denominator == 0:
+        return result
+
+    for i in range(window - 1, n):
+        y_slice = data[i - window + 1 : i + 1]
+        
+        # 检查 NaN
+        has_nan = False
+        for val in y_slice:
+            if np.isnan(val):
+                has_nan = True
+                break
+        if has_nan:
+            continue
+
+        sum_y = 0.0
+        sum_xy = 0.0
+        for j in range(window):
+            val = y_slice[j]
+            sum_y += val
+            sum_xy += j * val
+            
+        slope = (window * sum_xy - sum_x * sum_y) / denominator
+        result[i] = slope
+        
+    return result
+
+@numba.njit(cache=True)
+def _numba_higuchi_fd(x: np.ndarray, k_max: int) -> float:
+    """
+    【Numba优化】Higuchi分形维数计算核心。
+    提取自原 calculate_meta_features 方法。
+    """
+    x_len = len(x)
+    if x_len < 2:
+        return np.nan
+    
+    L = np.empty(k_max, dtype=np.float64)
+    L[:] = np.nan # 手动填充 NaN
+    
+    for k in range(1, k_max + 1):
+        Lk_sum = 0.0
+        count = 0
+        for m in range(k):
+            # 计算子序列长度
+            # n_k = floor((N - m - 1) / k) + 1
+            n_k = (x_len - m - 1) // k + 1
+            if n_k < 2:
+                continue
+            sum_diff = 0.0
+            for i in range(1, n_k):
+                sum_diff += np.abs(x[m + i * k] - x[m + (i - 1) * k])
+                
+            norm_factor = (x_len - 1) / (n_k * k) # 这里简化处理，原文可能有细微差异，保持标准Higuchi
+            # 原代码逻辑: denominator = ((x_len - m) // k * k) -> 实际上近似 n_k * k
+            # 保持原代码逻辑的等价实现
+            denominator = ((x_len - m) // k) * k
+            if denominator == 0:
+                continue
+                
+            Lk_sum += sum_diff * (x_len - 1) / denominator
+            count += 1
+            
+        if count > 0 and Lk_sum > 0:
+            L[k-1] = np.log(Lk_sum / count / k) # Log(L(k))
+    
+    # 线性回归计算斜率
+    # x轴: log(1/k) 或 -log(k)。Higuchi定义 FD = -slope of log(L(k)) vs log(k)
+    # 原代码用 log(k) 和 log(L)，slope应为负，取绝对值
+    valid_mask = ~np.isnan(L)
+    valid_L = L[valid_mask]
+    if len(valid_L) < 2:
+        return np.nan
+        
+    k_values = np.arange(1, k_max + 1, dtype=np.float64)
+    valid_k_log = np.log(k_values[valid_mask])
+    
+    N = len(valid_L)
+    sum_x = np.sum(valid_k_log)
+    sum_y = np.sum(valid_L)
+    sum_xy = np.sum(valid_k_log * valid_L)
+    sum_x2 = np.sum(valid_k_log * valid_k_log)
+    
+    denom = N * sum_x2 - sum_x * sum_x
+    if denom == 0:
+        return np.nan
+        
+    slope = (N * sum_xy - sum_x * sum_y) / denom
+    fd = np.abs(slope)
+    
+    # 截断结果
+    if fd < 1.0: return 1.0
+    if fd > 2.0: return 2.0
+    return fd
+
+@numba.njit(cache=True)
+def _numba_sample_entropy_core(x: np.ndarray, m: int, r: float) -> float:
+    """
+    【Numba优化】样本熵计算核心逻辑。
+    """
+    n = len(x)
+    if n < m + 1:
+        return np.nan
+
+    # 统计匹配模板的数量
+    # count_m: 长度为 m 的匹配数
+    # count_m_plus_1: 长度为 m+1 的匹配数
+    count_m = 0
+    count_m_plus_1 = 0
+    
+    # 优化：避免重复切片，直接比较
+    # 但为保持逻辑清晰，使用循环比较
+    # A: count of vector pairs of length m+1 having d < r
+    # B: count of vector pairs of length m having d < r
+    
+    # 简单的 O(N^2) 实现
+    for i in range(n - m):
+        for j in range(i + 1, n - m):
+            # 检查长度 m
+            dist_m = 0.0
+            for k in range(m):
+                d = np.abs(x[i+k] - x[j+k])
+                if d > dist_m:
+                    dist_m = d
+            if dist_m < r:
+                count_m += 1
+                # 仅当 m 匹配时，才检查 m+1
+                if i < n - m - 1 and j < n - m - 1: # 确保索引有效
+                    d_plus = np.abs(x[i+m] - x[j+m])
+                    if d_plus < r: # max(dist_m, d_plus) < r
+                        count_m_plus_1 += 1
+
+    if count_m == 0:
+        return np.nan
+        
+    return -np.log(count_m_plus_1 / count_m)
+
+@numba.njit(cache=True)
+def _numba_rolling_sample_entropy(data: np.ndarray, window: int, tol_ratio: float, rolling_std: np.ndarray) -> np.ndarray:
+    """
+    【Numba优化】滚动计算样本熵。
+    将原本在 Python 中的 for 循环移入 Numba，消除循环开销。
+    """
+    n = len(data)
+    result = np.full(n, np.nan, dtype=np.float64)
+    
+    if n < window:
+        return result
+        
+    for i in range(window - 1, n):
+        # 获取当前窗口数据
+        window_data = data[i - window + 1 : i + 1]
+        
+        # 获取预计算的 std (注意索引对齐)
+        std_val = rolling_std[i]
+        if np.isnan(std_val) or std_val == 0:
+            continue
+            
+        r = std_val * tol_ratio
+        
+        # 调用核心计算函数
+        se = _numba_sample_entropy_core(window_data, 2, r)
+        result[i] = se
+        
+    return result
+
+@numba.njit(cache=True)
+def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -> np.ndarray:
+    """
+    【Numba优化】行级 Spearman 秩相关系数计算。
+    用于衡量均线排列的有序度。
+    ma_values: (Rows, Cols) 每一行是不同周期的均线值
+    ma_ranks_x: (Cols,) 均线周期的理论排名 (例如 1, 2, 3...)
+    """
+    n_rows, n_cols = ma_values.shape
+    results = np.zeros(n_rows, dtype=np.float32)
+    
+    if n_cols <= 1:
+        return results
+
+    # 常数项：n(n^2 - 1)
+    denom = n_cols * (n_cols * n_cols - 1.0)
+    
+    for i in range(n_rows):
+        row = ma_values[i, :]
+        
+        # 检查 NaN
+        has_nan = False
+        for val in row:
+            if np.isnan(val):
+                has_nan = True
+                break
+        if has_nan:
+            results[i] = 0.0
+            continue
+            
+        # 计算当前行的排名 (Ordinal Rank)
+        # Numba 中没有直接的 rank，使用 argsort().argsort()
+        # 第一次 argsort 获取排序后的索引
+        # 第二次 argsort 获取原位置对应的排名 (0-based)
+        # 注意：这里不处理平局 (ties)，对于均线这种连续浮点数，完全相等的概率极低
+        temp_args = np.argsort(row)
+        ranks_y = np.empty(n_cols, dtype=np.int64)
+        
+        # 填充排名
+        for r in range(n_cols):
+            ranks_y[temp_args[r]] = r + 1 # 1-based rank
+            
+        # 计算距离平方和 d^2
+        d_sq_sum = 0.0
+        for j in range(n_cols):
+            d = ma_ranks_x[j] - ranks_y[j]
+            d_sq_sum += d * d
+            
+        # Spearman 公式: 1 - 6 * Σd^2 / (n(n^2-1))
+        rho = 1.0 - (6.0 * d_sq_sum) / denom
+        results[i] = rho
+        
+    return results
 
 class FeatureEngineeringService:
     """
@@ -61,157 +299,138 @@ class FeatureEngineeringService:
 
     async def calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.4 · 调试信息清理版】计算所有配置的斜率特征。
-        - 核心逻辑: 根据配置文件中的'series_to_slope'部分，为指定的数据列（如'MACD_12_26_9_D'）在不同的时间窗口（lookbacks）上计算线性回归斜率。
-        - 优化: 保持原有的高效向量化计算，增加详尽注释。
-        - 【新增】支持对结构与形态指标计算斜率。
-        - 【清理】移除了调试打印信息。
+        【V3.4 · Numba加速版】计算所有配置的斜率特征。
+        - 核心逻辑: 使用 Numba 优化的 _numba_rolling_slope 替代 pandas_ta.linreg。
+        - 性能提升: 避免了循环调用 pandas_ta 时的 DataFrame 构建开销，直接在 NumPy 数组上进行极速运算。
         """
-        # 从配置中获取斜率计算参数
         slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
-        # 如果未启用，则直接返回
         if not slope_params.get('enabled', False):
             return all_dfs
-        # 获取需要计算斜率的列名及其对应的周期列表
+            
         series_to_slope = slope_params.get('series_to_slope', {})
         if not series_to_slope:
             return all_dfs
-        # 遍历配置中的每一项
+            
         for col_pattern, lookbacks in series_to_slope.items():
-            # 跳过说明性配置
             if "说明" in col_pattern: continue
             try:
-                # 约定：通过列名后缀（如_D, _W, _M）来判断其所属的时间周期DataFrame
                 timeframe = col_pattern.split('_')[-1]
                 if timeframe.upper() not in ['D', 'W', 'M'] and not timeframe.isdigit():
-                    timeframe = 'D' # 默认使用日线
+                    timeframe = 'D'
             except IndexError:
-                continue # 如果列名不符合规范，则跳过
-            # 检查对应时间周期的DataFrame是否存在
+                continue
+                
             if timeframe not in all_dfs or all_dfs[timeframe] is None:
                 continue
+                
             df = all_dfs[timeframe]
-            # 检查源数据列是否存在
             if col_pattern not in df.columns:
                 logger.warning(f"SLOPE计算跳过: 周期 '{timeframe}' 的源列 '{col_pattern}' 不存在。")
                 continue
-            source_series = df[col_pattern].astype(float)
-            # 遍历需要计算的周期长度
+                
+            # 提取源数据为 NumPy 数组，确保 float64 类型
+            source_values = df[col_pattern].astype(float).values
             for lookback in lookbacks:
                 slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
-                # 如果目标斜率列已存在，则跳过，避免重复计算
                 if slope_col_name in df.columns:
                     continue
-                # 设置计算所需的最小周期数，增加计算结果的稳定性
-                min_p = max(2, lookback // 2)
-                # 使用pandas_ta库的linreg函数进行高效的向量化计算
-                linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                # 兼容pandas_ta不同版本可能返回Series或DataFrame的情况
-                slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
-                # 将计算结果存入DataFrame，空值填充为0
-                df[slope_col_name] = slope_series.fillna(0)
+                # 【Numba加速】直接调用编译好的滚动斜率函数
+                slope_values = _numba_rolling_slope(source_values, int(lookback))
+                # 填充结果，保持与原 DataFrame 索引一致
+                df[slope_col_name] = pd.Series(slope_values, index=df.index).fillna(0)
+                
             all_dfs[timeframe] = df
+            
         return all_dfs
 
     async def calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.4 · 调试信息清理版】计算所有配置的加速度特征。
-        - 核心逻辑: 加速度是斜率的斜率。此方法基于已计算好的斜率特征（SLOPE_*），再次计算其斜率，从而得到加速度特征（ACCEL_*）。
-        - 优化: 保持原有的高效向量化计算，增加详尽注释。
-        - 【新增】支持对结构与形态指标计算加速度。
-        - 【清理】移除了调试打印信息。
+        【V2.4 · Numba加速版】计算所有配置的加速度特征。
+        - 核心逻辑: 同样使用 _numba_rolling_slope 对斜率列再次求导。
+        - 性能提升: 向量化运算，消除 Python 循环开销。
         """
-        # 从配置中获取加速度计算参数
         accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
-        # 如果未启用，则直接返回
         if not accel_params.get('enabled', False):
             return all_dfs
-        # 获取需要计算加速度的基础列名及其对应的周期列表
+            
         series_to_accel = accel_params.get('series_to_accel', {})
         if not series_to_accel:
             return all_dfs
-        # 遍历配置
+            
         for base_col_name, periods in series_to_accel.items():
             if "说明" in base_col_name: continue
-            # 约定：通过列名后缀判断时间周期
             timeframe = base_col_name.split('_')[-1]
             if timeframe not in all_dfs or all_dfs[timeframe] is None:
                 continue
+                
             df = all_dfs[timeframe]
-            # 遍历周期
             for period in periods:
-                # 定位作为计算源的斜率列
                 slope_col_name = f'SLOPE_{period}_{base_col_name}'
                 if slope_col_name not in df.columns:
-                    # 如果依赖的斜率数据不存在，则无法计算加速度，跳过
                     logger.warning(f"ACCEL计算跳过: 周期 '{timeframe}' 的依赖斜率列 '{slope_col_name}' 不存在。")
                     continue
+                    
                 accel_col_name = f'ACCEL_{period}_{base_col_name}'
-                # 如果目标加速度列已存在，则跳过
                 if accel_col_name in df.columns:
                     continue
-                source_series = df[slope_col_name]
-                min_p = max(2, period // 2)
-                # 对斜率序列再次求斜率，得到加速度
-                accel_linreg_result = df.ta.linreg(close=source_series, length=period, min_periods=min_p, slope=True, intercept=False, r=False)
-                accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
-                df[accel_col_name] = accel_series.fillna(0)
+                # 提取斜率数据
+                slope_values = df[slope_col_name].values.astype(float)
+                # 【Numba加速】计算加速度（斜率的斜率）
+                accel_values = _numba_rolling_slope(slope_values, int(period))
+                df[accel_col_name] = pd.Series(accel_values, index=df.index).fillna(0)
+                
         return all_dfs
 
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.2 · 细粒度VPA升级版】VPA效率指标生产线
-        - 核心职责: 计算自定义指标 VPA_EFFICIENCY_D (价量攻击效率)，并新增买卖方细粒度VPA效率。
-        - 指标含义:
-            - VPA_EFFICIENCY_D: 衡量单位“超额”成交量所带来的价格涨幅。
-            - VPA_BUY_EFFICIENCY_D: 衡量买方资金推动价格上涨的效率。
-            - VPA_SELL_EFFICIENCY_D: 衡量卖方资金推动价格下跌的效率。
-        - 优化: 增加细粒度买卖方VPA效率的计算。
+        【V1.2 · 向量化加速版】VPA效率指标生产线
+        - 优化: 使用 NumPy 的向量化函数 (np.maximum, np.minimum) 替换 Pandas 的 apply(lambda) 操作。
+        - 性能提升: 将计算下沉至 C 层，大幅提高大规模数据下的计算速度。
         """
-        timeframe = 'D' # 此特征仅在日线级别计算
+        timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
-        # 检查计算所需的列是否存在
+        
         required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             logger.warning(f"VPA效率生产线缺少关键数据: {missing}，模块已跳过！")
             return all_dfs
+        
         # 1. 计算总VPA效率
         volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
         vpa_efficiency = df['pct_change_D'] / volume_ratio.replace(0, np.nan)
         df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
+
         # 2. 计算买方VPA效率 (VPA_BUY_EFFICIENCY_D)
-        # 衡量买方资金推动价格上涨的效率
-        # 使用主力买入OFI作为买方资金流的代表
         mf_buy_ofi_ma_21 = df['main_force_buy_ofi_D'].rolling(window=21, min_periods=1).mean()
         buy_flow_ratio = df['main_force_buy_ofi_D'] / mf_buy_ofi_ma_21.replace(0, np.nan)
-        # 仅在价格上涨时计算买方效率，下跌时效率为0或负值
-        buy_vpa_efficiency = df['pct_change_D'].apply(lambda x: max(0, x)) / buy_flow_ratio.replace(0, np.nan)
+        
+        # 【向量化优化】使用 np.maximum 替代 apply(lambda x: max(0, x))
+        positive_pct_change = np.maximum(df['pct_change_D'].values, 0)
+        buy_vpa_efficiency = positive_pct_change / buy_flow_ratio.replace(0, np.nan)
         df['VPA_BUY_EFFICIENCY_D'] = buy_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
+
         # 3. 计算卖方VPA效率 (VPA_SELL_EFFICIENCY_D)
-        # 衡量卖方资金推动价格下跌的效率
-        # 使用主力卖出OFI作为卖方资金流的代表
         mf_sell_ofi_ma_21 = df['main_force_sell_ofi_D'].rolling(window=21, min_periods=1).mean()
         sell_flow_ratio = df['main_force_sell_ofi_D'] / mf_sell_ofi_ma_21.replace(0, np.nan)
-        # 仅在价格下跌时计算卖方效率，上涨时效率为0或负值
-        sell_vpa_efficiency = df['pct_change_D'].apply(lambda x: min(0, x)) / sell_flow_ratio.replace(0, np.nan)
+        
+        # 【向量化优化】使用 np.minimum 替代 apply(lambda x: min(0, x))
+        negative_pct_change = np.minimum(df['pct_change_D'].values, 0)
+        sell_vpa_efficiency = negative_pct_change / sell_flow_ratio.replace(0, np.nan)
         df['VPA_SELL_EFFICIENCY_D'] = sell_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
+
         all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.6 · 分形维数修复版】元特征计算车间
-        - 核心修复: 修正了 `_higuchi_fractal_dimension` 函数，确保其返回的分形维数在合理范围内（通常为1到2），
-                  避免出现负值导致下游计算错误。
-        - 核心升级: 废弃旧的简单指标，引入分形维度、样本熵、波动率不稳定性等一系列能够深度刻画市场混沌、分形与信息熵的“元特征”。
-        - 新增优化: 直接集成预计算的、更高级的 `price_volume_entropy_D` 指标，作为对市场信息复杂度的核心度量。
-        - 细粒度增强: 引入基于主力资金流和订单簿流动性的赫斯特指数和样本熵。
-        - 周期调整: 调整元特征计算窗口为斐波那契数列。
-        - 【修复】将近似熵计算替换为使用 `nolds` 库的样本熵，并更新相关列名。
-        - 核心优化: 使用Numba优化后的分形维度、样本熵和FFT能量比计算函数。
+        【V3.6 · Numba重构版】元特征计算车间
+        - 核心优化: 移除了原本嵌套的 Numba 函数定义，改用模块级函数。
+        - 性能突破: 将样本熵 (Sample Entropy) 的滚动计算从 Python 循环彻底重构为 Numba 循环 (_numba_rolling_sample_entropy)，
+                  消除了处理长序列时的主要性能瓶颈。
+        - 功能: 计算 Hurst 指数、分形维数、样本熵、FFT 能量比等。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -219,191 +438,116 @@ class FeatureEngineeringService:
         df = all_dfs[timeframe]
         suffix = f"_{timeframe}"
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
+        
         if not params.get('enabled', False):
             return all_dfs
+        print(f"calculate_meta_features 输入df部分值: {df.head()}")
         source_series_configs = [
-            {'col': f'close{suffix}', 'prefix': ''}, # 确保 close_D 的 prefix 为空，这样赫斯特指数的列名就是 HURST_144d_D
+            {'col': f'close{suffix}', 'prefix': ''},
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
-        # _higuchi_fractal_dimension 函数修复
-        # 替换为Numba优化版本
-        @numba.njit(cache=True) # <--- 保持Numba装饰器
-        def _higuchi_fractal_dimension(x: np.ndarray, k_max: int) -> float:
-            """
-            【Numba优化版】计算Higuchi分形维数。
-            """
-            L = np.empty(k_max, dtype=np.float64)
-            L.fill(np.nan) # 初始化为NaN
-            x_len = len(x)
-            if x_len < 2:
-                return np.nan
-            for k_idx in range(k_max):
-                k = k_idx + 1
-                Lk_sum = 0.0
-                count = 0
-                for m in range(k):
-                    series_len = (x_len - m - 1) // k + 1
-                    if series_len < 2:
-                        continue
-                    current_series = np.empty(series_len, dtype=np.float64)
-                    for i in range(series_len):
-                        current_series[i] = x[m + i * k]
-                    diffs = np.abs(np.diff(current_series))
-                    if len(diffs) > 0:
-                        denominator = ((x_len - m) // k * k)
-                        if denominator == 0:
-                            continue
-                        Lk_sum += np.sum(diffs) * (x_len - 1) / denominator
-                        count += 1
-                if count > 0 and Lk_sum > 0:
-                    L[k_idx] = np.log(Lk_sum / count / k)
-                else:
-                    L[k_idx] = np.nan
-            valid_L_indices = np.where(~np.isnan(L))[0]
-            if len(valid_L_indices) < 2:
-                return np.nan
-            valid_k_range_log = np.log(np.arange(1, k_max + 1, dtype=np.float64))[valid_L_indices]
-            valid_L = L[valid_L_indices]
-            try:
-                N = len(valid_L)
-                sum_x = np.sum(valid_k_range_log)
-                sum_y = np.sum(valid_L)
-                sum_xy = np.sum(valid_k_range_log * valid_L)
-                sum_x2 = np.sum(valid_k_range_log * valid_k_range_log)
-                denominator_reg = N * sum_x2 - sum_x * sum_x
-                if denominator_reg == 0:
-                    return np.nan
-                slope = (N * sum_xy - sum_x * sum_y) / denominator_reg
-                fd = np.abs(slope)
-                if fd < 1.0:
-                    fd = 1.0
-                elif fd > 2.0:
-                    fd = 2.0
-                return fd
-            except Exception:
-                return np.nan
-        @numba.njit(cache=True) # <--- 保持Numba装饰器
-        def _sample_entropy(x: np.ndarray, m: int, r: float) -> float:
-            """
-            【Numba优化版】计算样本熵。
-            """
-            n = len(x)
-            if n < m + 1:
-                return np.nan
-            # 计算距离函数
-            def _max_dist(x_i, x_j):
-                return np.max(np.abs(x_i - x_j))
-            # 重新计算 B 和 A
-            count_m = 0
-            for i in range(n - m):
-                for j in range(i + 1, n - m):
-                    if _max_dist(x[i:i+m], x[j:j+m]) < r:
-                        count_m += 1
-            count_m_plus_1 = 0
-            for i in range(n - m - 1):
-                for j in range(i + 1, n - m - 1):
-                    if _max_dist(x[i:i+m+1], x[j:j+m+1]) < r:
-                        count_m_plus_1 += 1
-            if count_m == 0:
-                return np.nan # 避免除以零
-            return -np.log(count_m_plus_1 / count_m)
-        # 移除原 _fft_energy_ratio 函数的定义，因为它将被新的 Numba 核心函数替代
-        # def _fft_energy_ratio(x, low_freq_cutoff_ratio=0.1, high_freq_cutoff_ratio=0.5): ...
+
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
             if source_col not in df.columns:
                 logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
                 continue
+                
             current_series = df[source_col]
             if isinstance(current_series, pd.DataFrame):
                 current_series = current_series.iloc[:, 0]
-            # --- 1. Hurst 指数 (市场记忆性) ---
+                
+            # 准备数据，移除 NaN 并获取 Values
+            # 注意：对于需要保持索引对齐的滚动计算，我们通常在原始长度上操作，并在 Numba 中处理边界
+            # 但原有逻辑是 dropna() 后计算再 reindex。为了保持一致性：
+            clean_series = current_series.dropna()
+            clean_values = clean_series.values.astype(np.float64)
+            if len(clean_values) < 50: # 数据太少不计算
+                continue
+            # --- 1. Hurst 指数 ---
             hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns:
                 try:
+                    # Hurst 计算较复杂，暂维持 rolling apply，如有性能瓶颈可进一步重构
                     df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
                         lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
                     )
                 except Exception as e:
-                    logger.error(f"赫斯特指数(周期{hurst_window}, 列: {source_col})计算失败: {e}")
+                    logger.error(f"赫斯特指数计算失败: {e}")
                     df[hurst_col] = np.nan
-            # --- 2. 分形维度 (市场复杂度) ---
+            # --- 2. 分形维度 (Fractal Dimension) ---
             fd_window = params.get('fractal_dimension_window', 89)
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
             if fd_col not in df.columns:
                 try:
                     k_max = int(np.sqrt(fd_window))
+                    # 使用 rolling.apply 调用 Numba 函数
+                    # 或者为了极致性能，也可以编写 _numba_rolling_higuchi，但此处 apply 配合 Numba 内部循环尚可接受
+                    # 为了更稳健，直接使用 rolling apply 传递给新的模块级 numba 函数
                     df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
-                        lambda x: _higuchi_fractal_dimension(x.dropna().values, k_max) if len(x.dropna()) >= fd_window else np.nan, raw=False
+                        lambda x: _numba_higuchi_fd(x, k_max), raw=True
                     )
                 except Exception as e:
-                    logger.error(f"分形维度(周期{fd_window}, 列: {source_col})计算失败: {e}")
+                    logger.error(f"分形维度计算失败: {e}")
                     df[fd_col] = np.nan
-            # --- 3. 样本熵 (市场可预测性) --- (使用自定义实现)
+            # --- 3. 样本熵 (Sample Entropy) ---
             se_window = params.get('sample_entropy_window', 13)
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
             if se_col not in df.columns:
                 try:
-                    entropy_values = []
-                    log_returns_or_series = current_series.dropna()
-                    if len(log_returns_or_series) < se_window + 1:
+                    if len(clean_values) < se_window + 1:
                         df[se_col] = np.nan
                     else:
-                        rolling_std = log_returns_or_series.rolling(window=se_window, min_periods=se_window).std()
-                        for i in range(len(log_returns_or_series)):
-                            if i < se_window - 1:
-                                entropy_values.append(np.nan)
-                                continue
-                            window_data = log_returns_or_series.iloc[i - se_window + 1 : i + 1].values
-                            std_val = rolling_std.iloc[i]
-                            r = std_val * se_tol_ratio
-                            if pd.isna(r) or r == 0 or len(window_data) < se_window:
-                                entropy_values.append(np.nan)
-                                continue
-                            entropy_values.append(_sample_entropy(window_data, m=2, r=r))
-                        df[se_col] = pd.Series(entropy_values, index=log_returns_or_series.index).reindex(df.index)
+                        # 预计算滚动标准差 (Pandas 优化)
+                        rolling_std = clean_series.rolling(window=se_window, min_periods=se_window).std().values
+                        # 【Numba加速】调用全滚动计算函数，替代 Python 循环
+                        entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
+                        df[se_col] = pd.Series(entropy_values, index=clean_series.index).reindex(df.index)
                 except Exception as e:
-                    logger.error(f"样本熵(周期{se_window}, 列: {source_col})计算失败: {e}")
+                    logger.error(f"样本熵计算失败: {e}")
                     df[se_col] = np.nan
-            # --- 4. NOLDS样本熵 (替代近似熵) (时间序列复杂性) ---
+            # --- 4. NOLDS样本熵 ---
             nolds_sampen_window = params.get('approximate_entropy_window', 21)
             nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
             if nolds_sampen_col not in df.columns:
                 try:
-                    df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio)
+                     # 异步调用外部计算器，保持不变
+                    df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(
+                        df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
+                    )
                 except Exception as e:
-                    logger.error(f"NOLDS样本熵(周期{nolds_sampen_window}, 列: {source_col})计算失败: {e}")
+                    logger.error(f"NOLDS样本熵计算失败: {e}")
                     df[nolds_sampen_col] = np.nan
-            # --- 5. FFT能量比 (FFT Energy Ratio) (频率结构) ---
+            # --- 5. FFT能量比 ---
             fft_window = params.get('fft_energy_ratio_window', 34)
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
             if fft_col not in df.columns:
                 try:
-                    log_returns_or_series = current_series.dropna()
-                    if len(log_returns_or_series) < fft_window:
+                    if len(clean_values) < fft_window:
                         df[fft_col] = np.nan
                     else:
-                        # 【Numba优化】调用新的 Numba 核心函数进行滚动计算
+                        # 调用已存在的 Numba 核心函数
                         fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
-                            log_returns_or_series.values,
+                            clean_values,
                             fft_window,
                             low_freq_cutoff_ratio=0.1
                         )
-                        df[fft_col] = pd.Series(fft_energy_ratios_values, index=log_returns_or_series.index).reindex(df.index)
+                        df[fft_col] = pd.Series(fft_energy_ratios_values, index=clean_series.index).reindex(df.index)
                 except Exception as e:
-                    logger.error(f"FFT能量比(周期{fft_window}, 列: {source_col})计算失败: {e}")
+                    logger.error(f"FFT能量比计算失败: {e}")
                     df[fft_col] = np.nan
-            # --- 6. 波动率不稳定性 (状态切换前兆) ---
+            # --- 6. 波动率不稳定性 ---
             vi_window = params.get('volatility_instability_window', 21)
             vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
             atr_col = f'ATR_14{suffix}'
             if atr_col in df.columns and vi_col not in df.columns:
                 df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
+
         all_dfs[timeframe] = df
         return all_dfs
 
@@ -704,8 +848,6 @@ class FeatureEngineeringService:
         tasks = []
         vwap_params = params.get('intraday_vwap_divergence', {})
         if vwap_params.get('enabled') and df_minute is not None:
-            print("    - [计算] 正在计算日内vwap背离索引...")
-            print(df_minute)
             tasks.append(self.calculator.calculate_intraday_vwap_divergence_index(df_minute))
         exhaustion_params = params.get('counterparty_exhaustion', {})
         if exhaustion_params.get('enabled') and df_minute is not None:
@@ -790,62 +932,58 @@ class FeatureEngineeringService:
 
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.0】均线系统势能分析引擎
-        - 核心职责: 根据 ma_potential_metrics 配置，计算均线系统的“张力”、“有序度”、“压缩率”三大核心势能指标。
+        【V1.1 · Numba加速版】均线系统势能分析引擎
+        - 核心优化: 使用 Numba 优化的 _numba_spearman_orderliness 替代 df.apply(spearman_corr, axis=1)。
+        - 性能提升: 避免了按行遍历 DataFrame 造成的巨大开销，将相关性计算并行化/向量化。
         """
         if not params.get('enabled', False):
             return all_dfs
+            
         for timeframe in params.get('apply_on', []):
             if timeframe not in all_dfs or all_dfs[timeframe] is None or all_dfs[timeframe].empty:
                 continue
             df = all_dfs[timeframe]
-            # 从配置中获取参数
             ma_periods = params.get('ma_periods', [])
             ma_type = params.get('ma_type', 'EMA')
             tension_short_period = params.get('tension_short_period', 5)
             tension_long_period = params.get('tension_long_period', 55)
             norm_window = params.get('norm_window', 55)
-            # 1. 【军火库点验】: 确认计算所需的核心数据
+            # 1. 军火库点验
             ma_cols = [f"{ma_type}_{p}_{timeframe}" for p in ma_periods]
             tension_cols = [f"{ma_type}_{tension_short_period}_{timeframe}", f"{ma_type}_{tension_long_period}_{timeframe}"]
-            atr_col = f"ATR_14_{timeframe}" # 使用ATR进行波动率归一化
+            atr_col = f"ATR_14_{timeframe}"
             required_cols = list(set(ma_cols + tension_cols + [atr_col]))
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 logger.warning(f"均线系统势能分析失败({timeframe})：缺少核心数据列 {missing_cols}")
                 continue
             try:
-                # 2. 【计算势能大小】: 均线张力指数 (MA_POTENTIAL_TENSION_INDEX)
-                # 逻辑: (短期均线 - 长期均线) / ATR，衡量偏离程度相对于真实波动的比率，更具可比性
+                # 2. 计算势能大小 (张力)
                 tension_range = df[f"{ma_type}_{tension_short_period}_{timeframe}"] - df[f"{ma_type}_{tension_long_period}_{timeframe}"]
                 atr = df[atr_col].replace(0, np.nan)
                 raw_tension_index = tension_range / atr
-                # 对原始张力进行双极性归一化，得到[-1, 1]的分数
                 tension_index_series = raw_tension_index.rolling(window=norm_window).apply(lambda x: (x[-1] - x.mean()) / (x.std() + 1e-9) if len(x) > 1 else 0, raw=False).fillna(0).clip(-3, 3) / 3
                 df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = tension_index_series.astype(np.float32)
-                # 3. 【计算势能方向】: 均线有序性评分 (MA_POTENTIAL_ORDERLINESS_SCORE)
-                # 逻辑: 使用Spearman秩相关系数衡量均线周期顺序与均线值大小顺序的一致性
+                # 3. 计算势能方向 (有序性) - 【Numba 优化】
                 ma_df = df[ma_cols]
+                # 准备 Numba 需要的数据
+                ma_values = ma_df.values.astype(np.float64)
+                # 计算理论排名的 Rank 值 (1-based)
+                # 例如 ma_periods=[5, 10, 20]，则 rank 为 [1, 2, 3]
                 periods_series = pd.Series(ma_periods)
-                rank_x = periods_series.rank(method='average') # 周期排名
-                # 逐行计算Spearman相关性
-                def spearman_corr(row):
-                    rank_y = row.rank(method='average')
-                    d_sq = ((rank_x - rank_y.values)**2).sum()
-                    n = len(ma_periods)
-                    if n <= 1: return 0.0
-                    return 1 - (6 * d_sq) / (n * (n**2 - 1))
-                orderliness_score = ma_df.apply(spearman_corr, axis=1)
-                df[f'MA_POTENTIAL_ORDERLINESS_SCORE_{timeframe}'] = orderliness_score.fillna(0).astype(np.float32)
-                # 4. 【计算势能变化率】: 均线压缩率 (MA_POTENTIAL_COMPRESSION_RATE)
-                # 逻辑: 计算均线簇的标准差，并用ATR进行归一化，然后取其倒数作为压缩率
+                # 使用 ordinal rank 配合 Numba 逻辑 (从小到大)
+                ma_ranks_x = periods_series.rank(method='ordinal').values.astype(np.float64)
+                # 调用 Numba 函数
+                orderliness_scores = _numba_spearman_orderliness(ma_values, ma_ranks_x)
+                df[f'MA_POTENTIAL_ORDERLINESS_SCORE_{timeframe}'] = orderliness_scores.astype(np.float32)
+                # 4. 计算势能变化率 (压缩率)
                 ma_std = ma_df.std(axis=1)
                 normalized_std = ma_std / atr
-                # 归一化后取反，标准差越小（越压缩），得分越高
                 compression_rate = 1 - (normalized_std.rolling(window=norm_window).rank(pct=True)).fillna(0.5)
                 df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = compression_rate.astype(np.float32)
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
+                
         return all_dfs
 
     async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:

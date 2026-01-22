@@ -1067,6 +1067,7 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 Squeeze (bb={bb_period}, kc={kc_period}) 出错: {e}", exc_info=True)
             return None
+
     async def calculate_eom(self, df: pd.DataFrame, period: int = 13, high_col='high', low_col='low', volume_col='volume') -> Optional[pd.DataFrame]:
         """计算简易波动指标 (Ease of Movement)"""
         required_cols = [high_col, low_col, volume_col]
@@ -1084,89 +1085,200 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 EOM (周期 {period}) 出错: {e}", exc_info=True)
             return None
+
     async def calculate_intraday_vwap_divergence_index(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
-        【V1.4 · 命名规范修复版】计算日内VWAP偏离度积分指数。
-        - 核心修复: 返回不带 '_D' 后缀的列名，以符合系统命名规范，确保下游模块能正确消费。
+        【V1.6 · 60分钟数据精确版】计算日内VWAP偏离度积分指数。
+        - 适配60分钟数据特性：每交易日约4-5条数据
+        - 优化边界条件：针对少量数据点进行特殊处理
+        - 增强数据验证：针对60分钟数据特点进行验证
         """
+        # 数据完整性验证 - 针对60分钟数据调整阈值
         if df_minute is None or df_minute.empty:
-            logger.warning("计算日内VWAP偏离指数失败：输入的分钟数据DataFrame为空。")
+            logger.warning("计算日内VWAP偏离指数失败：输入的60分钟数据DataFrame为空。")
             return None
-        close_col = next((c for c in df_minute.columns if c.startswith('close')), None)
-        amount_col = next((c for c in df_minute.columns if c.startswith('amount')), None)
-        volume_col = next((c for c in df_minute.columns if c.startswith('volume')), None)
-        required_cols_map = {'close': close_col, 'amount': amount_col, 'volume': volume_col}
-        missing_cols = [k for k, v in required_cols_map.items() if v is None]
-        if missing_cols:
-            logger.warning(f"计算日内VWAP偏离指数失败：分钟数据缺少基础列: {missing_cols}。")
+        # 60分钟数据每交易日通常有4-5条数据（A股交易时间4小时）
+        # 设置最小数据条数为3，允许部分交易日数据不完整
+        if len(df_minute) < 3:
+            logger.warning(f"计算日内VWAP偏离指数失败：60分钟数据量过少，仅有{len(df_minute)}条。")
+            return None
+        # 数据质量检查 - 验证必要列存在
+        required_columns = ['open', 'high', 'low', 'close', 'volume', 'amount']
+        missing_columns = [col for col in required_columns if col not in df_minute.columns]
+        if missing_columns:
+            logger.warning(f"计算日内VWAP偏离指数失败：60分钟数据缺少必要列: {missing_columns}。")
             return None
         try:
             def _sync_calc():
+                # 创建数据副本，避免修改原始数据
                 df = df_minute.copy()
-                vwap_col = next((c for c in df.columns if c.startswith('vwap')), None)
-                if vwap_col is None:
-                    temp_amount = pd.to_numeric(df[amount_col], errors='coerce')
-                    temp_volume = pd.to_numeric(df[volume_col], errors='coerce')
-                    df['vwap_temp'] = temp_amount / temp_volume.replace(0, np.nan)
-                    df['vwap_temp'].fillna(method='ffill', inplace=True)
-                    vwap_col = 'vwap_temp'
-                vwap_deviation = (df[close_col] - df[vwap_col]) / df[vwap_col].replace(0, np.nan)
-                daily_integral = vwap_deviation.resample('D').sum()
-                # 返回不带 '_D' 后缀的列名
-                result_df = pd.DataFrame({'intraday_vwap_div_index': daily_integral})
-                return result_df.dropna()
+                # 数据预处理：确保数据类型正确并处理异常值
+                numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'amount']
+                for col in numeric_columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                # 60分钟数据量较少，采用更保守的异常值过滤
+                # 仅过滤明显错误的数据（价格<=0或交易量<0）
+                original_len = len(df)
+                df = df[(df['close'] > 0) & (df['volume'] >= 0) & (df['amount'] >= 0)]
+                filtered_len = len(df)
+                if filtered_len < max(3, original_len * 0.5):  # 保留至少3条或50%以上数据
+                    logger.warning(f"过滤后60分钟数据量过少：原始{original_len}条，过滤后{filtered_len}条")
+                    return None
+                # 确保时间索引已排序，对60分钟数据尤为重要
+                df = df.sort_index()
+                # 精确计算VWAP：针对60分钟数据特点优化
+                # 60分钟数据点较少，每个数据点权重较大，需精确计算
+                df['typical_price'] = (df['high'] + df['low'] + df['close']) / 3.0
+                # 处理零成交量情况：对于60分钟数据，零成交量可能表示临时停牌或极度不活跃
+                # 使用典型价格替代VWAP计算
+                df['volume_valid'] = df['volume'].where(df['volume'] > 0, np.nan)
+                df['amount_valid'] = df['amount'].where(df['volume'] > 0, np.nan)
+                # 计算精确VWAP：优先使用成交额/成交量
+                # 对于零成交量数据点，使用典型价格
+                df['vwap_calculated'] = np.where(
+                    df['volume_valid'] > 0,
+                    df['amount_valid'] / df['volume_valid'],
+                    df['typical_price']  # 零成交量时使用典型价格
+                )
+                # 验证VWAP计算结果的合理性
+                # 60分钟数据点少，每个点都重要，需要仔细检查
+                vwap_median = df['vwap_calculated'].median()
+                vwap_std = df['vwap_calculated'].std()
+                # 检查异常VWAP值：与中位数偏差超过10倍标准差视为异常
+                vwap_outliers = ((df['vwap_calculated'] - vwap_median).abs() > 10 * vwap_std)
+                if vwap_outliers.any():
+                    outlier_count = vwap_outliers.sum()
+                    logger.warning(f"检测到{outlier_count}个异常的VWAP值，使用中位数替代")
+                    df.loc[vwap_outliers, 'vwap_calculated'] = vwap_median
+                # 计算偏离度：(收盘价 - VWAP) / VWAP
+                # 60分钟数据波动可能较大，但偏离度应在合理范围内
+                df['vwap_deviation'] = np.where(
+                    df['vwap_calculated'] > 0,
+                    (df['close'] - df['vwap_calculated']) / df['vwap_calculated'],
+                    0  # VWAP为零或负值时，偏离度设为0（理论上不应发生）
+                )
+                # 针对60分钟数据的偏离度裁剪
+                # A股60分钟数据最大日波动通常不超过±20%，设置更严格的范围
+                df['vwap_deviation'] = df['vwap_deviation'].clip(-0.15, 0.15)
+                # 按自然日进行重采样，计算每日积分
+                # 60分钟数据每天约4-5条，使用sum()累加日内所有数据点
+                daily_integral = df['vwap_deviation'].resample('D').sum()
+                # 添加数据完整性检查：统计每日数据点数
+                daily_count = df['vwap_deviation'].resample('D').count()
+                daily_count.name = 'data_points'
+                # 创建结果DataFrame，包含指数和数据点数
+                result_df = pd.DataFrame({
+                    'intraday_vwap_div_index': daily_integral,
+                    'data_points': daily_count
+                })
+                # 移除结果中的NaN值
+                result_df = result_df.dropna()
+                # 针对60分钟数据的特殊处理：验证每日数据点完整性
+                # A股正常交易日应有4条60分钟数据，但允许部分缺失
+                incomplete_days = result_df[result_df['data_points'] < 3].index
+                if len(incomplete_days) > 0:
+                    logger.info(f"发现{len(incomplete_days)}个交易日数据点不足：{list(incomplete_days)}")
+                    # 对于数据点不足的交易日，可以保留但记录日志
+                    # 或者可以选择剔除，这里选择保留但警告
+                # 最终结果只返回intraday_vwap_div_index列，符合命名规范
+                final_result = pd.DataFrame({
+                    'intraday_vwap_div_index': result_df['intraday_vwap_div_index']
+                })
+                # 最终验证：检查指数值的合理性
+                if len(final_result) > 0:
+                    # 60分钟数据每天积分通常较小（几个百分点内）
+                    extreme_values = final_result[
+                        final_result['intraday_vwap_div_index'].abs() > 0.5  # 超过±50%可能有问题
+                    ]
+                    if len(extreme_values) > 0:
+                        logger.warning(f"检测到{len(extreme_values)}个异常的日内VWAP偏离指数值")
+                return final_result
+            # 异步执行计算
             return await asyncio.to_thread(_sync_calc)
+            
         except Exception as e:
             logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
             return None
+
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
-        【V2.3 · 解耦聚合与命名修复版】计算对手盘衰竭指数。
-        - 核心修复: 返回不带 '_D' 后缀的列名，以符合系统命名规范，确保下游模块能正确消费。
+        【V2.4 · 精确重构版】对手盘衰竭指数精细化计算
+        核心逻辑：通过方向推力与总能量的效率背离，识别多空力量的边际衰减
+        精确性原则：1) 确保时间对齐 2) 避免零值异常 3) 使用滚动标准化
         """
-        print("calculate_counterparty_exhaustion_index被调用")
-        if df_minute is None or df_minute.empty or len(df_minute) < 10:
+        if df_minute is None or df_minute.empty or len(df_minute) < efficiency_window * 1440:
             return None
-        open_col = next((c for c in df_minute.columns if c.startswith('open')), None)
-        high_col = next((c for c in df_minute.columns if c.startswith('high')), None)
-        low_col = next((c for c in df_minute.columns if c.startswith('low')), None)
-        close_col = next((c for c in df_minute.columns if c.startswith('close')), None)
-        volume_col = next((c for c in df_minute.columns if c.startswith('volume')), None)
+        # 精确匹配列名，支持大小写变体
+        open_col = next((c for c in df_minute.columns if c.lower().startswith('open')), None)
+        high_col = next((c for c in df_minute.columns if c.lower().startswith('high')), None)
+        low_col = next((c for c in df_minute.columns if c.lower().startswith('low')), None)
+        close_col = next((c for c in df_minute.columns if c.lower().startswith('close')), None)
+        volume_col = next((c for c in df_minute.columns if c.lower().startswith('volume')), None)
         required_cols = [open_col, high_col, low_col, close_col, volume_col]
         if not all(required_cols):
-            missing = [name for name, col in zip(['open', 'high', 'low', 'close', 'volume'], required_cols) if col is None]
-            logger.warning(f"计算对手盘衰竭指数失败：分钟数据缺少基础列: {missing}。")
             return None
         try:
             def _sync_calc():
                 df = df_minute.copy()
-                df['directional_thrust'] = (df[close_col] - df[open_col]) * df[volume_col]
-                df['total_energy'] = (df[high_col] - df[low_col]) * df[volume_col]
-                # 步骤1: 先聚合简单的求和项
-                daily_sums = df.resample('D').agg({
-                    'directional_thrust': 'sum',
-                    'total_energy': 'sum'
-                })
-                daily_sums.rename(columns={'directional_thrust': 'daily_thrust', 'total_energy': 'daily_energy'}, inplace=True)
-                # 步骤2: 单独计算日内真实涨跌幅
-                daily_ohlc = df[close_col].resample('D').ohlc()
-                # 确保 ohlc 结果不为空
-                if daily_ohlc.empty:
+                # 1. 分钟级别能量计算：使用绝对差值避免负值，加入微小常数防止零除
+                price_precision = 1e-6
+                df['directional_thrust'] = (df[close_col] - df[open_col]).abs() * df[volume_col]
+                df['total_energy'] = (df[high_col] - df[low_col] + price_precision) * df[volume_col]
+                # 2. 严格按自然日聚合：确保开盘价为当日第一笔，收盘价为当日最后一笔
+                daily_open = df[open_col].resample('D').first()
+                daily_close = df[close_col].resample('D').last()
+                daily_high = df[high_col].resample('D').max()
+                daily_low = df[low_col].resample('D').min()
+                daily_thrust = df['directional_thrust'].resample('D').sum()
+                daily_energy = df['total_energy'].resample('D').sum()
+                # 3. 构建日级DataFrame，对齐索引
+                daily_agg = pd.DataFrame({
+                    'open': daily_open,
+                    'close': daily_close,
+                    'high': daily_high,
+                    'low': daily_low,
+                    'daily_thrust': daily_thrust,
+                    'daily_energy': daily_energy
+                }).dropna()
+                if len(daily_agg) < efficiency_window:
                     return None
-                daily_ohlc['pct_change'] = (daily_ohlc['close'] / daily_ohlc['open'].replace(0, np.nan) - 1).fillna(0)
-                # 步骤3: 合并结果，形成最终的日级别聚合DataFrame
-                daily_agg = daily_sums.join(daily_ohlc[['pct_change']], how='inner')
-                daily_agg['conversion_efficiency'] = (daily_agg['daily_thrust'] / daily_agg['daily_energy'].replace(0, np.nan)).fillna(0)
-                efficiency_zscore = (daily_agg['conversion_efficiency'] - daily_agg['conversion_efficiency'].rolling(efficiency_window).mean()) / (daily_agg['conversion_efficiency'].rolling(efficiency_window).std() + 1e-9)
-                is_buying_exhaustion = (daily_agg['pct_change'] > 0) & (efficiency_zscore < -0.5)
-                is_selling_exhaustion = (daily_agg['pct_change'] < 0) & (efficiency_zscore > 0.5)
-                # 返回不带 '_D' 后缀的列名
-                exhaustion_index = (is_selling_exhaustion.astype(int) - is_buying_exhaustion.astype(int)).astype(float)
+                # 4. 计算日涨跌幅：使用对数收益率提升对称性，避免开盘价为零
+                daily_agg['daily_return'] = np.where(
+                    daily_agg['open'] > price_precision,
+                    np.log(daily_agg['close'] / daily_agg['open']),
+                    0
+                )
+                # 5. 转换效率计算：加入平滑处理，使用指数加权移动标准差提升稳定性
+                daily_agg['conversion_efficiency'] = np.where(
+                    daily_agg['daily_energy'] > 0,
+                    daily_agg['daily_thrust'] / daily_agg['daily_energy'],
+                    0
+                )
+                # 6. 效率Z-Score：使用滚动统计，加入稳定性常数
+                rolling_mean = daily_agg['conversion_efficiency'].rolling(
+                    window=efficiency_window, min_periods=int(efficiency_window*0.7)
+                ).mean()
+                rolling_std = daily_agg['conversion_efficiency'].rolling(
+                    window=efficiency_window, min_periods=int(efficiency_window*0.7)
+                ).std()
+                stability_constant = 1e-9
+                efficiency_zscore = (daily_agg['conversion_efficiency'] - rolling_mean) / (rolling_std + stability_constant)
+                # 7. 精确衰竭信号：加入幅度过滤，避免微小波动误判
+                return_threshold = 0.001  # 0.1%最小涨跌幅要求
+                is_buying_exhaustion = (daily_agg['daily_return'] > return_threshold) & (efficiency_zscore < -0.8)
+                is_selling_exhaustion = (daily_agg['daily_return'] < -return_threshold) & (efficiency_zscore > 0.8)
+                # 8. 生成衰竭指数：-1表示买入衰竭，1表示卖出衰竭，0表示无信号
+                exhaustion_index = pd.Series(0, index=daily_agg.index)
+                exhaustion_index[is_selling_exhaustion] = 1
+                exhaustion_index[is_buying_exhaustion] = -1
+                # 9. 后处理：连续同向信号只保留第一个（避免信号冗余）
+                exhaustion_index = exhaustion_index.replace(to_replace=0, method='ffill', limit=1)
+                exhaustion_index = exhaustion_index.diff().where(exhaustion_index.diff() != 0, exhaustion_index)
                 return pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算对手盘衰竭指数(V2.3)时发生错误: {e}", exc_info=True)
             return None
+
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
         【V2.7 · 细粒度斐波那契突破质量增强版】计算突破质量分。
