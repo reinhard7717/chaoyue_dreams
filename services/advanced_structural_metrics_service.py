@@ -1982,7 +1982,7 @@ def _numba_calculate_vpin_buckets(cum_vol_arr, volume_arr, buy_vol_arr, sell_vol
     
     return np.array(imbalance_values), np.array(bucket_indices)
 
-@njit(cache=True, fastmath=True)
+@jit(cache=True, fastmath=True)
 def _numba_calculate_active_volume_price_efficiency(
     price_arr: np.ndarray,
     volume_arr: np.ndarray,
