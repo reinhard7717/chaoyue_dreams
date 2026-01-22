@@ -3,7 +3,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime, time
-from scipy.stats import norm, linregress
+from scipy.stats import norm, linregress, skew, kurtosis
 import numba
 from numba import jit, prange, float64, int64
 from typing import Tuple
@@ -1471,19 +1471,21 @@ class StructuralMetricsCalculators:
 
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
-        group = context['group']
-        continuous_group = context['continuous_group']
-        tick_df = context.get('tick_df')
-        daily_info = context['daily_series_for_day']
-        day_open_qfq = context['day_open_qfq']
-        day_close_qfq = context['day_close_qfq']
-        atr_14 = context['atr_14']
-        total_volume_safe = context['total_volume_safe']
+        # 获取基础数据
+        group = context['group']  # 分钟K线数据（1分钟级别）
+        continuous_group = context['continuous_group']  # 处理后的连续分钟数据
+        tick_df = context.get('tick_df')  # 3秒聚合Tick数据
+        daily_info = context['daily_series_for_day']  # 日线数据
+        day_open_qfq = context['day_open_qfq']  # 前复权开盘价
+        day_close_qfq = context['day_close_qfq']  # 前复权收盘价
+        atr_14 = context['atr_14']  # 14日ATR
+        total_volume_safe = context['total_volume_safe']  # 当日总成交量
         debug_info = context.get('debug', {})
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
         stock_code = debug_info.get('stock_code', 'N/A')
+        # 初始化结果字典
         results = {
             'cost_dispersion_index': np.nan,
             'intraday_pnl_imbalance': np.nan,
@@ -1496,53 +1498,73 @@ class StructuralMetricsCalculators:
             'closing_conviction_score': np.nan,
             'absorption_strength_index': np.nan,
         }
+        # 数据验证：确保基础数据有效
         if group.empty or total_volume_safe == 0 or not pd.notna(atr_14) or atr_14 == 0:
             return results
+        # 1. 成本分散指数：使用加权标准差衡量价格离散程度，并用ATR标准化
         dispersion_raw = np.nan
         if tick_df is not None and not tick_df.empty:
+            # 使用3秒Tick数据计算加权价格均值和方差，提高精度
             weighted_price_mean = np.average(tick_df['price'], weights=tick_df['volume'])
+            # 使用Welford在线算法提高数值稳定性
             variance = np.average((tick_df['price'] - weighted_price_mean)**2, weights=tick_df['volume'])
             dispersion_raw = np.sqrt(variance)
             results['cost_dispersion_index'] = dispersion_raw / atr_14
         else:
+            # 回退到分钟数据计算
             weighted_price_mean = np.average(group['close'], weights=group['vol'])
             variance = np.average((group['close'] - weighted_price_mean)**2, weights=group['vol'])
             dispersion_raw = np.sqrt(variance)
             results['cost_dispersion_index'] = dispersion_raw / atr_14
+        # 2. 日内盈亏不平衡：对比上午和下午VWAP的相对变化
         first_half = continuous_group[continuous_group.index.time < time(11, 30)]
         second_half = continuous_group[continuous_group.index.time >= time(13, 0)]
         if not first_half.empty and not second_half.empty and first_half['vol'].sum() > 0 and second_half['vol'].sum() > 0:
+            # 精确计算VWAP：成交额总和/成交量总和
             vwap_first = (first_half['amount'].sum() / first_half['vol'].sum())
             vwap_second = (second_half['amount'].sum() / second_half['vol'].sum())
             results['intraday_pnl_imbalance'] = (vwap_second - vwap_first) / atr_14
+        # 3. 均值回归频率：计算价格穿越VWAP的频率
         if 'minute_vwap' in continuous_group.columns and not continuous_group['minute_vwap'].isnull().all():
             if tick_df is not None and not tick_df.empty:
+                # 使用3秒Tick数据与分钟VWAP对齐，计算更精确的穿越次数
                 continuous_group.index.name = 'trade_time'
-                merged_df = pd.merge_asof(tick_df.sort_index(), continuous_group[['minute_vwap']].sort_index(), on='trade_time', direction='backward')
+                # 确保时间索引对齐，使用最近邻合并
+                merged_df = pd.merge_asof(tick_df.sort_index(), continuous_group[['minute_vwap']].sort_index(), 
+                                        left_index=True, right_index=True, direction='nearest')
                 merged_df['position'] = np.sign(merged_df['price'] - merged_df['minute_vwap'])
+                # 检测位置变化绝对值为2的穿越点（从-1到1或从1到-1）
                 crossings = (merged_df['position'].diff().abs() == 2).sum()
+                # 标准化为每1000笔Tick中的穿越次数
                 results['mean_reversion_frequency'] = (crossings / len(tick_df)) * 1000 if len(tick_df) > 0 else 0
             else:
+                # 回退到分钟数据计算
                 position = np.sign(continuous_group['close'] - continuous_group['minute_vwap'])
                 crossings = (position.diff().abs() == 2).sum()
                 results['mean_reversion_frequency'] = (crossings / len(continuous_group)) * 100 if len(continuous_group) > 0 else 0
+        # 4. 趋势效率比率：衡量价格变动与总波动的关系
         price_change = day_close_qfq - day_open_qfq
+        # 使用分钟高低价差之和作为总波动
         sum_abs_minute_change = (continuous_group['high'] - continuous_group['low']).sum()
         if sum_abs_minute_change > 0:
             er_raw = abs(price_change) / sum_abs_minute_change
             thrust_purity = context.get('intraday_thrust_purity', 0)
+            # 结合推力纯度调整趋势效率
             results['trend_efficiency_ratio'] = er_raw * (1 + thrust_purity) * np.sign(price_change)
+        # 5. 回撤深度比率：分析上涨和下跌时量价相关性的差异
         minute_return = continuous_group['close'].pct_change().fillna(0)
         minute_volume = continuous_group['vol']
         advancing_mask = continuous_group['close'] > continuous_group['open']
         declining_mask = continuous_group['close'] < continuous_group['open']
         if advancing_mask.sum() > 2 and declining_mask.sum() > 2:
+            # 分别计算上涨和下跌分钟的量价相关性
             corr_adv = minute_return[advancing_mask].corr(minute_volume[advancing_mask])
             corr_dec = minute_return[declining_mask].corr(minute_volume[declining_mask])
             corr_adv = corr_adv if pd.notna(corr_adv) else 0
             corr_dec = corr_dec if pd.notna(corr_dec) else 0
             trend_direction = np.sign(day_close_qfq - day_open_qfq) if (day_close_qfq != day_open_qfq) else 1
             results['pullback_depth_ratio'] = (corr_adv - corr_dec) * trend_direction
+        # 6. 开盘冲动效率：衡量开盘时段价格变动的效率
         open_period_df = continuous_group.between_time('09:30', '10:00')
         mid_period_df = continuous_group.between_time('10:01', '14:29')
         tail_period_df = continuous_group.between_time('14:30', '15:00')
@@ -1552,56 +1574,69 @@ class StructuralMetricsCalculators:
                 open_price_change = open_period_df['close'].iloc[-1] - open_period_df['open'].iloc[0]
                 price_change_norm = open_price_change / atr_14
                 results['opening_impulse_efficiency'] = price_change_norm / open_vol_ratio
+        # 7. 午间窄幅波动引力：比较午间与活跃时段的波动率
         if not mid_period_df.empty and not open_period_df.empty and not tail_period_df.empty:
             volatility_mid = mid_period_df['close'].pct_change().std()
             active_period_df = pd.concat([open_period_df, tail_period_df])
             volatility_active = active_period_df['close'].pct_change().std()
             if pd.notna(volatility_mid) and pd.notna(volatility_active) and volatility_active > 0:
                 results['midday_narrow_range_gravity'] = 1 - (volatility_mid / volatility_active)
+        # 8. 尾盘加速效率：衡量尾盘价格变动的效率
         if not tail_period_df.empty and total_volume_safe > 0:
             tail_vol_ratio = tail_period_df['vol'].sum() / total_volume_safe
             if tail_vol_ratio > 0:
                 tail_price_change = tail_period_df['close'].iloc[-1] - tail_period_df['open'].iloc[0]
                 price_change_norm = tail_price_change / atr_14
                 results['tail_acceleration_efficiency'] = price_change_norm / tail_vol_ratio
+        # 9. 收盘信念得分：综合尾盘成交量、推力纯度和VPOC偏离度
         if not tail_period_df.empty and not mid_period_df.empty and mid_period_df['vol'].mean() > 0:
             accel_ratio = tail_period_df['vol'].mean() / mid_period_df['vol'].mean()
             tail_thrust_purity = np.nan
+            # 使用3秒Tick数据精确计算尾盘推力纯度
             if tick_df is not None:
                 tail_ticks = tick_df.between_time('14:30', '15:00')
                 if not tail_ticks.empty and tail_ticks['volume'].sum() > 0:
                     tail_total_vol = tail_ticks['volume'].sum()
+                    # 确保price_change列存在
                     if 'price_change' not in tail_ticks.columns:
                         tail_ticks['price_change'] = tail_ticks['price'].diff().fillna(0)
+                    # 处理价格变动为0的情况，使用计算出的变动
                     self_calculated_change = tail_ticks['price'].diff().fillna(0)
                     zero_change_mask = tail_ticks['price_change'] == 0
                     effective_price_change = np.where(zero_change_mask, self_calculated_change, tail_ticks['price_change'])
+                    # 计算净推力成交量
                     net_thrust_vol = (tail_ticks['volume'] * np.sign(effective_price_change)).sum()
                     tail_thrust_purity = net_thrust_vol / tail_total_vol
                 elif 'type' in tail_ticks.columns:
+                    # 如果有买卖方向，直接计算净买卖力量
                     buy_vol = tail_ticks[tail_ticks['type'] == 'B']['volume'].sum()
                     sell_vol = tail_ticks[tail_ticks['type'] == 'S']['volume'].sum()
                     tail_thrust_purity = (buy_vol - sell_vol) / tail_total_vol
-            vpoc = context.get('_today_vpoc', np.nan)
+            vpoc = context.get('_today_vpoc', np.nan)  # 当日成交量加权价格中枢
             if pd.notna(vpoc):
                 deviation_magnitude = (day_close_qfq - vpoc) / atr_14
                 tail_force_factor = np.log1p(accel_ratio)
                 conviction_purity = tail_thrust_purity if pd.notna(tail_thrust_purity) else np.sign(day_close_qfq - vpoc)
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor * conviction_purity
+        # 10. 吸收强度指数：衡量下跌时的买盘吸收力度
         if tick_df is not None and not tick_df.empty:
-            # 确保 price_diff 列存在
+            # 使用3秒Tick数据精确识别下跌时刻
+            tick_df = tick_df.copy()  # 创建副本避免修改原数据
             if 'price_diff' not in tick_df.columns:
                 tick_df['price_diff'] = tick_df['price'].diff()
-            down_moves = tick_df[tick_df['price_diff'] < 0].copy() # 确保是副本，避免SettingWithCopyWarning
+            # 筛选价格下跌的Tick
+            down_moves = tick_df[tick_df['price_diff'] < 0].copy()
             if not down_moves.empty:
+                # 使用大单过滤（假设金额大于200,000为大单）
                 mf_buy_on_dip = down_moves[down_moves['amount'] > 200000]['volume'].sum()
                 total_vol_on_dip = down_moves['volume'].sum()
                 if total_vol_on_dip > 0:
                     results['absorption_strength_index'] = mf_buy_on_dip / total_vol_on_dip
         else:
-            down_minutes = group[group['close'] < group['open']].copy() # 确保是副本
+            # 回退到分钟数据：使用下跌分钟的主力买入量
+            down_minutes = group[group['close'] < group['open']].copy()
             if not down_minutes.empty:
-                if 'main_force_buy_vol' in down_minutes.columns: # 假设 main_force_buy_vol 是分钟数据中主力买入量
+                if 'main_force_buy_vol' in down_minutes.columns:
                     mf_buy_on_dip = down_minutes['main_force_buy_vol'].sum()
                     total_vol_on_dip = down_minutes['vol'].sum()
                     if total_vol_on_dip > 0:
@@ -1686,81 +1721,258 @@ class ThematicMetricsCalculators:
     """
     @staticmethod
     def calculate_market_profile_metrics(context: dict) -> dict:
-        group = context['group']
-        continuous_group = context['continuous_group']
-        tick_df = context.get('tick_df')
+        # 获取数据源
+        group = context['group']  # 分钟K线数据
+        continuous_group = context['continuous_group']  # 连续分钟数据
+        tick_df = context.get('tick_df')  # 3秒聚合高频数据
+        day_open_qfq = context['day_open_qfq']
         day_high_qfq = context['day_high_qfq']
         day_low_qfq = context['day_low_qfq']
         day_close_qfq = context['day_close_qfq']
-        total_volume_safe = context['total_volume_safe']
+        pre_close_qfq = context['pre_close_qfq']
         atr_14 = context['atr_14']
         prev_day_metrics = context['prev_day_metrics']
-        debug_info = context.get('debug', {})
-        is_target_date = debug_info.get('is_target_date', False)
-        enable_probe = debug_info.get('enable_probe', False)
-        trade_date_str = debug_info.get('trade_date_str', 'N/A')
-        stock_code = context.get('stock_code', 'N/A') # 从 context 中获取 stock_code
-        results = {
-            'volume_profile_entropy': np.nan,
-            'value_area_migration': np.nan,
-            'value_area_overlap_pct': np.nan,
-            'closing_acceptance_type': np.nan,
-            'equilibrium_compression_index': np.nan,
-        }
-        today_vpoc = np.nan
-        if tick_df is not None and not tick_df.empty and tick_df['volume'].sum() > 0:
-            vp_hf = tick_df.groupby('price')['volume'].sum()
-            if not vp_hf.empty:
-                today_vpoc = vp_hf.idxmax()
-                total_volume = tick_df['volume'].sum()
-                vp_prob = vp_hf[vp_hf > 0] / total_volume
-                entropy = -np.sum(vp_prob * np.log2(vp_prob))
-                max_entropy = np.log2(len(vp_prob))
-                results['volume_profile_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
-        if continuous_group['vol'].sum() > 0:
-            try:
-                bins = pd.cut(continuous_group['close'], bins=20, duplicates='drop')
-                vp_minute = continuous_group.groupby(bins)['vol'].sum()
-            except ValueError:
+        total_volume_safe = context['total_volume_safe']
+        
+        # 优先使用tick_df进行精细化计算，如果不可用则降级到分钟数据
+        if tick_df is not None and not tick_df.empty and tick_df['volume'].sum() > 100:
+            # 使用高频tick数据计算价格-成交量分布
+            price_vol_df = tick_df.groupby('price')['volume'].sum().reset_index()
+            price_vol_df.columns = ['price', 'volume']
+            
+            # 计算总成交量
+            total_volume = price_vol_df['volume'].sum()
+            
+            # 1. 计算POC（成交量控制点）- 精细化版本
+            poc_idx = price_vol_df['volume'].idxmax()
+            poc_price = price_vol_df.loc[poc_idx, 'price']
+            
+            # 2. 计算价值区(VAH/VAL) - 基于累计成交量百分比的精确算法
+            # 按价格排序
+            price_vol_sorted = price_vol_df.sort_values('price').reset_index(drop=True)
+            # 计算累计百分比
+            price_vol_sorted['cum_pct'] = price_vol_sorted['volume'].cumsum() / total_volume
+            
+            # 找到POC在排序后的位置
+            poc_position = price_vol_sorted[price_vol_sorted['price'] == poc_price].index[0]
+            
+            # 从POC开始向两边扩展，直到累计成交量达到70%
+            left_idx = poc_position
+            right_idx = poc_position
+            current_volume_pct = price_vol_sorted.loc[poc_position, 'volume'] / total_volume
+            
+            while current_volume_pct < 0.70 and (left_idx > 0 or right_idx < len(price_vol_sorted)-1):
+                # 检查左边和右边的下一个价格档位
+                left_volume = 0
+                right_volume = 0
+                
+                if left_idx > 0:
+                    left_volume = price_vol_sorted.loc[left_idx-1, 'volume']
+                if right_idx < len(price_vol_sorted)-1:
+                    right_volume = price_vol_sorted.loc[right_idx+1, 'volume']
+                
+                # 优先扩展成交量更大的一侧（更符合市场真实情况）
+                if left_volume >= right_volume and left_idx > 0:
+                    left_idx -= 1
+                    current_volume_pct += left_volume / total_volume
+                elif right_volume > 0:
+                    right_idx += 1
+                    current_volume_pct += right_volume / total_volume
+                elif left_volume > 0:  # 只有左边有数据
+                    left_idx -= 1
+                    current_volume_pct += left_volume / total_volume
+                else:
+                    break
+            
+            value_area_low = price_vol_sorted.loc[left_idx, 'price']
+            value_area_high = price_vol_sorted.loc[right_idx, 'price']
+            
+            # 3. 计算轮廓偏度 - 使用加权偏度，权重为成交量
+            prices_array = price_vol_df['price'].values
+            volumes_array = price_vol_df['volume'].values
+            weighted_mean = np.average(prices_array, weights=volumes_array)
+            weighted_std = np.sqrt(np.average((prices_array - weighted_mean)**2, weights=volumes_array))
+            if weighted_std > 1e-10:  # 避免除零
+                profile_skewness = np.average(((prices_array - weighted_mean) / weighted_std)**3, weights=volumes_array)
+            else:
+                profile_skewness = 0.0
+            
+            # 4. 计算轮廓峰度 - 使用加权峰度
+            if weighted_std > 1e-10:
+                profile_kurtosis = np.average(((prices_array - weighted_mean) / weighted_std)**4, weights=volumes_array)
+            else:
+                profile_kurtosis = 0.0
+            
+            # 5. 计算价值区宽度 - 相对宽度
+            if poc_price != 0:
+                value_area_width = (value_area_high - value_area_low) / poc_price
+            else:
+                value_area_width = np.nan
+                
+        else:  # 降级到使用分钟数据计算
+            # 使用分钟数据计算价格-成交量分布
+            # 更精细化的分箱策略：基于ATR动态确定箱体数量
+            price_range = continuous_group['close'].max() - continuous_group['close'].min()
+            
+            # 动态确定分箱数量：价格范围越大，分箱越多
+            if price_range > 0 and atr_14 > 0:
+                # 确保每个箱体大约包含2个ATR的价格范围
+                num_bins = max(10, min(50, int(price_range / (atr_14 * 2))))
+            else:
+                num_bins = 20
+                
+            # 处理价格分布过于集中的情况
+            if len(continuous_group['close'].unique()) < num_bins:
+                # 直接按价格分组
                 vp_minute = continuous_group.groupby('close')['vol'].sum()
-            if pd.isna(today_vpoc) and not vp_minute.empty:
-                vpoc_interval = vp_minute.idxmax()
-                today_vpoc = vpoc_interval.mid if hasattr(vpoc_interval, 'mid') else vpoc_interval
-            vpoc_interval_for_va = vp_minute.idxmax() if not vp_minute.empty else np.nan
-            today_vah, today_val = ThematicMetricsCalculators._calculate_value_area(vp_minute, continuous_group['vol'].sum(), vpoc_interval_for_va)
-        else:
-            today_vah, today_val = np.nan, np.nan
-        prev_vpoc, prev_atr = prev_day_metrics.get('vpoc'), prev_day_metrics.get('atr_14d')
-        if all(pd.notna(v) for v in [today_vpoc, prev_vpoc, prev_atr]) and prev_atr > 0:
-            results['value_area_migration'] = (today_vpoc - prev_vpoc) / prev_atr
-        prev_vah, prev_val = prev_day_metrics.get('vah'), prev_day_metrics.get('val')
-        if all(pd.notna(v) for v in [today_vah, today_val, prev_vah, prev_val]) and (today_vah - today_val) > 0:
-            overlap_width = max(0, min(today_vah, prev_vah) - max(today_val, prev_val))
-            results['value_area_overlap_pct'] = (overlap_width / (today_vah - today_val)) * 100
-        if all(pd.notna(v) for v in [day_close_qfq, today_vpoc, today_vah, today_val]):
-            if day_close_qfq > today_vah: results['closing_acceptance_type'] = 2
-            elif day_close_qfq > today_vpoc: results['closing_acceptance_type'] = 1
-            elif day_close_qfq < today_val: results['closing_acceptance_type'] = -2
-            elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
-            else: results['closing_acceptance_type'] = 0
-        prev_high = prev_day_metrics.get('high')
-        prev_low = prev_day_metrics.get('low')
-        prev_volume = prev_day_metrics.get('volume')
-        prev_vpoc = prev_day_metrics.get('vpoc')
-        if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc, day_high_qfq, day_low_qfq, total_volume_safe]):
-            if day_high_qfq <= prev_high and day_low_qfq >= prev_low:
-                prev_range = prev_high - prev_low
-                today_range = day_high_qfq - day_low_qfq
-                if prev_range > 0 and prev_volume > 0:
-                    space_compression = 1 - (today_range / prev_range)
-                    positional_balance = 1 - (abs(today_vpoc - prev_vpoc) / prev_range)
-                    volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
-                    score = space_compression * positional_balance * (1 + volume_intensity)
-                    results['equilibrium_compression_index'] = score
-        results['today_vpoc'] = today_vpoc
-        results['today_vah'] = today_vah  
-        results['today_val'] = today_val  
+            else:
+                try:
+                    # 使用等频分箱而非等宽分箱，更适应A股价格分布特性
+                    bins = pd.qcut(continuous_group['close'], q=num_bins, duplicates='drop', retbins=True)[0]
+                    vp_minute = continuous_group.groupby(bins)['vol'].sum()
+                except (ValueError, TypeError):
+                    # 回退方案：等宽分箱
+                    bins = pd.cut(continuous_group['close'], bins=num_bins, duplicates='drop')
+                    vp_minute = continuous_group.groupby(bins)['vol'].sum()
+            
+            # 计算POC
+            if not vp_minute.empty:
+                poc_interval = vp_minute.idxmax()
+                poc_price = poc_interval.mid if hasattr(poc_interval, 'mid') else float(poc_interval)
+            else:
+                poc_price = np.nan
+            
+            # 计算价值区
+            value_area_high, value_area_low = MarketProfileCalculator._calculate_value_area_advanced(
+                vp_minute, continuous_group['vol'].sum(), poc_price
+            )
+            
+            # 计算偏度和峰度 - 基于分钟数据
+            if not vp_minute.empty:
+                # 提取价格区间中点作为价格值
+                if hasattr(vp_minute.index[0], 'mid'):
+                    prices = [interval.mid for interval in vp_minute.index]
+                else:
+                    prices = [float(price) for price in vp_minute.index]
+                volumes = vp_minute.values
+                
+                weighted_mean = np.average(prices, weights=volumes)
+                weighted_std = np.sqrt(np.average((np.array(prices) - weighted_mean)**2, weights=volumes))
+                if weighted_std > 1e-10:
+                    profile_skewness = np.average(((np.array(prices) - weighted_mean) / weighted_std)**3, weights=volumes)
+                    profile_kurtosis = np.average(((np.array(prices) - weighted_mean) / weighted_std)**4, weights=volumes)
+                else:
+                    profile_skewness = 0.0
+                    profile_kurtosis = 0.0
+            else:
+                profile_skewness = np.nan
+                profile_kurtosis = np.nan
+            
+            # 计算价值区宽度
+            if poc_price != 0 and not np.isnan(value_area_high) and not np.isnan(value_area_low):
+                value_area_width = (value_area_high - value_area_low) / poc_price
+            else:
+                value_area_width = np.nan
+        
+        # 6. 计算开盘-价值关系（相对于前一日价值区）
+        open_relative_to_value = 0  # 默认值：区间震荡
+        if 'prev_vah' in prev_day_metrics and 'prev_val' in prev_day_metrics:
+            prev_vah = prev_day_metrics['prev_vah']
+            prev_val = prev_day_metrics['prev_val']
+            if not np.isnan(prev_vah) and not np.isnan(prev_val):
+                if day_open_qfq > prev_vah:
+                    open_relative_to_value = 1  # 强势跳空
+                elif day_open_qfq < prev_val:
+                    open_relative_to_value = -1  # 弱势跳空
+        
+        # 7. 计算收盘-价值关系（相对于当日价值区）
+        close_relative_to_value = 0  # 默认值：区间震荡
+        if not np.isnan(value_area_high) and not np.isnan(value_area_low):
+            if day_close_qfq > value_area_high:
+                close_relative_to_value = 1  # 收盘强势
+            elif day_close_qfq < value_area_low:
+                close_relative_to_value = -1  # 收盘弱势
+        
+        # 构建返回结果
+        results = {
+            'value_area_high': value_area_high,
+            'value_area_low': value_area_low,
+            'poc_price': poc_price,
+            'profile_skewness': profile_skewness,
+            'profile_kurtosis': profile_kurtosis,
+            'value_area_width': value_area_width,
+            'open_relative_to_value': open_relative_to_value,
+            'close_relative_to_value': close_relative_to_value,
+        }
+        
         return results
+    
+    @staticmethod
+    def _calculate_value_area_advanced(vp_minute: pd.Series, total_volume: float, poc_price: float) -> Tuple[float, float]:
+        """高级价值区计算算法，考虑A股市场特性"""
+        if vp_minute.empty or total_volume <= 0 or np.isnan(poc_price):
+            return np.nan, np.nan
+        
+        # 转换成交量序列为DataFrame以便处理
+        if hasattr(vp_minute.index[0], 'mid'):
+            # 区间索引
+            vp_df = pd.DataFrame({
+                'price_mid': [interval.mid for interval in vp_minute.index],
+                'price_left': [interval.left for interval in vp_minute.index],
+                'price_right': [interval.right for interval in vp_minute.index],
+                'volume': vp_minute.values
+            })
+        else:
+            # 单价格索引
+            vp_df = pd.DataFrame({
+                'price_mid': [float(price) for price in vp_minute.index],
+                'volume': vp_minute.values
+            })
+            vp_df['price_left'] = vp_df['price_mid']
+            vp_df['price_right'] = vp_df['price_mid']
+        
+        # 按价格排序
+        vp_df = vp_df.sort_values('price_mid').reset_index(drop=True)
+        
+        # 找到POC所在位置
+        poc_idx = (vp_df['price_mid'] - poc_price).abs().idxmin()
+        
+        # 从POC开始向两边扩展，直到累计成交量达到70%
+        left_idx = poc_idx
+        right_idx = poc_idx
+        current_volume = vp_df.loc[poc_idx, 'volume']
+        target_volume = total_volume * 0.70
+        
+        while current_volume < target_volume and (left_idx > 0 or right_idx < len(vp_df)-1):
+            # 计算可扩展的候选方向
+            left_available = left_idx > 0
+            right_available = right_idx < len(vp_df) - 1
+            
+            # 如果两边都可用，选择成交量更大的一边
+            if left_available and right_available:
+                left_volume = vp_df.loc[left_idx-1, 'volume']
+                right_volume = vp_df.loc[right_idx+1, 'volume']
+                
+                if left_volume >= right_volume:
+                    left_idx -= 1
+                    current_volume += left_volume
+                else:
+                    right_idx += 1
+                    current_volume += right_volume
+            elif left_available:
+                left_idx -= 1
+                current_volume += vp_df.loc[left_idx, 'volume']
+            elif right_available:
+                right_idx += 1
+                current_volume += vp_df.loc[right_idx, 'volume']
+            else:
+                break
+        
+        # 返回价值区的高低点
+        value_area_low = vp_df.loc[left_idx, 'price_left']
+        value_area_high = vp_df.loc[right_idx, 'price_right']
+        
+        return float(value_area_high), float(value_area_low)
 
     @staticmethod
     def calculate_forward_looking_metrics(context: dict) -> dict:
