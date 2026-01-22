@@ -30,32 +30,25 @@ def _numba_calculate_trend_metrics(price_arr: np.ndarray) -> Tuple[float, float]
     cleaned_arr = price_arr[~np.isnan(price_arr)]
     if len(cleaned_arr) < 2:
         return 0.0, 0.0
-    
     if np.unique(cleaned_arr).size == 1: # 如果所有价格都相同
         return 0.0, 1.0
     y = cleaned_arr
     x = np.arange(len(y), dtype=np.float64)
-    
     N = len(y)
     sum_x = np.sum(x)
     sum_y = np.sum(y)
     sum_xy = np.sum(x * y)
     sum_x2 = np.sum(x * x)
-    
     denominator = N * sum_x2 - sum_x * sum_x
-    
     if denominator == 0:
         return 0.0, 0.0 # 避免除以零
     slope = (N * sum_xy - sum_x * sum_y) / denominator
     intercept = (sum_y - slope * sum_x) / N
-    
     predicted_y = slope * x + intercept
     residuals = y - predicted_y
     ss_res = np.sum(residuals**2)
     ss_tot = np.sum((y - np.mean(y))**2)
-    
     r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
-    
     return slope, r_squared
 
 @numba.njit(cache=True)
@@ -66,27 +59,21 @@ def _numba_calculate_mean_reversion_speed(price_arr: np.ndarray) -> float:
     cleaned_arr = price_arr[~np.isnan(price_arr)]
     if len(cleaned_arr) < 2:
         return 0.0
-    
     price_changes = np.diff(cleaned_arr)
     lagged_prices = cleaned_arr[:-1]
-    
     if len(price_changes) < 2:
         return 0.0
     y = price_changes
     x = lagged_prices
-    
     N = len(y)
     sum_x = np.sum(x)
     sum_y = np.sum(y)
     sum_xy = np.sum(x * y)
     sum_x2 = np.sum(x * x)
-    
     denominator = N * sum_x2 - sum_x * sum_x
-    
     if denominator == 0:
         return 0.0
     slope = (N * sum_xy - sum_x * sum_y) / denominator
-    
     return -slope
 
 @numba.njit(cache=True)
@@ -101,7 +88,6 @@ def _numba_calculate_tpo_metrics(close_arr: np.ndarray, vol_arr: np.ndarray) -> 
     # Numba 不直接支持 groupby，手动实现
     unique_prices = np.unique(close_arr)
     volume_profile = np.zeros(len(unique_prices), dtype=np.float64)
-    
     for i, price in enumerate(unique_prices):
         volume_profile[i] = np.sum(vol_arr[close_arr == price])
     # 2. 确定VPOC
@@ -109,22 +95,17 @@ def _numba_calculate_tpo_metrics(close_arr: np.ndarray, vol_arr: np.ndarray) -> 
         return np.nan, np.nan, np.nan
     vpoc_idx = np.argmax(volume_profile)
     vpoc = unique_prices[vpoc_idx]
-    
     # 3. 计算价值区 (VAH, VAL)
     total_volume = np.sum(volume_profile)
     value_area_target_volume = total_volume * 0.7
-    
     value_area_prices = np.array([vpoc])
     current_volume_in_area = volume_profile[vpoc_idx]
-    
     # 获取VPOC上下方的价格索引
     prices_below_vpoc_indices = np.where(unique_prices < vpoc)[0]
     prices_above_vpoc_indices = np.where(unique_prices > vpoc)[0]
-    
     # 双指针，从紧邻VPOC的价格开始
     below_ptr = len(prices_below_vpoc_indices) - 1
     above_ptr = 0
-    
     while current_volume_in_area < value_area_target_volume:
         vol_below = 0.0
         if below_ptr >= 0:
@@ -146,7 +127,6 @@ def _numba_calculate_tpo_metrics(close_arr: np.ndarray, vol_arr: np.ndarray) -> 
             below_ptr -= 1
     vah = np.max(value_area_prices)
     val = np.min(value_area_prices)
-    
     return vpoc, vah, val
 
 @numba.njit(cache=True)
@@ -288,36 +268,14 @@ def _numba_calculate_gini(array: np.ndarray) -> float:
     """
     if len(array) < 2 or np.sum(array) == 0:
         return 0.0
-    
     sorted_array = np.sort(array)
     n = len(array)
     cum_array = np.cumsum(sorted_array)
-    
     # 避免除以零
     if cum_array[-1] == 0:
         return 0.0
 
     return (n + 1 - 2 * np.sum(cum_array) / cum_array[-1]) / n
-
-@numba.njit(cache=True)
-def _numba_calculate_vwap_reversion_corr(deviation_arr: np.ndarray) -> float:
-    """
-    【Numba优化版】计算VWAP均值回归相关性。
-    """
-    n = len(deviation_arr)
-    if n < 2:
-        return np.nan
-    # 计算自相关系数 (lag=1)
-    # corr(X_t, X_{t-1}) = cov(X_t, X_{t-1}) / (std(X_t) * std(X_{t-1}))
-    # 移除NaN
-    clean_deviation = deviation_arr[~np.isnan(deviation_arr)]
-    if len(clean_deviation) < 2:
-        return np.nan
-    x_t = clean_deviation[1:]
-    x_t_minus_1 = clean_deviation[:-1]
-    if np.std(x_t) == 0 or np.std(x_t_minus_1) == 0:
-        return 0.0 # 如果序列没有变化，自相关为0
-    return np.corrcoef(x_t, x_t_minus_1)[0, 1]
 
 class AdvancedStructuralMetricsService:
     """
@@ -1028,11 +986,9 @@ def _numba_calculate_thrust_purity(prices, volumes, price_changes=None, trade_ty
     n = len(prices)
     if n == 0:
         return np.nan
-    
     total_volume = np.sum(volumes)
     if total_volume <= 0:
         return np.nan
-    
     if price_changes is not None and np.any(~np.isnan(price_changes)):
         # 如果有价格变化数据
         net_thrust = 0.0
@@ -1073,15 +1029,12 @@ def _numba_calculate_burstiness_index(volumes):
     n = len(volumes)
     if n <= 1:
         return 0.0
-    
     mean_volume = np.mean(volumes)
     if mean_volume <= 0:
         return 0.0
-    
     # 计算变异系数
     std_volume = np.std(volumes)
     cv = std_volume / mean_volume
-    
     # 计算峰度系数
     if n >= 4 and std_volume > 0:
         deviations = volumes - mean_volume
@@ -1090,24 +1043,20 @@ def _numba_calculate_burstiness_index(volumes):
         kurtosis = m4 / (m2**2) - 3
     else:
         kurtosis = 0
-    
     # 计算爆发比例
     burst_mask = volumes > 2 * mean_volume
     burst_ratio = np.sum(burst_mask) / n if n > 0 else 0
-    
     # 计算爆发强度
     if burst_ratio > 0:
         burst_volumes = volumes[burst_mask]
         burst_intensity = np.mean(burst_volumes) / mean_volume
     else:
         burst_intensity = 1.0
-    
     # 综合计算
     result = 0.4 * np.log1p(cv) + \
              0.3 * np.log1p(max(0, kurtosis)) + \
              0.2 * burst_ratio + \
              0.1 * np.log1p(burst_intensity)
-    
     return np.tanh(result)
 
 @jit(nopython=True, cache=True)
@@ -1134,31 +1083,25 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
     n = len(highs)
     if n < 10:  # 数据太少
         return 0.0, 0.0, 0.0
-    
     # 使用简化的极值点检测
     peaks = []
     troughs = []
-    
     # 简单峰值检测（可考虑更复杂的算法）
     for i in range(5, n-5):
         if highs[i] >= np.max(highs[i-5:i+5]):
             peaks.append(i)
         if lows[i] <= np.min(lows[i-5:i+5]):
             troughs.append(i)
-    
     if len(peaks) < 2 or len(troughs) < 2:
         return 0.0, 0.0, 0.0
-    
     # 合并排序 - 修复concatenate参数类型问题，使用元组而非列表
     peaks_arr = np.array(peaks)
     troughs_arr = np.array(troughs)
     all_extrema = np.sort(np.concatenate((peaks_arr, troughs_arr)))
-    
     total_momentum = 0.0
     positive_count = 0
     recovery_sum = 0.0
     valid_reversals = 0
-    
     for i in range(1, len(all_extrema)-1):
         current = all_extrema[i]
         next_ext = all_extrema[i+1]
@@ -1219,15 +1162,12 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
             if momentum > 0:
                 positive_count += 1
                 recovery_sum += recovery_ratio
-    
     if valid_reversals == 0:
         return 0.0, 0.0, 0.0
-    
     # 计算最终指标
     avg_momentum = total_momentum / valid_reversals
     conviction_rate = positive_count / valid_reversals if valid_reversals > 0 else 0.0
     recovery_rate = recovery_sum / positive_count if positive_count > 0 else 0.0
-    
     return avg_momentum * conviction_rate, conviction_rate, recovery_rate
 
 @jit(nopython=True, cache=True)
@@ -1236,28 +1176,22 @@ def _numba_calculate_high_level_volume(prices, volumes, high_threshold, close_pr
     n = len(prices)
     if n == 0:
         return 0.0
-    
     total_volume = np.sum(volumes)
     if total_volume <= 0:
         return 0.0
-    
     # 计算高位成交量
     high_vol = 0.0
     for i in prange(n):
         if prices[i] >= high_threshold:
             high_vol += volumes[i]
-    
     volume_ratio = high_vol / total_volume
-    
     # 计算确认因子
     distance = close_price - high_threshold
     if atr_14 > 0:
         normalized_distance = distance / atr_14
     else:
         normalized_distance = distance / (np.max(prices) - np.min(prices) + 1e-6)
-    
     confirmation_factor = np.tanh(normalized_distance)
-    
     return volume_ratio * confirmation_factor
 
 @jit(nopython=True, cache=True)
@@ -1607,7 +1541,7 @@ class StructuralMetricsCalculators:
                     buy_vol = tail_ticks[tail_ticks['type'] == 'B']['volume'].sum()
                     sell_vol = tail_ticks[tail_ticks['type'] == 'S']['volume'].sum()
                     tail_thrust_purity = (buy_vol - sell_vol) / tail_total_vol
-            vpoc = context.get('_today_vpoc', np.nan)  # 当日成交量加权价格中枢
+            vpoc = context.get('today_vpoc', np.nan)  # 当日成交量加权价格中枢
             if pd.notna(vpoc):
                 deviation_magnitude = (day_close_qfq - vpoc) / atr_14
                 tail_force_factor = np.log1p(accel_ratio)
@@ -1878,7 +1812,7 @@ class ThematicMetricsCalculators:
             'close_relative_to_value': close_relative_to_value,
         }
         return results
-    
+
     @staticmethod
     def _calculate_value_area_advanced(vp_minute: pd.Series, total_volume: float, poc_price: float) -> Tuple[float, float]:
         """高级价值区计算算法，考虑A股市场特性"""
@@ -2169,7 +2103,6 @@ def _numba_calculate_vpin_buckets(cum_vol_arr, volume_arr, buy_vol_arr, sell_vol
                 current_bucket_buy = 0.0
                 current_bucket_sell = 0.0
                 current_bucket_vol = 0.0
-    
     if current_bucket_vol > 0 and current_bucket_vol >= bucket_size * 0.5:
         if current_bucket_vol > 0:
             imbalance = abs(current_bucket_buy - current_bucket_sell) / current_bucket_vol
@@ -2177,7 +2110,6 @@ def _numba_calculate_vpin_buckets(cum_vol_arr, volume_arr, buy_vol_arr, sell_vol
             imbalance = 0.0
         imbalance_values.append(imbalance)
         bucket_indices.append(bucket_counter)
-    
     return np.array(imbalance_values), np.array(bucket_indices)
 
 @jit(cache=True, fastmath=True)
@@ -2195,42 +2127,35 @@ def _numba_calculate_active_volume_price_efficiency(
     2. 时间衰减修正：早盘推力和尾盘推力具有不同时效性
     3. 方向一致性检验：避免价格震荡导致的假性相关
     4. 异常值鲁棒处理：使用中位数替代均值进行中心化
-    
     参数说明：
     price_arr: 价格序列
     volume_arr: 成交量序列
     price_change_arr: 价格变化序列（带符号）
     time_seconds_arr: 时间戳（秒），用于时间衰减计算
     volume_threshold_ratio: 成交量阈值比例，过滤噪声小单
-    
     返回：
     correlation: 经加权和时间修正后的推力-位移相关系数
     """
     n = len(price_arr)
     if n < 10:  # 最少需要10个tick点以保证统计意义
         return 0.0
-    
     # 1. 计算成交量阈值，过滤噪声小单
     total_volume = np.sum(volume_arr)
     volume_threshold = total_volume * volume_threshold_ratio
     valid_mask = volume_arr >= volume_threshold
-    
     # 如果没有有效数据点，返回0
     valid_count = np.sum(valid_mask)
     if valid_count < 5:
         return 0.0
-    
     # 2. 提取有效数据点
     valid_price_changes = price_change_arr[valid_mask]
     valid_volumes = volume_arr[valid_mask]
-    
     # 3. 计算推力向量（带方向的正负推力）
     # 推力 = 价格变化方向 * log(成交量) * 价格变化绝对值
     # 使用对数成交量平滑极端大单影响
     log_volumes = np.log1p(valid_volumes)  # log(1+x)避免为0
     price_directions = np.sign(valid_price_changes)
     price_abs_changes = np.abs(valid_price_changes)
-    
     # 处理价格变化为0的情况（价格不变但可能有成交量）
     zero_change_mask = price_abs_changes == 0
     if np.any(zero_change_mask):
@@ -2239,11 +2164,9 @@ def _numba_calculate_active_volume_price_efficiency(
                          price_directions * log_volumes * price_abs_changes)
     else:
         thrust = price_directions * log_volumes * price_abs_changes
-    
     # 4. 计算位移向量（价格变化的累计效应）
     # 位移 = 价格变化的累计和，反映价格变动的净效果
     displacement = np.cumsum(valid_price_changes)
-    
     # 5. 时间衰减权重（如果提供了时间序列）
     if time_seconds_arr is not None and len(time_seconds_arr) == n:
         valid_times = time_seconds_arr[valid_mask]
@@ -2257,31 +2180,24 @@ def _numba_calculate_active_volume_price_efficiency(
                 time_weights = 1.0 + 0.2 * normalized_time
                 # 应用时间权重到推力
                 thrust = thrust * time_weights
-    
     # 6. 计算加权的累计推力和累计位移
     # 累计推力 = 推力序列的加权累计和
     cumulative_thrust = np.cumsum(thrust)
-    
     # 7. 鲁棒性相关系数计算（使用中位数中心化）
     # 避免极端值对相关系数的过度影响
     thrust_median = np.median(cumulative_thrust)
     disp_median = np.median(displacement)
-    
     # 中心化序列
     thrust_centered = cumulative_thrust - thrust_median
     disp_centered = displacement - disp_median
-    
     # 8. 计算加权协方差和方差
     # 使用有效数据点的数量作为权重基准
     weights = np.ones_like(thrust_centered) / valid_count
-    
     # 加权协方差
     cov_weighted = np.sum(weights * thrust_centered * disp_centered)
-    
     # 加权方差
     var_thrust_weighted = np.sum(weights * thrust_centered * thrust_centered)
     var_disp_weighted = np.sum(weights * disp_centered * disp_centered)
-    
     # 9. 计算相关系数，确保分母不为0
     denominator = np.sqrt(var_thrust_weighted * var_disp_weighted)
     if denominator > 1e-10:
@@ -2290,7 +2206,6 @@ def _numba_calculate_active_volume_price_efficiency(
         correlation = max(min(correlation, 1.0), -1.0)
     else:
         correlation = 0.0
-    
     return float(correlation)
 
 # 修改点 1: 移除 parallel=True
@@ -2307,16 +2222,12 @@ def _numba_calculate_liquidity_authenticity_score(
     # 确保数组长度一致，避免越界
     n_level5 = min(len(buy_price1_arr), len(buy_volume1_arr), len(sell_price1_arr), len(sell_volume1_arr))
     n_tick = min(len(tick_prices_arr), len(tick_times_arr))
-    
     fulfillments = 0
     defaults = 0
-    
     # 定义时间窗口：大单出现后60秒（20个3秒周期）内追踪其命运
     time_window_ns = 60_000_000_000  # 60秒，纳秒单位
-    
     # 存储大单信息：时间戳、价格、方向、原始挂单量
     commitments = []
-    
     # 步骤1：识别异常大单（承诺）
     # 修改点 2: 将 prange 改为普通的 range
     for i in range(n_level5):
@@ -2326,7 +2237,6 @@ def _numba_calculate_liquidity_authenticity_score(
         # 识别卖方大单
         if sell_volume1_arr[i] >= sell_commitment_threshold and sell_price1_arr[i] > 0:
             commitments.append((level5_times_arr[i], sell_price1_arr[i], -1, sell_volume1_arr[i]))
-    
     # 步骤2：追踪每个大单的命运
     # 修改点 3: 将 prange 改为普通的 range (虽然这里并行没问题，但既然为了稳定关掉了parallel，这里也改回range)
     for i in range(len(commitments)):
@@ -2368,7 +2278,6 @@ def _numba_calculate_liquidity_authenticity_score(
             else:
                 defaults += 1  # 触及但未完全成交，违约（可能是撤单）
         # 未触及价格的情况不计入统计
-    
     return fulfillments, defaults
 
 class MicrostructureDynamicsCalculators:
