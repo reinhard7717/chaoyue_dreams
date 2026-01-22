@@ -1124,6 +1124,7 @@ class IndicatorCalculator:
         【V2.3 · 解耦聚合与命名修复版】计算对手盘衰竭指数。
         - 核心修复: 返回不带 '_D' 后缀的列名，以符合系统命名规范，确保下游模块能正确消费。
         """
+        print("calculate_counterparty_exhaustion_index被调用")
         if df_minute is None or df_minute.empty or len(df_minute) < 10:
             return None
         open_col = next((c for c in df_minute.columns if c.startswith('open')), None)
