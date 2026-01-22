@@ -972,7 +972,8 @@ class FeatureEngineeringService:
                 # 例如 ma_periods=[5, 10, 20]，则 rank 为 [1, 2, 3]
                 periods_series = pd.Series(ma_periods)
                 # 使用 ordinal rank 配合 Numba 逻辑 (从小到大)
-                ma_ranks_x = periods_series.rank(method='ordinal').values.astype(np.float64)
+                # 修复: pandas 2.x 不支持 method='ordinal'，改为 'first'
+                ma_ranks_x = periods_series.rank(method='first').values.astype(np.float64)
                 # 调用 Numba 函数
                 orderliness_scores = _numba_spearman_orderliness(ma_values, ma_ranks_x)
                 df[f'MA_POTENTIAL_ORDERLINESS_SCORE_{timeframe}'] = orderliness_scores.astype(np.float32)
