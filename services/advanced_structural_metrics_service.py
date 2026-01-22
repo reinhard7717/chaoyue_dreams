@@ -1443,7 +1443,7 @@ class StructuralMetricsCalculators:
                 # 根据可用数据选择计算方式
                 if 'price_change' in opening_ticks.columns:
                     price_changes = opening_ticks['price_change'].values.astype(np.float64)
-                    results['opening_period_thrust'] = StructuralMetricsCalculators._numba_calculate_opening_thrust(
+                    results['opening_period_thrust'] = _numba_calculate_opening_thrust(
                         opening_prices, opening_volumes, price_changes, None
                     )
                 elif 'type' in opening_ticks.columns:
@@ -1456,7 +1456,7 @@ class StructuralMetricsCalculators:
                         sell_vol = np.sum(opening_volumes[sell_mask])
                         results['opening_period_thrust'] = (buy_vol - sell_vol) / opening_total_vol
                 else:
-                    results['opening_period_thrust'] = StructuralMetricsCalculators._numba_calculate_opening_thrust(
+                    results['opening_period_thrust'] = _numba_calculate_opening_thrust(
                         opening_prices, opening_volumes, None, None
                     )
         return results
