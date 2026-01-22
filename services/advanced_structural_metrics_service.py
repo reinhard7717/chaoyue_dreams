@@ -2294,7 +2294,6 @@ class MicrostructureDynamicsCalculators:
             else:
                 # 尝试将索引作为时间列
                 tick_df['time'] = tick_df.index
-
         tick_df.sort_values('time', inplace=True)
         # 识别主动买卖方向
         tick_df['is_buy'] = tick_df['type'].apply(lambda x: 1 if x == 'B' else 0)
@@ -2862,12 +2861,13 @@ class MicrostructureDynamicsCalculators:
                             # 理论基准：在1%的价格变动内应该能成交多少比例的日成交量
                             theoretical_slope = total_volume / 0.01
                             if theoretical_slope > 0:
-                                normalized_slope = slope / theoretical_slope
-                                slopes.append(normalized_slope)
-                                # 使用该时刻的买卖价差作为权重：价差越小，权重越大
                                 spread_pct = (a1_p - b1_p) / mid_price
+                                # Ensure we have a valid positive spread to calculate weight
                                 if spread_pct > 0:
+                                    normalized_slope = slope / theoretical_slope
                                     weight = 1.0 / spread_pct
+                                    # Append to both strictly at the same time
+                                    slopes.append(normalized_slope)
                                     slope_weights.append(weight)
                     except:
                         continue
