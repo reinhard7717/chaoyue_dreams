@@ -1162,6 +1162,7 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
     for i in range(1, len(all_extrema)-1):
         current = all_extrema[i]
         next_ext = all_extrema[i+1]
+        
         # 检查是否为低点-高点模式
         # 优化：避免使用 'in' 操作符和列表推导式，改用显式循环
         is_trough = False
@@ -1169,13 +1170,16 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
             if t == current:
                 is_trough = True
                 break
+        
         if not is_trough:
             continue
+            
         is_next_peak = False
         for p in peaks:
             if p == next_ext:
                 is_next_peak = True
                 break
+        
         if is_next_peak:
             # 找前一个高点
             prev_peak = -1
@@ -1183,8 +1187,10 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
                 if p < current:
                     if p > prev_peak:
                         prev_peak = p
+            
             if prev_peak == -1:
                 continue
+            
             # 计算下跌阶段
             fall_start = prev_peak
             fall_end = current
@@ -1218,8 +1224,10 @@ def _numba_find_reversals(highs, lows, closes, volumes, amounts, atr_14):
             if momentum > 0:
                 positive_count += 1
                 recovery_sum += recovery_ratio
+    
     if valid_reversals == 0:
         return 0.0, 0.0, 0.0
+    
     # 计算最终指标
     avg_momentum = total_momentum / valid_reversals
     conviction_rate = positive_count / valid_reversals if valid_reversals > 0 else 0.0
@@ -2276,6 +2284,17 @@ class MicrostructureDynamicsCalculators:
         # 精确计算扫单强度 - 使用3秒聚合的tick数据
         # 数据预处理：确保时间排序和价格有效性
         tick_df = tick_df.copy()
+        
+        # 修复：确保 'time' 列存在，用于排序和后续计算
+        if 'time' not in tick_df.columns:
+            if 'trade_time' in tick_df.columns:
+                tick_df['time'] = tick_df['trade_time']
+            elif isinstance(tick_df.index, pd.DatetimeIndex):
+                tick_df['time'] = tick_df.index
+            else:
+                # 尝试将索引作为时间列
+                tick_df['time'] = tick_df.index
+
         tick_df.sort_values('time', inplace=True)
         # 识别主动买卖方向
         tick_df['is_buy'] = tick_df['type'].apply(lambda x: 1 if x == 'B' else 0)
