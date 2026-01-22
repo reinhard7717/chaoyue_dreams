@@ -2868,9 +2868,9 @@ class AdvancedFundFlowMetricsService:
             cost_mf_sell = common_data.get('daily_vwap', np.nan)
         if pd.isna(cost_mf_buy) or cost_mf_buy <= 0:
             cost_mf_buy = common_data.get('daily_vwap', np.nan)
-        if should_probe:
-            print(f"  - cost_mf_sell (after fallback): {cost_mf_sell}")
-            print(f"  - cost_mf_buy (after fallback): {cost_mf_buy}")
+        # if should_probe:
+        #     print(f"  - cost_mf_sell (after fallback): {cost_mf_sell}")
+        #     print(f"  - cost_mf_buy (after fallback): {cost_mf_buy}")
         # 复制数据以避免修改原始数据
         hf_analysis_df_copy = hf_analysis_df.copy()
         # 1. 精细化交易者身份识别（使用改进后的识别逻辑）
@@ -2878,9 +2878,9 @@ class AdvancedFundFlowMetricsService:
         is_main_force_trade, is_retail_trade = AdvancedFundFlowMetricsService._identify_trade_participants(hf_analysis_df_copy, context)
         hf_analysis_df_copy['is_retail_trade'] = is_retail_trade
         hf_analysis_df_copy['is_main_force_trade'] = is_main_force_trade
-        if should_probe:
-            print(f"  - is_retail_trade count: {is_retail_trade.sum()}")
-            print(f"  - is_main_force_trade count: {is_main_force_trade.sum()}")
+        # if should_probe:
+        #     print(f"  - is_retail_trade count: {is_retail_trade.sum()}")
+        #     print(f"  - is_main_force_trade count: {is_main_force_trade.sum()}")
         # 2. 计算价格极值点（更精确的定义）
         # 基于滚动窗口计算局部极值，避免短期噪声干扰
         window_size = max(10, min(100, len(hf_analysis_df_copy) // 100))  # 自适应窗口
@@ -2892,9 +2892,9 @@ class AdvancedFundFlowMetricsService:
         # 真正的新低：低于过去N笔交易的最低价
         hf_analysis_df_copy['is_true_new_low'] = (hf_analysis_df_copy['price'] < hf_analysis_df_copy['rolling_min_20'].shift(1)) & \
                                                 (hf_analysis_df_copy['price'] < hf_analysis_df_copy['price'].shift(1))
-        if should_probe:
-            print(f"  - is_true_new_high count: {hf_analysis_df_copy['is_true_new_high'].sum()}")
-            print(f"  - is_true_new_low count: {hf_analysis_df_copy['is_true_new_low'].sum()}")
+        # if should_probe:
+        #     print(f"  - is_true_new_high count: {hf_analysis_df_copy['is_true_new_high'].sum()}")
+        #     print(f"  - is_true_new_low count: {hf_analysis_df_copy['is_true_new_low'].sum()}")
         # 3. 计算价格动量加速度（捕捉FOMO/恐慌的加速特征）
         hf_analysis_df_copy['price_change'] = hf_analysis_df_copy['price'].diff()
         hf_analysis_df_copy['price_change_abs'] = hf_analysis_df_copy['price_change'].abs()
