@@ -1518,35 +1518,72 @@ class StructuralMetricsCalculators:
                 price_change_norm = tail_price_change / atr_14
                 results['tail_acceleration_efficiency'] = price_change_norm / tail_vol_ratio
         # 9. 收盘信念得分：综合尾盘成交量、推力纯度和VPOC偏离度
+        tail_period_df = continuous_group.between_time('14:30', '15:00')
+        mid_period_df = continuous_group.between_time('10:01', '14:29')
+
+        # ========================= [DIAGNOSTIC PROBE START] =========================
+        if is_target_date:
+            print(f"\n[{stock_code} {trade_date_str}] >>> PROBE: Closing Conviction Score Calculation")
+            print(f"  > Tail Period Rows: {len(tail_period_df)}")
+            print(f"  > Mid Period Rows: {len(mid_period_df)}")
+            if not mid_period_df.empty:
+                print(f"  > Mid Period Avg Vol: {mid_period_df['vol'].mean():.2f}")
+        # ========================= [DIAGNOSTIC PROBE END] ===========================
+
         if not tail_period_df.empty and not mid_period_df.empty and mid_period_df['vol'].mean() > 0:
             accel_ratio = tail_period_df['vol'].mean() / mid_period_df['vol'].mean()
             tail_thrust_purity = np.nan
+            
             # 使用3秒Tick数据精确计算尾盘推力纯度
             if tick_df is not None:
                 tail_ticks = tick_df.between_time('14:30', '15:00')
                 if not tail_ticks.empty and tail_ticks['volume'].sum() > 0:
                     tail_total_vol = tail_ticks['volume'].sum()
-                    # 确保price_change列存在
                     if 'price_change' not in tail_ticks.columns:
+                        tail_ticks = tail_ticks.copy() # 避免SettingWithCopyWarning
                         tail_ticks['price_change'] = tail_ticks['price'].diff().fillna(0)
-                    # 处理价格变动为0的情况，使用计算出的变动
+                    
                     self_calculated_change = tail_ticks['price'].diff().fillna(0)
                     zero_change_mask = tail_ticks['price_change'] == 0
                     effective_price_change = np.where(zero_change_mask, self_calculated_change, tail_ticks['price_change'])
-                    # 计算净推力成交量
+                    
                     net_thrust_vol = (tail_ticks['volume'] * np.sign(effective_price_change)).sum()
                     tail_thrust_purity = net_thrust_vol / tail_total_vol
                 elif 'type' in tail_ticks.columns:
-                    # 如果有买卖方向，直接计算净买卖力量
                     buy_vol = tail_ticks[tail_ticks['type'] == 'B']['volume'].sum()
                     sell_vol = tail_ticks[tail_ticks['type'] == 'S']['volume'].sum()
                     tail_thrust_purity = (buy_vol - sell_vol) / tail_total_vol
-            vpoc = context.get('today_vpoc', np.nan)  # 当日成交量加权价格中枢
+            
+            # 获取VPOC
+            vpoc = context.get('today_vpoc', np.nan)
+            
+            # ========================= [DIAGNOSTIC PROBE START] =========================
+            if is_target_date:
+                print(f"  > Calculated Tail Purity: {tail_thrust_purity}")
+                print(f"  > Context 'today_vpoc': {vpoc}")
+                # 检查是否存在键名不匹配的问题 (VPOC常见键名检查)
+                related_keys = [k for k in context.keys() if 'vpoc' in k or 'poc' in k]
+                print(f"  > Available Context Keys (VPOC related): {related_keys}")
+            # ========================= [DIAGNOSTIC PROBE END] ===========================
+
             if pd.notna(vpoc):
                 deviation_magnitude = (day_close_qfq - vpoc) / atr_14
                 tail_force_factor = np.log1p(accel_ratio)
                 conviction_purity = tail_thrust_purity if pd.notna(tail_thrust_purity) else np.sign(day_close_qfq - vpoc)
-                results['closing_conviction_score'] = deviation_magnitude * tail_force_factor * conviction_purity
+                
+                final_score = deviation_magnitude * tail_force_factor * conviction_purity
+                results['closing_conviction_score'] = final_score
+
+                # ========================= [DIAGNOSTIC PROBE START] =========================
+                if is_target_date:
+                    print(f"  > Deviation Mag: {deviation_magnitude:.4f} (Close: {day_close_qfq}, VPOC: {vpoc})")
+                    print(f"  > Tail Force Factor: {tail_force_factor:.4f}")
+                    print(f"  > Conviction Purity: {conviction_purity:.4f}")
+                    print(f"  > FINAL SCORE SAVED: {final_score}")
+                # ========================= [DIAGNOSTIC PROBE END] ===========================
+            else:
+                if is_target_date:
+                    print("  > SKIPPING: VPOC is NaN. Score cannot be calculated.")
         # 10. 吸收强度指数：衡量下跌时的买盘吸收力度
         if tick_df is not None and not tick_df.empty:
             # 使用3秒Tick数据精确识别下跌时刻
