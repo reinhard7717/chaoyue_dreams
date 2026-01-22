@@ -354,6 +354,7 @@ class IndicatorService:
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
             return {}
+        self._log_final_data_columns(all_dfs) # 移除调试打印
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         # --- 步骤 2: 【形态增强信号计算】 ---
         # 修复: 移除 self.calculator 参数
@@ -447,7 +448,7 @@ class IndicatorService:
         # --- 11. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        self._log_final_data_columns(all_dfs) # 移除调试打印
+        # self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:
