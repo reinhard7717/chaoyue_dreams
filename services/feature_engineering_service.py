@@ -430,6 +430,8 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
+        print("元特征计算前列名:")
+        print(df.columns)
         suffix = f"_{timeframe}"
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
         if not params.get('enabled', False):
