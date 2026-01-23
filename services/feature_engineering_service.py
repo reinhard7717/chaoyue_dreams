@@ -46,7 +46,6 @@ def _numba_rolling_fft_energy_ratio_core(
         low_freq_idx = int(N_window * low_freq_cutoff_ratio)
         low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
         results[i] = low_freq_energy / total_energy
-        
     return results
 
 @numba.njit(cache=True)
@@ -66,14 +65,11 @@ def _numba_rolling_slope(data: np.ndarray, window: int) -> np.ndarray:
     sum_x = (window - 1) * window / 2.0
     sum_x_sq = (window - 1) * window * (2 * window - 1) / 6.0
     denominator = window * sum_x_sq - sum_x * sum_x
-    
     # 如果分母为0（窗口为1），则无法计算
     if denominator == 0:
         return result
-
     for i in range(window - 1, n):
         y_slice = data[i - window + 1 : i + 1]
-        
         # 检查 NaN
         has_nan = False
         for val in y_slice:
@@ -82,17 +78,14 @@ def _numba_rolling_slope(data: np.ndarray, window: int) -> np.ndarray:
                 break
         if has_nan:
             continue
-
         sum_y = 0.0
         sum_xy = 0.0
         for j in range(window):
             val = y_slice[j]
             sum_y += val
             sum_xy += j * val
-            
         slope = (window * sum_xy - sum_x * sum_y) / denominator
         result[i] = slope
-        
     return result
 
 @numba.njit(cache=True)
@@ -104,10 +97,8 @@ def _numba_higuchi_fd(x: np.ndarray, k_max: int) -> float:
     x_len = len(x)
     if x_len < 2:
         return np.nan
-    
     L = np.empty(k_max, dtype=np.float64)
     L[:] = np.nan # 手动填充 NaN
-    
     for k in range(1, k_max + 1):
         Lk_sum = 0.0
         count = 0
@@ -120,20 +111,16 @@ def _numba_higuchi_fd(x: np.ndarray, k_max: int) -> float:
             sum_diff = 0.0
             for i in range(1, n_k):
                 sum_diff += np.abs(x[m + i * k] - x[m + (i - 1) * k])
-                
             norm_factor = (x_len - 1) / (n_k * k) # 这里简化处理，原文可能有细微差异，保持标准Higuchi
             # 原代码逻辑: denominator = ((x_len - m) // k * k) -> 实际上近似 n_k * k
             # 保持原代码逻辑的等价实现
             denominator = ((x_len - m) // k) * k
             if denominator == 0:
                 continue
-                
             Lk_sum += sum_diff * (x_len - 1) / denominator
             count += 1
-            
         if count > 0 and Lk_sum > 0:
             L[k-1] = np.log(Lk_sum / count / k) # Log(L(k))
-    
     # 线性回归计算斜率
     # x轴: log(1/k) 或 -log(k)。Higuchi定义 FD = -slope of log(L(k)) vs log(k)
     # 原代码用 log(k) 和 log(L)，slope应为负，取绝对值
@@ -141,23 +128,18 @@ def _numba_higuchi_fd(x: np.ndarray, k_max: int) -> float:
     valid_L = L[valid_mask]
     if len(valid_L) < 2:
         return np.nan
-        
     k_values = np.arange(1, k_max + 1, dtype=np.float64)
     valid_k_log = np.log(k_values[valid_mask])
-    
     N = len(valid_L)
     sum_x = np.sum(valid_k_log)
     sum_y = np.sum(valid_L)
     sum_xy = np.sum(valid_k_log * valid_L)
     sum_x2 = np.sum(valid_k_log * valid_k_log)
-    
     denom = N * sum_x2 - sum_x * sum_x
     if denom == 0:
         return np.nan
-        
     slope = (N * sum_xy - sum_x * sum_y) / denom
     fd = np.abs(slope)
-    
     # 截断结果
     if fd < 1.0: return 1.0
     if fd > 2.0: return 2.0
@@ -177,12 +159,10 @@ def _numba_sample_entropy_core(x: np.ndarray, m: int, r: float) -> float:
     # count_m_plus_1: 长度为 m+1 的匹配数
     count_m = 0
     count_m_plus_1 = 0
-    
     # 优化：避免重复切片，直接比较
     # 但为保持逻辑清晰，使用循环比较
     # A: count of vector pairs of length m+1 having d < r
     # B: count of vector pairs of length m having d < r
-    
     # 简单的 O(N^2) 实现
     for i in range(n - m):
         for j in range(i + 1, n - m):
@@ -199,10 +179,8 @@ def _numba_sample_entropy_core(x: np.ndarray, m: int, r: float) -> float:
                     d_plus = np.abs(x[i+m] - x[j+m])
                     if d_plus < r: # max(dist_m, d_plus) < r
                         count_m_plus_1 += 1
-
     if count_m == 0:
         return np.nan
-        
     return -np.log(count_m_plus_1 / count_m)
 
 @numba.njit(cache=True)
@@ -213,25 +191,19 @@ def _numba_rolling_sample_entropy(data: np.ndarray, window: int, tol_ratio: floa
     """
     n = len(data)
     result = np.full(n, np.nan, dtype=np.float64)
-    
     if n < window:
         return result
-        
     for i in range(window - 1, n):
         # 获取当前窗口数据
         window_data = data[i - window + 1 : i + 1]
-        
         # 获取预计算的 std (注意索引对齐)
         std_val = rolling_std[i]
         if np.isnan(std_val) or std_val == 0:
             continue
-            
         r = std_val * tol_ratio
-        
         # 调用核心计算函数
         se = _numba_sample_entropy_core(window_data, 2, r)
         result[i] = se
-        
     return result
 
 @numba.njit(cache=True)
@@ -244,16 +216,13 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
     """
     n_rows, n_cols = ma_values.shape
     results = np.zeros(n_rows, dtype=np.float32)
-    
     if n_cols <= 1:
         return results
 
     # 常数项：n(n^2 - 1)
     denom = n_cols * (n_cols * n_cols - 1.0)
-    
     for i in range(n_rows):
         row = ma_values[i, :]
-        
         # 检查 NaN
         has_nan = False
         for val in row:
@@ -263,7 +232,6 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
         if has_nan:
             results[i] = 0.0
             continue
-            
         # 计算当前行的排名 (Ordinal Rank)
         # Numba 中没有直接的 rank，使用 argsort().argsort()
         # 第一次 argsort 获取排序后的索引
@@ -271,22 +239,60 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
         # 注意：这里不处理平局 (ties)，对于均线这种连续浮点数，完全相等的概率极低
         temp_args = np.argsort(row)
         ranks_y = np.empty(n_cols, dtype=np.int64)
-        
         # 填充排名
         for r in range(n_cols):
             ranks_y[temp_args[r]] = r + 1 # 1-based rank
-            
         # 计算距离平方和 d^2
         d_sq_sum = 0.0
         for j in range(n_cols):
             d = ma_ranks_x[j] - ranks_y[j]
             d_sq_sum += d * d
-            
         # Spearman 公式: 1 - 6 * Σd^2 / (n(n^2-1))
         rho = 1.0 - (6.0 * d_sq_sum) / denom
         results[i] = rho
-        
     return results
+
+@njit(parallel=True, cache=True)
+def _numba_rolling_fractal_dimension(data: np.ndarray, window: int, k_max: int) -> np.ndarray:
+    """Numba并行化滚动分形维度计算"""
+    n = len(data)
+    result = np.full(n, np.nan, dtype=np.float64)
+    k_values = np.arange(1, k_max + 1)
+    for i in prange(window - 1, n):
+        window_data = data[i - window + 1:i + 1]
+        l_values = np.zeros(len(k_values))
+        for j, k in enumerate(k_values):
+            lk = 0.0
+            max_m = (window - 1) // k
+            if max_m < 1:
+                l_values[j] = 0.0
+                continue
+            for m in range(max_m):
+                idx1 = m * k
+                idx2 = (m + 1) * k
+                if idx2 < len(window_data):
+                    lk += abs(window_data[idx2] - window_data[idx1])
+            lk = lk * (window - 1) / (max_m * k * k)
+            l_values[j] = lk
+        # 线性回归拟合log(1/k) vs log(L(k))
+        valid_mask = l_values > 0
+        if np.sum(valid_mask) < 2:
+            result[i] = np.nan
+            continue
+        x = np.log(1.0 / k_values[valid_mask])
+        y = np.log(l_values[valid_mask])
+        n_valid = len(x)
+        sum_x = np.sum(x)
+        sum_y = np.sum(y)
+        sum_xy = np.sum(x * y)
+        sum_x2 = np.sum(x * x)
+        denom = n_valid * sum_x2 - sum_x * sum_x
+        if denom == 0:
+            result[i] = np.nan
+            continue
+        slope = (n_valid * sum_xy - sum_x * sum_y) / denom
+        result[i] = slope
+    return result[window-1:]
 
 class FeatureEngineeringService:
     """
@@ -306,11 +312,9 @@ class FeatureEngineeringService:
         slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
         if not slope_params.get('enabled', False):
             return all_dfs
-            
         series_to_slope = slope_params.get('series_to_slope', {})
         if not series_to_slope:
             return all_dfs
-            
         for col_pattern, lookbacks in series_to_slope.items():
             if "说明" in col_pattern: continue
             try:
@@ -319,15 +323,12 @@ class FeatureEngineeringService:
                     timeframe = 'D'
             except IndexError:
                 continue
-                
             if timeframe not in all_dfs or all_dfs[timeframe] is None:
                 continue
-                
             df = all_dfs[timeframe]
             if col_pattern not in df.columns:
                 logger.warning(f"SLOPE计算跳过: 周期 '{timeframe}' 的源列 '{col_pattern}' 不存在。")
                 continue
-                
             # 提取源数据为 NumPy 数组，确保 float64 类型
             source_values = df[col_pattern].astype(float).values
             for lookback in lookbacks:
@@ -338,9 +339,7 @@ class FeatureEngineeringService:
                 slope_values = _numba_rolling_slope(source_values, int(lookback))
                 # 填充结果，保持与原 DataFrame 索引一致
                 df[slope_col_name] = pd.Series(slope_values, index=df.index).fillna(0)
-                
             all_dfs[timeframe] = df
-            
         return all_dfs
 
     async def calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
@@ -352,24 +351,20 @@ class FeatureEngineeringService:
         accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
         if not accel_params.get('enabled', False):
             return all_dfs
-            
         series_to_accel = accel_params.get('series_to_accel', {})
         if not series_to_accel:
             return all_dfs
-            
         for base_col_name, periods in series_to_accel.items():
             if "说明" in base_col_name: continue
             timeframe = base_col_name.split('_')[-1]
             if timeframe not in all_dfs or all_dfs[timeframe] is None:
                 continue
-                
             df = all_dfs[timeframe]
             for period in periods:
                 slope_col_name = f'SLOPE_{period}_{base_col_name}'
                 if slope_col_name not in df.columns:
                     logger.warning(f"ACCEL计算跳过: 周期 '{timeframe}' 的依赖斜率列 '{slope_col_name}' 不存在。")
                     continue
-                    
                 accel_col_name = f'ACCEL_{period}_{base_col_name}'
                 if accel_col_name in df.columns:
                     continue
@@ -378,7 +373,6 @@ class FeatureEngineeringService:
                 # 【Numba加速】计算加速度（斜率的斜率）
                 accel_values = _numba_rolling_slope(slope_values, int(period))
                 df[accel_col_name] = pd.Series(accel_values, index=df.index).fillna(0)
-                
         return all_dfs
 
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
@@ -391,41 +385,34 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
-        
         required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             logger.warning(f"VPA效率生产线缺少关键数据: {missing}，模块已跳过！")
             return all_dfs
-        
         # 1. 计算总VPA效率
         volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
         vpa_efficiency = df['pct_change_D'] / volume_ratio.replace(0, np.nan)
         df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-
         # 2. 计算买方VPA效率 (VPA_BUY_EFFICIENCY_D)
         mf_buy_ofi_ma_21 = df['main_force_buy_ofi_D'].rolling(window=21, min_periods=1).mean()
         buy_flow_ratio = df['main_force_buy_ofi_D'] / mf_buy_ofi_ma_21.replace(0, np.nan)
-        
         # 【向量化优化】使用 np.maximum 替代 apply(lambda x: max(0, x))
         positive_pct_change = np.maximum(df['pct_change_D'].values, 0)
         buy_vpa_efficiency = positive_pct_change / buy_flow_ratio.replace(0, np.nan)
         df['VPA_BUY_EFFICIENCY_D'] = buy_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-
         # 3. 计算卖方VPA效率 (VPA_SELL_EFFICIENCY_D)
         mf_sell_ofi_ma_21 = df['main_force_sell_ofi_D'].rolling(window=21, min_periods=1).mean()
         sell_flow_ratio = df['main_force_sell_ofi_D'] / mf_sell_ofi_ma_21.replace(0, np.nan)
-        
         # 【向量化优化】使用 np.minimum 替代 apply(lambda x: min(0, x))
         negative_pct_change = np.minimum(df['pct_change_D'].values, 0)
         sell_vpa_efficiency = negative_pct_change / sell_flow_ratio.replace(0, np.nan)
         df['VPA_SELL_EFFICIENCY_D'] = sell_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-
         all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """【V3.6 · Numba重构版】元特征计算车间"""
+        """【V4.0 · 向量化Numba优化版】元特征计算车间 - 极致性能"""
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
@@ -445,52 +432,65 @@ class FeatureEngineeringService:
             if source_col not in df.columns:
                 logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
                 continue
-            current_series = df[source_col]
-            if isinstance(current_series, pd.DataFrame):
-                current_series = current_series.iloc[:, 0]
-            clean_series = current_series.dropna()
-            clean_values = clean_series.values.astype(np.float64)
+            series_values = df[source_col].values.astype(np.float64)
+            valid_mask = ~np.isnan(series_values)
+            clean_values = series_values[valid_mask]
+            if len(clean_values) == 0:
+                continue
+            # 1. 赫斯特指数 (向量化滚动计算)
             hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns:
                 try:
                     if len(clean_values) >= hurst_window:
-                        df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
-                            lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
-                        )
+                        hurst_values = np.full(len(series_values), np.nan, dtype=np.float64)
+                        # 使用滑动窗口计算赫斯特指数
+                        for i in range(hurst_window - 1, len(clean_values)):
+                            window_data = clean_values[i - hurst_window + 1:i + 1]
+                            hurst_values[valid_mask][i] = self._vectorized_hurst_exponent(window_data, hurst_window)
+                        df[hurst_col] = hurst_values
                     else:
                         df[hurst_col] = np.nan
                 except Exception as e:
                     logger.error(f"赫斯特指数计算失败: {e}")
                     df[hurst_col] = np.nan
+            # 2. 分形维度 (Numba向量化)
             fd_window = params.get('fractal_dimension_window', 89)
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
             if fd_col not in df.columns:
                 try:
                     if len(clean_values) >= fd_window:
                         k_max = int(np.sqrt(fd_window))
-                        df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
-                            lambda x: _numba_higuchi_fd(x, k_max), raw=True
-                        )
+                        fd_values = np.full(len(series_values), np.nan, dtype=np.float64)
+                        # 预计算所有窗口的分形维度
+                        fd_window_data = _numba_rolling_fractal_dimension(clean_values, fd_window, k_max)
+                        fd_values[valid_mask][fd_window-1:] = fd_window_data
+                        df[fd_col] = fd_values
                     else:
                         df[fd_col] = np.nan
                 except Exception as e:
                     logger.error(f"分形维度计算失败: {e}")
                     df[fd_col] = np.nan
+            # 3. 样本熵 (已Numba优化)
             se_window = params.get('sample_entropy_window', 13)
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
             if se_col not in df.columns:
                 try:
                     if len(clean_values) >= se_window + 1:
-                        rolling_std = clean_series.rolling(window=se_window, min_periods=se_window).std().values
+                        # 预计算滚动标准差 (向量化)
+                        rolling_std = self._vectorized_rolling_std(clean_values, se_window)
+                        # Numba加速样本熵计算
                         entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
-                        df[se_col] = pd.Series(entropy_values, index=clean_series.index).reindex(df.index)
+                        se_result = np.full(len(series_values), np.nan, dtype=np.float64)
+                        se_result[valid_mask][se_window-1:] = entropy_values
+                        df[se_col] = se_result
                     else:
                         df[se_col] = np.nan
                 except Exception as e:
                     logger.error(f"样本熵计算失败: {e}")
                     df[se_col] = np.nan
+            # 4. NOLDS样本熵 (保持异步)
             nolds_sampen_window = params.get('approximate_entropy_window', 21)
             nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
@@ -505,29 +505,37 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"NOLDS样本熵计算失败: {e}")
                     df[nolds_sampen_col] = np.nan
+            # 5. FFT能量比 (向量化计算)
             fft_window = params.get('fft_energy_ratio_window', 34)
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
             if fft_col not in df.columns:
                 try:
                     if len(clean_values) >= fft_window:
-                        fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
-                            clean_values,
-                            fft_window,
-                            low_freq_cutoff_ratio=0.1
-                        )
-                        df[fft_col] = pd.Series(fft_energy_ratios_values, index=clean_series.index).reindex(df.index)
+                        fft_values = np.full(len(series_values), np.nan, dtype=np.float64)
+                        # 使用滑动窗口计算FFT能量比
+                        for i in range(fft_window - 1, len(clean_values)):
+                            window_data = clean_values[i - fft_window + 1:i + 1]
+                            fft_values[valid_mask][i] = self._vectorized_fft_energy_ratio(window_data, fft_window)
+                        df[fft_col] = fft_values
                     else:
                         df[fft_col] = np.nan
                 except Exception as e:
                     logger.error(f"FFT能量比计算失败: {e}")
                     df[fft_col] = np.nan
+            # 6. 波动率不稳定性 (向量化)
             vi_window = params.get('volatility_instability_window', 21)
             vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
             atr_col = f'ATR_14{suffix}'
             if atr_col in df.columns and vi_col not in df.columns:
                 try:
-                    if df[atr_col].notna().sum() >= vi_window:
-                        df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
+                    atr_values = df[atr_col].values.astype(np.float64)
+                    atr_valid_mask = ~np.isnan(atr_values)
+                    if np.sum(atr_valid_mask) >= vi_window:
+                        vi_values = np.full(len(atr_values), np.nan, dtype=np.float64)
+                        # 向量化计算滚动标准差
+                        rolling_std_atr = self._vectorized_rolling_std(atr_values[atr_valid_mask], vi_window)
+                        vi_values[atr_valid_mask][vi_window-1:] = rolling_std_atr
+                        df[vi_col] = vi_values
                     else:
                         df[vi_col] = np.nan
                 except Exception as e:
@@ -535,9 +543,62 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         return all_dfs
 
+    def _vectorized_hurst_exponent(self, data: np.ndarray, window: int) -> float:
+        """向量化赫斯特指数计算"""
+        n = len(data)
+        if n < window:
+            return np.nan
+        lags = np.arange(2, min(20, n // 4))
+        tau = np.zeros_like(lags, dtype=np.float64)
+        for i, lag in enumerate(lags):
+            diffs = np.abs(data[lag:] - data[:-lag])
+            tau[i] = np.mean(diffs)
+        if len(lags) < 2:
+            return np.nan
+        poly = np.polyfit(np.log(lags), np.log(tau), 1)
+        return poly[0]
+
+    def _vectorized_rolling_std(self, data: np.ndarray, window: int) -> np.ndarray:
+        """向量化滚动标准差计算"""
+        n = len(data)
+        if n < window:
+            return np.full(n, np.nan, dtype=np.float64)
+        result = np.full(n, np.nan, dtype=np.float64)
+        # 使用累积和计算滚动标准差
+        cumsum = np.cumsum(data)
+        cumsum_sq = np.cumsum(data ** 2)
+        for i in range(window - 1, n):
+            if i == window - 1:
+                sum_ = cumsum[i]
+                sum_sq = cumsum_sq[i]
+            else:
+                sum_ = cumsum[i] - cumsum[i - window]
+                sum_sq = cumsum_sq[i] - cumsum_sq[i - window]
+            mean = sum_ / window
+            variance = (sum_sq - window * mean ** 2) / (window - 1)
+            result[i] = np.sqrt(variance) if variance > 0 else 0
+        return result[window-1:]
+
+    def _vectorized_fft_energy_ratio(self, data: np.ndarray, window: int) -> float:
+        """向量化FFT能量比计算"""
+        n = len(data)
+        if n < window:
+            return np.nan
+        fft_result = np.fft.fft(data - np.mean(data))
+        freqs = np.fft.fftfreq(n)
+        power_spectrum = np.abs(fft_result) ** 2
+        low_freq_mask = np.abs(freqs) <= 0.1
+        high_freq_mask = np.abs(freqs) > 0.1
+        low_freq_energy = np.sum(power_spectrum[low_freq_mask])
+        high_freq_energy = np.sum(power_spectrum[high_freq_mask])
+        if high_freq_energy == 0:
+            return np.nan
+        return low_freq_energy / high_freq_energy
+
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V5.0 · 市场阶段自适应版】基于市场阶段的多模式识别系统
+        【V5.1 · 市场阶段自适应修复版】基于市场阶段的多模式识别系统
+        - 修复Series真值判断错误：使用.iloc[-1]获取最新值而非整个Series
         - 核心改进：根据ADX值区分趋势/盘整市场，采用不同计算逻辑
         - 趋势市场：关注趋势延续、中继整理、趋势反转
         - 盘整市场：关注吸筹、突破、派发
@@ -547,14 +608,15 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe].copy()
-        print(f"=== 模式识别引擎(V5.0)开始分析，数据长度: {len(df)} ===")
+        print(f"=== 模式识别引擎(V5.1)开始分析，数据长度: {len(df)} ===")
         print(f"数据时间范围: {df.index[0]} 到 {df.index[-1]}")
-        print(f"=== 市场阶段判断 ===")
         if 'ADX_14_D' not in df.columns:
             print("错误：缺少ADX数据，无法判断市场阶段")
             return all_dfs
-        df['MARKET_PHASE_D'] = 'TRENDING' if df['ADX_14_D'].iloc[-1] > 25 else 'CONSOLIDATING'
-        print(f"当前ADX: {df['ADX_14_D'].iloc[-1]:.1f}, 市场阶段: {df['MARKET_PHASE_D']}")
+        current_adx = df['ADX_14_D'].iloc[-1]
+        market_phase = 'TRENDING' if current_adx > 25 else 'CONSOLIDATING'
+        print(f"=== 市场阶段判断 ===")
+        print(f"当前ADX: {current_adx:.1f}, 市场阶段: {market_phase}")
         print(f"当前价格: {df['close_D'].iloc[-1]:.2f}, 涨跌幅: {df['pct_change_D'].iloc[-1]:.2%}")
         if df['pct_change_D'].max() > 10 or df['pct_change_D'].min() < -10:
             df['pct_change_D'] = df['pct_change_D'] / 100.0
@@ -566,7 +628,7 @@ class FeatureEngineeringService:
         print(f"使用滚动窗口: {rolling_window}天")
         print(f"=== 阶段自适应阈值计算 ===")
         dynamic_thresholds = {}
-        if df['MARKET_PHASE_D'] == 'TRENDING':
+        if market_phase == 'TRENDING':
             print("趋势市场阈值配置（相对宽松）:")
             threshold_config = {
                 'chip_health_score_D': ('q25', 0.25),
@@ -606,7 +668,7 @@ class FeatureEngineeringService:
                     else:
                         dynamic_thresholds[col] = pd.Series(0, index=df.index)
         print(f"=== 市场阶段自适应计算 ===")
-        if df['MARKET_PHASE_D'] == 'TRENDING':
+        if market_phase == 'TRENDING':
             print("执行趋势市场逻辑...")
             df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = False
             df['IS_ACCUMULATION_D'] = False
@@ -615,7 +677,7 @@ class FeatureEngineeringService:
             trend_correction_score = pd.Series(0, index=df.index, dtype=float)
             if 'pct_change_D' in df.columns:
                 pct_threshold = dynamic_thresholds.get('pct_change_D', pd.Series(0, index=df.index))
-                trend_continuation_score = trend_continuation_score + ((df['pct_change_D'] > max(pct_threshold, 0.01)) * 2.0).fillna(0)
+                trend_continuation_score = trend_continuation_score + ((df['pct_change_D'] > pct_threshold) * 2.0).fillna(0)
             if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
                 trend_continuation_score = trend_continuation_score + ((df['volume_D'] > df['VOL_MA_21_D'] * 1.2) * 1.5).fillna(0)
             if 'main_force_net_flow_calibrated_D' in df.columns:
@@ -626,15 +688,31 @@ class FeatureEngineeringService:
             df['IS_TREND_CONTINUATION_D'] = (trend_continuation_score >= 4.0)
             if 'pct_change_D' in df.columns:
                 cond_small_correction = (df['pct_change_D'] < 0) & (df['pct_change_D'] > -0.03)
-                cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else True
-                cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.3)) if 'main_force_net_flow_calibrated_D' in df.columns else True
-                cond_chip_stable = (df['chip_health_score_D'] > df['chip_health_score_D'].rolling(20).quantile(0.3)) if 'chip_health_score_D' in df.columns else True
+                cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
+                if 'main_force_net_flow_calibrated_D' in df.columns:
+                    mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.3).fillna(method='ffill')
+                    cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_low_quantile)
+                else:
+                    cond_mf_not_outflow = pd.Series(True, index=df.index)
+                if 'chip_health_score_D' in df.columns:
+                    chip_low_quantile = df['chip_health_score_D'].rolling(20).quantile(0.3).fillna(method='ffill')
+                    cond_chip_stable = (df['chip_health_score_D'] > chip_low_quantile)
+                else:
+                    cond_chip_stable = pd.Series(True, index=df.index)
                 df['IS_TREND_CORRECTION_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
             if 'pct_change_D' in df.columns:
                 cond_sharp_drop = df['pct_change_D'] < -0.03
-                cond_volume_spike = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else False
-                cond_mf_heavy_outflow = (df['main_force_net_flow_calibrated_D'] < df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.2)) if 'main_force_net_flow_calibrated_D' in df.columns else False
-                cond_chip_deteriorate = (df['chip_health_score_D'] < df['chip_health_score_D'].rolling(20).quantile(0.3)) if 'chip_health_score_D' in df.columns else False
+                cond_volume_spike = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(False, index=df.index)
+                if 'main_force_net_flow_calibrated_D' in df.columns:
+                    mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.2).fillna(method='ffill')
+                    cond_mf_heavy_outflow = (df['main_force_net_flow_calibrated_D'] < mf_low_quantile)
+                else:
+                    cond_mf_heavy_outflow = pd.Series(False, index=df.index)
+                if 'chip_health_score_D' in df.columns:
+                    chip_low_quantile = df['chip_health_score_D'].rolling(20).quantile(0.3).fillna(method='ffill')
+                    cond_chip_deteriorate = (df['chip_health_score_D'] < chip_low_quantile)
+                else:
+                    cond_chip_deteriorate = pd.Series(False, index=df.index)
                 df['IS_TREND_REVERSAL_D'] = cond_sharp_drop & (cond_volume_spike | cond_mf_heavy_outflow) & cond_chip_deteriorate
             print(f"趋势市场信号统计:")
             print(f"  趋势延续信号: {df['IS_TREND_CONTINUATION_D'].sum()}次")
@@ -726,11 +804,12 @@ class FeatureEngineeringService:
             df['IS_DISTRIBUTION_D'] = distribution_score >= 3
             print(f"派发信号: {df['IS_DISTRIBUTION_D'].sum()}次")
         print(f"=== 信号后处理 ===")
-        signal_cols = []
-        if df['MARKET_PHASE_D'] == 'TRENDING':
+        if market_phase == 'TRENDING':
             signal_cols = ['IS_TREND_CONTINUATION_D', 'IS_TREND_CORRECTION_D', 'IS_TREND_REVERSAL_D']
+            print("趋势市场信号去抖动...")
         else:
             signal_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+            print("盘整市场信号去抖动...")
         for col in signal_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
@@ -741,17 +820,18 @@ class FeatureEngineeringService:
                     print(f"信号去抖动失败: {col}, 错误: {e}")
         print(f"=== 信号互斥处理 ===")
         try:
-            if 'IS_TREND_CONTINUATION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
-                continuation_mask = df['IS_TREND_CONTINUATION_D'].astype(bool)
-                if continuation_mask.any():
-                    df.loc[continuation_mask, 'IS_TREND_REVERSAL_D'] = False
-                    print(f"趋势延续时关闭趋势反转信号，影响{continuation_mask.sum()}个数据点")
-            if 'IS_TREND_CORRECTION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
-                correction_mask = df['IS_TREND_CORRECTION_D'].astype(bool)
-                if correction_mask.any():
-                    df.loc[correction_mask, 'IS_TREND_REVERSAL_D'] = False
-                    print(f"趋势回调时关闭趋势反转信号，影响{correction_mask.sum()}个数据点")
-            if df['MARKET_PHASE_D'] == 'CONSOLIDATING':
+            if market_phase == 'TRENDING':
+                if 'IS_TREND_CONTINUATION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
+                    continuation_mask = df['IS_TREND_CONTINUATION_D'].astype(bool)
+                    if continuation_mask.any():
+                        df.loc[continuation_mask, 'IS_TREND_REVERSAL_D'] = False
+                        print(f"趋势延续时关闭趋势反转信号，影响{continuation_mask.sum()}个数据点")
+                if 'IS_TREND_CORRECTION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
+                    correction_mask = df['IS_TREND_CORRECTION_D'].astype(bool)
+                    if correction_mask.any():
+                        df.loc[correction_mask, 'IS_TREND_REVERSAL_D'] = False
+                        print(f"趋势回调时关闭趋势反转信号，影响{correction_mask.sum()}个数据点")
+            else:
                 if 'IS_BREAKOUT_D' in df.columns and 'IS_ACCUMULATION_D' in df.columns:
                     breakout_mask = df['IS_BREAKOUT_D'].astype(bool)
                     if breakout_mask.any():
@@ -764,13 +844,14 @@ class FeatureEngineeringService:
                         print(f"派发时关闭突破信号，影响{distribution_mask.sum()}个数据点")
         except Exception as e:
             print(f"模式互斥性处理失败: {e}")
+        df['MARKET_PHASE_D'] = market_phase
         print(f"=== 分析完成 ===")
-        print(f"市场阶段: {df['MARKET_PHASE_D']}")
+        print(f"市场阶段: {market_phase}")
         for col in signal_cols:
             if col in df.columns:
                 print(f"{col}: 总触发={df[col].sum()}, 最新信号={df[col].iloc[-1]}")
         all_dfs[timeframe] = df
-        print("=== 高级模式识别引擎(V5.0 市场阶段自适应版)分析完成 ===")
+        print("=== 高级模式识别引擎(V5.1 市场阶段自适应修复版)分析完成 ===")
         return all_dfs
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.Series:
@@ -780,32 +861,27 @@ class FeatureEngineeringService:
             if i < 20:
                 scores.iloc[i] = 0
                 continue
-            
             try:
                 # 1. 平台质量分（基于平台振幅和持续时间）
                 recent_high = df['high_D'].iloc[i-20:i].max()
                 recent_low = df['low_D'].iloc[i-20:i].min()
                 platform_range = (recent_high - recent_low) / (recent_low + 1e-8)
-                
                 # 2. 成交量收缩程度
                 if i >= 20:
                     volume_ratio = df['volume_D'].iloc[i-5:i].mean() / max(df['volume_D'].iloc[i-20:i-5].mean(), 1)
                 else:
                     volume_ratio = 1
-                
                 # 3. 波动率收缩
                 if 'ATR_14_D' in df.columns and i >= 20:
                     atr_max = df['ATR_14_D'].iloc[i-20:i].max()
                     atr_ratio = df['ATR_14_D'].iloc[i] / max(atr_max, 1e-8)
                 else:
                     atr_ratio = 1
-                
                 # 综合评分
                 score = 100 * (1 - min(platform_range, 0.99)) * (1 - min(volume_ratio, 0.99)) * (1 - min(atr_ratio, 0.99))
                 scores.iloc[i] = min(score, 100)
             except:
                 scores.iloc[i] = 0
-        
         return scores
 
     def _calculate_structural_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -815,15 +891,12 @@ class FeatureEngineeringService:
             if i < 30:
                 tension_scores.iloc[i] = 0
                 continue
-            
             try:
                 tensions = []
-                
                 # 1. 价格与均线张力
                 if 'MA_20_D' in df.columns and 'ATR_14_D' in df.columns and df['ATR_14_D'].iloc[i] > 0:
                     ma_distance = abs(df['close_D'].iloc[i] - df['MA_20_D'].iloc[i]) / df['ATR_14_D'].iloc[i]
                     tensions.append(ma_distance)
-                
                 # 2. 成交量与价格背离
                 if i >= 5:
                     price_change = df['close_D'].iloc[i] / max(df['close_D'].iloc[i-5], 1e-8) - 1
@@ -831,12 +904,10 @@ class FeatureEngineeringService:
                     volume_change = df['volume_D'].iloc[i] / max(volume_mean, 1) - 1
                     volume_tension = abs(price_change - volume_change)
                     tensions.append(volume_tension)
-                
                 # 3. 资金流分歧
                 if 'main_force_buy_ofi_D' in df.columns and 'main_force_sell_ofi_D' in df.columns:
                     flow_divergence = abs(df['main_force_buy_ofi_D'].iloc[i] - df['main_force_sell_ofi_D'].iloc[i])
                     tensions.append(flow_divergence)
-                
                 # 综合张力指数
                 if tensions:
                     avg_tension = np.mean(tensions)
@@ -847,11 +918,9 @@ class FeatureEngineeringService:
                         tension_score = avg_tension
                 else:
                     tension_score = 0
-                
                 tension_scores.iloc[i] = min(tension_score, 1.0)
             except:
                 tension_scores.iloc[i] = 0
-        
         return tension_scores
 
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
@@ -1060,7 +1129,6 @@ class FeatureEngineeringService:
         """
         if not params.get('enabled', False):
             return all_dfs
-            
         for timeframe in params.get('apply_on', []):
             if timeframe not in all_dfs or all_dfs[timeframe] is None or all_dfs[timeframe].empty:
                 continue
@@ -1106,7 +1174,6 @@ class FeatureEngineeringService:
                 df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = compression_rate.astype(np.float32)
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
-                
         return all_dfs
 
     async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
