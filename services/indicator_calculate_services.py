@@ -1202,76 +1202,71 @@ class IndicatorCalculator:
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
-        【V2.6 · Z-Score空值修复版】对手盘衰竭指数精细化计算
-        修复关键问题：Z-Score计算中的空值问题，优化滚动统计计算
+        【V2.6 · A股适配修复版】对手盘衰竭指数精细化计算
+        修复关键问题：
+        1. 修正数据量校验逻辑，适配A股交易时间（240分钟/天）及不同分钟周期（如60分钟线）。
+        2. 使用时间跨度而非单纯行数来校验数据充足性。
+        3. 修复Z-Score计算中的空值问题，改进滚动统计处理。
         """
+        # 探针1：检查基础输入数据
         print(f"🛰️ 探针1: 函数被调用，输入数据形状: {df_minute.shape if df_minute is not None else 'None'}")
-        
         if df_minute is None or df_minute.empty:
             print("❌ 探针1: 输入数据为空")
             return None
-        
-        required_minutes = efficiency_window * 1440
-        if len(df_minute) < required_minutes:
-            print(f"❌ 探针2: 数据量不足，需要至少{required_minutes}分钟数据，当前{len(df_minute)}分钟")
-            return None
-        
-        # 精确匹配列名
+        # 【修复】数据量校验逻辑：A股每天交易240分钟，使用时间跨度校验
+        if not isinstance(df_minute.index, pd.DatetimeIndex):
+            try:
+                df_minute.index = pd.to_datetime(df_minute.index, utc=True)
+            except:
+                print("❌ 探针2: 索引不是DatetimeIndex且无法转换")
+                return None
+        time_span_days = (df_minute.index[-1] - df_minute.index[0]).days
+        if time_span_days < efficiency_window * 0.7:
+            print(f"❌ 探针2: 数据时间跨度不足。跨度: {time_span_days}天，需要窗口: {efficiency_window}天")
+            min_required_rows = efficiency_window * 4
+            if len(df_minute) < min_required_rows:
+                print(f"❌ 探针2b: 数据行数严重不足。当前: {len(df_minute)}，至少需要: {min_required_rows} (基于60分钟线估算)")
+                return None
+        # 精确匹配列名，支持大小写变体
         open_col = next((c for c in df_minute.columns if c.lower().startswith('open')), None)
         high_col = next((c for c in df_minute.columns if c.lower().startswith('high')), None)
         low_col = next((c for c in df_minute.columns if c.lower().startswith('low')), None)
         close_col = next((c for c in df_minute.columns if c.lower().startswith('close')), None)
         volume_col = next((c for c in df_minute.columns if c.lower().startswith('volume')), None)
-        
         required_cols = [open_col, high_col, low_col, close_col, volume_col]
         if not all(required_cols):
             missing = [name for name, col in zip(['open', 'high', 'low', 'close', 'volume'], required_cols) if col is None]
             print(f"❌ 探针3: 缺失必要列: {missing}")
             return None
-        
-        print(f"✅ 探针4: 找到所有必需列")
-        
+        print(f"✅ 探针4: 找到所有必需列: open={open_col}, high={high_col}, low={low_col}, close={close_col}, volume={volume_col}")
         try:
-            # 使用线程池执行同步计算
-            result = await asyncio.to_thread(
-                self._sync_calculate_counterparty_exhaustion, 
-                df_minute, open_col, high_col, low_col, close_col, volume_col, efficiency_window
-            )
-            
-            # 探针：检查最终返回结果
-            if result is None:
-                print("❌ 探针: 同步计算函数返回None")
-            elif result.empty:
-                print("❌ 探针: 同步计算函数返回空DataFrame")
-            else:
-                print(f"✅ 探针: 成功返回DataFrame，形状: {result.shape}")
-                
+            result = await asyncio.to_thread(self._sync_calculate_counterparty_exhaustion, df_minute, open_col, high_col, low_col, close_col, volume_col, efficiency_window)
             return result
         except Exception as e:
-            print(f"❌ 探针: 异步执行发生异常: {str(e)}")
+            print(f"❌ 探针19: 异步执行发生异常: {str(e)}")
             import traceback
             traceback.print_exc()
             return None
 
-    def _sync_calculate_counterparty_exhaustion(self, df_minute: pd.DataFrame, open_col: str, high_col: str, 
-                                              low_col: str, close_col: str, volume_col: str, efficiency_window: int) -> Optional[pd.DataFrame]:
+    def _sync_calculate_counterparty_exhaustion(self, df_minute: pd.DataFrame, open_col: str, high_col: str, low_col: str, close_col: str, volume_col: str, efficiency_window: int) -> Optional[pd.DataFrame]:
         """同步计算对手盘衰竭指数（内部方法）"""
         print(f"🔄 探针5: 进入同步计算函数，数据形状: {df_minute.shape}")
-        
         df = df_minute.copy()
-        
+        if not isinstance(df.index, pd.DatetimeIndex):
+            print("❌ 探针6: 索引不是DatetimeIndex")
+            return None
+        print(f"✅ 探针7: 时间索引范围: {df.index.min()} 到 {df.index.max()}")
         # 1. 分钟级别能量计算
         price_precision = 1e-6
         df['directional_thrust'] = (df[close_col] - df[open_col]).abs() * df[volume_col]
         df['total_energy'] = (df[high_col] - df[low_col] + price_precision) * df[volume_col]
-        
-        # 探针6：检查分钟级衍生列
+        # 探针8：检查分钟级衍生列
         thrust_nulls = df['directional_thrust'].isnull().sum()
         energy_nulls = df['total_energy'].isnull().sum()
         if thrust_nulls > 0 or energy_nulls > 0:
-            print(f"❌ 探针6: 分钟级衍生列存在空值 - thrust空值数: {thrust_nulls}, energy空值数: {energy_nulls}")
+            print(f"❌ 探针8: 分钟级衍生列存在空值 - thrust空值数: {thrust_nulls}, energy空值数: {energy_nulls}")
             return None
-        
+        print(f"✅ 探针9: 衍生列计算完成，平均值 - thrust: {df['directional_thrust'].mean():.2f}, energy: {df['total_energy'].mean():.2f}")
         # 2. 严格按自然日聚合
         daily_open = df[open_col].resample('D').first()
         daily_close = df[close_col].resample('D').last()
@@ -1279,7 +1274,6 @@ class IndicatorCalculator:
         daily_low = df[low_col].resample('D').min()
         daily_thrust = df['directional_thrust'].resample('D').sum()
         daily_energy = df['total_energy'].resample('D').sum()
-        
         # 3. 构建日级DataFrame
         daily_agg = pd.DataFrame({
             'open': daily_open,
@@ -1289,123 +1283,74 @@ class IndicatorCalculator:
             'daily_thrust': daily_thrust,
             'daily_energy': daily_energy
         }).dropna()
-        
-        # 探针7：检查日级聚合结果
+        # 探针10：检查日级聚合结果
         if daily_agg.empty:
-            print("❌ 探针7: 日级聚合结果为空")
+            print("❌ 探针10: 日级聚合结果为空")
             return None
-        
         if len(daily_agg) < efficiency_window:
-            print(f"❌ 探针8: 日级数据不足{len(daily_agg)}天，需要{efficiency_window}天")
+            print(f"❌ 探针11: 日级数据不足{len(daily_agg)}天，需要{efficiency_window}天")
             return None
-        
-        print(f"✅ 探针9: 日级聚合完成，天数: {len(daily_agg)}")
-        
+        print(f"✅ 探针12: 日级聚合完成，天数: {len(daily_agg)}，日期范围: {daily_agg.index.min()} 到 {daily_agg.index.max()}")
         # 4. 计算日涨跌幅
-        daily_agg['daily_return'] = np.where(
-            daily_agg['open'] > price_precision,
-            np.log(daily_agg['close'] / daily_agg['open']),
-            0
-        )
-        
+        daily_agg['daily_return'] = np.where(daily_agg['open'] > price_precision, np.log(daily_agg['close'] / daily_agg['open']), 0)
+        # 探针13：检查收益率计算
+        return_nulls = daily_agg['daily_return'].isnull().sum()
+        if return_nulls > 0:
+            print(f"❌ 探针13: 日收益率存在{return_nulls}个空值")
+            return None
         # 5. 转换效率计算
-        daily_agg['conversion_efficiency'] = np.where(
-            daily_agg['daily_energy'] > 0,
-            daily_agg['daily_thrust'] / daily_agg['daily_energy'],
-            0
-        )
-        
-        # 6. 效率Z-Score - 关键修复部分
-        # 使用expanding窗口而不是rolling窗口，避免初期数据不足导致的NaN
-        if len(daily_agg) >= efficiency_window:
-            # 计算滚动统计量
-            rolling_mean = daily_agg['conversion_efficiency'].rolling(
-                window=efficiency_window, min_periods=1
-            ).mean()
-            rolling_std = daily_agg['conversion_efficiency'].rolling(
-                window=efficiency_window, min_periods=1
-            ).std()
-            
-            # 对于标准差为0的情况，使用指数平滑的替代方案
-            # 创建指数加权移动标准差作为后备
-            ewma_std = daily_agg['conversion_efficiency'].ewm(span=efficiency_window, min_periods=1).std()
-            
-            # 组合标准差：优先使用滚动标准差，如果为0则使用EWMA标准差
-            combined_std = rolling_std.copy()
-            zero_std_mask = combined_std.abs() < 1e-9
-            if zero_std_mask.any():
-                print(f"⚠️ 探针10: 发现{zero_std_mask.sum()}个标准差接近0的值，使用EWMA标准差替代")
-                combined_std[zero_std_mask] = ewma_std[zero_std_mask]
-            
-            # 添加稳定性常数，避免除以0
-            stability_constant = max(combined_std.mean() * 0.01, 1e-9)
-            efficiency_zscore = (daily_agg['conversion_efficiency'] - rolling_mean) / (combined_std + stability_constant)
-        else:
-            # 数据不足时使用扩展窗口
-            expanding_mean = daily_agg['conversion_efficiency'].expanding(min_periods=1).mean()
-            expanding_std = daily_agg['conversion_efficiency'].expanding(min_periods=1).std()
-            stability_constant = max(expanding_std.mean() * 0.01, 1e-9)
-            efficiency_zscore = (daily_agg['conversion_efficiency'] - expanding_mean) / (expanding_std + stability_constant)
-        
-        # 探针11：检查Z-Score计算
+        daily_agg['conversion_efficiency'] = np.where(daily_agg['daily_energy'] > 0, daily_agg['daily_thrust'] / daily_agg['daily_energy'], 0)
+        # 探针14：检查转换效率
+        efficiency_nulls = daily_agg['conversion_efficiency'].isnull().sum()
+        if efficiency_nulls > 0:
+            print(f"❌ 探针14: 转换效率存在{efficiency_nulls}个空值")
+            return None
+        print(f"✅ 探针15: 转换效率统计 - 均值: {daily_agg['conversion_efficiency'].mean():.4f}, 标准差: {daily_agg['conversion_efficiency'].std():.4f}")
+        # 6. 效率Z-Score计算（修复滚动窗口空值问题）
+        # 关键修复：使用足够的最小周期计算滚动统计，并对结果中的NaN进行填充处理
+        min_periods = max(3, int(efficiency_window * 0.3))  # 至少3个数据点，或窗口的30%
+        rolling_mean = daily_agg['conversion_efficiency'].rolling(window=efficiency_window, min_periods=min_periods).mean()
+        rolling_std = daily_agg['conversion_efficiency'].rolling(window=efficiency_window, min_periods=min_periods).std()
+        stability_constant = 1e-9
+        # 计算Z-Score，对NaN进行填充：前efficiency_window-1个数据点用0填充（表示无显著偏离）
+        efficiency_zscore = (daily_agg['conversion_efficiency'] - rolling_mean) / (rolling_std + stability_constant)
+        efficiency_zscore = efficiency_zscore.fillna(0)  # 填充NaN为0，表示没有足够的滚动数据时视为中性
+        # 探针16：检查Z-Score计算（现在应该没有空值了）
         zscore_nulls = efficiency_zscore.isnull().sum()
         if zscore_nulls > 0:
-            print(f"⚠️ 探针11: Z-Score存在{zscore_nulls}个空值，进行填充处理")
-            # 填充空值：使用前向填充，如果仍有空值则填充0
-            efficiency_zscore = efficiency_zscore.ffill().fillna(0)
-            print(f"✅ 探针11: Z-Score空值已处理，处理后空值数: {efficiency_zscore.isnull().sum()}")
-        
-        print(f"✅ 探针12: Z-Score统计 - 空值数: {efficiency_zscore.isnull().sum()}, 范围: [{efficiency_zscore.min():.4f}, {efficiency_zscore.max():.4f}]")
-        
+            print(f"❌ 探针16: Z-Score存在{zscore_nulls}个空值")
+            return None
+        print(f"✅ 探针17: Z-Score统计 - 均值: {efficiency_zscore.mean():.4f}, 范围: [{efficiency_zscore.min():.4f}, {efficiency_zscore.max():.4f}]")
+        print(f"📊 探针17b: Z-Score非零值数量: {(efficiency_zscore != 0).sum()}, 填充前空值数量: {zscore_nulls}")
         # 7. 精确衰竭信号
         return_threshold = 0.001
         is_buying_exhaustion = (daily_agg['daily_return'] > return_threshold) & (efficiency_zscore < -0.8)
         is_selling_exhaustion = (daily_agg['daily_return'] < -return_threshold) & (efficiency_zscore > 0.8)
-        
-        # 探针13：检查信号生成
+        # 探针18：检查信号生成
         buy_signals = is_buying_exhaustion.sum()
         sell_signals = is_selling_exhaustion.sum()
-        print(f"📊 探针13: 信号统计 - 买入衰竭: {buy_signals}个, 卖出衰竭: {sell_signals}个")
-        
+        print(f"📊 探针18: 信号统计 - 买入衰竭: {buy_signals}个, 卖出衰竭: {sell_signals}个")
         # 8. 生成衰竭指数
         exhaustion_index = pd.Series(0, index=daily_agg.index)
         exhaustion_index[is_selling_exhaustion] = 1
         exhaustion_index[is_buying_exhaustion] = -1
-        
         # 9. 后处理
-        # 首先确保没有NaN值
-        exhaustion_index = exhaustion_index.fillna(0)
-        
-        # 前向填充0值，限制为1天
         exhaustion_index = exhaustion_index.replace(to_replace=0, method='ffill', limit=1)
-        
-        # 差分处理以识别信号变化
-        diff_series = exhaustion_index.diff()
-        exhaustion_index = diff_series.where(diff_series != 0, exhaustion_index)
-        
-        # 再次确保没有NaN值
-        exhaustion_index = exhaustion_index.fillna(0)
-        
-        # 探针14：检查最终输出
+        exhaustion_index = exhaustion_index.diff().where(exhaustion_index.diff() != 0, exhaustion_index)
+        # 探针19：检查最终输出
         result_df = pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
-        
         if 'counterparty_exhaustion_index' not in result_df.columns:
-            print("❌ 探针14: 结果DataFrame中未找到'counterparty_exhaustion_index'列")
+            print("❌ 探针19: 结果DataFrame中未找到'counterparty_exhaustion_index'列")
             return None
-        
-        # 确保数据类型正确
-        result_df['counterparty_exhaustion_index'] = result_df['counterparty_exhaustion_index'].astype(float)
-        
-        # 验证最终结果
-        final_nulls = result_df['counterparty_exhaustion_index'].isnull().sum()
-        if final_nulls > 0:
-            print(f"⚠️ 探针15: 最终结果存在{final_nulls}个空值，进行填充")
-            result_df['counterparty_exhaustion_index'] = result_df['counterparty_exhaustion_index'].fillna(0)
-        
-        print(f"✅ 探针16: 成功生成衰竭指数，形状: {result_df.shape}")
-        print(f"📈 探针17: 衰竭指数取值分布: {dict(result_df['counterparty_exhaustion_index'].value_counts())}")
-        print(f"📅 探针18: 索引范围: {result_df.index.min()} 到 {result_df.index.max()}")
-        
+        # 验证列名和数据类型
+        expected_dtype = np.dtype('float64')
+        actual_dtype = result_df['counterparty_exhaustion_index'].dtype
+        if actual_dtype != expected_dtype:
+            print(f"⚠️ 探针20: 数据类型不匹配，期望{expected_dtype}，实际{actual_dtype}")
+            result_df['counterparty_exhaustion_index'] = result_df['counterparty_exhaustion_index'].astype(expected_dtype)
+        print(f"✅ 探针21: 成功生成衰竭指数，形状: {result_df.shape}")
+        print(f"📈 探针22: 衰竭指数取值分布: {dict(result_df['counterparty_exhaustion_index'].value_counts())}")
+        print(f"📅 探针23: 索引类型: {type(result_df.index)}, 前3个日期: {result_df.index[:3].tolist()}")
         return result_df
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
