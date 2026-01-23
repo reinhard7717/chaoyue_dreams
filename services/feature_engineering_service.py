@@ -636,37 +636,58 @@ class FeatureEngineeringService:
             df['IS_TREND_CONTINUATION_D'] = (trend_continuation_score >= 4.0)
             if 'pct_change_D' in df.columns:
                 print("=== 回调信号动态阈值计算 ===")
-                # 修复：确保所有Series都有相同的索引（df.index）
-                # 计算回调最大幅度阈值（动态）
-                correction_max = pd.Series(-0.03, index=df.index)  # 默认值
-                # 计算负收益的80%分位数作为回调上限
-                negative_mask = df['pct_change_D'] < 0
-                if negative_mask.sum() > 10:
-                    # 使用原始df的pct_change_D计算，但只对负收益部分计算分位数
-                    # 创建一个临时Series，正收益部分设为NaN
-                    temp_series = df['pct_change_D'].where(negative_mask)
-                    # 计算滚动分位数
-                    correction_max_series = temp_series.rolling(60, min_periods=20).quantile(0.8).fillna(method='ffill')
-                    # 用计算值更新correction_max
-                    correction_max = correction_max_series.fillna(-0.03)
-                print(f"回调最大幅度阈值: {correction_max.iloc[-1]:.4f}")
-                # 回调深度不应超过近期最大涨幅的50%
-                recent_max_gain = df['pct_change_D'].rolling(5).max().shift(1).fillna(0)
-                correction_depth_limit = recent_max_gain * -0.5
-                print(f"近期最大涨幅: {recent_max_gain.iloc[-1]:.4f}, 回调深度限制: {correction_depth_limit.iloc[-1]:.4f}")
-                # 实际回调条件：负收益且在合理范围内
-                cond_small_correction = (df['pct_change_D'] < 0) & (df['pct_change_D'] > correction_max) & (df['pct_change_D'] > correction_depth_limit)
+                print("[回调信号探针] 回调幅度条件重构...")
+                # 回调信号核心逻辑重构
+                # 1. 回调幅度应该在合理范围内：不能太小（没有意义），不能太大（可能反转）
+                # 2. 使用双阈值系统：固定阈值+动态阈值
+                
+                # 固定阈值：回调幅度在-5%到-0.5%之间（排除趋势反转）
+                fixed_lower_bound = -0.05  # -5%，超过这个可能进入反转区域
+                fixed_upper_bound = -0.005  # -0.5%，太小可能是正常波动
+                
+                # 动态阈值：基于近期波动率调整
+                recent_volatility = df['pct_change_D'].abs().rolling(10).mean().fillna(0.02)
+                dynamic_bound = -recent_volatility * 2.0  # 允许回调幅度为近期波动率的2倍
+                
+                # 综合阈值：取固定阈值和动态阈值的较大值（因为是负数，取较大值意味着更宽松）
+                combined_lower_bound = pd.Series(fixed_lower_bound, index=df.index)
+                combined_upper_bound = pd.Series(fixed_upper_bound, index=df.index)
+                
+                # 动态调整：当波动率较大时，放宽回调幅度上限
+                volatility_adjustment = recent_volatility * 1.5
+                combined_upper_bound = combined_upper_bound.where(volatility_adjustment < abs(fixed_upper_bound), -volatility_adjustment)
+                
+                print(f"固定阈值范围: [{fixed_lower_bound:.4f}, {fixed_upper_bound:.4f}]")
+                print(f"最新波动率: {recent_volatility.iloc[-1]:.4f}, 动态阈值: {dynamic_bound.iloc[-1]:.4f}")
+                print(f"综合阈值范围: [{combined_lower_bound.iloc[-1]:.4f}, {combined_upper_bound.iloc[-1]:.4f}]")
+                
+                # 回调幅度条件：在合理范围内且为负值
+                cond_small_correction = (df['pct_change_D'] < 0) & \
+                                       (df['pct_change_D'] >= combined_lower_bound) & \
+                                       (df['pct_change_D'] <= combined_upper_bound)
+                
+                # 新增：回调不应破坏短期趋势（5日均线支撑）
+                if 'close_D' in df.columns:
+                    ma5 = df['close_D'].rolling(5).mean()
+                    ma10 = df['close_D'].rolling(10).mean()
+                    # 回调日收盘价应在5日线附近（不超过5%的偏离）
+                    cond_trend_support = (df['close_D'] >= ma5 * 0.95) & (ma5 > ma10 * 0.98)
+                else:
+                    cond_trend_support = pd.Series(True, index=df.index)
+                
                 # 探针：打印关键日期的回调判断
-                test_dates = ['2025-12-30', '2025-12-23', '2025-12-29']
+                test_dates = ['2025-12-30', '2025-12-23', '2025-12-29', '2025-12-24']
                 for test_date in test_dates:
                     if test_date in df.index:
                         idx = df.index.get_loc(test_date)
                         print(f"[回调信号探针] 日期: {test_date}")
                         print(f"  pct_change_D: {df['pct_change_D'].iloc[idx]:.4f}")
-                        print(f"  correction_max: {correction_max.iloc[idx]:.4f}")
-                        print(f"  recent_max_gain: {recent_max_gain.iloc[idx]:.4f}")
-                        print(f"  correction_depth_limit: {correction_depth_limit.iloc[idx]:.4f}")
-                        print(f"  是否满足回调幅度条件: {cond_small_correction.iloc[idx]}")
+                        print(f"  综合阈值范围: [{combined_lower_bound.iloc[idx]:.4f}, {combined_upper_bound.iloc[idx]:.4f}]")
+                        print(f"  是否在范围内: {combined_lower_bound.iloc[idx] <= df['pct_change_D'].iloc[idx] <= combined_upper_bound.iloc[idx]}")
+                        print(f"  是否为负: {df['pct_change_D'].iloc[idx] < 0}")
+                        print(f"  趋势支撑条件: {cond_trend_support.iloc[idx] if 'cond_trend_support' in locals() else 'N/A'}")
+                        print(f"  最终回调条件: {cond_small_correction.iloc[idx]}")
+                
                 cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
                 if 'main_force_net_flow_calibrated_D' in df.columns:
                     mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.4).fillna(method='ffill')
@@ -689,7 +710,7 @@ class FeatureEngineeringService:
                     cond_slow_correction = (df['pct_change_D'].abs() < recent_volatility * 2.5)
                 else:
                     cond_slow_correction = pd.Series(True, index=df.index)
-                df['IS_TREND_CORRECTION_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable & cond_trend_direction & cond_slow_correction
+                df['IS_TREND_CORRECTION_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable & cond_trend_direction & cond_slow_correction & cond_trend_support
                 df['IS_TREND_CORRECTION_RAW_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
             if 'pct_change_D' in df.columns:
                 cond_sharp_drop = df['pct_change_D'] < -0.03
