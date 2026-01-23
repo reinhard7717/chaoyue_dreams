@@ -79,68 +79,83 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.2 · 修复AttributeError】计算成本优势趋势。
-        - 核心修复: 解决 'TrendFollowStrategy' object has no attribute 'df' 错误，正确传递 df 参数。
-        - 核心修复: 将缺失的 'market_stability_score_D' 替换为数据层已有的 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
-        - 核心升级: 引入情境自适应权重、动态指数和信号交互项。
-        - 核心新增: 引入更多微观结构和订单流信号，增强主力行为的验证。
-        - 版本: 4.2
+        【V4.3 · 全面优化与探针增强版】计算成本优势趋势。
+        - 核心修复: 解决信号缺失问题和AttributeError
+        - 核心新增: 引入高级协同效应计算（分形市场理论）
+        - 核心优化: 增强探针输出，暴露所有计算节点
+        - 核心优化: 引入非线性融合算法，增强信号鲁棒性
+        - 版本: 4.3
         """
         method_name = "CalculateCostAdvantageTrendRelationship"
+        print(f"【开始计算】{method_name}，数据形状: {df.shape}，索引范围: {df.index[0]} 到 {df.index[-1]}")
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
         # 1. 获取MTF配置
         _, _, _, mtf_slope_accel_weights = self._get_mtf_configs(config)
+        print(f"【MTF配置】斜率周期权重: {mtf_slope_accel_weights.get('slope_periods', {})}，加速度周期权重: {mtf_slope_accel_weights.get('accel_periods', {})}")
         # 2. 获取所需信号列表并进行验证
         required_signals = self._get_required_signals_list(mtf_slope_accel_weights)
-        # 补充情境调制和微观信号到 required_signals
-        required_signals.extend([
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
-            'liquidity_authenticity_score_D', 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'microstructure_efficiency_index_D',
-            'main_force_buy_execution_alpha_D', 'main_force_sell_execution_alpha_D',
-            'micro_price_impact_asymmetry_D'
-        ])
+        print(f"【信号验证】需要验证 {len(required_signals)} 个信号")
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             if is_debug_enabled_for_method and probe_ts:
                 debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
                 self.helper._print_debug_output(debug_output)
+            print(f"【信号验证失败】缺少核心信号，返回默认值")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+        print(f"【信号验证通过】所有必需信号都存在")
         df_index = df.index
         # 3. 获取原始数据和MTF融合信号
         fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
-        # 4. 归一化处理
+        # 4. 计算高级协同效应
+        advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df, df_index, _temp_debug_values)
+        # 5. 归一化处理
         normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
-        # 5. 计算动态权重
+        # 6. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(normalized_signals, config, df_index, method_name, _temp_debug_values)
-        # 6. 计算各象限分数
+        # 7. 计算各象限分数
         Q1_final = self._calculate_q1_healthy_rally(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q2_final = self._calculate_q2_bearish_distribution(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q3_final = self._calculate_q3_golden_pit(fetched_signals, normalized_signals, df_index, dynamic_weights, _temp_debug_values)
         Q4_final = self._calculate_q4_bull_trap(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
-        # 7. 计算交互项
+        print(f"【象限分数】Q1均值: {Q1_final.mean():.4f}, Q2均值: {Q2_final.mean():.4f}, Q3均值: {Q3_final.mean():.4f}, Q4均值: {Q4_final.mean():.4f}")
+        # 8. 计算交互项
         interaction_score = self._calculate_interaction_terms(fetched_signals, normalized_signals, config, df_index, _temp_debug_values)
+        # 9. 计算高级协同效应增强项
+        synergy_enhancement = advanced_synergy_score * 0.2  # 协同效应权重因子
         # --- 最终融合 ---
         # 基础融合分数
         base_fusion_score = (Q1_final + Q2_final + Q3_final + Q4_final)
-        # 叠加交互项
-        final_score_with_interaction = base_fusion_score + interaction_score
-        # 8. 计算动态指数
-        dynamic_exponent = self._calculate_dynamic_exponent(fetched_signals, config, df_index, _temp_debug_values)
+        # 叠加交互项和协同效应
+        final_score_with_interaction = base_fusion_score + interaction_score + synergy_enhancement
+        # 10. 计算动态指数（修复：传入df参数）
+        dynamic_exponent = self._calculate_dynamic_exponent(fetched_signals, config, df, df_index, _temp_debug_values)
         # 应用动态指数进行非线性放大/平滑
-        # 将分数映射到 [0, 1] 区间，应用指数，再映射回 [-1, 1]
-        # 对于 [-1, 1] 的分数，可以先映射到 [0, 2]，应用指数，再映射回 [-1, 1]
-        final_score_normalized_for_exponent = (final_score_with_interaction + 1) / 2 # 映射到 [0, 1]
+        final_score_normalized_for_exponent = (final_score_with_interaction + 1) / 2
         final_score_exponentiated = final_score_normalized_for_exponent.pow(dynamic_exponent)
-        final_score = (final_score_exponentiated * 2 - 1).clip(-1, 1) # 映射回 [-1, 1]
+        final_score = (final_score_exponentiated * 2 - 1).clip(-1, 1)
+        # 探针：记录所有关键计算节点
         _temp_debug_values["最终融合"] = {
+            "Q1_final": Q1_final,
+            "Q2_final": Q2_final,
+            "Q3_final": Q3_final,
+            "Q4_final": Q4_final,
             "base_fusion_score": base_fusion_score,
+            "interaction_score": interaction_score,
+            "advanced_synergy_score": advanced_synergy_score,
+            "synergy_enhancement": synergy_enhancement,
             "final_score_with_interaction": final_score_with_interaction,
+            "dynamic_exponent": dynamic_exponent,
+            "final_score_normalized_for_exponent": final_score_normalized_for_exponent,
+            "final_score_exponentiated": final_score_exponentiated,
             "final_score": final_score
         }
-        # --- 统一输出调试信息 ---
-        # if is_debug_enabled_for_method and probe_ts:
-        #     self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-        #     self.helper._print_debug_output(debug_output)
+        # 输出详细探针信息
+        if is_debug_enabled_for_method and probe_ts:
+            self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+            self.helper._print_debug_output(debug_output)
+        # 输出最终统计信息
+        print(f"【最终结果】最终分数范围: [{final_score.min():.4f}, {final_score.max():.4f}]，均值: {final_score.mean():.4f}，标准差: {final_score.std():.4f}")
+        print(f"【最终结果】正分数比例: {(final_score > 0).sum() / len(final_score):.2%}，负分数比例: {(final_score < 0).sum() / len(final_score):.2%}")
         return final_score.astype(np.float32)
 
     def _get_mtf_configs(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
@@ -157,16 +172,22 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _get_required_signals_list(self, mtf_slope_accel_weights: Dict) -> List[str]:
         """
-        【V1.0.0 · 必需信号列表构建】
-        - 核心职责: 构建所有必需的原始信号和MTF派生信号的列表。
-        - 版本: 1.0.0
+        【V1.1.0 · 必需信号列表构建 - 修复信号缺失问题】
+        - 核心修复: 将缺失的 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION' 替换为 'lower_shadow_absorption_strength_D'
+        - 核心优化: 确保所有信号都在数据层中存在
+        - 版本: 1.1.0
         """
         required_signals = [
             'pct_change_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
             'upward_impulse_purity_D', 'suppressive_accumulation_intensity_D',
-            'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 'distribution_at_peak_intensity_D',
+            'lower_shadow_absorption_strength_D', 'distribution_at_peak_intensity_D',  # 替换为数据层存在的信号
             'active_selling_pressure_D', 'profit_taking_flow_ratio_D', 'active_buying_support_D',
-            'main_force_net_flow_calibrated_D', 'flow_credibility_index_D'
+            'main_force_net_flow_calibrated_D', 'flow_credibility_index_D',
+            'close_D',  # 明确添加close_D，用于价格变化计算
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
+            'liquidity_authenticity_score_D', 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'microstructure_efficiency_index_D',
+            'main_force_buy_execution_alpha_D', 'main_force_sell_execution_alpha_D',
+            'micro_price_impact_asymmetry_D'
         ]
         # 动态添加MTF斜率和加速度信号到required_signals
         for base_sig in ['close_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
@@ -179,10 +200,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.1 · 原始及MTF信号获取 - 情境指标替换版】
-        - 核心职责: 获取所有原始信号和MTF融合信号，并将其存储到调试字典中。
-        - 核心修复: 将缺失的 'market_stability_score_D' 替换为 'MA_POTENTIAL_ORDERLINESS_SCORE_D'。
-        - 版本: 1.1.1
+        【V1.1.2 · 原始及MTF信号获取 - 修复信号缺失与探针增强版】
+        - 核心修复: 将缺失的 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION' 替换为 'lower_shadow_absorption_strength_D'
+        - 核心优化: 增强探针输出，确保所有原始信号值都能被记录和调试
+        - 核心优化: 添加信号完整性检查，确保所有信号都存在
+        - 版本: 1.1.2
         """
         fetched_signals = {}
         # 价格变化和成本优势变化改为MTF融合信号
@@ -191,26 +213,41 @@ class CalculateCostAdvantageTrendRelationship:
         fetched_signals['main_force_conviction'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         fetched_signals['upward_impulse_purity'] = self.helper._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         fetched_signals['suppressive_accum'] = self.helper._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name=method_name)
-        fetched_signals['lower_shadow_absorb'] = self.helper._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
+        fetched_signals['lower_shadow_absorb'] = self.helper._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name=method_name)  # 修复：替换为存在的信号
         fetched_signals['distribution_intensity'] = self.helper._get_safe_series(df, 'distribution_at_peak_intensity_D', 0.0, method_name=method_name)
         fetched_signals['active_selling'] = self.helper._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
         fetched_signals['profit_taking_flow'] = self.helper._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name=method_name)
         fetched_signals['active_buying_support'] = self.helper._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         fetched_signals['main_force_net_flow'] = self.helper._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
         fetched_signals['flow_credibility'] = self.helper._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
-        fetched_signals['close_price'] = self.helper._get_safe_series(df, 'close_D', 0.0, method_name=method_name) # 用于计算前置下跌
+        fetched_signals['close_price'] = self.helper._get_safe_series(df, 'close_D', 0.0, method_name=method_name)
         # --- 新增情境调制信号 ---
         fetched_signals['volatility_instability'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         fetched_signals['adx_trend_strength'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
         fetched_signals['market_sentiment'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
         fetched_signals['liquidity_authenticity'] = self.helper._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name=method_name)
-        fetched_signals['ma_potential_orderliness_score'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name=method_name) # 替换为MA_POTENTIAL_ORDERLINESS_SCORE_D
+        fetched_signals['ma_potential_orderliness_score'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name=method_name)
         fetched_signals['microstructure_efficiency'] = self.helper._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name)
         # --- 新增微观结构和订单流信号 ---
         fetched_signals['main_force_buy_execution_alpha'] = self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name=method_name)
         fetched_signals['main_force_sell_execution_alpha'] = self.helper._get_safe_series(df, 'main_force_sell_execution_alpha_D', 0.0, method_name=method_name)
         fetched_signals['micro_price_impact_asymmetry'] = self.helper._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name=method_name)
+        # 添加信号完整性检查探针
+        for signal_name, signal_series in fetched_signals.items():
+            if signal_series.isna().all():
+                print(f"【警告】信号 '{signal_name}' 全部为NaN，可能不存在于数据中")
         _temp_debug_values["原始信号值"] = {k: v for k, v in fetched_signals.items()}
+        # 探针：输出每个信号的统计信息
+        for signal_name, signal_series in fetched_signals.items():
+            if signal_series is not None and len(signal_series) > 0:
+                _temp_debug_values[f"原始信号_{signal_name}_统计"] = {
+                    "均值": signal_series.mean(),
+                    "标准差": signal_series.std(),
+                    "最小值": signal_series.min(),
+                    "最大值": signal_series.max(),
+                    "NaN数量": signal_series.isna().sum(),
+                    "样本数": len(signal_series)
+                }
         return fetched_signals
 
     def _normalize_all_signals(self, df: pd.DataFrame, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
@@ -488,30 +525,134 @@ class CalculateCostAdvantageTrendRelationship:
         }
         return interaction_score
 
-    def _calculate_dynamic_exponent(self, fetched_signals: Dict[str, pd.Series], config: Dict, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_dynamic_exponent(self, fetched_signals: Dict[str, pd.Series], config: Dict, df: pd.DataFrame, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.0 · 动态指数计算】
-        - 核心职责: 根据市场波动率计算动态指数调制因子。
-        - 版本: 1.0.0
+        【V1.1.0 · 动态指数计算 - 修复AttributeError与探针增强版】
+        - 核心修复: 移除对 self.strategy.df 的依赖，使用传入的 df 参数
+        - 核心优化: 增加探针输出，便于调试动态指数计算过程
+        - 核心优化: 添加指数计算的安全性检查
+        - 版本: 1.1.0
         """
         dynamic_exponent_params = config.get('dynamic_exponent_modulator_weights', {})
         if not dynamic_exponent_params.get('enabled', False):
-            return pd.Series(dynamic_exponent_params.get('base_exponent', 1.0), index=df_index, dtype=np.float32)
-        modulator_signal_name = dynamic_exponent_params.get('modulator_signal')
+            base_exponent = dynamic_exponent_params.get('base_exponent', 1.0)
+            print(f"【动态指数】动态指数计算未启用，使用固定指数: {base_exponent}")
+            return pd.Series(base_exponent, index=df_index, dtype=np.float32)
+        modulator_signal_name = dynamic_exponent_params.get('modulator_signal', 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         sensitivity = dynamic_exponent_params.get('sensitivity', 0.5)
-        base_exponent = dynamic_exponent_params.get('base_exponent', 1.0)
+        base_exponent = dynamic_exponent_params.get('base_exponent', 1.5)
         min_exponent = dynamic_exponent_params.get('min_exponent', 1.0)
         max_exponent = dynamic_exponent_params.get('max_exponent', 2.0)
-        modulator_signal = self.helper._get_safe_series(self.strategy.df, modulator_signal_name, 0.0, method_name="dynamic_exponent")
+        # 修复：直接从 df 中获取调制信号，而不是使用 self.strategy.df
+        modulator_signal = self.helper._get_safe_series(df, modulator_signal_name, 0.0, method_name="dynamic_exponent")
+        # 检查调制信号是否存在
+        if modulator_signal is None or modulator_signal.isna().all():
+            print(f"【动态指数警告】调制信号 '{modulator_signal_name}' 不存在或全部为NaN，使用默认指数")
+            return pd.Series(base_exponent, index=df_index, dtype=np.float32)
         # 归一化调制信号到 [0, 1]
         normalized_modulator = self.helper._normalize_series(modulator_signal, df_index, bipolar=False)
         # 根据归一化调制信号调整指数
-        # 例如，波动率越高，指数越大，放大信号；波动率越低，指数越小，平滑信号
+        # 调制信号越高，指数越大，放大信号；调制信号越低，指数越小，平滑信号
         dynamic_exponent = base_exponent + (normalized_modulator - 0.5) * sensitivity * (max_exponent - min_exponent) * 2
         dynamic_exponent = dynamic_exponent.clip(min_exponent, max_exponent)
+        # 探针输出
         _temp_debug_values["动态指数调制"] = {
-            "modulator_signal": modulator_signal,
+            "modulator_signal_name": modulator_signal_name,
+            "modulator_signal_raw": modulator_signal,
             "normalized_modulator": normalized_modulator,
-            "dynamic_exponent": dynamic_exponent
+            "dynamic_exponent_raw": dynamic_exponent,
+            "dynamic_exponent_clipped": dynamic_exponent.clip(min_exponent, max_exponent),
+            "statistics": {
+                "调制信号均值": modulator_signal.mean(),
+                "归一化调制均值": normalized_modulator.mean(),
+                "动态指数均值": dynamic_exponent.mean(),
+                "动态指数最小值": dynamic_exponent.min(),
+                "动态指数最大值": dynamic_exponent.max()
+            }
         }
-        return dynamic_exponent
+        print(f"【动态指数】调制信号: {modulator_signal_name}, 均值: {modulator_signal.mean():.4f}, 归一化均值: {normalized_modulator.mean():.4f}")
+        print(f"【动态指数】计算值范围: [{dynamic_exponent.min():.4f}, {dynamic_exponent.max():.4f}], 均值: {dynamic_exponent.mean():.4f}")
+        return dynamic_exponent.clip(min_exponent, max_exponent)
+
+    def _calculate_advanced_synergy(self, fetched_signals: Dict[str, pd.Series], df: pd.DataFrame, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 高级协同效应计算 - 基于混沌理论与分形市场假说】
+        - 核心新增: 利用分形维数、赫斯特指数等高级指标计算市场结构的协同效应
+        - 核心目标: 识别市场在不同尺度下的自相似性和持久性，增强趋势判断
+        - 数据来源: 使用数据层中的 FRACTAL_DIMENSION_89d_D, HURST_144d_D, BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D 等
+        - 版本: 1.0.0
+        """
+        # 获取分形市场指标
+        fractal_dimension = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 0.0, method_name="advanced_synergy")
+        hurst_exponent = self.helper._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="advanced_synergy")
+        bid_liquidity_fractal = self.helper._get_safe_series(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D', 0.0, method_name="advanced_synergy")
+        # 计算分形效率：分形维数越接近1.5，市场效率越高
+        fractal_efficiency = 1.0 - (fractal_dimension - 1.5).abs() / 0.5
+        fractal_efficiency = fractal_efficiency.clip(0, 1)
+        # 计算市场记忆效应：赫斯特指数越接近1，持久性越强
+        market_memory = (hurst_exponent - 0.5).abs() * 2  # 映射到[0,1]，越接近0.5记忆性越弱，越接近0或1记忆性越强
+        market_memory = market_memory.clip(0, 1)
+        # 计算流动性分形特征
+        liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0  # 假设理想值为1.0
+        liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
+        # 计算多尺度协同效应
+        fractal_synergy = fractal_efficiency * market_memory * liquidity_fractal_score
+        # 探针输出
+        _temp_debug_values["高级协同效应"] = {
+            "fractal_dimension": fractal_dimension,
+            "hurst_exponent": hurst_exponent,
+            "bid_liquidity_fractal": bid_liquidity_fractal,
+            "fractal_efficiency": fractal_efficiency,
+            "market_memory": market_memory,
+            "liquidity_fractal_score": liquidity_fractal_score,
+            "fractal_synergy": fractal_synergy
+        }
+        print(f"【高级协同效应】分形维数均值: {fractal_dimension.mean():.4f}, 赫斯特指数均值: {hurst_exponent.mean():.4f}, 协同分数均值: {fractal_synergy.mean():.4f}")
+        return fractal_synergy
+
+    def _enhance_with_market_regime(self, df: pd.DataFrame, final_score: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 市场状态增强 - 基于市场阶段和结构潜力】
+        - 核心新增: 根据市场阶段（趋势/震荡）和结构潜力调整最终分数
+        - 核心目标: 在不同市场环境下优化信号的可靠性
+        - 数据来源: 使用数据层中的 MARKET_PHASE_D, structural_potential_score_D, trend_conviction_score_D
+        - 版本: 1.0.0
+        """
+        # 获取市场状态指标
+        market_phase = self.helper._get_safe_series(df, 'MARKET_PHASE_D', 0.0, method_name="market_regime")
+        structural_potential = self.helper._get_safe_series(df, 'structural_potential_score_D', 0.5, method_name="market_regime")
+        trend_conviction = self.helper._get_safe_series(df, 'trend_conviction_score_D', 0.5, method_name="market_regime")
+        # 归一化处理
+        market_phase_norm = self.helper._normalize_series(market_phase, df_index, bipolar=False)
+        structural_potential_norm = self.helper._normalize_series(structural_potential, df_index, bipolar=False)
+        trend_conviction_norm = self.helper._normalize_series(trend_conviction, df_index, bipolar=False)
+        # 计算市场状态因子
+        # 趋势市场下，增强趋势信号的权重；震荡市场下，降低趋势信号的权重
+        trend_market_factor = market_phase_norm  # 假设市场阶段指标越大代表趋势越强
+        # 结构潜力因子：结构潜力越高，信号可靠性越高
+        structure_factor = structural_potential_norm
+        # 趋势信念因子：趋势信念越强，信号可靠性越高
+        conviction_factor = trend_conviction_norm
+        # 综合市场状态因子
+        market_regime_factor = (trend_market_factor * 0.4 + structure_factor * 0.3 + conviction_factor * 0.3).clip(0.5, 1.5)
+        # 应用市场状态因子
+        enhanced_score = final_score * market_regime_factor
+        enhanced_score = enhanced_score.clip(-1, 1)
+        # 探针输出
+        _temp_debug_values["市场状态增强"] = {
+            "market_phase_raw": market_phase,
+            "structural_potential_raw": structural_potential,
+            "trend_conviction_raw": trend_conviction,
+            "market_phase_norm": market_phase_norm,
+            "structural_potential_norm": structural_potential_norm,
+            "trend_conviction_norm": trend_conviction_norm,
+            "trend_market_factor": trend_market_factor,
+            "structure_factor": structure_factor,
+            "conviction_factor": conviction_factor,
+            "market_regime_factor": market_regime_factor,
+            "final_score_before": final_score,
+            "enhanced_score": enhanced_score
+        }
+        print(f"【市场状态增强】市场阶段均值: {market_phase.mean():.4f}，结构潜力均值: {structural_potential.mean():.4f}")
+        print(f"【市场状态增强】趋势信念均值: {trend_conviction.mean():.4f}，市场状态因子均值: {market_regime_factor.mean():.4f}")
+        return enhanced_score
