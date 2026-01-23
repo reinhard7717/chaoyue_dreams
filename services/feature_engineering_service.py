@@ -1287,15 +1287,15 @@ class FeatureEngineeringService:
         
         # 记录探针摘要
         try:
-            logger.info(f"模式识别探针摘要 - 盘整:{consolidation_score.mean():.2f}, "
+            print(f"模式识别探针摘要 - 盘整:{consolidation_score.mean():.2f}, "
                        f"吸筹:{accumulation_score.mean():.2f}, "
                        f"突破:{breakout_score.mean():.2f}, "
                        f"派发:{distribution_score.mean():.2f}")
         except:
-            logger.info("模式识别探针摘要计算失败")
+            print("模式识别探针摘要计算失败")
         
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V4.1 精准识别引擎修复版)分析完成。")
+        print("高级模式识别引擎(V4.1 精准识别引擎修复版)分析完成。")
         return all_dfs
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.Series:
