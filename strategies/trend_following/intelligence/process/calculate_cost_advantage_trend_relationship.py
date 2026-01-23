@@ -31,25 +31,67 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _initialize_debug_context(self, method_name: str, df: pd.DataFrame) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
         """
-        【V1.0.0 · 调试上下文初始化】
-        - 核心职责: 初始化调试相关的变量，包括是否启用调试、探针时间戳、调试输出字典和临时调试值字典。
-        - 版本: 1.0.0
+        【V1.0.2 · 调试上下文初始化 - 探针日期查找增强版】
+        - 核心修复: 增强探针日期查找逻辑，确保找到有效探针日期
+        - 核心优化: 添加详细的探针查找日志
+        - 核心新增: 探针日期有效性验证
+        - 版本: 1.0.2
         """
+        # 检查调试参数
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        
+        print(f"【调试初始化】方法: {method_name}, 调试启用: {is_debug_enabled_for_method}")
+        print(f"【调试初始化】探针日期列表: {self.probe_dates}")
+        
         probe_ts = None
+        
         if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            # 将探针日期转换为datetime格式
+            probe_dates_dt = []
+            for d in self.probe_dates:
+                try:
+                    probe_dates_dt.append(pd.to_datetime(d).normalize())
+                except Exception as e:
+                    print(f"【调试初始化】探针日期转换错误 {d}: {e}")
+            
+            print(f"【调试初始化】转换后的探针日期: {probe_dates_dt}")
+            
+            # 从后往前查找匹配的日期
             for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                date_normalized = pd.to_datetime(date).tz_localize(None).normalize()
+                if date_normalized in probe_dates_dt:
                     probe_ts = date
+                    print(f"【调试初始化】找到匹配的探针日期: {probe_ts.strftime('%Y-%m-%d')}")
                     break
+            
+            if probe_ts is None:
+                print(f"【调试初始化】未找到匹配的探针日期，尝试查找最近的有效日期")
+                # 如果没有精确匹配，尝试查找最近的日期
+                if probe_dates_dt:
+                    # 获取最新的探针日期
+                    latest_probe_date = max(probe_dates_dt)
+                    # 查找数据集中不超过该日期的最近日期
+                    for date in reversed(df.index):
+                        date_normalized = pd.to_datetime(date).tz_localize(None).normalize()
+                        if date_normalized <= latest_probe_date:
+                            probe_ts = date
+                            print(f"【调试初始化】使用最近的探针日期: {probe_ts.strftime('%Y-%m-%d')}")
+                            break
+        
         if probe_ts is None:
+            print(f"【调试初始化】未设置有效探针日期，调试输出将被限制")
             is_debug_enabled_for_method = False
+        
         debug_output = {}
-        _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
+        _temp_debug_values = {}
+        
         if is_debug_enabled_for_method and probe_ts:
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算成本优势趋势关系..."] = ""
+            print(f"【调试初始化】成功初始化调试上下文，探针时间: {probe_ts.strftime('%Y-%m-%d')}")
+        else:
+            print(f"【调试初始化】调试未启用或无有效探针日期")
+        
         return is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values
 
     def _log_debug_values(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp, method_name: str):
@@ -102,16 +144,20 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.5 · 斐波那契时间窗口全面优化版】计算成本优势趋势。
-        - 核心优化: 全面采用55天斐波那契时间窗口进行质量检查和探针输出
-        - 核心优化: 大幅减少计算开销，提高运行效率
-        - 核心优化: 探针输出只关注最近55天，提高可读性
-        - 版本: 4.5
+        【V4.8 · 强制探针输出与完整性修复版】计算成本优势趋势。
+        - 核心修复: 强制输出所有象限的探针信息，确保调试完整性
+        - 核心修复: 使用复合流动性指标替代缺失的BID_LIQUIDITY_FRACTAL
+        - 核心优化: 添加探针输出的完整性检查
+        - 版本: 4.8
         """
         method_name = "CalculateCostAdvantageTrendRelationship"
         print(f"【开始计算】{method_name}，数据形状: {df.shape}，使用55天斐波那契窗口进行快速检查")
         
+        # 初始化调试上下文 - 确保探针设置正确
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
+        
+        # 即使调试未启用，也强制输出关键信息
+        print(f"【计算状态】调试启用: {is_debug_enabled_for_method}, 探针时间: {probe_ts.strftime('%Y-%m-%d') if probe_ts else '无'}")
         
         # 1. 获取MTF配置
         _, _, _, mtf_slope_accel_weights = self._get_mtf_configs(config)
@@ -129,16 +175,16 @@ class CalculateCostAdvantageTrendRelationship:
         
         df_index = df.index
         
-        # 3. 获取原始数据和MTF融合信号（使用55天窗口快速检查）
+        # 3. 获取原始数据和MTF融合信号
         fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
         
-        # 4. 计算高级协同效应
+        # 4. 计算高级协同效应（使用复合流动性指标）
         try:
             advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df, df_index, _temp_debug_values)
-            advanced_synergy_score = advanced_synergy_score.fillna(0.5)
+            advanced_synergy_score = advanced_synergy_score.fillna(0.25)
         except Exception as e:
-            print(f"【协同效应错误】计算异常: {e}，使用中性值0.5")
-            advanced_synergy_score = pd.Series(0.5, index=df_index)
+            print(f"【协同效应错误】计算异常: {e}，使用保守值0.25")
+            advanced_synergy_score = pd.Series(0.25, index=df_index)
         
         # 5. 归一化处理
         normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
@@ -146,11 +192,42 @@ class CalculateCostAdvantageTrendRelationship:
         # 6. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(normalized_signals, config, df_index, method_name, _temp_debug_values)
         
-        # 7. 计算各象限分数
+        # 7. 计算各象限分数 - 确保探针信息被记录
+        print(f"【开始计算象限分数】")
         Q1_final = self._calculate_q1_healthy_rally(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q2_final = self._calculate_q2_bearish_distribution(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q3_final = self._calculate_q3_golden_pit(fetched_signals, normalized_signals, df_index, dynamic_weights, _temp_debug_values)
         Q4_final = self._calculate_q4_bull_trap(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
+        
+        # 强制输出各象限的探针信息 - 即使调试未启用
+        print(f"【强制探针输出】开始输出各象限详细信息")
+        quadrant_names = ["Q1: 价涨 & 优扩", "Q2: 价跌 & 优缩", "Q3: 价跌 & 优扩", "Q4: 价涨 & 优缩"]
+        
+        for q_name in quadrant_names:
+            if q_name in _temp_debug_values:
+                q_data = _temp_debug_values[q_name]
+                print(f"=== {q_name} ===")
+                
+                if isinstance(q_data, dict):
+                    for key, value in q_data.items():
+                        if isinstance(value, pd.Series):
+                            # 输出最近55天的统计信息
+                            recent_value = value.tail(55) if len(value) > 55 else value
+                            print(f"  {key}: 均值={recent_value.mean():.4f}, 范围=[{recent_value.min():.4f}, {recent_value.max():.4f}]")
+                        elif isinstance(value, dict):
+                            print(f"  {key}:")
+                            for sub_key, sub_value in value.items():
+                                if isinstance(sub_value, pd.Series):
+                                    recent_sub = sub_value.tail(55) if len(sub_value) > 55 else sub_value
+                                    print(f"    {sub_key}: 均值={recent_sub.mean():.4f}")
+                                else:
+                                    print(f"    {sub_key}: {sub_value}")
+                        else:
+                            print(f"  {key}: {value}")
+                else:
+                    print(f"  数据格式: {type(q_data)}")
+            else:
+                print(f"【警告】{q_name} 探针信息未记录")
         
         # 8. 计算交互项
         interaction_score = self._calculate_interaction_terms(fetched_signals, normalized_signals, config, df_index, _temp_debug_values)
@@ -174,7 +251,38 @@ class CalculateCostAdvantageTrendRelationship:
         # 最终检查：确保没有NaN
         final_score = final_score.fillna(0)
         
-        # 输出最近55天的统计信息（更有参考价值）
+        # 记录最终融合探针信息
+        _temp_debug_values["最终融合"] = {
+            "Q1_final": Q1_final,
+            "Q2_final": Q2_final,
+            "Q3_final": Q3_final,
+            "Q4_final": Q4_final,
+            "base_fusion_score": base_fusion_score,
+            "interaction_score": interaction_score,
+            "advanced_synergy_score": advanced_synergy_score,
+            "synergy_enhancement": synergy_enhancement,
+            "final_score_with_interaction": final_score_with_interaction,
+            "dynamic_exponent": dynamic_exponent,
+            "final_score_normalized_for_exponent": final_score_normalized_for_exponent,
+            "final_score_exponentiated": final_score_exponentiated,
+            "final_score": final_score
+        }
+        
+        # 输出探针信息 - 确保探针输出被调用
+        if is_debug_enabled_for_method and probe_ts:
+            print(f"【开始输出详细探针信息】")
+            self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成"] = ""
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+            self.helper._print_debug_output(debug_output)
+        else:
+            # 即使没有详细探针，也输出关键统计信息
+            print(f"【关键统计】各象限分数: Q1={Q1_final.mean():.4f}, Q2={Q2_final.mean():.4f}, Q3={Q3_final.mean():.4f}, Q4={Q4_final.mean():.4f}")
+            print(f"【关键统计】交互项: {interaction_score.mean():.4f}, 协同增强: {synergy_enhancement.mean():.4f}")
+            print(f"【关键统计】基础融合均值: {base_fusion_score.mean():.4f}")
+            print(f"【关键统计】动态指数均值: {dynamic_exponent.mean():.4f}")
+        
+        # 输出最近55天的统计信息
         if len(final_score) > 55:
             recent_final = final_score.tail(55)
         else:
@@ -182,6 +290,7 @@ class CalculateCostAdvantageTrendRelationship:
             
         print(f"【最终结果】最近55天分数范围: [{recent_final.min():.4f}, {recent_final.max():.4f}]，均值: {recent_final.mean():.4f}")
         print(f"【最终结果】最近55天正分数比例: {(recent_final > 0).sum() / len(recent_final):.1%}")
+        print(f"【最终结果】最近55天负分数比例: {(recent_final < 0).sum() / len(recent_final):.1%}")
         
         return final_score.astype(np.float32)
 
@@ -633,107 +742,124 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_advanced_synergy(self, fetched_signals: Dict[str, pd.Series], df: pd.DataFrame, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.3 · 高级协同效应计算 - 修复列名错误与信号缺失处理】
-        - 核心修复: 修正列名 HURST_144d_d 为 HURST_144d_D
-        - 核心优化: 增强信号存在性检查，提供更明确的错误信息
-        - 核心优化: 当关键信号缺失时使用替代计算方案
-        - 版本: 1.0.3
+        【V1.0.5 · 高级协同效应计算 - 复合流动性替代与探针增强版】
+        - 核心修复: 使用复合流动性指标替代BID_LIQUIDITY_FRACTAL
+        - 核心优化: 构建流动性健康度指数，结合多个流动性相关指标
+        - 核心新增: 详细的替代方案探针输出
+        - 版本: 1.0.5
         """
         print(f"【协同效应】开始计算高级协同效应，检查所需信号...")
         
-        # 检查分形维数信号
+        # 1. 获取分形维数信号
         if 'FRACTAL_DIMENSION_89d_D' not in df.columns:
-            print(f"【协同效应错误】FRACTAL_DIMENSION_89d_D 信号不存在，使用替代计算")
+            print(f"【协同效应】FRACTAL_DIMENSION_89d_D信号不存在，使用默认值1.5")
             fractal_dimension = pd.Series(1.5, index=df_index)
         else:
             fractal_dimension = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 1.5, method_name="advanced_synergy")
         
-        # 检查赫斯特指数信号 - 修正列名
-        if 'HURST_144d_D' not in df.columns:
-            print(f"【协同效应错误】HURST_144d_D 信号不存在，检查替代名称...")
-            # 尝试可能的列名变体
-            possible_names = ['HURST_144d_D', 'HURST_144d_d', 'HURST_144_D', 'hurst_144d_D']
-            hurst_series = None
-            for name in possible_names:
-                if name in df.columns:
-                    print(f"【协同效应】找到替代信号: {name}")
-                    hurst_series = self.helper._get_safe_series(df, name, 0.5, method_name="advanced_synergy")
-                    break
-            
-            if hurst_series is None:
-                print(f"【协同效应警告】所有赫斯特指数信号均不存在，使用默认值0.5")
-                hurst_exponent = pd.Series(0.5, index=df_index)
-            else:
-                hurst_exponent = hurst_series
-        else:
-            hurst_exponent = self.helper._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="advanced_synergy")
+        # 2. 获取赫斯特指数信号 - 检查可能的列名变体
+        hurst_exponent = None
+        hurst_column_names = ['HURST_144d_D', 'HURST_144d_d', 'hurst_144d_D', 'HURST_EXPONENT_144d_D']
         
-        # 快速检查信号质量 - 只检查最近55天
-        fractal_quality = self._check_signal_quality(fractal_dimension, 'FRACTAL_DIMENSION_89d_D', df_index, recent_days=55)
-        hurst_quality = self._check_signal_quality(hurst_exponent, 'HURST_144d_D', df_index, recent_days=55)
+        for col_name in hurst_column_names:
+            if col_name in df.columns:
+                print(f"【协同效应】找到赫斯特指数信号: {col_name}")
+                hurst_exponent = self.helper._get_safe_series(df, col_name, 0.5, method_name="advanced_synergy")
+                break
         
-        if fractal_quality["quality_level"] == "POOR":
-            print(f"【协同效应】分形维数信号质量差，使用默认值1.5")
-            fractal_dimension = pd.Series(1.5, index=df_index)
-        
-        if hurst_quality["quality_level"] == "POOR":
-            print(f"【协同效应】赫斯特指数信号质量差，使用默认值0.5")
+        if hurst_exponent is None:
+            print(f"【协同效应】所有赫斯特指数信号均不存在，使用默认值0.5")
             hurst_exponent = pd.Series(0.5, index=df_index)
         
-        # 检查bid_liquidity_fractal信号是否存在
-        if 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D' not in df.columns:
-            print(f"【协同效应】BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D 信号不存在，使用流动性真实性分数作为替代")
-            # 使用流动性真实性分数作为替代
-            if 'liquidity_authenticity' in fetched_signals:
-                liquidity_authenticity = fetched_signals['liquidity_authenticity']
-                liquidity_fractal_score = self.helper._normalize_series(liquidity_authenticity, df_index, bipolar=False)
-            else:
-                liquidity_fractal_score = pd.Series(0.5, index=df_index)
-                print(f"【协同效应】无替代信号可用，使用中性值0.5")
-        else:
-            bid_liquidity_fractal = self.helper._get_safe_series(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D', np.nan, method_name="advanced_synergy")
-            # 快速检查最近55天质量
-            if bid_liquidity_fractal is not None:
-                liquidity_quality = self._check_signal_quality(bid_liquidity_fractal, 'BID_LIQUIDITY_FRACTAL', df_index, recent_days=55)
-                if liquidity_quality["quality_level"] == "POOR":
-                    print(f"【协同效应】买方流动性分形信号质量差，使用中性值0.5")
-                    liquidity_fractal_score = pd.Series(0.5, index=df_index)
-                else:
-                    liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0
-                    liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
-                    liquidity_fractal_score = liquidity_fractal_score.fillna(0.5)
-            else:
-                print(f"【协同效应】买方流动性分形信号获取失败，使用中性值0.5")
-                liquidity_fractal_score = pd.Series(0.5, index=df_index)
+        # 3. 构建复合流动性健康度指数（替代BID_LIQUIDITY_FRACTAL）
+        print(f"【协同效应】构建复合流动性健康度指数替代BID_LIQUIDITY_FRACTAL...")
+        liquidity_components = {}
         
-        # 计算分形效率：分形维数越接近1.5，市场效率越高
+        # 可用流动性指标列表（按优先级排序）
+        liquidity_indicators = [
+            ('order_book_liquidity_supply_D', '订单簿流动性供给', 0.3),
+            ('bid_side_liquidity_D', '买方流动性深度', 0.25),
+            ('liquidity_authenticity_score_D', '流动性真实性', 0.2),
+            ('liquidity_slope_D', '流动性斜率', 0.15),
+            ('microstructure_efficiency_index_D', '微观结构效率', 0.1)
+        ]
+        
+        available_indicators = []
+        liquidity_scores = []
+        
+        for col_name, indicator_name, weight in liquidity_indicators:
+            if col_name in df.columns:
+                indicator_series = self.helper._get_safe_series(df, col_name, np.nan, method_name="advanced_synergy")
+                if indicator_series is not None and not indicator_series.isna().all():
+                    # 归一化到[0,1]范围
+                    normalized_indicator = self.helper._normalize_series(indicator_series, df_index, bipolar=False)
+                    liquidity_scores.append(normalized_indicator * weight)
+                    available_indicators.append(indicator_name)
+                    print(f"【协同效应】使用 {indicator_name} (权重: {weight})")
+                else:
+                    print(f"【协同效应】{indicator_name} 信号质量差，跳过")
+            else:
+                print(f"【协同效应】{indicator_name} 信号不存在")
+        
+        # 计算复合流动性分数
+        if liquidity_scores:
+            composite_liquidity_score = pd.Series(0.0, index=df_index)
+            for score in liquidity_scores:
+                composite_liquidity_score += score.fillna(0)
+            
+            # 如果使用了部分指标，重新调整权重
+            if len(liquidity_scores) > 0:
+                liquidity_fractal_score = composite_liquidity_score / sum([w for _, _, w in liquidity_indicators if w])
+                liquidity_fractal_score = liquidity_fractal_score.clip(0, 1).fillna(0.5)
+                print(f"【协同效应】使用 {len(available_indicators)} 个流动性指标: {', '.join(available_indicators)}")
+            else:
+                print(f"【协同效应】无可用流动性指标，使用中性值0.5")
+                liquidity_fractal_score = pd.Series(0.5, index=df_index)
+        else:
+            print(f"【协同效应】无可用流动性指标，使用中性值0.5")
+            liquidity_fractal_score = pd.Series(0.5, index=df_index)
+        
+        # 4. 计算分形效率：分形维数越接近1.5，市场效率越高
         fractal_efficiency = 1.0 - (fractal_dimension - 1.5).abs() / 0.5
         fractal_efficiency = fractal_efficiency.clip(0, 1).fillna(0.5)
         
-        # 计算市场记忆效应：赫斯特指数越接近1，持久性越强
+        # 5. 计算市场记忆效应：赫斯特指数越接近1，持久性越强
         market_memory = (hurst_exponent - 0.5).abs() * 2
         market_memory = market_memory.clip(0, 1).fillna(0.5)
         
-        # 计算多尺度协同效应
+        # 6. 计算多尺度协同效应
         fractal_synergy = fractal_efficiency * market_memory * liquidity_fractal_score
-        fractal_synergy = fractal_synergy.fillna(0.25)  # 使用中性偏保守的值
+        fractal_synergy = fractal_synergy.fillna(0.25)
         
-        # 探针输出 - 只输出最近55天的统计信息
+        # 7. 探针输出 - 详细的替代方案信息
         if len(fractal_synergy) > 55:
             recent_synergy = fractal_synergy.tail(55)
         else:
             recent_synergy = fractal_synergy
-            
+        
+        # 记录详细的探针信息
         _temp_debug_values["高级协同效应"] = {
-            "fractal_synergy_recent_mean": recent_synergy.mean(),
-            "fractal_synergy_recent_std": recent_synergy.std(),
-            "fractal_efficiency_mean": fractal_efficiency.mean(),
-            "market_memory_mean": market_memory.mean(),
-            "liquidity_fractal_score_mean": liquidity_fractal_score.mean(),
+            "分形维数": fractal_dimension,
+            "赫斯特指数": hurst_exponent,
+            "分形效率": fractal_efficiency,
+            "市场记忆": market_memory,
+            "流动性分数": liquidity_fractal_score,
+            "协同分数": fractal_synergy,
+            "统计信息": {
+                "fractal_synergy_recent_mean": recent_synergy.mean(),
+                "fractal_synergy_recent_std": recent_synergy.std(),
+                "fractal_efficiency_mean": fractal_efficiency.mean(),
+                "market_memory_mean": market_memory.mean(),
+                "liquidity_fractal_score_mean": liquidity_fractal_score.mean(),
+                "可用流动性指标数": len(available_indicators),
+                "可用流动性指标": available_indicators
+            }
         }
         
         print(f"【高级协同效应】分形效率均值: {fractal_efficiency.mean():.4f}, 市场记忆均值: {market_memory.mean():.4f}")
         print(f"【高级协同效应】流动性分数均值: {liquidity_fractal_score.mean():.4f}, 协同分数均值: {fractal_synergy.mean():.4f}")
+        print(f"【高级协同效应】使用 {len(available_indicators)} 个流动性指标替代BID_LIQUIDITY_FRACTAL")
+        
         return fractal_synergy
 
     def _enhance_with_market_regime(self, df: pd.DataFrame, final_score: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
