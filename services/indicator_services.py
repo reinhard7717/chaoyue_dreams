@@ -448,7 +448,7 @@ class IndicatorService:
         # --- 11. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        self._log_final_data_columns(all_dfs) # 移除调试打印
+        # self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:
@@ -531,7 +531,6 @@ class IndicatorService:
             minute_tf = pattern_enhancement_params.get('minute_level_tf')
             if minute_tf:
                 required_tfs.add(minute_tf)
-                print(f"检测到形态增强信号已启用，已将分钟周期 '{minute_tf}' 加入数据获取计划。")
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
