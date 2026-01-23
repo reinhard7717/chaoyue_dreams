@@ -425,7 +425,7 @@ class FeatureEngineeringService:
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """【V3.8·优化数据阈值】元特征计算车间-降低数据阈值要求并增强数据质量监控"""
+        """【V3.9·动态窗口调整】元特征计算车间-根据实际数据量动态调整计算窗口"""
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
@@ -437,8 +437,8 @@ class FeatureEngineeringService:
         logger.info(f"元特征计算开始，总数据行数:{len(df)}")
         source_series_configs = [
             {'col': f'close{suffix}', 'prefix': '', 'log_prefix': 'CLOSE', 'min_valid_length': 20},
-            {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_', 'log_prefix': 'MF_BUY_OFI', 'min_valid_length': 30},
-            {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_', 'log_prefix': 'BID_LIQUIDITY', 'min_valid_length': 30}
+            {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_', 'log_prefix': 'MF_BUY_OFI', 'min_valid_length': 20},
+            {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_', 'log_prefix': 'BID_LIQUIDITY', 'min_valid_length': 20}
         ]
         data_quality_report = []
         for src_config in source_series_configs:
@@ -468,12 +468,16 @@ class FeatureEngineeringService:
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns:
                 try:
-                    actual_hurst_window = min(hurst_window, len(clean_values) // 2)
-                    logger.debug(f"计算{log_prefix}赫斯特指数, 窗口:{actual_hurst_window}(原始:{hurst_window})")
-                    df[hurst_col] = current_series.rolling(window=actual_hurst_window, min_periods=actual_hurst_window).apply(
-                        lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= actual_hurst_window else np.nan, raw=False
-                    )
-                    logger.debug(f"{log_prefix}赫斯特指数计算完成, 非空值:{df[hurst_col].notna().sum()}")
+                    actual_hurst_window = min(hurst_window, len(clean_values) // 3)
+                    if actual_hurst_window >= 20:
+                        logger.debug(f"计算{log_prefix}赫斯特指数, 窗口:{actual_hurst_window}(原始:{hurst_window})")
+                        df[hurst_col] = current_series.rolling(window=actual_hurst_window, min_periods=actual_hurst_window).apply(
+                            lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= actual_hurst_window else np.nan, raw=False
+                        )
+                        logger.debug(f"{log_prefix}赫斯特指数计算完成, 非空值:{df[hurst_col].notna().sum()}")
+                    else:
+                        logger.warning(f"{log_prefix}赫斯特指数计算跳过: 有效窗口{actual_hurst_window}<20")
+                        df[hurst_col] = np.nan
                 except Exception as e:
                     logger.error(f"{log_prefix}赫斯特指数计算失败: {e}")
                     df[hurst_col] = np.nan
@@ -483,13 +487,17 @@ class FeatureEngineeringService:
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
             if fd_col not in df.columns:
                 try:
-                    actual_fd_window = min(fd_window, len(clean_values))
-                    logger.debug(f"计算{log_prefix}分形维度, 窗口:{actual_fd_window}(原始:{fd_window})")
-                    k_max = max(2, int(np.sqrt(actual_fd_window)))
-                    df[fd_col] = current_series.rolling(window=actual_fd_window, min_periods=actual_fd_window).apply(
-                        lambda x: _numba_higuchi_fd(x, k_max) if len(x) >= actual_fd_window else np.nan, raw=True
-                    )
-                    logger.debug(f"{log_prefix}分形维度计算完成, 非空值:{df[fd_col].notna().sum()}")
+                    actual_fd_window = min(fd_window, len(clean_values) // 2)
+                    if actual_fd_window >= 10:
+                        logger.debug(f"计算{log_prefix}分形维度, 窗口:{actual_fd_window}(原始:{fd_window})")
+                        k_max = max(2, int(np.sqrt(actual_fd_window)))
+                        df[fd_col] = current_series.rolling(window=actual_fd_window, min_periods=actual_fd_window).apply(
+                            lambda x: _numba_higuchi_fd(x, k_max) if len(x) >= actual_fd_window else np.nan, raw=True
+                        )
+                        logger.debug(f"{log_prefix}分形维度计算完成, 非空值:{df[fd_col].notna().sum()}")
+                    else:
+                        logger.warning(f"{log_prefix}分形维度计算跳过: 有效窗口{actual_fd_window}<10")
+                        df[fd_col] = np.nan
                 except Exception as e:
                     logger.error(f"{log_prefix}分形维度计算失败: {e}")
                     df[fd_col] = np.nan
@@ -501,8 +509,17 @@ class FeatureEngineeringService:
             if se_col not in df.columns:
                 try:
                     if len(clean_values) < se_window + 1:
-                        df[se_col] = np.nan
-                        logger.warning(f"{log_prefix}样本熵计算数据不足, 需求:{se_window+1}, 实际:{len(clean_values)}")
+                        actual_se_window = min(se_window, len(clean_values) - 1)
+                        if actual_se_window >= 5:
+                            logger.debug(f"计算{log_prefix}样本熵, 调整窗口:{actual_se_window}(原始:{se_window})")
+                            rolling_std = clean_series.rolling(window=actual_se_window, min_periods=actual_se_window).std().values
+                            entropy_values = _numba_rolling_sample_entropy(clean_values, actual_se_window, se_tol_ratio, rolling_std)
+                            adjusted_se_col = f'{prefix}SAMPLE_ENTROPY_{actual_se_window}d{suffix}'
+                            df[adjusted_se_col] = pd.Series(entropy_values, index=clean_series.index).reindex(df.index)
+                            logger.debug(f"{log_prefix}样本熵计算完成(调整窗口), 非空值:{df[adjusted_se_col].notna().sum()}")
+                        else:
+                            logger.warning(f"{log_prefix}样本熵计算跳过: 有效窗口{actual_se_window}<5")
+                            df[se_col] = np.nan
                     else:
                         logger.debug(f"计算{log_prefix}样本熵, 窗口:{se_window}")
                         rolling_std = clean_series.rolling(window=se_window, min_periods=se_window).std().values
@@ -519,11 +536,17 @@ class FeatureEngineeringService:
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
             if nolds_sampen_col not in df.columns:
                 try:
-                    logger.debug(f"计算{log_prefix}NOLDS样本熵, 窗口:{nolds_sampen_window}")
-                    df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(
-                        df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
-                    )
-                    logger.debug(f"{log_prefix}NOLDS样本熵计算完成, 非空值:{df[nolds_sampen_col].notna().sum()}")
+                    actual_nolds_window = min(nolds_sampen_window, len(clean_values) // 2)
+                    if actual_nolds_window >= 10:
+                        logger.debug(f"计算{log_prefix}NOLDS样本熵, 窗口:{actual_nolds_window}(原始:{nolds_sampen_window})")
+                        adjusted_nolds_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{actual_nolds_window}d{suffix}'
+                        df[adjusted_nolds_col] = await self.calculator.calculate_nolds_sample_entropy(
+                            df=df, period=actual_nolds_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
+                        )
+                        logger.debug(f"{log_prefix}NOLDS样本熵计算完成, 非空值:{df[adjusted_nolds_col].notna().sum()}")
+                    else:
+                        logger.warning(f"{log_prefix}NOLDS样本熵计算跳过: 有效窗口{actual_nolds_window}<10")
+                        df[nolds_sampen_col] = np.nan
                 except Exception as e:
                     logger.error(f"{log_prefix}NOLDS样本熵计算失败: {e}")
                     df[nolds_sampen_col] = np.nan
@@ -534,8 +557,20 @@ class FeatureEngineeringService:
             if fft_col not in df.columns:
                 try:
                     if len(clean_values) < fft_window:
-                        df[fft_col] = np.nan
-                        logger.warning(f"{log_prefix}FFT能量比计算数据不足, 需求:{fft_window}, 实际:{len(clean_values)}")
+                        actual_fft_window = min(fft_window, len(clean_values))
+                        if actual_fft_window >= 20:
+                            logger.debug(f"计算{log_prefix}FFT能量比, 调整窗口:{actual_fft_window}(原始:{fft_window})")
+                            fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
+                                clean_values,
+                                actual_fft_window,
+                                low_freq_cutoff_ratio=0.1
+                            )
+                            adjusted_fft_col = f'{prefix}FFT_ENERGY_RATIO_{actual_fft_window}d{suffix}'
+                            df[adjusted_fft_col] = pd.Series(fft_energy_ratios_values, index=clean_series.index).reindex(df.index)
+                            logger.debug(f"{log_prefix}FFT能量比计算完成(调整窗口), 非空值:{df[adjusted_fft_col].notna().sum()}")
+                        else:
+                            logger.warning(f"{log_prefix}FFT能量比计算跳过: 有效窗口{actual_fft_window}<20")
+                            df[fft_col] = np.nan
                     else:
                         logger.debug(f"计算{log_prefix}FFT能量比, 窗口:{fft_window}")
                         fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
@@ -555,11 +590,128 @@ class FeatureEngineeringService:
         vi_window = params.get('volatility_instability_window', 21)
         vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
         if atr_col in df.columns and vi_col not in df.columns:
-            logger.debug(f"计算波动率不稳定性指数, 窗口:{vi_window}")
-            df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
-            logger.debug(f"波动率不稳定性指数计算完成, 非空值:{df[vi_col].notna().sum()}")
+            try:
+                actual_vi_window = min(vi_window, len(df[atr_col].dropna()))
+                if actual_vi_window >= 10:
+                    logger.debug(f"计算波动率不稳定性指数, 窗口:{actual_vi_window}(原始:{vi_window})")
+                    df[vi_col] = df[atr_col].rolling(window=actual_vi_window, min_periods=actual_vi_window).std()
+                    logger.debug(f"波动率不稳定性指数计算完成, 非空值:{df[vi_col].notna().sum()}")
+                else:
+                    logger.warning(f"波动率不稳定性指数计算跳过: 有效窗口{actual_vi_window}<10")
+                    df[vi_col] = np.nan
+            except Exception as e:
+                logger.error(f"波动率不稳定性指数计算失败: {e}")
+                df[vi_col] = np.nan
         generated_cols = [col for col in df.columns if any(prefix in col for prefix in ['HURST', 'FRACTAL_DIMENSION', 'SAMPLE_ENTROPY', 'FFT_ENERGY_RATIO'])]
         logger.info(f"元特征计算完成, 生成元特征列{len(generated_cols)}个, 包括: {generated_cols[:5]}{'...' if len(generated_cols) > 5 else ''}")
+        all_dfs[timeframe] = df
+        return all_dfs
+
+    def get_adaptive_window_sizes(self, clean_values_length: int, config_window: int, min_window: int = 10) -> Dict[str, any]:
+        """根据实际数据长度动态调整窗口大小"""
+        adaptive_info = {
+            'original_window': config_window,
+            'available_length': clean_values_length,
+            'recommended_window': min(config_window, clean_values_length),
+            'is_sufficient': clean_values_length >= config_window,
+            'adjustment_ratio': min(1.0, clean_values_length / config_window) if config_window > 0 else 0.0
+        }
+        if clean_values_length < config_window:
+            if clean_values_length >= min_window:
+                adaptive_info['adjusted_window'] = max(min_window, clean_values_length // 2)
+                adaptive_info['adjustment_type'] = 'reduced'
+            else:
+                adaptive_info['adjusted_window'] = None
+                adaptive_info['adjustment_type'] = 'insufficient'
+        else:
+            adaptive_info['adjusted_window'] = config_window
+            adaptive_info['adjustment_type'] = 'full'
+        logger.debug(f"窗口适配: 原窗口{config_window}, 可用长度{clean_values_length}, 推荐窗口{adaptive_info['recommended_window']}, 调整类型{adaptive_info['adjustment_type']}")
+        return adaptive_info
+
+    def assess_meta_feature_feasibility(self, df: pd.DataFrame, source_col: str) -> Dict[str, any]:
+        """评估特定数据列的元特征计算可行性"""
+        suffix = '_D'
+        feasibility_report = {
+            'source_column': source_col,
+            'exists': source_col in df.columns,
+            'data_quality': {},
+            'feature_feasibility': {},
+            'recommendations': []
+        }
+        if source_col not in df.columns:
+            feasibility_report['recommendations'].append(f"列'{source_col}'不存在")
+            return feasibility_report
+        series = df[source_col]
+        total_count = len(series)
+        non_null_count = series.notna().sum()
+        null_percentage = (total_count - non_null_count) / total_count * 100 if total_count > 0 else 100
+        feasibility_report['data_quality'] = {
+            'total_values': total_count,
+            'non_null_values': non_null_count,
+            'null_percentage': f"{null_percentage:.2f}%",
+            'mean': series.mean() if non_null_count > 0 else None,
+            'std': series.std() if non_null_count > 0 else None
+        }
+        clean_values = series.dropna().values
+        clean_length = len(clean_values)
+        feature_requirements = {
+            'hurst': {'min_window': 20, 'recommended_window': 144},
+            'fractal_dimension': {'min_window': 10, 'recommended_window': 89},
+            'sample_entropy': {'min_window': 5, 'recommended_window': 13},
+            'nolds_entropy': {'min_window': 10, 'recommended_window': 21},
+            'fft_energy': {'min_window': 20, 'recommended_window': 34}
+        }
+        for feature, req in feature_requirements.items():
+            min_window = req['min_window']
+            recommended = req['recommended_window']
+            can_compute_min = clean_length >= min_window
+            can_compute_full = clean_length >= recommended
+            feasibility_report['feature_feasibility'][feature] = {
+                'can_compute_minimal': can_compute_min,
+                'can_compute_full': can_compute_full,
+                'available_length': clean_length,
+                'min_required': min_window,
+                'recommended_window': recommended,
+                'suggested_window': min(recommended, clean_length) if can_compute_min else None
+            }
+            if not can_compute_min:
+                feasibility_report['recommendations'].append(f"{feature}: 数据不足(需要{min_window}, 只有{clean_length})")
+            elif not can_compute_full:
+                suggested = min(recommended, clean_length)
+                feasibility_report['recommendations'].append(f"{feature}: 可用窗口{suggested}(小于推荐{recommended})")
+        logger.info(f"可行性评估: {source_col}, 有效数据{clean_length}, 可计算特征{sum(1 for f in feasibility_report['feature_feasibility'].values() if f['can_compute_minimal'])}个")
+        return feasibility_report
+
+    async def optimize_data_for_meta_features(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        """优化数据以支持元特征计算"""
+        timeframe = 'D'
+        if timeframe not in all_dfs:
+            return all_dfs
+        df = all_dfs[timeframe]
+        suffix = f"_{timeframe}"
+        critical_columns = [
+            f'main_force_buy_ofi{suffix}',
+            f'bid_side_liquidity{suffix}',
+            f'ask_side_liquidity{suffix}',
+            f'main_force_sell_ofi{suffix}'
+        ]
+        optimization_report = []
+        for col in critical_columns:
+            if col not in df.columns:
+                continue
+            original_non_null = df[col].notna().sum()
+            if original_non_null < 50:
+                logger.warning(f"数据优化: {col}只有{original_non_null}个非空值，尝试填充")
+                df[col] = df[col].interpolate(method='linear', limit_direction='both', limit=10)
+                df[col] = df[col].ffill().bfill()
+                optimized_non_null = df[col].notna().sum()
+                improvement = optimized_non_null - original_non_null
+                if improvement > 0:
+                    optimization_report.append(f"{col}: 填充{improvement}个值, 现{optimized_non_null}")
+                    logger.info(f"数据优化完成: {col} 增加{improvement}个有效值")
+        if optimization_report:
+            logger.info(f"数据优化汇总: {'; '.join(optimization_report)}")
         all_dfs[timeframe] = df
         return all_dfs
 
