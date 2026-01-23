@@ -160,11 +160,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.9 · 多时间维度趋势分析与直接MTF信号使用版】计算成本优势趋势。
-        - 核心新增: 直接使用数据层中的斜率和加速度信号（SLOPE_*, ACCEL_*）
-        - 核心新增: 多时间维度趋势分析（5、13、21、55日）
-        - 核心优化: 按配置权重融合各时间维度的斜率和加速度信号
-        - 版本: 4.9
+        【V5.0 · 修复探针重复输出与计算逻辑优化版】计算成本优势趋势。
+        - 核心修复: 移除重复的探针输出调用，解决信息重复打印问题
+        - 核心修复: 检查各象限计算逻辑，确保合理性
+        - 核心优化: 清理冗余调试代码，提升运行效率
+        - 版本: 5.0
         """
         method_name = "CalculateCostAdvantageTrendRelationship"
         print(f"【开始计算】{method_name}，数据形状: {df.shape}")
@@ -256,13 +256,11 @@ class CalculateCostAdvantageTrendRelationship:
             "final_score": final_score
         }
         
-        # 输出探针信息
+        # 输出探针信息 - 仅调用一次_log_debug_values，避免重复输出
         if is_debug_enabled_for_method and probe_ts:
             print(f"【开始输出详细探针信息】")
             self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            self.helper._print_debug_output(debug_output)
+            # 不再调用self.helper._print_debug_output，避免重复输出
         else:
             # 输出关键统计信息
             print(f"【关键统计】各象限分数: Q1={Q1_final.mean():.4f}, Q2={Q2_final.mean():.4f}, Q3={Q3_final.mean():.4f}, Q4={Q4_final.mean():.4f}")
@@ -322,11 +320,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.6 · 直接使用斜率和加速度信号的多时间维度融合版】
-        - 核心修改: 直接使用数据层中已存在的斜率和加速度信号，而不是通过辅助函数计算
-        - 核心新增: 按配置权重融合多时间维度（5、13、21、55日）的斜率和加速度
-        - 核心优化: 保留原始价格变化信号作为基础参考
-        - 版本: 1.1.6
+        【V1.1.7 · 修复斜率和加速度信号归一化版】
+        - 核心修复: 对斜率和加速度信号进行归一化处理，确保在合理范围内
+        - 核心修复: 修复多时间维度融合后的值超出范围问题
+        - 核心优化: 添加信号值范围检查和截断处理
+        - 版本: 1.1.7
         """
         fetched_signals = {}
         
@@ -337,29 +335,34 @@ class CalculateCostAdvantageTrendRelationship:
         accel_periods_weights = mtf_slope_accel_weights.get('accel_periods', {})
         
         # 1. 价格变化的多时间维度融合信号
-        # 使用多个时间维度的斜率和加速度信号进行融合
         price_slope_components = {}
         price_accel_components = {}
         
         for period_str, weight in slope_periods_weights.items():
             slope_signal_name = f'SLOPE_{period_str}_close_D'
             if slope_signal_name in df.columns:
+                raw_slope = self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name)
+                # 对斜率信号进行归一化，确保在合理范围内
+                norm_slope = self.helper._normalize_series(raw_slope, df_index, bipolar=True)
                 price_slope_components[period_str] = {
-                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'series': norm_slope,
                     'weight': weight
                 }
-                print(f"【价格斜率】使用 {period_str}日斜率信号，权重: {weight}")
+                print(f"【价格斜率】使用 {period_str}日斜率信号，权重: {weight}, 归一化范围: [{norm_slope.min():.4f}, {norm_slope.max():.4f}]")
             else:
                 print(f"【价格斜率警告】{slope_signal_name} 不存在")
         
         for period_str, weight in accel_periods_weights.items():
             accel_signal_name = f'ACCEL_{period_str}_close_D'
             if accel_signal_name in df.columns:
+                raw_accel = self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name)
+                # 对加速度信号进行归一化
+                norm_accel = self.helper._normalize_series(raw_accel, df_index, bipolar=True)
                 price_accel_components[period_str] = {
-                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'series': norm_accel,
                     'weight': weight
                 }
-                print(f"【价格加速度】使用 {period_str}日加速度信号，权重: {weight}")
+                print(f"【价格加速度】使用 {period_str}日加速度信号，权重: {weight}, 归一化范围: [{norm_accel.min():.4f}, {norm_accel.max():.4f}]")
             else:
                 print(f"【价格加速度警告】{accel_signal_name} 不存在")
         
@@ -382,8 +385,11 @@ class CalculateCostAdvantageTrendRelationship:
         if total_accel_weight > 0:
             mtf_price_accel = mtf_price_accel / total_accel_weight
         
-        # 综合斜率和加速度得到价格变化信号
-        fetched_signals['mtf_price_change'] = (mtf_price_slope + mtf_price_accel) / 2
+        # 综合斜率和加速度得到价格变化信号，确保在[-1,1]范围内
+        mtf_price_change_raw = (mtf_price_slope + mtf_price_accel) / 2
+        fetched_signals['mtf_price_change'] = mtf_price_change_raw.clip(-1, 1)
+        
+        print(f"【价格融合】最终价格变化信号范围: [{fetched_signals['mtf_price_change'].min():.4f}, {fetched_signals['mtf_price_change'].max():.4f}]")
         
         # 2. 成本优势变化的多时间维度融合信号
         ca_slope_components = {}
@@ -392,22 +398,26 @@ class CalculateCostAdvantageTrendRelationship:
         for period_str, weight in slope_periods_weights.items():
             slope_signal_name = f'SLOPE_{period_str}_main_force_cost_advantage_D'
             if slope_signal_name in df.columns:
+                raw_slope = self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name)
+                norm_slope = self.helper._normalize_series(raw_slope, df_index, bipolar=True)
                 ca_slope_components[period_str] = {
-                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'series': norm_slope,
                     'weight': weight
                 }
-                print(f"【成本优势斜率】使用 {period_str}日斜率信号，权重: {weight}")
+                print(f"【成本优势斜率】使用 {period_str}日斜率信号，权重: {weight}, 归一化范围: [{norm_slope.min():.4f}, {norm_slope.max():.4f}]")
             else:
                 print(f"【成本优势斜率警告】{slope_signal_name} 不存在")
         
         for period_str, weight in accel_periods_weights.items():
             accel_signal_name = f'ACCEL_{period_str}_main_force_cost_advantage_D'
             if accel_signal_name in df.columns:
+                raw_accel = self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name)
+                norm_accel = self.helper._normalize_series(raw_accel, df_index, bipolar=True)
                 ca_accel_components[period_str] = {
-                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'series': norm_accel,
                     'weight': weight
                 }
-                print(f"【成本优势加速度】使用 {period_str}日加速度信号，权重: {weight}")
+                print(f"【成本优势加速度】使用 {period_str}日加速度信号，权重: {weight}, 归一化范围: [{norm_accel.min():.4f}, {norm_accel.max():.4f}]")
             else:
                 print(f"【成本优势加速度警告】{accel_signal_name} 不存在")
         
@@ -431,7 +441,10 @@ class CalculateCostAdvantageTrendRelationship:
             mtf_ca_accel = mtf_ca_accel / total_ca_accel_weight
         
         # 综合斜率和加速度得到成本优势变化信号
-        fetched_signals['mtf_ca_change'] = (mtf_ca_slope + mtf_ca_accel) / 2
+        mtf_ca_change_raw = (mtf_ca_slope + mtf_ca_accel) / 2
+        fetched_signals['mtf_ca_change'] = mtf_ca_change_raw.clip(-1, 1)
+        
+        print(f"【成本优势融合】最终成本优势变化信号范围: [{fetched_signals['mtf_ca_change'].min():.4f}, {fetched_signals['mtf_ca_change'].max():.4f}]")
         
         # 3. 获取其他原始信号
         signal_configs = [
@@ -492,6 +505,8 @@ class CalculateCostAdvantageTrendRelationship:
             "mtf_price_accel": mtf_price_accel,
             "mtf_ca_slope": mtf_ca_slope,
             "mtf_ca_accel": mtf_ca_accel,
+            "mtf_price_change_range": f"[{fetched_signals['mtf_price_change'].min():.4f}, {fetched_signals['mtf_price_change'].max():.4f}]",
+            "mtf_ca_change_range": f"[{fetched_signals['mtf_ca_change'].min():.4f}, {fetched_signals['mtf_ca_change'].max():.4f}]",
         }
         
         return fetched_signals
@@ -707,21 +722,35 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_q1_healthy_rally(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.1 · Q1健康上涨计算 - 动态权重与微观增强版】
-        - 核心职责: 计算Q1（价涨 & 优扩）象限的分数。
-        - 核心新增: 引入动态权重和主力买入执行Alpha作为确认项。
-        - 核心修复: 解决 Series 比较的 ValueError。
-        - 版本: 1.1.1
+        【V1.1.3 · Q1健康上涨计算 - 修复值溢出与范围控制版】
+        - 核心修复: 确保Q1_base计算在合理范围[0,1]内
+        - 核心修复: 防止Q1_final超出clip上限
+        - 核心优化: 添加计算范围检查和安全处理
+        - 版本: 1.1.3
         """
-        Q1_base = (fetched_signals['mtf_price_change'].clip(lower=0) * fetched_signals['mtf_ca_change'].clip(lower=0)).pow(0.5)
+        # 确保输入信号在[-1,1]范围内
+        price_change_clipped = fetched_signals['mtf_price_change'].clip(-1, 1)
+        ca_change_clipped = fetched_signals['mtf_ca_change'].clip(-1, 1)
+        
+        # Q1基础计算：只考虑正的价格变化和成本优势变化
+        price_positive = price_change_clipped.clip(lower=0)
+        ca_positive = ca_change_clipped.clip(lower=0)
+        
+        # 使用几何平均而不是简单相乘，避免值过大
+        Q1_base = (price_positive * ca_positive).pow(0.5)
+        
+        # 确保基础值在[0,1]范围内
+        Q1_base = Q1_base.clip(0, 1)
+        
         # 确认：主力信念、上涨纯度、资金流可信度、主力买入执行Alpha
         Q1_confirm_components = {
             'mtf_main_force_conviction': normalized_signals['mtf_main_force_conviction'].clip(lower=0),
-            'mtf_upward_purity': normalized_signals['mtf_upward_purity'],
-            'flow_credibility_norm': normalized_signals['flow_credibility_norm'],
-            'main_force_buy_execution_alpha_norm': normalized_signals['main_force_buy_execution_alpha_norm']
+            'mtf_upward_purity': normalized_signals['mtf_upward_purity'].clip(0, 1),
+            'flow_credibility_norm': normalized_signals['flow_credibility_norm'].clip(0, 1),
+            'main_force_buy_execution_alpha_norm': normalized_signals['main_force_buy_execution_alpha_norm'].clip(0, 1)
         }
-        Q1_confirm_weights_series = dynamic_weights['Q1_confirmation_weights'] # 这是一个字典，值是 Series
+        
+        Q1_confirm_weights_series = dynamic_weights['Q1_confirmation_weights']
         
         # 计算加权和
         weighted_sum = pd.Series(0.0, index=Q1_base.index, dtype=np.float32)
@@ -729,23 +758,38 @@ class CalculateCostAdvantageTrendRelationship:
             weight_series = Q1_confirm_weights_series.get(k, pd.Series(0.0, index=Q1_base.index, dtype=np.float32))
             weighted_sum += component_series * weight_series
         
-        # 计算所有权重的总和 (Series)
+        # 计算所有权重的总和
         sum_of_weights_series = pd.Series(0.0, index=Q1_base.index, dtype=np.float32)
         for weight_series in Q1_confirm_weights_series.values():
             sum_of_weights_series += weight_series
         
-        # 避免除以零，将总和为零的元素替换为 NaN
+        # 避免除以零
         sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
         
-        # 执行除法，并用0填充 NaN
+        # 执行除法，并用0填充NaN
         Q1_confirm = (weighted_sum / sum_of_weights_series_safe).fillna(0)
         
+        # 确保确认值在[0,1]范围内
+        Q1_confirm = Q1_confirm.clip(0, 1)
+        
+        # 最终计算，确保在[0,1]范围内
         Q1_final = (Q1_base * Q1_confirm).clip(0, 1)
+        
+        # 探针输出
         _temp_debug_values["Q1: 价涨 & 优扩"] = {
             "Q1_base": Q1_base,
             "Q1_confirm": Q1_confirm,
-            "Q1_final": Q1_final
+            "Q1_final": Q1_final,
+            "price_change_range": f"[{price_change_clipped.min():.4f}, {price_change_clipped.max():.4f}]",
+            "ca_change_range": f"[{ca_change_clipped.min():.4f}, {ca_change_clipped.max():.4f}]",
+            "price_positive_range": f"[{price_positive.min():.4f}, {price_positive.max():.4f}]",
+            "ca_positive_range": f"[{ca_positive.min():.4f}, {ca_positive.max():.4f}]"
         }
+        
+        # 输出统计信息
+        print(f"【Q1计算】Q1_base均值: {Q1_base.mean():.4f}, 范围: [{Q1_base.min():.4f}, {Q1_base.max():.4f}]")
+        print(f"【Q1计算】Q1_confirm均值: {Q1_confirm.mean():.4f}, Q1_final均值: {Q1_final.mean():.4f}")
+        
         return Q1_final
 
     def _calculate_q2_bearish_distribution(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
