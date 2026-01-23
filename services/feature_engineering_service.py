@@ -425,7 +425,7 @@ class FeatureEngineeringService:
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """【V3.6 · Numba重构版】元特征计算车间 - 增强探针版"""
+        """【V3.6 · Numba重构版】元特征计算车间 - 动态阈值版"""
         timeframe = 'D'
         if timeframe not in all_dfs:
             print(f"calculate_meta_features: {timeframe}不在all_dfs中")
@@ -458,19 +458,20 @@ class FeatureEngineeringService:
             clean_series = current_series.dropna()
             clean_values = clean_series.values.astype(np.float64)
             print(f"清理后数据长度: {len(clean_values)}")
-            if len(clean_values) < 50:
-                print(f"数据不足50个, 跳过 {source_col}")
-                continue
             hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             print(f"准备计算赫斯特指数, 目标列: {hurst_col}, 窗口: {hurst_window}")
             if hurst_col not in df.columns:
                 try:
-                    print(f"开始计算赫斯特指数 {hurst_col}")
-                    df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
-                        lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
-                    )
-                    print(f"赫斯特指数计算完成, 非空值数量: {df[hurst_col].notna().sum()}, 前5个值: {df[hurst_col].head().tolist()}")
+                    if len(clean_values) >= hurst_window:
+                        print(f"开始计算赫斯特指数 {hurst_col}")
+                        df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
+                            lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
+                        )
+                        print(f"赫斯特指数计算完成, 非空值数量: {df[hurst_col].notna().sum()}, 前5个值: {df[hurst_col].head().tolist()}")
+                    else:
+                        print(f"数据长度 {len(clean_values)} 小于赫斯特窗口 {hurst_window}, 创建空列")
+                        df[hurst_col] = np.nan
                 except Exception as e:
                     print(f"赫斯特指数计算失败: {e}")
                     logger.error(f"赫斯特指数计算失败: {e}")
@@ -482,12 +483,16 @@ class FeatureEngineeringService:
             print(f"准备计算分形维度, 目标列: {fd_col}, 窗口: {fd_window}")
             if fd_col not in df.columns:
                 try:
-                    k_max = int(np.sqrt(fd_window))
-                    print(f"分形维度计算: k_max={k_max}")
-                    df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
-                        lambda x: _numba_higuchi_fd(x, k_max), raw=True
-                    )
-                    print(f"分形维度计算完成, 非空值数量: {df[fd_col].notna().sum()}, 前5个值: {df[fd_col].head().tolist()}")
+                    if len(clean_values) >= fd_window:
+                        k_max = int(np.sqrt(fd_window))
+                        print(f"分形维度计算: k_max={k_max}")
+                        df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
+                            lambda x: _numba_higuchi_fd(x, k_max), raw=True
+                        )
+                        print(f"分形维度计算完成, 非空值数量: {df[fd_col].notna().sum()}, 前5个值: {df[fd_col].head().tolist()}")
+                    else:
+                        print(f"数据长度 {len(clean_values)} 小于分形维度窗口 {fd_window}, 创建空列")
+                        df[fd_col] = np.nan
                 except Exception as e:
                     print(f"分形维度计算失败: {e}")
                     logger.error(f"分形维度计算失败: {e}")
@@ -500,16 +505,16 @@ class FeatureEngineeringService:
             print(f"准备计算样本熵, 目标列: {se_col}, 窗口: {se_window}, 容差比率: {se_tol_ratio}")
             if se_col not in df.columns:
                 try:
-                    if len(clean_values) < se_window + 1:
-                        print(f"数据长度 {len(clean_values)} 小于窗口 {se_window}+1, 跳过样本熵计算")
-                        df[se_col] = np.nan
-                    else:
+                    if len(clean_values) >= se_window + 1:
                         print(f"开始计算样本熵, 使用Numba加速")
                         rolling_std = clean_series.rolling(window=se_window, min_periods=se_window).std().values
                         entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
                         print(f"样本熵Numba计算完成, 结果长度: {len(entropy_values)}")
                         df[se_col] = pd.Series(entropy_values, index=clean_series.index).reindex(df.index)
                         print(f"样本熵列创建完成, 非空值数量: {df[se_col].notna().sum()}, 前5个值: {df[se_col].head().tolist()}")
+                    else:
+                        print(f"数据长度 {len(clean_values)} 小于样本熵窗口 {se_window}+1, 创建空列")
+                        df[se_col] = np.nan
                 except Exception as e:
                     print(f"样本熵计算失败: {e}")
                     logger.error(f"样本熵计算失败: {e}")
@@ -522,11 +527,15 @@ class FeatureEngineeringService:
             print(f"准备计算NOLDS样本熵, 目标列: {nolds_sampen_col}, 窗口: {nolds_sampen_window}")
             if nolds_sampen_col not in df.columns:
                 try:
-                    print(f"开始异步计算NOLDS样本熵")
-                    df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(
-                        df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
-                    )
-                    print(f"NOLDS样本熵计算完成, 非空值数量: {df[nolds_sampen_col].notna().sum()}")
+                    if len(clean_values) >= nolds_sampen_window:
+                        print(f"开始异步计算NOLDS样本熵")
+                        df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(
+                            df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
+                        )
+                        print(f"NOLDS样本熵计算完成, 非空值数量: {df[nolds_sampen_col].notna().sum()}")
+                    else:
+                        print(f"数据长度 {len(clean_values)} 小于NOLDS样本熵窗口 {nolds_sampen_window}, 创建空列")
+                        df[nolds_sampen_col] = np.nan
                 except Exception as e:
                     print(f"NOLDS样本熵计算失败: {e}")
                     logger.error(f"NOLDS样本熵计算失败: {e}")
@@ -538,10 +547,7 @@ class FeatureEngineeringService:
             print(f"准备计算FFT能量比, 目标列: {fft_col}, 窗口: {fft_window}")
             if fft_col not in df.columns:
                 try:
-                    if len(clean_values) < fft_window:
-                        print(f"数据长度 {len(clean_values)} 小于FFT窗口 {fft_window}, 跳过")
-                        df[fft_col] = np.nan
-                    else:
+                    if len(clean_values) >= fft_window:
                         print(f"开始计算FFT能量比")
                         fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
                             clean_values,
@@ -551,6 +557,9 @@ class FeatureEngineeringService:
                         print(f"FFT能量比计算完成, 结果长度: {len(fft_energy_ratios_values)}")
                         df[fft_col] = pd.Series(fft_energy_ratios_values, index=clean_series.index).reindex(df.index)
                         print(f"FFT能量比列创建完成, 非空值数量: {df[fft_col].notna().sum()}")
+                    else:
+                        print(f"数据长度 {len(clean_values)} 小于FFT窗口 {fft_window}, 创建空列")
+                        df[fft_col] = np.nan
                 except Exception as e:
                     print(f"FFT能量比计算失败: {e}")
                     logger.error(f"FFT能量比计算失败: {e}")
@@ -562,9 +571,17 @@ class FeatureEngineeringService:
             atr_col = f'ATR_14{suffix}'
             print(f"检查波动率不稳定性计算, ATR列: {atr_col}, 目标列: {vi_col}")
             if atr_col in df.columns and vi_col not in df.columns:
-                print(f"开始计算波动率不稳定性")
-                df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
-                print(f"波动率不稳定性计算完成, 非空值数量: {df[vi_col].notna().sum()}")
+                try:
+                    if df[atr_col].notna().sum() >= vi_window:
+                        print(f"开始计算波动率不稳定性")
+                        df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
+                        print(f"波动率不稳定性计算完成, 非空值数量: {df[vi_col].notna().sum()}")
+                    else:
+                        print(f"ATR数据不足 {df[atr_col].notna().sum()} 小于窗口 {vi_window}, 创建空列")
+                        df[vi_col] = np.nan
+                except Exception as e:
+                    print(f"波动率不稳定性计算失败: {e}")
+                    df[vi_col] = np.nan
             elif vi_col in df.columns:
                 print(f"波动率不稳定性列 {vi_col} 已存在")
             else:
