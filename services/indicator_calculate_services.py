@@ -1333,38 +1333,39 @@ class IndicatorCalculator:
         exhaustion_index[is_selling_exhaustion] = 1
         exhaustion_index[is_buying_exhaustion] = -1
         # 9. 后处理：连续同向信号只保留第一个，避免信号冗余
-        # 修复：使用掩码方法替代原错误逻辑，确保输出值始终为-1、0、1
-        # 第一步：计算信号变化点（当前值与前一值不同）
         signal_changes = exhaustion_index.diff() != 0
-        # 第二步：对于变化点，保留当前值；对于非变化点（连续相同信号），设为0（只保留第一个信号）
         exhaustion_index = exhaustion_index.where(signal_changes, 0)
-        # 第三步：确保第一个信号（如果存在）被保留（因为diff()的第一个值为NaN，会被where视为False而变为0）
-        # 通过检查原始信号是否为非0，且第一个变化点为True（或NaN应视为True）
         if len(exhaustion_index) > 0 and exhaustion_index.iloc[0] != 0:
             # 第一个信号应该保留，因为它是第一个出现的信号
-            pass  # 第一个值已经被正确设置，无需更改
-        # 第四步：将结果重新限制为-1、0、1（确保没有意外值）
+            pass
+        # 确保输出值始终为-1、0、1
         exhaustion_index = exhaustion_index.clip(-1, 1)
         # 探针19：检查最终输出
         result_df = pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
         if 'counterparty_exhaustion_index' not in result_df.columns:
             print("❌ 探针19: 结果DataFrame中未找到'counterparty_exhaustion_index'列")
             return None
-        # 验证列名和数据类型
+        # 修复数据类型问题：确保输出为float64而非int64
         expected_dtype = np.dtype('float64')
         actual_dtype = result_df['counterparty_exhaustion_index'].dtype
         if actual_dtype != expected_dtype:
-            print(f"⚠️ 探针20: 数据类型不匹配，期望{expected_dtype}，实际{actual_dtype}")
+            print(f"⚠️ 探针20: 数据类型不匹配，期望{expected_dtype}，实际{actual_dtype}，正在转换...")
             result_df['counterparty_exhaustion_index'] = result_df['counterparty_exhaustion_index'].astype(expected_dtype)
-        # 验证输出值范围
+        # 再次验证转换后的数据类型
+        final_dtype = result_df['counterparty_exhaustion_index'].dtype
+        if final_dtype != expected_dtype:
+            print(f"❌ 探针21: 数据类型转换失败，最终类型: {final_dtype}")
+            return None
+        # 验证输出值范围：确保只有-1.0、0.0、1.0
         unique_values = result_df['counterparty_exhaustion_index'].unique()
         unexpected_values = [v for v in unique_values if v not in [-1.0, 0.0, 1.0]]
         if unexpected_values:
-            print(f"⚠️ 探针21: 发现意外值: {unexpected_values}")
-            result_df['counterparty_exhaustion_index'] = result_df['counterparty_exhaustion_index'].clip(-1, 1)
-        print(f"✅ 探针22: 成功生成衰竭指数，形状: {result_df.shape}")
-        print(f"📈 探针23: 衰竭指数取值分布: {dict(result_df['counterparty_exhaustion_index'].value_counts())}")
-        print(f"📅 探针24: 索引类型: {type(result_df.index)}, 前3个日期: {result_df.index[:3].tolist()}")
+            print(f"⚠️ 探针22: 发现意外值: {unexpected_values}，正在修正...")
+            result_df['counterparty_exhaustion_index'] = result_df['counterparty_exhaustion_index'].clip(-1.0, 1.0)
+        print(f"✅ 探针23: 成功生成衰竭指数，形状: {result_df.shape}")
+        print(f"📈 探针24: 衰竭指数取值分布: {dict(result_df['counterparty_exhaustion_index'].value_counts())}")
+        print(f"🔢 探针25: 最终数据类型: {result_df['counterparty_exhaustion_index'].dtype}")
+        print(f"📅 探针26: 索引类型: {type(result_df.index)}, 前3个日期: {result_df.index[:3].tolist()}")
         return result_df
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
