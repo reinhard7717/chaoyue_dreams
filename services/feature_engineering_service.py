@@ -319,8 +319,7 @@ class FeatureEngineeringService:
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """【V4.1 · 修正版】元特征计算车间 - 修复Numba和形状错误"""
-        from numba import njit, prange  # 在方法内部导入以避免导入问题
+        """【V4.2 · 形状匹配修正版】元特征计算车间 - 修复数组形状错误"""
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
@@ -345,7 +344,7 @@ class FeatureEngineeringService:
             clean_values = series_values[valid_mask]
             if len(clean_values) == 0:
                 continue
-            # 1. 赫斯特指数 (保持原方法避免复杂错误)
+            # 1. 赫斯特指数
             hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns:
@@ -359,12 +358,13 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"赫斯特指数计算失败: {e}")
                     df[hurst_col] = np.nan
-            # 2. 分形维度 (修正Numba函数)
+            # 2. 分形维度
             fd_window = params.get('fractal_dimension_window', 89)
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
             if fd_col not in df.columns:
                 try:
                     if len(clean_values) >= fd_window:
+                        from numba import njit
                         @njit(cache=True)
                         def numba_higuchi_fd_windowed(data, window, k_max):
                             n = len(data)
@@ -407,31 +407,29 @@ class FeatureEngineeringService:
                         k_max = int(np.sqrt(fd_window))
                         fd_window_data = numba_higuchi_fd_windowed(clean_values, fd_window, k_max)
                         fd_values = np.full(len(series_values), np.nan, dtype=np.float64)
-                        valid_indices = np.where(valid_mask)[0][fd_window-1:]
-                        fd_values[valid_indices] = fd_window_data
+                        valid_indices = np.where(valid_mask)[0]
+                        fd_values[valid_indices[fd_window-1:]] = fd_window_data
                         df[fd_col] = fd_values
                     else:
                         df[fd_col] = np.nan
                 except Exception as e:
                     logger.error(f"分形维度计算失败: {e}")
                     df[fd_col] = np.nan
-            # 3. 样本熵 (修正形状错误)
+            # 3. 样本熵 (修复形状不匹配)
             se_window = params.get('sample_entropy_window', 13)
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
             if se_col not in df.columns:
                 try:
                     if len(clean_values) >= se_window + 1:
-                        # 修正滚动标准差计算，确保长度正确
                         rolling_std = np.full(len(clean_values), np.nan, dtype=np.float64)
                         for i in range(se_window - 1, len(clean_values)):
                             window_data = clean_values[i - se_window + 1:i + 1]
                             rolling_std[i] = np.std(window_data)
-                        # 调用Numba函数
                         entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
                         se_result = np.full(len(series_values), np.nan, dtype=np.float64)
-                        valid_indices = np.where(valid_mask)[0][se_window-1:]
-                        se_result[valid_indices] = entropy_values
+                        valid_indices = np.where(valid_mask)[0]
+                        se_result[valid_indices[se_window-1:]] = entropy_values[se_window-1:]
                         df[se_col] = se_result
                     else:
                         df[se_col] = np.nan
@@ -554,18 +552,16 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V5.1 · 市场阶段自适应修复版】基于市场阶段的多模式识别系统
-        - 修复Series真值判断错误：使用.iloc[-1]获取最新值而非整个Series
+        【V5.2 · 作用域修复版】基于市场阶段的多模式识别系统
+        - 修复变量作用域问题：确保threshold_config在所有分支中都有定义
+        - 修复趋势回调信号去抖动逻辑
         - 核心改进：根据ADX值区分趋势/盘整市场，采用不同计算逻辑
-        - 趋势市场：关注趋势延续、中继整理、趋势反转
-        - 盘整市场：关注吸筹、突破、派发
-        - 动态权重：根据市场阶段调整各证据权重
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe].copy()
-        print(f"=== 模式识别引擎(V5.1)开始分析，数据长度: {len(df)} ===")
+        print(f"=== 模式识别引擎(V5.2)开始分析，数据长度: {len(df)} ===")
         print(f"数据时间范围: {df.index[0]} 到 {df.index[-1]}")
         if 'ADX_14_D' not in df.columns:
             print("错误：缺少ADX数据，无法判断市场阶段")
@@ -585,27 +581,20 @@ class FeatureEngineeringService:
         print(f"使用滚动窗口: {rolling_window}天")
         print(f"=== 阶段自适应阈值计算 ===")
         dynamic_thresholds = {}
+        threshold_config = {}  # 先定义变量，确保作用域
+        
         if market_phase == 'TRENDING':
-            signal_cols = ['IS_TREND_CONTINUATION_D', 'IS_TREND_CORRECTION_D', 'IS_TREND_REVERSAL_D']
-            print("趋势市场信号去抖动...")
-            # 趋势延续和反转使用3日去抖动
-            for col in ['IS_TREND_CONTINUATION_D', 'IS_TREND_REVERSAL_D']:
-                if col in df.columns:
-                    df[col] = df[col].fillna(False).astype(bool)
-                    try:
-                        signal_series = df[col].astype(float)
-                        df[col] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
-                    except Exception as e:
-                        print(f"信号去抖动失败: {col}, 错误: {e}")
-            # 趋势回调使用2日去抖动（更敏感）
-            if 'IS_TREND_CORRECTION_D' in df.columns:
-                df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'].fillna(False).astype(bool)
-                try:
-                    signal_series = df['IS_TREND_CORRECTION_D'].astype(float)
-                    df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=1).sum() >= 1).fillna(False).astype(bool)
-                    print(f"趋势回调信号去抖动：原始触发{signal_series.sum()}次，去抖动后{df['IS_TREND_CORRECTION_D'].sum()}次")
-                except Exception as e:
-                    print(f"趋势回调信号去抖动失败: {e}")
+            print("趋势市场阈值配置（相对宽松）:")
+            threshold_config = {
+                'chip_health_score_D': ('q25', 0.25),
+                'dominant_peak_solidity_D': ('q40', 0.4),
+                'main_force_net_flow_calibrated_D': ('q50', 0.5),
+                'structural_tension_index_D': ('q50', 0.5),
+                'breakout_readiness_score_D': ('q60', 0.6),
+                'platform_conviction_score_D': ('q60', 0.6),
+                'trend_conviction_score_D': ('q60', 0.6),
+                'pct_change_D': ('q40', 0.4),
+            }
         else:
             print("盘整市场阈值配置（相对严格）:")
             threshold_config = {
@@ -618,6 +607,8 @@ class FeatureEngineeringService:
                 'trend_conviction_score_D': ('q70', 0.7),
                 'pct_change_D': ('q60', 0.6),
             }
+        
+        # 动态阈值计算
         for col, (method, param) in threshold_config.items():
             if col in df.columns and not df[col].isna().all():
                 try:
@@ -633,6 +624,7 @@ class FeatureEngineeringService:
                         dynamic_thresholds[col] = pd.Series(0.4, index=df.index)
                     else:
                         dynamic_thresholds[col] = pd.Series(0, index=df.index)
+        
         print(f"=== 市场阶段自适应计算 ===")
         if market_phase == 'TRENDING':
             print("执行趋势市场逻辑...")
@@ -641,149 +633,208 @@ class FeatureEngineeringService:
             trend_continuation_score = pd.Series(0, index=df.index, dtype=float)
             trend_reversal_score = pd.Series(0, index=df.index, dtype=float)
             trend_correction_score = pd.Series(0, index=df.index, dtype=float)
+            
             if 'pct_change_D' in df.columns:
                 pct_threshold = dynamic_thresholds.get('pct_change_D', pd.Series(0, index=df.index))
                 trend_continuation_score = trend_continuation_score + ((df['pct_change_D'] > pct_threshold) * 2.0).fillna(0)
+            
             if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
                 trend_continuation_score = trend_continuation_score + ((df['volume_D'] > df['VOL_MA_21_D'] * 1.2) * 1.5).fillna(0)
+            
             if 'main_force_net_flow_calibrated_D' in df.columns:
                 mf_threshold = dynamic_thresholds.get('main_force_net_flow_calibrated_D', pd.Series(0, index=df.index))
                 trend_continuation_score = trend_continuation_score + ((df['main_force_net_flow_calibrated_D'] > mf_threshold) * 1.2).fillna(0)
+            
             if 'trend_acceleration_score_D' in df.columns:
                 trend_continuation_score = trend_continuation_score + ((df['trend_acceleration_score_D'] > 0) * 1.0).fillna(0)
+            
             df['IS_TREND_CONTINUATION_D'] = (trend_continuation_score >= 4.0)
+            
+            # 趋势回调信号
             if 'pct_change_D' in df.columns:
                 cond_small_correction = (df['pct_change_D'] < 0) & (df['pct_change_D'] > -0.03)
                 cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
+                
                 if 'main_force_net_flow_calibrated_D' in df.columns:
                     mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.3).fillna(method='ffill')
                     cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_low_quantile)
                 else:
                     cond_mf_not_outflow = pd.Series(True, index=df.index)
+                
                 if 'chip_health_score_D' in df.columns:
                     chip_low_quantile = df['chip_health_score_D'].rolling(20).quantile(0.3).fillna(method='ffill')
                     cond_chip_stable = (df['chip_health_score_D'] > chip_low_quantile)
                 else:
                     cond_chip_stable = pd.Series(True, index=df.index)
+                
                 df['IS_TREND_CORRECTION_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
+            
+            # 趋势反转信号
             if 'pct_change_D' in df.columns:
                 cond_sharp_drop = df['pct_change_D'] < -0.03
                 cond_volume_spike = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(False, index=df.index)
+                
                 if 'main_force_net_flow_calibrated_D' in df.columns:
                     mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.2).fillna(method='ffill')
                     cond_mf_heavy_outflow = (df['main_force_net_flow_calibrated_D'] < mf_low_quantile)
                 else:
                     cond_mf_heavy_outflow = pd.Series(False, index=df.index)
+                
                 if 'chip_health_score_D' in df.columns:
                     chip_low_quantile = df['chip_health_score_D'].rolling(20).quantile(0.3).fillna(method='ffill')
                     cond_chip_deteriorate = (df['chip_health_score_D'] < chip_low_quantile)
                 else:
                     cond_chip_deteriorate = pd.Series(False, index=df.index)
+                
                 df['IS_TREND_REVERSAL_D'] = cond_sharp_drop & (cond_volume_spike | cond_mf_heavy_outflow) & cond_chip_deteriorate
+            
             print(f"趋势市场信号统计:")
-            print(f"  趋势延续信号: {df['IS_TREND_CONTINUATION_D'].sum()}次")
-            print(f"  趋势回调信号: {df['IS_TREND_CORRECTION_D'].sum() if 'IS_TREND_CORRECTION_D' in df.columns else 0}次")
-            print(f"  趋势反转信号: {df['IS_TREND_REVERSAL_D'].sum() if 'IS_TREND_REVERSAL_D' in df.columns else 0}次")
+            print(f"  趋势延续信号原始触发: {df['IS_TREND_CONTINUATION_D'].sum()}次")
+            print(f"  趋势回调信号原始触发: {df['IS_TREND_CORRECTION_D'].sum() if 'IS_TREND_CORRECTION_D' in df.columns else 0}次")
+            print(f"  趋势反转信号原始触发: {df['IS_TREND_REVERSAL_D'].sum() if 'IS_TREND_REVERSAL_D' in df.columns else 0}次")
+        
         else:
             print("执行盘整市场逻辑...")
             df['IS_TREND_CONTINUATION_D'] = False
             df['IS_TREND_CORRECTION_D'] = False
             df['IS_TREND_REVERSAL_D'] = False
+            
             chip_stability_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'chip_health_score_D' in df.columns:
                 chip_thresh = dynamic_thresholds.get('chip_health_score_D', pd.Series(40, index=df.index))
                 chip_stability_evidence = (df['chip_health_score_D'] > chip_thresh).astype(int)
                 print(f"筹码稳定性证据: 触发{chip_stability_evidence.sum()}次")
+            
             volatility_compression_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'BBW_21_2.0_D' in df.columns:
                 bbw_quantile = df['BBW_21_2.0_D'].rolling(rolling_window, min_periods=20).quantile(0.3).fillna(method='ffill')
                 volatility_compression_evidence = (df['BBW_21_2.0_D'] < bbw_quantile).astype(int)
                 print(f"波动率收缩证据: 触发{volatility_compression_evidence.sum()}次")
+            
             fund_flow_balance_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'main_force_net_flow_calibrated_D' in df.columns:
                 mf_std = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).std().fillna(0)
                 fund_flow_balance_evidence = (abs(df['main_force_net_flow_calibrated_D']) < mf_std * 0.5).astype(int)
                 print(f"资金流平衡证据: 触发{fund_flow_balance_evidence.sum()}次")
+            
             structure_tension_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'structural_tension_index_D' in df.columns:
                 st_threshold = dynamic_thresholds.get('structural_tension_index_D', pd.Series(0.3, index=df.index))
                 structure_tension_evidence = (df['structural_tension_index_D'] < st_threshold).astype(int)
                 print(f"结构张力证据: 触发{structure_tension_evidence.sum()}次")
+            
             consolidation_score = (chip_stability_evidence + volatility_compression_evidence + fund_flow_balance_evidence + structure_tension_evidence)
             df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = (consolidation_score >= 3) & (df['ADX_14_D'] < 25)
             print(f"盘整信号: {df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'].sum()}次")
+            
             hidden_buy_evidence = pd.Series(0, index=df.index, dtype=int)
             if all(col in df.columns for col in ['main_force_buy_execution_alpha_D', 'main_force_net_flow_calibrated_D']):
                 mf_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.5).fillna(method='ffill')
                 hidden_buy_evidence = ((df['main_force_buy_execution_alpha_D'] > 0) & (df['main_force_net_flow_calibrated_D'] > mf_quantile)).astype(int)
+            
             retail_panic_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'retail_panic_surrender_index_D' in df.columns:
                 rp_quantile = df['retail_panic_surrender_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
                 retail_panic_evidence = (df['retail_panic_surrender_index_D'] > rp_quantile).astype(int)
+            
             price_suppression_evidence = pd.Series(0, index=df.index, dtype=int)
             high_20_max = df['high_D'].rolling(20).max()
             price_suppression_evidence = ((df['high_D'] < high_20_max * 0.98) & (df['pct_change_D'].abs() < 0.02)).astype(int)
+            
             chip_concentration_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'dominant_peak_solidity_D' in df.columns:
                 dp_threshold = dynamic_thresholds.get('dominant_peak_solidity_D', pd.Series(0.3, index=df.index))
                 chip_concentration_evidence = (df['dominant_peak_solidity_D'] > dp_threshold).astype(int)
+            
             accumulation_score = (hidden_buy_evidence * 2.0 + retail_panic_evidence * 1.5 + price_suppression_evidence + chip_concentration_evidence)
             df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & (accumulation_score >= 2.5)
             print(f"吸筹信号: {df['IS_ACCUMULATION_D'].sum()}次")
+            
             momentum_break_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'pct_change_D' in df.columns:
                 pct_quantile = df['pct_change_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
                 momentum_break_evidence = (df['pct_change_D'] > pct_quantile).astype(int)
+            
             volume_break_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
                 volume_break_evidence = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5).astype(int)
+            
             fund_flow_break_evidence = pd.Series(0, index=df.index, dtype=int)
             if all(col in df.columns for col in ['main_force_net_flow_calibrated_D', 'main_force_flow_directionality_D']):
                 mf_threshold = dynamic_thresholds.get('main_force_net_flow_calibrated_D', pd.Series(0, index=df.index))
                 fund_flow_break_evidence = ((df['main_force_net_flow_calibrated_D'] > mf_threshold) & (df['main_force_flow_directionality_D'] > 0.7)).astype(int)
+            
             structure_break_evidence = pd.Series(0, index=df.index, dtype=int)
             if all(col in df.columns for col in ['platform_conviction_score_D', 'trend_conviction_score_D']):
                 pc_threshold = dynamic_thresholds.get('platform_conviction_score_D', pd.Series(70, index=df.index))
                 tc_threshold = dynamic_thresholds.get('trend_conviction_score_D', pd.Series(70, index=df.index))
                 structure_break_evidence = ((df['platform_conviction_score_D'] > pc_threshold) & (df['trend_conviction_score_D'] > tc_threshold)).astype(int)
+            
             breakout_score = (momentum_break_evidence * 2.0 + volume_break_evidence * 1.5 + fund_flow_break_evidence * 1.2 + structure_break_evidence)
             df['IS_BREAKOUT_D'] = (breakout_score >= 5) & (momentum_break_evidence.astype(bool) | structure_break_evidence.astype(bool))
             print(f"突破信号: {df['IS_BREAKOUT_D'].sum()}次")
+            
             main_force_dist_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'main_force_net_flow_calibrated_D' in df.columns:
                 mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.3).fillna(method='ffill')
                 main_force_dist_evidence = (df['main_force_net_flow_calibrated_D'] < mf_low_quantile).astype(int)
+            
             retail_fomo_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'retail_fomo_premium_index_D' in df.columns:
                 rf_quantile = df['retail_fomo_premium_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
                 retail_fomo_evidence = (df['retail_fomo_premium_index_D'] > rf_quantile).astype(int)
+            
             price_divergence_evidence = pd.Series(0, index=df.index, dtype=int)
             close_20_max = df['close_D'].rolling(20).max()
             mf_5ma = df['main_force_net_flow_calibrated_D'].rolling(5).mean()
             mf_20ma = df['main_force_net_flow_calibrated_D'].rolling(20).mean()
             price_divergence_evidence = ((df['close_D'] > close_20_max) & (mf_5ma < mf_20ma)).astype(int)
+            
             chip_dispersion_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'chip_health_score_D' in df.columns:
                 ch_threshold = dynamic_thresholds.get('chip_health_score_D', pd.Series(40, index=df.index))
                 chip_dispersion_evidence = ((df['chip_health_score_D'] < ch_threshold) & (df['pct_change_D'] > 0.05)).astype(int)
+            
             distribution_score = (main_force_dist_evidence * 1.5 + retail_fomo_evidence * 1.2 + price_divergence_evidence + chip_dispersion_evidence)
             df['IS_DISTRIBUTION_D'] = distribution_score >= 3
             print(f"派发信号: {df['IS_DISTRIBUTION_D'].sum()}次")
+        
         print(f"=== 信号后处理 ===")
+        
+        # 根据市场阶段进行不同的去抖动处理
         if market_phase == 'TRENDING':
-            signal_cols = ['IS_TREND_CONTINUATION_D', 'IS_TREND_CORRECTION_D', 'IS_TREND_REVERSAL_D']
             print("趋势市场信号去抖动...")
-        else:
-            signal_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
-            print("盘整市场信号去抖动...")
-        for col in signal_cols:
-            if col in df.columns:
-                df[col] = df[col].fillna(False).astype(bool)
+            # 趋势延续和反转使用3日去抖动
+            for col in ['IS_TREND_CONTINUATION_D', 'IS_TREND_REVERSAL_D']:
+                if col in df.columns:
+                    df[col] = df[col].fillna(False).astype(bool)
+                    try:
+                        signal_series = df[col].astype(float)
+                        df[col] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
+                    except Exception as e:
+                        print(f"信号去抖动失败: {col}, 错误: {e}")
+            
+            # 趋势回调使用更宽松的2日去抖动（更敏感）
+            if 'IS_TREND_CORRECTION_D' in df.columns:
+                df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'].fillna(False).astype(bool)
                 try:
-                    signal_series = df[col].astype(float)
-                    df[col] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
+                    signal_series = df['IS_TREND_CORRECTION_D'].astype(float)
+                    df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=1).sum() >= 1).fillna(False).astype(bool)
+                    print(f"趋势回调信号去抖动：去抖动后{df['IS_TREND_CORRECTION_D'].sum()}次")
                 except Exception as e:
-                    print(f"信号去抖动失败: {col}, 错误: {e}")
+                    print(f"趋势回调信号去抖动失败: {e}")
+        else:
+            print("盘整市场信号去抖动...")
+            signal_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+            for col in signal_cols:
+                if col in df.columns:
+                    df[col] = df[col].fillna(False).astype(bool)
+                    try:
+                        signal_series = df[col].astype(float)
+                        df[col] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
+                    except Exception as e:
+                        print(f"信号去抖动失败: {col}, 错误: {e}")
+        
         print(f"=== 信号互斥处理 ===")
         try:
             if market_phase == 'TRENDING':
@@ -792,6 +843,7 @@ class FeatureEngineeringService:
                     if continuation_mask.any():
                         df.loc[continuation_mask, 'IS_TREND_REVERSAL_D'] = False
                         print(f"趋势延续时关闭趋势反转信号，影响{continuation_mask.sum()}个数据点")
+                
                 if 'IS_TREND_CORRECTION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
                     correction_mask = df['IS_TREND_CORRECTION_D'].astype(bool)
                     if correction_mask.any():
@@ -803,6 +855,7 @@ class FeatureEngineeringService:
                     if breakout_mask.any():
                         df.loc[breakout_mask, 'IS_ACCUMULATION_D'] = False
                         print(f"突破时关闭吸筹信号，影响{breakout_mask.sum()}个数据点")
+                
                 if 'IS_DISTRIBUTION_D' in df.columns and 'IS_BREAKOUT_D' in df.columns:
                     distribution_mask = df['IS_DISTRIBUTION_D'].astype(bool)
                     if distribution_mask.any():
@@ -810,14 +863,25 @@ class FeatureEngineeringService:
                         print(f"派发时关闭突破信号，影响{distribution_mask.sum()}个数据点")
         except Exception as e:
             print(f"模式互斥性处理失败: {e}")
+        
         df['MARKET_PHASE_D'] = market_phase
         print(f"=== 分析完成 ===")
         print(f"市场阶段: {market_phase}")
-        for col in signal_cols:
-            if col in df.columns:
-                print(f"{col}: 总触发={df[col].sum()}, 最新信号={df[col].iloc[-1]}")
+        
+        # 根据市场阶段显示相应的信号
+        if market_phase == 'TRENDING':
+            signal_cols = ['IS_TREND_CONTINUATION_D', 'IS_TREND_CORRECTION_D', 'IS_TREND_REVERSAL_D']
+            for col in signal_cols:
+                if col in df.columns:
+                    print(f"{col}: 总触发={df[col].sum()}, 最新信号={df[col].iloc[-1]}")
+        else:
+            signal_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+            for col in signal_cols:
+                if col in df.columns:
+                    print(f"{col}: 总触发={df[col].sum()}, 最新信号={df[col].iloc[-1]}")
+        
         all_dfs[timeframe] = df
-        print("=== 高级模式识别引擎(V5.1 市场阶段自适应修复版)分析完成 ===")
+        print("=== 高级模式识别引擎(V5.2 作用域修复版)分析完成 ===")
         return all_dfs
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.Series:
