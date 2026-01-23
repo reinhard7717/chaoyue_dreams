@@ -635,17 +635,25 @@ class FeatureEngineeringService:
                 trend_continuation_score = trend_continuation_score + ((df['trend_acceleration_score_D'] > 0) * 1.0).fillna(0)
             df['IS_TREND_CONTINUATION_D'] = (trend_continuation_score >= 4.0)
             if 'pct_change_D' in df.columns:
-                # 新增：计算回调动态阈值
                 print("=== 回调信号动态阈值计算 ===")
-                # 上涨趋势中的正常回调幅度（负收益）的80%分位数作为阈值上限
-                negative_returns = df['pct_change_D'][df['pct_change_D'] < 0]
-                if len(negative_returns) > 10:
-                    correction_max = negative_returns.rolling(60, min_periods=20).quantile(0.8).fillna(method='ffill')
-                else:
-                    correction_max = pd.Series(-0.03, index=df.index)  # 默认-3%
+                # 修复：确保所有Series都有相同的索引（df.index）
+                # 计算回调最大幅度阈值（动态）
+                correction_max = pd.Series(-0.03, index=df.index)  # 默认值
+                # 计算负收益的80%分位数作为回调上限
+                negative_mask = df['pct_change_D'] < 0
+                if negative_mask.sum() > 10:
+                    # 使用原始df的pct_change_D计算，但只对负收益部分计算分位数
+                    # 创建一个临时Series，正收益部分设为NaN
+                    temp_series = df['pct_change_D'].where(negative_mask)
+                    # 计算滚动分位数
+                    correction_max_series = temp_series.rolling(60, min_periods=20).quantile(0.8).fillna(method='ffill')
+                    # 用计算值更新correction_max
+                    correction_max = correction_max_series.fillna(-0.03)
+                print(f"回调最大幅度阈值: {correction_max.iloc[-1]:.4f}")
                 # 回调深度不应超过近期最大涨幅的50%
                 recent_max_gain = df['pct_change_D'].rolling(5).max().shift(1).fillna(0)
                 correction_depth_limit = recent_max_gain * -0.5
+                print(f"近期最大涨幅: {recent_max_gain.iloc[-1]:.4f}, 回调深度限制: {correction_depth_limit.iloc[-1]:.4f}")
                 # 实际回调条件：负收益且在合理范围内
                 cond_small_correction = (df['pct_change_D'] < 0) & (df['pct_change_D'] > correction_max) & (df['pct_change_D'] > correction_depth_limit)
                 # 探针：打印关键日期的回调判断
@@ -661,33 +669,27 @@ class FeatureEngineeringService:
                         print(f"  是否满足回调幅度条件: {cond_small_correction.iloc[idx]}")
                 cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
                 if 'main_force_net_flow_calibrated_D' in df.columns:
-                    # 使用更宽松的分位数（40%）判断主力是否没有大幅流出
                     mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.4).fillna(method='ffill')
                     cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_low_quantile)
                 else:
                     cond_mf_not_outflow = pd.Series(True, index=df.index)
                 if 'chip_health_score_D' in df.columns:
-                    # 使用更宽松的分位数（25%）判断筹码稳定性
                     chip_low_quantile = df['chip_health_score_D'].rolling(20).quantile(0.25).fillna(method='ffill')
                     cond_chip_stable = (df['chip_health_score_D'] > chip_low_quantile)
                 else:
                     cond_chip_stable = pd.Series(True, index=df.index)
-                # 新增：趋势方向确认（短期均线仍在长期均线之上）
                 if 'close_D' in df.columns:
                     ma_short = df['close_D'].rolling(5).mean()
                     ma_long = df['close_D'].rolling(20).mean()
-                    cond_trend_direction = (ma_short > ma_long * 0.98)  # 允许轻微跌破
+                    cond_trend_direction = (ma_short > ma_long * 0.98)
                 else:
                     cond_trend_direction = pd.Series(True, index=df.index)
-                # 新增：回调速度判断（单日回调不应过快）
                 if 'pct_change_D' in df.columns:
                     recent_volatility = df['pct_change_D'].abs().rolling(10).mean()
                     cond_slow_correction = (df['pct_change_D'].abs() < recent_volatility * 2.5)
                 else:
                     cond_slow_correction = pd.Series(True, index=df.index)
-                # 组合所有条件
                 df['IS_TREND_CORRECTION_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable & cond_trend_direction & cond_slow_correction
-                # 原始信号（仅用于探针对比）
                 df['IS_TREND_CORRECTION_RAW_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
             if 'pct_change_D' in df.columns:
                 cond_sharp_drop = df['pct_change_D'] < -0.03
@@ -707,11 +709,9 @@ class FeatureEngineeringService:
             print(f"  趋势延续信号原始触发: {df['IS_TREND_CONTINUATION_D'].sum()}次")
             print(f"  趋势回调信号原始触发: {df['IS_TREND_CORRECTION_D'].sum() if 'IS_TREND_CORRECTION_D' in df.columns else 0}次")
             print(f"  趋势反转信号原始触发: {df['IS_TREND_REVERSAL_D'].sum() if 'IS_TREND_REVERSAL_D' in df.columns else 0}次")
-            # 新增：回调信号详细统计
             if 'IS_TREND_CORRECTION_D' in df.columns and 'IS_TREND_CORRECTION_RAW_D' in df.columns:
                 print(f"  趋势回调信号(增强版): {df['IS_TREND_CORRECTION_D'].sum()}次")
                 print(f"  趋势回调信号(原始版): {df['IS_TREND_CORRECTION_RAW_D'].sum()}次")
-                # 检查最近5个交易日的信号
                 recent_days = 5
                 recent_df = df.tail(recent_days)
                 for idx, date in enumerate(recent_df.index):
@@ -884,7 +884,6 @@ class FeatureEngineeringService:
             for col in signal_cols:
                 if col in df.columns:
                     print(f"{col}: 总触发={df[col].sum()}, 最新信号={df[col].iloc[-1]}, 最新日期={df.index[-1].strftime('%Y-%m-%d')}")
-            # 新增：回调信号对比输出
             if 'IS_TREND_CORRECTION_RAW_D' in df.columns:
                 print(f"IS_TREND_CORRECTION_RAW_D: 总触发={df['IS_TREND_CORRECTION_RAW_D'].sum()}, 最新信号={df['IS_TREND_CORRECTION_RAW_D'].iloc[-1]}")
         else:
