@@ -639,22 +639,13 @@ class FeatureEngineeringService:
                 print("[回调信号探针] 回调幅度条件重构...")
                 # 回调信号核心逻辑简化重构
                 # 回调幅度在-5%到-0.5%之间（即-0.05到-0.005）
-                # 注意：回调幅度是负数，所以比较时要注意方向
-                
-                # 回调幅度上限：-0.005（-0.5%），回调幅度不能太小（太小可能是正常波动）
                 correction_min_magnitude = -0.005  # 最小回调幅度（绝对值）
-                # 回调幅度下限：-0.05（-5%），超过这个可能进入反转区域
                 correction_max_magnitude = -0.05   # 最大回调幅度（绝对值）
-                
                 print(f"回调幅度允许范围: [{correction_max_magnitude:.4f}, {correction_min_magnitude:.4f}]")
-                print(f"注意：回调幅度是负数，所以{correction_max_magnitude:.4f}比{correction_min_magnitude:.4f}更负（回调幅度更大）")
-                
                 # 回调幅度条件：回调幅度在合理范围内且为负值
-                # 注意：因为回调幅度是负数，所以应该大于等于更小的负数（correction_max_magnitude），小于等于更大的负数（correction_min_magnitude）
                 cond_small_correction = (df['pct_change_D'] < 0) & \
                                        (df['pct_change_D'] >= correction_max_magnitude) & \
                                        (df['pct_change_D'] <= correction_min_magnitude)
-                
                 # 新增：回调不应破坏短期趋势（5日均线支撑）
                 if 'close_D' in df.columns:
                     ma5 = df['close_D'].rolling(5).mean()
@@ -665,7 +656,6 @@ class FeatureEngineeringService:
                     print(f"趋势支撑条件满足: {cond_trend_support.iloc[-1]}")
                 else:
                     cond_trend_support = pd.Series(True, index=df.index)
-                
                 # 探针：打印关键日期的回调判断
                 test_dates = ['2025-12-30', '2025-12-23', '2025-12-29', '2025-12-24', '2025-12-26']
                 for test_date in test_dates:
@@ -673,32 +663,40 @@ class FeatureEngineeringService:
                         idx = df.index.get_loc(test_date)
                         print(f"[回调信号探针] 日期: {test_date}")
                         print(f"  涨跌幅: {df['pct_change_D'].iloc[idx]:.4f} ({df['pct_change_D'].iloc[idx]*100:.2f}%)")
-                        print(f"  是否在范围[{correction_max_magnitude:.4f}, {correction_min_magnitude:.4f}]内: {correction_max_magnitude <= df['pct_change_D'].iloc[idx] <= correction_min_magnitude}")
-                        print(f"  是否为负: {df['pct_change_D'].iloc[idx] < 0}")
                         print(f"  回调幅度条件: {cond_small_correction.iloc[idx]}")
-                
                 cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
+                # 主力资金条件优化：在趋势市场中，回调时主力资金可能暂时流出，放宽条件
                 if 'main_force_net_flow_calibrated_D' in df.columns:
-                    mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.4).fillna(method='ffill')
-                    cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_low_quantile)
+                    # 使用动态阈值而非固定分位数
+                    mf_mean = df['main_force_net_flow_calibrated_D'].rolling(20).mean().fillna(method='ffill')
+                    mf_std = df['main_force_net_flow_calibrated_D'].rolling(20).std().fillna(0)
+                    # 主力资金条件：不是大幅流出（流出不超过1个标准差）
+                    cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_mean - mf_std * 1.5)
                     # 探针：检查主力资金流出情况
                     if '2025-12-30' in df.index:
                         idx = df.index.get_loc('2025-12-30')
                         print(f"[主力资金探针] 日期: 2025-12-30")
                         print(f"  主力资金净流入: {df['main_force_net_flow_calibrated_D'].iloc[idx]:.2f}")
-                        print(f"  主力资金低分位数: {mf_low_quantile.iloc[idx]:.2f}")
+                        print(f"  主力资金20日均值: {mf_mean.iloc[idx]:.2f}")
+                        print(f"  主力资金20日标准差: {mf_std.iloc[idx]:.2f}")
+                        print(f"  主力资金条件阈值: {mf_mean.iloc[idx] - mf_std.iloc[idx] * 1.5:.2f}")
                         print(f"  主力资金条件: {cond_mf_not_outflow.iloc[idx]}")
                 else:
                     cond_mf_not_outflow = pd.Series(True, index=df.index)
+                # 筹码健康条件优化：使用动态阈值而非固定分位数
                 if 'chip_health_score_D' in df.columns:
-                    chip_low_quantile = df['chip_health_score_D'].rolling(20).quantile(0.25).fillna(method='ffill')
-                    cond_chip_stable = (df['chip_health_score_D'] > chip_low_quantile)
+                    chip_mean = df['chip_health_score_D'].rolling(20).mean().fillna(method='ffill')
+                    chip_std = df['chip_health_score_D'].rolling(20).std().fillna(0)
+                    # 筹码健康条件：不是显著恶化（不低于均值减去1个标准差）
+                    cond_chip_stable = (df['chip_health_score_D'] > chip_mean - chip_std * 1.0)
                     # 探针：检查筹码健康状况
                     if '2025-12-30' in df.index:
                         idx = df.index.get_loc('2025-12-30')
                         print(f"[筹码健康探针] 日期: 2025-12-30")
                         print(f"  筹码健康分数: {df['chip_health_score_D'].iloc[idx]:.2f}")
-                        print(f"  筹码健康低分位数: {chip_low_quantile.iloc[idx]:.2f}")
+                        print(f"  筹码健康20日均值: {chip_mean.iloc[idx]:.2f}")
+                        print(f"  筹码健康20日标准差: {chip_std.iloc[idx]:.2f}")
+                        print(f"  筹码健康条件阈值: {chip_mean.iloc[idx] - chip_std.iloc[idx] * 1.0:.2f}")
                         print(f"  筹码健康条件: {cond_chip_stable.iloc[idx]}")
                 else:
                     cond_chip_stable = pd.Series(True, index=df.index)
@@ -706,43 +704,38 @@ class FeatureEngineeringService:
                     ma_short = df['close_D'].rolling(5).mean()
                     ma_long = df['close_D'].rolling(20).mean()
                     cond_trend_direction = (ma_short > ma_long * 0.95)  # 允许短期均线略低于长期均线
-                    # 探针：检查趋势方向
-                    if '2025-12-30' in df.index:
-                        idx = df.index.get_loc('2025-12-30')
-                        print(f"[趋势方向探针] 日期: 2025-12-30")
-                        print(f"  5日均线: {ma_short.iloc[idx]:.2f}")
-                        print(f"  20日均线: {ma_long.iloc[idx]:.2f}")
-                        print(f"  趋势方向条件: {cond_trend_direction.iloc[idx]}")
                 else:
                     cond_trend_direction = pd.Series(True, index=df.index)
                 if 'pct_change_D' in df.columns:
                     recent_volatility = df['pct_change_D'].abs().rolling(10).mean()
                     cond_slow_correction = (df['pct_change_D'].abs() < recent_volatility * 3.0)  # 放宽到3倍波动率
-                    # 探针：检查回调速度
-                    if '2025-12-30' in df.index:
-                        idx = df.index.get_loc('2025-12-30')
-                        print(f"[回调速度探针] 日期: 2025-12-30")
-                        print(f"  回调幅度绝对值: {abs(df['pct_change_D'].iloc[idx]):.4f}")
-                        print(f"  近期波动率: {recent_volatility.iloc[idx]:.4f}")
-                        print(f"  回调速度条件: {cond_slow_correction.iloc[idx]}")
                 else:
                     cond_slow_correction = pd.Series(True, index=df.index)
-                
-                # 综合所有条件
-                df['IS_TREND_CORRECTION_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable & cond_trend_direction & cond_slow_correction & cond_trend_support
+                # 新增：回调信号权重评分系统
+                correction_score = pd.Series(0, index=df.index, dtype=float)
+                correction_score = correction_score + (cond_small_correction * 2.0).fillna(0)  # 回调幅度条件最重要
+                correction_score = correction_score + (cond_volume_support * 1.5).fillna(0)  # 成交量支持次重要
+                correction_score = correction_score + (cond_trend_support * 1.5).fillna(0)  # 趋势支撑很重要
+                correction_score = correction_score + (cond_trend_direction * 1.0).fillna(0)  # 趋势方向重要
+                correction_score = correction_score + (cond_slow_correction * 1.0).fillna(0)  # 回调速度重要
+                correction_score = correction_score + (cond_mf_not_outflow * 0.5).fillna(0)  # 主力资金条件权重降低
+                correction_score = correction_score + (cond_chip_stable * 0.5).fillna(0)  # 筹码健康条件权重降低
+                # 综合回调信号：总分达到5分即可
+                df['IS_TREND_CORRECTION_D'] = correction_score >= 5.0
+                # 原始版本：严格要求所有条件
                 df['IS_TREND_CORRECTION_RAW_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
-                
                 # 探针：检查最终回调信号
                 if '2025-12-30' in df.index:
                     idx = df.index.get_loc('2025-12-30')
                     print(f"[最终回调信号探针] 日期: 2025-12-30")
                     print(f"  回调幅度条件: {cond_small_correction.iloc[idx]}")
                     print(f"  成交量条件: {cond_volume_support.iloc[idx]}")
-                    print(f"  主力资金条件: {cond_mf_not_outflow.iloc[idx]}")
-                    print(f"  筹码健康条件: {cond_chip_stable.iloc[idx]}")
+                    print(f"  趋势支撑条件: {cond_trend_support.iloc[idx]}")
                     print(f"  趋势方向条件: {cond_trend_direction.iloc[idx]}")
                     print(f"  回调速度条件: {cond_slow_correction.iloc[idx]}")
-                    print(f"  趋势支撑条件: {cond_trend_support.iloc[idx]}")
+                    print(f"  主力资金条件: {cond_mf_not_outflow.iloc[idx]}")
+                    print(f"  筹码健康条件: {cond_chip_stable.iloc[idx]}")
+                    print(f"  回调评分: {correction_score.iloc[idx]:.1f}")
                     print(f"  最终回调信号: {df['IS_TREND_CORRECTION_D'].iloc[idx]}")
             if 'pct_change_D' in df.columns:
                 cond_sharp_drop = df['pct_change_D'] < -0.05  # 修改为-5%，与回调信号区分

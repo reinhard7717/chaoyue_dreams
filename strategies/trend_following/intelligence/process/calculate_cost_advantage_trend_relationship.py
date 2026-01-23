@@ -54,23 +54,46 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _log_debug_values(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp, method_name: str):
         """
-        【V1.0.0 · 调试值日志输出】
-        - 核心职责: 统一输出调试信息到控制台。
-        - 版本: 1.0.0
+        【V1.0.1 · 调试值日志输出 - 完整性修复版】
+        - 核心修复: 确保所有探针信息都能输出，包括嵌套字典和Series
+        - 核心优化: 添加探针输出的完整性检查，确保不会遗漏任何信息
+        - 核心新增: 支持更多数据类型的输出格式
+        - 版本: 1.0.1
         """
+        print(f"【探针输出】开始输出调试信息，共有 {len(_temp_debug_values)} 个调试模块")
+        
         for section, values_dict in _temp_debug_values.items():
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {section} ---"] = ""
-            for key, value in values_dict.items():
-                if isinstance(value, dict):
-                    debug_output[f"        {key}:"] = ""
-                    for sub_key, sub_series in value.items():
-                        val = sub_series.loc[probe_ts] if probe_ts in sub_series.index else np.nan
-                        debug_output[f"          {sub_key}: {val:.4f}"] = ""
-                elif isinstance(value, pd.Series):
-                    val = value.loc[probe_ts] if probe_ts in value.index else np.nan
-                    debug_output[f"        '{key}': {val:.4f}"] = ""
-                else:
-                    debug_output[f"        '{key}': {value}"] = "" # For non-series values
+            print(f"【探针输出】处理模块: {section}, 包含 {len(values_dict) if isinstance(values_dict, dict) else 1} 个值")
+            
+            if isinstance(values_dict, dict):
+                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {section} ---"] = ""
+                
+                for key, value in values_dict.items():
+                    try:
+                        if isinstance(value, dict):
+                            debug_output[f"        {key}:"] = ""
+                            for sub_key, sub_value in value.items():
+                                if isinstance(sub_value, pd.Series):
+                                    val = sub_value.loc[probe_ts] if probe_ts in sub_value.index else np.nan
+                                    debug_output[f"          {sub_key}: {val:.4f}"] = ""
+                                elif isinstance(sub_value, (int, float, np.float32, np.float64)):
+                                    debug_output[f"          {sub_key}: {sub_value:.4f}"] = ""
+                                else:
+                                    debug_output[f"          {sub_key}: {sub_value}"] = ""
+                        elif isinstance(value, pd.Series):
+                            val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+                            debug_output[f"        '{key}': {val:.4f}"] = ""
+                        elif isinstance(value, (int, float, np.float32, np.float64)):
+                            debug_output[f"        '{key}': {value:.4f}"] = ""
+                        else:
+                            debug_output[f"        '{key}': {value}"] = ""
+                    except Exception as e:
+                        debug_output[f"        '{key}': [输出错误: {e}]"] = ""
+            else:
+                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {section}: {values_dict} ---"] = ""
+        
+        # 输出所有调试信息
+        print(f"【探针输出】开始打印调试信息到控制台")
         for key, value in debug_output.items():
             if value:
                 print(f"{key}: {value}")
@@ -610,18 +633,44 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_advanced_synergy(self, fetched_signals: Dict[str, pd.Series], df: pd.DataFrame, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.2 · 高级协同效应计算 - 斐波那契时间窗口优化版】
-        - 核心优化: 使用55天窗口进行信号检查，提高效率
-        - 核心优化: 减少不必要的数据遍历和统计计算
-        - 版本: 1.0.2
+        【V1.0.3 · 高级协同效应计算 - 修复列名错误与信号缺失处理】
+        - 核心修复: 修正列名 HURST_144d_d 为 HURST_144d_D
+        - 核心优化: 增强信号存在性检查，提供更明确的错误信息
+        - 核心优化: 当关键信号缺失时使用替代计算方案
+        - 版本: 1.0.3
         """
-        # 获取分形市场指标
-        fractal_dimension = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 0.0, method_name="advanced_synergy")
-        hurst_exponent = self.helper._get_safe_series(df, 'HURST_144d_d', 0.5, method_name="advanced_synergy")
+        print(f"【协同效应】开始计算高级协同效应，检查所需信号...")
+        
+        # 检查分形维数信号
+        if 'FRACTAL_DIMENSION_89d_D' not in df.columns:
+            print(f"【协同效应错误】FRACTAL_DIMENSION_89d_D 信号不存在，使用替代计算")
+            fractal_dimension = pd.Series(1.5, index=df_index)
+        else:
+            fractal_dimension = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 1.5, method_name="advanced_synergy")
+        
+        # 检查赫斯特指数信号 - 修正列名
+        if 'HURST_144d_D' not in df.columns:
+            print(f"【协同效应错误】HURST_144d_D 信号不存在，检查替代名称...")
+            # 尝试可能的列名变体
+            possible_names = ['HURST_144d_D', 'HURST_144d_d', 'HURST_144_D', 'hurst_144d_D']
+            hurst_series = None
+            for name in possible_names:
+                if name in df.columns:
+                    print(f"【协同效应】找到替代信号: {name}")
+                    hurst_series = self.helper._get_safe_series(df, name, 0.5, method_name="advanced_synergy")
+                    break
+            
+            if hurst_series is None:
+                print(f"【协同效应警告】所有赫斯特指数信号均不存在，使用默认值0.5")
+                hurst_exponent = pd.Series(0.5, index=df_index)
+            else:
+                hurst_exponent = hurst_series
+        else:
+            hurst_exponent = self.helper._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="advanced_synergy")
         
         # 快速检查信号质量 - 只检查最近55天
         fractal_quality = self._check_signal_quality(fractal_dimension, 'FRACTAL_DIMENSION_89d_D', df_index, recent_days=55)
-        hurst_quality = self._check_signal_quality(hurst_exponent, 'HURST_144d_d', df_index, recent_days=55)
+        hurst_quality = self._check_signal_quality(hurst_exponent, 'HURST_144d_D', df_index, recent_days=55)
         
         if fractal_quality["quality_level"] == "POOR":
             print(f"【协同效应】分形维数信号质量差，使用默认值1.5")
@@ -632,36 +681,42 @@ class CalculateCostAdvantageTrendRelationship:
             hurst_exponent = pd.Series(0.5, index=df_index)
         
         # 检查bid_liquidity_fractal信号是否存在
-        bid_liquidity_fractal = self.helper._get_safe_series(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D', np.nan, method_name="advanced_synergy")
+        if 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D' not in df.columns:
+            print(f"【协同效应】BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D 信号不存在，使用流动性真实性分数作为替代")
+            # 使用流动性真实性分数作为替代
+            if 'liquidity_authenticity' in fetched_signals:
+                liquidity_authenticity = fetched_signals['liquidity_authenticity']
+                liquidity_fractal_score = self.helper._normalize_series(liquidity_authenticity, df_index, bipolar=False)
+            else:
+                liquidity_fractal_score = pd.Series(0.5, index=df_index)
+                print(f"【协同效应】无替代信号可用，使用中性值0.5")
+        else:
+            bid_liquidity_fractal = self.helper._get_safe_series(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D', np.nan, method_name="advanced_synergy")
+            # 快速检查最近55天质量
+            if bid_liquidity_fractal is not None:
+                liquidity_quality = self._check_signal_quality(bid_liquidity_fractal, 'BID_LIQUIDITY_FRACTAL', df_index, recent_days=55)
+                if liquidity_quality["quality_level"] == "POOR":
+                    print(f"【协同效应】买方流动性分形信号质量差，使用中性值0.5")
+                    liquidity_fractal_score = pd.Series(0.5, index=df_index)
+                else:
+                    liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0
+                    liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
+                    liquidity_fractal_score = liquidity_fractal_score.fillna(0.5)
+            else:
+                print(f"【协同效应】买方流动性分形信号获取失败，使用中性值0.5")
+                liquidity_fractal_score = pd.Series(0.5, index=df_index)
         
         # 计算分形效率：分形维数越接近1.5，市场效率越高
         fractal_efficiency = 1.0 - (fractal_dimension - 1.5).abs() / 0.5
-        fractal_efficiency = fractal_efficiency.clip(0, 1)
+        fractal_efficiency = fractal_efficiency.clip(0, 1).fillna(0.5)
         
         # 计算市场记忆效应：赫斯特指数越接近1，持久性越强
         market_memory = (hurst_exponent - 0.5).abs() * 2
-        market_memory = market_memory.clip(0, 1)
-        
-        # 计算流动性分形特征 - 处理NaN情况
-        if bid_liquidity_fractal is not None:
-            # 快速检查最近55天质量
-            liquidity_quality = self._check_signal_quality(bid_liquidity_fractal, 'BID_LIQUIDITY_FRACTAL', df_index, recent_days=55)
-            if liquidity_quality["quality_level"] == "POOR":
-                print(f"【协同效应】买方流动性分形信号质量差，使用中性值0.5")
-                liquidity_fractal_score = pd.Series(0.5, index=df_index)
-            else:
-                liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0
-                liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
-                liquidity_fractal_score = liquidity_fractal_score.fillna(0.5)
-        else:
-            print(f"【协同效应】买方流动性分形信号不存在，使用中性值0.5")
-            liquidity_fractal_score = pd.Series(0.5, index=df_index)
+        market_memory = market_memory.clip(0, 1).fillna(0.5)
         
         # 计算多尺度协同效应
         fractal_synergy = fractal_efficiency * market_memory * liquidity_fractal_score
-        
-        # 确保没有NaN值
-        fractal_synergy = fractal_synergy.fillna(0.5)
+        fractal_synergy = fractal_synergy.fillna(0.25)  # 使用中性偏保守的值
         
         # 探针输出 - 只输出最近55天的统计信息
         if len(fractal_synergy) > 55:
@@ -674,9 +729,11 @@ class CalculateCostAdvantageTrendRelationship:
             "fractal_synergy_recent_std": recent_synergy.std(),
             "fractal_efficiency_mean": fractal_efficiency.mean(),
             "market_memory_mean": market_memory.mean(),
+            "liquidity_fractal_score_mean": liquidity_fractal_score.mean(),
         }
         
-        print(f"【高级协同效应】最近55天协同分数均值: {recent_synergy.mean():.4f}")
+        print(f"【高级协同效应】分形效率均值: {fractal_efficiency.mean():.4f}, 市场记忆均值: {market_memory.mean():.4f}")
+        print(f"【高级协同效应】流动性分数均值: {liquidity_fractal_score.mean():.4f}, 协同分数均值: {fractal_synergy.mean():.4f}")
         return fractal_synergy
 
     def _enhance_with_market_regime(self, df: pd.DataFrame, final_score: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
@@ -728,12 +785,18 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _check_signal_quality(self, signal_series: pd.Series, signal_name: str, df_index: pd.Index, recent_days: int = 55) -> Dict[str, Any]:
         """
-        【V1.1.0 · 信号质量检查 - 斐波那契时间窗口优化版】
-        - 核心优化: 只检查最近55天(recent_days)的数据质量，提高效率
-        - 核心优化: 使用斐波那契数列55作为默认时间窗口，平衡时效性与计算效率
-        - 核心修复: 避免检查全部历史数据，专注近期信号质量
-        - 版本: 1.1.0
+        【V1.2.0 · 信号质量检查 - 优化警告阈值与关键信号聚焦】
+        - 核心优化: 降低警告阈值，避免过多警告信息干扰
+        - 核心优化: 只对关键信号输出详细警告
+        - 核心新增: 区分关键信号和非关键信号，采取不同的质量要求
+        - 版本: 1.2.0
         """
+        # 定义关键信号列表 - 这些信号对策略至关重要
+        critical_signals = [
+            'mtf_price_change', 'mtf_ca_change', 'main_force_conviction',
+            'main_force_net_flow', 'flow_credibility', 'close_price'
+        ]
+        
         # 只检查最近recent_days天的数据
         if len(signal_series) > recent_days:
             recent_signal = signal_series.tail(recent_days)
@@ -748,6 +811,7 @@ class CalculateCostAdvantageTrendRelationship:
         
         quality_report = {
             "signal_name": signal_name,
+            "is_critical": signal_name in critical_signals,
             "recent_days_checked": total_count,
             "nan_count": nan_count,
             "nan_ratio": nan_count / total_count if total_count > 0 else 1.0,
@@ -757,20 +821,35 @@ class CalculateCostAdvantageTrendRelationship:
             "recent_std": recent_signal.std() if not recent_signal.isna().all() and total_count > 0 else np.nan,
         }
         
-        # 快速质量评级 - 基于最近55天的数据
-        if quality_report["nan_ratio"] > 0.5:
-            quality_report["quality_level"] = "POOR"
-            quality_report["suggestion"] = f"最近{recent_days}天信号缺失严重"
-        elif quality_report["nan_ratio"] > 0.2:
-            quality_report["quality_level"] = "MEDIUM"
-            quality_report["suggestion"] = f"最近{recent_days}天信号部分缺失"
+        # 质量评级 - 根据信号重要性调整阈值
+        if signal_name in critical_signals:
+            # 关键信号使用更严格的标准
+            if quality_report["nan_ratio"] > 0.3:
+                quality_report["quality_level"] = "POOR"
+                quality_report["suggestion"] = f"关键信号缺失严重，影响策略准确性"
+            elif quality_report["nan_ratio"] > 0.1:
+                quality_report["quality_level"] = "MEDIUM"
+                quality_report["suggestion"] = f"关键信号部分缺失"
+            else:
+                quality_report["quality_level"] = "GOOD"
+                quality_report["suggestion"] = "关键信号质量良好"
         else:
-            quality_report["quality_level"] = "GOOD"
-            quality_report["suggestion"] = "近期信号质量良好"
+            # 非关键信号使用较宽松的标准
+            if quality_report["nan_ratio"] > 0.5:
+                quality_report["quality_level"] = "POOR"
+                quality_report["suggestion"] = f"信号缺失较多"
+            elif quality_report["nan_ratio"] > 0.2:
+                quality_report["quality_level"] = "MEDIUM"
+                quality_report["suggestion"] = f"信号部分缺失"
+            else:
+                quality_report["quality_level"] = "GOOD"
+                quality_report["suggestion"] = "信号质量可接受"
         
-        # 快速输出关键质量信息
-        if quality_report["quality_level"] != "GOOD":
-            print(f"【信号质量】{signal_name}: {quality_report['quality_level']}, 最近{recent_days}天NaN比例: {quality_report['nan_ratio']:.1%}")
+        # 只输出关键信号的质量警告，或质量特别差的信号
+        if signal_name in critical_signals and quality_report["quality_level"] != "GOOD":
+            print(f"【关键信号质量】{signal_name}: {quality_report['quality_level']}, 最近{recent_days}天NaN比例: {quality_report['nan_ratio']:.1%}")
+        elif quality_report["quality_level"] == "POOR":
+            print(f"【信号质量警告】{signal_name}: {quality_report['quality_level']}, 最近{recent_days}天NaN比例: {quality_report['nan_ratio']:.1%}")
         
         return quality_report
 
