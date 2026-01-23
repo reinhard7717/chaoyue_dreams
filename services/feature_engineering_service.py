@@ -13,42 +13,6 @@ from strategies.trend_following.utils import _numba_nonlinear_fusion_core
 logger = logging.getLogger("services")
 
 @numba.njit(cache=True)
-def _numba_rolling_fft_energy_ratio_core(
-    data: np.ndarray,
-    window: int,
-    low_freq_cutoff_ratio: float
-) -> np.ndarray:
-    """
-    【Numba优化版】计算滚动窗口内的FFT能量比。
-    将原 _fft_energy_ratio 的逻辑内联到此滚动计算核心中。
-    """
-    n = len(data)
-    results = np.full(n, np.nan, dtype=np.float64) # FFT结果通常为float64
-    for i in range(n):
-        if i < window - 1:
-            continue
-        window_data = data[i - window + 1 : i + 1]
-        # 内联 _fft_energy_ratio 的逻辑
-        N_window = len(window_data)
-        if N_window < 2:
-            results[i] = np.nan
-            continue
-        # Numba 的 np.fft.fft 需要浮点数输入，输出为复数
-        # 确保输入是 float64，以避免类型转换问题
-        # 使用 objmode 暂时退出 Numba 模式，调用 Python 的 np.fft.fft
-        with objmode(yf='complex128[:]'): # 声明 yf 的类型为一维复数数组
-            yf = np.fft.fft(window_data.astype(np.float64))
-        yf_abs = np.abs(yf[:N_window // 2]) # 取正频率部分
-        total_energy = np.sum(yf_abs**2)
-        if total_energy == 0:
-            results[i] = np.nan
-            continue
-        low_freq_idx = int(N_window * low_freq_cutoff_ratio)
-        low_freq_energy = np.sum(yf_abs[:low_freq_idx]**2)
-        results[i] = low_freq_energy / total_energy
-    return results
-
-@numba.njit(cache=True)
 def _numba_rolling_slope(data: np.ndarray, window: int) -> np.ndarray:
     """
     【Numba优化】计算滚动线性回归斜率。
@@ -87,63 +51,6 @@ def _numba_rolling_slope(data: np.ndarray, window: int) -> np.ndarray:
         slope = (window * sum_xy - sum_x * sum_y) / denominator
         result[i] = slope
     return result
-
-@numba.njit(cache=True)
-def _numba_higuchi_fd(x: np.ndarray, k_max: int) -> float:
-    """
-    【Numba优化】Higuchi分形维数计算核心。
-    提取自原 calculate_meta_features 方法。
-    """
-    x_len = len(x)
-    if x_len < 2:
-        return np.nan
-    L = np.empty(k_max, dtype=np.float64)
-    L[:] = np.nan # 手动填充 NaN
-    for k in range(1, k_max + 1):
-        Lk_sum = 0.0
-        count = 0
-        for m in range(k):
-            # 计算子序列长度
-            # n_k = floor((N - m - 1) / k) + 1
-            n_k = (x_len - m - 1) // k + 1
-            if n_k < 2:
-                continue
-            sum_diff = 0.0
-            for i in range(1, n_k):
-                sum_diff += np.abs(x[m + i * k] - x[m + (i - 1) * k])
-            norm_factor = (x_len - 1) / (n_k * k) # 这里简化处理，原文可能有细微差异，保持标准Higuchi
-            # 原代码逻辑: denominator = ((x_len - m) // k * k) -> 实际上近似 n_k * k
-            # 保持原代码逻辑的等价实现
-            denominator = ((x_len - m) // k) * k
-            if denominator == 0:
-                continue
-            Lk_sum += sum_diff * (x_len - 1) / denominator
-            count += 1
-        if count > 0 and Lk_sum > 0:
-            L[k-1] = np.log(Lk_sum / count / k) # Log(L(k))
-    # 线性回归计算斜率
-    # x轴: log(1/k) 或 -log(k)。Higuchi定义 FD = -slope of log(L(k)) vs log(k)
-    # 原代码用 log(k) 和 log(L)，slope应为负，取绝对值
-    valid_mask = ~np.isnan(L)
-    valid_L = L[valid_mask]
-    if len(valid_L) < 2:
-        return np.nan
-    k_values = np.arange(1, k_max + 1, dtype=np.float64)
-    valid_k_log = np.log(k_values[valid_mask])
-    N = len(valid_L)
-    sum_x = np.sum(valid_k_log)
-    sum_y = np.sum(valid_L)
-    sum_xy = np.sum(valid_k_log * valid_L)
-    sum_x2 = np.sum(valid_k_log * valid_k_log)
-    denom = N * sum_x2 - sum_x * sum_x
-    if denom == 0:
-        return np.nan
-    slope = (N * sum_xy - sum_x * sum_y) / denom
-    fd = np.abs(slope)
-    # 截断结果
-    if fd < 1.0: return 1.0
-    if fd > 2.0: return 2.0
-    return fd
 
 @numba.njit(cache=True)
 def _numba_sample_entropy_core(x: np.ndarray, m: int, r: float) -> float:
@@ -252,7 +159,7 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
         results[i] = rho
     return results
 
-@njit(parallel=True, cache=True)
+@numba.njit(parallel=True, cache=True)
 def _numba_rolling_fractal_dimension(data: np.ndarray, window: int, k_max: int) -> np.ndarray:
     """Numba并行化滚动分形维度计算"""
     n = len(data)
