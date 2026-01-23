@@ -425,37 +425,27 @@ class FeatureEngineeringService:
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V3.7 · 探针增强版】元特征计算车间
-        - 新增探针机制：验证每个源序列的元特征计算是否成功
-        - 修复问题：确保所有配置的源序列都能正确计算元特征
-        - 增强诊断：当元特征计算失败时提供更详细的错误信息
-        """
+        """【V3.7·修复列名格式】元特征计算车间-修复列名格式与SLOPE计算期望不匹配的问题"""
         timeframe = 'D'
         if timeframe not in all_dfs:
-            logger.warning(f"元特征计算缺少时间周期 '{timeframe}' 的数据")
             return all_dfs
         df = all_dfs[timeframe]
         suffix = f"_{timeframe}"
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
         if not params.get('enabled', False):
-            logger.info("元特征计算功能未启用")
             return all_dfs
-        logger.info(f"开始计算元特征，当前数据形状: {df.shape}")
-        logger.info(f"可用列: {df.columns.tolist()}")
+        logger.info(f"元特征计算开始，数据形状: {df.shape}")
         source_series_configs = [
-            {'col': f'close{suffix}', 'prefix': ''},
-            {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
-            {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
+            {'col': f'close{suffix}', 'prefix': '', 'log_prefix': 'CLOSE'},
+            {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_', 'log_prefix': 'MF_BUY_OFI'},
+            {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_', 'log_prefix': 'BID_LIQUIDITY'}
         ]
-        computed_features = []
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
-            logger.info(f"处理源序列: {source_col}，前缀: {prefix}")
+            log_prefix = src_config['log_prefix']
             if source_col not in df.columns:
-                logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
-                logger.warning(f"当前可用相关列: {[col for col in df.columns if source_col.replace(suffix, '') in col]}")
+                logger.warning(f"元特征计算缺少核心列'{source_col}'，跳过其元特征计算。")
                 continue
             current_series = df[source_col]
             if isinstance(current_series, pd.DataFrame):
@@ -463,36 +453,38 @@ class FeatureEngineeringService:
             clean_series = current_series.dropna()
             clean_values = clean_series.values.astype(np.float64)
             if len(clean_values) < 50:
-                logger.warning(f"源序列 '{source_col}' 有效数据不足50个，跳过元特征计算")
+                logger.warning(f"{log_prefix}数据不足50个有效值，跳过元特征计算")
                 continue
-            logger.info(f"源序列 '{source_col}' 有效数据长度: {len(clean_values)}")
+            logger.debug(f"{log_prefix}有效数据长度: {len(clean_values)}")
             hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns:
                 try:
+                    logger.debug(f"计算{log_prefix}赫斯特指数，窗口:{hurst_window}")
                     df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
                         lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
                     )
-                    computed_count = df[hurst_col].notna().sum()
-                    logger.info(f"计算 {hurst_col} 完成，非空值数量: {computed_count}")
-                    computed_features.append(hurst_col)
+                    logger.info(f"{log_prefix}赫斯特指数计算完成，非空值数量:{df[hurst_col].notna().sum()}")
                 except Exception as e:
-                    logger.error(f"赫斯特指数计算失败: {e}")
+                    logger.error(f"{log_prefix}赫斯特指数计算失败: {e}")
                     df[hurst_col] = np.nan
+            else:
+                logger.debug(f"{log_prefix}赫斯特指数列已存在，跳过计算")
             fd_window = params.get('fractal_dimension_window', 89)
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
             if fd_col not in df.columns:
                 try:
+                    logger.debug(f"计算{log_prefix}分形维度，窗口:{fd_window}")
                     k_max = int(np.sqrt(fd_window))
                     df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
                         lambda x: _numba_higuchi_fd(x, k_max), raw=True
                     )
-                    computed_count = df[fd_col].notna().sum()
-                    logger.info(f"计算 {fd_col} 完成，非空值数量: {computed_count}")
-                    computed_features.append(fd_col)
+                    logger.info(f"{log_prefix}分形维度计算完成，非空值数量:{df[fd_col].notna().sum()}")
                 except Exception as e:
-                    logger.error(f"分形维度计算失败: {e}")
+                    logger.error(f"{log_prefix}分形维度计算失败: {e}")
                     df[fd_col] = np.nan
+            else:
+                logger.debug(f"{log_prefix}分形维度列已存在，跳过计算")
             se_window = params.get('sample_entropy_window', 13)
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
@@ -500,74 +492,103 @@ class FeatureEngineeringService:
                 try:
                     if len(clean_values) < se_window + 1:
                         df[se_col] = np.nan
+                        logger.warning(f"{log_prefix}样本熵计算数据不足，窗口:{se_window}")
                     else:
+                        logger.debug(f"计算{log_prefix}样本熵，窗口:{se_window}")
                         rolling_std = clean_series.rolling(window=se_window, min_periods=se_window).std().values
                         entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
                         df[se_col] = pd.Series(entropy_values, index=clean_series.index).reindex(df.index)
-                    computed_count = df[se_col].notna().sum()
-                    logger.info(f"计算 {se_col} 完成，非空值数量: {computed_count}")
-                    computed_features.append(se_col)
+                        logger.info(f"{log_prefix}样本熵计算完成，非空值数量:{df[se_col].notna().sum()}")
                 except Exception as e:
-                    logger.error(f"样本熵计算失败: {e}")
+                    logger.error(f"{log_prefix}样本熵计算失败: {e}")
                     df[se_col] = np.nan
+            else:
+                logger.debug(f"{log_prefix}样本熵列已存在，跳过计算")
             nolds_sampen_window = params.get('approximate_entropy_window', 21)
             nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
             if nolds_sampen_col not in df.columns:
                 try:
+                    logger.debug(f"计算{log_prefix}NOLDS样本熵，窗口:{nolds_sampen_window}")
                     df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(
                         df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
                     )
-                    computed_count = df[nolds_sampen_col].notna().sum()
-                    logger.info(f"计算 {nolds_sampen_col} 完成，非空值数量: {computed_count}")
-                    computed_features.append(nolds_sampen_col)
+                    logger.info(f"{log_prefix}NOLDS样本熵计算完成，非空值数量:{df[nolds_sampen_col].notna().sum()}")
                 except Exception as e:
-                    logger.error(f"NOLDS样本熵计算失败: {e}")
+                    logger.error(f"{log_prefix}NOLDS样本熵计算失败: {e}")
                     df[nolds_sampen_col] = np.nan
+            else:
+                logger.debug(f"{log_prefix}NOLDS样本熵列已存在，跳过计算")
             fft_window = params.get('fft_energy_ratio_window', 34)
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
             if fft_col not in df.columns:
                 try:
                     if len(clean_values) < fft_window:
                         df[fft_col] = np.nan
+                        logger.warning(f"{log_prefix}FFT能量比计算数据不足，窗口:{fft_window}")
                     else:
+                        logger.debug(f"计算{log_prefix}FFT能量比，窗口:{fft_window}")
                         fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
                             clean_values,
                             fft_window,
                             low_freq_cutoff_ratio=0.1
                         )
                         df[fft_col] = pd.Series(fft_energy_ratios_values, index=clean_series.index).reindex(df.index)
-                    computed_count = df[fft_col].notna().sum()
-                    logger.info(f"计算 {fft_col} 完成，非空值数量: {computed_count}")
-                    computed_features.append(fft_col)
+                        logger.info(f"{log_prefix}FFT能量比计算完成，非空值数量:{df[fft_col].notna().sum()}")
                 except Exception as e:
-                    logger.error(f"FFT能量比计算失败: {e}")
+                    logger.error(f"{log_prefix}FFT能量比计算失败: {e}")
                     df[fft_col] = np.nan
-            vi_window = params.get('volatility_instability_window', 21)
-            vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
-            atr_col = f'ATR_14{suffix}'
-            if atr_col in df.columns and vi_col not in df.columns:
-                df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
-                computed_count = df[vi_col].notna().sum()
-                logger.info(f"计算 {vi_col} 完成，非空值数量: {computed_count}")
-                computed_features.append(vi_col)
-        logger.info(f"元特征计算完成，共生成 {len(computed_features)} 个特征")
-        logger.info(f"生成的元特征: {computed_features}")
-        missing_expected = []
-        for src_config in source_series_configs:
-            prefix = src_config['prefix']
-            expected_cols = [
-                f'{prefix}HURST_144d{suffix}',
-                f'{prefix}FRACTAL_DIMENSION_89d{suffix}',
-                f'{prefix}SAMPLE_ENTROPY_13d{suffix}'
-            ]
-            for col in expected_cols:
-                if col not in df.columns:
-                    missing_expected.append(col)
-        if missing_expected:
-            logger.warning(f"以下预期元特征未生成: {missing_expected}")
+            else:
+                logger.debug(f"{log_prefix}FFT能量比列已存在，跳过计算")
+        atr_col = f'ATR_14{suffix}'
+        vi_window = params.get('volatility_instability_window', 21)
+        vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
+        if atr_col in df.columns and vi_col not in df.columns:
+            logger.debug(f"计算波动率不稳定性指数，窗口:{vi_window}")
+            df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
+            logger.info(f"波动率不稳定性指数计算完成，非空值数量:{df[vi_col].notna().sum()}")
+        generated_cols = [col for col in df.columns if any(prefix in col for prefix in ['HURST', 'FRACTAL_DIMENSION', 'SAMPLE_ENTROPY', 'FFT_ENERGY_RATIO'])]
+        logger.info(f"元特征计算完成，生成的列:{generated_cols}，总数:{len(generated_cols)}")
         all_dfs[timeframe] = df
         return all_dfs
+
+    def validate_meta_feature_calculation(self, df: pd.DataFrame) -> Dict[str, any]:
+        """验证元特征计算结果的完整性和正确性"""
+        validation_results = {
+            'total_rows': len(df),
+            'missing_source_columns': [],
+            'generated_meta_features': [],
+            'missing_expected_features': [],
+            'coverage_stats': {}
+        }
+        expected_source_cols = ['close_D', 'main_force_buy_ofi_D', 'bid_side_liquidity_D']
+        for col in expected_source_cols:
+            if col not in df.columns:
+                validation_results['missing_source_columns'].append(col)
+        meta_feature_patterns = [
+            r'.*HURST_144d_D$',
+            r'.*FRACTAL_DIMENSION_89d_D$',
+            r'.*SAMPLE_ENTROPY_13d_D$',
+            r'.*FFT_ENERGY_RATIO_34d_D$',
+            r'VOLATILITY_INSTABILITY_INDEX_21d_D$'
+        ]
+        for pattern in meta_feature_patterns:
+            matching_cols = [col for col in df.columns if re.match(pattern, col)]
+            validation_results['generated_meta_features'].extend(matching_cols)
+            if not matching_cols:
+                validation_results['missing_expected_features'].append(pattern)
+        for col in validation_results['generated_meta_features']:
+            non_na_count = df[col].notna().sum()
+            validation_results['coverage_stats'][col] = {
+                'non_na_count': non_na_count,
+                'coverage_ratio': non_na_count / len(df) if len(df) > 0 else 0,
+                'mean': df[col].mean() if non_na_count > 0 else None,
+                'std': df[col].std() if non_na_count > 0 else None
+            }
+        logger.info(f"元特征验证结果: 源数据列缺失{len(validation_results['missing_source_columns'])}个, "
+                    f"生成元特征{len(validation_results['generated_meta_features'])}个, "
+                    f"缺失预期特征{len(validation_results['missing_expected_features'])}个")
+        return validation_results
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
