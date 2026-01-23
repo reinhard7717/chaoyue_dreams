@@ -79,12 +79,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.3 · 全面优化与探针增强版】计算成本优势趋势。
-        - 核心修复: 解决信号缺失问题和AttributeError
-        - 核心新增: 引入高级协同效应计算（分形市场理论）
-        - 核心优化: 增强探针输出，暴露所有计算节点
-        - 核心优化: 引入非线性融合算法，增强信号鲁棒性
-        - 版本: 4.3
+        【V4.4 · 全面NaN处理与鲁棒性增强版】计算成本优势趋势。
+        - 核心修复: 彻底解决NaN传播问题，确保最终结果有效
+        - 核心优化: 增强错误处理和恢复机制
+        - 核心新增: 详细的NaN检查和清理逻辑
+        - 版本: 4.4
         """
         method_name = "CalculateCostAdvantageTrendRelationship"
         print(f"【开始计算】{method_name}，数据形状: {df.shape}，索引范围: {df.index[0]} 到 {df.index[-1]}")
@@ -103,10 +102,20 @@ class CalculateCostAdvantageTrendRelationship:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         print(f"【信号验证通过】所有必需信号都存在")
         df_index = df.index
-        # 3. 获取原始数据和MTF融合信号
+        # 3. 获取原始数据和MTF融合信号（增强版）
         fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
-        # 4. 计算高级协同效应
-        advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df, df_index, _temp_debug_values)
+        # 4. 计算高级协同效应，添加异常处理
+        try:
+            advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df, df_index, _temp_debug_values)
+            # 检查协同效应分数是否有NaN
+            if advanced_synergy_score is None or advanced_synergy_score.isna().all():
+                print(f"【协同效应警告】高级协同效应计算失败，使用中性值0.5")
+                advanced_synergy_score = pd.Series(0.5, index=df_index)
+            else:
+                advanced_synergy_score = advanced_synergy_score.fillna(0.5)
+        except Exception as e:
+            print(f"【协同效应错误】计算高级协同效应时发生异常: {e}，使用中性值0.5")
+            advanced_synergy_score = pd.Series(0.5, index=df_index)
         # 5. 归一化处理
         normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
         # 6. 计算动态权重
@@ -116,22 +125,46 @@ class CalculateCostAdvantageTrendRelationship:
         Q2_final = self._calculate_q2_bearish_distribution(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q3_final = self._calculate_q3_golden_pit(fetched_signals, normalized_signals, df_index, dynamic_weights, _temp_debug_values)
         Q4_final = self._calculate_q4_bull_trap(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
+        # 检查各象限分数是否有NaN
+        for q_name, q_series in [("Q1", Q1_final), ("Q2", Q2_final), ("Q3", Q3_final), ("Q4", Q4_final)]:
+            if q_series.isna().any():
+                print(f"【{q_name}警告】存在NaN值，使用0填充")
+                q_series = q_series.fillna(0)
         print(f"【象限分数】Q1均值: {Q1_final.mean():.4f}, Q2均值: {Q2_final.mean():.4f}, Q3均值: {Q3_final.mean():.4f}, Q4均值: {Q4_final.mean():.4f}")
         # 8. 计算交互项
         interaction_score = self._calculate_interaction_terms(fetched_signals, normalized_signals, config, df_index, _temp_debug_values)
+        if interaction_score is None or interaction_score.isna().all():
+            print(f"【交互项警告】交互项计算失败，使用0替代")
+            interaction_score = pd.Series(0.0, index=df_index)
         # 9. 计算高级协同效应增强项
-        synergy_enhancement = advanced_synergy_score * 0.2  # 协同效应权重因子
+        synergy_enhancement = advanced_synergy_score * 0.2
         # --- 最终融合 ---
         # 基础融合分数
         base_fusion_score = (Q1_final + Q2_final + Q3_final + Q4_final)
+        # 检查基础融合分数是否有NaN
+        if base_fusion_score.isna().any():
+            print(f"【基础融合警告】基础融合分数存在NaN，使用0填充")
+            base_fusion_score = base_fusion_score.fillna(0)
         # 叠加交互项和协同效应
         final_score_with_interaction = base_fusion_score + interaction_score + synergy_enhancement
-        # 10. 计算动态指数（修复：传入df参数）
+        # 检查最终分数是否有NaN
+        if final_score_with_interaction.isna().any():
+            print(f"【最终分数警告】最终分数存在NaN，使用基础融合分数替代")
+            final_score_with_interaction = base_fusion_score.fillna(0)
+        # 10. 计算动态指数
         dynamic_exponent = self._calculate_dynamic_exponent(fetched_signals, config, df, df_index, _temp_debug_values)
         # 应用动态指数进行非线性放大/平滑
         final_score_normalized_for_exponent = (final_score_with_interaction + 1) / 2
+        # 检查是否有NaN
+        if final_score_normalized_for_exponent.isna().any():
+            print(f"【指数归一化警告】归一化分数存在NaN，使用0.5填充")
+            final_score_normalized_for_exponent = final_score_normalized_for_exponent.fillna(0.5)
         final_score_exponentiated = final_score_normalized_for_exponent.pow(dynamic_exponent)
         final_score = (final_score_exponentiated * 2 - 1).clip(-1, 1)
+        # 最终检查：确保没有NaN
+        if final_score.isna().any():
+            print(f"【最终结果警告】最终分数存在NaN，使用0填充")
+            final_score = final_score.fillna(0)
         # 探针：记录所有关键计算节点
         _temp_debug_values["最终融合"] = {
             "Q1_final": Q1_final,
@@ -200,54 +233,58 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.2 · 原始及MTF信号获取 - 修复信号缺失与探针增强版】
-        - 核心修复: 将缺失的 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION' 替换为 'lower_shadow_absorption_strength_D'
-        - 核心优化: 增强探针输出，确保所有原始信号值都能被记录和调试
-        - 核心优化: 添加信号完整性检查，确保所有信号都存在
-        - 版本: 1.1.2
+        【V1.1.3 · 原始及MTF信号获取 - 信号质量增强版】
+        - 核心修复: 增强信号质量检查和异常处理
+        - 核心优化: 对缺失严重的信号进行替代或跳过处理
+        - 核心新增: 信号质量评估和报告
+        - 版本: 1.1.3
         """
         fetched_signals = {}
+        signal_quality_reports = {}
         # 价格变化和成本优势变化改为MTF融合信号
         fetched_signals['mtf_price_change'] = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         fetched_signals['mtf_ca_change'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        fetched_signals['main_force_conviction'] = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
-        fetched_signals['upward_impulse_purity'] = self.helper._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
-        fetched_signals['suppressive_accum'] = self.helper._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name=method_name)
-        fetched_signals['lower_shadow_absorb'] = self.helper._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name=method_name)  # 修复：替换为存在的信号
-        fetched_signals['distribution_intensity'] = self.helper._get_safe_series(df, 'distribution_at_peak_intensity_D', 0.0, method_name=method_name)
-        fetched_signals['active_selling'] = self.helper._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
-        fetched_signals['profit_taking_flow'] = self.helper._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name=method_name)
-        fetched_signals['active_buying_support'] = self.helper._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
-        fetched_signals['main_force_net_flow'] = self.helper._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
-        fetched_signals['flow_credibility'] = self.helper._get_safe_series(df, 'flow_credibility_index_D', 0.0, method_name=method_name)
-        fetched_signals['close_price'] = self.helper._get_safe_series(df, 'close_D', 0.0, method_name=method_name)
-        # --- 新增情境调制信号 ---
-        fetched_signals['volatility_instability'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
-        fetched_signals['adx_trend_strength'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
-        fetched_signals['market_sentiment'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name=method_name)
-        fetched_signals['liquidity_authenticity'] = self.helper._get_safe_series(df, 'liquidity_authenticity_score_D', 0.0, method_name=method_name)
-        fetched_signals['ma_potential_orderliness_score'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name=method_name)
-        fetched_signals['microstructure_efficiency'] = self.helper._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name=method_name)
-        # --- 新增微观结构和订单流信号 ---
-        fetched_signals['main_force_buy_execution_alpha'] = self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name=method_name)
-        fetched_signals['main_force_sell_execution_alpha'] = self.helper._get_safe_series(df, 'main_force_sell_execution_alpha_D', 0.0, method_name=method_name)
-        fetched_signals['micro_price_impact_asymmetry'] = self.helper._get_safe_series(df, 'micro_price_impact_asymmetry_D', 0.0, method_name=method_name)
-        # 添加信号完整性检查探针
-        for signal_name, signal_series in fetched_signals.items():
-            if signal_series.isna().all():
-                print(f"【警告】信号 '{signal_name}' 全部为NaN，可能不存在于数据中")
+        # 定义需要获取的信号列表及其默认值
+        signal_configs = [
+            ('main_force_conviction_index_D', 'main_force_conviction', 0.0),
+            ('upward_impulse_purity_D', 'upward_impulse_purity', 0.0),
+            ('suppressive_accumulation_intensity_D', 'suppressive_accum', 0.0),
+            ('lower_shadow_absorption_strength_D', 'lower_shadow_absorb', 0.0),
+            ('distribution_at_peak_intensity_D', 'distribution_intensity', 0.0),
+            ('active_selling_pressure_D', 'active_selling', 0.0),
+            ('profit_taking_flow_ratio_D', 'profit_taking_flow', 0.0),
+            ('active_buying_support_D', 'active_buying_support', 0.0),
+            ('main_force_net_flow_calibrated_D', 'main_force_net_flow', 0.0),
+            ('flow_credibility_index_D', 'flow_credibility', 0.0),
+            ('close_D', 'close_price', 0.0),
+            ('VOLATILITY_INSTABILITY_INDEX_21d_D', 'volatility_instability', 0.0),
+            ('ADX_14_D', 'adx_trend_strength', 0.0),
+            ('market_sentiment_score_D', 'market_sentiment', 0.0),
+            ('liquidity_authenticity_score_D', 'liquidity_authenticity', 0.0),
+            ('MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ma_potential_orderliness_score', 0.0),
+            ('microstructure_efficiency_index_D', 'microstructure_efficiency', 0.0),
+            ('main_force_buy_execution_alpha_D', 'main_force_buy_execution_alpha', 0.0),
+            ('main_force_sell_execution_alpha_D', 'main_force_sell_execution_alpha', 0.0),
+            ('micro_price_impact_asymmetry_D', 'micro_price_impact_asymmetry', 0.0),
+        ]
+        # 获取所有信号并检查质量
+        for df_col_name, signal_name, default_value in signal_configs:
+            signal_series = self.helper._get_safe_series(df, df_col_name, default_value, method_name=method_name)
+            fetched_signals[signal_name] = signal_series
+            # 检查信号质量
+            quality_report = self._check_signal_quality(signal_series, signal_name, df_index)
+            signal_quality_reports[signal_name] = quality_report
+            # 如果信号质量差，输出警告
+            if quality_report["quality_level"] in ["POOR", "MEDIUM"]:
+                print(f"【信号质量警告】{signal_name}: {quality_report['quality_level']}, NaN比例: {quality_report['nan_ratio']:.2%}, 建议: {quality_report['suggestion']}")
+        # 对于缺失严重的信号，尝试使用替代信号
+        # 例如，如果main_force_conviction缺失严重，可以使用main_force_net_flow作为替代
+        if signal_quality_reports.get('main_force_conviction', {}).get('nan_ratio', 0) > 0.5:
+            print(f"【信号替代】main_force_conviction缺失严重，尝试使用main_force_net_flow的归一化值作为替代")
+            net_flow_norm = self.helper._normalize_series(fetched_signals['main_force_net_flow'], df_index, bipolar=True)
+            fetched_signals['main_force_conviction'] = net_flow_norm * 10  # 缩放因子
         _temp_debug_values["原始信号值"] = {k: v for k, v in fetched_signals.items()}
-        # 探针：输出每个信号的统计信息
-        for signal_name, signal_series in fetched_signals.items():
-            if signal_series is not None and len(signal_series) > 0:
-                _temp_debug_values[f"原始信号_{signal_name}_统计"] = {
-                    "均值": signal_series.mean(),
-                    "标准差": signal_series.std(),
-                    "最小值": signal_series.min(),
-                    "最大值": signal_series.max(),
-                    "NaN数量": signal_series.isna().sum(),
-                    "样本数": len(signal_series)
-                }
+        _temp_debug_values["信号质量报告"] = signal_quality_reports
         return fetched_signals
 
     def _normalize_all_signals(self, df: pd.DataFrame, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
@@ -365,40 +402,50 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_q3_golden_pit(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], df_index: pd.Index, dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.1 · Q3黄金坑计算 - 动态权重与微观增强版】
-        - 核心职责: 计算Q3（价跌 & 优扩）象限的分数。
-        - 核心新增: 引入动态权重和流动性真实性分数作为确认项。
-        - 核心修复: 解决 Series 比较的 ValueError。
-        - 版本: 1.1.1
+        【V1.1.2 · Q3黄金坑计算 - 修复异常值与信号质量增强版】
+        - 核心修复: 检查lower_shadow_absorb信号质量，处理异常值
+        - 核心优化: 确保Q3_confirm计算在合理范围内[0,1]
+        - 核心新增: 添加信号质量检查和数据清理逻辑
+        - 版本: 1.1.2
         """
         Q3_base = (fetched_signals['mtf_price_change'].clip(upper=0).abs() * fetched_signals['mtf_ca_change'].clip(lower=0)).pow(0.5)
+        # 检查lower_shadow_absorb信号质量
+        lower_shadow_absorb_series = fetched_signals['lower_shadow_absorb']
+        if lower_shadow_absorb_series is None or lower_shadow_absorb_series.isna().all():
+            print(f"【Q3警告】lower_shadow_absorb信号全部为NaN，使用0替代")
+            lower_shadow_absorb_norm = pd.Series(0.0, index=df_index)
+        else:
+            # 归一化处理，确保在[0,1]范围内
+            lower_shadow_absorb_norm = self.helper._normalize_series(lower_shadow_absorb_series, df_index, bipolar=False)
+            # 检查是否有异常值
+            if (lower_shadow_absorb_norm > 10).any():
+                print(f"【Q3警告】lower_shadow_absorb归一化值存在异常(>10)，进行截断处理")
+                lower_shadow_absorb_norm = lower_shadow_absorb_norm.clip(0, 1)
         # 确认：隐蔽吸筹、下影线吸收、资金流可信度、流动性真实性
         Q3_confirm_components = {
             'suppressive_accum_norm': normalized_signals['suppressive_accum_norm'],
-            'lower_shadow_absorb': fetched_signals['lower_shadow_absorb'],
+            'lower_shadow_absorb': lower_shadow_absorb_norm,  # 使用处理后的归一化值
             'flow_credibility_norm': normalized_signals['flow_credibility_norm'],
             'liquidity_authenticity_score_norm': normalized_signals['liquidity_authenticity_score_norm']
         }
         Q3_confirm_weights_series = dynamic_weights['Q3_confirmation_weights']
-        
         weighted_sum = pd.Series(0.0, index=Q3_base.index, dtype=np.float32)
         for k, component_series in Q3_confirm_components.items():
             weight_series = Q3_confirm_weights_series.get(k, pd.Series(0.0, index=Q3_base.index, dtype=np.float32))
             weighted_sum += component_series * weight_series
-        
         sum_of_weights_series = pd.Series(0.0, index=Q3_base.index, dtype=np.float32)
         for weight_series in Q3_confirm_weights_series.values():
             sum_of_weights_series += weight_series
-        
         sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
-        
         Q3_confirm = (weighted_sum / sum_of_weights_series_safe).fillna(0)
-        
+        # 确保Q3_confirm在合理范围内
+        Q3_confirm = Q3_confirm.clip(0, 1)
         # 前置下跌上下文，如果前几日有深跌，则增加黄金坑的权重
         pre_5day_pct_change = fetched_signals['close_price'].pct_change(periods=5).shift(1).fillna(0)
         norm_pre_drop_5d = self.helper._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         pre_drop_context_bonus = norm_pre_drop_5d * 0.5
         Q3_final = (Q3_base * Q3_confirm * (1 + pre_drop_context_bonus)).clip(0, 1)
+        # 探针输出
         _temp_debug_values["Q3: 价跌 & 优扩"] = {
             "Q3_base": Q3_base,
             "Q3_confirm": Q3_confirm,
@@ -407,6 +454,9 @@ class CalculateCostAdvantageTrendRelationship:
             "pre_drop_context_bonus": pre_drop_context_bonus,
             "Q3_final": Q3_final
         }
+        # 输出统计信息
+        print(f"【Q3计算】Q3_base均值: {Q3_base.mean():.4f}, Q3_confirm均值: {Q3_confirm.mean():.4f}, 范围: [{Q3_confirm.min():.4f}, {Q3_confirm.max():.4f}]")
+        print(f"【Q3计算】前置下跌均值: {norm_pre_drop_5d.mean():.4f}, 最终分数均值: {Q3_final.mean():.4f}")
         return Q3_final
 
     def _calculate_q4_bull_trap(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -576,27 +626,40 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_advanced_synergy(self, fetched_signals: Dict[str, pd.Series], df: pd.DataFrame, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.0 · 高级协同效应计算 - 基于混沌理论与分形市场假说】
-        - 核心新增: 利用分形维数、赫斯特指数等高级指标计算市场结构的协同效应
-        - 核心目标: 识别市场在不同尺度下的自相似性和持久性，增强趋势判断
-        - 数据来源: 使用数据层中的 FRACTAL_DIMENSION_89d_D, HURST_144d_D, BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D 等
-        - 版本: 1.0.0
+        【V1.0.1 · 高级协同效应计算 - 修复NaN问题与稳健性增强版】
+        - 核心修复: 检查bid_liquidity_fractal信号是否存在，处理NaN问题
+        - 核心优化: 当信号不存在时使用替代方案，确保计算稳健性
+        - 核心新增: 添加详细的探针输出和异常处理
+        - 版本: 1.0.1
         """
         # 获取分形市场指标
         fractal_dimension = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 0.0, method_name="advanced_synergy")
-        hurst_exponent = self.helper._get_safe_series(df, 'HURST_144d_D', 0.5, method_name="advanced_synergy")
-        bid_liquidity_fractal = self.helper._get_safe_series(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D', 0.0, method_name="advanced_synergy")
+        hurst_exponent = self.helper._get_safe_series(df, 'HURST_144d_d', 0.5, method_name="advanced_synergy")
+        # 检查bid_liquidity_fractal信号是否存在
+        bid_liquidity_fractal = self.helper._get_safe_series(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D', np.nan, method_name="advanced_synergy")
+        # 探针：输出信号基本信息
+        print(f"【高级协同效应】分形维数形状: {fractal_dimension.shape}, NaN数量: {fractal_dimension.isna().sum()}")
+        print(f"【高级协同效应】赫斯特指数形状: {hurst_exponent.shape}, NaN数量: {hurst_exponent.isna().sum()}")
+        print(f"【高级协同效应】买方流动性分形形状: {bid_liquidity_fractal.shape if bid_liquidity_fractal is not None else 'None'}, NaN数量: {bid_liquidity_fractal.isna().sum() if bid_liquidity_fractal is not None else 'N/A'}")
         # 计算分形效率：分形维数越接近1.5，市场效率越高
         fractal_efficiency = 1.0 - (fractal_dimension - 1.5).abs() / 0.5
         fractal_efficiency = fractal_efficiency.clip(0, 1)
         # 计算市场记忆效应：赫斯特指数越接近1，持久性越强
-        market_memory = (hurst_exponent - 0.5).abs() * 2  # 映射到[0,1]，越接近0.5记忆性越弱，越接近0或1记忆性越强
+        market_memory = (hurst_exponent - 0.5).abs() * 2
         market_memory = market_memory.clip(0, 1)
-        # 计算流动性分形特征
-        liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0  # 假设理想值为1.0
-        liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
+        # 计算流动性分形特征 - 处理NaN情况
+        if bid_liquidity_fractal is not None and not bid_liquidity_fractal.isna().all():
+            liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0
+            liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
+            # 填充NaN值为0.5（中性）
+            liquidity_fractal_score = liquidity_fractal_score.fillna(0.5)
+        else:
+            print(f"【高级协同效应警告】买方流动性分形信号不存在或全部为NaN，使用中性值0.5替代")
+            liquidity_fractal_score = pd.Series(0.5, index=df_index)
         # 计算多尺度协同效应
         fractal_synergy = fractal_efficiency * market_memory * liquidity_fractal_score
+        # 确保没有NaN值
+        fractal_synergy = fractal_synergy.fillna(0.5)
         # 探针输出
         _temp_debug_values["高级协同效应"] = {
             "fractal_dimension": fractal_dimension,
@@ -607,7 +670,9 @@ class CalculateCostAdvantageTrendRelationship:
             "liquidity_fractal_score": liquidity_fractal_score,
             "fractal_synergy": fractal_synergy
         }
-        print(f"【高级协同效应】分形维数均值: {fractal_dimension.mean():.4f}, 赫斯特指数均值: {hurst_exponent.mean():.4f}, 协同分数均值: {fractal_synergy.mean():.4f}")
+        print(f"【高级协同效应】分形维数均值: {fractal_dimension.mean():.4f}, 赫斯特指数均值: {hurst_exponent.mean():.4f}")
+        print(f"【高级协同效应】分形效率均值: {fractal_efficiency.mean():.4f}, 市场记忆均值: {market_memory.mean():.4f}")
+        print(f"【高级协同效应】流动性分形分数均值: {liquidity_fractal_score.mean():.4f}, 协同分数均值: {fractal_synergy.mean():.4f}")
         return fractal_synergy
 
     def _enhance_with_market_regime(self, df: pd.DataFrame, final_score: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
@@ -656,3 +721,39 @@ class CalculateCostAdvantageTrendRelationship:
         print(f"【市场状态增强】市场阶段均值: {market_phase.mean():.4f}，结构潜力均值: {structural_potential.mean():.4f}")
         print(f"【市场状态增强】趋势信念均值: {trend_conviction.mean():.4f}，市场状态因子均值: {market_regime_factor.mean():.4f}")
         return enhanced_score
+
+    def _check_signal_quality(self, signal_series: pd.Series, signal_name: str, df_index: pd.Index) -> Dict[str, Any]:
+        """
+        【V1.0.0 · 信号质量检查】
+        - 核心职责: 检查信号的数据质量，包括NaN比例、异常值等
+        - 核心新增: 提供信号质量报告和修复建议
+        - 版本: 1.0.0
+        """
+        quality_report = {
+            "signal_name": signal_name,
+            "total_count": len(signal_series),
+            "nan_count": signal_series.isna().sum(),
+            "nan_ratio": signal_series.isna().sum() / len(signal_series),
+            "zero_count": (signal_series == 0).sum() if not signal_series.isna().all() else 0,
+            "zero_ratio": (signal_series == 0).sum() / len(signal_series) if not signal_series.isna().all() else 0,
+            "mean": signal_series.mean() if not signal_series.isna().all() else np.nan,
+            "std": signal_series.std() if not signal_series.isna().all() else np.nan,
+            "min": signal_series.min() if not signal_series.isna().all() else np.nan,
+            "max": signal_series.max() if not signal_series.isna().all() else np.nan,
+        }
+        # 质量评级
+        if quality_report["nan_ratio"] > 0.5:
+            quality_report["quality_level"] = "POOR"
+            quality_report["suggestion"] = "信号缺失严重，考虑使用替代信号或跳过"
+        elif quality_report["nan_ratio"] > 0.2:
+            quality_report["quality_level"] = "MEDIUM"
+            quality_report["suggestion"] = "信号部分缺失，建议进行插值处理"
+        else:
+            quality_report["quality_level"] = "GOOD"
+            quality_report["suggestion"] = "信号质量良好"
+        return quality_report
+
+
+
+
+
