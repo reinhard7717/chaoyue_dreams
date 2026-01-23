@@ -79,116 +79,87 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.4 · 全面NaN处理与鲁棒性增强版】计算成本优势趋势。
-        - 核心修复: 彻底解决NaN传播问题，确保最终结果有效
-        - 核心优化: 增强错误处理和恢复机制
-        - 核心新增: 详细的NaN检查和清理逻辑
-        - 版本: 4.4
+        【V4.5 · 斐波那契时间窗口全面优化版】计算成本优势趋势。
+        - 核心优化: 全面采用55天斐波那契时间窗口进行质量检查和探针输出
+        - 核心优化: 大幅减少计算开销，提高运行效率
+        - 核心优化: 探针输出只关注最近55天，提高可读性
+        - 版本: 4.5
         """
         method_name = "CalculateCostAdvantageTrendRelationship"
-        print(f"【开始计算】{method_name}，数据形状: {df.shape}，索引范围: {df.index[0]} 到 {df.index[-1]}")
+        print(f"【开始计算】{method_name}，数据形状: {df.shape}，使用55天斐波那契窗口进行快速检查")
+        
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
+        
         # 1. 获取MTF配置
         _, _, _, mtf_slope_accel_weights = self._get_mtf_configs(config)
-        print(f"【MTF配置】斜率周期权重: {mtf_slope_accel_weights.get('slope_periods', {})}，加速度周期权重: {mtf_slope_accel_weights.get('accel_periods', {})}")
-        # 2. 获取所需信号列表并进行验证
+        
+        # 2. 获取所需信号列表并进行快速验证
         required_signals = self._get_required_signals_list(mtf_slope_accel_weights)
-        print(f"【信号验证】需要验证 {len(required_signals)} 个信号")
-        if not self.helper._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self.helper._print_debug_output(debug_output)
-            print(f"【信号验证失败】缺少核心信号，返回默认值")
+        
+        # 快速验证：只检查最近55天数据中是否存在必要信号
+        recent_df = df.tail(55) if len(df) > 55 else df
+        if not self.helper._validate_required_signals(recent_df, required_signals, method_name):
+            print(f"【快速验证失败】最近55天缺少核心信号，返回默认值")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        print(f"【信号验证通过】所有必需信号都存在")
+        
+        print(f"【快速验证通过】最近55天所有必需信号都存在")
+        
         df_index = df.index
-        # 3. 获取原始数据和MTF融合信号（增强版）
+        
+        # 3. 获取原始数据和MTF融合信号（使用55天窗口快速检查）
         fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
-        # 4. 计算高级协同效应，添加异常处理
+        
+        # 4. 计算高级协同效应
         try:
             advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df, df_index, _temp_debug_values)
-            # 检查协同效应分数是否有NaN
-            if advanced_synergy_score is None or advanced_synergy_score.isna().all():
-                print(f"【协同效应警告】高级协同效应计算失败，使用中性值0.5")
-                advanced_synergy_score = pd.Series(0.5, index=df_index)
-            else:
-                advanced_synergy_score = advanced_synergy_score.fillna(0.5)
+            advanced_synergy_score = advanced_synergy_score.fillna(0.5)
         except Exception as e:
-            print(f"【协同效应错误】计算高级协同效应时发生异常: {e}，使用中性值0.5")
+            print(f"【协同效应错误】计算异常: {e}，使用中性值0.5")
             advanced_synergy_score = pd.Series(0.5, index=df_index)
+        
         # 5. 归一化处理
         normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
+        
         # 6. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(normalized_signals, config, df_index, method_name, _temp_debug_values)
+        
         # 7. 计算各象限分数
         Q1_final = self._calculate_q1_healthy_rally(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q2_final = self._calculate_q2_bearish_distribution(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q3_final = self._calculate_q3_golden_pit(fetched_signals, normalized_signals, df_index, dynamic_weights, _temp_debug_values)
         Q4_final = self._calculate_q4_bull_trap(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
-        # 检查各象限分数是否有NaN
-        for q_name, q_series in [("Q1", Q1_final), ("Q2", Q2_final), ("Q3", Q3_final), ("Q4", Q4_final)]:
-            if q_series.isna().any():
-                print(f"【{q_name}警告】存在NaN值，使用0填充")
-                q_series = q_series.fillna(0)
-        print(f"【象限分数】Q1均值: {Q1_final.mean():.4f}, Q2均值: {Q2_final.mean():.4f}, Q3均值: {Q3_final.mean():.4f}, Q4均值: {Q4_final.mean():.4f}")
+        
         # 8. 计算交互项
         interaction_score = self._calculate_interaction_terms(fetched_signals, normalized_signals, config, df_index, _temp_debug_values)
-        if interaction_score is None or interaction_score.isna().all():
-            print(f"【交互项警告】交互项计算失败，使用0替代")
-            interaction_score = pd.Series(0.0, index=df_index)
+        interaction_score = interaction_score.fillna(0)
+        
         # 9. 计算高级协同效应增强项
         synergy_enhancement = advanced_synergy_score * 0.2
+        
         # --- 最终融合 ---
-        # 基础融合分数
-        base_fusion_score = (Q1_final + Q2_final + Q3_final + Q4_final)
-        # 检查基础融合分数是否有NaN
-        if base_fusion_score.isna().any():
-            print(f"【基础融合警告】基础融合分数存在NaN，使用0填充")
-            base_fusion_score = base_fusion_score.fillna(0)
-        # 叠加交互项和协同效应
-        final_score_with_interaction = base_fusion_score + interaction_score + synergy_enhancement
-        # 检查最终分数是否有NaN
-        if final_score_with_interaction.isna().any():
-            print(f"【最终分数警告】最终分数存在NaN，使用基础融合分数替代")
-            final_score_with_interaction = base_fusion_score.fillna(0)
+        base_fusion_score = (Q1_final + Q2_final + Q3_final + Q4_final).fillna(0)
+        final_score_with_interaction = (base_fusion_score + interaction_score + synergy_enhancement).fillna(0)
+        
         # 10. 计算动态指数
         dynamic_exponent = self._calculate_dynamic_exponent(fetched_signals, config, df, df_index, _temp_debug_values)
+        
         # 应用动态指数进行非线性放大/平滑
-        final_score_normalized_for_exponent = (final_score_with_interaction + 1) / 2
-        # 检查是否有NaN
-        if final_score_normalized_for_exponent.isna().any():
-            print(f"【指数归一化警告】归一化分数存在NaN，使用0.5填充")
-            final_score_normalized_for_exponent = final_score_normalized_for_exponent.fillna(0.5)
+        final_score_normalized_for_exponent = ((final_score_with_interaction + 1) / 2).clip(0, 1).fillna(0.5)
         final_score_exponentiated = final_score_normalized_for_exponent.pow(dynamic_exponent)
         final_score = (final_score_exponentiated * 2 - 1).clip(-1, 1)
+        
         # 最终检查：确保没有NaN
-        if final_score.isna().any():
-            print(f"【最终结果警告】最终分数存在NaN，使用0填充")
-            final_score = final_score.fillna(0)
-        # 探针：记录所有关键计算节点
-        _temp_debug_values["最终融合"] = {
-            "Q1_final": Q1_final,
-            "Q2_final": Q2_final,
-            "Q3_final": Q3_final,
-            "Q4_final": Q4_final,
-            "base_fusion_score": base_fusion_score,
-            "interaction_score": interaction_score,
-            "advanced_synergy_score": advanced_synergy_score,
-            "synergy_enhancement": synergy_enhancement,
-            "final_score_with_interaction": final_score_with_interaction,
-            "dynamic_exponent": dynamic_exponent,
-            "final_score_normalized_for_exponent": final_score_normalized_for_exponent,
-            "final_score_exponentiated": final_score_exponentiated,
-            "final_score": final_score
-        }
-        # 输出详细探针信息
-        if is_debug_enabled_for_method and probe_ts:
-            self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 成本优势趋势关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-            self.helper._print_debug_output(debug_output)
-        # 输出最终统计信息
-        print(f"【最终结果】最终分数范围: [{final_score.min():.4f}, {final_score.max():.4f}]，均值: {final_score.mean():.4f}，标准差: {final_score.std():.4f}")
-        print(f"【最终结果】正分数比例: {(final_score > 0).sum() / len(final_score):.2%}，负分数比例: {(final_score < 0).sum() / len(final_score):.2%}")
+        final_score = final_score.fillna(0)
+        
+        # 输出最近55天的统计信息（更有参考价值）
+        if len(final_score) > 55:
+            recent_final = final_score.tail(55)
+        else:
+            recent_final = final_score
+            
+        print(f"【最终结果】最近55天分数范围: [{recent_final.min():.4f}, {recent_final.max():.4f}]，均值: {recent_final.mean():.4f}")
+        print(f"【最终结果】最近55天正分数比例: {(recent_final > 0).sum() / len(recent_final):.1%}")
+        
         return final_score.astype(np.float32)
 
     def _get_mtf_configs(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
@@ -233,17 +204,20 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.3 · 原始及MTF信号获取 - 信号质量增强版】
-        - 核心修复: 增强信号质量检查和异常处理
-        - 核心优化: 对缺失严重的信号进行替代或跳过处理
-        - 核心新增: 信号质量评估和报告
-        - 版本: 1.1.3
+        【V1.1.4 · 原始及MTF信号获取 - 斐波那契时间窗口优化版】
+        - 核心优化: 使用55天窗口进行快速信号质量检查，大幅提高效率
+        - 核心优化: 只对近期数据进行详细统计，减少计算开销
+        - 核心优化: 保留完整数据用于计算，仅质量检查使用55天窗口
+        - 版本: 1.1.4
         """
         fetched_signals = {}
-        signal_quality_reports = {}
+        
+        print(f"【信号获取】使用55天斐波那契窗口进行信号质量快速检查")
+        
         # 价格变化和成本优势变化改为MTF融合信号
         fetched_signals['mtf_price_change'] = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         fetched_signals['mtf_ca_change'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        
         # 定义需要获取的信号列表及其默认值
         signal_configs = [
             ('main_force_conviction_index_D', 'main_force_conviction', 0.0),
@@ -267,24 +241,34 @@ class CalculateCostAdvantageTrendRelationship:
             ('main_force_sell_execution_alpha_D', 'main_force_sell_execution_alpha', 0.0),
             ('micro_price_impact_asymmetry_D', 'micro_price_impact_asymmetry', 0.0),
         ]
-        # 获取所有信号并检查质量
+        
+        # 获取所有信号
         for df_col_name, signal_name, default_value in signal_configs:
             signal_series = self.helper._get_safe_series(df, df_col_name, default_value, method_name=method_name)
             fetched_signals[signal_name] = signal_series
-            # 检查信号质量
-            quality_report = self._check_signal_quality(signal_series, signal_name, df_index)
+        
+        # 快速信号质量检查 - 只检查最近55天
+        print(f"【快速质量检查】开始检查最近55天的信号质量...")
+        signal_quality_reports = {}
+        critical_issues = []
+        
+        for signal_name, signal_series in fetched_signals.items():
+            quality_report = self._check_signal_quality(signal_series, signal_name, df_index, recent_days=55)
             signal_quality_reports[signal_name] = quality_report
-            # 如果信号质量差，输出警告
-            if quality_report["quality_level"] in ["POOR", "MEDIUM"]:
-                print(f"【信号质量警告】{signal_name}: {quality_report['quality_level']}, NaN比例: {quality_report['nan_ratio']:.2%}, 建议: {quality_report['suggestion']}")
-        # 对于缺失严重的信号，尝试使用替代信号
-        # 例如，如果main_force_conviction缺失严重，可以使用main_force_net_flow作为替代
-        if signal_quality_reports.get('main_force_conviction', {}).get('nan_ratio', 0) > 0.5:
-            print(f"【信号替代】main_force_conviction缺失严重，尝试使用main_force_net_flow的归一化值作为替代")
-            net_flow_norm = self.helper._normalize_series(fetched_signals['main_force_net_flow'], df_index, bipolar=True)
-            fetched_signals['main_force_conviction'] = net_flow_norm * 10  # 缩放因子
+            
+            # 记录严重问题
+            if quality_report["quality_level"] == "POOR":
+                critical_issues.append(f"{signal_name}(NaN比例:{quality_report['nan_ratio']:.1%})")
+        
+        # 输出质量总结
+        if critical_issues:
+            print(f"【质量警告】发现{len(critical_issues)}个信号质量较差: {', '.join(critical_issues)}")
+        else:
+            print(f"【质量检查通过】所有信号最近55天质量合格")
+        
         _temp_debug_values["原始信号值"] = {k: v for k, v in fetched_signals.items()}
         _temp_debug_values["信号质量报告"] = signal_quality_reports
+        
         return fetched_signals
 
     def _normalize_all_signals(self, df: pd.DataFrame, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
@@ -626,53 +610,73 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_advanced_synergy(self, fetched_signals: Dict[str, pd.Series], df: pd.DataFrame, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.1 · 高级协同效应计算 - 修复NaN问题与稳健性增强版】
-        - 核心修复: 检查bid_liquidity_fractal信号是否存在，处理NaN问题
-        - 核心优化: 当信号不存在时使用替代方案，确保计算稳健性
-        - 核心新增: 添加详细的探针输出和异常处理
-        - 版本: 1.0.1
+        【V1.0.2 · 高级协同效应计算 - 斐波那契时间窗口优化版】
+        - 核心优化: 使用55天窗口进行信号检查，提高效率
+        - 核心优化: 减少不必要的数据遍历和统计计算
+        - 版本: 1.0.2
         """
         # 获取分形市场指标
         fractal_dimension = self.helper._get_safe_series(df, 'FRACTAL_DIMENSION_89d_D', 0.0, method_name="advanced_synergy")
         hurst_exponent = self.helper._get_safe_series(df, 'HURST_144d_d', 0.5, method_name="advanced_synergy")
+        
+        # 快速检查信号质量 - 只检查最近55天
+        fractal_quality = self._check_signal_quality(fractal_dimension, 'FRACTAL_DIMENSION_89d_D', df_index, recent_days=55)
+        hurst_quality = self._check_signal_quality(hurst_exponent, 'HURST_144d_d', df_index, recent_days=55)
+        
+        if fractal_quality["quality_level"] == "POOR":
+            print(f"【协同效应】分形维数信号质量差，使用默认值1.5")
+            fractal_dimension = pd.Series(1.5, index=df_index)
+        
+        if hurst_quality["quality_level"] == "POOR":
+            print(f"【协同效应】赫斯特指数信号质量差，使用默认值0.5")
+            hurst_exponent = pd.Series(0.5, index=df_index)
+        
         # 检查bid_liquidity_fractal信号是否存在
         bid_liquidity_fractal = self.helper._get_safe_series(df, 'BID_LIQUIDITY_FRACTAL_DIMENSION_89d_D', np.nan, method_name="advanced_synergy")
-        # 探针：输出信号基本信息
-        print(f"【高级协同效应】分形维数形状: {fractal_dimension.shape}, NaN数量: {fractal_dimension.isna().sum()}")
-        print(f"【高级协同效应】赫斯特指数形状: {hurst_exponent.shape}, NaN数量: {hurst_exponent.isna().sum()}")
-        print(f"【高级协同效应】买方流动性分形形状: {bid_liquidity_fractal.shape if bid_liquidity_fractal is not None else 'None'}, NaN数量: {bid_liquidity_fractal.isna().sum() if bid_liquidity_fractal is not None else 'N/A'}")
+        
         # 计算分形效率：分形维数越接近1.5，市场效率越高
         fractal_efficiency = 1.0 - (fractal_dimension - 1.5).abs() / 0.5
         fractal_efficiency = fractal_efficiency.clip(0, 1)
+        
         # 计算市场记忆效应：赫斯特指数越接近1，持久性越强
         market_memory = (hurst_exponent - 0.5).abs() * 2
         market_memory = market_memory.clip(0, 1)
+        
         # 计算流动性分形特征 - 处理NaN情况
-        if bid_liquidity_fractal is not None and not bid_liquidity_fractal.isna().all():
-            liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0
-            liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
-            # 填充NaN值为0.5（中性）
-            liquidity_fractal_score = liquidity_fractal_score.fillna(0.5)
+        if bid_liquidity_fractal is not None:
+            # 快速检查最近55天质量
+            liquidity_quality = self._check_signal_quality(bid_liquidity_fractal, 'BID_LIQUIDITY_FRACTAL', df_index, recent_days=55)
+            if liquidity_quality["quality_level"] == "POOR":
+                print(f"【协同效应】买方流动性分形信号质量差，使用中性值0.5")
+                liquidity_fractal_score = pd.Series(0.5, index=df_index)
+            else:
+                liquidity_fractal_score = (bid_liquidity_fractal - 1.0).abs() / 2.0
+                liquidity_fractal_score = (1.0 - liquidity_fractal_score).clip(0, 1)
+                liquidity_fractal_score = liquidity_fractal_score.fillna(0.5)
         else:
-            print(f"【高级协同效应警告】买方流动性分形信号不存在或全部为NaN，使用中性值0.5替代")
+            print(f"【协同效应】买方流动性分形信号不存在，使用中性值0.5")
             liquidity_fractal_score = pd.Series(0.5, index=df_index)
+        
         # 计算多尺度协同效应
         fractal_synergy = fractal_efficiency * market_memory * liquidity_fractal_score
+        
         # 确保没有NaN值
         fractal_synergy = fractal_synergy.fillna(0.5)
-        # 探针输出
+        
+        # 探针输出 - 只输出最近55天的统计信息
+        if len(fractal_synergy) > 55:
+            recent_synergy = fractal_synergy.tail(55)
+        else:
+            recent_synergy = fractal_synergy
+            
         _temp_debug_values["高级协同效应"] = {
-            "fractal_dimension": fractal_dimension,
-            "hurst_exponent": hurst_exponent,
-            "bid_liquidity_fractal": bid_liquidity_fractal,
-            "fractal_efficiency": fractal_efficiency,
-            "market_memory": market_memory,
-            "liquidity_fractal_score": liquidity_fractal_score,
-            "fractal_synergy": fractal_synergy
+            "fractal_synergy_recent_mean": recent_synergy.mean(),
+            "fractal_synergy_recent_std": recent_synergy.std(),
+            "fractal_efficiency_mean": fractal_efficiency.mean(),
+            "market_memory_mean": market_memory.mean(),
         }
-        print(f"【高级协同效应】分形维数均值: {fractal_dimension.mean():.4f}, 赫斯特指数均值: {hurst_exponent.mean():.4f}")
-        print(f"【高级协同效应】分形效率均值: {fractal_efficiency.mean():.4f}, 市场记忆均值: {market_memory.mean():.4f}")
-        print(f"【高级协同效应】流动性分形分数均值: {liquidity_fractal_score.mean():.4f}, 协同分数均值: {fractal_synergy.mean():.4f}")
+        
+        print(f"【高级协同效应】最近55天协同分数均值: {recent_synergy.mean():.4f}")
         return fractal_synergy
 
     def _enhance_with_market_regime(self, df: pd.DataFrame, final_score: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
@@ -722,37 +726,53 @@ class CalculateCostAdvantageTrendRelationship:
         print(f"【市场状态增强】趋势信念均值: {trend_conviction.mean():.4f}，市场状态因子均值: {market_regime_factor.mean():.4f}")
         return enhanced_score
 
-    def _check_signal_quality(self, signal_series: pd.Series, signal_name: str, df_index: pd.Index) -> Dict[str, Any]:
+    def _check_signal_quality(self, signal_series: pd.Series, signal_name: str, df_index: pd.Index, recent_days: int = 55) -> Dict[str, Any]:
         """
-        【V1.0.0 · 信号质量检查】
-        - 核心职责: 检查信号的数据质量，包括NaN比例、异常值等
-        - 核心新增: 提供信号质量报告和修复建议
-        - 版本: 1.0.0
+        【V1.1.0 · 信号质量检查 - 斐波那契时间窗口优化版】
+        - 核心优化: 只检查最近55天(recent_days)的数据质量，提高效率
+        - 核心优化: 使用斐波那契数列55作为默认时间窗口，平衡时效性与计算效率
+        - 核心修复: 避免检查全部历史数据，专注近期信号质量
+        - 版本: 1.1.0
         """
+        # 只检查最近recent_days天的数据
+        if len(signal_series) > recent_days:
+            recent_signal = signal_series.tail(recent_days)
+            total_count = recent_days
+        else:
+            recent_signal = signal_series
+            total_count = len(signal_series)
+        
+        # 快速质量检查 - 只统计关键指标
+        nan_count = recent_signal.isna().sum()
+        zero_count = (recent_signal == 0).sum() if not recent_signal.isna().all() else 0
+        
         quality_report = {
             "signal_name": signal_name,
-            "total_count": len(signal_series),
-            "nan_count": signal_series.isna().sum(),
-            "nan_ratio": signal_series.isna().sum() / len(signal_series),
-            "zero_count": (signal_series == 0).sum() if not signal_series.isna().all() else 0,
-            "zero_ratio": (signal_series == 0).sum() / len(signal_series) if not signal_series.isna().all() else 0,
-            "mean": signal_series.mean() if not signal_series.isna().all() else np.nan,
-            "std": signal_series.std() if not signal_series.isna().all() else np.nan,
-            "min": signal_series.min() if not signal_series.isna().all() else np.nan,
-            "max": signal_series.max() if not signal_series.isna().all() else np.nan,
+            "recent_days_checked": total_count,
+            "nan_count": nan_count,
+            "nan_ratio": nan_count / total_count if total_count > 0 else 1.0,
+            "zero_count": zero_count,
+            "zero_ratio": zero_count / total_count if total_count > 0 else 0,
+            "recent_mean": recent_signal.mean() if not recent_signal.isna().all() and total_count > 0 else np.nan,
+            "recent_std": recent_signal.std() if not recent_signal.isna().all() and total_count > 0 else np.nan,
         }
-        # 质量评级
+        
+        # 快速质量评级 - 基于最近55天的数据
         if quality_report["nan_ratio"] > 0.5:
             quality_report["quality_level"] = "POOR"
-            quality_report["suggestion"] = "信号缺失严重，考虑使用替代信号或跳过"
+            quality_report["suggestion"] = f"最近{recent_days}天信号缺失严重"
         elif quality_report["nan_ratio"] > 0.2:
             quality_report["quality_level"] = "MEDIUM"
-            quality_report["suggestion"] = "信号部分缺失，建议进行插值处理"
+            quality_report["suggestion"] = f"最近{recent_days}天信号部分缺失"
         else:
             quality_report["quality_level"] = "GOOD"
-            quality_report["suggestion"] = "信号质量良好"
+            quality_report["suggestion"] = "近期信号质量良好"
+        
+        # 快速输出关键质量信息
+        if quality_report["quality_level"] != "GOOD":
+            print(f"【信号质量】{signal_name}: {quality_report['quality_level']}, 最近{recent_days}天NaN比例: {quality_report['nan_ratio']:.1%}")
+        
         return quality_report
-
 
 
 
