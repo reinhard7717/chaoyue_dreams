@@ -954,7 +954,8 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V4.2 · 探针增强版】基于多维度证据链的量化模式识别系统
+        【V4.3 · 探针增强修复版】基于多维度证据链的量化模式识别系统
+        - 修复布尔Series转int的类型错误
         - 增强探针系统：输出关键中间变量的实际值和阈值对比
         - 增加计算过程日志：显示每个维度的得分和触发情况
         - 保持核心逻辑不变，提升调试透明度
@@ -1077,7 +1078,7 @@ class FeatureEngineeringService:
                 chip_concentration_evidence = (df['dominant_peak_solidity_D'] > dp_threshold).astype(int)
             print(f"筹码集中证据: 触发次数={chip_concentration_evidence.sum()}, 触发率={chip_concentration_evidence.mean():.2%}")
         accumulation_score = (hidden_buy_evidence * 1.5 + retail_panic_evidence + price_suppression_evidence + chip_concentration_evidence)
-        print(f"吸筹总分分布: 0-1分={int((accumulation_score < 2).sum())}, 2-2.5分={int((accumulation_score >= 2) & (accumulation_score < 2.5)).sum()}, 2.5-3分={int((accumulation_score >= 2.5) & (accumulation_score < 3)).sum()}, 3分以上={int((accumulation_score >= 3).sum())}")
+        print(f"吸筹总分分布: 0-1分={int(((accumulation_score < 2).astype(int).sum()))}, 2-2.5分={int(((accumulation_score >= 2) & (accumulation_score < 2.5)).astype(int).sum())}, 2.5-3分={int(((accumulation_score >= 2.5) & (accumulation_score < 3)).astype(int).sum())}, 3分以上={int(((accumulation_score >= 3).astype(int).sum()))}")
         df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & (accumulation_score >= 2.5)
         print(f"吸筹信号: 总触发={df['IS_ACCUMULATION_D'].sum()}, 触发率={df['IS_ACCUMULATION_D'].mean():.2%}")
         momentum_break_evidence = pd.Series(0, index=df.index, dtype=int)
@@ -1108,7 +1109,7 @@ class FeatureEngineeringService:
                 structure_break_evidence = ((df['platform_conviction_score_D'] > pc_threshold) & (df['trend_conviction_score_D'] > tc_threshold)).astype(int)
             print(f"结构突破证据: 触发次数={structure_break_evidence.sum()}, 触发率={structure_break_evidence.mean():.2%}")
         breakout_score = (momentum_break_evidence * 2.0 + volume_break_evidence * 1.5 + fund_flow_break_evidence * 1.2 + structure_break_evidence)
-        print(f"突破总分分布: 0-2分={int((breakout_score < 3).sum())}, 3-4分={int((breakout_score >= 3) & (breakout_score < 5)).sum()}, 5-6分={int((breakout_score >= 5) & (breakout_score < 7)).sum()}, 7分以上={int((breakout_score >= 7).sum())}")
+        print(f"突破总分分布: 0-2分={int(((breakout_score < 3).astype(int).sum()))}, 3-4分={int(((breakout_score >= 3) & (breakout_score < 5)).astype(int).sum())}, 5-6分={int(((breakout_score >= 5) & (breakout_score < 7)).astype(int).sum())}, 7分以上={int(((breakout_score >= 7).astype(int).sum()))}")
         df['IS_BREAKOUT_D'] = (breakout_score >= 5) & (momentum_break_evidence.astype(bool) | structure_break_evidence.astype(bool))
         print(f"突破信号: 总触发={df['IS_BREAKOUT_D'].sum()}, 触发率={df['IS_BREAKOUT_D'].mean():.2%}")
         main_force_dist_evidence = pd.Series(0, index=df.index, dtype=int)
@@ -1136,7 +1137,7 @@ class FeatureEngineeringService:
                 chip_dispersion_evidence = ((df['chip_health_score_D'] < ch_threshold) & (df['pct_change_D'] > 0.05)).astype(int)
             print(f"筹码分散证据: 触发次数={chip_dispersion_evidence.sum()}, 触发率={chip_dispersion_evidence.mean():.2%}")
         distribution_score = (main_force_dist_evidence * 1.5 + retail_fomo_evidence * 1.2 + price_divergence_evidence + chip_dispersion_evidence)
-        print(f"派发总分分布: 0-1分={int((distribution_score < 2).sum())}, 2-2.5分={int((distribution_score >= 2) & (distribution_score < 3)).sum()}, 3分以上={int((distribution_score >= 3).sum())}")
+        print(f"派发总分分布: 0-1分={int(((distribution_score < 2).astype(int).sum()))}, 2-2.5分={int(((distribution_score >= 2) & (distribution_score < 3)).astype(int).sum())}, 3分以上={int(((distribution_score >= 3).astype(int).sum()))}")
         df['IS_DISTRIBUTION_D'] = distribution_score >= 3
         print(f"派发信号: 总触发={df['IS_DISTRIBUTION_D'].sum()}, 触发率={df['IS_DISTRIBUTION_D'].mean():.2%}")
         df['IS_BEAR_TRAP_WASHOUT_D'] = False
@@ -1177,7 +1178,7 @@ class FeatureEngineeringService:
                 bazhan_v1 = cond_amount_break & cond_price_low & cond_consolidation
                 bazhan_v2 = cond_amount_break & cond_price_mid & (df['volume_D'] > df['VOL_MA_21_D'] * 2)
                 df['IS_BAZHAN_D'] = (bazhan_v1 | bazhan_v2).fillna(False)
-                print(f"霸占信号: 总触发={df['IS_BAZHAN_D'].sum()}, 触发率={df['IS_BAZHAN_D'].mean():.2%}")
+                print(f"霸占信号: 总触发={df['IS_BAZHAN_D'].sum()}, 触发率={df['IS_BREAKOUT_D'].mean():.2%}")
             except Exception as e:
                 print(f"计算霸占模式失败: {e}")
         df['IS_WW1_D'] = False
@@ -1224,7 +1225,7 @@ class FeatureEngineeringService:
         except Exception as e:
             print(f"探针数据存储失败: {e}")
         all_dfs[timeframe] = df
-        print("=== 高级模式识别引擎(V4.2 探针增强版)分析完成 ===")
+        print("=== 高级模式识别引擎(V4.3 探针增强修复版)分析完成 ===")
         return all_dfs
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.Series:
