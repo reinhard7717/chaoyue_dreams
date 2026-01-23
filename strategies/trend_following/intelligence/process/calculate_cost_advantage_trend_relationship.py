@@ -96,11 +96,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _log_debug_values(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp, method_name: str):
         """
-        【V1.0.1 · 调试值日志输出 - 完整性修复版】
-        - 核心修复: 确保所有探针信息都能输出，包括嵌套字典和Series
-        - 核心优化: 添加探针输出的完整性检查，确保不会遗漏任何信息
-        - 核心新增: 支持更多数据类型的输出格式
-        - 版本: 1.0.1
+        【V1.0.2 · 调试值日志输出 - 多时间维度探针增强版】
+        - 核心新增: 添加多时间维度分析的探针输出
+        - 核心优化: 确保各时间维度的信号值都能被记录和查看
+        - 核心优化: 增强嵌套字典的输出格式
+        - 版本: 1.0.2
         """
         print(f"【探针输出】开始输出调试信息，共有 {len(_temp_debug_values)} 个调试模块")
         
@@ -134,6 +134,22 @@ class CalculateCostAdvantageTrendRelationship:
             else:
                 debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {section}: {values_dict} ---"] = ""
         
+        # 特别处理多时间维度融合详情
+        if "多时间维度融合详情" in _temp_debug_values:
+            multi_time_details = _temp_debug_values["多时间维度融合详情"]
+            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 多时间维度融合统计 ---"] = ""
+            
+            for key, value in multi_time_details.items():
+                if isinstance(value, dict):
+                    debug_output[f"        {key}:"] = ""
+                    for sub_key, sub_value in value.items():
+                        debug_output[f"          {sub_key}: {sub_value}"] = ""
+                elif isinstance(value, pd.Series):
+                    val = value.loc[probe_ts] if probe_ts in value.index else np.nan
+                    debug_output[f"        '{key}': {val:.4f}"] = ""
+                else:
+                    debug_output[f"        '{key}': {value}"] = ""
+        
         # 输出所有调试信息
         print(f"【探针输出】开始打印调试信息到控制台")
         for key, value in debug_output.items():
@@ -144,23 +160,25 @@ class CalculateCostAdvantageTrendRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.8 · 强制探针输出与完整性修复版】计算成本优势趋势。
-        - 核心修复: 强制输出所有象限的探针信息，确保调试完整性
-        - 核心修复: 使用复合流动性指标替代缺失的BID_LIQUIDITY_FRACTAL
-        - 核心优化: 添加探针输出的完整性检查
-        - 版本: 4.8
+        【V4.9 · 多时间维度趋势分析与直接MTF信号使用版】计算成本优势趋势。
+        - 核心新增: 直接使用数据层中的斜率和加速度信号（SLOPE_*, ACCEL_*）
+        - 核心新增: 多时间维度趋势分析（5、13、21、55日）
+        - 核心优化: 按配置权重融合各时间维度的斜率和加速度信号
+        - 版本: 4.9
         """
         method_name = "CalculateCostAdvantageTrendRelationship"
-        print(f"【开始计算】{method_name}，数据形状: {df.shape}，使用55天斐波那契窗口进行快速检查")
+        print(f"【开始计算】{method_name}，数据形状: {df.shape}")
+        print(f"【多时间维度】使用斐波那契数列时间维度: 5, 13, 21, 55日进行趋势分析")
         
-        # 初始化调试上下文 - 确保探针设置正确
+        # 初始化调试上下文
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
         
-        # 即使调试未启用，也强制输出关键信息
         print(f"【计算状态】调试启用: {is_debug_enabled_for_method}, 探针时间: {probe_ts.strftime('%Y-%m-%d') if probe_ts else '无'}")
         
-        # 1. 获取MTF配置
+        # 1. 获取MTF配置（包含多时间维度权重）
         _, _, _, mtf_slope_accel_weights = self._get_mtf_configs(config)
+        print(f"【多时间维度配置】斜率周期权重: {mtf_slope_accel_weights.get('slope_periods', {})}")
+        print(f"【多时间维度配置】加速度周期权重: {mtf_slope_accel_weights.get('accel_periods', {})}")
         
         # 2. 获取所需信号列表并进行快速验证
         required_signals = self._get_required_signals_list(mtf_slope_accel_weights)
@@ -175,10 +193,10 @@ class CalculateCostAdvantageTrendRelationship:
         
         df_index = df.index
         
-        # 3. 获取原始数据和MTF融合信号
+        # 3. 获取原始数据和MTF融合信号（直接使用斜率和加速度信号）
         fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
         
-        # 4. 计算高级协同效应（使用复合流动性指标）
+        # 4. 计算高级协同效应
         try:
             advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df, df_index, _temp_debug_values)
             advanced_synergy_score = advanced_synergy_score.fillna(0.25)
@@ -186,48 +204,18 @@ class CalculateCostAdvantageTrendRelationship:
             print(f"【协同效应错误】计算异常: {e}，使用保守值0.25")
             advanced_synergy_score = pd.Series(0.25, index=df_index)
         
-        # 5. 归一化处理
+        # 5. 归一化处理（使用多时间维度融合信号）
         normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
         
         # 6. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(normalized_signals, config, df_index, method_name, _temp_debug_values)
         
-        # 7. 计算各象限分数 - 确保探针信息被记录
-        print(f"【开始计算象限分数】")
+        # 7. 计算各象限分数
+        print(f"【开始计算象限分数】基于多时间维度趋势分析")
         Q1_final = self._calculate_q1_healthy_rally(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q2_final = self._calculate_q2_bearish_distribution(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q3_final = self._calculate_q3_golden_pit(fetched_signals, normalized_signals, df_index, dynamic_weights, _temp_debug_values)
         Q4_final = self._calculate_q4_bull_trap(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
-        
-        # 强制输出各象限的探针信息 - 即使调试未启用
-        print(f"【强制探针输出】开始输出各象限详细信息")
-        quadrant_names = ["Q1: 价涨 & 优扩", "Q2: 价跌 & 优缩", "Q3: 价跌 & 优扩", "Q4: 价涨 & 优缩"]
-        
-        for q_name in quadrant_names:
-            if q_name in _temp_debug_values:
-                q_data = _temp_debug_values[q_name]
-                print(f"=== {q_name} ===")
-                
-                if isinstance(q_data, dict):
-                    for key, value in q_data.items():
-                        if isinstance(value, pd.Series):
-                            # 输出最近55天的统计信息
-                            recent_value = value.tail(55) if len(value) > 55 else value
-                            print(f"  {key}: 均值={recent_value.mean():.4f}, 范围=[{recent_value.min():.4f}, {recent_value.max():.4f}]")
-                        elif isinstance(value, dict):
-                            print(f"  {key}:")
-                            for sub_key, sub_value in value.items():
-                                if isinstance(sub_value, pd.Series):
-                                    recent_sub = sub_value.tail(55) if len(sub_value) > 55 else sub_value
-                                    print(f"    {sub_key}: 均值={recent_sub.mean():.4f}")
-                                else:
-                                    print(f"    {sub_key}: {sub_value}")
-                        else:
-                            print(f"  {key}: {value}")
-                else:
-                    print(f"  数据格式: {type(q_data)}")
-            else:
-                print(f"【警告】{q_name} 探针信息未记录")
         
         # 8. 计算交互项
         interaction_score = self._calculate_interaction_terms(fetched_signals, normalized_signals, config, df_index, _temp_debug_values)
@@ -268,7 +256,7 @@ class CalculateCostAdvantageTrendRelationship:
             "final_score": final_score
         }
         
-        # 输出探针信息 - 确保探针输出被调用
+        # 输出探针信息
         if is_debug_enabled_for_method and probe_ts:
             print(f"【开始输出详细探针信息】")
             self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
@@ -276,11 +264,9 @@ class CalculateCostAdvantageTrendRelationship:
             debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
             self.helper._print_debug_output(debug_output)
         else:
-            # 即使没有详细探针，也输出关键统计信息
+            # 输出关键统计信息
             print(f"【关键统计】各象限分数: Q1={Q1_final.mean():.4f}, Q2={Q2_final.mean():.4f}, Q3={Q3_final.mean():.4f}, Q4={Q4_final.mean():.4f}")
-            print(f"【关键统计】交互项: {interaction_score.mean():.4f}, 协同增强: {synergy_enhancement.mean():.4f}")
-            print(f"【关键统计】基础融合均值: {base_fusion_score.mean():.4f}")
-            print(f"【关键统计】动态指数均值: {dynamic_exponent.mean():.4f}")
+            print(f"【关键统计】多时间维度融合: 价格变化均值={fetched_signals['mtf_price_change'].mean():.4f}, 成本优势变化均值={fetched_signals['mtf_ca_change'].mean():.4f}")
         
         # 输出最近55天的统计信息
         if len(final_score) > 55:
@@ -336,21 +322,118 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.4 · 原始及MTF信号获取 - 斐波那契时间窗口优化版】
-        - 核心优化: 使用55天窗口进行快速信号质量检查，大幅提高效率
-        - 核心优化: 只对近期数据进行详细统计，减少计算开销
-        - 核心优化: 保留完整数据用于计算，仅质量检查使用55天窗口
-        - 版本: 1.1.4
+        【V1.1.6 · 直接使用斜率和加速度信号的多时间维度融合版】
+        - 核心修改: 直接使用数据层中已存在的斜率和加速度信号，而不是通过辅助函数计算
+        - 核心新增: 按配置权重融合多时间维度（5、13、21、55日）的斜率和加速度
+        - 核心优化: 保留原始价格变化信号作为基础参考
+        - 版本: 1.1.6
         """
         fetched_signals = {}
         
-        print(f"【信号获取】使用55天斐波那契窗口进行信号质量快速检查")
+        print(f"【信号获取】使用多时间维度斜率和加速度信号，配置权重: {mtf_slope_accel_weights}")
         
-        # 价格变化和成本优势变化改为MTF融合信号
-        fetched_signals['mtf_price_change'] = self.helper._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        fetched_signals['mtf_ca_change'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_cost_advantage_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        # 获取配置中的斜率和加速度权重
+        slope_periods_weights = mtf_slope_accel_weights.get('slope_periods', {})
+        accel_periods_weights = mtf_slope_accel_weights.get('accel_periods', {})
         
-        # 定义需要获取的信号列表及其默认值
+        # 1. 价格变化的多时间维度融合信号
+        # 使用多个时间维度的斜率和加速度信号进行融合
+        price_slope_components = {}
+        price_accel_components = {}
+        
+        for period_str, weight in slope_periods_weights.items():
+            slope_signal_name = f'SLOPE_{period_str}_close_D'
+            if slope_signal_name in df.columns:
+                price_slope_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+                print(f"【价格斜率】使用 {period_str}日斜率信号，权重: {weight}")
+            else:
+                print(f"【价格斜率警告】{slope_signal_name} 不存在")
+        
+        for period_str, weight in accel_periods_weights.items():
+            accel_signal_name = f'ACCEL_{period_str}_close_D'
+            if accel_signal_name in df.columns:
+                price_accel_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+                print(f"【价格加速度】使用 {period_str}日加速度信号，权重: {weight}")
+            else:
+                print(f"【价格加速度警告】{accel_signal_name} 不存在")
+        
+        # 计算加权融合的斜率和加速度
+        mtf_price_slope = pd.Series(0.0, index=df_index)
+        total_slope_weight = 0.0
+        for period_str, component in price_slope_components.items():
+            mtf_price_slope += component['series'] * component['weight']
+            total_slope_weight += component['weight']
+        
+        mtf_price_accel = pd.Series(0.0, index=df_index)
+        total_accel_weight = 0.0
+        for period_str, component in price_accel_components.items():
+            mtf_price_accel += component['series'] * component['weight']
+            total_accel_weight += component['weight']
+        
+        # 归一化加权融合
+        if total_slope_weight > 0:
+            mtf_price_slope = mtf_price_slope / total_slope_weight
+        if total_accel_weight > 0:
+            mtf_price_accel = mtf_price_accel / total_accel_weight
+        
+        # 综合斜率和加速度得到价格变化信号
+        fetched_signals['mtf_price_change'] = (mtf_price_slope + mtf_price_accel) / 2
+        
+        # 2. 成本优势变化的多时间维度融合信号
+        ca_slope_components = {}
+        ca_accel_components = {}
+        
+        for period_str, weight in slope_periods_weights.items():
+            slope_signal_name = f'SLOPE_{period_str}_main_force_cost_advantage_D'
+            if slope_signal_name in df.columns:
+                ca_slope_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+                print(f"【成本优势斜率】使用 {period_str}日斜率信号，权重: {weight}")
+            else:
+                print(f"【成本优势斜率警告】{slope_signal_name} 不存在")
+        
+        for period_str, weight in accel_periods_weights.items():
+            accel_signal_name = f'ACCEL_{period_str}_main_force_cost_advantage_D'
+            if accel_signal_name in df.columns:
+                ca_accel_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+                print(f"【成本优势加速度】使用 {period_str}日加速度信号，权重: {weight}")
+            else:
+                print(f"【成本优势加速度警告】{accel_signal_name} 不存在")
+        
+        # 计算加权融合的斜率和加速度
+        mtf_ca_slope = pd.Series(0.0, index=df_index)
+        total_ca_slope_weight = 0.0
+        for period_str, component in ca_slope_components.items():
+            mtf_ca_slope += component['series'] * component['weight']
+            total_ca_slope_weight += component['weight']
+        
+        mtf_ca_accel = pd.Series(0.0, index=df_index)
+        total_ca_accel_weight = 0.0
+        for period_str, component in ca_accel_components.items():
+            mtf_ca_accel += component['series'] * component['weight']
+            total_ca_accel_weight += component['weight']
+        
+        # 归一化加权融合
+        if total_ca_slope_weight > 0:
+            mtf_ca_slope = mtf_ca_slope / total_ca_slope_weight
+        if total_ca_accel_weight > 0:
+            mtf_ca_accel = mtf_ca_accel / total_ca_accel_weight
+        
+        # 综合斜率和加速度得到成本优势变化信号
+        fetched_signals['mtf_ca_change'] = (mtf_ca_slope + mtf_ca_accel) / 2
+        
+        # 3. 获取其他原始信号
         signal_configs = [
             ('main_force_conviction_index_D', 'main_force_conviction', 0.0),
             ('upward_impulse_purity_D', 'upward_impulse_purity', 0.0),
@@ -374,12 +457,11 @@ class CalculateCostAdvantageTrendRelationship:
             ('micro_price_impact_asymmetry_D', 'micro_price_impact_asymmetry', 0.0),
         ]
         
-        # 获取所有信号
         for df_col_name, signal_name, default_value in signal_configs:
             signal_series = self.helper._get_safe_series(df, df_col_name, default_value, method_name=method_name)
             fetched_signals[signal_name] = signal_series
         
-        # 快速信号质量检查 - 只检查最近55天
+        # 4. 快速信号质量检查 - 只检查最近55天
         print(f"【快速质量检查】开始检查最近55天的信号质量...")
         signal_quality_reports = {}
         critical_issues = []
@@ -398,40 +480,229 @@ class CalculateCostAdvantageTrendRelationship:
         else:
             print(f"【质量检查通过】所有信号最近55天质量合格")
         
+        # 5. 记录多时间维度融合详情
         _temp_debug_values["原始信号值"] = {k: v for k, v in fetched_signals.items()}
         _temp_debug_values["信号质量报告"] = signal_quality_reports
+        _temp_debug_values["多时间维度融合详情"] = {
+            "价格斜率组件": {k: v['weight'] for k, v in price_slope_components.items()},
+            "价格加速度组件": {k: v['weight'] for k, v in price_accel_components.items()},
+            "成本优势斜率组件": {k: v['weight'] for k, v in ca_slope_components.items()},
+            "成本优势加速度组件": {k: v['weight'] for k, v in ca_accel_components.items()},
+            "mtf_price_slope": mtf_price_slope,
+            "mtf_price_accel": mtf_price_accel,
+            "mtf_ca_slope": mtf_ca_slope,
+            "mtf_ca_accel": mtf_ca_accel,
+        }
         
         return fetched_signals
 
     def _normalize_all_signals(self, df: pd.DataFrame, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1.2 · 信号归一化处理 - 修复AttributeError】
-        - 核心职责: 对所有必要的信号进行归一化处理，并将其存储到调试字典中。
-        - 核心修复: 传入 df 参数，并替换 self.strategy.df，解决 AttributeError。
-        - 版本: 1.1.2
+        【V1.1.4 · 信号归一化处理 - 直接使用MTF斜率和加速度信号版】
+        - 核心修改: 直接使用数据层中的MTF斜率和加速度信号进行归一化处理
+        - 核心新增: 为每个需要MTF处理的信号创建多时间维度融合版本
+        - 版本: 1.1.4
         """
         normalized_signals = {}
-        normalized_signals['mtf_main_force_conviction'] = self.helper._get_mtf_slope_accel_score(df, 'main_force_conviction_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        normalized_signals['mtf_upward_purity'] = self.helper._get_mtf_slope_accel_score(df, 'upward_impulse_purity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        
+        print(f"【信号归一化】开始多时间维度信号归一化处理")
+        
+        # 获取配置中的斜率和加速度权重
+        slope_periods_weights = mtf_slope_accel_weights.get('slope_periods', {})
+        accel_periods_weights = mtf_slope_accel_weights.get('accel_periods', {})
+        
+        # 1. 主力信念指数的多时间维度融合
+        mf_conviction_slope_components = {}
+        mf_conviction_accel_components = {}
+        
+        for period_str, weight in slope_periods_weights.items():
+            slope_signal_name = f'SLOPE_{period_str}_main_force_conviction_index_D'
+            if slope_signal_name in df.columns:
+                mf_conviction_slope_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        for period_str, weight in accel_periods_weights.items():
+            accel_signal_name = f'ACCEL_{period_str}_main_force_conviction_index_D'
+            if accel_signal_name in df.columns:
+                mf_conviction_accel_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        # 计算加权融合
+        mtf_mf_conviction_slope = pd.Series(0.0, index=df_index)
+        total_slope_weight = 0.0
+        for period_str, component in mf_conviction_slope_components.items():
+            mtf_mf_conviction_slope += component['series'] * component['weight']
+            total_slope_weight += component['weight']
+        
+        mtf_mf_conviction_accel = pd.Series(0.0, index=df_index)
+        total_accel_weight = 0.0
+        for period_str, component in mf_conviction_accel_components.items():
+            mtf_mf_conviction_accel += component['series'] * component['weight']
+            total_accel_weight += component['weight']
+        
+        if total_slope_weight > 0:
+            mtf_mf_conviction_slope = mtf_mf_conviction_slope / total_slope_weight
+        if total_accel_weight > 0:
+            mtf_mf_conviction_accel = mtf_mf_conviction_accel / total_accel_weight
+        
+        normalized_signals['mtf_main_force_conviction'] = (mtf_mf_conviction_slope + mtf_mf_conviction_accel) / 2
+        
+        # 2. 上涨纯度多时间维度融合
+        upward_purity_slope_components = {}
+        upward_purity_accel_components = {}
+        
+        for period_str, weight in slope_periods_weights.items():
+            slope_signal_name = f'SLOPE_{period_str}_upward_impulse_purity_D'
+            if slope_signal_name in df.columns:
+                upward_purity_slope_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        for period_str, weight in accel_periods_weights.items():
+            accel_signal_name = f'ACCEL_{period_str}_upward_impulse_purity_D'
+            if accel_signal_name in df.columns:
+                upward_purity_accel_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        mtf_upward_purity_slope = pd.Series(0.0, index=df_index)
+        total_upward_slope_weight = 0.0
+        for period_str, component in upward_purity_slope_components.items():
+            mtf_upward_purity_slope += component['series'] * component['weight']
+            total_upward_slope_weight += component['weight']
+        
+        mtf_upward_purity_accel = pd.Series(0.0, index=df_index)
+        total_upward_accel_weight = 0.0
+        for period_str, component in upward_purity_accel_components.items():
+            mtf_upward_purity_accel += component['series'] * component['weight']
+            total_upward_accel_weight += component['weight']
+        
+        if total_upward_slope_weight > 0:
+            mtf_upward_purity_slope = mtf_upward_purity_slope / total_upward_slope_weight
+        if total_upward_accel_weight > 0:
+            mtf_upward_purity_accel = mtf_upward_purity_accel / total_upward_accel_weight
+        
+        normalized_signals['mtf_upward_purity'] = (mtf_upward_purity_slope + mtf_upward_purity_accel) / 2
+        
+        # 3. 派发强度多时间维度融合
+        distribution_slope_components = {}
+        distribution_accel_components = {}
+        
+        for period_str, weight in slope_periods_weights.items():
+            slope_signal_name = f'SLOPE_{period_str}_distribution_at_peak_intensity_D'
+            if slope_signal_name in df.columns:
+                distribution_slope_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        for period_str, weight in accel_periods_weights.items():
+            accel_signal_name = f'ACCEL_{period_str}_distribution_at_peak_intensity_D'
+            if accel_signal_name in df.columns:
+                distribution_accel_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        mtf_distribution_slope = pd.Series(0.0, index=df_index)
+        total_dist_slope_weight = 0.0
+        for period_str, component in distribution_slope_components.items():
+            mtf_distribution_slope += component['series'] * component['weight']
+            total_dist_slope_weight += component['weight']
+        
+        mtf_distribution_accel = pd.Series(0.0, index=df_index)
+        total_dist_accel_weight = 0.0
+        for period_str, component in distribution_accel_components.items():
+            mtf_distribution_accel += component['series'] * component['weight']
+            total_dist_accel_weight += component['weight']
+        
+        if total_dist_slope_weight > 0:
+            mtf_distribution_slope = mtf_distribution_slope / total_dist_slope_weight
+        if total_dist_accel_weight > 0:
+            mtf_distribution_accel = mtf_distribution_accel / total_dist_accel_weight
+        
+        normalized_signals['mtf_distribution_intensity'] = (mtf_distribution_slope + mtf_distribution_accel) / 2
+        
+        # 4. 主动卖压多时间维度融合
+        active_selling_slope_components = {}
+        active_selling_accel_components = {}
+        
+        for period_str, weight in slope_periods_weights.items():
+            slope_signal_name = f'SLOPE_{period_str}_active_selling_pressure_D'
+            if slope_signal_name in df.columns:
+                active_selling_slope_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        for period_str, weight in accel_periods_weights.items():
+            accel_signal_name = f'ACCEL_{period_str}_active_selling_pressure_D'
+            if accel_signal_name in df.columns:
+                active_selling_accel_components[period_str] = {
+                    'series': self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name),
+                    'weight': weight
+                }
+        
+        mtf_active_selling_slope = pd.Series(0.0, index=df_index)
+        total_active_slope_weight = 0.0
+        for period_str, component in active_selling_slope_components.items():
+            mtf_active_selling_slope += component['series'] * component['weight']
+            total_active_slope_weight += component['weight']
+        
+        mtf_active_selling_accel = pd.Series(0.0, index=df_index)
+        total_active_accel_weight = 0.0
+        for period_str, component in active_selling_accel_components.items():
+            mtf_active_selling_accel += component['series'] * component['weight']
+            total_active_accel_weight += component['weight']
+        
+        if total_active_slope_weight > 0:
+            mtf_active_selling_slope = mtf_active_selling_slope / total_active_slope_weight
+        if total_active_accel_weight > 0:
+            mtf_active_selling_accel = mtf_active_selling_accel / total_active_accel_weight
+        
+        normalized_signals['mtf_active_selling'] = (mtf_active_selling_slope + mtf_active_selling_accel) / 2
+        
+        # 5. 其他非MTF信号的归一化处理
         normalized_signals['suppressive_accum_norm'] = self.helper._normalize_series(fetched_signals['suppressive_accum'], df_index, bipolar=False)
-        normalized_signals['mtf_distribution_intensity'] = self.helper._get_mtf_slope_accel_score(df, 'distribution_at_peak_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        normalized_signals['mtf_active_selling'] = self.helper._get_mtf_slope_accel_score(df, 'active_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         normalized_signals['profit_taking_flow_norm'] = self.helper._normalize_series(fetched_signals['profit_taking_flow'], df_index, bipolar=False)
-        normalized_signals['active_buying_support_inverted_norm'] = 1 - self.helper._normalize_series(fetched_signals['active_buying_support'], df_index, bipolar=False) # 买盘虚弱度
-        normalized_signals['main_force_net_flow_outflow_norm'] = self.helper._normalize_series(fetched_signals['main_force_net_flow'].clip(upper=0).abs(), df_index, bipolar=False) # 主力净流出风险
+        normalized_signals['active_buying_support_inverted_norm'] = 1 - self.helper._normalize_series(fetched_signals['active_buying_support'], df_index, bipolar=False)
+        normalized_signals['main_force_net_flow_outflow_norm'] = self.helper._normalize_series(fetched_signals['main_force_net_flow'].clip(upper=0).abs(), df_index, bipolar=False)
         normalized_signals['flow_credibility_norm'] = self.helper._normalize_series(fetched_signals['flow_credibility'], df_index, bipolar=False)
-        # --- 新增情境调制信号归一化 ---
-        normalized_signals['volatility_inverse_norm'] = 1 - self.helper._normalize_series(fetched_signals['volatility_instability'], df_index, bipolar=False) # 波动率越低，分数越高
-        normalized_signals['trend_strength_inverse_norm'] = 1 - self.helper._normalize_series(fetched_signals['adx_trend_strength'], df_index, bipolar=False) # 趋势强度越低，分数越高
-        normalized_signals['sentiment_neutrality_norm'] = 1 - self.helper._normalize_series(fetched_signals['market_sentiment'].abs(), df_index, bipolar=False) # 情绪越中性，分数越高
+        
+        # 情境调制信号归一化
+        normalized_signals['volatility_inverse_norm'] = 1 - self.helper._normalize_series(fetched_signals['volatility_instability'], df_index, bipolar=False)
+        normalized_signals['trend_strength_inverse_norm'] = 1 - self.helper._normalize_series(fetched_signals['adx_trend_strength'], df_index, bipolar=False)
+        normalized_signals['sentiment_neutrality_norm'] = 1 - self.helper._normalize_series(fetched_signals['market_sentiment'].abs(), df_index, bipolar=False)
         normalized_signals['liquidity_authenticity_score_norm'] = self.helper._normalize_series(fetched_signals['liquidity_authenticity'], df_index, bipolar=False)
-        normalized_signals['ma_potential_orderliness_score_norm'] = self.helper._normalize_series(fetched_signals['ma_potential_orderliness_score'], df_index, bipolar=False) # 替换为MA_POTENTIAL_ORDERLINESS_SCORE_D
+        normalized_signals['ma_potential_orderliness_score_norm'] = self.helper._normalize_series(fetched_signals['ma_potential_orderliness_score'], df_index, bipolar=False)
         normalized_signals['microstructure_efficiency_index_norm'] = self.helper._normalize_series(fetched_signals['microstructure_efficiency'], df_index, bipolar=False)
-        # --- 新增微观结构和订单流信号归一化 ---
+        
+        # 微观结构和订单流信号归一化
         normalized_signals['main_force_buy_execution_alpha_norm'] = self.helper._normalize_series(fetched_signals['main_force_buy_execution_alpha'], df_index, bipolar=False)
         normalized_signals['main_force_sell_execution_alpha_norm'] = self.helper._normalize_series(fetched_signals['main_force_sell_execution_alpha'], df_index, bipolar=False)
         normalized_signals['micro_price_impact_asymmetry_norm'] = self.helper._normalize_series(fetched_signals['micro_price_impact_asymmetry'], df_index, bipolar=False)
+        
+        # 记录归一化详情
         _temp_debug_values["归一化处理"] = {k: v for k, v in normalized_signals.items()}
+        _temp_debug_values["多时间维度归一化详情"] = {
+            "主力信念斜率组件": len(mf_conviction_slope_components),
+            "主力信念加速度组件": len(mf_conviction_accel_components),
+            "上涨纯度斜率组件": len(upward_purity_slope_components),
+            "上涨纯度加速度组件": len(upward_purity_accel_components),
+            "派发强度斜率组件": len(distribution_slope_components),
+            "派发强度加速度组件": len(distribution_accel_components),
+            "主动卖压斜率组件": len(active_selling_slope_components),
+            "主动卖压加速度组件": len(active_selling_accel_components),
+        }
+        
+        print(f"【信号归一化完成】已处理{len(normalized_signals)}个归一化信号")
+        
         return normalized_signals
 
     def _calculate_q1_healthy_rally(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:

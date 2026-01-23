@@ -642,10 +642,26 @@ class FeatureEngineeringService:
                 correction_min_magnitude = -0.005  # 最小回调幅度（绝对值）
                 correction_max_magnitude = -0.05   # 最大回调幅度（绝对值）
                 print(f"回调幅度允许范围: [{correction_max_magnitude:.4f}, {correction_min_magnitude:.4f}]")
-                # 回调幅度条件：回调幅度在合理范围内且为负值 - 这是必要条件
+                
+                # 回调幅度条件：回调幅度在合理范围内且为负值
                 cond_small_correction = (df['pct_change_D'] < 0) & \
                                        (df['pct_change_D'] >= correction_max_magnitude) & \
                                        (df['pct_change_D'] <= correction_min_magnitude)
+                
+                # 新增：回调应该出现在上涨趋势中（前5个交易日中有至少3天上涨）
+                if 'pct_change_D' in df.columns:
+                    # 计算前5个交易日的上涨天数
+                    positive_days = (df['pct_change_D'].shift(1).rolling(5).sum() > 0)
+                    cond_recent_uptrend = (positive_days >= 3)
+                else:
+                    cond_recent_uptrend = pd.Series(True, index=df.index)
+                
+                # 新增：回调日不应该跌破重要支撑（20日均线）
+                if 'close_D' in df.columns:
+                    ma20 = df['close_D'].rolling(20).mean()
+                    cond_not_break_ma20 = (df['close_D'] > ma20 * 0.95)  # 收盘价不低于20日线5%
+                else:
+                    cond_not_break_ma20 = pd.Series(True, index=df.index)
                 
                 # 探针：打印关键日期的回调判断
                 test_dates = ['2025-12-30', '2025-12-23', '2025-12-29', '2025-12-24', '2025-12-26']
@@ -656,76 +672,86 @@ class FeatureEngineeringService:
                         print(f"  涨跌幅: {df['pct_change_D'].iloc[idx]:.4f} ({df['pct_change_D'].iloc[idx]*100:.2f}%)")
                         print(f"  回调幅度条件: {cond_small_correction.iloc[idx]}")
                 
-                # 如果回调幅度条件不满足，直接返回False，不进行后续计算
-                if not cond_small_correction.any():
-                    print("警告：没有满足回调幅度条件的数据点，回调信号将全部为False")
-                    df['IS_TREND_CORRECTION_D'] = False
-                    df['IS_TREND_CORRECTION_RAW_D'] = False
+                cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
+                
+                # 主力资金条件：放宽但有限度
+                if 'main_force_net_flow_calibrated_D' in df.columns:
+                    # 使用更严格的动态阈值
+                    mf_median = df['main_force_net_flow_calibrated_D'].rolling(20).median().fillna(method='ffill')
+                    mf_std = df['main_force_net_flow_calibrated_D'].rolling(20).std().fillna(0)
+                    # 主力资金条件：不低于中位数减去1个标准差
+                    cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_median - mf_std * 1.0)
                 else:
-                    # 只对满足回调幅度条件的数据点进行其他条件判断
-                    cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
-                    # 主力资金条件优化：在趋势市场中，回调时主力资金可能暂时流出，放宽条件
-                    if 'main_force_net_flow_calibrated_D' in df.columns:
-                        mf_mean = df['main_force_net_flow_calibrated_D'].rolling(20).mean().fillna(method='ffill')
-                        mf_std = df['main_force_net_flow_calibrated_D'].rolling(20).std().fillna(0)
-                        cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_mean - mf_std * 1.5)
-                    else:
-                        cond_mf_not_outflow = pd.Series(True, index=df.index)
-                    # 筹码健康条件优化：使用动态阈值
-                    if 'chip_health_score_D' in df.columns:
-                        chip_mean = df['chip_health_score_D'].rolling(20).mean().fillna(method='ffill')
-                        chip_std = df['chip_health_score_D'].rolling(20).std().fillna(0)
-                        cond_chip_stable = (df['chip_health_score_D'] > chip_mean - chip_std * 1.0)
-                    else:
-                        cond_chip_stable = pd.Series(True, index=df.index)
-                    if 'close_D' in df.columns:
-                        ma5 = df['close_D'].rolling(5).mean()
-                        ma10 = df['close_D'].rolling(10).mean()
-                        cond_trend_support = (df['close_D'] >= ma5 * 0.90) & (ma5 > ma10 * 0.95)
-                    else:
-                        cond_trend_support = pd.Series(True, index=df.index)
-                    if 'close_D' in df.columns:
-                        ma_short = df['close_D'].rolling(5).mean()
-                        ma_long = df['close_D'].rolling(20).mean()
-                        cond_trend_direction = (ma_short > ma_long * 0.95)
-                    else:
-                        cond_trend_direction = pd.Series(True, index=df.index)
-                    if 'pct_change_D' in df.columns:
-                        recent_volatility = df['pct_change_D'].abs().rolling(10).mean()
-                        cond_slow_correction = (df['pct_change_D'].abs() < recent_volatility * 3.0)
-                    else:
-                        cond_slow_correction = pd.Series(True, index=df.index)
-                    
-                    # 回调信号权重评分系统 - 只在回调幅度条件满足时计算
-                    correction_score = pd.Series(0, index=df.index, dtype=float)
-                    # 回调幅度条件已经满足，基础得2分
-                    correction_score = correction_score + (cond_small_correction * 2.0).fillna(0)
-                    # 其他条件评分
-                    correction_score = correction_score + (cond_volume_support * 1.5).fillna(0)
-                    correction_score = correction_score + (cond_trend_support * 1.5).fillna(0)
-                    correction_score = correction_score + (cond_trend_direction * 1.0).fillna(0)
-                    correction_score = correction_score + (cond_slow_correction * 1.0).fillna(0)
-                    correction_score = correction_score + (cond_mf_not_outflow * 0.5).fillna(0)
-                    correction_score = correction_score + (cond_chip_stable * 0.5).fillna(0)
-                    
-                    # 综合回调信号：总分达到5分即可，且回调幅度条件必须满足
-                    df['IS_TREND_CORRECTION_D'] = (correction_score >= 5.0) & cond_small_correction
-                    # 原始版本：严格要求所有条件，且回调幅度条件必须满足
-                    df['IS_TREND_CORRECTION_RAW_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
-                    
-                    # 探针：检查最终回调信号
-                    if '2025-12-30' in df.index:
-                        idx = df.index.get_loc('2025-12-30')
-                        print(f"[最终回调信号探针] 日期: 2025-12-30")
-                        print(f"  回调幅度条件: {cond_small_correction.iloc[idx]}")
-                        print(f"  成交量条件: {cond_volume_support.iloc[idx]}")
-                        print(f"  趋势支撑条件: {cond_trend_support.iloc[idx]}")
-                        print(f"  趋势方向条件: {cond_trend_direction.iloc[idx]}")
-                        print(f"  回调速度条件: {cond_slow_correction.iloc[idx]}")
-                        print(f"  主力资金条件: {cond_mf_not_outflow.iloc[idx]}")
-                        print(f"  筹码健康条件: {cond_chip_stable.iloc[idx]}")
-                        print(f"  回调评分: {correction_score.iloc[idx]:.1f}")
-                        print(f"  最终回调信号: {df['IS_TREND_CORRECTION_D'].iloc[idx]}")
+                    cond_mf_not_outflow = pd.Series(True, index=df.index)
+                
+                # 筹码健康条件：使用动态阈值
+                if 'chip_health_score_D' in df.columns:
+                    chip_median = df['chip_health_score_D'].rolling(20).median().fillna(method='ffill')
+                    chip_std = df['chip_health_score_D'].rolling(20).std().fillna(0)
+                    # 筹码健康条件：不低于中位数减去0.5个标准差
+                    cond_chip_stable = (df['chip_health_score_D'] > chip_median - chip_std * 0.5)
+                else:
+                    cond_chip_stable = pd.Series(True, index=df.index)
+                
+                if 'close_D' in df.columns:
+                    ma5 = df['close_D'].rolling(5).mean()
+                    ma10 = df['close_D'].rolling(10).mean()
+                    # 回调日收盘价应在5日线附近（不超过8%的偏离）
+                    cond_trend_support = (df['close_D'] >= ma5 * 0.92) & (ma5 > ma10 * 0.94)
+                else:
+                    cond_trend_support = pd.Series(True, index=df.index)
+                
+                if 'close_D' in df.columns:
+                    ma_short = df['close_D'].rolling(5).mean()
+                    ma_long = df['close_D'].rolling(20).mean()
+                    cond_trend_direction = (ma_short > ma_long * 0.94)  # 允许短期均线略低于长期均线
+                else:
+                    cond_trend_direction = pd.Series(True, index=df.index)
+                
+                if 'pct_change_D' in df.columns:
+                    recent_volatility = df['pct_change_D'].abs().rolling(10).mean()
+                    cond_slow_correction = (df['pct_change_D'].abs() < recent_volatility * 2.5)  # 放宽到2.5倍波动率
+                else:
+                    cond_slow_correction = pd.Series(True, index=df.index)
+                
+                # 回调信号权重评分系统
+                correction_score = pd.Series(0, index=df.index, dtype=float)
+                correction_score = correction_score + (cond_small_correction * 2.5).fillna(0)  # 回调幅度条件最重要
+                correction_score = correction_score + (cond_volume_support * 1.5).fillna(0)  # 成交量支持重要
+                correction_score = correction_score + (cond_trend_support * 1.5).fillna(0)  # 趋势支撑重要
+                correction_score = correction_score + (cond_trend_direction * 1.2).fillna(0)  # 趋势方向重要
+                correction_score = correction_score + (cond_slow_correction * 1.0).fillna(0)  # 回调速度重要
+                correction_score = correction_score + (cond_recent_uptrend * 1.0).fillna(0)  # 近期上涨趋势重要
+                correction_score = correction_score + (cond_not_break_ma20 * 1.0).fillna(0)  # 不破20日线重要
+                correction_score = correction_score + (cond_mf_not_outflow * 0.8).fillna(0)  # 主力资金条件
+                correction_score = correction_score + (cond_chip_stable * 0.8).fillna(0)  # 筹码健康条件
+                
+                # 综合回调信号：总分达到7分即可，且回调幅度条件必须满足
+                df['IS_TREND_CORRECTION_D'] = (correction_score >= 7.0) & cond_small_correction
+                
+                # 新增：回调信号与趋势延续信号互斥
+                if 'IS_TREND_CONTINUATION_D' in df.columns:
+                    df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'] & (~df['IS_TREND_CONTINUATION_D'])
+                
+                # 原始版本：严格要求所有条件
+                df['IS_TREND_CORRECTION_RAW_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
+                
+                # 探针：检查最终回调信号
+                if '2025-12-30' in df.index:
+                    idx = df.index.get_loc('2025-12-30')
+                    print(f"[最终回调信号探针] 日期: 2025-12-30")
+                    print(f"  回调幅度条件: {cond_small_correction.iloc[idx]}")
+                    print(f"  成交量条件: {cond_volume_support.iloc[idx]}")
+                    print(f"  趋势支撑条件: {cond_trend_support.iloc[idx]}")
+                    print(f"  趋势方向条件: {cond_trend_direction.iloc[idx]}")
+                    print(f"  回调速度条件: {cond_slow_correction.iloc[idx]}")
+                    print(f"  近期上涨趋势条件: {cond_recent_uptrend.iloc[idx] if 'cond_recent_uptrend' in locals() else 'N/A'}")
+                    print(f"  不破20日线条件: {cond_not_break_ma20.iloc[idx] if 'cond_not_break_ma20' in locals() else 'N/A'}")
+                    print(f"  主力资金条件: {cond_mf_not_outflow.iloc[idx]}")
+                    print(f"  筹码健康条件: {cond_chip_stable.iloc[idx]}")
+                    print(f"  回调评分: {correction_score.iloc[idx]:.1f}")
+                    print(f"  趋势延续信号: {df['IS_TREND_CONTINUATION_D'].iloc[idx] if 'IS_TREND_CONTINUATION_D' in df.columns else 'N/A'}")
+                    print(f"  最终回调信号: {df['IS_TREND_CORRECTION_D'].iloc[idx]}")
             if 'pct_change_D' in df.columns:
                 cond_sharp_drop = df['pct_change_D'] < -0.05  # 修改为-5%，与回调信号区分
                 cond_volume_spike = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(False, index=df.index)
@@ -854,24 +880,40 @@ class FeatureEngineeringService:
             print_signal_dates("IS_TREND_CONTINUATION_D(原始)", df['IS_TREND_CONTINUATION_D'])
             print_signal_dates("IS_TREND_CORRECTION_D(原始)", df['IS_TREND_CORRECTION_D'])
             print_signal_dates("IS_TREND_REVERSAL_D(原始)", df['IS_TREND_REVERSAL_D'])
-            for col in ['IS_TREND_CONTINUATION_D', 'IS_TREND_REVERSAL_D']:
-                if col in df.columns:
-                    df[col] = df[col].fillna(False).astype(bool)
-                    try:
-                        signal_series = df[col].astype(float)
-                        # 修复去抖动逻辑：使用rolling(2).max()，而不是sum()>=1
-                        df[col] = (signal_series.rolling(3, min_periods=2).max() >= 1).fillna(False).astype(bool)
-                    except Exception as e:
-                        print(f"信号去抖动失败: {col}, 错误: {e}")
+            
+            # 趋势延续信号去抖动：使用3日窗口，需要至少有2天触发
+            if 'IS_TREND_CONTINUATION_D' in df.columns:
+                df['IS_TREND_CONTINUATION_D'] = df['IS_TREND_CONTINUATION_D'].fillna(False).astype(bool)
+                try:
+                    signal_series = df['IS_TREND_CONTINUATION_D'].astype(float)
+                    df['IS_TREND_CONTINUATION_D'] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
+                except Exception as e:
+                    print(f"趋势延续信号去抖动失败: {e}")
+            
+            # 趋势回调信号去抖动：使用2日窗口，需要至少有1天触发，且避免信号扩散
             if 'IS_TREND_CORRECTION_D' in df.columns:
                 df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'].fillna(False).astype(bool)
                 try:
                     signal_series = df['IS_TREND_CORRECTION_D'].astype(float)
-                    # 修复去抖动逻辑：使用rolling(2).max()，避免信号扩散
-                    df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=1).max() >= 1).fillna(False).astype(bool)
+                    # 使用2日窗口，至少1天触发，同时避免连续多日触发导致信号扩散
+                    df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=1).sum() >= 1).fillna(False).astype(bool)
+                    # 如果连续多日触发，只保留第一天
+                    correction_mask = df['IS_TREND_CORRECTION_D']
+                    continuous_correction = (correction_mask & correction_mask.shift(1))
+                    df.loc[continuous_correction, 'IS_TREND_CORRECTION_D'] = False
                     print(f"趋势回调信号去抖动：去抖动后{df['IS_TREND_CORRECTION_D'].sum()}次")
                 except Exception as e:
                     print(f"趋势回调信号去抖动失败: {e}")
+            
+            # 趋势反转信号去抖动：使用3日窗口，需要至少有2天触发
+            if 'IS_TREND_REVERSAL_D' in df.columns:
+                df['IS_TREND_REVERSAL_D'] = df['IS_TREND_REVERSAL_D'].fillna(False).astype(bool)
+                try:
+                    signal_series = df['IS_TREND_REVERSAL_D'].astype(float)
+                    df['IS_TREND_REVERSAL_D'] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
+                except Exception as e:
+                    print(f"趋势反转信号去抖动失败: {e}")
+            
             print("去抖动后信号触发日期:")
             print_signal_dates("IS_TREND_CONTINUATION_D(去抖动后)", df['IS_TREND_CONTINUATION_D'])
             print_signal_dates("IS_TREND_CORRECTION_D(去抖动后)", df['IS_TREND_CORRECTION_D'])
@@ -884,22 +926,32 @@ class FeatureEngineeringService:
                     df[col] = df[col].fillna(False).astype(bool)
                     try:
                         signal_series = df[col].astype(float)
-                        df[col] = (signal_series.rolling(3, min_periods=2).max() >= 1).fillna(False).astype(bool)
+                        df[col] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
                     except Exception as e:
                         print(f"信号去抖动失败: {col}, 错误: {e}")
         print(f"=== 信号互斥处理 ===")
         try:
             if market_phase == 'TRENDING':
+                # 趋势延续时关闭趋势反转信号
                 if 'IS_TREND_CONTINUATION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
                     continuation_mask = df['IS_TREND_CONTINUATION_D'].astype(bool)
                     if continuation_mask.any():
                         df.loc[continuation_mask, 'IS_TREND_REVERSAL_D'] = False
                         print(f"趋势延续时关闭趋势反转信号，影响{continuation_mask.sum()}个数据点")
+                
+                # 趋势回调时关闭趋势反转信号
                 if 'IS_TREND_CORRECTION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
                     correction_mask = df['IS_TREND_CORRECTION_D'].astype(bool)
                     if correction_mask.any():
                         df.loc[correction_mask, 'IS_TREND_REVERSAL_D'] = False
                         print(f"趋势回调时关闭趋势反转信号，影响{correction_mask.sum()}个数据点")
+                
+                # 趋势反转时关闭趋势回调信号
+                if 'IS_TREND_REVERSAL_D' in df.columns and 'IS_TREND_CORRECTION_D' in df.columns:
+                    reversal_mask = df['IS_TREND_REVERSAL_D'].astype(bool)
+                    if reversal_mask.any():
+                        df.loc[reversal_mask, 'IS_TREND_CORRECTION_D'] = False
+                        print(f"趋势反转时关闭趋势回调信号，影响{reversal_mask.sum()}个数据点")
             else:
                 if 'IS_BREAKOUT_D' in df.columns and 'IS_ACCUMULATION_D' in df.columns:
                     breakout_mask = df['IS_BREAKOUT_D'].astype(bool)
