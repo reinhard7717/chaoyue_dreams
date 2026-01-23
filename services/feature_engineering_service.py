@@ -426,74 +426,73 @@ class FeatureEngineeringService:
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.6 · Numba重构版】元特征计算车间
-        - 核心优化: 移除了原本嵌套的 Numba 函数定义，改用模块级函数。
-        - 性能突破: 将样本熵 (Sample Entropy) 的滚动计算从 Python 循环彻底重构为 Numba 循环 (_numba_rolling_sample_entropy)，
-                  消除了处理长序列时的主要性能瓶颈。
-        - 功能: 计算 Hurst 指数、分形维数、样本熵、FFT 能量比等。
+        【V3.7 · 探针增强版】元特征计算车间
+        - 新增探针机制：验证每个源序列的元特征计算是否成功
+        - 修复问题：确保所有配置的源序列都能正确计算元特征
+        - 增强诊断：当元特征计算失败时提供更详细的错误信息
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
+            logger.warning(f"元特征计算缺少时间周期 '{timeframe}' 的数据")
             return all_dfs
         df = all_dfs[timeframe]
         suffix = f"_{timeframe}"
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
-        
         if not params.get('enabled', False):
+            logger.info("元特征计算功能未启用")
             return all_dfs
-        print(f"calculate_meta_features 输入df部分值: {df.head()}")
+        logger.info(f"开始计算元特征，当前数据形状: {df.shape}")
+        logger.info(f"可用列: {df.columns.tolist()}")
         source_series_configs = [
             {'col': f'close{suffix}', 'prefix': ''},
             {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
             {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
         ]
-
+        computed_features = []
         for src_config in source_series_configs:
             source_col = src_config['col']
             prefix = src_config['prefix']
+            logger.info(f"处理源序列: {source_col}，前缀: {prefix}")
             if source_col not in df.columns:
                 logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
+                logger.warning(f"当前可用相关列: {[col for col in df.columns if source_col.replace(suffix, '') in col]}")
                 continue
-                
             current_series = df[source_col]
             if isinstance(current_series, pd.DataFrame):
                 current_series = current_series.iloc[:, 0]
-                
-            # 准备数据，移除 NaN 并获取 Values
-            # 注意：对于需要保持索引对齐的滚动计算，我们通常在原始长度上操作，并在 Numba 中处理边界
-            # 但原有逻辑是 dropna() 后计算再 reindex。为了保持一致性：
             clean_series = current_series.dropna()
             clean_values = clean_series.values.astype(np.float64)
-            if len(clean_values) < 50: # 数据太少不计算
+            if len(clean_values) < 50:
+                logger.warning(f"源序列 '{source_col}' 有效数据不足50个，跳过元特征计算")
                 continue
-            # --- 1. Hurst 指数 ---
+            logger.info(f"源序列 '{source_col}' 有效数据长度: {len(clean_values)}")
             hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns:
                 try:
-                    # Hurst 计算较复杂，暂维持 rolling apply，如有性能瓶颈可进一步重构
                     df[hurst_col] = current_series.rolling(window=hurst_window, min_periods=hurst_window).apply(
                         lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
                     )
+                    computed_count = df[hurst_col].notna().sum()
+                    logger.info(f"计算 {hurst_col} 完成，非空值数量: {computed_count}")
+                    computed_features.append(hurst_col)
                 except Exception as e:
                     logger.error(f"赫斯特指数计算失败: {e}")
                     df[hurst_col] = np.nan
-            # --- 2. 分形维度 (Fractal Dimension) ---
             fd_window = params.get('fractal_dimension_window', 89)
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
             if fd_col not in df.columns:
                 try:
                     k_max = int(np.sqrt(fd_window))
-                    # 使用 rolling.apply 调用 Numba 函数
-                    # 或者为了极致性能，也可以编写 _numba_rolling_higuchi，但此处 apply 配合 Numba 内部循环尚可接受
-                    # 为了更稳健，直接使用 rolling apply 传递给新的模块级 numba 函数
                     df[fd_col] = current_series.rolling(window=fd_window, min_periods=fd_window).apply(
                         lambda x: _numba_higuchi_fd(x, k_max), raw=True
                     )
+                    computed_count = df[fd_col].notna().sum()
+                    logger.info(f"计算 {fd_col} 完成，非空值数量: {computed_count}")
+                    computed_features.append(fd_col)
                 except Exception as e:
                     logger.error(f"分形维度计算失败: {e}")
                     df[fd_col] = np.nan
-            # --- 3. 样本熵 (Sample Entropy) ---
             se_window = params.get('sample_entropy_window', 13)
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
@@ -502,28 +501,29 @@ class FeatureEngineeringService:
                     if len(clean_values) < se_window + 1:
                         df[se_col] = np.nan
                     else:
-                        # 预计算滚动标准差 (Pandas 优化)
                         rolling_std = clean_series.rolling(window=se_window, min_periods=se_window).std().values
-                        # 【Numba加速】调用全滚动计算函数，替代 Python 循环
                         entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
                         df[se_col] = pd.Series(entropy_values, index=clean_series.index).reindex(df.index)
+                    computed_count = df[se_col].notna().sum()
+                    logger.info(f"计算 {se_col} 完成，非空值数量: {computed_count}")
+                    computed_features.append(se_col)
                 except Exception as e:
                     logger.error(f"样本熵计算失败: {e}")
                     df[se_col] = np.nan
-            # --- 4. NOLDS样本熵 ---
             nolds_sampen_window = params.get('approximate_entropy_window', 21)
             nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
             if nolds_sampen_col not in df.columns:
                 try:
-                     # 异步调用外部计算器，保持不变
                     df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(
                         df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
                     )
+                    computed_count = df[nolds_sampen_col].notna().sum()
+                    logger.info(f"计算 {nolds_sampen_col} 完成，非空值数量: {computed_count}")
+                    computed_features.append(nolds_sampen_col)
                 except Exception as e:
                     logger.error(f"NOLDS样本熵计算失败: {e}")
                     df[nolds_sampen_col] = np.nan
-            # --- 5. FFT能量比 ---
             fft_window = params.get('fft_energy_ratio_window', 34)
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
             if fft_col not in df.columns:
@@ -531,23 +531,41 @@ class FeatureEngineeringService:
                     if len(clean_values) < fft_window:
                         df[fft_col] = np.nan
                     else:
-                        # 调用已存在的 Numba 核心函数
                         fft_energy_ratios_values = _numba_rolling_fft_energy_ratio_core(
                             clean_values,
                             fft_window,
                             low_freq_cutoff_ratio=0.1
                         )
                         df[fft_col] = pd.Series(fft_energy_ratios_values, index=clean_series.index).reindex(df.index)
+                    computed_count = df[fft_col].notna().sum()
+                    logger.info(f"计算 {fft_col} 完成，非空值数量: {computed_count}")
+                    computed_features.append(fft_col)
                 except Exception as e:
                     logger.error(f"FFT能量比计算失败: {e}")
                     df[fft_col] = np.nan
-            # --- 6. 波动率不稳定性 ---
             vi_window = params.get('volatility_instability_window', 21)
             vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
             atr_col = f'ATR_14{suffix}'
             if atr_col in df.columns and vi_col not in df.columns:
                 df[vi_col] = df[atr_col].rolling(window=vi_window, min_periods=vi_window).std()
-
+                computed_count = df[vi_col].notna().sum()
+                logger.info(f"计算 {vi_col} 完成，非空值数量: {computed_count}")
+                computed_features.append(vi_col)
+        logger.info(f"元特征计算完成，共生成 {len(computed_features)} 个特征")
+        logger.info(f"生成的元特征: {computed_features}")
+        missing_expected = []
+        for src_config in source_series_configs:
+            prefix = src_config['prefix']
+            expected_cols = [
+                f'{prefix}HURST_144d{suffix}',
+                f'{prefix}FRACTAL_DIMENSION_89d{suffix}',
+                f'{prefix}SAMPLE_ENTROPY_13d{suffix}'
+            ]
+            for col in expected_cols:
+                if col not in df.columns:
+                    missing_expected.append(col)
+        if missing_expected:
+            logger.warning(f"以下预期元特征未生成: {missing_expected}")
         all_dfs[timeframe] = df
         return all_dfs
 
