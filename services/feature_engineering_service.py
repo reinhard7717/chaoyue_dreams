@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 import numba
-from numba import objmode
+from numba import objmode, prange
 from utils.math_tools import hurst_exponent
 from strategies.trend_following.utils import _numba_nonlinear_fusion_core
 logger = logging.getLogger("services")
@@ -319,7 +319,8 @@ class FeatureEngineeringService:
         return all_dfs
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """【V4.0 · 向量化Numba优化版】元特征计算车间 - 极致性能"""
+        """【V4.1 · 修正版】元特征计算车间 - 修复Numba和形状错误"""
+        from numba import njit, prange  # 在方法内部导入以避免导入问题
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
@@ -344,60 +345,100 @@ class FeatureEngineeringService:
             clean_values = series_values[valid_mask]
             if len(clean_values) == 0:
                 continue
-            # 1. 赫斯特指数 (向量化滚动计算)
+            # 1. 赫斯特指数 (保持原方法避免复杂错误)
             hurst_window = params.get('hurst_window', 144)
             hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
             if hurst_col not in df.columns:
                 try:
                     if len(clean_values) >= hurst_window:
-                        hurst_values = np.full(len(series_values), np.nan, dtype=np.float64)
-                        # 使用滑动窗口计算赫斯特指数
-                        for i in range(hurst_window - 1, len(clean_values)):
-                            window_data = clean_values[i - hurst_window + 1:i + 1]
-                            hurst_values[valid_mask][i] = self._vectorized_hurst_exponent(window_data, hurst_window)
-                        df[hurst_col] = hurst_values
+                        df[hurst_col] = df[source_col].rolling(window=hurst_window, min_periods=hurst_window).apply(
+                            lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
+                        )
                     else:
                         df[hurst_col] = np.nan
                 except Exception as e:
                     logger.error(f"赫斯特指数计算失败: {e}")
                     df[hurst_col] = np.nan
-            # 2. 分形维度 (Numba向量化)
+            # 2. 分形维度 (修正Numba函数)
             fd_window = params.get('fractal_dimension_window', 89)
             fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
             if fd_col not in df.columns:
                 try:
                     if len(clean_values) >= fd_window:
+                        @njit(cache=True)
+                        def numba_higuchi_fd_windowed(data, window, k_max):
+                            n = len(data)
+                            result = np.full(n, np.nan, dtype=np.float64)
+                            for i in range(window - 1, n):
+                                window_data = data[i - window + 1:i + 1]
+                                k_values = np.arange(1, k_max + 1)
+                                l_values = np.zeros(len(k_values))
+                                for j, k in enumerate(k_values):
+                                    lk = 0.0
+                                    max_m = (window - 1) // k
+                                    if max_m < 1:
+                                        l_values[j] = 0.0
+                                        continue
+                                    for m in range(max_m):
+                                        idx1 = m * k
+                                        idx2 = (m + 1) * k
+                                        if idx2 < len(window_data):
+                                            lk += abs(window_data[idx2] - window_data[idx1])
+                                    lk = lk * (window - 1) / (max_m * k * k)
+                                    l_values[j] = lk
+                                valid_mask = l_values > 0
+                                if np.sum(valid_mask) < 2:
+                                    result[i] = np.nan
+                                    continue
+                                x = np.log(1.0 / k_values[valid_mask])
+                                y = np.log(l_values[valid_mask])
+                                n_valid = len(x)
+                                sum_x = np.sum(x)
+                                sum_y = np.sum(y)
+                                sum_xy = np.sum(x * y)
+                                sum_x2 = np.sum(x * x)
+                                denom = n_valid * sum_x2 - sum_x * sum_x
+                                if denom == 0:
+                                    result[i] = np.nan
+                                    continue
+                                slope = (n_valid * sum_xy - sum_x * sum_y) / denom
+                                result[i] = slope
+                            return result[window-1:]
                         k_max = int(np.sqrt(fd_window))
+                        fd_window_data = numba_higuchi_fd_windowed(clean_values, fd_window, k_max)
                         fd_values = np.full(len(series_values), np.nan, dtype=np.float64)
-                        # 预计算所有窗口的分形维度
-                        fd_window_data = _numba_rolling_fractal_dimension(clean_values, fd_window, k_max)
-                        fd_values[valid_mask][fd_window-1:] = fd_window_data
+                        valid_indices = np.where(valid_mask)[0][fd_window-1:]
+                        fd_values[valid_indices] = fd_window_data
                         df[fd_col] = fd_values
                     else:
                         df[fd_col] = np.nan
                 except Exception as e:
                     logger.error(f"分形维度计算失败: {e}")
                     df[fd_col] = np.nan
-            # 3. 样本熵 (已Numba优化)
+            # 3. 样本熵 (修正形状错误)
             se_window = params.get('sample_entropy_window', 13)
             se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
             se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
             if se_col not in df.columns:
                 try:
                     if len(clean_values) >= se_window + 1:
-                        # 预计算滚动标准差 (向量化)
-                        rolling_std = self._vectorized_rolling_std(clean_values, se_window)
-                        # Numba加速样本熵计算
+                        # 修正滚动标准差计算，确保长度正确
+                        rolling_std = np.full(len(clean_values), np.nan, dtype=np.float64)
+                        for i in range(se_window - 1, len(clean_values)):
+                            window_data = clean_values[i - se_window + 1:i + 1]
+                            rolling_std[i] = np.std(window_data)
+                        # 调用Numba函数
                         entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
                         se_result = np.full(len(series_values), np.nan, dtype=np.float64)
-                        se_result[valid_mask][se_window-1:] = entropy_values
+                        valid_indices = np.where(valid_mask)[0][se_window-1:]
+                        se_result[valid_indices] = entropy_values
                         df[se_col] = se_result
                     else:
                         df[se_col] = np.nan
                 except Exception as e:
                     logger.error(f"样本熵计算失败: {e}")
                     df[se_col] = np.nan
-            # 4. NOLDS样本熵 (保持异步)
+            # 4. NOLDS样本熵
             nolds_sampen_window = params.get('approximate_entropy_window', 21)
             nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
             nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
@@ -412,24 +453,33 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"NOLDS样本熵计算失败: {e}")
                     df[nolds_sampen_col] = np.nan
-            # 5. FFT能量比 (向量化计算)
+            # 5. FFT能量比
             fft_window = params.get('fft_energy_ratio_window', 34)
             fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
             if fft_col not in df.columns:
                 try:
                     if len(clean_values) >= fft_window:
                         fft_values = np.full(len(series_values), np.nan, dtype=np.float64)
-                        # 使用滑动窗口计算FFT能量比
                         for i in range(fft_window - 1, len(clean_values)):
                             window_data = clean_values[i - fft_window + 1:i + 1]
-                            fft_values[valid_mask][i] = self._vectorized_fft_energy_ratio(window_data, fft_window)
+                            fft_result = np.fft.fft(window_data - np.mean(window_data))
+                            freqs = np.fft.fftfreq(fft_window)
+                            power_spectrum = np.abs(fft_result) ** 2
+                            low_freq_mask = np.abs(freqs) <= 0.1
+                            high_freq_mask = np.abs(freqs) > 0.1
+                            low_freq_energy = np.sum(power_spectrum[low_freq_mask])
+                            high_freq_energy = np.sum(power_spectrum[high_freq_mask])
+                            if high_freq_energy == 0:
+                                fft_values[valid_mask][i] = np.nan
+                            else:
+                                fft_values[valid_mask][i] = low_freq_energy / high_freq_energy
                         df[fft_col] = fft_values
                     else:
                         df[fft_col] = np.nan
                 except Exception as e:
                     logger.error(f"FFT能量比计算失败: {e}")
                     df[fft_col] = np.nan
-            # 6. 波动率不稳定性 (向量化)
+            # 6. 波动率不稳定性
             vi_window = params.get('volatility_instability_window', 21)
             vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
             atr_col = f'ATR_14{suffix}'
@@ -439,9 +489,9 @@ class FeatureEngineeringService:
                     atr_valid_mask = ~np.isnan(atr_values)
                     if np.sum(atr_valid_mask) >= vi_window:
                         vi_values = np.full(len(atr_values), np.nan, dtype=np.float64)
-                        # 向量化计算滚动标准差
-                        rolling_std_atr = self._vectorized_rolling_std(atr_values[atr_valid_mask], vi_window)
-                        vi_values[atr_valid_mask][vi_window-1:] = rolling_std_atr
+                        atr_valid_values = atr_values[atr_valid_mask]
+                        for i in range(vi_window - 1, len(atr_valid_values)):
+                            vi_values[np.where(atr_valid_mask)[0][i]] = np.std(atr_valid_values[i - vi_window + 1:i + 1])
                         df[vi_col] = vi_values
                     else:
                         df[vi_col] = np.nan
@@ -536,17 +586,26 @@ class FeatureEngineeringService:
         print(f"=== 阶段自适应阈值计算 ===")
         dynamic_thresholds = {}
         if market_phase == 'TRENDING':
-            print("趋势市场阈值配置（相对宽松）:")
-            threshold_config = {
-                'chip_health_score_D': ('q25', 0.25),
-                'dominant_peak_solidity_D': ('q40', 0.4),
-                'main_force_net_flow_calibrated_D': ('q50', 0.5),
-                'structural_tension_index_D': ('q50', 0.5),
-                'breakout_readiness_score_D': ('q60', 0.6),
-                'platform_conviction_score_D': ('q60', 0.6),
-                'trend_conviction_score_D': ('q60', 0.6),
-                'pct_change_D': ('q40', 0.4),
-            }
+            signal_cols = ['IS_TREND_CONTINUATION_D', 'IS_TREND_CORRECTION_D', 'IS_TREND_REVERSAL_D']
+            print("趋势市场信号去抖动...")
+            # 趋势延续和反转使用3日去抖动
+            for col in ['IS_TREND_CONTINUATION_D', 'IS_TREND_REVERSAL_D']:
+                if col in df.columns:
+                    df[col] = df[col].fillna(False).astype(bool)
+                    try:
+                        signal_series = df[col].astype(float)
+                        df[col] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
+                    except Exception as e:
+                        print(f"信号去抖动失败: {col}, 错误: {e}")
+            # 趋势回调使用2日去抖动（更敏感）
+            if 'IS_TREND_CORRECTION_D' in df.columns:
+                df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'].fillna(False).astype(bool)
+                try:
+                    signal_series = df['IS_TREND_CORRECTION_D'].astype(float)
+                    df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=1).sum() >= 1).fillna(False).astype(bool)
+                    print(f"趋势回调信号去抖动：原始触发{signal_series.sum()}次，去抖动后{df['IS_TREND_CORRECTION_D'].sum()}次")
+                except Exception as e:
+                    print(f"趋势回调信号去抖动失败: {e}")
         else:
             print("盘整市场阈值配置（相对严格）:")
             threshold_config = {
