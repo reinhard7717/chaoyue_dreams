@@ -637,7 +637,7 @@ class FeatureEngineeringService:
             if 'pct_change_D' in df.columns:
                 print("=== 回调信号动态阈值计算 ===")
                 print("[回调信号探针] 回调幅度条件重构...")
-                # 回调信号核心逻辑 - 更加严格的条件
+                # 回调信号核心逻辑 - 最终优化版本
                 # 回调幅度在-5%到-0.8%之间（即-0.05到-0.008）
                 correction_min_magnitude = -0.008  # 最小回调幅度（绝对值）-0.8%
                 correction_max_magnitude = -0.05   # 最大回调幅度（绝对值）-5%
@@ -720,7 +720,7 @@ class FeatureEngineeringService:
                 else:
                     cond_slow_correction = pd.Series(True, index=df.index)
                 
-                # 回调信号权重评分系统 - 更加严格的权重分配
+                # 回调信号权重评分系统 - 最终优化
                 correction_score = pd.Series(0, index=df.index, dtype=float)
                 correction_score = correction_score + (cond_small_correction * 2.5).fillna(0)  # 回调幅度条件最重要
                 correction_score = correction_score + (cond_volume_support * 1.2).fillna(0)  # 成交量支持重要
@@ -882,7 +882,7 @@ class FeatureEngineeringService:
             print_signal_dates("IS_TREND_CORRECTION_D(原始)", df['IS_TREND_CORRECTION_D'])
             print_signal_dates("IS_TREND_REVERSAL_D(原始)", df['IS_TREND_REVERSAL_D'])
             
-            # 趋势延续信号去抖动：使用3日窗口，需要至少有2天触发
+            # 趋势延续信号去抖动：使用2日窗口，需要连续2天都触发
             if 'IS_TREND_CONTINUATION_D' in df.columns:
                 df['IS_TREND_CONTINUATION_D'] = df['IS_TREND_CONTINUATION_D'].fillna(False).astype(bool)
                 try:
@@ -892,18 +892,26 @@ class FeatureEngineeringService:
                 except Exception as e:
                     print(f"趋势延续信号去抖动失败: {e}")
             
-            # 趋势回调信号去抖动：更加严格，避免信号扩散
+            # 趋势回调信号去抖动：优化后的逻辑，确保单日回调信号也能被保留
             if 'IS_TREND_CORRECTION_D' in df.columns:
                 df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'].fillna(False).astype(bool)
                 try:
                     signal_series = df['IS_TREND_CORRECTION_D'].astype(float)
-                    # 使用2日窗口，需要连续2天都触发（更加严格）
-                    df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=2).sum() >= 2).fillna(False).astype(bool)
-                    # 如果连续多日触发，只保留第一天
+                    # 优化：使用2日窗口，只要有一天触发就保留（单日回调信号也应该被保留）
+                    df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=1).max() >= 1).fillna(False).astype(bool)
+                    # 去除连续触发中的第二天及以后（只保留连续触发序列的第一天）
                     correction_mask = df['IS_TREND_CORRECTION_D']
+                    # 如果今天触发且昨天也触发，则今天设为False（只保留第一天）
                     continuous_correction = (correction_mask & correction_mask.shift(1))
                     df.loc[continuous_correction, 'IS_TREND_CORRECTION_D'] = False
                     print(f"趋势回调信号去抖动：去抖动后{df['IS_TREND_CORRECTION_D'].sum()}次")
+                    # 探针：检查12-30日的去抖动结果
+                    if '2025-12-30' in df.index:
+                        idx = df.index.get_loc('2025-12-30')
+                        print(f"[回调去抖动探针] 日期: 2025-12-30")
+                        print(f"  原始信号: {signal_series.iloc[idx]}")
+                        print(f"  前一日信号: {signal_series.iloc[idx-1] if idx>0 else 'N/A'}")
+                        print(f"  去抖动后信号: {df['IS_TREND_CORRECTION_D'].iloc[idx]}")
                 except Exception as e:
                     print(f"趋势回调信号去抖动失败: {e}")
             

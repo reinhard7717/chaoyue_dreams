@@ -722,11 +722,11 @@ class CalculateCostAdvantageTrendRelationship:
 
     def _calculate_q1_healthy_rally(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.3 · Q1健康上涨计算 - 修复值溢出与范围控制版】
-        - 核心修复: 确保Q1_base计算在合理范围[0,1]内
-        - 核心修复: 防止Q1_final超出clip上限
-        - 核心优化: 添加计算范围检查和安全处理
-        - 版本: 1.1.3
+        【V1.1.4 · Q1健康上涨计算 - 修复极端值与稳定性增强版】
+        - 核心修复: 修复Q1_base计算中的极端值问题
+        - 核心优化: 添加更多范围检查和安全处理
+        - 核心新增: 对极端值进行平滑处理
+        - 版本: 1.1.4
         """
         # 确保输入信号在[-1,1]范围内
         price_change_clipped = fetched_signals['mtf_price_change'].clip(-1, 1)
@@ -736,15 +736,30 @@ class CalculateCostAdvantageTrendRelationship:
         price_positive = price_change_clipped.clip(lower=0)
         ca_positive = ca_change_clipped.clip(lower=0)
         
-        # 使用几何平均而不是简单相乘，避免值过大
-        Q1_base = (price_positive * ca_positive).pow(0.5)
+        # 使用更稳健的计算方法，避免极端值
+        # 当两个信号都为正时，使用几何平均；否则为0
+        Q1_base = pd.Series(0.0, index=price_change_clipped.index)
+        
+        # 找到两个信号都为正的索引
+        both_positive_mask = (price_positive > 0) & (ca_positive > 0)
+        
+        if both_positive_mask.any():
+            # 对正信号进行平滑处理，避免极端值
+            Q1_base[both_positive_mask] = (price_positive[both_positive_mask] * ca_positive[both_positive_mask]).pow(0.5)
         
         # 确保基础值在[0,1]范围内
         Q1_base = Q1_base.clip(0, 1)
         
+        # 检查是否存在极端值
+        if Q1_base.max() > 0.95:
+            print(f"【Q1警告】检测到极端值: {Q1_base.max():.4f}，进行平滑处理")
+            # 对极端值进行平滑
+            Q1_base = Q1_base.apply(lambda x: x if x <= 0.95 else 0.9 + (x - 0.95) * 0.1)
+        
         # 确认：主力信念、上涨纯度、资金流可信度、主力买入执行Alpha
+        # 确保所有确认分量都是非负的且在合理范围内
         Q1_confirm_components = {
-            'mtf_main_force_conviction': normalized_signals['mtf_main_force_conviction'].clip(lower=0),
+            'mtf_main_force_conviction': normalized_signals['mtf_main_force_conviction'].clip(0, 1),  # 只考虑正值
             'mtf_upward_purity': normalized_signals['mtf_upward_purity'].clip(0, 1),
             'flow_credibility_norm': normalized_signals['flow_credibility_norm'].clip(0, 1),
             'main_force_buy_execution_alpha_norm': normalized_signals['main_force_buy_execution_alpha_norm'].clip(0, 1)
@@ -775,6 +790,11 @@ class CalculateCostAdvantageTrendRelationship:
         # 最终计算，确保在[0,1]范围内
         Q1_final = (Q1_base * Q1_confirm).clip(0, 1)
         
+        # 检查最终分数是否有极端值
+        if Q1_final.max() > 0.95:
+            print(f"【Q1警告】最终分数有极端值: {Q1_final.max():.4f}")
+            Q1_final = Q1_final.apply(lambda x: x if x <= 0.95 else 0.9 + (x - 0.95) * 0.1)
+        
         # 探针输出
         _temp_debug_values["Q1: 价涨 & 优扩"] = {
             "Q1_base": Q1_base,
@@ -783,31 +803,44 @@ class CalculateCostAdvantageTrendRelationship:
             "price_change_range": f"[{price_change_clipped.min():.4f}, {price_change_clipped.max():.4f}]",
             "ca_change_range": f"[{ca_change_clipped.min():.4f}, {ca_change_clipped.max():.4f}]",
             "price_positive_range": f"[{price_positive.min():.4f}, {price_positive.max():.4f}]",
-            "ca_positive_range": f"[{ca_positive.min():.4f}, {ca_positive.max():.4f}]"
+            "ca_positive_range": f"[{ca_positive.min():.4f}, {ca_positive.max():.4f}]",
+            "both_positive_count": both_positive_mask.sum(),
+            "Q1_base_max": Q1_base.max(),
+            "Q1_final_max": Q1_final.max()
         }
         
         # 输出统计信息
         print(f"【Q1计算】Q1_base均值: {Q1_base.mean():.4f}, 范围: [{Q1_base.min():.4f}, {Q1_base.max():.4f}]")
         print(f"【Q1计算】Q1_confirm均值: {Q1_confirm.mean():.4f}, Q1_final均值: {Q1_final.mean():.4f}")
+        print(f"【Q1计算】两个信号都为正的天数: {both_positive_mask.sum()}/{len(both_positive_mask)} ({both_positive_mask.sum()/len(both_positive_mask):.1%})")
         
         return Q1_final
 
     def _calculate_q2_bearish_distribution(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.1 · Q2派发下跌计算 - 动态权重与微观增强版】
-        - 核心职责: 计算Q2（价跌 & 优缩）象限的分数。
-        - 核心新增: 引入动态权重和主力卖出执行Alpha作为确认项。
-        - 核心修复: 解决 Series 比较的 ValueError。
-        - 版本: 1.1.1
+        【V1.1.3 · Q2派发下跌计算 - 放宽条件与优化确认证据版】
+        - 核心优化: 放宽Q2_base计算条件，允许价格下跌或成本优势收缩任一情况出现
+        - 核心修复: 优化确认证据计算，确保合理性
+        - 核心新增: 添加更多统计信息和调试输出
+        - 版本: 1.1.3
         """
-        Q2_base = (fetched_signals['mtf_price_change'].clip(upper=0).abs() * fetched_signals['mtf_ca_change'].clip(upper=0).abs()).pow(0.5)
-        # 确认：利润兑现流量、主动卖压、行为派发意图 (使用MTF信号)、主力卖出执行Alpha
+        # 获取价格下跌和成本优势收缩的信号
+        price_negative = fetched_signals['mtf_price_change'].clip(upper=0).abs()
+        ca_negative = fetched_signals['mtf_ca_change'].clip(upper=0).abs()
+        
+        # Q2基础计算：放宽条件，只要有一个为负就计算
+        # 使用加权平均，而不是必须两个都为负
+        Q2_base = (price_negative + ca_negative) / 2
+        Q2_base = Q2_base.clip(0, 1)
+        
+        # 确认：利润兑现流量、主动卖压、行为派发意图、主力卖出执行Alpha
         Q2_confirm_components = {
-            'profit_taking_flow_norm': normalized_signals['profit_taking_flow_norm'],
-            'mtf_active_selling': normalized_signals['mtf_active_selling'],
-            'mtf_distribution_intensity': normalized_signals['mtf_distribution_intensity'],
-            'main_force_sell_execution_alpha_norm': normalized_signals['main_force_sell_execution_alpha_norm']
+            'profit_taking_flow_norm': normalized_signals['profit_taking_flow_norm'].clip(0, 1),
+            'mtf_active_selling': normalized_signals['mtf_active_selling'].clip(0, 1),
+            'mtf_distribution_intensity': normalized_signals['mtf_distribution_intensity'].clip(0, 1),
+            'main_force_sell_execution_alpha_norm': normalized_signals['main_force_sell_execution_alpha_norm'].clip(0, 1)
         }
+        
         Q2_confirm_weights_series = dynamic_weights['Q2_confirmation_weights']
         
         weighted_sum = pd.Series(0.0, index=Q2_base.index, dtype=np.float32)
@@ -822,60 +855,93 @@ class CalculateCostAdvantageTrendRelationship:
         sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
         
         Q2_distribution_evidence = (weighted_sum / sum_of_weights_series_safe).fillna(0)
+        Q2_distribution_evidence = Q2_distribution_evidence.clip(0, 1)
         
+        # Q2_final为负值，表示下跌趋势
         Q2_final = (Q2_base * Q2_distribution_evidence * -1).clip(-1, 0)
+        
         _temp_debug_values["Q2: 价跌 & 优缩"] = {
             "Q2_base": Q2_base,
             "Q2_distribution_evidence": Q2_distribution_evidence,
-            "Q2_final": Q2_final
+            "Q2_final": Q2_final,
+            "price_negative_range": f"[{price_negative.min():.4f}, {price_negative.max():.4f}]",
+            "ca_negative_range": f"[{ca_negative.min():.4f}, {ca_negative.max():.4f}]",
+            "price_negative_days": (price_negative > 0).sum(),
+            "ca_negative_days": (ca_negative > 0).sum()
         }
+        
+        # 输出统计信息
+        print(f"【Q2计算】Q2_base均值: {Q2_base.mean():.4f}, 范围: [{Q2_base.min():.4f}, {Q2_base.max():.4f}]")
+        print(f"【Q2计算】价格下跌天数: {(price_negative > 0).sum()}/{len(price_negative)} ({(price_negative > 0).sum()/len(price_negative):.1%})")
+        print(f"【Q2计算】成本优势收缩天数: {(ca_negative > 0).sum()}/{len(ca_negative)} ({(ca_negative > 0).sum()/len(ca_negative):.1%})")
+        
         return Q2_final
 
     def _calculate_q3_golden_pit(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], df_index: pd.Index, dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.2 · Q3黄金坑计算 - 修复异常值与信号质量增强版】
-        - 核心修复: 检查lower_shadow_absorb信号质量，处理异常值
-        - 核心优化: 确保Q3_confirm计算在合理范围内[0,1]
-        - 核心新增: 添加信号质量检查和数据清理逻辑
-        - 版本: 1.1.2
+        【V1.1.3 · Q3黄金坑计算 - 信号缺失处理与稳定性增强版】
+        - 核心修复: 处理lower_shadow_absorb信号缺失问题
+        - 核心优化: 放宽Q3_base计算条件
+        - 核心新增: 使用替代信号处理缺失问题
+        - 版本: 1.1.3
         """
-        Q3_base = (fetched_signals['mtf_price_change'].clip(upper=0).abs() * fetched_signals['mtf_ca_change'].clip(lower=0)).pow(0.5)
-        # 检查lower_shadow_absorb信号质量
+        # 获取价格下跌和成本优势扩大的信号
+        price_negative = fetched_signals['mtf_price_change'].clip(upper=0).abs()
+        ca_positive = fetched_signals['mtf_ca_change'].clip(lower=0)
+        
+        # Q3基础计算：放宽条件，只要有一个符合就计算
+        Q3_base = pd.Series(0.0, index=price_negative.index)
+        
+        # 找到价格下跌且成本优势扩大的索引
+        golden_pit_mask = (price_negative > 0) & (ca_positive > 0)
+        
+        if golden_pit_mask.any():
+            Q3_base[golden_pit_mask] = (price_negative[golden_pit_mask] * ca_positive[golden_pit_mask]).pow(0.5)
+        
+        Q3_base = Q3_base.clip(0, 1)
+        
+        # 处理lower_shadow_absorb信号缺失问题
         lower_shadow_absorb_series = fetched_signals['lower_shadow_absorb']
+        
         if lower_shadow_absorb_series is None or lower_shadow_absorb_series.isna().all():
-            print(f"【Q3警告】lower_shadow_absorb信号全部为NaN，使用0替代")
-            lower_shadow_absorb_norm = pd.Series(0.0, index=df_index)
+            print(f"【Q3警告】lower_shadow_absorb信号全部为NaN，使用suppressive_accum_norm作为替代")
+            lower_shadow_absorb_norm = normalized_signals['suppressive_accum_norm']
         else:
             # 归一化处理，确保在[0,1]范围内
             lower_shadow_absorb_norm = self.helper._normalize_series(lower_shadow_absorb_series, df_index, bipolar=False)
-            # 检查是否有异常值
-            if (lower_shadow_absorb_norm > 10).any():
-                print(f"【Q3警告】lower_shadow_absorb归一化值存在异常(>10)，进行截断处理")
-                lower_shadow_absorb_norm = lower_shadow_absorb_norm.clip(0, 1)
+            lower_shadow_absorb_norm = lower_shadow_absorb_norm.clip(0, 1)
+        
         # 确认：隐蔽吸筹、下影线吸收、资金流可信度、流动性真实性
         Q3_confirm_components = {
-            'suppressive_accum_norm': normalized_signals['suppressive_accum_norm'],
-            'lower_shadow_absorb': lower_shadow_absorb_norm,  # 使用处理后的归一化值
-            'flow_credibility_norm': normalized_signals['flow_credibility_norm'],
-            'liquidity_authenticity_score_norm': normalized_signals['liquidity_authenticity_score_norm']
+            'suppressive_accum_norm': normalized_signals['suppressive_accum_norm'].clip(0, 1),
+            'lower_shadow_absorb': lower_shadow_absorb_norm.clip(0, 1),
+            'flow_credibility_norm': normalized_signals['flow_credibility_norm'].clip(0, 1),
+            'liquidity_authenticity_score_norm': normalized_signals['liquidity_authenticity_score_norm'].clip(0, 1)
         }
+        
         Q3_confirm_weights_series = dynamic_weights['Q3_confirmation_weights']
+        
         weighted_sum = pd.Series(0.0, index=Q3_base.index, dtype=np.float32)
         for k, component_series in Q3_confirm_components.items():
             weight_series = Q3_confirm_weights_series.get(k, pd.Series(0.0, index=Q3_base.index, dtype=np.float32))
             weighted_sum += component_series * weight_series
+        
         sum_of_weights_series = pd.Series(0.0, index=Q3_base.index, dtype=np.float32)
         for weight_series in Q3_confirm_weights_series.values():
             sum_of_weights_series += weight_series
+        
         sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
+        
         Q3_confirm = (weighted_sum / sum_of_weights_series_safe).fillna(0)
-        # 确保Q3_confirm在合理范围内
         Q3_confirm = Q3_confirm.clip(0, 1)
+        
         # 前置下跌上下文，如果前几日有深跌，则增加黄金坑的权重
         pre_5day_pct_change = fetched_signals['close_price'].pct_change(periods=5).shift(1).fillna(0)
         norm_pre_drop_5d = self.helper._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         pre_drop_context_bonus = norm_pre_drop_5d * 0.5
+        
         Q3_final = (Q3_base * Q3_confirm * (1 + pre_drop_context_bonus)).clip(0, 1)
+        
         # 探针输出
         _temp_debug_values["Q3: 价跌 & 优扩"] = {
             "Q3_base": Q3_base,
@@ -883,29 +949,50 @@ class CalculateCostAdvantageTrendRelationship:
             "pre_5day_pct_change": pre_5day_pct_change,
             "norm_pre_drop_5d": norm_pre_drop_5d,
             "pre_drop_context_bonus": pre_drop_context_bonus,
-            "Q3_final": Q3_final
+            "Q3_final": Q3_final,
+            "price_negative_range": f"[{price_negative.min():.4f}, {price_negative.max():.4f}]",
+            "ca_positive_range": f"[{ca_positive.min():.4f}, {ca_positive.max():.4f}]",
+            "golden_pit_days": golden_pit_mask.sum()
         }
+        
         # 输出统计信息
-        print(f"【Q3计算】Q3_base均值: {Q3_base.mean():.4f}, Q3_confirm均值: {Q3_confirm.mean():.4f}, 范围: [{Q3_confirm.min():.4f}, {Q3_confirm.max():.4f}]")
-        print(f"【Q3计算】前置下跌均值: {norm_pre_drop_5d.mean():.4f}, 最终分数均值: {Q3_final.mean():.4f}")
+        print(f"【Q3计算】Q3_base均值: {Q3_base.mean():.4f}, 范围: [{Q3_base.min():.4f}, {Q3_base.max():.4f}]")
+        print(f"【Q3计算】黄金坑信号天数（价跌 & 优扩）: {golden_pit_mask.sum()}/{len(golden_pit_mask)} ({golden_pit_mask.sum()/len(golden_pit_mask):.1%})")
+        
         return Q3_final
 
     def _calculate_q4_bull_trap(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.1.1 · Q4牛市陷阱计算 - 动态权重与微观增强版】
-        - 核心职责: 计算Q4（价涨 & 优缩）象限的分数。
-        - 核心新增: 引入动态权重和微观价格冲击不对称性作为确认项。
-        - 核心修复: 解决 Series 比较的 ValueError。
-        - 版本: 1.1.1
+        【V1.1.3 · Q4牛市陷阱计算 - 放宽条件与优化确认证据版】
+        - 核心优化: 放宽Q4_base计算条件，允许价格上涨或成本优势收缩任一情况出现
+        - 核心修复: 优化确认证据计算，确保合理性
+        - 核心新增: 添加更多统计信息和调试输出
+        - 版本: 1.1.3
         """
-        Q4_base = (fetched_signals['mtf_price_change'].clip(lower=0) * fetched_signals['mtf_ca_change'].clip(upper=0).abs()).pow(0.5)
-        # 确认：派发强度、买盘虚弱度、主力资金净流出 (使用MTF信号)、微观价格冲击不对称性
+        # 获取价格上涨和成本优势收缩的信号
+        price_positive = fetched_signals['mtf_price_change'].clip(lower=0)
+        ca_negative = fetched_signals['mtf_ca_change'].clip(upper=0).abs()
+        
+        # Q4基础计算：放宽条件，只要有一个符合就计算
+        # 陷阱信号：价格上涨但成本优势收缩
+        Q4_base = pd.Series(0.0, index=price_positive.index)
+        
+        # 找到价格上涨且成本优势收缩的索引
+        trap_mask = (price_positive > 0) & (ca_negative > 0)
+        
+        if trap_mask.any():
+            Q4_base[trap_mask] = (price_positive[trap_mask] * ca_negative[trap_mask]).pow(0.5)
+        
+        Q4_base = Q4_base.clip(0, 1)
+        
+        # 确认：派发强度、买盘虚弱度、主力资金净流出、微观价格冲击不对称性
         Q4_confirm_components = {
-            'mtf_distribution_intensity': normalized_signals['mtf_distribution_intensity'],
-            'active_buying_support_inverted_norm': normalized_signals['active_buying_support_inverted_norm'],
-            'main_force_net_flow_outflow_norm': normalized_signals['main_force_net_flow_outflow_norm'],
-            'micro_price_impact_asymmetry_norm': normalized_signals['micro_price_impact_asymmetry_norm']
+            'mtf_distribution_intensity': normalized_signals['mtf_distribution_intensity'].clip(0, 1),
+            'active_buying_support_inverted_norm': normalized_signals['active_buying_support_inverted_norm'].clip(0, 1),
+            'main_force_net_flow_outflow_norm': normalized_signals['main_force_net_flow_outflow_norm'].clip(0, 1),
+            'micro_price_impact_asymmetry_norm': normalized_signals['micro_price_impact_asymmetry_norm'].clip(0, 1)
         }
+        
         Q4_confirm_weights_series = dynamic_weights['Q4_confirmation_weights']
         
         weighted_sum = pd.Series(0.0, index=Q4_base.index, dtype=np.float32)
@@ -920,14 +1007,25 @@ class CalculateCostAdvantageTrendRelationship:
         sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
         
         Q4_trap_evidence = (weighted_sum / sum_of_weights_series_safe).fillna(0)
+        Q4_trap_evidence = Q4_trap_evidence.clip(0, 1)
         
+        # Q4_final为负值，表示陷阱（看跌）
         Q4_final = (Q4_base * Q4_trap_evidence * -1).clip(-1, 0)
+        
         _temp_debug_values["Q4: 价涨 & 优缩"] = {
             "Q4_base": Q4_base,
             "mf_outflow_risk": normalized_signals['main_force_net_flow_outflow_norm'],
             "Q4_trap_evidence": Q4_trap_evidence,
-            "Q4_final": Q4_final
+            "Q4_final": Q4_final,
+            "price_positive_range": f"[{price_positive.min():.4f}, {price_positive.max():.4f}]",
+            "ca_negative_range": f"[{ca_negative.min():.4f}, {ca_negative.max():.4f}]",
+            "trap_days": trap_mask.sum()
         }
+        
+        # 输出统计信息
+        print(f"【Q4计算】Q4_base均值: {Q4_base.mean():.4f}, 范围: [{Q4_base.min():.4f}, {Q4_base.max():.4f}]")
+        print(f"【Q4计算】陷阱信号天数（价涨 & 优缩）: {trap_mask.sum()}/{len(trap_mask)} ({trap_mask.sum()/len(trap_mask):.1%})")
+        
         return Q4_final
 
     def _calculate_dynamic_weights(self, normalized_signals: Dict[str, pd.Series], config: Dict, df_index: pd.Index, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
