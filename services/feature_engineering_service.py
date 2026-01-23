@@ -575,19 +575,32 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V4.4 · 阈值优化版】基于多维度证据链的量化模式识别系统
-        - 修复霸占信号输出错误
-        - 调整ADX条件：从固定阈值25改为动态阈值（ADX分位数）
-        - 优化证据权重：增加关键证据的权重
-        - 调整阈值逻辑：使用分位数而非绝对阈值
+        【V4.5 · 数据格式修复版】基于多维度证据链的量化模式识别系统
+        - 修复涨跌幅数据格式：将百分比数值转换为小数形式
+        - 处理NaN阈值问题：当列全部为NaN时使用默认值
+        - 增强数据验证：确保计算前数据格式正确
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe].copy()
         print(f"=== 模式识别引擎开始分析，数据长度: {len(df)} ===")
-        print(f"涨跌幅: {df['pct_change_D']}")
-        print(f"当前最新数据：收盘价={df['close_D'].iloc[-1]:.2f}, 涨跌幅={df['pct_change_D'].iloc[-1]:.2%}, ADX={df['ADX_14_D'].iloc[-1]:.1f}")
+        # 数据格式修复：检查并转换涨跌幅数据
+        if 'pct_change_D' in df.columns:
+            # 检测数据格式：如果是百分比形式（如10.00表示10%），则转换为小数形式（0.10）
+            pct_sample = df['pct_change_D'].dropna().head(5)
+            if not pct_sample.empty:
+                # 检查是否有大于1的值（可能为百分比形式）
+                if (pct_sample.abs() > 1.5).any():
+                    print(f"检测到涨跌幅为百分比形式，正在转换为小数形式...")
+                    print(f"转换前样本值: {pct_sample.values}")
+                    df['pct_change_D'] = df['pct_change_D'] / 100.0
+                    print(f"转换后样本值: {df['pct_change_D'].dropna().head(5).values}")
+                else:
+                    print("涨跌幅数据已为小数形式")
+        # 输出当前最新数据（转换后）
+        latest_pct = df['pct_change_D'].iloc[-1] if 'pct_change_D' in df.columns and not pd.isna(df['pct_change_D'].iloc[-1]) else 0
+        print(f"当前最新数据：收盘价={df['close_D'].iloc[-1] if 'close_D' in df.columns else 'N/A':.2f}, 涨跌幅={latest_pct:.2%}, ADX={df['ADX_14_D'].iloc[-1] if 'ADX_14_D' in df.columns else 'N/A':.1f}")
         required_cols = [
             'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'amount_D', 'pct_change_D',
             'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'ADX_14_D',
@@ -615,6 +628,11 @@ class FeatureEngineeringService:
             if 'structural_tension_index_D' not in df.columns:
                 df['structural_tension_index_D'] = self._calculate_structural_tension(df)
                 print("已计算structural_tension_index_D替代值")
+        # 处理可能全部为NaN的列
+        for col in ['platform_conviction_score_D', 'trend_conviction_score_D', 'breakout_readiness_score_D']:
+            if col in df.columns and df[col].isna().all():
+                print(f"警告：{col}列全部为NaN，使用默认值填充")
+                df[col] = 50.0  # 使用中性默认值
         rolling_window = min(120, len(df))
         if rolling_window < 30:
             print("数据长度不足，退出分析")
@@ -622,47 +640,69 @@ class FeatureEngineeringService:
         print(f"使用滚动窗口: {rolling_window}天")
         dynamic_thresholds = {}
         threshold_config = {
-            'chip_health_score_D': ('q30', 0.3),  # 从q20调整为q30，降低要求
-            'dominant_peak_solidity_D': ('q40', 0.4),  # 从q30调整为q40
-            'main_force_net_flow_calibrated_D': ('q60', 0.6),  # 从q70调整为q60
-            'structural_tension_index_D': ('q40', 0.4),  # 从q30调整为q40
-            'breakout_readiness_score_D': ('q60', 0.6),  # 从q70调整为q60
-            'platform_conviction_score_D': ('q60', 0.6),  # 从q70调整为q60
-            'trend_conviction_score_D': ('q70', 0.7),  # 从q80调整为q70
-            'ADX_14_D': ('q70', 0.7),  # 新增ADX阈值
+            'chip_health_score_D': ('q30', 0.3),
+            'dominant_peak_solidity_D': ('q40', 0.4),
+            'main_force_net_flow_calibrated_D': ('q60', 0.6),
+            'structural_tension_index_D': ('q40', 0.4),
+            'breakout_readiness_score_D': ('q60', 0.6),
+            'platform_conviction_score_D': ('q60', 0.6),
+            'trend_conviction_score_D': ('q70', 0.7),
+            'ADX_14_D': ('q70', 0.7),
         }
         for col, (method, param) in threshold_config.items():
             if col in df.columns:
                 try:
-                    threshold_series = df[col].rolling(rolling_window, min_periods=20).quantile(param)
-                    dynamic_thresholds[col] = threshold_series.fillna(method='ffill')
+                    # 检查列是否有有效数据
+                    if df[col].notna().sum() < 10:
+                        print(f"警告：{col}列有效数据不足，使用默认阈值")
+                        if col == 'chip_health_score_D':
+                            dynamic_thresholds[col] = pd.Series(40, index=df.index)
+                        elif col == 'dominant_peak_solidity_D':
+                            dynamic_thresholds[col] = pd.Series(0.4, index=df.index)
+                        elif col == 'ADX_14_D':
+                            dynamic_thresholds[col] = pd.Series(40, index=df.index)
+                        else:
+                            dynamic_thresholds[col] = pd.Series(50, index=df.index)
+                    else:
+                        threshold_series = df[col].rolling(rolling_window, min_periods=20).quantile(param)
+                        # 如果分位数计算结果是NaN，使用列的均值作为阈值
+                        if threshold_series.isna().all():
+                            col_mean = df[col].mean()
+                            dynamic_thresholds[col] = pd.Series(col_mean, index=df.index)
+                            print(f"  {col}阈值使用均值: {col_mean:.2f}")
+                        else:
+                            dynamic_thresholds[col] = threshold_series.fillna(method='ffill')
                 except Exception as e:
                     print(f"阈值计算失败 {col}: {e}")
                     if col == 'chip_health_score_D':
-                        dynamic_thresholds[col] = pd.Series(40, index=df.index)  # 降低固定阈值
+                        dynamic_thresholds[col] = pd.Series(40, index=df.index)
                     elif col == 'dominant_peak_solidity_D':
                         dynamic_thresholds[col] = pd.Series(0.4, index=df.index)
                     elif col == 'ADX_14_D':
-                        dynamic_thresholds[col] = pd.Series(40, index=df.index)  # ADX动态阈值
+                        dynamic_thresholds[col] = pd.Series(40, index=df.index)
                     else:
-                        dynamic_thresholds[col] = pd.Series(0, index=df.index)
+                        dynamic_thresholds[col] = pd.Series(50, index=df.index)
         print(f"=== 动态阈值计算完成，共{len(dynamic_thresholds)}个指标 ===")
         for col, thresh_series in list(dynamic_thresholds.items())[:8]:
             current_val = df[col].iloc[-1] if col in df.columns else 'N/A'
             threshold_val = thresh_series.iloc[-1]
-            print(f"  {col}: 阈值={threshold_val:.2f}, 当前值={current_val}, 达标={current_val > threshold_val if isinstance(current_val, (int, float)) else 'N/A'}")
+            if isinstance(current_val, (int, float)) and not pd.isna(current_val) and not pd.isna(threshold_val):
+                is_above = current_val > threshold_val
+                print(f"  {col}: 阈值={threshold_val:.2f}, 当前值={current_val:.2f}, 达标={is_above}")
+            else:
+                print(f"  {col}: 阈值={threshold_val:.2f}, 当前值={current_val}, 达标=N/A")
         chip_stability_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'chip_health_score_D' in df.columns and 'winner_stability_index_D' in df.columns:
             chip_thresh = dynamic_thresholds.get('chip_health_score_D', pd.Series(40, index=df.index))
             winner_std_5 = df['winner_stability_index_D'].rolling(5).std()
             winner_std_20 = df['winner_stability_index_D'].rolling(20).std()
-            chip_stability_evidence = ((df['chip_health_score_D'] > chip_thresh) & (winner_std_5 < winner_std_20 * 0.9)).astype(int)  # 放宽到0.9
+            chip_stability_evidence = ((df['chip_health_score_D'] > chip_thresh) & (winner_std_5 < winner_std_20 * 0.9)).astype(int)
             print(f"筹码稳定性证据: 触发次数={chip_stability_evidence.sum()}, 触发率={chip_stability_evidence.mean():.2%}")
             print(f"  筹码健康度: 当前={df['chip_health_score_D'].iloc[-1]:.1f}, 阈值={chip_thresh.iloc[-1]:.1f}, 达标={df['chip_health_score_D'].iloc[-1] > chip_thresh.iloc[-1]}")
         volatility_compression_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'BBW_21_2.0_D' in df.columns and 'ATR_14_D' in df.columns:
-            bbw_quantile = df['BBW_21_2.0_D'].rolling(rolling_window, min_periods=20).quantile(0.4).fillna(method='ffill')  # 从0.3调整为0.4
-            atr_quantile = df['ATR_14_D'].rolling(rolling_window, min_periods=20).quantile(0.4).fillna(method='ffill')  # 从0.3调整为0.4
+            bbw_quantile = df['BBW_21_2.0_D'].rolling(rolling_window, min_periods=20).quantile(0.4).fillna(method='ffill')
+            atr_quantile = df['ATR_14_D'].rolling(rolling_window, min_periods=20).quantile(0.4).fillna(method='ffill')
             volatility_compression_evidence = ((df['BBW_21_2.0_D'] < bbw_quantile) & (df['ATR_14_D'] < atr_quantile)).astype(int)
             print(f"波动率收缩证据: 触发次数={volatility_compression_evidence.sum()}, 触发率={volatility_compression_evidence.mean():.2%}")
             print(f"  BBW: 当前={df['BBW_21_2.0_D'].iloc[-1]:.4f}, 阈值={bbw_quantile.iloc[-1]:.4f}, 达标={df['BBW_21_2.0_D'].iloc[-1] < bbw_quantile.iloc[-1]}")
@@ -672,60 +712,60 @@ class FeatureEngineeringService:
             mf_std = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).std().fillna(0)
             mf_buy_ofi_ma = df['main_force_buy_ofi_D'].rolling(3).mean().abs()
             mf_sell_ofi_ma = df['main_force_sell_ofi_D'].rolling(3).mean().abs()
-            fund_flow_balance_evidence = ((abs(df['main_force_net_flow_calibrated_D']) < mf_std * 0.8) & (mf_buy_ofi_ma < mf_sell_ofi_ma * 2.0)).astype(int)  # 放宽条件
+            fund_flow_balance_evidence = ((abs(df['main_force_net_flow_calibrated_D']) < mf_std * 0.8) & (mf_buy_ofi_ma < mf_sell_ofi_ma * 2.0)).astype(int)
             print(f"资金流平衡证据: 触发次数={fund_flow_balance_evidence.sum()}, 触发率={fund_flow_balance_evidence.mean():.2%}")
             print(f"  主力净流绝对值: {abs(df['main_force_net_flow_calibrated_D'].iloc[-1]):.0f}, 阈值={mf_std.iloc[-1]*0.8:.0f}")
         structure_tension_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'structural_tension_index_D' in df.columns:
-            st_threshold = dynamic_thresholds.get('structural_tension_index_D', pd.Series(0.4, index=df.index))  # 从0.3调整为0.4
+            st_threshold = dynamic_thresholds.get('structural_tension_index_D', pd.Series(0.4, index=df.index))
             structure_tension_evidence = (df['structural_tension_index_D'] < st_threshold).astype(int)
             print(f"结构张力证据: 触发次数={structure_tension_evidence.sum()}, 触发率={structure_tension_evidence.mean():.2%}")
             print(f"  结构张力: 当前={df['structural_tension_index_D'].iloc[-1]:.4f}, 阈值={st_threshold.iloc[-1]:.4f}")
         consolidation_score = (chip_stability_evidence + volatility_compression_evidence + fund_flow_balance_evidence + structure_tension_evidence)
         print(f"盘整总分分布: 0分={int((consolidation_score == 0).sum())}, 1分={int((consolidation_score == 1).sum())}, 2分={int((consolidation_score == 2).sum())}, 3分={int((consolidation_score == 3).sum())}, 4分={int((consolidation_score == 4).sum())}")
-        adx_threshold = dynamic_thresholds.get('ADX_14_D', pd.Series(40, index=df.index))  # 使用动态ADX阈值
-        df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = (consolidation_score >= 3) & (df['ADX_14_D'] < adx_threshold)  # 动态ADX条件
+        adx_threshold = dynamic_thresholds.get('ADX_14_D', pd.Series(40, index=df.index))
+        df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = (consolidation_score >= 3) & (df['ADX_14_D'] < adx_threshold)
         print(f"盘整信号: 总触发={df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'].sum()}, 触发率={df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'].mean():.2%}")
         print(f"  ADX条件: 当前ADX={df['ADX_14_D'].iloc[-1]:.1f}, 动态阈值={adx_threshold.iloc[-1]:.1f}, 达标={df['ADX_14_D'].iloc[-1] < adx_threshold.iloc[-1]}")
         hidden_buy_evidence = pd.Series(0, index=df.index, dtype=int)
         if all(col in df.columns for col in ['main_force_buy_execution_alpha_D', 'main_force_net_flow_calibrated_D', 'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D']):
-            mf_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.5).fillna(method='ffill')  # 从0.6调整为0.5
+            mf_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.5).fillna(method='ffill')
             wash_ratio = df['wash_trade_buy_volume_D'] / (df['wash_trade_sell_volume_D'] + 1e-8)
-            hidden_buy_evidence = ((df['main_force_buy_execution_alpha_D'] > -0.1) & (df['main_force_net_flow_calibrated_D'] > mf_quantile) & (wash_ratio > 1.1)).astype(int)  # 放宽条件
+            hidden_buy_evidence = ((df['main_force_buy_execution_alpha_D'] > -0.1) & (df['main_force_net_flow_calibrated_D'] > mf_quantile) & (wash_ratio > 1.1)).astype(int)
             print(f"主力隐蔽买入证据: 触发次数={hidden_buy_evidence.sum()}, 触发率={hidden_buy_evidence.mean():.2%}")
             print(f"  主力买入执行Alpha: {df['main_force_buy_execution_alpha_D'].iloc[-1]:.4f}")
             print(f"  主力净流分位数阈值: {mf_quantile.iloc[-1]:.0f}")
         retail_panic_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'retail_panic_surrender_index_D' in df.columns:
-            rp_quantile = df['retail_panic_surrender_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')  # 从0.7调整为0.6
+            rp_quantile = df['retail_panic_surrender_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
             if 'total_winner_rate_D' in df.columns:
-                retail_panic_evidence = ((df['retail_panic_surrender_index_D'] > rp_quantile) & (df['total_winner_rate_D'] < 0.4)).astype(int)  # 从0.3调整为0.4
+                retail_panic_evidence = ((df['retail_panic_surrender_index_D'] > rp_quantile) & (df['total_winner_rate_D'] < 0.4)).astype(int)
             else:
-                retail_panic_evidence = ((df['retail_panic_surrender_index_D'] > rp_quantile) & (df['close_D'] < df['close_D'].rolling(20).mean() * 0.97)).astype(int)  # 从0.95调整为0.97
+                retail_panic_evidence = ((df['retail_panic_surrender_index_D'] > rp_quantile) & (df['close_D'] < df['close_D'].rolling(20).mean() * 0.97)).astype(int)
             print(f"散户恐慌证据: 触发次数={retail_panic_evidence.sum()}, 触发率={retail_panic_evidence.mean():.2%}")
             print(f"  散户恐慌指数: 当前={df['retail_panic_surrender_index_D'].iloc[-1]:.4f}, 阈值={rp_quantile.iloc[-1]:.4f}")
         price_suppression_evidence = pd.Series(0, index=df.index, dtype=int)
         high_20_max = df['high_D'].rolling(20).max()
-        price_suppression_evidence = ((df['high_D'] < high_20_max * 0.99) & (df['pct_change_D'].abs() < 0.04) & (df['close_D'] < df['open_D'] * 1.02)).astype(int)  # 放宽条件
+        price_suppression_evidence = ((df['high_D'] < high_20_max * 0.99) & (df['pct_change_D'].abs() < 0.04) & (df['close_D'] < df['open_D'] * 1.02)).astype(int)
         print(f"价格压制证据: 触发次数={price_suppression_evidence.sum()}, 触发率={price_suppression_evidence.mean():.2%}")
         print(f"  价格压制详情: 最高价={df['high_D'].iloc[-1]:.2f}, 20日最高={high_20_max.iloc[-1]:.2f}, 涨跌幅={df['pct_change_D'].iloc[-1]:.2%}")
         chip_concentration_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'dominant_peak_solidity_D' in df.columns:
             dp_threshold = dynamic_thresholds.get('dominant_peak_solidity_D', pd.Series(0.4, index=df.index))
             if 'cost_structure_skewness_D' in df.columns:
-                chip_concentration_evidence = ((df['dominant_peak_solidity_D'] > dp_threshold) & (df['cost_structure_skewness_D'].abs() > 0.3)).astype(int)  # 从0.5调整为0.3
+                chip_concentration_evidence = ((df['dominant_peak_solidity_D'] > dp_threshold) & (df['cost_structure_skewness_D'].abs() > 0.3)).astype(int)
             else:
                 chip_concentration_evidence = (df['dominant_peak_solidity_D'] > dp_threshold).astype(int)
             print(f"筹码集中证据: 触发次数={chip_concentration_evidence.sum()}, 触发率={chip_concentration_evidence.mean():.2%}")
             print(f"  主峰坚固度: 当前={df['dominant_peak_solidity_D'].iloc[-1]:.4f}, 阈值={dp_threshold.iloc[-1]:.4f}")
-        accumulation_score = (hidden_buy_evidence * 2.0 + retail_panic_evidence * 1.5 + price_suppression_evidence + chip_concentration_evidence)  # 调整权重
+        accumulation_score = (hidden_buy_evidence * 2.0 + retail_panic_evidence * 1.5 + price_suppression_evidence + chip_concentration_evidence)
         print(f"吸筹总分分布: 0-1分={int(((accumulation_score < 2).astype(int).sum()))}, 2-2.5分={int(((accumulation_score >= 2) & (accumulation_score < 2.5)).astype(int).sum())}, 2.5-3分={int(((accumulation_score >= 2.5) & (accumulation_score < 3)).astype(int).sum())}, 3分以上={int(((accumulation_score >= 3).astype(int).sum()))}")
-        df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & (accumulation_score >= 2.0)  # 从2.5调整为2.0
+        df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & (accumulation_score >= 2.0)
         print(f"吸筹信号: 总触发={df['IS_ACCUMULATION_D'].sum()}, 触发率={df['IS_ACCUMULATION_D'].mean():.2%}")
         momentum_break_evidence = pd.Series(0, index=df.index, dtype=int)
-        pct_quantile = df['pct_change_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')  # 从0.7调整为0.6
+        pct_quantile = df['pct_change_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
         if 'trend_acceleration_score_D' in df.columns:
-            momentum_break_evidence = ((df['pct_change_D'] > pct_quantile) & (df['trend_acceleration_score_D'] > -0.1)).astype(int)  # 放宽条件
+            momentum_break_evidence = ((df['pct_change_D'] > pct_quantile) & (df['trend_acceleration_score_D'] > -0.1)).astype(int)
         else:
             momentum_break_evidence = ((df['pct_change_D'] > pct_quantile) & (df['close_D'] > df['close_D'].rolling(20).max() * 0.98)).astype(int)
         print(f"动量突破证据: 触发次数={momentum_break_evidence.sum()}, 触发率={momentum_break_evidence.mean():.2%}")
@@ -733,7 +773,7 @@ class FeatureEngineeringService:
         volume_break_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'amount_D' in df.columns:
             amount_20_ma = df['amount_D'].rolling(20).mean()
-            volume_break_evidence = ((df['volume_D'] > df['VOL_MA_21_D'] * 1.3) & (df['amount_D'] > amount_20_ma * 1.5)).astype(int)  # 放宽条件
+            volume_break_evidence = ((df['volume_D'] > df['VOL_MA_21_D'] * 1.3) & (df['amount_D'] > amount_20_ma * 1.5)).astype(int)
         else:
             volume_break_evidence = (df['volume_D'] > df['VOL_MA_21_D'] * 1.3).astype(int)
         print(f"成交量突破证据: 触发次数={volume_break_evidence.sum()}, 触发率={volume_break_evidence.mean():.2%}")
@@ -742,7 +782,7 @@ class FeatureEngineeringService:
         if all(col in df.columns for col in ['main_force_net_flow_calibrated_D', 'main_force_flow_directionality_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D']):
             mf_threshold = dynamic_thresholds.get('main_force_net_flow_calibrated_D', pd.Series(0, index=df.index))
             ofi_ratio = df['main_force_buy_ofi_D'] / (df['main_force_sell_ofi_D'].abs() + 1e-8)
-            fund_flow_break_evidence = ((df['main_force_net_flow_calibrated_D'] > mf_threshold) & (df['main_force_flow_directionality_D'] > 0.5) & (ofi_ratio > 1.5)).astype(int)  # 放宽条件
+            fund_flow_break_evidence = ((df['main_force_net_flow_calibrated_D'] > mf_threshold) & (df['main_force_flow_directionality_D'] > 0.5) & (ofi_ratio > 1.5)).astype(int)
             print(f"资金流突破证据: 触发次数={fund_flow_break_evidence.sum()}, 触发率={fund_flow_break_evidence.mean():.2%}")
             print(f"  资金流突破详情: 主力净流={df['main_force_net_flow_calibrated_D'].iloc[-1]:.0f}, 方向性={df['main_force_flow_directionality_D'].iloc[-1]:.4f}")
         structure_break_evidence = pd.Series(0, index=df.index, dtype=int)
@@ -750,59 +790,59 @@ class FeatureEngineeringService:
             pc_threshold = dynamic_thresholds.get('platform_conviction_score_D', pd.Series(60, index=df.index))
             tc_threshold = dynamic_thresholds.get('trend_conviction_score_D', pd.Series(70, index=df.index))
             if 'breakthrough_conviction_score_D' in df.columns:
-                structure_break_evidence = ((df['platform_conviction_score_D'] > pc_threshold) & (df['trend_conviction_score_D'] > tc_threshold) & (df['breakthrough_conviction_score_D'] > 60)).astype(int)  # 从70调整为60
+                structure_break_evidence = ((df['platform_conviction_score_D'] > pc_threshold) & (df['trend_conviction_score_D'] > tc_threshold) & (df['breakthrough_conviction_score_D'] > 60)).astype(int)
             else:
                 structure_break_evidence = ((df['platform_conviction_score_D'] > pc_threshold) & (df['trend_conviction_score_D'] > tc_threshold)).astype(int)
             print(f"结构突破证据: 触发次数={structure_break_evidence.sum()}, 触发率={structure_break_evidence.mean():.2%}")
-            print(f"  结构突破详情: 平台信念={df['platform_conviction_score_D'].iloc[-1]:.1f}, 趋势信念={df['trend_conviction_score_D'].iloc[-1]:.1f}")
-        breakout_score = (momentum_break_evidence * 2.0 + volume_break_evidence * 1.5 + fund_flow_break_evidence * 1.2 + structure_break_evidence * 1.5)  # 增加结构突破权重
+            print(f"  结构突破详情: 平台信念={df['platform_conviction_score_D'].iloc[-1] if not pd.isna(df['platform_conviction_score_D'].iloc[-1]) else 'N/A'}, 趋势信念={df['trend_conviction_score_D'].iloc[-1] if not pd.isna(df['trend_conviction_score_D'].iloc[-1]) else 'N/A'}")
+        breakout_score = (momentum_break_evidence * 2.0 + volume_break_evidence * 1.5 + fund_flow_break_evidence * 1.2 + structure_break_evidence * 1.5)
         print(f"突破总分分布: 0-2分={int(((breakout_score < 3).astype(int).sum()))}, 3-4分={int(((breakout_score >= 3) & (breakout_score < 5)).astype(int).sum())}, 5-6分={int(((breakout_score >= 5) & (breakout_score < 7)).astype(int).sum())}, 7分以上={int(((breakout_score >= 7).astype(int).sum()))}")
-        df['IS_BREAKOUT_D'] = (breakout_score >= 4) & (momentum_break_evidence.astype(bool) | structure_break_evidence.astype(bool) | volume_break_evidence.astype(bool))  # 降低总分要求，增加成交量条件
+        df['IS_BREAKOUT_D'] = (breakout_score >= 4) & (momentum_break_evidence.astype(bool) | structure_break_evidence.astype(bool) | volume_break_evidence.astype(bool))
         print(f"突破信号: 总触发={df['IS_BREAKOUT_D'].sum()}, 触发率={df['IS_BREAKOUT_D'].mean():.2%}")
         main_force_dist_evidence = pd.Series(0, index=df.index, dtype=int)
         if all(col in df.columns for col in ['main_force_net_flow_calibrated_D', 'main_force_sell_execution_alpha_D', 'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D']):
-            mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.4).fillna(method='ffill')  # 从0.3调整为0.4
+            mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.4).fillna(method='ffill')
             wash_sell_ratio = df['wash_trade_sell_volume_D'] / (df['wash_trade_buy_volume_D'] + 1e-8)
-            main_force_dist_evidence = ((df['main_force_net_flow_calibrated_D'] < mf_low_quantile) & (df['main_force_sell_execution_alpha_D'] > -0.1) & (wash_sell_ratio > 1.3)).astype(int)  # 放宽条件
+            main_force_dist_evidence = ((df['main_force_net_flow_calibrated_D'] < mf_low_quantile) & (df['main_force_sell_execution_alpha_D'] > -0.1) & (wash_sell_ratio > 1.3)).astype(int)
             print(f"主力派发证据: 触发次数={main_force_dist_evidence.sum()}, 触发率={main_force_dist_evidence.mean():.2%}")
             print(f"  主力派发详情: 主力净流={df['main_force_net_flow_calibrated_D'].iloc[-1]:.0f}, 阈值={mf_low_quantile.iloc[-1]:.0f}")
         retail_fomo_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'retail_fomo_premium_index_D' in df.columns:
-            rf_quantile = df['retail_fomo_premium_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')  # 从0.7调整为0.6
+            rf_quantile = df['retail_fomo_premium_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
             if 'total_winner_rate_D' in df.columns:
-                retail_fomo_evidence = ((df['retail_fomo_premium_index_D'] > rf_quantile) & (df['total_winner_rate_D'] > 0.7)).astype(int)  # 从0.8调整为0.7
+                retail_fomo_evidence = ((df['retail_fomo_premium_index_D'] > rf_quantile) & (df['total_winner_rate_D'] > 0.7)).astype(int)
             else:
-                retail_fomo_evidence = ((df['retail_fomo_premium_index_D'] > rf_quantile) & (df['close_D'] > df['close_D'].rolling(20).max() * 1.03)).astype(int)  # 从1.05调整为1.03
+                retail_fomo_evidence = ((df['retail_fomo_premium_index_D'] > rf_quantile) & (df['close_D'] > df['close_D'].rolling(20).max() * 1.03)).astype(int)
             print(f"散户追高证据: 触发次数={retail_fomo_evidence.sum()}, 触发率={retail_fomo_evidence.mean():.2%}")
             print(f"  散户追高详情: FOMO指数={df['retail_fomo_premium_index_D'].iloc[-1]:.4f}, 阈值={rf_quantile.iloc[-1]:.4f}")
         price_divergence_evidence = pd.Series(0, index=df.index, dtype=int)
         close_20_max = df['close_D'].rolling(20).max()
         mf_5ma = df['main_force_net_flow_calibrated_D'].rolling(5).mean()
         mf_20ma = df['main_force_net_flow_calibrated_D'].rolling(20).mean()
-        price_divergence_evidence = ((df['close_D'] > close_20_max * 0.98) & (mf_5ma < mf_20ma * 0.9)).astype(int)  # 放宽条件
+        price_divergence_evidence = ((df['close_D'] > close_20_max * 0.98) & (mf_5ma < mf_20ma * 0.9)).astype(int)
         print(f"价格背离证据: 触发次数={price_divergence_evidence.sum()}, 触发率={price_divergence_evidence.mean():.2%}")
         print(f"  价格背离详情: 收盘价={df['close_D'].iloc[-1]:.2f}, 20日最高={close_20_max.iloc[-1]:.2f}")
         chip_dispersion_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'chip_health_score_D' in df.columns:
             ch_threshold = dynamic_thresholds.get('chip_health_score_D', pd.Series(40, index=df.index))
             if 'profit_taking_flow_ratio_D' in df.columns:
-                chip_dispersion_evidence = ((df['chip_health_score_D'] < ch_threshold) & (df['profit_taking_flow_ratio_D'] > 0.6)).astype(int)  # 从0.7调整为0.6
+                chip_dispersion_evidence = ((df['chip_health_score_D'] < ch_threshold) & (df['profit_taking_flow_ratio_D'] > 0.6)).astype(int)
             else:
-                chip_dispersion_evidence = ((df['chip_health_score_D'] < ch_threshold) & (df['pct_change_D'] > 0.03)).astype(int)  # 从0.05调整为0.03
+                chip_dispersion_evidence = ((df['chip_health_score_D'] < ch_threshold) & (df['pct_change_D'] > 0.03)).astype(int)
             print(f"筹码分散证据: 触发次数={chip_dispersion_evidence.sum()}, 触发率={chip_dispersion_evidence.mean():.2%}")
             print(f"  筹码分散详情: 筹码健康度={df['chip_health_score_D'].iloc[-1]:.1f}, 阈值={ch_threshold.iloc[-1]:.1f}")
-        distribution_score = (main_force_dist_evidence * 2.0 + retail_fomo_evidence * 1.5 + price_divergence_evidence * 1.2 + chip_dispersion_evidence)  # 调整权重
+        distribution_score = (main_force_dist_evidence * 2.0 + retail_fomo_evidence * 1.5 + price_divergence_evidence * 1.2 + chip_dispersion_evidence)
         print(f"派发总分分布: 0-1分={int(((distribution_score < 2).astype(int).sum()))}, 2-2.5分={int(((distribution_score >= 2) & (distribution_score < 3)).astype(int).sum())}, 3分以上={int(((distribution_score >= 3).astype(int).sum()))}")
-        df['IS_DISTRIBUTION_D'] = distribution_score >= 2.5  # 从3.0调整为2.5
+        df['IS_DISTRIBUTION_D'] = distribution_score >= 2.5
         print(f"派发信号: 总触发={df['IS_DISTRIBUTION_D'].sum()}, 触发率={df['IS_DISTRIBUTION_D'].mean():.2%}")
         df['IS_BEAR_TRAP_WASHOUT_D'] = False
         if len(df) > 60:
             try:
-                normal_drop_mask = (df['pct_change_D'] < -0.015) & (df['volume_D'] > df['VOL_MA_21_D'] * 0.8)  # 放宽条件
+                normal_drop_mask = (df['pct_change_D'] < -0.015) & (df['volume_D'] > df['VOL_MA_21_D'] * 0.8)
                 if normal_drop_mask.sum() > 10:
                     normal_drop_chip = df.loc[normal_drop_mask, 'chip_health_score_D'].mean()
                     normal_drop_mf = df.loc[normal_drop_mask, 'main_force_net_flow_calibrated_D'].mean()
-                    dl_quantile = df['deception_lure_short_intensity_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')  # 从0.7调整为0.6
+                    dl_quantile = df['deception_lure_short_intensity_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
                     bear_trap_conditions = ((df['pct_change_D'] < -0.025) & (df['chip_health_score_D'] > normal_drop_chip * 1.1) & (df['main_force_net_flow_calibrated_D'] > normal_drop_mf * 0.8) & (df['deception_lure_short_intensity_D'] > dl_quantile))
                     df['IS_BEAR_TRAP_WASHOUT_D'] = bear_trap_conditions.fillna(False)
                     print(f"诱空洗盘信号: 总触发={df['IS_BEAR_TRAP_WASHOUT_D'].sum()}, 触发率={df['IS_BEAR_TRAP_WASHOUT_D'].mean():.2%}")
@@ -811,7 +851,7 @@ class FeatureEngineeringService:
         df['IS_BULL_TRAP_LURE_D'] = False
         if 'IS_BREAKOUT_D' in df.columns and df['IS_BREAKOUT_D'].sum() > 5:
             try:
-                fake_breakout_mask = (df['IS_BREAKOUT_D'] & (df['main_force_net_flow_calibrated_D'].rolling(3).mean().shift(-2) < df['main_force_net_flow_calibrated_D'] * 0.8))  # 放宽条件
+                fake_breakout_mask = (df['IS_BREAKOUT_D'] & (df['main_force_net_flow_calibrated_D'].rolling(3).mean().shift(-2) < df['main_force_net_flow_calibrated_D'] * 0.8))
                 df['IS_BULL_TRAP_LURE_D'] = fake_breakout_mask.fillna(False)
                 print(f"假突破诱多信号: 总触发={df['IS_BULL_TRAP_LURE_D'].sum()}, 触发率={df['IS_BULL_TRAP_LURE_D'].mean():.2%}")
             except Exception as e:
@@ -826,23 +866,23 @@ class FeatureEngineeringService:
                 llv_c = df['close_D'].rolling(position_window).min()
                 hhv_c = df['close_D'].rolling(position_window).max()
                 position = (df['close_D'] - llv_c) / (hhv_c - llv_c + 1e-8) * 100
-                cond_amount_break = ff_ratio >= 1.8  # 从2.0调整为1.8
-                cond_price_low = position < 45  # 从40调整为45
-                cond_price_mid = position < 75  # 从70调整为75
+                cond_amount_break = ff_ratio >= 1.8
+                cond_price_low = position < 45
+                cond_price_mid = position < 75
                 cond_consolidation = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] | df['IS_ACCUMULATION_D']
                 bazhan_v1 = cond_amount_break & cond_price_low & cond_consolidation
-                bazhan_v2 = cond_amount_break & cond_price_mid & (df['volume_D'] > df['VOL_MA_21_D'] * 1.8)  # 从2.0调整为1.8
+                bazhan_v2 = cond_amount_break & cond_price_mid & (df['volume_D'] > df['VOL_MA_21_D'] * 1.8)
                 df['IS_BAZHAN_D'] = (bazhan_v1 | bazhan_v2).fillna(False)
-                print(f"霸占信号: 总触发={df['IS_BAZHAN_D'].sum()}, 触发率={df['IS_BAZHAN_D'].mean():.2%}")  # 修复输出错误
+                print(f"霸占信号: 总触发={df['IS_BAZHAN_D'].sum()}, 触发率={df['IS_BAZHAN_D'].mean():.2%}")
             except Exception as e:
                 print(f"计算霸占模式失败: {e}")
         df['IS_WW1_D'] = False
         if 'open_D' in df.columns:
             try:
-                cond_open_gap = df['open_D'] < df['low_D'].shift(1) * 0.99  # 从0.995调整为0.99
-                cond_close_recovery = df['close_D'] > (df['open_D'] + df['low_D'].shift(1)) / 2.1  # 从/2调整为/2.1
-                cond_volume_confirmation = df['volume_D'] > df['VOL_MA_21_D'] * 1.3  # 从1.5调整为1.3
-                cond_chip_support = df['chip_health_score_D'] > 35 if 'chip_health_score_D' in df.columns else True  # 从40调整为35
+                cond_open_gap = df['open_D'] < df['low_D'].shift(1) * 0.99
+                cond_close_recovery = df['close_D'] > (df['open_D'] + df['low_D'].shift(1)) / 2.1
+                cond_volume_confirmation = df['volume_D'] > df['VOL_MA_21_D'] * 1.3
+                cond_chip_support = df['chip_health_score_D'] > 35 if 'chip_health_score_D' in df.columns else True
                 df['IS_WW1_D'] = (cond_open_gap & cond_close_recovery & cond_volume_confirmation & cond_chip_support).fillna(False)
                 print(f"WW1信号: 总触发={df['IS_WW1_D'].sum()}, 触发率={df['IS_WW1_D'].mean():.2%}")
             except Exception as e:
@@ -881,7 +921,7 @@ class FeatureEngineeringService:
         except Exception as e:
             print(f"探针数据存储失败: {e}")
         all_dfs[timeframe] = df
-        print("=== 高级模式识别引擎(V4.4 阈值优化版)分析完成 ===")
+        print("=== 高级模式识别引擎(V4.5 数据格式修复版)分析完成 ===")
         return all_dfs
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.Series:
