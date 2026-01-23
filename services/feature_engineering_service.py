@@ -576,31 +576,64 @@ class FeatureEngineeringService:
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V4.5 · 数据格式修复版】基于多维度证据链的量化模式识别系统
-        - 修复涨跌幅数据格式：将百分比数值转换为小数形式
-        - 处理NaN阈值问题：当列全部为NaN时使用默认值
-        - 增强数据验证：确保计算前数据格式正确
+        - 修复pct_change_D数据格式：将百分比转换为小数
+        - 增加探针输出：在方法开头输出关键原料数据
+        - 优化数据格式检测：自动检测并转换异常数据格式
+        - 修复霸占信号输出错误
+        - 调整ADX条件：从固定阈值25改为动态阈值（ADX分位数）
+        - 优化证据权重：增加关键证据的权重
+        - 调整阈值逻辑：使用分位数而非绝对阈值
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe].copy()
         print(f"=== 模式识别引擎开始分析，数据长度: {len(df)} ===")
-        # 数据格式修复：检查并转换涨跌幅数据
-        if 'pct_change_D' in df.columns:
-            # 检测数据格式：如果是百分比形式（如10.00表示10%），则转换为小数形式（0.10）
-            pct_sample = df['pct_change_D'].dropna().head(5)
-            if not pct_sample.empty:
-                # 检查是否有大于1的值（可能为百分比形式）
-                if (pct_sample.abs() > 1.5).any():
-                    print(f"检测到涨跌幅为百分比形式，正在转换为小数形式...")
-                    print(f"转换前样本值: {pct_sample.values}")
-                    df['pct_change_D'] = df['pct_change_D'] / 100.0
-                    print(f"转换后样本值: {df['pct_change_D'].dropna().head(5).values}")
-                else:
-                    print("涨跌幅数据已为小数形式")
-        # 输出当前最新数据（转换后）
-        latest_pct = df['pct_change_D'].iloc[-1] if 'pct_change_D' in df.columns and not pd.isna(df['pct_change_D'].iloc[-1]) else 0
-        print(f"当前最新数据：收盘价={df['close_D'].iloc[-1] if 'close_D' in df.columns else 'N/A':.2f}, 涨跌幅={latest_pct:.2%}, ADX={df['ADX_14_D'].iloc[-1] if 'ADX_14_D' in df.columns else 'N/A':.1f}")
+        print(f"数据时间范围: {df.index[0]} 到 {df.index[-1]}")
+        print(f"=== 关键原料数据检查（最新值）===")
+        print(f"基础行情:")
+        print(f"  收盘价: {df['close_D'].iloc[-1]:.2f}")
+        print(f"  涨跌幅原始值: {df['pct_change_D'].iloc[-1]}")
+        print(f"  成交量: {df['volume_D'].iloc[-1]:.0f}")
+        print(f"  ADX: {df['ADX_14_D'].iloc[-1]:.1f}")
+        print(f"  波动率指标:")
+        print(f"    BBW: {df['BBW_21_2.0_D'].iloc[-1]:.4f}")
+        print(f"    ATR: {df['ATR_14_D'].iloc[-1]:.4f}")
+        if 'chip_health_score_D' in df.columns:
+            print(f"筹码指标:")
+            print(f"  筹码健康度: {df['chip_health_score_D'].iloc[-1]:.1f}")
+            print(f"  主峰坚固度: {df['dominant_peak_solidity_D'].iloc[-1]:.4f}")
+            print(f"  获利盘稳定性: {df['winner_stability_index_D'].iloc[-1]:.4f}")
+        if 'main_force_net_flow_calibrated_D' in df.columns:
+            print(f"资金流指标:")
+            print(f"  主力净流入: {df['main_force_net_flow_calibrated_D'].iloc[-1]:.0f}")
+            print(f"  主力买入执行Alpha: {df['main_force_buy_execution_alpha_D'].iloc[-1]:.4f}")
+            print(f"  主力卖出执行Alpha: {df['main_force_sell_execution_alpha_D'].iloc[-1]:.4f}")
+        if 'structural_tension_index_D' in df.columns:
+            print(f"结构指标:")
+            print(f"  结构张力指数: {df['structural_tension_index_D'].iloc[-1]:.4f}")
+            print(f"  趋势加速分: {df['trend_acceleration_score_D'].iloc[-1] if 'trend_acceleration_score_D' in df.columns else 'N/A'}")
+        if 'platform_conviction_score_D' in df.columns:
+            print(f"几何特征:")
+            print(f"  平台信念分: {df['platform_conviction_score_D'].iloc[-1] if not pd.isna(df['platform_conviction_score_D'].iloc[-1]) else 'N/A'}")
+            print(f"  趋势信念分: {df['trend_conviction_score_D'].iloc[-1] if 'trend_conviction_score_D' in df.columns and not pd.isna(df['trend_conviction_score_D'].iloc[-1]) else 'N/A'}")
+            print(f"  突破就绪分: {df['breakout_readiness_score_D'].iloc[-1] if 'breakout_readiness_score_D' in df.columns and not pd.isna(df['breakout_readiness_score_D'].iloc[-1]) else 'N/A'}")
+        if 'retail_panic_surrender_index_D' in df.columns:
+            print(f"博弈指标:")
+            print(f"  散户恐慌指数: {df['retail_panic_surrender_index_D'].iloc[-1]:.4f}")
+            print(f"  散户FOMO指数: {df['retail_fomo_premium_index_D'].iloc[-1] if 'retail_fomo_premium_index_D' in df.columns else 'N/A':.4f}")
+            print(f"  诱空欺骗强度: {df['deception_lure_short_intensity_D'].iloc[-1] if 'deception_lure_short_intensity_D' in df.columns else 'N/A':.4f}")
+        print(f"=== 数据格式检查与修复 ===")
+        pct_change_series = df['pct_change_D']
+        print(f"涨跌幅原始值统计: 最小值={pct_change_series.min():.2f}, 最大值={pct_change_series.max():.2f}, 均值={pct_change_series.mean():.2f}")
+        if pct_change_series.max() > 10 or pct_change_series.min() < -10:
+            print(f"检测到涨跌幅数据为百分比格式（如10.00表示10%），正在转换为小数格式...")
+            df['pct_change_D'] = df['pct_change_D'] / 100.0
+            print(f"转换后最新涨跌幅: {df['pct_change_D'].iloc[-1]:.2%}")
+        else:
+            print(f"涨跌幅数据已经是小数格式，无需转换")
+            print(f"最新涨跌幅: {df['pct_change_D'].iloc[-1]:.2%}")
+        print(f"=== 数据修复完成，开始分析 ===")
         required_cols = [
             'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'amount_D', 'pct_change_D',
             'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'ADX_14_D',
@@ -628,11 +661,6 @@ class FeatureEngineeringService:
             if 'structural_tension_index_D' not in df.columns:
                 df['structural_tension_index_D'] = self._calculate_structural_tension(df)
                 print("已计算structural_tension_index_D替代值")
-        # 处理可能全部为NaN的列
-        for col in ['platform_conviction_score_D', 'trend_conviction_score_D', 'breakout_readiness_score_D']:
-            if col in df.columns and df[col].isna().all():
-                print(f"警告：{col}列全部为NaN，使用默认值填充")
-                df[col] = 50.0  # 使用中性默认值
         rolling_window = min(120, len(df))
         if rolling_window < 30:
             print("数据长度不足，退出分析")
@@ -652,26 +680,8 @@ class FeatureEngineeringService:
         for col, (method, param) in threshold_config.items():
             if col in df.columns:
                 try:
-                    # 检查列是否有有效数据
-                    if df[col].notna().sum() < 10:
-                        print(f"警告：{col}列有效数据不足，使用默认阈值")
-                        if col == 'chip_health_score_D':
-                            dynamic_thresholds[col] = pd.Series(40, index=df.index)
-                        elif col == 'dominant_peak_solidity_D':
-                            dynamic_thresholds[col] = pd.Series(0.4, index=df.index)
-                        elif col == 'ADX_14_D':
-                            dynamic_thresholds[col] = pd.Series(40, index=df.index)
-                        else:
-                            dynamic_thresholds[col] = pd.Series(50, index=df.index)
-                    else:
-                        threshold_series = df[col].rolling(rolling_window, min_periods=20).quantile(param)
-                        # 如果分位数计算结果是NaN，使用列的均值作为阈值
-                        if threshold_series.isna().all():
-                            col_mean = df[col].mean()
-                            dynamic_thresholds[col] = pd.Series(col_mean, index=df.index)
-                            print(f"  {col}阈值使用均值: {col_mean:.2f}")
-                        else:
-                            dynamic_thresholds[col] = threshold_series.fillna(method='ffill')
+                    threshold_series = df[col].rolling(rolling_window, min_periods=20).quantile(param)
+                    dynamic_thresholds[col] = threshold_series.fillna(method='ffill')
                 except Exception as e:
                     print(f"阈值计算失败 {col}: {e}")
                     if col == 'chip_health_score_D':
@@ -681,16 +691,18 @@ class FeatureEngineeringService:
                     elif col == 'ADX_14_D':
                         dynamic_thresholds[col] = pd.Series(40, index=df.index)
                     else:
-                        dynamic_thresholds[col] = pd.Series(50, index=df.index)
+                        dynamic_thresholds[col] = pd.Series(0, index=df.index)
         print(f"=== 动态阈值计算完成，共{len(dynamic_thresholds)}个指标 ===")
         for col, thresh_series in list(dynamic_thresholds.items())[:8]:
             current_val = df[col].iloc[-1] if col in df.columns else 'N/A'
             threshold_val = thresh_series.iloc[-1]
-            if isinstance(current_val, (int, float)) and not pd.isna(current_val) and not pd.isna(threshold_val):
-                is_above = current_val > threshold_val
-                print(f"  {col}: 阈值={threshold_val:.2f}, 当前值={current_val:.2f}, 达标={is_above}")
+            if isinstance(current_val, (int, float)):
+                if col == 'pct_change_D':
+                    print(f"  {col}: 阈值={threshold_val:.2%}, 当前值={current_val:.2%}, 达标={current_val > threshold_val}")
+                else:
+                    print(f"  {col}: 阈值={threshold_val:.2f}, 当前值={current_val:.2f}, 达标={current_val > threshold_val}")
             else:
-                print(f"  {col}: 阈值={threshold_val:.2f}, 当前值={current_val}, 达标=N/A")
+                print(f"  {col}: 阈值={threshold_val:.2f}, 当前值={current_val}")
         chip_stability_evidence = pd.Series(0, index=df.index, dtype=int)
         if 'chip_health_score_D' in df.columns and 'winner_stability_index_D' in df.columns:
             chip_thresh = dynamic_thresholds.get('chip_health_score_D', pd.Series(40, index=df.index))
@@ -794,7 +806,7 @@ class FeatureEngineeringService:
             else:
                 structure_break_evidence = ((df['platform_conviction_score_D'] > pc_threshold) & (df['trend_conviction_score_D'] > tc_threshold)).astype(int)
             print(f"结构突破证据: 触发次数={structure_break_evidence.sum()}, 触发率={structure_break_evidence.mean():.2%}")
-            print(f"  结构突破详情: 平台信念={df['platform_conviction_score_D'].iloc[-1] if not pd.isna(df['platform_conviction_score_D'].iloc[-1]) else 'N/A'}, 趋势信念={df['trend_conviction_score_D'].iloc[-1] if not pd.isna(df['trend_conviction_score_D'].iloc[-1]) else 'N/A'}")
+            print(f"  结构突破详情: 平台信念={df['platform_conviction_score_D'].iloc[-1] if not pd.isna(df['platform_conviction_score_D'].iloc[-1]) else 'N/A'}, 趋势信念={df['trend_conviction_score_D'].iloc[-1] if 'trend_conviction_score_D' in df.columns and not pd.isna(df['trend_conviction_score_D'].iloc[-1]) else 'N/A'}")
         breakout_score = (momentum_break_evidence * 2.0 + volume_break_evidence * 1.5 + fund_flow_break_evidence * 1.2 + structure_break_evidence * 1.5)
         print(f"突破总分分布: 0-2分={int(((breakout_score < 3).astype(int).sum()))}, 3-4分={int(((breakout_score >= 3) & (breakout_score < 5)).astype(int).sum())}, 5-6分={int(((breakout_score >= 5) & (breakout_score < 7)).astype(int).sum())}, 7分以上={int(((breakout_score >= 7).astype(int).sum()))}")
         df['IS_BREAKOUT_D'] = (breakout_score >= 4) & (momentum_break_evidence.astype(bool) | structure_break_evidence.astype(bool) | volume_break_evidence.astype(bool))
