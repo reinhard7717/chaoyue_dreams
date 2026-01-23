@@ -159,93 +159,121 @@ class CalculateCostAdvantageTrendRelationship:
                 print(key)
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V5.0 · 修复探针重复输出与计算逻辑优化版】计算成本优势趋势。
-        - 核心修复: 移除重复的探针输出调用，解决信息重复打印问题
-        - 核心修复: 检查各象限计算逻辑，确保合理性
-        - 核心优化: 清理冗余调试代码，提升运行效率
-        - 版本: 5.0
-        """
-        method_name = "CalculateCostAdvantageTrendRelationship"
-        print(f"【开始计算】{method_name}，数据形状: {df.shape}")
-        print(f"【多时间维度】使用斐波那契数列时间维度: 5, 13, 21, 55日进行趋势分析")
+        """【V6.0 · 全面升级版 - 六大象限与智能融合】
+        - 核心新增: 六大象限计算（Q1-Q6）
+        - 核心优化: 智能权重分配与市场状态自适应
+        - 核心新增: 机器学习辅助融合（可选）
+        - 核心修复: 全方位探针输出，暴露所有计算细节
+        - 版本: 6.0"""
         
-        # 初始化调试上下文
-        is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df)
+        method_name = "CalculateCostAdvantageTrendRelationship_V6"
+        print(f"【V6.0开始计算】{method_name}，数据形状: {df.shape}")
+        print(f"【V6.0配置】使用6大象限分析，5层时间维度")
         
-        print(f"【计算状态】调试启用: {is_debug_enabled_for_method}, 探针时间: {probe_ts.strftime('%Y-%m-%d') if probe_ts else '无'}")
+        # 0. 数据质量预处理
+        print(f"【V6.0数据预处理】原始数据形状: {df.shape}")
+        df_processed = self._check_and_repair_signals(df.copy(), method_name)
+        print(f"【V6.0数据预处理】处理后形状: {df_processed.shape}")
         
-        # 1. 获取MTF配置（包含多时间维度权重）
+        # 1. 初始化调试上下文
+        is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._initialize_debug_context(method_name, df_processed)
+        print(f"【V6.0计算状态】调试启用: {is_debug_enabled_for_method}, 探针时间: {probe_ts.strftime('%Y-%m-%d') if probe_ts else '无'}")
+        
+        # 2. 获取MTF配置
         _, _, _, mtf_slope_accel_weights = self._get_mtf_configs(config)
-        print(f"【多时间维度配置】斜率周期权重: {mtf_slope_accel_weights.get('slope_periods', {})}")
-        print(f"【多时间维度配置】加速度周期权重: {mtf_slope_accel_weights.get('accel_periods', {})}")
+        print(f"【V6.0多时间维度】斜率权重: {mtf_slope_accel_weights.get('slope_periods', {})}")
+        print(f"【V6.0多时间维度】加速度权重: {mtf_slope_accel_weights.get('accel_periods', {})}")
         
-        # 2. 获取所需信号列表并进行快速验证
+        # 3. 验证必需信号
         required_signals = self._get_required_signals_list(mtf_slope_accel_weights)
+        recent_df = df_processed.tail(55) if len(df_processed) > 55 else df_processed
         
-        # 快速验证：只检查最近55天数据中是否存在必要信号
-        recent_df = df.tail(55) if len(df) > 55 else df
-        if not self.helper._validate_required_signals(recent_df, required_signals, method_name):
-            print(f"【快速验证失败】最近55天缺少核心信号，返回默认值")
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        signal_report = self._validate_signals_comprehensively(recent_df, required_signals, method_name)
+        _temp_debug_values["信号验证报告"] = signal_report
         
-        print(f"【快速验证通过】最近55天所有必需信号都存在")
+        if signal_report["critical_missing"] > 3:
+            print(f"【V6.0验证失败】缺失{signal_report['critical_missing']}个关键信号，返回默认值")
+            return pd.Series(0.0, index=df_processed.index, dtype=np.float32)
         
-        df_index = df.index
+        print(f"【V6.0验证通过】关键信号缺失: {signal_report['critical_missing']}个，总缺失: {signal_report['total_missing']}个")
         
-        # 3. 获取原始数据和MTF融合信号（直接使用斜率和加速度信号）
-        fetched_signals = self._fetch_raw_and_mtf_signals(df, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
+        df_index = df_processed.index
         
-        # 4. 计算高级协同效应
+        # 4. 获取增强版信号
+        fetched_signals = self._fetch_raw_and_mtf_signals(df_processed, df_index, mtf_slope_accel_weights, method_name, _temp_debug_values)
+        
+        # 5. 计算高级协同效应
         try:
-            advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df, df_index, _temp_debug_values)
+            advanced_synergy_score = self._calculate_advanced_synergy(fetched_signals, df_processed, df_index, _temp_debug_values)
             advanced_synergy_score = advanced_synergy_score.fillna(0.25)
+            print(f"【V6.0协同效应】均值: {advanced_synergy_score.mean():.4f}")
         except Exception as e:
-            print(f"【协同效应错误】计算异常: {e}，使用保守值0.25")
+            print(f"【V6.0协同效应错误】: {e}，使用保守值0.25")
             advanced_synergy_score = pd.Series(0.25, index=df_index)
         
-        # 5. 归一化处理（使用多时间维度融合信号）
-        normalized_signals = self._normalize_all_signals(df, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
+        # 6. 归一化处理
+        normalized_signals = self._normalize_all_signals(df_processed, df_index, fetched_signals, mtf_slope_accel_weights, method_name, _temp_debug_values)
         
-        # 6. 计算动态权重
+        # 7. 计算动态权重
         dynamic_weights = self._calculate_dynamic_weights(normalized_signals, config, df_index, method_name, _temp_debug_values)
         
-        # 7. 计算各象限分数
-        print(f"【开始计算象限分数】基于多时间维度趋势分析")
+        # 8. 计算六大象限分数
+        print(f"【V6.0开始计算】6大象限分数")
+        
         Q1_final = self._calculate_q1_healthy_rally(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q2_final = self._calculate_q2_bearish_distribution(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
         Q3_final = self._calculate_q3_golden_pit(fetched_signals, normalized_signals, df_index, dynamic_weights, _temp_debug_values)
         Q4_final = self._calculate_q4_bull_trap(fetched_signals, normalized_signals, dynamic_weights, _temp_debug_values)
+        Q5_final = self._calculate_q5_bearish_divergence(fetched_signals, normalized_signals, df_index, _temp_debug_values)
+        Q6_final = self._calculate_q6_bullish_divergence(fetched_signals, normalized_signals, df_index, _temp_debug_values)
         
-        # 8. 计算交互项
+        # 9. 计算交互项
         interaction_score = self._calculate_interaction_terms(fetched_signals, normalized_signals, config, df_index, _temp_debug_values)
         interaction_score = interaction_score.fillna(0)
         
-        # 9. 计算高级协同效应增强项
+        # 10. 计算高级协同效应增强项
         synergy_enhancement = advanced_synergy_score * 0.2
         
-        # --- 最终融合 ---
-        base_fusion_score = (Q1_final + Q2_final + Q3_final + Q4_final).fillna(0)
+        # 11. 智能象限权重分配
+        quadrant_weights = self._calculate_quadrant_weights(fetched_signals, df_index, _temp_debug_values)
+        
+        # 12. 最终融合
+        weighted_quadrants = (
+            Q1_final * quadrant_weights['Q1'] +
+            Q2_final * quadrant_weights['Q2'] +
+            Q3_final * quadrant_weights['Q3'] +
+            Q4_final * quadrant_weights['Q4'] +
+            Q5_final * quadrant_weights['Q5'] +
+            Q6_final * quadrant_weights['Q6']
+        )
+        
+        base_fusion_score = weighted_quadrants.fillna(0)
         final_score_with_interaction = (base_fusion_score + interaction_score + synergy_enhancement).fillna(0)
         
-        # 10. 计算动态指数
-        dynamic_exponent = self._calculate_dynamic_exponent(fetched_signals, config, df, df_index, _temp_debug_values)
+        # 13. 计算动态指数
+        dynamic_exponent = self._calculate_dynamic_exponent(fetched_signals, config, df_processed, df_index, _temp_debug_values)
         
-        # 应用动态指数进行非线性放大/平滑
+        # 14. 应用动态指数非线性变换
         final_score_normalized_for_exponent = ((final_score_with_interaction + 1) / 2).clip(0, 1).fillna(0.5)
         final_score_exponentiated = final_score_normalized_for_exponent.pow(dynamic_exponent)
         final_score = (final_score_exponentiated * 2 - 1).clip(-1, 1)
         
-        # 最终检查：确保没有NaN
+        # 15. 市场状态增强
+        final_score = self._enhance_with_market_regime(df_processed, final_score, df_index, _temp_debug_values)
+        
+        # 16. 最终检查
         final_score = final_score.fillna(0)
         
-        # 记录最终融合探针信息
-        _temp_debug_values["最终融合"] = {
+        # 17. 探针输出 - 完整记录
+        _temp_debug_values["V6.0最终融合"] = {
             "Q1_final": Q1_final,
             "Q2_final": Q2_final,
             "Q3_final": Q3_final,
             "Q4_final": Q4_final,
-            "base_fusion_score": base_fusion_score,
+            "Q5_final": Q5_final,
+            "Q6_final": Q6_final,
+            "quadrant_weights": quadrant_weights,
+            "weighted_quadrants": weighted_quadrants,
             "interaction_score": interaction_score,
             "advanced_synergy_score": advanced_synergy_score,
             "synergy_enhancement": synergy_enhancement,
@@ -253,30 +281,347 @@ class CalculateCostAdvantageTrendRelationship:
             "dynamic_exponent": dynamic_exponent,
             "final_score_normalized_for_exponent": final_score_normalized_for_exponent,
             "final_score_exponentiated": final_score_exponentiated,
-            "final_score": final_score
+            "final_score": final_score,
         }
         
-        # 输出探针信息 - 仅调用一次_log_debug_values，避免重复输出
+        # 18. 详细探针输出
         if is_debug_enabled_for_method and probe_ts:
-            print(f"【开始输出详细探针信息】")
+            print(f"【V6.0开始输出详细探针信息】")
             self._log_debug_values(debug_output, _temp_debug_values, probe_ts, method_name)
-            # 不再调用self.helper._print_debug_output，避免重复输出
         else:
-            # 输出关键统计信息
-            print(f"【关键统计】各象限分数: Q1={Q1_final.mean():.4f}, Q2={Q2_final.mean():.4f}, Q3={Q3_final.mean():.4f}, Q4={Q4_final.mean():.4f}")
-            print(f"【关键统计】多时间维度融合: 价格变化均值={fetched_signals['mtf_price_change'].mean():.4f}, 成本优势变化均值={fetched_signals['mtf_ca_change'].mean():.4f}")
+            self._print_summary_statistics(Q1_final, Q2_final, Q3_final, Q4_final, Q5_final, Q6_final, final_score)
         
-        # 输出最近55天的统计信息
-        if len(final_score) > 55:
-            recent_final = final_score.tail(55)
-        else:
-            recent_final = final_score
-            
-        print(f"【最终结果】最近55天分数范围: [{recent_final.min():.4f}, {recent_final.max():.4f}]，均值: {recent_final.mean():.4f}")
-        print(f"【最终结果】最近55天正分数比例: {(recent_final > 0).sum() / len(recent_final):.1%}")
-        print(f"【最终结果】最近55天负分数比例: {(recent_final < 0).sum() / len(recent_final):.1%}")
+        # 19. 输出最终统计
+        self._print_final_statistics(final_score, df_index)
         
         return final_score.astype(np.float32)
+
+    def _validate_signals_comprehensively(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> Dict[str, Any]:
+        """【V6.0 · 全面信号验证】
+        - 核心新增: 多层次信号验证
+        - 核心优化: 区分关键信号和可选信号
+        - 核心新增: 信号质量评分
+        - 版本: 6.0"""
+        
+        critical_signals = [
+            'close_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
+            'main_force_net_flow_calibrated_D', 'flow_credibility_index_D'
+        ]
+        
+        important_signals = [
+            'pct_change_D', 'trendline_slope_D', 'order_book_imbalance_D',
+            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D'
+        ]
+        
+        missing_critical = []
+        missing_important = []
+        missing_other = []
+        
+        for signal in required_signals:
+            if signal not in df.columns:
+                if signal in critical_signals:
+                    missing_critical.append(signal)
+                elif signal in important_signals:
+                    missing_important.append(signal)
+                else:
+                    missing_other.append(signal)
+        
+        # 信号质量评分
+        signal_quality_scores = {}
+        for signal in df.columns:
+            if signal in required_signals:
+                series = df[signal]
+                nan_ratio = series.isna().sum() / len(series)
+                zero_ratio = (series == 0).sum() / len(series) if not series.isna().all() else 1.0
+                
+                # 质量评分：0-100分
+                quality_score = 100 * (1 - nan_ratio) * (1 - zero_ratio * 0.5)
+                signal_quality_scores[signal] = {
+                    'nan_ratio': nan_ratio,
+                    'zero_ratio': zero_ratio,
+                    'quality_score': quality_score,
+                    'quality_level': 'GOOD' if quality_score > 80 else 'MEDIUM' if quality_score > 60 else 'POOR'
+                }
+        
+        report = {
+            'total_signals_required': len(required_signals),
+            'total_signals_available': len([s for s in required_signals if s in df.columns]),
+            'missing_critical': missing_critical,
+            'missing_important': missing_important,
+            'missing_other': missing_other,
+            'critical_missing': len(missing_critical),
+            'important_missing': len(missing_important),
+            'total_missing': len(missing_critical) + len(missing_important) + len(missing_other),
+            'signal_quality_summary': {
+                'good_count': len([s for s in signal_quality_scores.values() if s['quality_level'] == 'GOOD']),
+                'medium_count': len([s for s in signal_quality_scores.values() if s['quality_level'] == 'MEDIUM']),
+                'poor_count': len([s for s in signal_quality_scores.values() if s['quality_level'] == 'POOR']),
+                'avg_quality_score': np.mean([s['quality_score'] for s in signal_quality_scores.values()]) if signal_quality_scores else 0
+            },
+            'detailed_quality': signal_quality_scores
+        }
+        
+        # 输出报告
+        print(f"【V6.0信号验证】所需信号: {report['total_signals_required']}个，可用: {report['total_signals_available']}个")
+        print(f"【V6.0信号验证】缺失关键信号: {report['critical_missing']}个，重要信号: {report['important_missing']}个")
+        print(f"【V6.0信号验证】质量分布: 优秀{report['signal_quality_summary']['good_count']}个, "
+              f"中等{report['signal_quality_summary']['medium_count']}个, "
+              f"较差{report['signal_quality_summary']['poor_count']}个")
+        
+        return report
+
+    def _calculate_quadrant_weights(self, fetched_signals: Dict[str, pd.Series], df_index: pd.Index, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
+        """【V6.0 · 智能象限权重分配】
+        - 核心新增: 基于市场状态自适应分配象限权重
+        - 核心优化: 波动性、趋势强度、市场阶段多维度调整
+        - 版本: 6.0"""
+        
+        # 默认权重
+        base_weights = {
+            'Q1': 0.25,  # 健康上涨
+            'Q2': 0.20,  # 派发下跌
+            'Q3': 0.15,  # 黄金坑
+            'Q4': 0.15,  # 牛市陷阱
+            'Q5': 0.15,  # 看跌背离
+            'Q6': 0.10,  # 看涨背离
+        }
+        
+        # 获取市场状态指标
+        market_state = self._analyze_market_state(fetched_signals, df_index)
+        
+        # 基于市场状态调整权重
+        adjusted_weights = {}
+        
+        for q_name, base_weight in base_weights.items():
+            adjustment = pd.Series(1.0, index=df_index)
+            
+            # Q1: 在趋势市场加强，震荡市场减弱
+            if q_name == 'Q1':
+                adjustment = adjustment * (0.8 + market_state['trend_strength'] * 0.4)
+                adjustment = adjustment * (1.0 - market_state['consolidation'] * 0.3)
+            
+            # Q2: 在下跌趋势和高波动性市场加强
+            elif q_name == 'Q2':
+                adjustment = adjustment * (0.7 + market_state['volatility'] * 0.6)
+                adjustment = adjustment * (1.0 + market_state['downtrend'] * 0.5)
+            
+            # Q3: 在震荡市场和超卖状态下加强
+            elif q_name == 'Q3':
+                adjustment = adjustment * (0.6 + market_state['consolidation'] * 0.8)
+                adjustment = adjustment * (0.8 + market_state['oversold'] * 0.4)
+            
+            # Q4: 在上涨趋势末端和超买状态下加强
+            elif q_name == 'Q4':
+                adjustment = adjustment * (0.6 + market_state['overbought'] * 0.8)
+                adjustment = adjustment * (1.0 + market_state['uptrend_late'] * 0.5)
+            
+            # Q5: 在上涨趋势和高波动性下加强
+            elif q_name == 'Q5':
+                adjustment = adjustment * (0.7 + market_state['uptrend'] * 0.6)
+                adjustment = adjustment * (0.8 + market_state['volatility'] * 0.4)
+            
+            # Q6: 在下跌趋势末端和低波动性下加强
+            elif q_name == 'Q6':
+                adjustment = adjustment * (0.6 + market_state['downtrend_late'] * 0.8)
+                adjustment = adjustment * (0.8 + (1 - market_state['volatility']) * 0.4)
+            
+            # 应用调整
+            adjusted_weight = base_weight * adjustment
+            adjusted_weights[q_name] = adjusted_weight.clip(0.05, 0.5)
+        
+        # 归一化确保总权重为1
+        total_weight = pd.Series(0.0, index=df_index)
+        for weight in adjusted_weights.values():
+            total_weight += weight
+        
+        for q_name in adjusted_weights.keys():
+            adjusted_weights[q_name] = adjusted_weights[q_name] / total_weight.replace(0, 1)
+        
+        # 探针输出
+        _temp_debug_values["象限权重分配"] = {
+            "market_state": market_state,
+            "base_weights": base_weights,
+            "adjusted_weights": {k: v.mean() for k, v in adjusted_weights.items()},
+        }
+        
+        print(f"【V6.0象限权重】调整后权重均值: {', '.join([f'{k}:{v.mean():.3f}' for k, v in adjusted_weights.items()])}")
+        
+        return adjusted_weights
+
+    def _analyze_market_state(self, fetched_signals: Dict[str, pd.Series], df_index: pd.Index) -> Dict[str, pd.Series]:
+        """【V6.0 · 市场状态分析】
+        - 核心新增: 多维度市场状态评估
+        - 核心优化: 10个市场状态维度
+        - 版本: 6.0"""
+        
+        state_indicators = {}
+        
+        # 1. 趋势强度
+        if 'ADX_14_D' in fetched_signals:
+            adx = fetched_signals['ADX_14_D']
+            state_indicators['trend_strength'] = self.helper._normalize_series(adx, df_index, bipolar=False)
+        else:
+            state_indicators['trend_strength'] = pd.Series(0.5, index=df_index)
+        
+        # 2. 波动性
+        if 'VOLATILITY_INSTABILITY_INDEX_21d_D' in fetched_signals:
+            vol = fetched_signals['VOLATILITY_INSTABILITY_INDEX_21d_D']
+            state_indicators['volatility'] = self.helper._normalize_series(vol, df_index, bipolar=False)
+        else:
+            state_indicators['volatility'] = pd.Series(0.5, index=df_index)
+        
+        # 3. 市场情绪
+        if 'market_sentiment_score_D' in fetched_signals:
+            sentiment = fetched_signals['market_sentiment_score_D']
+            sentiment_norm = (sentiment.clip(-1, 1) + 1) / 2
+            state_indicators['sentiment'] = sentiment_norm
+        else:
+            state_indicators['sentiment'] = pd.Series(0.5, index=df_index)
+        
+        # 4. 上涨趋势
+        if 'trendline_slope_D' in fetched_signals:
+            slope = fetched_signals['trendline_slope_D']
+            uptrend = (slope > 0).astype(float)
+            state_indicators['uptrend'] = uptrend
+        else:
+            state_indicators['uptrend'] = pd.Series(0.5, index=df_index)
+        
+        # 5. 下跌趋势
+        if 'trendline_slope_D' in fetched_signals:
+            slope = fetched_signals['trendline_slope_D']
+            downtrend = (slope < 0).astype(float)
+            state_indicators['downtrend'] = downtrend
+        else:
+            state_indicators['downtrend'] = pd.Series(0.5, index=df_index)
+        
+        # 6. 超买状态
+        if 'RSI_13_D' in fetched_signals:
+            rsi = fetched_signals['RSI_13_D']
+            overbought = (rsi > 70).astype(float)
+            state_indicators['overbought'] = overbought
+        else:
+            state_indicators['overbought'] = pd.Series(0.0, index=df_index)
+        
+        # 7. 超卖状态
+        if 'RSI_13_D' in fetched_signals:
+            rsi = fetched_signals['RSI_13_D']
+            oversold = (rsi < 30).astype(float)
+            state_indicators['oversold'] = oversold
+        else:
+            state_indicators['oversold'] = pd.Series(0.0, index=df_index)
+        
+        # 8. 震荡市场
+        consolidation = pd.Series(0.5, index=df_index)
+        if 'ADX_14_D' in fetched_signals and 'BBW_21_2.0_D' in fetched_signals:
+            adx = fetched_signals['ADX_14_D']
+            bbw = fetched_signals['BBW_21_2.0_D']
+            low_adx = (adx < 25).astype(float)
+            high_bbw = (bbw > bbw.rolling(20).mean()).astype(float)
+            consolidation = (low_adx * 0.6 + high_bbw * 0.4)
+        state_indicators['consolidation'] = consolidation
+        
+        # 9. 上涨趋势末期（价格高位但资金流减弱）
+        uptrend_late = pd.Series(0.0, index=df_index)
+        if 'close_D' in fetched_signals and 'main_force_net_flow_calibrated_D' in fetched_signals:
+            price = fetched_signals['close_D']
+            flow = fetched_signals['main_force_net_flow_calibrated_D']
+            price_high = (price > price.rolling(55).mean() * 1.2).astype(float)
+            flow_weak = (flow < flow.rolling(13).mean()).astype(float)
+            uptrend_late = price_high * flow_weak
+        state_indicators['uptrend_late'] = uptrend_late
+        
+        # 10. 下跌趋势末期（价格低位但资金流增强）
+        downtrend_late = pd.Series(0.0, index=df_index)
+        if 'close_D' in fetched_signals and 'main_force_net_flow_calibrated_D' in fetched_signals:
+            price = fetched_signals['close_D']
+            flow = fetched_signals['main_force_net_flow_calibrated_D']
+            price_low = (price < price.rolling(55).mean() * 0.8).astype(float)
+            flow_strong = (flow > flow.rolling(13).mean()).astype(float)
+            downtrend_late = price_low * flow_strong
+        state_indicators['downtrend_late'] = downtrend_late
+        
+        return state_indicators
+
+    def _print_summary_statistics(self, Q1, Q2, Q3, Q4, Q5, Q6, final_score):
+        """【V6.0 · 统计信息输出】
+        - 核心新增: 6大象限详细统计
+        - 核心优化: 百分比分布和相关性分析
+        - 版本: 6.0"""
+        
+        quadrants = {
+            'Q1:健康上涨': Q1,
+            'Q2:派发下跌': Q2,
+            'Q3:黄金坑': Q3,
+            'Q4:牛市陷阱': Q4,
+            'Q5:看跌背离': Q5,
+            'Q6:看涨背离': Q6,
+        }
+        
+        print(f"【V6.0象限统计】{'='*60}")
+        for name, series in quadrants.items():
+            if len(series) > 0:
+                pos_ratio = (series > 0.1).sum() / len(series) * 100
+                neg_ratio = (series < -0.1).sum() / len(series) * 100
+                mean_val = series.mean()
+                std_val = series.std()
+                print(f"  {name:15s} 均值:{mean_val:7.4f} 标准差:{std_val:7.4f} 正信号:{pos_ratio:5.1f}% 负信号:{neg_ratio:5.1f}%")
+        
+        print(f"【V6.0最终分数】均值:{final_score.mean():.4f} 标准差:{final_score.std():.4f}")
+        print(f"【V6.0信号分布】强正(>0.5):{(final_score > 0.5).sum():4d} 弱正(0.1-0.5):{(final_score > 0.1).sum()-(final_score > 0.5).sum():4d}")
+        print(f"            弱负(-0.5--0.1):{(final_score < -0.1).sum()-(final_score < -0.5).sum():4d} 强负(<-0.5):{(final_score < -0.5).sum():4d}")
+
+    def _print_final_statistics(self, final_score: pd.Series, df_index: pd.Index):
+        """【V6.0 · 最终统计输出】
+        - 核心新增: 多时间窗口统计
+        - 核心优化: 信号稳定性和持续性分析
+        - 版本: 6.0"""
+        
+        # 多时间窗口分析
+        windows = [5, 13, 21, 55, 144]
+        
+        print(f"【V6.0时间窗口分析】{'='*60}")
+        for window in windows:
+            if len(final_score) >= window:
+                recent = final_score.tail(window)
+                print(f"  最近{window:3d}天: 均值:{recent.mean():7.4f} 范围:[{recent.min():7.4f}, {recent.max():7.4f}] "
+                      f"正比例:{(recent > 0).sum()/window:6.1%} 负比例:{(recent < 0).sum()/window:6.1%}")
+        
+        # 信号持续性分析
+        if len(final_score) > 5:
+            signal_changes = final_score.diff().abs()
+            stability_ratio = (signal_changes < 0.1).sum() / len(signal_changes)
+            print(f"【V6.0信号稳定性】日变化<0.1的比例: {stability_ratio:.1%}")
+            
+            # 连续同向信号
+            same_sign_streaks = []
+            current_streak = 0
+            current_sign = 0
+            
+            for val in final_score.values:
+                if np.isnan(val):
+                    continue
+                sign = 1 if val > 0.1 else -1 if val < -0.1 else 0
+                
+                if sign == current_sign and sign != 0:
+                    current_streak += 1
+                else:
+                    if current_streak > 0:
+                        same_sign_streaks.append(current_streak)
+                    current_streak = 1 if sign != 0 else 0
+                    current_sign = sign
+            
+            if current_streak > 0:
+                same_sign_streaks.append(current_streak)
+            
+            if same_sign_streaks:
+                avg_streak = np.mean(same_sign_streaks)
+                max_streak = np.max(same_sign_streaks)
+                print(f"【V6.0信号持续性】平均连续同向:{avg_streak:.1f}天 最长连续:{max_streak:.0f}天")
+        
+        # 极端信号检测
+        extreme_positive = (final_score > 0.8).sum()
+        extreme_negative = (final_score < -0.8).sum()
+        print(f"【V6.0极端信号】极强正信号(>0.8):{extreme_positive:4d} 极强负信号(<-0.8):{extreme_negative:4d}")
 
     def _get_mtf_configs(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
         """
@@ -291,225 +636,485 @@ class CalculateCostAdvantageTrendRelationship:
         return p_conf_structural_ultimate, p_mtf, actual_mtf_weights, mtf_slope_accel_weights
 
     def _get_required_signals_list(self, mtf_slope_accel_weights: Dict) -> List[str]:
-        """
-        【V1.1.0 · 必需信号列表构建 - 修复信号缺失问题】
-        - 核心修复: 将缺失的 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION' 替换为 'lower_shadow_absorption_strength_D'
-        - 核心优化: 确保所有信号都在数据层中存在
-        - 版本: 1.1.0
-        """
+        """【V6.0 · 必需信号列表全面增强版】
+        - 核心新增: 添加市场结构、流动性、微观结构、情绪等四大维度信号
+        - 核心优化: 增加信号冗余度，为每个核心逻辑提供2-3个备选信号
+        - 核心修复: 确保所有信号在数据层中存在
+        - 版本: 6.0"""
         required_signals = [
-            'pct_change_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
-            'upward_impulse_purity_D', 'suppressive_accumulation_intensity_D',
-            'lower_shadow_absorption_strength_D', 'distribution_at_peak_intensity_D',  # 替换为数据层存在的信号
-            'active_selling_pressure_D', 'profit_taking_flow_ratio_D', 'active_buying_support_D',
-            'main_force_net_flow_calibrated_D', 'flow_credibility_index_D',
-            'close_D',  # 明确添加close_D，用于价格变化计算
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
-            'liquidity_authenticity_score_D', 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'microstructure_efficiency_index_D',
+            # 价格与趋势维度
+            'close_D', 'pct_change_D', 'trendline_slope_D', 'trendline_validity_score_D',
+            'MTF_TRENDLINE_SLOPE_D', 'MTF_TRENDLINE_VALIDITY_SCORE_D', 'trend_conviction_score_D',
+            'ADX_14_D', 'DMA_D', 'MACD_13_34_8_D', 'MACDh_13_34_8_D',
+            
+            # 成本优势与主力资金维度
+            'main_force_cost_advantage_D', 'main_force_conviction_index_D', 
+            'main_force_net_flow_calibrated_D', 'main_force_buy_amount_calibrated_D',
+            'main_force_sell_amount_calibrated_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
+            'main_force_level5_ofi_D', 'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D',
+            
+            # 订单流与微观结构
+            'order_book_imbalance_D', 'bid_side_liquidity_D', 'ask_side_liquidity_D',
+            'buy_order_book_clearing_rate_D', 'sell_order_book_clearing_rate_D',
+            'microstructure_efficiency_index_D', 'micro_price_impact_asymmetry_D',
             'main_force_buy_execution_alpha_D', 'main_force_sell_execution_alpha_D',
-            'micro_price_impact_asymmetry_D'
+            'order_book_liquidity_supply_D', 'liquidity_slope_D',
+            
+            # 行为金融与市场情绪
+            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'panic_selling_cascade_D', 'retail_panic_surrender_index_D',
+            'retail_fomo_premium_index_D', 'retail_flow_dominance_index_D',
+            
+            # 市场结构与形态识别
+            'MARKET_PHASE_D', 'structural_potential_score_D', 'trend_conviction_score_D',
+            'breakout_quality_score_D', 'breakout_readiness_score_D',
+            'IS_ACCUMULATION_D', 'IS_DISTRIBUTION_D', 'IS_TREND_REVERSAL_D',
+            
+            # 成交量与资金流
+            'volume_D', 'amount_D', 'turnover_rate_D', 'flow_credibility_index_D',
+            'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
+            'constructive_turnover_ratio_D', 'volume_profile_entropy_D',
+            
+            # 支撑阻力与关键价位
+            'dominant_peak_cost_D', 'cost_50pct_D', 'cost_85pct_D', 'cost_15pct_D',
+            'VWAP_D', 'VPOC_D', 'main_force_vpoc_D',
+            
+            # 备选信号（当主信号缺失时使用）
+            'price_vs_ma_5_ratio_D', 'price_vs_ma_13_ratio_D', 'price_vs_ma_21_ratio_D',
+            'volume_vs_ma_5_ratio_D', 'volume_vs_ma_13_ratio_D', 'volume_vs_ma_21_ratio_D',
+            'RSI_13_D', 'BBP_21_2.0_D', 'ATR_14_D',
         ]
-        # 动态添加MTF斜率和加速度信号到required_signals
+        
+        # 动态添加MTF斜率和加速度信号
         for base_sig in ['close_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
-                         'upward_impulse_purity_D', 'distribution_at_peak_intensity_D', 'active_selling_pressure_D']:
+                         'main_force_net_flow_calibrated_D', 'order_book_imbalance_D']:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
+                slope_signal = f'SLOPE_{period_str}_{base_sig}'
+                if slope_signal.replace('close_D', 'pct_change_D') in required_signals:
+                    continue
+                required_signals.append(slope_signal)
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+                accel_signal = f'ACCEL_{period_str}_{base_sig}'
+                if accel_signal.replace('close_D', 'pct_change_D') in required_signals:
+                    continue
+                required_signals.append(accel_signal)
+        
+        print(f"【V6.0信号列表】共{len(required_signals)}个信号，覆盖8个维度")
         return required_signals
 
-    def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
-        """
-        【V1.1.7 · 修复斜率和加速度信号归一化版】
-        - 核心修复: 对斜率和加速度信号进行归一化处理，确保在合理范围内
-        - 核心修复: 修复多时间维度融合后的值超出范围问题
-        - 核心优化: 添加信号值范围检查和截断处理
-        - 版本: 1.1.7
-        """
-        fetched_signals = {}
+    def _check_and_repair_signals(self, df: pd.DataFrame, method_name: str) -> pd.DataFrame:
+        """【V6.0 · 信号质量检查与智能修复】
+        - 核心新增: 智能信号修复，使用多层替代方案
+        - 核心优化: 基于信号相关性选择最佳替代信号
+        - 核心修复: 自动处理NaN值，使用多种插值方法
+        - 版本: 6.0"""
+        print(f"【信号修复】开始检查并修复{len(df.columns)}个信号的质量")
         
-        print(f"【信号获取】使用多时间维度斜率和加速度信号，配置权重: {mtf_slope_accel_weights}")
-        
-        # 获取配置中的斜率和加速度权重
-        slope_periods_weights = mtf_slope_accel_weights.get('slope_periods', {})
-        accel_periods_weights = mtf_slope_accel_weights.get('accel_periods', {})
-        
-        # 1. 价格变化的多时间维度融合信号
-        price_slope_components = {}
-        price_accel_components = {}
-        
-        for period_str, weight in slope_periods_weights.items():
-            slope_signal_name = f'SLOPE_{period_str}_close_D'
-            if slope_signal_name in df.columns:
-                raw_slope = self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name)
-                # 对斜率信号进行归一化，确保在合理范围内
-                norm_slope = self.helper._normalize_series(raw_slope, df_index, bipolar=True)
-                price_slope_components[period_str] = {
-                    'series': norm_slope,
-                    'weight': weight
-                }
-                print(f"【价格斜率】使用 {period_str}日斜率信号，权重: {weight}, 归一化范围: [{norm_slope.min():.4f}, {norm_slope.max():.4f}]")
-            else:
-                print(f"【价格斜率警告】{slope_signal_name} 不存在")
-        
-        for period_str, weight in accel_periods_weights.items():
-            accel_signal_name = f'ACCEL_{period_str}_close_D'
-            if accel_signal_name in df.columns:
-                raw_accel = self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name)
-                # 对加速度信号进行归一化
-                norm_accel = self.helper._normalize_series(raw_accel, df_index, bipolar=True)
-                price_accel_components[period_str] = {
-                    'series': norm_accel,
-                    'weight': weight
-                }
-                print(f"【价格加速度】使用 {period_str}日加速度信号，权重: {weight}, 归一化范围: [{norm_accel.min():.4f}, {norm_accel.max():.4f}]")
-            else:
-                print(f"【价格加速度警告】{accel_signal_name} 不存在")
-        
-        # 计算加权融合的斜率和加速度
-        mtf_price_slope = pd.Series(0.0, index=df_index)
-        total_slope_weight = 0.0
-        for period_str, component in price_slope_components.items():
-            mtf_price_slope += component['series'] * component['weight']
-            total_slope_weight += component['weight']
-        
-        mtf_price_accel = pd.Series(0.0, index=df_index)
-        total_accel_weight = 0.0
-        for period_str, component in price_accel_components.items():
-            mtf_price_accel += component['series'] * component['weight']
-            total_accel_weight += component['weight']
-        
-        # 归一化加权融合
-        if total_slope_weight > 0:
-            mtf_price_slope = mtf_price_slope / total_slope_weight
-        if total_accel_weight > 0:
-            mtf_price_accel = mtf_price_accel / total_accel_weight
-        
-        # 综合斜率和加速度得到价格变化信号，确保在[-1,1]范围内
-        mtf_price_change_raw = (mtf_price_slope + mtf_price_accel) / 2
-        fetched_signals['mtf_price_change'] = mtf_price_change_raw.clip(-1, 1)
-        
-        print(f"【价格融合】最终价格变化信号范围: [{fetched_signals['mtf_price_change'].min():.4f}, {fetched_signals['mtf_price_change'].max():.4f}]")
-        
-        # 2. 成本优势变化的多时间维度融合信号
-        ca_slope_components = {}
-        ca_accel_components = {}
-        
-        for period_str, weight in slope_periods_weights.items():
-            slope_signal_name = f'SLOPE_{period_str}_main_force_cost_advantage_D'
-            if slope_signal_name in df.columns:
-                raw_slope = self.helper._get_safe_series(df, slope_signal_name, 0.0, method_name=method_name)
-                norm_slope = self.helper._normalize_series(raw_slope, df_index, bipolar=True)
-                ca_slope_components[period_str] = {
-                    'series': norm_slope,
-                    'weight': weight
-                }
-                print(f"【成本优势斜率】使用 {period_str}日斜率信号，权重: {weight}, 归一化范围: [{norm_slope.min():.4f}, {norm_slope.max():.4f}]")
-            else:
-                print(f"【成本优势斜率警告】{slope_signal_name} 不存在")
-        
-        for period_str, weight in accel_periods_weights.items():
-            accel_signal_name = f'ACCEL_{period_str}_main_force_cost_advantage_D'
-            if accel_signal_name in df.columns:
-                raw_accel = self.helper._get_safe_series(df, accel_signal_name, 0.0, method_name=method_name)
-                norm_accel = self.helper._normalize_series(raw_accel, df_index, bipolar=True)
-                ca_accel_components[period_str] = {
-                    'series': norm_accel,
-                    'weight': weight
-                }
-                print(f"【成本优势加速度】使用 {period_str}日加速度信号，权重: {weight}, 归一化范围: [{norm_accel.min():.4f}, {norm_accel.max():.4f}]")
-            else:
-                print(f"【成本优势加速度警告】{accel_signal_name} 不存在")
-        
-        # 计算加权融合的斜率和加速度
-        mtf_ca_slope = pd.Series(0.0, index=df_index)
-        total_ca_slope_weight = 0.0
-        for period_str, component in ca_slope_components.items():
-            mtf_ca_slope += component['series'] * component['weight']
-            total_ca_slope_weight += component['weight']
-        
-        mtf_ca_accel = pd.Series(0.0, index=df_index)
-        total_ca_accel_weight = 0.0
-        for period_str, component in ca_accel_components.items():
-            mtf_ca_accel += component['series'] * component['weight']
-            total_ca_accel_weight += component['weight']
-        
-        # 归一化加权融合
-        if total_ca_slope_weight > 0:
-            mtf_ca_slope = mtf_ca_slope / total_ca_slope_weight
-        if total_ca_accel_weight > 0:
-            mtf_ca_accel = mtf_ca_accel / total_ca_accel_weight
-        
-        # 综合斜率和加速度得到成本优势变化信号
-        mtf_ca_change_raw = (mtf_ca_slope + mtf_ca_accel) / 2
-        fetched_signals['mtf_ca_change'] = mtf_ca_change_raw.clip(-1, 1)
-        
-        print(f"【成本优势融合】最终成本优势变化信号范围: [{fetched_signals['mtf_ca_change'].min():.4f}, {fetched_signals['mtf_ca_change'].max():.4f}]")
-        
-        # 3. 获取其他原始信号
-        signal_configs = [
-            ('main_force_conviction_index_D', 'main_force_conviction', 0.0),
-            ('upward_impulse_purity_D', 'upward_impulse_purity', 0.0),
-            ('suppressive_accumulation_intensity_D', 'suppressive_accum', 0.0),
-            ('lower_shadow_absorption_strength_D', 'lower_shadow_absorb', 0.0),
-            ('distribution_at_peak_intensity_D', 'distribution_intensity', 0.0),
-            ('active_selling_pressure_D', 'active_selling', 0.0),
-            ('profit_taking_flow_ratio_D', 'profit_taking_flow', 0.0),
-            ('active_buying_support_D', 'active_buying_support', 0.0),
-            ('main_force_net_flow_calibrated_D', 'main_force_net_flow', 0.0),
-            ('flow_credibility_index_D', 'flow_credibility', 0.0),
-            ('close_D', 'close_price', 0.0),
-            ('VOLATILITY_INSTABILITY_INDEX_21d_D', 'volatility_instability', 0.0),
-            ('ADX_14_D', 'adx_trend_strength', 0.0),
-            ('market_sentiment_score_D', 'market_sentiment', 0.0),
-            ('liquidity_authenticity_score_D', 'liquidity_authenticity', 0.0),
-            ('MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ma_potential_orderliness_score', 0.0),
-            ('microstructure_efficiency_index_D', 'microstructure_efficiency', 0.0),
-            ('main_force_buy_execution_alpha_D', 'main_force_buy_execution_alpha', 0.0),
-            ('main_force_sell_execution_alpha_D', 'main_force_sell_execution_alpha', 0.0),
-            ('micro_price_impact_asymmetry_D', 'micro_price_impact_asymmetry', 0.0),
+        # 定义信号重要性等级
+        critical_signals = [
+            'close_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
+            'main_force_net_flow_calibrated_D', 'flow_credibility_index_D'
         ]
         
-        for df_col_name, signal_name, default_value in signal_configs:
-            signal_series = self.helper._get_safe_series(df, df_col_name, default_value, method_name=method_name)
-            fetched_signals[signal_name] = signal_series
+        important_signals = [
+            'pct_change_D', 'trendline_slope_D', 'order_book_imbalance_D',
+            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D'
+        ]
         
-        # 4. 快速信号质量检查 - 只检查最近55天
-        print(f"【快速质量检查】开始检查最近55天的信号质量...")
-        signal_quality_reports = {}
-        critical_issues = []
+        repair_reports = {}
         
-        for signal_name, signal_series in fetched_signals.items():
-            quality_report = self._check_signal_quality(signal_series, signal_name, df_index, recent_days=55)
-            signal_quality_reports[signal_name] = quality_report
+        for signal in df.columns:
+            if signal not in critical_signals + important_signals:
+                continue
+                
+            signal_series = df[signal]
+            nan_ratio = signal_series.isna().sum() / len(signal_series)
             
-            # 记录严重问题
-            if quality_report["quality_level"] == "POOR":
-                critical_issues.append(f"{signal_name}(NaN比例:{quality_report['nan_ratio']:.1%})")
+            if nan_ratio > 0.3 and signal in critical_signals:
+                print(f"【关键信号修复】{signal}: NaN比例{nan_ratio:.1%}，尝试修复")
+                
+                # 多层修复策略
+                repaired = False
+                
+                # 策略1: 使用线性插值（对于连续信号）
+                if signal.endswith('_D') and not any(x in signal for x in ['SLOPE', 'ACCEL']):
+                    try:
+                        df[f"{signal}_repaired"] = signal_series.interpolate(method='linear', limit_direction='both')
+                        if df[f"{signal}_repaired"].isna().sum() / len(df) < 0.1:
+                            df[signal] = df[f"{signal}_repaired"]
+                            repair_reports[signal] = "线性插值修复成功"
+                            repaired = True
+                            print(f"  → 使用线性插值修复{signal}")
+                    except:
+                        pass
+                
+                # 策略2: 使用相关信号替代
+                if not repaired:
+                    alternative_signals = self._find_alternative_signals(signal, df.columns)
+                    for alt_signal in alternative_signals:
+                        alt_series = df[alt_signal]
+                        if alt_series.isna().sum() / len(alt_series) < 0.1:
+                            # 计算相关系数
+                            valid_mask = ~signal_series.isna() & ~alt_series.isna()
+                            if valid_mask.sum() > 10:
+                                correlation = signal_series[valid_mask].corr(alt_series[valid_mask])
+                                if abs(correlation) > 0.6:
+                                    # 使用线性回归校准
+                                    from scipy import stats
+                                    slope, intercept, r_value, p_value, std_err = stats.linregress(
+                                        alt_series[valid_mask], signal_series[valid_mask]
+                                    )
+                                    calibrated = alt_series * slope + intercept
+                                    df[signal] = calibrated.combine_first(signal_series)
+                                    repair_reports[signal] = f"使用{alt_signal}替代(r={correlation:.3f})"
+                                    repaired = True
+                                    print(f"  → 使用{alt_signal}替代{signal}，相关性{correlation:.3f}")
+                                    break
+                
+                # 策略3: 使用滚动统计量
+                if not repaired and len(signal_series) > 20:
+                    try:
+                        rolling_mean = signal_series.rolling(window=20, min_periods=5).mean()
+                        df[signal] = signal_series.fillna(rolling_mean)
+                        repair_reports[signal] = "使用滚动均值修复"
+                        repaired = True
+                        print(f"  → 使用滚动均值修复{signal}")
+                    except:
+                        pass
+                
+                if not repaired:
+                    print(f"  ⚠️ {signal}无法修复，保留原始值")
+                    repair_reports[signal] = "修复失败"
         
-        # 输出质量总结
-        if critical_issues:
-            print(f"【质量警告】发现{len(critical_issues)}个信号质量较差: {', '.join(critical_issues)}")
+        # 清理临时列
+        temp_cols = [col for col in df.columns if col.endswith('_repaired')]
+        df.drop(columns=temp_cols, inplace=True, errors='ignore')
+        
+        # 最终检查：确保没有全NaN的列
+        for signal in critical_signals:
+            if signal in df.columns and df[signal].isna().all():
+                print(f"【严重警告】{signal}全部为NaN，使用中性值填充")
+                if 'close_D' in df.columns:
+                    # 对于价格相关信号，使用0填充；对于比例信号，使用0.5填充
+                    if 'pct' in signal or 'ratio' in signal or 'score' in signal:
+                        df[signal] = 0.5
+                    else:
+                        df[signal] = 0.0
+        
+        print(f"【信号修复完成】修复了{len(repair_reports)}个信号")
+        return df
+
+    def _find_alternative_signals(self, original_signal: str, all_columns: List[str]) -> List[str]:
+        """【V6.0 · 智能寻找替代信号】
+        - 核心新增: 基于信号名称语义和类型寻找最佳替代
+        - 核心优化: 多层级备选方案
+        - 版本: 6.0"""
+        signal_lower = original_signal.lower()
+        alternatives = []
+        
+        # 基于信号类型分类
+        if 'cost_advantage' in signal_lower or 'mf_cost' in signal_lower:
+            alternatives.extend([
+                'main_force_cost_advantage_D',
+                'cost_50pct_D',
+                'dominant_peak_cost_D',
+                'VWAP_D',
+                'main_force_vpoc_D'
+            ])
+        
+        if 'conviction' in signal_lower:
+            alternatives.extend([
+                'main_force_conviction_index_D',
+                'trend_conviction_score_D',
+                'ADX_14_D',
+                'breakthrough_conviction_score_D',
+                'closing_conviction_score_D'
+            ])
+        
+        if 'net_flow' in signal_lower or 'flow' in signal_lower:
+            alternatives.extend([
+                'main_force_net_flow_calibrated_D',
+                'flow_credibility_index_D',
+                'order_book_imbalance_D',
+                'buy_flow_efficiency_index_D',
+                'sell_flow_efficiency_index_D'
+            ])
+        
+        if 'slope' in signal_lower:
+            alternatives.extend([
+                'trendline_slope_D',
+                'MTF_TRENDLINE_SLOPE_D',
+                'MA_VELOCITY_EMA_55_D',
+                'price_vs_ma_5_ratio_D',
+                'price_vs_ma_13_ratio_D'
+            ])
+        
+        # 通用备选：技术指标
+        if 'close' in signal_lower or 'price' in signal_lower:
+            alternatives.extend(['close_D', 'VWAP_D', 'MA_5_D', 'EMA_5_D'])
+        
+        # 移除原始信号自身和不在数据中的信号
+        alternatives = [alt for alt in alternatives 
+                        if alt != original_signal and alt in all_columns]
+        
+        # 添加基于名称相似性的备选
+        for col in all_columns:
+            if original_signal in col and col != original_signal:
+                alternatives.append(col)
+        
+        return list(dict.fromkeys(alternatives))[:10]  # 去重并限制数量
+
+    def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
+        """【V6.0 · 多时间维度融合信号增强版】
+        - 核心新增: 5层时间维度分析（超短1-3天，短5-8天，中13-21天，长34-55天，超长89-144天）
+        - 核心优化: 自适应权重分配，基于市场波动性调整
+        - 核心修复: 确保所有信号在[-1,1]范围内，添加异常值处理
+        - 核心新增: 价格-成本优势背离检测
+        - 版本: 6.0"""
+        
+        print(f"【V6.0信号获取】开始5层时间维度分析")
+        
+        # 1. 计算市场波动性，用于自适应权重
+        if 'VOLATILITY_INSTABILITY_INDEX_21d_D' in df.columns:
+            volatility = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5, method_name)
+            volatility_norm = self.helper._normalize_series(volatility, df_index, bipolar=False)
         else:
-            print(f"【质量检查通过】所有信号最近55天质量合格")
+            # 使用ATR作为波动性替代
+            atr = self.helper._get_safe_series(df, 'ATR_14_D', 0.0, method_name)
+            price = self.helper._get_safe_series(df, 'close_D', 1.0, method_name)
+            volatility_series = atr / price.replace(0, 1)
+            volatility_norm = self.helper._normalize_series(volatility_series, df_index, bipolar=False)
         
-        # 5. 记录多时间维度融合详情
-        _temp_debug_values["原始信号值"] = {k: v for k, v in fetched_signals.items()}
-        _temp_debug_values["信号质量报告"] = signal_quality_reports
-        _temp_debug_values["多时间维度融合详情"] = {
-            "价格斜率组件": {k: v['weight'] for k, v in price_slope_components.items()},
-            "价格加速度组件": {k: v['weight'] for k, v in price_accel_components.items()},
-            "成本优势斜率组件": {k: v['weight'] for k, v in ca_slope_components.items()},
-            "成本优势加速度组件": {k: v['weight'] for k, v in ca_accel_components.items()},
-            "mtf_price_slope": mtf_price_slope,
-            "mtf_price_accel": mtf_price_accel,
-            "mtf_ca_slope": mtf_ca_slope,
-            "mtf_ca_accel": mtf_ca_accel,
-            "mtf_price_change_range": f"[{fetched_signals['mtf_price_change'].min():.4f}, {fetched_signals['mtf_price_change'].max():.4f}]",
-            "mtf_ca_change_range": f"[{fetched_signals['mtf_ca_change'].min():.4f}, {fetched_signals['mtf_ca_change'].max():.4f}]",
+        # 波动性越高，短期权重越高；波动性越低，长期权重越高
+        short_term_bias = volatility_norm  # 0-1，越高越偏向短期
+        
+        # 2. 5层时间维度配置
+        time_layers = {
+            'ultra_short': [1, 2, 3],      # 超短期：日内到3天
+            'short': [5, 8, 13],           # 短期：5-13天
+            'medium': [13, 21, 34],        # 中期：13-34天
+            'long': [34, 55, 89],          # 长期：34-89天
+            'ultra_long': [89, 144, 233]   # 超长期：89-233天
         }
         
+        # 自适应权重：基于波动性调整
+        base_weights = {
+            'ultra_short': 0.15 * short_term_bias,
+            'short': 0.25 * short_term_bias + 0.1 * (1 - short_term_bias),
+            'medium': 0.3,
+            'long': 0.2 * (1 - short_term_bias) + 0.1 * short_term_bias,
+            'ultra_long': 0.1 * (1 - short_term_bias)
+        }
+        
+        # 3. 多维度价格变化分析
+        price_signals = {}
+        
+        # 3.1 原始价格变化（日级）
+        if 'pct_change_D' in df.columns:
+            price_daily = self.helper._get_safe_series(df, 'pct_change_D', 0.0, method_name)
+            # 归一化到[-1,1]，假设日波动最大20%
+            price_signals['daily'] = (price_daily / 0.2).clip(-1, 1)
+        
+        # 3.2 各时间层的斜率融合
+        for layer_name, periods in time_layers.items():
+            layer_signals = []
+            layer_weights = []
+            
+            for period in periods:
+                slope_signal = f'SLOPE_{period}_close_D'
+                if slope_signal in df.columns:
+                    slope = self.helper._get_safe_series(df, slope_signal, 0.0, method_name)
+                    # 对斜率进行标准化：除以周期进行归一化
+                    normalized_slope = slope / (period * 0.01)  # 假设每个周期最大变化1%
+                    normalized_slope = normalized_slope.clip(-2, 2) / 2  # 归一化到[-1,1]
+                    layer_signals.append(normalized_slope)
+                    # 权重：周期越短，权重越高（在波动性高时更明显）
+                    weight = 1.0 / (period ** 0.5)
+                    layer_weights.append(weight)
+            
+            if layer_signals:
+                # 加权平均
+                layer_signal = pd.Series(0.0, index=df_index)
+                total_weight = 0.0
+                for sig, w in zip(layer_signals, layer_weights):
+                    layer_signal += sig * w
+                    total_weight += w
+                
+                if total_weight > 0:
+                    layer_signal = layer_signal / total_weight
+                
+                price_signals[layer_name] = layer_signal.clip(-1, 1)
+        
+        # 3.3 多层融合：使用自适应权重
+        mtf_price_change = pd.Series(0.0, index=df_index)
+        total_layer_weight = 0.0
+        
+        for layer_name, layer_signal in price_signals.items():
+            if layer_name in base_weights:
+                if isinstance(base_weights[layer_name], pd.Series):
+                    weight = base_weights[layer_name].mean()  # 使用均值
+                else:
+                    weight = base_weights[layer_name]
+                
+                mtf_price_change += layer_signal * weight
+                total_layer_weight += weight
+        
+        if total_layer_weight > 0:
+            mtf_price_change = mtf_price_change / total_layer_weight
+        
+        mtf_price_change = mtf_price_change.clip(-1, 1)
+        
+        # 4. 多维度成本优势分析
+        ca_signals = {}
+        
+        # 4.1 原始成本优势
+        if 'main_force_cost_advantage_D' in df.columns:
+            ca_raw = self.helper._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name)
+            # 假设成本优势在[-100, 100]之间
+            ca_signals['daily'] = (ca_raw / 100).clip(-1, 1)
+        
+        # 4.2 各时间层的成本优势变化
+        for layer_name, periods in time_layers.items():
+            layer_signals = []
+            layer_weights = []
+            
+            for period in periods:
+                slope_signal = f'SLOPE_{period}_main_force_cost_advantage_D'
+                if slope_signal in df.columns:
+                    slope = self.helper._get_safe_series(df, slope_signal, 0.0, method_name)
+                    # 标准化
+                    normalized_slope = slope / (period * 0.5)  # 假设每个周期最大变化0.5
+                    normalized_slope = normalized_slope.clip(-2, 2) / 2
+                    layer_signals.append(normalized_slope)
+                    weight = 1.0 / (period ** 0.5)
+                    layer_weights.append(weight)
+            
+            if layer_signals:
+                layer_signal = pd.Series(0.0, index=df_index)
+                total_weight = 0.0
+                for sig, w in zip(layer_signals, layer_weights):
+                    layer_signal += sig * w
+                    total_weight += w
+                
+                if total_weight > 0:
+                    layer_signal = layer_signal / total_weight
+                
+                ca_signals[layer_name] = layer_signal.clip(-1, 1)
+        
+        # 4.3 多层融合
+        mtf_ca_change = pd.Series(0.0, index=df_index)
+        total_ca_layer_weight = 0.0
+        
+        for layer_name, layer_signal in ca_signals.items():
+            if layer_name in base_weights:
+                if isinstance(base_weights[layer_name], pd.Series):
+                    weight = base_weights[layer_name].mean()
+                else:
+                    weight = base_weights[layer_name]
+                
+                mtf_ca_change += layer_signal * weight
+                total_ca_layer_weight += weight
+        
+        if total_ca_layer_weight > 0:
+            mtf_ca_change = mtf_ca_change / total_ca_layer_weight
+        
+        mtf_ca_change = mtf_ca_change.clip(-1, 1)
+        
+        # 5. 价格-成本优势背离检测
+        divergence_score = self._calculate_divergence(mtf_price_change, mtf_ca_change, df_index)
+        
+        # 6. 获取其他关键信号（增强版）
+        fetched_signals = {
+            'mtf_price_change': mtf_price_change,
+            'mtf_ca_change': mtf_ca_change,
+            'price_ca_divergence': divergence_score,
+            'volatility': volatility_norm,
+            'short_term_bias': short_term_bias,
+        }
+        
+        # 7. 批量获取其他信号
+        signal_groups = {
+            'trend': ['trendline_slope_D', 'ADX_14_D', 'trend_conviction_score_D', 'DMA_D'],
+            'order_flow': ['order_book_imbalance_D', 'bid_side_liquidity_D', 'ask_side_liquidity_D'],
+            'microstructure': ['microstructure_efficiency_index_D', 'micro_price_impact_asymmetry_D'],
+            'sentiment': ['market_sentiment_score_D', 'retail_panic_surrender_index_D'],
+            'volume': ['volume_D', 'turnover_rate_D', 'volume_profile_entropy_D'],
+            'support_resistance': ['dominant_peak_cost_D', 'cost_50pct_D', 'VWAP_D'],
+        }
+        
+        for group_name, signals in signal_groups.items():
+            for signal in signals:
+                if signal in df.columns:
+                    fetched_signals[signal] = self.helper._get_safe_series(df, signal, 0.0, method_name)
+        
+        # 8. 探针输出
+        _temp_debug_values["V6.0信号获取详情"] = {
+            "mtf_price_change_range": f"[{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]",
+            "mtf_ca_change_range": f"[{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]",
+            "volatility_mean": volatility_norm.mean(),
+            "short_term_bias_mean": short_term_bias.mean(),
+            "price_signals_count": len(price_signals),
+            "ca_signals_count": len(ca_signals),
+            "divergence_score": divergence_score,
+            "获取信号总数": len(fetched_signals),
+        }
+        
+        print(f"【V6.0信号获取完成】价格变化范围: [{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]")
+        print(f"【V6.0信号获取完成】成本优势变化范围: [{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]")
+        print(f"【V6.0信号获取完成】波动性均值: {volatility_norm.mean():.4f}")
+        print(f"【V6.0信号获取完成】短期偏好: {short_term_bias.mean():.4f}")
+        
         return fetched_signals
+
+    def _calculate_divergence(self, price_signal: pd.Series, ca_signal: pd.Series, df_index: pd.Index) -> pd.Series:
+        """【V6.0 · 价格-成本优势背离检测】
+        - 核心新增: 检测价格与成本优势的背离
+        - 核心优化: 多时间窗口背离检测
+        - 版本: 6.0"""
+        
+        divergence = pd.Series(0.0, index=df_index)
+        
+        # 1. 短期背离（3-5天）
+        for window in [3, 5, 8]:
+            if len(price_signal) > window:
+                price_roc = price_signal.rolling(window=window).mean().pct_change()
+                ca_roc = ca_signal.rolling(window=window).mean().pct_change()
+                
+                # 背离：价格上升但成本优势下降，或价格下降但成本优势上升
+                bearish_divergence = (price_roc > 0) & (ca_roc < 0)
+                bullish_divergence = (price_roc < 0) & (ca_roc > 0)
+                
+                # 背离强度 = 价格变化与成本优势变化差值的绝对值
+                div_strength = (price_roc - ca_roc).abs()
+                
+                # 加权合并
+                weight = 1.0 / window
+                divergence += bearish_divergence.astype(float) * div_strength * weight * -1  # 看跌背离为负
+                divergence += bullish_divergence.astype(float) * div_strength * weight      # 看涨背离为正
+        
+        # 2. 中期背离（13-21天）
+        for window in [13, 21]:
+            if len(price_signal) > window:
+                price_sma = price_signal.rolling(window=window).mean()
+                ca_sma = ca_signal.rolling(window=window).mean()
+                
+                price_trend = price_sma.diff(window // 2)
+                ca_trend = ca_sma.diff(window // 2)
+                
+                bearish_div = (price_trend > 0) & (ca_trend < 0)
+                bullish_div = (price_trend < 0) & (ca_trend > 0)
+                
+                div_strength = (price_trend - ca_trend).abs()
+                weight = 1.0 / (window * 2)
+                
+                divergence += bearish_div.astype(float) * div_strength * weight * -1
+                divergence += bullish_div.astype(float) * div_strength * weight
+        
+        # 归一化到[-1,1]
+        if divergence.abs().max() > 0:
+            divergence = divergence / divergence.abs().max()
+        
+        return divergence.clip(-1, 1)
 
     def _normalize_all_signals(self, df: pd.DataFrame, df_index: pd.Index, fetched_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
@@ -721,98 +1326,161 @@ class CalculateCostAdvantageTrendRelationship:
         return normalized_signals
 
     def _calculate_q1_healthy_rally(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.1.4 · Q1健康上涨计算 - 修复极端值与稳定性增强版】
-        - 核心修复: 修复Q1_base计算中的极端值问题
-        - 核心优化: 添加更多范围检查和安全处理
-        - 核心新增: 对极端值进行平滑处理
-        - 版本: 1.1.4
-        """
-        # 确保输入信号在[-1,1]范围内
-        price_change_clipped = fetched_signals['mtf_price_change'].clip(-1, 1)
-        ca_change_clipped = fetched_signals['mtf_ca_change'].clip(-1, 1)
+        """【V6.0 · Q1健康上涨计算 - 多维确认与风险控制增强版】
+        - 核心新增: 5层确认机制（价格、成本、资金、情绪、结构）
+        - 核心优化: 风险控制因子，防止虚假突破
+        - 核心修复: 添加成交量确认和背离检查
+        - 版本: 6.0"""
         
-        # Q1基础计算：只考虑正的价格变化和成本优势变化
-        price_positive = price_change_clipped.clip(lower=0)
-        ca_positive = ca_change_clipped.clip(lower=0)
+        # 1. 基础信号
+        price_change = fetched_signals.get('mtf_price_change', pd.Series(0.0, index=normalized_signals.get('mtf_main_force_conviction', pd.Series(0.0)).index))
+        ca_change = fetched_signals.get('mtf_ca_change', pd.Series(0.0, index=price_change.index))
         
-        # 使用更稳健的计算方法，避免极端值
-        # 当两个信号都为正时，使用几何平均；否则为0
-        Q1_base = pd.Series(0.0, index=price_change_clipped.index)
+        # 2. 多维确认因子
+        confirmation_factors = {}
         
-        # 找到两个信号都为正的索引
-        both_positive_mask = (price_positive > 0) & (ca_positive > 0)
+        # 2.1 价格确认因子（多时间维度）
+        price_confirm = pd.Series(0.0, index=price_change.index)
+        for window in [1, 3, 5, 8]:
+            if len(price_change) > window:
+                # 短期趋势一致性：价格变化方向与短期MA方向一致
+                price_ma = price_change.rolling(window=window).mean()
+                price_trend = price_change.rolling(window=3).mean()
+                same_direction = (price_change > 0) & (price_ma > 0) & (price_trend > 0)
+                price_confirm += same_direction.astype(float) * (1.0 / window)
         
-        if both_positive_mask.any():
-            # 对正信号进行平滑处理，避免极端值
-            Q1_base[both_positive_mask] = (price_positive[both_positive_mask] * ca_positive[both_positive_mask]).pow(0.5)
+        confirmation_factors['price_confirmation'] = price_confirm.clip(0, 1)
         
-        # 确保基础值在[0,1]范围内
-        Q1_base = Q1_base.clip(0, 1)
+        # 2.2 成本优势确认因子
+        ca_confirm = pd.Series(0.0, index=ca_change.index)
+        if 'main_force_cost_advantage_D' in fetched_signals:
+            ca_raw = fetched_signals['main_force_cost_advantage_D']
+            ca_positive = ca_raw > 0
+            ca_increasing = ca_change > 0
+            ca_confirm = (ca_positive.astype(float) * 0.5 + ca_increasing.astype(float) * 0.5)
         
-        # 检查是否存在极端值
-        if Q1_base.max() > 0.95:
-            print(f"【Q1警告】检测到极端值: {Q1_base.max():.4f}，进行平滑处理")
-            # 对极端值进行平滑
-            Q1_base = Q1_base.apply(lambda x: x if x <= 0.95 else 0.9 + (x - 0.95) * 0.1)
+        confirmation_factors['ca_confirmation'] = ca_confirm
         
-        # 确认：主力信念、上涨纯度、资金流可信度、主力买入执行Alpha
-        # 确保所有确认分量都是非负的且在合理范围内
-        Q1_confirm_components = {
-            'mtf_main_force_conviction': normalized_signals['mtf_main_force_conviction'].clip(0, 1),  # 只考虑正值
-            'mtf_upward_purity': normalized_signals['mtf_upward_purity'].clip(0, 1),
-            'flow_credibility_norm': normalized_signals['flow_credibility_norm'].clip(0, 1),
-            'main_force_buy_execution_alpha_norm': normalized_signals['main_force_buy_execution_alpha_norm'].clip(0, 1)
+        # 2.3 资金流确认因子
+        flow_confirm = pd.Series(0.0, index=price_change.index)
+        if 'main_force_net_flow_calibrated_D' in fetched_signals:
+            mf_flow = fetched_signals['main_force_net_flow_calibrated_D']
+            flow_positive = mf_flow > 0
+            if 'flow_credibility_index_D' in fetched_signals:
+                flow_cred = fetched_signals['flow_credibility_index_D']
+                flow_cred_norm = self.helper._normalize_series(flow_cred, price_change.index, bipolar=False)
+                flow_confirm = flow_positive.astype(float) * flow_cred_norm
+            else:
+                flow_confirm = flow_positive.astype(float)
+        
+        confirmation_factors['flow_confirmation'] = flow_confirm
+        
+        # 2.4 市场情绪确认因子
+        sentiment_confirm = pd.Series(0.0, index=price_change.index)
+        if 'market_sentiment_score_D' in fetched_signals:
+            sentiment = fetched_signals['market_sentiment_score_D']
+            # 情绪适中偏乐观（-1到1之间，>0.3为乐观）
+            sentiment_norm = (sentiment.clip(-1, 1) + 1) / 2
+            optimal_sentiment = (sentiment_norm > 0.3) & (sentiment_norm < 0.8)  # 避免过度乐观
+            sentiment_confirm = optimal_sentiment.astype(float)
+        
+        confirmation_factors['sentiment_confirmation'] = sentiment_confirm
+        
+        # 2.5 市场结构确认因子
+        structure_confirm = pd.Series(0.0, index=price_change.index)
+        if 'trend_conviction_score_D' in fetched_signals:
+            trend_conv = fetched_signals['trend_conviction_score_D']
+            trend_conv_norm = self.helper._normalize_series(trend_conv, price_change.index, bipolar=False)
+            if 'structural_potential_score_D' in fetched_signals:
+                struct_pot = fetched_signals['structural_potential_score_D']
+                struct_norm = self.helper._normalize_series(struct_pot, price_change.index, bipolar=False)
+                structure_confirm = (trend_conv_norm * 0.6 + struct_norm * 0.4)
+            else:
+                structure_confirm = trend_conv_norm
+        
+        confirmation_factors['structure_confirmation'] = structure_confirm
+        
+        # 3. 风险控制因子
+        risk_factors = {}
+        
+        # 3.1 成交量确认风险
+        volume_risk = pd.Series(1.0, index=price_change.index)
+        if 'volume_D' in fetched_signals and 'volume_vs_ma_5_ratio_D' in fetched_signals:
+            volume = fetched_signals['volume_D']
+            volume_ma_ratio = fetched_signals['volume_vs_ma_5_ratio_D']
+            # 价格上涨但成交量不足
+            low_volume_risk = (price_change > 0) & (volume_ma_ratio < 0.8)
+            volume_risk = 1.0 - low_volume_risk.astype(float) * 0.5
+        
+        risk_factors['volume_risk'] = volume_risk
+        
+        # 3.2 过度上涨风险
+        overbought_risk = pd.Series(1.0, index=price_change.index)
+        if 'RSI_13_D' in fetched_signals:
+            rsi = fetched_signals['RSI_13_D']
+            overbought = rsi > 70
+            overbought_risk = 1.0 - overbought.astype(float) * 0.7
+        
+        risk_factors['overbought_risk'] = overbought_risk
+        
+        # 3.3 波动性风险
+        volatility_risk = pd.Series(1.0, index=price_change.index)
+        if 'VOLATILITY_INSTABILITY_INDEX_21d_D' in fetched_signals:
+            vol_idx = fetched_signals['VOLATILITY_INSTABILITY_INDEX_21d_D']
+            vol_norm = self.helper._normalize_series(vol_idx, price_change.index, bipolar=False)
+            high_vol_risk = vol_norm > 0.7
+            volatility_risk = 1.0 - high_vol_risk.astype(float) * 0.6
+        
+        risk_factors['volatility_risk'] = volatility_risk
+        
+        # 4. 综合计算
+        # 4.1 基础分数：价格变化与成本优势变化的几何平均
+        both_positive = (price_change > 0) & (ca_change > 0)
+        Q1_base = pd.Series(0.0, index=price_change.index)
+        Q1_base[both_positive] = (price_change[both_positive].clip(0, 1) * 
+                                  ca_change[both_positive].clip(0, 1)).pow(0.5)
+        
+        # 4.2 确认分数：5个确认因子的加权平均
+        confirm_weights = {
+            'price_confirmation': 0.25,
+            'ca_confirmation': 0.25,
+            'flow_confirmation': 0.20,
+            'sentiment_confirmation': 0.15,
+            'structure_confirmation': 0.15
         }
         
-        Q1_confirm_weights_series = dynamic_weights['Q1_confirmation_weights']
+        Q1_confirm = pd.Series(0.0, index=price_change.index)
+        for factor, weight in confirm_weights.items():
+            if factor in confirmation_factors:
+                Q1_confirm += confirmation_factors[factor] * weight
         
-        # 计算加权和
-        weighted_sum = pd.Series(0.0, index=Q1_base.index, dtype=np.float32)
-        for k, component_series in Q1_confirm_components.items():
-            weight_series = Q1_confirm_weights_series.get(k, pd.Series(0.0, index=Q1_base.index, dtype=np.float32))
-            weighted_sum += component_series * weight_series
+        # 4.3 风险调整因子：3个风险因子的乘积
+        risk_adjustment = pd.Series(1.0, index=price_change.index)
+        for factor in risk_factors.values():
+            risk_adjustment = risk_adjustment * factor
         
-        # 计算所有权重的总和
-        sum_of_weights_series = pd.Series(0.0, index=Q1_base.index, dtype=np.float32)
-        for weight_series in Q1_confirm_weights_series.values():
-            sum_of_weights_series += weight_series
+        # 4.4 最终分数
+        Q1_final = Q1_base * Q1_confirm * risk_adjustment
+        Q1_final = Q1_final.clip(0, 1)
         
-        # 避免除以零
-        sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
-        
-        # 执行除法，并用0填充NaN
-        Q1_confirm = (weighted_sum / sum_of_weights_series_safe).fillna(0)
-        
-        # 确保确认值在[0,1]范围内
-        Q1_confirm = Q1_confirm.clip(0, 1)
-        
-        # 最终计算，确保在[0,1]范围内
-        Q1_final = (Q1_base * Q1_confirm).clip(0, 1)
-        
-        # 检查最终分数是否有极端值
-        if Q1_final.max() > 0.95:
-            print(f"【Q1警告】最终分数有极端值: {Q1_final.max():.4f}")
-            Q1_final = Q1_final.apply(lambda x: x if x <= 0.95 else 0.9 + (x - 0.95) * 0.1)
-        
-        # 探针输出
-        _temp_debug_values["Q1: 价涨 & 优扩"] = {
+        # 5. 探针输出
+        _temp_debug_values["Q1:健康上涨详情"] = {
             "Q1_base": Q1_base,
             "Q1_confirm": Q1_confirm,
+            "risk_adjustment": risk_adjustment,
             "Q1_final": Q1_final,
-            "price_change_range": f"[{price_change_clipped.min():.4f}, {price_change_clipped.max():.4f}]",
-            "ca_change_range": f"[{ca_change_clipped.min():.4f}, {ca_change_clipped.max():.4f}]",
-            "price_positive_range": f"[{price_positive.min():.4f}, {price_positive.max():.4f}]",
-            "ca_positive_range": f"[{ca_positive.min():.4f}, {ca_positive.max():.4f}]",
-            "both_positive_count": both_positive_mask.sum(),
-            "Q1_base_max": Q1_base.max(),
-            "Q1_final_max": Q1_final.max()
+            "price_change": price_change,
+            "ca_change": ca_change,
+            "both_positive_days": both_positive.sum(),
+            "确认因子详情": {k: v.mean() for k, v in confirmation_factors.items()},
+            "风险因子详情": {k: v.mean() for k, v in risk_factors.items()},
+            "成交量风险天数": (volume_risk < 0.8).sum(),
+            "超买风险天数": (overbought_risk < 0.8).sum(),
         }
         
-        # 输出统计信息
-        print(f"【Q1计算】Q1_base均值: {Q1_base.mean():.4f}, 范围: [{Q1_base.min():.4f}, {Q1_base.max():.4f}]")
-        print(f"【Q1计算】Q1_confirm均值: {Q1_confirm.mean():.4f}, Q1_final均值: {Q1_final.mean():.4f}")
-        print(f"【Q1计算】两个信号都为正的天数: {both_positive_mask.sum()}/{len(both_positive_mask)} ({both_positive_mask.sum()/len(both_positive_mask):.1%})")
+        print(f"【V6.0 Q1计算】基础分数均值: {Q1_base.mean():.4f}, 确认分数均值: {Q1_confirm.mean():.4f}")
+        print(f"【V6.0 Q1计算】风险调整均值: {risk_adjustment.mean():.4f}, 最终分数均值: {Q1_final.mean():.4f}")
+        print(f"【V6.0 Q1计算】价涨优扩天数: {both_positive.sum()}/{len(both_positive)} ({both_positive.sum()/len(both_positive):.1%})")
         
         return Q1_final
 
@@ -1027,6 +1695,294 @@ class CalculateCostAdvantageTrendRelationship:
         print(f"【Q4计算】陷阱信号天数（价涨 & 优缩）: {trap_mask.sum()}/{len(trap_mask)} ({trap_mask.sum()/len(trap_mask):.1%})")
         
         return Q4_final
+
+    def _calculate_q5_bearish_divergence(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+        """【V6.0 · Q5看跌背离计算 - 价格创新高但成本优势下降】
+        - 核心新增: 检测价格与成本优势的顶背离
+        - 核心优化: 多时间窗口背离确认
+        - 核心新增: 成交量背离和资金流背离
+        - 版本: 6.0"""
+        
+        # 1. 获取基础信号
+        price = fetched_signals.get('close_D', pd.Series(0.0, index=df_index))
+        ca = fetched_signals.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
+        
+        if price.isna().all() or ca.isna().all():
+            print("【Q5警告】价格或成本优势数据缺失")
+            return pd.Series(0.0, index=df_index)
+        
+        # 2. 价格创新高检测
+        new_high_signals = {}
+        for window in [5, 13, 21, 55]:
+            if len(price) > window:
+                rolling_max = price.rolling(window=window).max()
+                is_new_high = (price == rolling_max) & (price > price.shift(1))
+                new_high_signals[f'new_high_{window}d'] = is_new_high
+        
+        # 3. 成本优势下降检测
+        ca_decline_signals = {}
+        for window in [3, 5, 8, 13]:
+            if len(ca) > window:
+                ca_ma = ca.rolling(window=window).mean()
+                ca_declining = ca < ca_ma
+                ca_decline_signals[f'ca_decline_{window}d'] = ca_declining
+        
+        # 4. 背离检测（价格创新高但成本优势下降）
+        divergence_signals = {}
+        for high_key, high_signal in new_high_signals.items():
+            window = int(high_key.split('_')[1][:-1])
+            ca_key = f'ca_decline_{window}d' if f'ca_decline_{window}d' in ca_decline_signals else None
+            
+            if ca_key and ca_key in ca_decline_signals:
+                divergence = high_signal & ca_decline_signals[ca_key]
+                divergence_signals[f'divergence_{window}d'] = divergence
+        
+        # 5. 成交量背离检测
+        volume_divergence = pd.Series(False, index=df_index)
+        if 'volume_D' in fetched_signals:
+            volume = fetched_signals['volume_D']
+            for window in [5, 13]:
+                if len(volume) > window:
+                    # 价格新高但成交量萎缩
+                    price_new_high = price.rolling(window=window).max() == price
+                    volume_decline = volume < volume.rolling(window=window).mean()
+                    vol_div = price_new_high & volume_decline
+                    volume_divergence = volume_divergence | vol_div
+        
+        # 6. 资金流背离检测
+        flow_divergence = pd.Series(False, index=df_index)
+        if 'main_force_net_flow_calibrated_D' in fetched_signals:
+            mf_flow = fetched_signals['main_force_net_flow_calibrated_D']
+            for window in [3, 5, 8]:
+                if len(mf_flow) > window:
+                    price_up = price > price.rolling(window=window).mean()
+                    flow_down = mf_flow < mf_flow.rolling(window=window).mean()
+                    flow_div = price_up & flow_down
+                    flow_divergence = flow_divergence | flow_div
+        
+        # 7. 综合背离分数
+        Q5_base = pd.Series(0.0, index=df_index)
+        
+        # 7.1 价格-成本优势背离
+        for div_name, div_signal in divergence_signals.items():
+            window = int(div_name.split('_')[1][:-1])
+            weight = 1.0 / (window ** 0.5)
+            
+            # 计算背离强度
+            if div_signal.any():
+                # 价格创新高的幅度
+                price_strength = (price[div_signal] / price[div_signal].rolling(window=5).mean() - 1).clip(0, 0.2) / 0.2
+                # 成本优势下降的幅度
+                ca_strength = (ca[div_signal].rolling(window=5).mean() / ca[div_signal].clip(1e-6, None) - 1).clip(0, 0.3) / 0.3
+                
+                div_intensity = (price_strength + ca_strength) / 2
+                Q5_base[div_signal] = Q5_base[div_signal] + div_intensity * weight
+        
+        # 7.2 成交量背离增强
+        if volume_divergence.any():
+            Q5_base[volume_divergence] = Q5_base[volume_divergence] * 1.3
+        
+        # 7.3 资金流背离增强
+        if flow_divergence.any():
+            Q5_base[flow_divergence] = Q5_base[flow_divergence] * 1.2
+        
+        Q5_base = Q5_base.clip(0, 1)
+        
+        # 8. 确认因子
+        confirm_factors = {}
+        
+        # 8.1 主动卖压确认
+        if 'active_selling_pressure_D' in fetched_signals:
+            active_selling = fetched_signals['active_selling_pressure_D']
+            selling_norm = self.helper._normalize_series(active_selling, df_index, bipolar=False)
+            confirm_factors['selling_pressure'] = selling_norm
+        
+        # 8.2 派发强度确认
+        if 'distribution_at_peak_intensity_D' in fetched_signals:
+            distribution = fetched_signals['distribution_at_peak_intensity_D']
+            dist_norm = self.helper._normalize_series(distribution, df_index, bipolar=False)
+            confirm_factors['distribution'] = dist_norm
+        
+        # 8.3 市场情绪过热确认
+        if 'market_sentiment_score_D' in fetched_signals:
+            sentiment = fetched_signals['market_sentiment_score_D']
+            overheated = sentiment > 0.8
+            confirm_factors['overheated'] = overheated.astype(float)
+        
+        # 9. 综合确认分数
+        Q5_confirm = pd.Series(0.0, index=df_index)
+        confirm_weights = {'selling_pressure': 0.4, 'distribution': 0.4, 'overheated': 0.2}
+        
+        for factor, weight in confirm_weights.items():
+            if factor in confirm_factors:
+                Q5_confirm += confirm_factors[factor] * weight
+        
+        Q5_confirm = Q5_confirm.clip(0, 1)
+        
+        # 10. 最终分数（负值表示看跌）
+        Q5_final = (Q5_base * Q5_confirm * -1).clip(-1, 0)
+        
+        # 11. 探针输出
+        _temp_debug_values["Q5:看跌背离详情"] = {
+            "Q5_base": Q5_base,
+            "Q5_confirm": Q5_confirm,
+            "Q5_final": Q5_final,
+            "价格新高检测": {k: v.sum() for k, v in new_high_signals.items()},
+            "成本优势下降检测": {k: v.sum() for k, v in ca_decline_signals.items()},
+            "背离信号": {k: v.sum() for k, v in divergence_signals.items()},
+            "成交量背离天数": volume_divergence.sum(),
+            "资金流背离天数": flow_divergence.sum(),
+            "确认因子": {k: v.mean() for k, v in confirm_factors.items()},
+        }
+        
+        print(f"【V6.0 Q5计算】看跌背离天数: {len([v for v in divergence_signals.values() if v.any()])}")
+        print(f"【V6.0 Q5计算】基础分数均值: {Q5_base.mean():.4f}, 确认分数均值: {Q5_confirm.mean():.4f}")
+        print(f"【V6.0 Q5计算】最终分数均值: {Q5_final.mean():.4f}")
+        
+        return Q5_final
+
+    def _calculate_q6_bullish_divergence(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+        """【V6.0 · Q6看涨背离计算 - 价格创新低但成本优势上升】
+        - 核心新增: 检测价格与成本优势的底背离
+        - 核心优化: 多时间窗口背离确认
+        - 核心新增: 吸筹信号和资金流入确认
+        - 版本: 6.0"""
+        
+        # 1. 获取基础信号
+        price = fetched_signals.get('close_D', pd.Series(0.0, index=df_index))
+        ca = fetched_signals.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
+        
+        if price.isna().all() or ca.isna().all():
+            print("【Q6警告】价格或成本优势数据缺失")
+            return pd.Series(0.0, index=df_index)
+        
+        # 2. 价格创新低检测
+        new_low_signals = {}
+        for window in [5, 13, 21, 55]:
+            if len(price) > window:
+                rolling_min = price.rolling(window=window).min()
+                is_new_low = (price == rolling_min) & (price < price.shift(1))
+                new_low_signals[f'new_low_{window}d'] = is_new_low
+        
+        # 3. 成本优势上升检测
+        ca_rise_signals = {}
+        for window in [3, 5, 8, 13]:
+            if len(ca) > window:
+                ca_ma = ca.rolling(window=window).mean()
+                ca_rising = ca > ca_ma
+                ca_rise_signals[f'ca_rise_{window}d'] = ca_rising
+        
+        # 4. 背离检测（价格创新低但成本优势上升）
+        divergence_signals = {}
+        for low_key, low_signal in new_low_signals.items():
+            window = int(low_key.split('_')[1][:-1])
+            ca_key = f'ca_rise_{window}d' if f'ca_rise_{window}d' in ca_rise_signals else None
+            
+            if ca_key and ca_key in ca_rise_signals:
+                divergence = low_signal & ca_rise_signals[ca_key]
+                divergence_signals[f'divergence_{window}d'] = divergence
+        
+        # 5. 成交量背离检测（价格新低但成交量放大）
+        volume_confirmation = pd.Series(False, index=df_index)
+        if 'volume_D' in fetched_signals:
+            volume = fetched_signals['volume_D']
+            for window in [5, 13]:
+                if len(volume) > window:
+                    price_new_low = price.rolling(window=window).min() == price
+                    volume_surge = volume > volume.rolling(window=window).mean() * 1.2
+                    vol_conf = price_new_low & volume_surge
+                    volume_confirmation = volume_confirmation | vol_conf
+        
+        # 6. 资金流入确认
+        flow_confirmation = pd.Series(False, index=df_index)
+        if 'main_force_net_flow_calibrated_D' in fetched_signals:
+            mf_flow = fetched_signals['main_force_net_flow_calibrated_D']
+            for window in [3, 5, 8]:
+                if len(mf_flow) > window:
+                    price_low = price < price.rolling(window=window).mean()
+                    flow_up = mf_flow > mf_flow.rolling(window=window).mean()
+                    flow_conf = price_low & flow_up
+                    flow_confirmation = flow_confirmation | flow_conf
+        
+        # 7. 综合背离分数
+        Q6_base = pd.Series(0.0, index=df_index)
+        
+        # 7.1 价格-成本优势背离
+        for div_name, div_signal in divergence_signals.items():
+            window = int(div_name.split('_')[1][:-1])
+            weight = 1.0 / (window ** 0.5)
+            
+            if div_signal.any():
+                # 价格创新低的幅度（负值转为正值）
+                price_strength = (1 - price[div_signal] / price[div_signal].rolling(window=5).mean()).clip(0, 0.2) / 0.2
+                # 成本优势上升的幅度
+                ca_strength = (ca[div_signal] / ca[div_signal].rolling(window=5).mean().clip(1e-6, None) - 1).clip(0, 0.3) / 0.3
+                
+                div_intensity = (price_strength + ca_strength) / 2
+                Q6_base[div_signal] = Q6_base[div_signal] + div_intensity * weight
+        
+        # 7.2 成交量确认增强
+        if volume_confirmation.any():
+            Q6_base[volume_confirmation] = Q6_base[volume_confirmation] * 1.4
+        
+        # 7.3 资金流确认增强
+        if flow_confirmation.any():
+            Q6_base[flow_confirmation] = Q6_base[flow_confirmation] * 1.3
+        
+        Q6_base = Q6_base.clip(0, 1)
+        
+        # 8. 确认因子
+        confirm_factors = {}
+        
+        # 8.1 吸筹信号确认
+        if 'suppressive_accumulation_intensity_D' in fetched_signals:
+            accumulation = fetched_signals['suppressive_accumulation_intensity_D']
+            accum_norm = self.helper._normalize_series(accumulation, df_index, bipolar=False)
+            confirm_factors['accumulation'] = accum_norm
+        
+        # 8.2 下影线吸收确认
+        if 'lower_shadow_absorption_strength_D' in fetched_signals:
+            lower_shadow = fetched_signals['lower_shadow_absorption_strength_D']
+            shadow_norm = self.helper._normalize_series(lower_shadow, df_index, bipolar=False)
+            confirm_factors['lower_shadow'] = shadow_norm
+        
+        # 8.3 市场情绪过度悲观确认
+        if 'market_sentiment_score_D' in fetched_signals:
+            sentiment = fetched_signals['market_sentiment_score_D']
+            oversold = sentiment < -0.8
+            confirm_factors['oversold'] = oversold.astype(float)
+        
+        # 9. 综合确认分数
+        Q6_confirm = pd.Series(0.0, index=df_index)
+        confirm_weights = {'accumulation': 0.4, 'lower_shadow': 0.3, 'oversold': 0.3}
+        
+        for factor, weight in confirm_weights.items():
+            if factor in confirm_factors:
+                Q6_confirm += confirm_factors[factor] * weight
+        
+        Q6_confirm = Q6_confirm.clip(0, 1)
+        
+        # 10. 最终分数（正值表示看涨）
+        Q6_final = (Q6_base * Q6_confirm).clip(0, 1)
+        
+        # 11. 探针输出
+        _temp_debug_values["Q6:看涨背离详情"] = {
+            "Q6_base": Q6_base,
+            "Q6_confirm": Q6_confirm,
+            "Q6_final": Q6_final,
+            "价格新低检测": {k: v.sum() for k, v in new_low_signals.items()},
+            "成本优势上升检测": {k: v.sum() for k, v in ca_rise_signals.items()},
+            "背离信号": {k: v.sum() for k, v in divergence_signals.items()},
+            "成交量确认天数": volume_confirmation.sum(),
+            "资金流确认天数": flow_confirmation.sum(),
+            "确认因子": {k: v.mean() for k, v in confirm_factors.items()},
+        }
+        
+        print(f"【V6.0 Q6计算】看涨背离天数: {len([v for v in divergence_signals.values() if v.any()])}")
+        print(f"【V6.0 Q6计算】基础分数均值: {Q6_base.mean():.4f}, 确认分数均值: {Q6_confirm.mean():.4f}")
+        print(f"【V6.0 Q6计算】最终分数均值: {Q6_final.mean():.4f}")
+        
+        return Q6_final
 
     def _calculate_dynamic_weights(self, normalized_signals: Dict[str, pd.Series], config: Dict, df_index: pd.Index, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
