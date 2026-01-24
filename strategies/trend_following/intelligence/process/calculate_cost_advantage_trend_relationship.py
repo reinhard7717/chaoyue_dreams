@@ -766,34 +766,28 @@ class CalculateCostAdvantageTrendRelationship:
         return list(dict.fromkeys(alternatives))[:10]  # 去重并限制数量
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
-        """【V6.0 · 多时间维度融合信号增强版】
-        - 核心新增: 5层时间维度分析（超短1-3天，短5-8天，中13-21天，长34-55天，超长89-144天）
-        - 核心优化: 自适应权重分配，基于市场波动性调整
-        - 核心修复: 确保所有信号在[-1,1]范围内，添加异常值处理
-        - 核心新增: 价格-成本优势背离检测
-        - 版本: 6.0"""
-        print(f"【V6.0信号获取】开始5层时间维度分析")
-        # 1. 计算市场波动性，用于自适应权重
+        """【V6.1 · 多时间维度融合信号增强版 - 优化信号映射优先级】
+        - 核心修复: 优化信号映射逻辑，确保lower_shadow_absorb等关键信号被正确获取
+        - 核心新增: 信号获取优先级和备用方案
+        - 核心优化: 更详细的信号获取报告
+        - 版本: 6.1"""
+        print(f"【V6.1信号获取】开始5层时间维度分析")
         if 'VOLATILITY_INSTABILITY_INDEX_21d_D' in df.columns:
             volatility = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5, method_name)
             volatility_norm = self.helper._normalize_series(volatility, df_index, bipolar=False)
         else:
-            # 使用ATR作为波动性替代
             atr = self.helper._get_safe_series(df, 'ATR_14_D', 0.0, method_name)
             price = self.helper._get_safe_series(df, 'close_D', 1.0, method_name)
             volatility_series = atr / price.replace(0, 1)
             volatility_norm = self.helper._normalize_series(volatility_series, df_index, bipolar=False)
-        # 波动性越高，短期权重越高；波动性越低，长期权重越高
-        short_term_bias = volatility_norm  # 0-1，越高越偏向短期
-        # 2. 5层时间维度配置
+        short_term_bias = volatility_norm
         time_layers = {
-            'ultra_short': [1, 2, 3],      # 超短期：日内到3天
-            'short': [5, 8, 13],           # 短期：5-13天
-            'medium': [13, 21, 34],        # 中期：13-34天
-            'long': [34, 55, 89],          # 长期：34-89天
-            'ultra_long': [89, 144, 233]   # 超长期：89-233天
+            'ultra_short': [1, 2, 3],
+            'short': [5, 8, 13],
+            'medium': [13, 21, 34],
+            'long': [34, 55, 89],
+            'ultra_long': [89, 144, 233]
         }
-        # 自适应权重：基于波动性调整
         base_weights = {
             'ultra_short': 0.15 * short_term_bias,
             'short': 0.25 * short_term_bias + 0.1 * (1 - short_term_bias),
@@ -801,32 +795,23 @@ class CalculateCostAdvantageTrendRelationship:
             'long': 0.2 * (1 - short_term_bias) + 0.1 * short_term_bias,
             'ultra_long': 0.1 * (1 - short_term_bias)
         }
-        # 3. 多维度价格变化分析
         price_signals = {}
-        # 3.1 原始价格变化（日级）
         if 'pct_change_D' in df.columns:
             price_daily = self.helper._get_safe_series(df, 'pct_change_D', 0.0, method_name)
-            # 归一化到[-1,1]，假设日波动最大20%
             price_signals['daily'] = (price_daily / 0.2).clip(-1, 1)
-        # 3.2 各时间层的斜率融合
         for layer_name, periods in time_layers.items():
             layer_signals = []
             layer_weights = []
-            
             for period in periods:
                 slope_signal = f'SLOPE_{period}_close_D'
                 if slope_signal in df.columns:
                     slope = self.helper._get_safe_series(df, slope_signal, 0.0, method_name)
-                    # 对斜率进行标准化：除以周期进行归一化
-                    normalized_slope = slope / (period * 0.01)  # 假设每个周期最大变化1%
-                    normalized_slope = normalized_slope.clip(-2, 2) / 2  # 归一化到[-1,1]
+                    normalized_slope = slope / (period * 0.01)
+                    normalized_slope = normalized_slope.clip(-2, 2) / 2
                     layer_signals.append(normalized_slope)
-                    # 权重：周期越短，权重越高（在波动性高时更明显）
                     weight = 1.0 / (period ** 0.5)
                     layer_weights.append(weight)
-            
             if layer_signals:
-                # 加权平均
                 layer_signal = pd.Series(0.0, index=df_index)
                 total_weight = 0.0
                 for sig, w in zip(layer_signals, layer_weights):
@@ -835,13 +820,12 @@ class CalculateCostAdvantageTrendRelationship:
                 if total_weight > 0:
                     layer_signal = layer_signal / total_weight
                 price_signals[layer_name] = layer_signal.clip(-1, 1)
-        # 3.3 多层融合：使用自适应权重
         mtf_price_change = pd.Series(0.0, index=df_index)
         total_layer_weight = 0.0
         for layer_name, layer_signal in price_signals.items():
             if layer_name in base_weights:
                 if isinstance(base_weights[layer_name], pd.Series):
-                    weight = base_weights[layer_name].mean()  # 使用均值
+                    weight = base_weights[layer_name].mean()
                 else:
                     weight = base_weights[layer_name]
                 mtf_price_change += layer_signal * weight
@@ -849,29 +833,22 @@ class CalculateCostAdvantageTrendRelationship:
         if total_layer_weight > 0:
             mtf_price_change = mtf_price_change / total_layer_weight
         mtf_price_change = mtf_price_change.clip(-1, 1)
-        # 4. 多维度成本优势分析
         ca_signals = {}
-        # 4.1 原始成本优势
         if 'main_force_cost_advantage_D' in df.columns:
             ca_raw = self.helper._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name)
-            # 假设成本优势在[-100, 100]之间
             ca_signals['daily'] = (ca_raw / 100).clip(-1, 1)
-        # 4.2 各时间层的成本优势变化
         for layer_name, periods in time_layers.items():
             layer_signals = []
             layer_weights = []
-            
             for period in periods:
                 slope_signal = f'SLOPE_{period}_main_force_cost_advantage_D'
                 if slope_signal in df.columns:
                     slope = self.helper._get_safe_series(df, slope_signal, 0.0, method_name)
-                    # 标准化
-                    normalized_slope = slope / (period * 0.5)  # 假设每个周期最大变化0.5
+                    normalized_slope = slope / (period * 0.5)
                     normalized_slope = normalized_slope.clip(-2, 2) / 2
                     layer_signals.append(normalized_slope)
                     weight = 1.0 / (period ** 0.5)
                     layer_weights.append(weight)
-            
             if layer_signals:
                 layer_signal = pd.Series(0.0, index=df_index)
                 total_weight = 0.0
@@ -881,7 +858,6 @@ class CalculateCostAdvantageTrendRelationship:
                 if total_weight > 0:
                     layer_signal = layer_signal / total_weight
                 ca_signals[layer_name] = layer_signal.clip(-1, 1)
-        # 4.3 多层融合
         mtf_ca_change = pd.Series(0.0, index=df_index)
         total_ca_layer_weight = 0.0
         for layer_name, layer_signal in ca_signals.items():
@@ -895,9 +871,7 @@ class CalculateCostAdvantageTrendRelationship:
         if total_ca_layer_weight > 0:
             mtf_ca_change = mtf_ca_change / total_ca_layer_weight
         mtf_ca_change = mtf_ca_change.clip(-1, 1)
-        # 5. 价格-成本优势背离检测
         divergence_score = self._calculate_divergence(mtf_price_change, mtf_ca_change, df_index)
-        # 6. 获取其他关键信号（增强版）
         fetched_signals = {
             'mtf_price_change': mtf_price_change,
             'mtf_ca_change': mtf_ca_change,
@@ -905,7 +879,6 @@ class CalculateCostAdvantageTrendRelationship:
             'volatility': volatility_norm,
             'short_term_bias': short_term_bias,
         }
-        # 7. 批量获取其他信号
         signal_groups = {
             'trend': ['trendline_slope_D', 'ADX_14_D', 'trend_conviction_score_D', 'DMA_D'],
             'order_flow': ['order_book_imbalance_D', 'bid_side_liquidity_D', 'ask_side_liquidity_D'],
@@ -918,8 +891,96 @@ class CalculateCostAdvantageTrendRelationship:
             for signal in signals:
                 if signal in df.columns:
                     fetched_signals[signal] = self.helper._get_safe_series(df, signal, 0.0, method_name)
-        # 8. 探针输出
-        _temp_debug_values["V6.0信号获取详情"] = {
+        # 修复：关键信号映射 - 按优先级处理
+        critical_signal_mappings = [
+            ('lower_shadow_absorption_strength_D', 'lower_shadow_absorb', 1),  # 最高优先级
+            ('suppressive_accumulation_intensity_D', 'suppressive_accum', 1),
+            ('distribution_at_peak_intensity_D', 'distribution_intensity', 1),
+            ('active_selling_pressure_D', 'active_selling', 2),
+            ('profit_taking_flow_ratio_D', 'profit_taking_flow', 2),
+            ('active_buying_support_D', 'active_buying_support', 2),
+            ('main_force_net_flow_calibrated_D', 'main_force_net_flow', 1),
+            ('flow_credibility_index_D', 'flow_credibility', 1),
+            ('close_D', 'close_price', 1),
+            ('VOLATILITY_INSTABILITY_INDEX_21d_D', 'volatility_instability', 2),
+            ('ADX_14_D', 'adx_trend_strength', 2),
+            ('market_sentiment_score_D', 'market_sentiment', 2),
+            ('liquidity_authenticity_score_D', 'liquidity_authenticity', 3),
+            ('MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ma_potential_orderliness_score', 3),
+            ('microstructure_efficiency_index_D', 'microstructure_efficiency', 3),
+            ('main_force_buy_execution_alpha_D', 'main_force_buy_execution_alpha', 3),
+            ('main_force_sell_execution_alpha_D', 'main_force_sell_execution_alpha', 3),
+            ('micro_price_impact_asymmetry_D', 'micro_price_impact_asymmetry', 3),
+        ]
+        missing_signals = []
+        successful_mappings = []
+        # 按优先级顺序处理
+        for priority in [1, 2, 3]:
+            priority_signals = [(df_name, sig_name) for df_name, sig_name, prio in critical_signal_mappings if prio == priority]
+            for df_col_name, signal_name in priority_signals:
+                if df_col_name in df.columns and signal_name not in fetched_signals:
+                    try:
+                        signal_series = self.helper._get_safe_series(df, df_col_name, 0.0, method_name=method_name)
+                        if signal_series is not None and not signal_series.isna().all():
+                            fetched_signals[signal_name] = signal_series
+                            successful_mappings.append((df_col_name, signal_name, priority))
+                            print(f"【V6.1信号映射】优先级{priority}: {df_col_name} -> {signal_name}")
+                        else:
+                            print(f"【V6.1信号映射警告】{df_col_name}数据质量差，跳过映射")
+                            missing_signals.append(signal_name)
+                    except Exception as e:
+                        print(f"【V6.1信号映射错误】{df_col_name} -> {signal_name}: {e}")
+                        missing_signals.append(signal_name)
+        # 特殊处理lower_shadow_absorb - 如果标准映射失败，尝试其他名称
+        if 'lower_shadow_absorb' not in fetched_signals:
+            print(f"【V6.1信号映射】尝试其他lower_shadow_absorb信号名称...")
+            alternative_names = [
+                'lower_shadow_absorption_strength_D',
+                'lower_shadow_absorption_strength_d',
+                'LOWER_SHADOW_ABSORPTION_STRENGTH_D',
+                'shadow_absorption_strength_D',
+                'dip_absorption_power_D',
+                'absorption_strength_ma5_D'
+            ]
+            for alt_name in alternative_names:
+                if alt_name in df.columns and 'lower_shadow_absorb' not in fetched_signals:
+                    try:
+                        signal_series = self.helper._get_safe_series(df, alt_name, 0.0, method_name=method_name)
+                        if signal_series is not None and not signal_series.isna().all():
+                            fetched_signals['lower_shadow_absorb'] = signal_series
+                            print(f"【V6.1信号映射】使用替代名称: {alt_name} -> lower_shadow_absorb")
+                            break
+                    except:
+                        continue
+        # 如果仍然缺失，创建默认值
+        critical_must_have = ['lower_shadow_absorb', 'suppressive_accum', 'main_force_net_flow', 'flow_credibility']
+        for signal_name in critical_must_have:
+            if signal_name not in fetched_signals:
+                print(f"【V6.1信号映射】关键信号{signal_name}缺失，创建默认序列")
+                fetched_signals[signal_name] = pd.Series(0.0, index=df_index)
+        signal_check_report = {
+            "total_signals": len(fetched_signals),
+            "critical_signals_present": [],
+            "critical_signals_missing": [],
+            "mapping_success_rate": f"{len(successful_mappings)}/{len(critical_signal_mappings)}",
+            "priority_mappings": {
+                1: [f"{df}->{sig}" for df, sig, prio in successful_mappings if prio == 1],
+                2: [f"{df}->{sig}" for df, sig, prio in successful_mappings if prio == 2],
+                3: [f"{df}->{sig}" for df, sig, prio in successful_mappings if prio == 3]
+            }
+        }
+        critical_signal_names = ['lower_shadow_absorb', 'suppressive_accum', 'distribution_intensity', 
+                                'active_selling', 'profit_taking_flow', 'main_force_net_flow', 'flow_credibility']
+        for sig_name in critical_signal_names:
+            if sig_name in fetched_signals:
+                signal_check_report["critical_signals_present"].append(sig_name)
+            else:
+                signal_check_report["critical_signals_missing"].append(sig_name)
+        print(f"【V6.1信号检查】关键信号: 存在{len(signal_check_report['critical_signals_present'])}个, 缺失{len(signal_check_report['critical_signals_missing'])}个")
+        print(f"【V6.1信号检查】映射成功率: {signal_check_report['mapping_success_rate']}")
+        if signal_check_report["critical_signals_missing"]:
+            print(f"【V6.1信号检查】缺失信号: {signal_check_report['critical_signals_missing']}")
+        _temp_debug_values["V6.1信号获取详情"] = {
             "mtf_price_change_range": f"[{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]",
             "mtf_ca_change_range": f"[{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]",
             "volatility_mean": volatility_norm.mean(),
@@ -928,11 +989,18 @@ class CalculateCostAdvantageTrendRelationship:
             "ca_signals_count": len(ca_signals),
             "divergence_score": divergence_score,
             "获取信号总数": len(fetched_signals),
+            "信号检查报告": signal_check_report,
+            "信号映射详情": {
+                "successful_mappings": successful_mappings,
+                "missing_signals": missing_signals,
+                "alternative_names_tried": alternative_names if 'alternative_names' in locals() else []
+            }
         }
-        print(f"【V6.0信号获取完成】价格变化范围: [{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]")
-        print(f"【V6.0信号获取完成】成本优势变化范围: [{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]")
-        print(f"【V6.0信号获取完成】波动性均值: {volatility_norm.mean():.4f}")
-        print(f"【V6.0信号获取完成】短期偏好: {short_term_bias.mean():.4f}")
+        print(f"【V6.1信号获取完成】价格变化范围: [{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]")
+        print(f"【V6.1信号获取完成】成本优势变化范围: [{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]")
+        print(f"【V6.1信号获取完成】波动性均值: {volatility_norm.mean():.4f}")
+        print(f"【V6.1信号获取完成】短期偏好: {short_term_bias.mean():.4f}")
+        print(f"【V6.1信号获取完成】lower_shadow_absorb状态: {'已获取' if 'lower_shadow_absorb' in fetched_signals else '使用默认值'}")
         return fetched_signals
 
     def _calculate_divergence(self, price_signal: pd.Series, ca_signal: pd.Series, df_index: pd.Index) -> pd.Series:
@@ -1394,40 +1462,80 @@ class CalculateCostAdvantageTrendRelationship:
         return Q2_final
 
     def _calculate_q3_golden_pit(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], df_index: pd.Index, dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.1.3 · Q3黄金坑计算 - 信号缺失处理与稳定性增强版】
-        - 核心修复: 处理lower_shadow_absorb信号缺失问题
-        - 核心优化: 放宽Q3_base计算条件
-        - 核心新增: 使用替代信号处理缺失问题
-        - 版本: 1.1.3
-        """
-        # 获取价格下跌和成本优势扩大的信号
+        """【V6.1 · Q3黄金坑计算 - 修复lower_shadow_absorb信号缺失问题】
+        - 核心修复: 彻底解决lower_shadow_absorb信号缺失问题
+        - 核心优化: 多层级替代方案，确保计算继续
+        - 核心新增: 详细的信号缺失处理逻辑
+        - 版本: 6.1"""
+        print(f"【V6.1 Q3计算】开始黄金坑计算，检查信号完整性...")
+        required_signals = ['mtf_price_change', 'mtf_ca_change', 'close_D']
+        missing_signals = [sig for sig in required_signals if sig not in fetched_signals]
+        if missing_signals:
+            print(f"【V6.1 Q3警告】缺失基础信号: {missing_signals}，创建默认值")
+            for sig in missing_signals:
+                fetched_signals[sig] = pd.Series(0.0, index=df_index)
         price_negative = fetched_signals['mtf_price_change'].clip(upper=0).abs()
         ca_positive = fetched_signals['mtf_ca_change'].clip(lower=0)
-        # Q3基础计算：放宽条件，只要有一个符合就计算
         Q3_base = pd.Series(0.0, index=price_negative.index)
-        # 找到价格下跌且成本优势扩大的索引
         golden_pit_mask = (price_negative > 0) & (ca_positive > 0)
         if golden_pit_mask.any():
             Q3_base[golden_pit_mask] = (price_negative[golden_pit_mask] * ca_positive[golden_pit_mask]).pow(0.5)
         Q3_base = Q3_base.clip(0, 1)
-        # 处理lower_shadow_absorb信号缺失问题
-        lower_shadow_absorb_series = fetched_signals['lower_shadow_absorb']
+        print(f"【V6.1 Q3计算】检查lower_shadow_absorb信号...")
+        lower_shadow_absorb_series = None
+        signal_sources = [
+            ('lower_shadow_absorb', 'fetched_signals'),
+            ('lower_shadow_absorption_strength_D', 'fetched_signals'),
+            ('lower_shadow_absorption_strength_D', 'df_direct')
+        ]
+        for signal_name, source in signal_sources:
+            if signal_name in fetched_signals:
+                lower_shadow_absorb_series = fetched_signals[signal_name]
+                print(f"【V6.1 Q3计算】从fetched_signals中找到{signal_name}")
+                break
         if lower_shadow_absorb_series is None or lower_shadow_absorb_series.isna().all():
-            print(f"【Q3警告】lower_shadow_absorb信号全部为NaN，使用suppressive_accum_norm作为替代")
-            lower_shadow_absorb_norm = normalized_signals['suppressive_accum_norm']
+            print(f"【V6.1 Q3计算】lower_shadow_absorb信号未找到或全部为NaN，寻找替代方案")
+            alternative_signals = [
+                'suppressive_accumulation_intensity_D',
+                'absorption_strength_ma5_D',
+                'dip_absorption_power_D',
+                'dip_buy_absorption_strength_D'
+            ]
+            for alt_signal in alternative_signals:
+                if alt_signal in fetched_signals:
+                    lower_shadow_absorb_series = fetched_signals[alt_signal]
+                    print(f"【V6.1 Q3计算】使用替代信号: {alt_signal}")
+                    break
+        if lower_shadow_absorb_series is None:
+            print(f"【V6.1 Q3计算】所有替代信号都未找到，使用suppressive_accum_norm")
+            if 'suppressive_accum_norm' in normalized_signals:
+                lower_shadow_absorb_norm = normalized_signals['suppressive_accum_norm']
+            else:
+                lower_shadow_absorb_norm = pd.Series(0.5, index=df_index)
         else:
-            # 归一化处理，确保在[0,1]范围内
             lower_shadow_absorb_norm = self.helper._normalize_series(lower_shadow_absorb_series, df_index, bipolar=False)
             lower_shadow_absorb_norm = lower_shadow_absorb_norm.clip(0, 1)
-        # 确认：隐蔽吸筹、下影线吸收、资金流可信度、流动性真实性
+        required_confirm_signals = ['suppressive_accum_norm', 'flow_credibility_norm', 'liquidity_authenticity_score_norm']
+        missing_confirm = [sig for sig in required_confirm_signals if sig not in normalized_signals]
+        if missing_confirm:
+            print(f"【V6.1 Q3计算】缺失确认信号: {missing_confirm}，使用默认值")
+            for sig in missing_confirm:
+                normalized_signals[sig] = pd.Series(0.5, index=df_index)
         Q3_confirm_components = {
             'suppressive_accum_norm': normalized_signals['suppressive_accum_norm'].clip(0, 1),
             'lower_shadow_absorb': lower_shadow_absorb_norm.clip(0, 1),
             'flow_credibility_norm': normalized_signals['flow_credibility_norm'].clip(0, 1),
             'liquidity_authenticity_score_norm': normalized_signals['liquidity_authenticity_score_norm'].clip(0, 1)
         }
-        Q3_confirm_weights_series = dynamic_weights['Q3_confirmation_weights']
+        Q3_confirm_weights_series = dynamic_weights.get('Q3_confirmation_weights', {})
+        if not Q3_confirm_weights_series:
+            print(f"【V6.1 Q3计算】Q3_confirmation_weights为空，使用默认权重")
+            Q3_confirm_weights_series = {
+                'suppressive_accum_norm': pd.Series(0.3, index=df_index),
+                'lower_shadow_absorb': pd.Series(0.3, index=df_index),
+                'flow_credibility_norm': pd.Series(0.2, index=df_index),
+                'liquidity_authenticity_score_norm': pd.Series(0.2, index=df_index)
+            }
         weighted_sum = pd.Series(0.0, index=Q3_base.index, dtype=np.float32)
         for k, component_series in Q3_confirm_components.items():
             weight_series = Q3_confirm_weights_series.get(k, pd.Series(0.0, index=Q3_base.index, dtype=np.float32))
@@ -1438,13 +1546,25 @@ class CalculateCostAdvantageTrendRelationship:
         sum_of_weights_series_safe = sum_of_weights_series.replace(0, np.nan)
         Q3_confirm = (weighted_sum / sum_of_weights_series_safe).fillna(0)
         Q3_confirm = Q3_confirm.clip(0, 1)
-        # 前置下跌上下文，如果前几日有深跌，则增加黄金坑的权重
-        pre_5day_pct_change = fetched_signals['close_price'].pct_change(periods=5).shift(1).fillna(0)
+        if 'close_price' in fetched_signals:
+            close_price_series = fetched_signals['close_price']
+        elif 'close_D' in fetched_signals:
+            close_price_series = fetched_signals['close_D']
+        else:
+            close_price_series = pd.Series(0.0, index=df_index)
+        pre_5day_pct_change = close_price_series.pct_change(periods=5).shift(1).fillna(0)
         norm_pre_drop_5d = self.helper._normalize_series(pre_5day_pct_change.clip(upper=0).abs(), df_index, bipolar=False)
         pre_drop_context_bonus = norm_pre_drop_5d * 0.5
         Q3_final = (Q3_base * Q3_confirm * (1 + pre_drop_context_bonus)).clip(0, 1)
-        # 探针输出
-        _temp_debug_values["Q3: 价跌 & 优扩"] = {
+        signal_status = {
+            "lower_shadow_absorb_found": lower_shadow_absorb_series is not None,
+            "lower_shadow_absorb_alternative_used": lower_shadow_absorb_series is None,
+            "missing_base_signals": missing_signals,
+            "missing_confirm_signals": missing_confirm,
+            "golden_pit_mask_count": golden_pit_mask.sum(),
+            "close_price_source": 'close_price' if 'close_price' in fetched_signals else 'close_D' if 'close_D' in fetched_signals else 'none'
+        }
+        _temp_debug_values["Q3:价跌 & 优扩"] = {
             "Q3_base": Q3_base,
             "Q3_confirm": Q3_confirm,
             "pre_5day_pct_change": pre_5day_pct_change,
@@ -1453,11 +1573,19 @@ class CalculateCostAdvantageTrendRelationship:
             "Q3_final": Q3_final,
             "price_negative_range": f"[{price_negative.min():.4f}, {price_negative.max():.4f}]",
             "ca_positive_range": f"[{ca_positive.min():.4f}, {ca_positive.max():.4f}]",
-            "golden_pit_days": golden_pit_mask.sum()
+            "golden_pit_days": golden_pit_mask.sum(),
+            "signal_status": signal_status,
+            "lower_shadow_absorb_info": {
+                "original_series_exists": lower_shadow_absorb_series is not None,
+                "normalized_range": f"[{lower_shadow_absorb_norm.min():.4f}, {lower_shadow_absorb_norm.max():.4f}]" if lower_shadow_absorb_series is not None else "N/A",
+                "alternative_used": lower_shadow_absorb_series is None
+            }
         }
-        # 输出统计信息
-        print(f"【Q3计算】Q3_base均值: {Q3_base.mean():.4f}, 范围: [{Q3_base.min():.4f}, {Q3_base.max():.4f}]")
-        print(f"【Q3计算】黄金坑信号天数（价跌 & 优扩）: {golden_pit_mask.sum()}/{len(golden_pit_mask)} ({golden_pit_mask.sum()/len(golden_pit_mask):.1%})")
+        print(f"【V6.1 Q3计算】Q3_base均值: {Q3_base.mean():.4f}, 范围: [{Q3_base.min():.4f}, {Q3_base.max():.4f}]")
+        print(f"【V6.1 Q3计算】黄金坑信号天数（价跌 & 优扩）: {golden_pit_mask.sum()}/{len(golden_pit_mask)} ({golden_pit_mask.sum()/len(golden_pit_mask):.1%})")
+        print(f"【V6.1 Q3计算】lower_shadow_absorb处理状态: {'使用原始信号' if lower_shadow_absorb_series is not None else '使用替代信号'}")
+        if missing_signals or missing_confirm:
+            print(f"【V6.1 Q3计算】警告: 缺失{len(missing_signals)}个基础信号, {len(missing_confirm)}个确认信号")
         return Q3_final
 
     def _calculate_q4_bull_trap(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -1805,27 +1933,111 @@ class CalculateCostAdvantageTrendRelationship:
         return dynamic_weights
 
     def _calculate_interaction_terms(self, fetched_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.0.0 · 交互项计算】
-        - 核心职责: 计算信号间的交互项，捕捉协同效应。
-        - 版本: 1.0.0
-        """
+        """【V6.1 · 交互项计算 - 修复信号缺失问题】
+        - 核心修复: 添加所有交互项信号的完整性检查
+        - 核心优化: 为缺失信号提供默认值
+        - 核心新增: 交互项计算状态报告
+        - 版本: 6.1"""
+        print(f"【V6.1交互项】开始计算交互项，检查信号...")
         interaction_terms_weights = config.get('interaction_terms_weights', {})
         interaction_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        interaction_details = {}
         # Q1: 主力信念与资金流可信度协同
         if 'Q1_mf_conviction_flow_credibility_synergy' in interaction_terms_weights:
-            synergy = normalized_signals['mtf_main_force_conviction'].clip(lower=0) * normalized_signals['flow_credibility_norm']
-            interaction_score += synergy * interaction_terms_weights['Q1_mf_conviction_flow_credibility_synergy']
+            weight = interaction_terms_weights['Q1_mf_conviction_flow_credibility_synergy']
+            print(f"【V6.1交互项】计算Q1协同，权重: {weight}")
+            mf_conviction_available = 'mtf_main_force_conviction' in normalized_signals
+            flow_credibility_available = 'flow_credibility_norm' in normalized_signals
+            if mf_conviction_available and flow_credibility_available:
+                synergy = normalized_signals['mtf_main_force_conviction'].clip(lower=0) * normalized_signals['flow_credibility_norm']
+                interaction_score += synergy * weight
+                interaction_details['Q1_synergy'] = {
+                    "calculated": True,
+                    "weight": weight,
+                    "synergy_mean": synergy.mean()
+                }
+            else:
+                print(f"【V6.1交互项警告】Q1协同信号缺失: mf_conviction={mf_conviction_available}, flow_credibility={flow_credibility_available}")
+                interaction_details['Q1_synergy'] = {
+                    "calculated": False,
+                    "missing_signals": []
+                }
+                if not mf_conviction_available:
+                    interaction_details['Q1_synergy']['missing_signals'].append('mtf_main_force_conviction')
+                if not flow_credibility_available:
+                    interaction_details['Q1_synergy']['missing_signals'].append('flow_credibility_norm')
         # Q3: 打压吸筹与下影线吸收协同
         if 'Q3_suppressive_absorb_synergy' in interaction_terms_weights:
-            synergy = normalized_signals['suppressive_accum_norm'] * fetched_signals['lower_shadow_absorb']
-            interaction_score += synergy * interaction_terms_weights['Q3_suppressive_absorb_synergy']
+            weight = interaction_terms_weights['Q3_suppressive_absorb_synergy']
+            print(f"【V6.1交互项】计算Q3协同，权重: {weight}")
+            suppressive_available = 'suppressive_accum_norm' in normalized_signals
+            lower_shadow_available = 'lower_shadow_absorb' in fetched_signals
+            if suppressive_available and lower_shadow_available:
+                synergy = normalized_signals['suppressive_accum_norm'] * fetched_signals['lower_shadow_absorb']
+                interaction_score += synergy * weight
+                interaction_details['Q3_synergy'] = {
+                    "calculated": True,
+                    "weight": weight,
+                    "synergy_mean": synergy.mean()
+                }
+            else:
+                print(f"【V6.1交互项警告】Q3协同信号缺失: suppressive={suppressive_available}, lower_shadow={lower_shadow_available}")
+                interaction_details['Q3_synergy'] = {
+                    "calculated": False,
+                    "missing_signals": []
+                }
+                if not suppressive_available:
+                    interaction_details['Q3_synergy']['missing_signals'].append('suppressive_accum_norm')
+                if not lower_shadow_available:
+                    interaction_details['Q3_synergy']['missing_signals'].append('lower_shadow_absorb')
+                    # 尝试寻找替代信号
+                    alternative_found = False
+                    for alt_signal in ['suppressive_accumulation_intensity_D', 'absorption_strength_ma5_D']:
+                        if alt_signal in fetched_signals:
+                            print(f"【V6.1交互项】为Q3使用替代信号: {alt_signal}")
+                            synergy = normalized_signals['suppressive_accum_norm'] * fetched_signals[alt_signal]
+                            interaction_score += synergy * weight * 0.5  # 替代信号权重减半
+                            alternative_found = True
+                            interaction_details['Q3_synergy']['alternative_used'] = alt_signal
+                            break
+                    if not alternative_found:
+                        print(f"【V6.1交互项】Q3无可用替代信号，跳过")
         # Q4: 派发强度与主力净流出协同
         if 'Q4_distribution_mf_outflow_synergy' in interaction_terms_weights:
-            synergy = normalized_signals['mtf_distribution_intensity'] * normalized_signals['main_force_net_flow_outflow_norm']
-            interaction_score += synergy * interaction_terms_weights['Q4_distribution_mf_outflow_synergy']
+            weight = interaction_terms_weights['Q4_distribution_mf_outflow_synergy']
+            print(f"【V6.1交互项】计算Q4协同，权重: {weight}")
+            distribution_available = 'mtf_distribution_intensity' in normalized_signals
+            mf_outflow_available = 'main_force_net_flow_outflow_norm' in normalized_signals
+            if distribution_available and mf_outflow_available:
+                synergy = normalized_signals['mtf_distribution_intensity'] * normalized_signals['main_force_net_flow_outflow_norm']
+                interaction_score += synergy * weight
+                interaction_details['Q4_synergy'] = {
+                    "calculated": True,
+                    "weight": weight,
+                    "synergy_mean": synergy.mean()
+                }
+            else:
+                print(f"【V6.1交互项警告】Q4协同信号缺失: distribution={distribution_available}, mf_outflow={mf_outflow_available}")
+                interaction_details['Q4_synergy'] = {
+                    "calculated": False,
+                    "missing_signals": []
+                }
+                if not distribution_available:
+                    interaction_details['Q4_synergy']['missing_signals'].append('mtf_distribution_intensity')
+                if not mf_outflow_available:
+                    interaction_details['Q4_synergy']['missing_signals'].append('main_force_net_flow_outflow_norm')
+        # 交互项计算状态报告
+        calculated_count = sum(1 for detail in interaction_details.values() if detail.get('calculated', False))
+        total_count = len(interaction_details)
+        print(f"【V6.1交互项】完成: {calculated_count}/{total_count}个交互项成功计算")
         _temp_debug_values["交互项"] = {
-            "interaction_score": interaction_score
+            "interaction_score": interaction_score,
+            "interaction_details": interaction_details,
+            "calculation_summary": {
+                "total_interaction_terms": total_count,
+                "successfully_calculated": calculated_count,
+                "weights_used": interaction_terms_weights
+            }
         }
         return interaction_score
 
