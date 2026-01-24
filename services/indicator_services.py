@@ -535,7 +535,6 @@ class IndicatorService:
         async def _fetch_and_tag_ohlcv_data(tf_to_fetch, trade_time_str, limit):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, limit, trade_time_str)
             return (tf_to_fetch, df)
-        
         for tf in base_tfs_to_fetch:
             # 【动态计算分钟线条数】
             # A股每天交易240分钟。如果base_needed_bars是天数，则分钟线需要相应放大。
@@ -553,7 +552,6 @@ class IndicatorService:
                     logger.info(f"[{stock_code}] 分钟周期 '{tf}' 动态调整获取条数: {base_needed_bars} (基准) -> {current_limit} (扩容)")
                 except ValueError:
                     pass
-            
             tasks.append(_fetch_and_tag_ohlcv_data(tf, trade_time, current_limit))
         # 补充数据 (各种高级指标和基本面数据)
         trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
@@ -635,11 +633,10 @@ class IndicatorService:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
         # --- 步骤 2: 初始化 df_daily_master (OHLCV 日线数据) ---
-        print(f"    - 开始初始化 df_daily_master，共 {len(raw_dfs['D'])} 条记录。")
-        print(f"    - 原始日线数据列名: {raw_dfs['D'].columns.tolist()}")
-        df_daily_master = raw_dfs['D']
-        print(f"    - 成功获取日线数据，共 {len(df_daily_master)} 条记录。")
-        print(f"    - 日线数据列名: {df_daily_master.columns.tolist()}")
+        # 【修复】使用 copy() 断开引用，防止 inplace 修改影响 raw_dfs，同时避免 chained assignment 警告
+        df_daily_master = raw_dfs['D'].copy()
+        # 【修复】强制清理列名空格，防止 'close ' 等隐形字符导致重命名匹配失败
+        df_daily_master.columns = df_daily_master.columns.str.strip()
         df_daily_master.index = df_daily_master.index.normalize()
         # 删除重复的索引行，保留最后一条
         if df_daily_master.index.duplicated().any():
@@ -648,11 +645,26 @@ class IndicatorService:
         # 为核心 OHLCV 列添加 _D 后缀
         # 添加 'pct_change' 和 'pre_close' 到 ohlcv_cols，确保它们也被标准化
         ohlcv_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pct_change', 'pre_close']
-        rename_ohlcv_map = {col: f"{col}_D" for col in ohlcv_cols if col in df_daily_master.columns and not col.endswith('_D')}
+        # 【修复】构建重命名映射，确保只重命名尚未带后缀的列
+        rename_ohlcv_map = {}
+        for col in ohlcv_cols:
+            if col in df_daily_master.columns and not col.endswith('_D'):
+                 rename_ohlcv_map[col] = f"{col}_D"
+        # 【修复】使用显式赋值而非 inplace，确保重命名操作绝对生效
         if rename_ohlcv_map:
-            df_daily_master.rename(columns=rename_ohlcv_map, inplace=True)
-        # 定义 OHLCV 核心列，这些列在合并时应始终优先保留 df_daily_master 中的值
-        ohlcv_core_cols = set(rename_ohlcv_map.values())
+            df_daily_master = df_daily_master.rename(columns=rename_ohlcv_map)
+        # 【防御性检查】再次确认 close_D 是否存在，如果因任何原因上述逻辑漏掉了 close，强制重命名
+        if 'close' in df_daily_master.columns and 'close_D' not in df_daily_master.columns:
+             df_daily_master = df_daily_master.rename(columns={'close': 'close_D'})
+        # 【修复】定义 OHLCV 核心列，基于实际重命名后的列名生成，确保准确性
+        # 这些列在后续合并时应始终优先保留 df_daily_master 中的值
+        ohlcv_core_cols = set()
+        for col in df_daily_master.columns:
+            # 检查是否以 _D 结尾，且去除后缀后的名称在核心列表中
+            if col.endswith('_D'):
+                base_name = col[:-2]
+                if base_name in ohlcv_cols:
+                    ohlcv_core_cols.add(col)
         # --- 步骤 3: 逐个处理并合并补充数据 ---
         all_merged_cols_for_ffill = set() # 收集所有新合并进来的列，用于后续 ffill
         # 定义优先级列：这些列如果来自补充数据，则优先保留补充数据的值
@@ -793,7 +805,7 @@ class IndicatorService:
                 elif col in common_cols: # 如果是冲突列，且我们决定保留了补充数据的值
                     if col in priority_supp_cols:
                         all_merged_cols_for_ffill.add(col)
-        # 【新增代码块】确保所有预期的补充数据列都存在于 df_daily_master 中
+        # 确保所有预期的补充数据列都存在于 df_daily_master 中
         # 即使某个补充数据源返回空DataFrame，其对应的列也应存在，并用NaN填充，
         # 以避免后续依赖这些列的计算（如斜率、加速度）因列缺失而报错。
         for col in priority_supp_cols:
