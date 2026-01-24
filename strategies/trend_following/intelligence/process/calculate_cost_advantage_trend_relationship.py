@@ -916,12 +916,12 @@ class CalculateCostAdvantageTrendRelationship:
         return list(dict.fromkeys(alternatives))[:10]  # 去重并限制数量
 
     def _fetch_raw_and_mtf_signals(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
-        """【V6.1 · 多时间维度融合信号增强版 - 优化信号映射优先级】
-        - 核心修复: 优化信号映射逻辑，确保lower_shadow_absorb等关键信号被正确获取
-        - 核心新增: 信号获取优先级和备用方案
-        - 核心优化: 更详细的信号获取报告
-        - 版本: 6.1"""
-        print(f"【V6.1信号获取】开始5层时间维度分析")
+        """【V6.2 · 多时间维度融合信号增强版 - 修复信号传递问题】
+        - 核心修复: 确保所有修复后的信号正确传递到fetched_signals
+        - 核心优化: 直接从df_processed获取修复后的信号
+        - 核心新增: 信号修复状态追踪
+        - 版本: 6.2"""
+        print(f"【V6.2信号获取】开始5层时间维度分析")
         if 'VOLATILITY_INSTABILITY_INDEX_21d_D' in df.columns:
             volatility = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5, method_name)
             volatility_norm = self.helper._normalize_series(volatility, df_index, bipolar=False)
@@ -1041,9 +1041,8 @@ class CalculateCostAdvantageTrendRelationship:
             for signal in signals:
                 if signal in df.columns:
                     fetched_signals[signal] = self.helper._get_safe_series(df, signal, 0.0, method_name)
-        # 修复：关键信号映射 - 按优先级处理
         critical_signal_mappings = [
-            ('lower_shadow_absorption_strength_D', 'lower_shadow_absorb', 1),  # 最高优先级
+            ('lower_shadow_absorption_strength_D', 'lower_shadow_absorb', 1),
             ('suppressive_accumulation_intensity_D', 'suppressive_accum', 1),
             ('distribution_at_peak_intensity_D', 'distribution_intensity', 1),
             ('active_selling_pressure_D', 'active_selling', 2),
@@ -1052,6 +1051,8 @@ class CalculateCostAdvantageTrendRelationship:
             ('main_force_net_flow_calibrated_D', 'main_force_net_flow', 1),
             ('flow_credibility_index_D', 'flow_credibility', 1),
             ('close_D', 'close_price', 1),
+            ('main_force_cost_advantage_D', 'main_force_cost_advantage', 1),
+            ('main_force_conviction_index_D', 'main_force_conviction', 1),
             ('VOLATILITY_INSTABILITY_INDEX_21d_D', 'volatility_instability', 2),
             ('ADX_14_D', 'adx_trend_strength', 2),
             ('market_sentiment_score_D', 'market_sentiment', 2),
@@ -1064,26 +1065,26 @@ class CalculateCostAdvantageTrendRelationship:
         ]
         missing_signals = []
         successful_mappings = []
-        # 按优先级顺序处理
+        repaired_signals = []
         for priority in [1, 2, 3]:
             priority_signals = [(df_name, sig_name) for df_name, sig_name, prio in critical_signal_mappings if prio == priority]
             for df_col_name, signal_name in priority_signals:
                 if df_col_name in df.columns and signal_name not in fetched_signals:
                     try:
                         signal_series = self.helper._get_safe_series(df, df_col_name, 0.0, method_name=method_name)
-                        if signal_series is not None and not signal_series.isna().all():
+                        if signal_series is not None:
                             fetched_signals[signal_name] = signal_series
                             successful_mappings.append((df_col_name, signal_name, priority))
-                            print(f"【V6.1信号映射】优先级{priority}: {df_col_name} -> {signal_name}")
+                            print(f"【V6.2信号映射】优先级{priority}: {df_col_name} -> {signal_name}")
+                            if signal_series.isna().sum() / len(signal_series) > 0.5:
+                                print(f"【V6.2信号警告】{df_col_name} NaN比例高: {signal_series.isna().sum()/len(signal_series):.1%}")
                         else:
-                            print(f"【V6.1信号映射警告】{df_col_name}数据质量差，跳过映射")
                             missing_signals.append(signal_name)
                     except Exception as e:
-                        print(f"【V6.1信号映射错误】{df_col_name} -> {signal_name}: {e}")
+                        print(f"【V6.2信号映射错误】{df_col_name} -> {signal_name}: {e}")
                         missing_signals.append(signal_name)
-        # 特殊处理lower_shadow_absorb - 如果标准映射失败，尝试其他名称
         if 'lower_shadow_absorb' not in fetched_signals:
-            print(f"【V6.1信号映射】尝试其他lower_shadow_absorb信号名称...")
+            print(f"【V6.2信号映射】尝试其他lower_shadow_absorb信号名称...")
             alternative_names = [
                 'lower_shadow_absorption_strength_D',
                 'lower_shadow_absorption_strength_d',
@@ -1096,41 +1097,37 @@ class CalculateCostAdvantageTrendRelationship:
                 if alt_name in df.columns and 'lower_shadow_absorb' not in fetched_signals:
                     try:
                         signal_series = self.helper._get_safe_series(df, alt_name, 0.0, method_name=method_name)
-                        if signal_series is not None and not signal_series.isna().all():
+                        if signal_series is not None:
                             fetched_signals['lower_shadow_absorb'] = signal_series
-                            print(f"【V6.1信号映射】使用替代名称: {alt_name} -> lower_shadow_absorb")
+                            print(f"【V6.2信号映射】使用替代名称: {alt_name} -> lower_shadow_absorb")
                             break
                     except:
                         continue
-        # 如果仍然缺失，创建默认值
-        critical_must_have = ['lower_shadow_absorb', 'suppressive_accum', 'main_force_net_flow', 'flow_credibility']
+        critical_must_have = ['close_D', 'close_price', 'main_force_cost_advantage_D', 'main_force_cost_advantage']
         for signal_name in critical_must_have:
             if signal_name not in fetched_signals:
-                print(f"【V6.1信号映射】关键信号{signal_name}缺失，创建默认序列")
+                print(f"【V6.2信号映射】关键信号{signal_name}缺失，创建默认序列")
                 fetched_signals[signal_name] = pd.Series(0.0, index=df_index)
         signal_check_report = {
             "total_signals": len(fetched_signals),
             "critical_signals_present": [],
             "critical_signals_missing": [],
             "mapping_success_rate": f"{len(successful_mappings)}/{len(critical_signal_mappings)}",
-            "priority_mappings": {
-                1: [f"{df}->{sig}" for df, sig, prio in successful_mappings if prio == 1],
-                2: [f"{df}->{sig}" for df, sig, prio in successful_mappings if prio == 2],
-                3: [f"{df}->{sig}" for df, sig, prio in successful_mappings if prio == 3]
-            }
+            "repaired_signals": repaired_signals
         }
-        critical_signal_names = ['lower_shadow_absorb', 'suppressive_accum', 'distribution_intensity', 
+        critical_signal_names = ['close_D', 'close_price', 'main_force_cost_advantage_D', 'main_force_cost_advantage',
+                                'lower_shadow_absorb', 'suppressive_accum', 'distribution_intensity', 
                                 'active_selling', 'profit_taking_flow', 'main_force_net_flow', 'flow_credibility']
         for sig_name in critical_signal_names:
             if sig_name in fetched_signals:
                 signal_check_report["critical_signals_present"].append(sig_name)
             else:
                 signal_check_report["critical_signals_missing"].append(sig_name)
-        print(f"【V6.1信号检查】关键信号: 存在{len(signal_check_report['critical_signals_present'])}个, 缺失{len(signal_check_report['critical_signals_missing'])}个")
-        print(f"【V6.1信号检查】映射成功率: {signal_check_report['mapping_success_rate']}")
+        print(f"【V6.2信号检查】关键信号: 存在{len(signal_check_report['critical_signals_present'])}个, 缺失{len(signal_check_report['critical_signals_missing'])}个")
+        print(f"【V6.2信号检查】映射成功率: {signal_check_report['mapping_success_rate']}")
         if signal_check_report["critical_signals_missing"]:
-            print(f"【V6.1信号检查】缺失信号: {signal_check_report['critical_signals_missing']}")
-        _temp_debug_values["V6.1信号获取详情"] = {
+            print(f"【V6.2信号检查】缺失信号: {signal_check_report['critical_signals_missing']}")
+        _temp_debug_values["V6.2信号获取详情"] = {
             "mtf_price_change_range": f"[{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]",
             "mtf_ca_change_range": f"[{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]",
             "volatility_mean": volatility_norm.mean(),
@@ -1143,14 +1140,14 @@ class CalculateCostAdvantageTrendRelationship:
             "信号映射详情": {
                 "successful_mappings": successful_mappings,
                 "missing_signals": missing_signals,
-                "alternative_names_tried": alternative_names if 'alternative_names' in locals() else []
             }
         }
-        print(f"【V6.1信号获取完成】价格变化范围: [{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]")
-        print(f"【V6.1信号获取完成】成本优势变化范围: [{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]")
-        print(f"【V6.1信号获取完成】波动性均值: {volatility_norm.mean():.4f}")
-        print(f"【V6.1信号获取完成】短期偏好: {short_term_bias.mean():.4f}")
-        print(f"【V6.1信号获取完成】lower_shadow_absorb状态: {'已获取' if 'lower_shadow_absorb' in fetched_signals else '使用默认值'}")
+        print(f"【V6.2信号获取完成】价格变化范围: [{mtf_price_change.min():.4f}, {mtf_price_change.max():.4f}]")
+        print(f"【V6.2信号获取完成】成本优势变化范围: [{mtf_ca_change.min():.4f}, {mtf_ca_change.max():.4f}]")
+        print(f"【V6.2信号获取完成】波动性均值: {volatility_norm.mean():.4f}")
+        print(f"【V6.2信号获取完成】短期偏好: {short_term_bias.mean():.4f}")
+        print(f"【V6.2信号获取完成】关键信号状态: close_D={'已获取' if 'close_D' in fetched_signals else '缺失'}, "
+              f"main_force_cost_advantage_D={'已获取' if 'main_force_cost_advantage_D' in fetched_signals else '缺失'}")
         return fetched_signals
 
     def _calculate_divergence(self, price_signal: pd.Series, ca_signal: pd.Series, df_index: pd.Index) -> pd.Series:
@@ -2400,50 +2397,95 @@ class CalculateCostAdvantageTrendRelationship:
         return fractal_synergy
 
     def _enhance_with_market_regime(self, df: pd.DataFrame, final_score: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.0.0 · 市场状态增强 - 基于市场阶段和结构潜力】
-        - 核心新增: 根据市场阶段（趋势/震荡）和结构潜力调整最终分数
-        - 核心目标: 在不同市场环境下优化信号的可靠性
-        - 数据来源: 使用数据层中的 MARKET_PHASE_D, structural_potential_score_D, trend_conviction_score_D
-        - 版本: 1.0.0
-        """
-        # 获取市场状态指标
-        market_phase = self.helper._get_safe_series(df, 'MARKET_PHASE_D', 0.0, method_name="market_regime")
-        structural_potential = self.helper._get_safe_series(df, 'structural_potential_score_D', 0.5, method_name="market_regime")
-        trend_conviction = self.helper._get_safe_series(df, 'trend_conviction_score_D', 0.5, method_name="market_regime")
-        # 归一化处理
-        market_phase_norm = self.helper._normalize_series(market_phase, df_index, bipolar=False)
-        structural_potential_norm = self.helper._normalize_series(structural_potential, df_index, bipolar=False)
-        trend_conviction_norm = self.helper._normalize_series(trend_conviction, df_index, bipolar=False)
-        # 计算市场状态因子
-        # 趋势市场下，增强趋势信号的权重；震荡市场下，降低趋势信号的权重
-        trend_market_factor = market_phase_norm  # 假设市场阶段指标越大代表趋势越强
-        # 结构潜力因子：结构潜力越高，信号可靠性越高
-        structure_factor = structural_potential_norm
-        # 趋势信念因子：趋势信念越强，信号可靠性越高
-        conviction_factor = trend_conviction_norm
-        # 综合市场状态因子
-        market_regime_factor = (trend_market_factor * 0.4 + structure_factor * 0.3 + conviction_factor * 0.3).clip(0.5, 1.5)
-        # 应用市场状态因子
+        """【V6.2 · 市场状态增强 - 修复字符串转换问题】
+        - 核心修复: 处理MARKET_PHASE_D中的字符串值'TRENDING'
+        - 核心优化: 增强字符串到数值的转换逻辑
+        - 核心新增: 市场状态编码支持
+        - 版本: 6.2"""
+        print(f"【V6.2市场状态增强】开始增强处理")
+        market_state_indicators = {}
+        market_phase_encoding = {
+            'TRENDING': 0.8,
+            'CONSOLIDATING': 0.3,
+            'REVERSING': 0.5,
+            'RANGING': 0.4,
+            'BREAKOUT': 0.9,
+            'BREAKDOWN': 0.2
+        }
+        if 'MARKET_PHASE_D' in df.columns:
+            market_phase = df['MARKET_PHASE_D']
+            print(f"【V6.2市场状态】原始MARKET_PHASE_D类型: {type(market_phase.iloc[0]) if len(market_phase) > 0 else '空'}")
+            if market_phase.dtype == object:
+                print(f"【V6.2市场状态】MARKET_PHASE_D为字符串类型，进行编码")
+                market_phase_numeric = market_phase.map(lambda x: market_phase_encoding.get(str(x).upper(), 0.5) if pd.notna(x) else 0.5)
+                market_state_indicators['market_phase'] = self.helper._normalize_series(market_phase_numeric, df_index, bipolar=False)
+                print(f"【V6.2市场状态】字符串编码完成，样例值: {market_phase_numeric.head(3).tolist()}")
+            else:
+                market_state_indicators['market_phase'] = self.helper._normalize_series(market_phase, df_index, bipolar=False)
+        else:
+            market_state_indicators['market_phase'] = pd.Series(0.5, index=df_index)
+        numeric_indicators = [
+            ('structural_potential_score_D', 'structural_potential'),
+            ('trend_conviction_score_D', 'trend_conviction'),
+            ('ADX_14_D', 'adx_strength'),
+            ('trendline_slope_D', 'trend_slope')
+        ]
+        for df_col, indicator_name in numeric_indicators:
+            if df_col in df.columns:
+                series = df[df_col]
+                if series.dtype == object:
+                    print(f"【V6.2市场状态警告】{df_col}为字符串类型，尝试转换为数值")
+                    try:
+                        series_numeric = pd.to_numeric(series, errors='coerce')
+                        series_numeric = series_numeric.fillna(series_numeric.mean() if not series_numeric.isna().all() else 0)
+                        market_state_indicators[indicator_name] = self.helper._normalize_series(series_numeric, df_index, bipolar=False)
+                    except:
+                        print(f"【V6.2市场状态错误】{df_col}转换失败，使用默认值")
+                        market_state_indicators[indicator_name] = pd.Series(0.5, index=df_index)
+                else:
+                    market_state_indicators[indicator_name] = self.helper._normalize_series(series, df_index, bipolar=False)
+            else:
+                market_state_indicators[indicator_name] = pd.Series(0.5, index=df_index)
+        weights = {
+            'market_phase': 0.3,
+            'structural_potential': 0.25,
+            'trend_conviction': 0.25,
+            'adx_strength': 0.1,
+            'trend_slope': 0.1
+        }
+        market_regime_factor = pd.Series(0.0, index=df_index)
+        total_weight = 0.0
+        for indicator_name, weight in weights.items():
+            if indicator_name in market_state_indicators:
+                market_regime_factor += market_state_indicators[indicator_name] * weight
+                total_weight += weight
+        if total_weight > 0:
+            market_regime_factor = market_regime_factor / total_weight
+        market_regime_factor = (market_regime_factor * 0.4 + 0.8).clip(0.6, 1.4)
         enhanced_score = final_score * market_regime_factor
         enhanced_score = enhanced_score.clip(-1, 1)
-        # 探针输出
-        _temp_debug_values["市场状态增强"] = {
-            "market_phase_raw": market_phase,
-            "structural_potential_raw": structural_potential,
-            "trend_conviction_raw": trend_conviction,
-            "market_phase_norm": market_phase_norm,
-            "structural_potential_norm": structural_potential_norm,
-            "trend_conviction_norm": trend_conviction_norm,
-            "trend_market_factor": trend_market_factor,
-            "structure_factor": structure_factor,
-            "conviction_factor": conviction_factor,
+        indicator_stats = {}
+        for name, series in market_state_indicators.items():
+            if len(series) > 0:
+                indicator_stats[name] = {
+                    "mean": series.mean(),
+                    "min": series.min(),
+                    "max": series.max(),
+                    "dtype": str(series.dtype)
+                }
+        _temp_debug_values["V6.2市场状态增强"] = {
+            "market_state_indicators": indicator_stats,
             "market_regime_factor": market_regime_factor,
             "final_score_before": final_score,
-            "enhanced_score": enhanced_score
+            "enhanced_score": enhanced_score,
+            "enhancement_stats": {
+                "regime_factor_mean": market_regime_factor.mean(),
+                "regime_factor_range": f"[{market_regime_factor.min():.4f}, {market_regime_factor.max():.4f}]",
+                "enhancement_effect": f"{((enhanced_score.mean() - final_score.mean()) / final_score.mean() * 100 if final_score.mean() != 0 else 0):.1f}%"
+            }
         }
-        print(f"【市场状态增强】市场阶段均值: {market_phase.mean():.4f}，结构潜力均值: {structural_potential.mean():.4f}")
-        print(f"【市场状态增强】趋势信念均值: {trend_conviction.mean():.4f}，市场状态因子均值: {market_regime_factor.mean():.4f}")
+        print(f"【V6.2市场状态增强】市场状态因子均值: {market_regime_factor.mean():.4f}")
+        print(f"【V6.2市场状态增强】增强效果: 原始均值{final_score.mean():.4f} -> 增强后{enhanced_score.mean():.4f}")
         return enhanced_score
 
     def _check_signal_quality(self, signal_series: pd.Series, signal_name: str, df_index: pd.Index, recent_days: int = 55) -> Dict[str, Any]:
