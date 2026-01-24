@@ -337,11 +337,9 @@ class IndicatorService:
 
     async def prepare_data_for_strategy(self, stock_code: str, config: dict, trade_time: Optional[str] = None, latest_only: bool = False) -> Dict[str, pd.DataFrame]:
         # 【第一道工序】准备基础数据和常规指标
-        self._log_final_data_columns(all_dfs) # 移除调试打印
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
             return {}
-        self._log_final_data_columns(all_dfs) # 移除调试打印
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         # 【形态增强信号计算】
         all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config)
@@ -637,7 +635,11 @@ class IndicatorService:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
         # --- 步骤 2: 初始化 df_daily_master (OHLCV 日线数据) ---
+        print(f"    - 开始初始化 df_daily_master，共 {len(raw_dfs['D'])} 条记录。")
+        print(f"    - 原始日线数据列名: {raw_dfs['D'].columns.tolist()}")
         df_daily_master = raw_dfs['D']
+        print(f"    - 成功获取日线数据，共 {len(df_daily_master)} 条记录。")
+        print(f"    - 日线数据列名: {df_daily_master.columns.tolist()}")
         df_daily_master.index = df_daily_master.index.normalize()
         # 删除重复的索引行，保留最后一条
         if df_daily_master.index.duplicated().any():
