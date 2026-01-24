@@ -1244,119 +1244,41 @@ class FeatureEngineeringService:
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V3.4 · OCH非线性融合Numba优化版】计算整体筹码健康度 (Overall Chip Health, OCH)。
-        - 核心升级: 维度一“筹码集中度与结构优化”的计算逻辑重构，引入 cost_gini_coefficient 和 primary_peak_kurtosis 两个核心指标，
-                    替代旧的 winner/loser_concentration 指标，实现对筹码结构更精准、更深刻的量化评估。
-                    全面替换旧的聚合指标，引入新的买卖双方细粒度指标，并重新设计部分融合逻辑，以更精确地反映市场博弈的真实情况。
-        - 【新增】引入非线性融合（tanh函数）和情境自适应（基于波动率和市场情绪）来增强OCH的鲁棒性和敏感度。
-        - 【新增】`_nonlinear_fusion` 逻辑已通过 Numba 优化。
-        - 目的: 在数据层提前计算一个综合的筹码健康度指标，供后续斜率计算和情报层使用。
-        - 数据源: 直接从 df 中获取原始筹码相关列。
+        【V3.5 · OCH非线性融合版】计算整体筹码健康度 (Overall Chip Health, OCH)。
+        - 逻辑确认: 此方法在原 DataFrame 上追加 'OCH_D' 列，严格保留包括 'close_D' 在内的所有原始列。
+        - 机制: 使用 in-place 修改或列追加模式，防止列丢失。
         """
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             logger.warning(f"计算 OCH 失败：缺少日线数据。")
             return all_dfs
+
         df = all_dfs[timeframe]
         df_index = df.index
-        # 定义所有需要的原始筹码相关列
-        # 更新必需列的列表，以匹配V33.0版本的新指标体系和细粒度数据
-        required_cols = [
-            # 维度一: 筹码集中度与结构优化
-            'cost_gini_coefficient_D',
-            'primary_peak_kurtosis_D',
-            'dominant_peak_solidity_D', 'dominant_peak_volume_ratio_D',
-            'chip_fault_blockage_ratio_D',
-            # 维度二: 成本与盈亏结构动态
-            'total_winner_rate_D', 'total_loser_rate_D',
-            'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            'cost_structure_skewness_D',
-            'main_force_cost_advantage_D',
-            'profit_taking_flow_ratio_D',
-            'loser_pain_index_D',
-            'rally_sell_distribution_intensity_D',
-            'dip_buy_absorption_strength_D',
-            'panic_buy_absorption_contribution_D',
-            # 维度三: 持股心态与交易行为
-            'winner_stability_index_D',
-            'chip_fatigue_index_D',
-            'capitulation_flow_ratio_D',
-            'capitulation_absorption_index_D',
-            'active_buying_support_D', 'active_selling_pressure_D',
-            'mf_retail_battle_intensity_D',
-            'dip_buy_absorption_strength_D',
-            'dip_sell_pressure_resistance_D',
-            'rally_sell_distribution_intensity_D',
-            'rally_buy_support_weakness_D',
-            'panic_sell_volume_contribution_D',
-            'panic_buy_absorption_contribution_D',
-            'opening_buy_strength_D',
-            'opening_sell_strength_D',
-            'pre_closing_buy_posture_D',
-            'pre_closing_sell_posture_D',
-            'closing_auction_buy_ambush_D',
-            'closing_auction_sell_ambush_D',
-            'main_force_buy_ofi_D',
-            'main_force_sell_ofi_D',
-            'retail_buy_ofi_D',
-            'retail_sell_ofi_D',
-            'wash_trade_buy_volume_D',
-            'wash_trade_sell_volume_D',
-            'buy_order_book_clearing_rate_D',
-            'sell_order_book_clearing_rate_D',
-            'vwap_buy_control_strength_D',
-            'vwap_sell_control_strength_D',
-            'bid_side_liquidity_D',
-            'ask_side_liquidity_D',
-            # 维度四: 主力控盘与意图
-            'control_solidity_index_D',
-            'main_force_on_peak_buy_flow_D',
-            'main_force_on_peak_sell_flow_D',
-            'main_force_flow_directionality_D',
-            'main_force_buy_execution_alpha_D',
-            'main_force_sell_execution_alpha_D',
-            'main_force_conviction_index_D', 'mf_vpoc_premium_D',
-            'vwap_buy_control_strength_D',
-            'vwap_sell_control_strength_D',
-            'main_force_vwap_up_guidance_D',
-            'main_force_vwap_down_guidance_D',
-            'vwap_cross_up_intensity_D',
-            'vwap_cross_down_intensity_D',
-            'main_force_t0_buy_efficiency_D',
-            'main_force_t0_sell_efficiency_D',
-            'buy_flow_efficiency_index_D',
-            'sell_flow_efficiency_index_D',
-            'covert_distribution_signal_D',
-            'supportive_distribution_intensity_D',
-            'turnover_rate_f_D',
-            # 【新增代码行】情境自适应相关指标
-            'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'market_sentiment_score_D',
-            'price_volume_entropy_D'
-        ]
-        # 使用 _get_safe_series 确保所有数据都存在，并用默认值填充缺失值
+
+        # 辅助函数：安全获取 Series，缺失补默认值，确保 float32
         def _get_safe_series_local(col_name, default_val=0.0):
             if col_name not in df.columns:
-                print(f"调试信息: OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
-                return pd.Series(default_val, index=df_index, dtype=np.float32) # 确保返回 float32
-            return df[col_name].fillna(default_val).astype(np.float32) # 确保返回 float32
+                # 仅在开发调试时开启此日志，避免刷屏
+                # print(f"调试信息: OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
+                return pd.Series(default_val, index=df_index, dtype=np.float32)
+            return df[col_name].fillna(default_val).astype(np.float32)
+
         # --- 情境自适应调制器 ---
-        # 波动率情境：高波动率时，筹码健康度可能更不稳定，需要更谨慎的评估
         volatility_context = _get_safe_series_local('VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
-        # 市场情绪情境：极端情绪下，筹码健康度可能被扭曲
         sentiment_context = _get_safe_series_local('market_sentiment_score_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
-        # 市场信息复杂度情境：高复杂度时，信号可能更模糊
         entropy_context = _get_safe_series_local('price_volume_entropy_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
-        # 融合函数：使用 tanh 激活函数进行非线性融合，并考虑情境调制
+
+        # 融合函数：非线性融合 + Numba 优化
         def _nonlinear_fusion(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, float], volatility_mod: pd.Series, sentiment_mod: pd.Series, entropy_mod: pd.Series) -> pd.Series:
-            # 准备 Numba 函数所需的 NumPy 数组
             score_arrays = []
             weight_arrays = []
             for score_name, weight in weights_dict.items():
                 score_series = scores_dict.get(score_name, pd.Series(0.0, index=df_index, dtype=np.float32))
                 score_arrays.append(score_series.values)
                 weight_arrays.append(np.full_like(score_series.values, weight, dtype=np.float32))
-            # 调用 Numba 优化函数
+            
+            # 调用 Numba 优化核心函数 (确保该函数已在文件头部导入或定义)
             fused_score_values = _numba_nonlinear_fusion_core(
                 score_arrays,
                 weight_arrays,
@@ -1365,25 +1287,24 @@ class FeatureEngineeringService:
                 entropy_mod.values
             )
             return pd.Series(fused_score_values, index=df_index, dtype=np.float32)
-        # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
+
+        # --- 1. 筹码集中度与结构优化 ---
         cost_gini = _get_safe_series_local('cost_gini_coefficient_D', 0.5)
         peak_kurtosis = _get_safe_series_local('primary_peak_kurtosis_D', 3.0)
         peak_solidity = _get_safe_series_local('dominant_peak_solidity_D', 0.5)
         peak_volume_ratio = _get_safe_series_local('dominant_peak_volume_ratio_D', 0.5)
         chip_fault = _get_safe_series_local('chip_fault_blockage_ratio_D', 0.0)
+
         concentration_health = (1 - cost_gini).clip(0, 1)
-        # 修复点1: 显式转换为 np.float32
         normalized_kurtosis = peak_kurtosis.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5).astype(np.float32)
         peak_quality = (peak_solidity * peak_volume_ratio * normalized_kurtosis).clip(0, 1)
         blockage_penalty = (1 - chip_fault)
-        concentration_scores = {
-            'concentration_health': concentration_health,
-            'peak_quality': peak_quality,
-            'blockage_penalty': blockage_penalty
-        }
+
+        concentration_scores = {'concentration_health': concentration_health, 'peak_quality': peak_quality, 'blockage_penalty': blockage_penalty}
         concentration_weights = {'concentration_health': 0.5, 'peak_quality': 0.4, 'blockage_penalty': 0.1}
         concentration_score = _nonlinear_fusion(concentration_scores, concentration_weights, volatility_context, sentiment_context, entropy_context)
-        # --- 2. 成本与盈亏结构动态 (Cost & P/L Structure Dynamics Score) ---
+
+        # --- 2. 成本与盈亏结构动态 ---
         total_winner_rate = _get_safe_series_local('total_winner_rate_D', 0.5)
         total_loser_rate = _get_safe_series_local('total_loser_rate_D', 0.5)
         winner_profit_margin = _get_safe_series_local('winner_profit_margin_avg_D', 0.0) / 100
@@ -1392,23 +1313,23 @@ class FeatureEngineeringService:
         mf_cost_advantage = _get_safe_series_local('main_force_cost_advantage_D', 0.0)
         imminent_profit_taking = _get_safe_series_local('profit_taking_flow_ratio_D', 0.0)
         loser_capitulation_pressure = _get_safe_series_local('loser_pain_index_D', 0.0)
+
         profit_pressure = total_winner_rate * winner_profit_margin * (_get_safe_series_local('rally_sell_distribution_intensity_D', 0.0) + imminent_profit_taking).clip(0,1)
         loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure) + \
                         _get_safe_series_local('dip_buy_absorption_strength_D', 0.0) * 0.5 + \
                         _get_safe_series_local('panic_buy_absorption_contribution_D', 0.0) * 0.5
         cost_advantage_score = (mf_cost_advantage - cost_divergence).clip(-1, 1)
-        cost_structure_scores = {
-            'loser_support': loser_support,
-            'cost_advantage_score': cost_advantage_score,
-            'profit_pressure': profit_pressure
-        }
-        cost_structure_weights = {'loser_support': 0.4, 'cost_advantage_score': 0.4, 'profit_pressure': -0.2} # 利润压力是负向权重
+
+        cost_structure_scores = {'loser_support': loser_support, 'cost_advantage_score': cost_advantage_score, 'profit_pressure': profit_pressure}
+        cost_structure_weights = {'loser_support': 0.4, 'cost_advantage_score': 0.4, 'profit_pressure': -0.2}
         cost_structure_score = _nonlinear_fusion(cost_structure_scores, cost_structure_weights, volatility_context, sentiment_context, entropy_context)
-        # --- 3. 持股心态与交易行为 (Holder Sentiment & Behavior Score) ---
+
+        # --- 3. 持股心态与交易行为 ---
         winner_conviction = _get_safe_series_local('winner_stability_index_D', 0.0)
         chip_fatigue = _get_safe_series_local('chip_fatigue_index_D', 0.0)
         locked_profit = _get_safe_series_local('winner_stability_index_D', 0.0)
         locked_loss = 1.0 - _get_safe_series_local('capitulation_flow_ratio_D', 0.0)
+
         buy_side_absorption_composite = (
             _get_safe_series_local('capitulation_absorption_index_D', 0.0) * 0.2 +
             _get_safe_series_local('active_buying_support_D', 0.0) * 0.1 +
@@ -1423,6 +1344,7 @@ class FeatureEngineeringService:
             _get_safe_series_local('buy_order_book_clearing_rate_D', 0.0) * 0.05 +
             _get_safe_series_local('vwap_buy_control_strength_D', 0.0) * 0.05
         ).clip(0, 1)
+
         sell_side_pressure_composite = (
             _get_safe_series_local('active_selling_pressure_D', 0.0) * 0.1 +
             _get_safe_series_local('rally_sell_distribution_intensity_D', 0.0) * 0.1 +
@@ -1437,23 +1359,26 @@ class FeatureEngineeringService:
             _get_safe_series_local('sell_order_book_clearing_rate_D', 0.0) * 0.05 +
             _get_safe_series_local('vwap_sell_control_strength_D', 0.0) * 0.05
         ).clip(0, 1)
+
         combat_intensity = _get_safe_series_local('mf_retail_battle_intensity_D', 0.0)
         conviction_lock_score = (winner_conviction + locked_profit - chip_fatigue - locked_loss).clip(-1, 1)
         absorption_support_score = (buy_side_absorption_composite - sell_side_pressure_composite).clip(-1, 1)
         wash_trade_penalty = (_get_safe_series_local('wash_trade_buy_volume_D', 0.0) + _get_safe_series_local('wash_trade_sell_volume_D', 0.0)).clip(0, 1) * 0.1
+
         sentiment_scores = {
-            'conviction_lock_score': (conviction_lock_score + 1) / 2, # 归一化到 [0, 1]
-            'absorption_support_score': (absorption_support_score + 1) / 2, # 归一化到 [0, 1]
+            'conviction_lock_score': (conviction_lock_score + 1) / 2,
+            'absorption_support_score': (absorption_support_score + 1) / 2,
             'combat_intensity': combat_intensity,
             'wash_trade_penalty': wash_trade_penalty
         }
         sentiment_weights = {'conviction_lock_score': 0.4, 'absorption_support_score': 0.4, 'combat_intensity': 0.2, 'wash_trade_penalty': -0.1}
         sentiment_score = _nonlinear_fusion(sentiment_scores, sentiment_weights, volatility_context, sentiment_context, entropy_context)
-        # --- 4. 主力控盘与意图 (Main Force Control & Intent Score) ---
+
+        # --- 4. 主力控盘与意图 ---
         mf_control_leverage = _get_safe_series_local('control_solidity_index_D', 0.0)
         mf_on_peak_flow_composite = (_get_safe_series_local('main_force_on_peak_buy_flow_D', 0.0) - _get_safe_series_local('main_force_on_peak_sell_flow_D', 0.0))
-        # 修复点2: 显式转换为 np.float32
         mf_on_peak_flow_normalized = (mf_on_peak_flow_composite.rank(pct=True) * 2 - 1).clip(0, 1).astype(np.float32)
+
         mf_intent_composite = (
             _get_safe_series_local('main_force_flow_directionality_D', 0.0) * 0.2 +
             (_get_safe_series_local('main_force_buy_execution_alpha_D', 0.0) - _get_safe_series_local('main_force_sell_execution_alpha_D', 0.0)) * 0.2 +
@@ -1463,16 +1388,20 @@ class FeatureEngineeringService:
             (_get_safe_series_local('main_force_t0_buy_efficiency_D', 0.0) - _get_safe_series_local('main_force_t0_sell_efficiency_D', 0.0)) * 0.1 +
             (_get_safe_series_local('buy_flow_efficiency_index_D', 0.0) - _get_safe_series_local('sell_flow_efficiency_index_D', 0.0)) * 0.1
         ).clip(-1, 1)
+
         mf_vpoc_premium = _get_safe_series_local('mf_vpoc_premium_D', 0.0)
         vwap_control_composite = (_get_safe_series_local('vwap_buy_control_strength_D', 0.0) - _get_safe_series_local('vwap_sell_control_strength_D', 0.0))
         control_strength = mf_control_leverage * ((vwap_control_composite + 1) / 2)
         mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2
+
         turnover_rate_f = _get_safe_series_local('turnover_rate_f_D', 0.0)
         turnover_health = pd.Series(1.0, index=df_index, dtype=np.float32)
         turnover_health[turnover_rate_f < 2] = turnover_rate_f[turnover_rate_f < 2] / 2
         turnover_health[turnover_rate_f > 15] = 1 - (turnover_rate_f[turnover_rate_f > 15] - 15) / 10
         turnover_health = turnover_health.clip(0, 1)
+
         distribution_penalty = (_get_safe_series_local('covert_distribution_signal_D', 0.0) + _get_safe_series_local('supportive_distribution_intensity_D', 0.0)).clip(0, 1) * 0.1
+
         main_force_scores = {
             'control_strength': control_strength, 'mf_on_peak_flow_normalized': mf_on_peak_flow_normalized, 'mf_intent_composite': (mf_intent_composite + 1) / 2,
             'mf_cost_advantage_final': mf_cost_advantage_final, 'turnover_health': turnover_health, 'distribution_penalty': distribution_penalty
@@ -1482,20 +1411,20 @@ class FeatureEngineeringService:
             'mf_cost_advantage_final': 0.1, 'turnover_health': 0.1, 'distribution_penalty': -0.1
         }
         main_force_score = _nonlinear_fusion(main_force_scores, main_force_weights, volatility_context, sentiment_context, entropy_context)
+
         # --- 最终 OCH_D 融合 ---
-        och_scores = {
-            'concentration_score': concentration_score,
-            'cost_structure_score': cost_structure_score,
-            'sentiment_score': sentiment_score,
-            'main_force_score': main_force_score
-        }
-        och_weights = {
-            'concentration_score': 0.25, 'cost_structure_score': 0.25,
-            'sentiment_score': 0.25, 'main_force_score': 0.25
-        }
-        # 最终OCH也使用非线性融合，并考虑情境自适应
-        och_score = _nonlinear_fusion(och_scores, och_weights, volatility_context, sentiment_context, entropy_context) * 2 - 1 # 映射回 [-1, 1]
+        och_scores = {'concentration_score': concentration_score, 'cost_structure_score': cost_structure_score, 'sentiment_score': sentiment_score, 'main_force_score': main_force_score}
+        och_weights = {'concentration_score': 0.25, 'cost_structure_score': 0.25, 'sentiment_score': 0.25, 'main_force_score': 0.25}
+        
+        och_score = _nonlinear_fusion(och_scores, och_weights, volatility_context, sentiment_context, entropy_context) * 2 - 1
+
+        # 【核心逻辑】直接在原 DataFrame 上赋值，确保不会丢失其他列 (如 close_D)
         df['OCH_D'] = och_score.astype(np.float32)
+        
+        # 调试输出（可选）
+        if 'close_D' not in df.columns:
+            logger.error("严重错误：计算 OCH 后 close_D 丢失！请检查是否有其他过滤器。")
+        
         all_dfs[timeframe] = df
         logger.info("OCH 指标计算完成。")
         return all_dfs
