@@ -337,6 +337,7 @@ class IndicatorService:
 
     async def prepare_data_for_strategy(self, stock_code: str, config: dict, trade_time: Optional[str] = None, latest_only: bool = False) -> Dict[str, pd.DataFrame]:
         # 【第一道工序】准备基础数据和常规指标
+        self._log_final_data_columns(all_dfs) # 移除调试打印
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
             return {}
