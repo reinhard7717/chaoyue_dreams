@@ -136,7 +136,6 @@ class IndicatorDAO(BaseDAO):
         is_minute_aggregation = False
         aggregation_period = 1
         query_level_str = target_level_str # 默认查询级别等于目标级别
-
         if (target_level_str.isdigit() and target_level_str != "1") or \
            (target_level_str.endswith("min") and target_level_str != "1min"):
             is_minute_aggregation = True
@@ -149,12 +148,10 @@ class IndicatorDAO(BaseDAO):
             limit = int(limit * aggregation_period * 1.2)
             # 限制最大查询量，防止内存溢出 (例如限制在 50000 条)
             limit = min(limit, 50000)
-
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
-
         try:
             ModelClass: Optional[Type[models.Model]] = None
             # 3. 根据 query_level_str 选择模型 (此时如果是聚合，query_level_str 已经是 "1")

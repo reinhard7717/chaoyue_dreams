@@ -335,58 +335,35 @@ class IndicatorService:
         # print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
         return calculated_max
 
-    async def prepare_data_for_strategy(
-        self,
-        stock_code: str,
-        config: dict,
-        trade_time: Optional[str] = None,
-        latest_only: bool = False
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        【V8.6 · 依赖注入调用修复版】为策略准备数据的统一入口。
-        - 核心修复: 调用 calculate_pattern_enhancement_signals 和 calculate_breakout_quality 时不再传递 calculator 参数，
-                  因为 FeatureEngineeringService 内部已持有 self.calculator。
-        - 核心修复: 调整了 `calculate_och` 的执行时序，确保其在所有依赖的元特征和上下文信号（如波动率不稳定性、市场情绪）计算并合并到DataFrame之后才执行。
-        - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
-        - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
-        """
-        # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
+    async def prepare_data_for_strategy(self, stock_code: str, config: dict, trade_time: Optional[str] = None, latest_only: bool = False) -> Dict[str, pd.DataFrame]:
+        # 【第一道工序】准备基础数据和常规指标
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
             return {}
-        # self._log_final_data_columns(all_dfs) # 移除调试打印
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
-        # --- 步骤 2: 【形态增强信号计算】 ---
-        # 修复: 移除 self.calculator 参数
+        # 【形态增强信号计算】
         all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config)
-        # --- 步骤 3: 【VPA效率指标计算】 ---
+        # 【VPA效率指标计算】
         all_dfs = await self.feature_service.calculate_vpa_features(all_dfs, config)
-        # --- 步骤 4: 【突破质量分计算】(移至此处，确保依赖项已就绪) ---
+        # 【突破质量分计算】(确保依赖项已就绪)
         bqs_params = indicators_config.get('breakout_quality_score', {})
         if bqs_params.get('enabled', False):
-            # 修复: 移除 self.calculator 参数
             all_dfs = await self.feature_service.calculate_breakout_quality(all_dfs, bqs_params)
-        # --- 5. 【元特征计算】 ---
+        # 【元特征计算】
         all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
-        # --- 6. 【均线势能计算】 ---
+        # 【均线势能计算】
         ma_potential_params = indicators_config.get('ma_potential_metrics', {})
         if ma_potential_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_ma_potential_metrics(all_dfs, ma_potential_params)
-        # --- 7. 【盘整期计算】 ---
+        # 【盘整期计算】
         consolidation_params = indicators_config.get('consolidation_period', {})
         if consolidation_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_consolidation_period(all_dfs, consolidation_params)
-        # --- 8. 【高级模式识别】 ---
-        # 注意：此步骤依赖于一些斜率和加速度，但如果这些斜率和加速度是基于基础OHLCV或早期计算的指标，
-        # 且不依赖于后续的上下文注入信号，则可以保留在此处。
-        # 如果高级模式识别也依赖于上下文注入信号的斜率/加速度，则需要将其移动到斜率/加速度计算之后。
-        # 暂时保留在此处，假设其依赖的斜率和加速度已在_prepare_base_data_and_indicators中处理或不依赖上下文信号。
+        # 【高级模式识别】
         all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
-        # 【新增代码行】9. 【几何形态特征计算】 ---
-        # 确保几何形态特征在斜率和加速度计算之前可用
+        # 【几何形态特征计算】
         all_dfs = await self.feature_service.calculate_geometric_features(all_dfs, config)
-        # --- 10. 【上下文信息注入】 ---
-        # 此处将所有外部信号（包括smart_money_signals_df）合并到all_dfs['D']
+        # 【上下文信息注入】
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
         df_daily = all_dfs['D']
@@ -410,18 +387,14 @@ class IndicatorService:
         four_layer_params = self._find_params_recursively(config, 'four_layer_scoring_params')
         industry_params = four_layer_params.get('industry_lifecycle_scoring_params', {}) if four_layer_params else {}
         if industry_params and industry_params.get('enabled', False):
-            industry_lifecycle_df = await self.context_service.prepare_fused_industry_signals(
-                stock_code, start_date, end_date, industry_params
-            )
+            industry_lifecycle_df = await self.context_service.prepare_fused_industry_signals(stock_code, start_date, end_date, industry_params)
             if not industry_lifecycle_df.empty:
                 df_daily = df_daily.merge(industry_lifecycle_df, left_index=True, right_index=True, how='left')
                 for col in industry_lifecycle_df.columns:
                     df_daily[col] = df_daily[col].ffill().fillna(0)
         kpl_params = self._find_params_recursively(config, 'kpl_theme_params')
         if kpl_params and kpl_params.get('enabled', False):
-            kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(
-                stock_code, start_date, end_date, kpl_params
-            )
+            kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(stock_code, start_date, end_date, kpl_params)
             if not kpl_hotness_df.empty:
                 kpl_hotness_df.index = pd.to_datetime(kpl_hotness_df.index, utc=True)
                 df_daily = df_daily.merge(kpl_hotness_df, left_index=True, right_index=True, how='left')
@@ -439,16 +412,20 @@ class IndicatorService:
                         df_daily[col] = df_daily[col].fillna(0.0).astype(float)
                     else:
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
-        all_dfs['D'] = df_daily # 更新all_dfs['D']为包含所有上下文信号的df_daily
-        # NEW STEP: Calculate OCH_D for the daily dataframe (移动到此处)
+        all_dfs['D'] = df_daily
+        # 【关键修复：安全计算并合并OCH指标】
         if 'D' in all_dfs and not all_dfs['D'].empty:
-            temp_dfs = {'D': all_dfs['D']} # 重新封装，确保传入的是字典
-            temp_dfs = await self.feature_service.calculate_och(temp_dfs)
-            all_dfs['D'] = temp_dfs['D']
-        # --- 11. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
+            temp_dfs = {'D': all_dfs['D']}
+            temp_result = await self.feature_service.calculate_och(temp_dfs)
+            result_df = temp_result['D']
+            # 使用差集找出新生成的列，并将其join回主DataFrame，避免覆盖原始close_D等列
+            new_cols = result_df.columns.difference(all_dfs['D'].columns)
+            if not new_cols.empty:
+                all_dfs['D'] = all_dfs['D'].join(result_df[new_cols])
+        # 【斜率与加速度计算】
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        # self._log_final_data_columns(all_dfs) # 移除调试打印
+        self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:
