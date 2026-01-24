@@ -1056,29 +1056,29 @@ class AdvancedFundFlowMetricsService:
         return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame, debug_mode: bool = False) -> tuple[dict, None]:
-        day_metrics = {}
-        daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series, debug_mode=debug_mode)
-        day_metrics.update(daily_derived_metrics)
-        day_metrics.update(probabilistic_costs_dict)
-        prob_costs_series = pd.Series(probabilistic_costs_dict)
-        prob_costs_df_for_agg = pd.DataFrame([prob_costs_series], index=[daily_data_series.name])
-        daily_df_for_agg = pd.DataFrame([daily_data_series.to_dict()], index=[daily_data_series.name])
-        aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=debug_mode)
-        if not aggregate_pvwap_costs_df.empty:
-            day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
-        updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
-        main_force_net_flow_calibrated = daily_derived_metrics.get('main_force_net_flow_calibrated')
-        behavioral_metrics = self._compute_all_behavioral_metrics(
-            stock_code, attributed_minute_df, updated_daily_data_series,
-            tick_data=tick_data_for_day,
-            level5_data=level5_data_for_day,
-            realtime_data=realtime_data_for_day,
-            main_force_net_flow_calibrated=main_force_net_flow_calibrated,
-            debug_mode=debug_mode
-        )
-        day_metrics.update(behavioral_metrics)
-        day_metrics['trade_time'] = daily_data_series.name
-        return day_metrics, None
+            day_metrics = {}
+            daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series, intraday_data=intraday_data, debug_mode=debug_mode)
+            day_metrics.update(daily_derived_metrics)
+            day_metrics.update(probabilistic_costs_dict)
+            prob_costs_series = pd.Series(probabilistic_costs_dict)
+            prob_costs_df_for_agg = pd.DataFrame([prob_costs_series], index=[daily_data_series.name])
+            daily_df_for_agg = pd.DataFrame([daily_data_series.to_dict()], index=[daily_data_series.name])
+            aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=debug_mode)
+            if not aggregate_pvwap_costs_df.empty:
+                day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
+            updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
+            main_force_net_flow_calibrated = daily_derived_metrics.get('main_force_net_flow_calibrated')
+            behavioral_metrics = self._compute_all_behavioral_metrics(
+                stock_code, attributed_minute_df, updated_daily_data_series,
+                tick_data=tick_data_for_day,
+                level5_data=level5_data_for_day,
+                realtime_data=realtime_data_for_day,
+                main_force_net_flow_calibrated=main_force_net_flow_calibrated,
+                debug_mode=debug_mode
+            )
+            day_metrics.update(behavioral_metrics)
+            day_metrics['trade_time'] = daily_data_series.name
+            return day_metrics, None
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None, memory: dict = None) -> tuple[pd.DataFrame, dict, list, dict]:
         all_metrics_list = []
@@ -1122,7 +1122,7 @@ class AdvancedFundFlowMetricsService:
         final_metrics_df.set_index('trade_time', inplace=True)
         return final_metrics_df, attributed_minute_data_map, failures, prev_metrics
 
-    def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
+    def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, intraday_data: pd.DataFrame = None, debug_mode: bool = False) -> dict:
         results = {}
         WAN = 10000.0
         def get_calibrated_value(target_col_name: str):
@@ -1180,9 +1180,33 @@ class AdvancedFundFlowMetricsService:
             if turnover_amount_yuan > 0:
                 base_flow_yuan = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce') * WAN
                 confirm_flows_yuan = [pd.to_numeric(daily_data_series.get(c), errors='coerce') * WAN for c in ['main_force_net_flow_ths', 'main_force_net_flow_dc']]
+                cross_source_credibility = 50.0
                 if pd.notna(base_flow_yuan):
-                    deviations = [abs(conf_flow - base_flow_yuan) / turnover_amount_yuan for conf_flow in confirm_flows_yuan if pd.notna(conf_flow)]
-                    results['flow_credibility_index'] = (1.0 - np.mean(deviations)) * 100 if deviations else 50.0
+                    valid_confirms = [f for f in confirm_flows_yuan if pd.notna(f)]
+                    if valid_confirms:
+                        deviations = [abs(conf_flow - base_flow_yuan) / turnover_amount_yuan for conf_flow in valid_confirms]
+                        cross_source_credibility = (1.0 - np.mean(deviations)) * 100
+                        cross_source_credibility = max(0, min(100, cross_source_credibility))
+                intraday_credibility = np.nan
+                if intraday_data is not None and not intraday_data.empty and 'main_force_net_vol' in intraday_data.columns:
+                    intraday_net_vol = intraday_data['main_force_net_vol'].sum()
+                    daily_vwap = pd.to_numeric(daily_data_series.get('daily_vwap'), errors='coerce')
+                    if pd.isna(daily_vwap) and 'minute_vwap' in intraday_data.columns:
+                        daily_vwap = intraday_data['minute_vwap'].mean()
+                    if pd.notna(daily_vwap) and daily_vwap > 0:
+                        intraday_net_amount = intraday_net_vol * daily_vwap
+                        daily_net_amount = results.get('main_force_net_flow_calibrated', 0) * WAN
+                        if abs(daily_net_amount) > 0:
+                            deviation = abs(intraday_net_amount - daily_net_amount) / (abs(daily_net_amount) + turnover_amount_yuan * 0.01)
+                            intraday_credibility = (1.0 - deviation) * 100
+                            intraday_credibility = max(0, min(100, intraday_credibility))
+                if pd.notna(intraday_credibility):
+                    if cross_source_credibility == 50.0: 
+                        results['flow_credibility_index'] = intraday_credibility
+                    else:
+                        results['flow_credibility_index'] = 0.6 * cross_source_credibility + 0.4 * intraday_credibility
+                else:
+                    results['flow_credibility_index'] = cross_source_credibility
             else:
                 results['flow_credibility_index'] = np.nan
         except Exception:
@@ -1672,24 +1696,54 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_main_force_profile_metrics(context: dict) -> dict:
         """
-        【V69.1 · 韧性升维版 - 空数据鲁棒性增强】
-        - 核心逻辑: `main_force_conviction_index` 的“韧性”组件基于 `mid_price_change < 0` (实际价格下跌) 计算，
-                     以更精确地衡量主力在真实逆境中的托底决心。
-        - 核心增强: 增加对 `hf_analysis_df` 是否为空的检查，避免在无高频数据时引发 `KeyError`。
-        - 核心修复: 将所有对 `mid_price_delta` 的引用改为 `mid_price_change`，以保持命名一致性。
+        【V69.2 · 韧性升维版 - 分钟级数据降级】
+        - 核心逻辑: `main_force_conviction_index` 的“韧性”组件基于 `mid_price_change < 0` (实际价格下跌) 计算。
+        - 核心增强: 当 `hf_analysis_df` 为空时，使用 `intraday_data` (分钟线) 进行降级计算，
+                     确保在缺失高频数据时仍能通过分钟级的主力净量、VWAP成本和下跌承接力来评估主力决心。
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        hf_features = context['hf_features']
-        should_probe = context['debug']['should_probe']
-        stock_code = context['debug']['stock_code']
-        current_date = context['daily_data'].name.date()
-        probe_active = should_probe and (current_date.strftime('%Y-%m-%d') in context['debug']['probe_dates'])
+        hf_features = context.get('hf_features', {})
+        intraday_data = context.get('intraday_data', pd.DataFrame())
         import numpy as np
         metrics = {}
-        if hf_analysis_df.empty:
-            return metrics
         atr = common_data['atr']
+        if hf_analysis_df.empty:
+            if not intraday_data.empty and 'main_force_net_vol' in intraday_data.columns and 'minute_vwap' in intraday_data.columns:
+                mf_net_cumsum = intraday_data['main_force_net_vol'].cumsum()
+                aggressiveness_component = 0.0
+                if len(mf_net_cumsum) > 1 and mf_net_cumsum.nunique() > 1:
+                    time_idx = np.arange(len(mf_net_cumsum))
+                    trend_quality = np.corrcoef(time_idx, mf_net_cumsum)[0, 1]
+                    trend_quality = np.nan_to_num(trend_quality)
+                    min_val, max_val = mf_net_cumsum.min(), mf_net_cumsum.max()
+                    range_val = max_val - min_val
+                    closing_strength = (mf_net_cumsum.iloc[-1] - min_val) / range_val if range_val > 0 else 0
+                    aggressiveness_component = trend_quality * closing_strength
+                cost_tolerance_component = 0.0
+                if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns:
+                    buy_amt = (intraday_data['main_force_buy_vol'] * intraday_data['minute_vwap']).sum()
+                    buy_vol = intraday_data['main_force_buy_vol'].sum()
+                    sell_amt = (intraday_data['main_force_sell_vol'] * intraday_data['minute_vwap']).sum()
+                    sell_vol = intraday_data['main_force_sell_vol'].sum()
+                    mf_buy_vwap = buy_amt / buy_vol if buy_vol > 0 else np.nan
+                    mf_sell_vwap = sell_amt / sell_vol if sell_vol > 0 else np.nan
+                    if pd.notna(mf_buy_vwap) and pd.notna(mf_sell_vwap) and pd.notna(atr) and atr > 0:
+                        cost_tolerance_component = (mf_buy_vwap - mf_sell_vwap) / atr
+                resilience_component = 0.0
+                if 'close' in intraday_data.columns and 'open' in intraday_data.columns:
+                    pressure_minutes = intraday_data[intraday_data['close'] < intraday_data['open']]
+                    if not pressure_minutes.empty:
+                        mf_resilience_vol = pressure_minutes['main_force_net_vol'].clip(lower=0).sum()
+                        total_mf_buy = intraday_data['main_force_buy_vol'].sum() if 'main_force_buy_vol' in intraday_data.columns else 0
+                        if total_mf_buy > 0:
+                            resilience_component = mf_resilience_vol / total_mf_buy
+                metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
+                metrics['main_force_slippage_index'] = np.nan 
+                metrics['main_force_posture_index'] = np.nan
+                metrics['main_force_activity_ratio'] = np.nan
+                metrics['main_force_flow_directionality'] = np.nan
+            return metrics
         daily_total_volume = common_data['daily_total_volume']
         mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
         aggressiveness_component, trend_quality, closing_strength = 0.0, 0.0, 0.0
