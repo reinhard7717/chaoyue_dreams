@@ -489,10 +489,16 @@ async def get_historical_prices_for_stock(stock_code: str,  end_date: date,  day
         logger.error(f"获取股票 {stock_code} 历史价格失败: {e}")
         return pd.Series()
 
-async def get_historical_chip_factors(chip_factor_model, stock, current_date: date, days: int) -> List[Dict]:
-    """获取历史筹码因子"""
+async def get_historical_chip_factors(
+    chip_factor_model,
+    stock,
+    current_date: date,
+    days: int
+) -> List[Dict]:
+    """获取历史筹码因子（包含更多字段）"""
     try:
         start_date = current_date - timedelta(days=days)
+        
         historical_factors = await sync_to_async(list)(
             chip_factor_model.objects.filter(
                 stock=stock,
@@ -500,8 +506,9 @@ async def get_historical_chip_factors(chip_factor_model, stock, current_date: da
                 trade_time__lt=current_date,
                 calc_status='success'
             ).order_by('trade_time')
-            .values('chip_mean', 'chip_stability')
+            .values('chip_mean', 'chip_stability', 'chip_concentration_ratio')
         )
+        
         return historical_factors
         
     except Exception as e:
