@@ -32,6 +32,9 @@ from stock_models.fund_flow import (
     FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ, FundFlowDailyCY, FundFlowDailySZ, 
     FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
 )
+from stock_models.chip_factors import (
+    ChipFactorSH, ChipFactorSZ, ChipFactorKC, ChipFactorBJ, ChipFactorCY
+)
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone, date
 from django.db import models
@@ -414,44 +417,34 @@ def get_chip_factor_model_by_code(stock_code: str):
     根据股票代码返回对应的筹码因子分表Model
     """
     if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-        from stock_models.chip_factor import ChipFactorCY
         return ChipFactorCY
     elif stock_code.endswith('.SZ'):
-        from stock_models.chip_factor import ChipFactorSZ
         return ChipFactorSZ
     elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-        from stock_models.chip_factor import ChipFactorKC
         return ChipFactorKC
     elif stock_code.endswith('.SH'):
-        from stock_models.chip_factor import ChipFactorSH
         return ChipFactorSH
     elif stock_code.endswith('.BJ'):
-        from stock_models.chip_factor import ChipFactorBJ
         return ChipFactorBJ
     else:
-        from stock_models.chip_factor import ChipFactorSZ
         return ChipFactorSZ
 
 # 批量获取筹码因子的函数
 async def get_chip_factors_batch(stock_codes: List[str], trade_date: date) -> Dict[str, Dict]:
     """
     批量获取筹码因子数据
-    
     Args:
         stock_codes: 股票代码列表
         trade_date: 交易日期
-    
     Returns:
         Dict[str, Dict]: 股票代码到因子字典的映射
     """
     result = {}
-    
     # 按市场分组
     market_groups = {}
     for code in stock_codes:
         model = get_chip_factor_model_by_code(code)
         market_groups.setdefault(model, []).append(code)
-    
     # 并行查询不同市场的数据
     for model, codes in market_groups.items():
         queryset = model.objects.filter(
@@ -459,7 +452,6 @@ async def get_chip_factors_batch(stock_codes: List[str], trade_date: date) -> Di
             trade_time=trade_date,
             calc_status='success'
         ).select_related('stock')
-        
         async for factor in queryset:
             result[factor.stock.stock_code] = {
                 'price_to_weight_avg_ratio': factor.price_to_weight_avg_ratio,
@@ -474,7 +466,6 @@ async def get_chip_factors_batch(stock_codes: List[str], trade_date: date) -> Di
                 'weight_avg_cost': factor.weight_avg_cost,
                 'trade_time': factor.trade_time
             }
-    
     return result
 
 

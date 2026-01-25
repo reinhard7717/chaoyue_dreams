@@ -1,17 +1,10 @@
-# stock_models/advanced_chip_factor.py
+# stock_models\chip_factors.py
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 import numpy as np
 from scipy.signal import find_peaks
 from scipy.stats import linregress
 from typing import List, Tuple, Dict, Optional
-
-# stock_models/chip_factor.py
-from django.db import models
-from django.utils.translation import gettext_lazy as _
-import numpy as np
-import pandas as pd
-from scipy import stats
 
 class ChipFactorBase(models.Model):
     """
