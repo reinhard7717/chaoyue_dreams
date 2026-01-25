@@ -104,7 +104,7 @@ def get_last_trade_date() -> date:
     return TradeCalendar.get_latest_trade_date()
 
 # ========== 调度任务 ==========
-@celery_app.task(bind=True, queue=ChipTaskConfig.get_queue_name(), max_retries=ChipTaskConfig.MAX_RETRIES, priority=ChipTaskConfig.PRIORITY_HIGH)
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation', queue=ChipTaskConfig.get_queue_name())
 def schedule_chip_factor_calculation(
     self,  stock_codes: Optional[List[str]] = None, start_date_str: Optional[str] = None,
     end_date_str: Optional[str] = None, batch_mode: bool = True
@@ -217,9 +217,7 @@ def schedule_by_date_batch(stock_codes: List[str], start_date: date, end_date: d
     }
 
 # ========== 批量计算任务 ==========
-@celery_app.task(bind=True, queue=ChipTaskConfig.get_queue_name(),
-             max_retries=ChipTaskConfig.MAX_RETRIES,
-             priority=ChipTaskConfig.PRIORITY_MEDIUM)
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation', queue=ChipTaskConfig.get_queue_name())
 def calculate_chip_factors_batch(
     self,
     stock_codes: List[str],
@@ -317,11 +315,7 @@ def calculate_single_stock_chip_factors_sync(
             'processed_dates': 0
         }
 
-async def calculate_single_stock_chip_factors_async(
-    stock_code: str,
-    start_date: date,
-    end_date: date
-) -> Dict:
+async def calculate_single_stock_chip_factors_async(stock_code: str, start_date: date, end_date: date) -> Dict:
     """异步版本的单个股票计算函数"""
     try:
         logger.debug(f"开始计算股票 {stock_code} 的筹码因子")
@@ -478,11 +472,7 @@ async def calculate_single_stock_chip_factors_async(
             'processed_dates': 0
         }
 
-async def get_historical_prices_for_stock(
-    stock_code: str, 
-    end_date: date, 
-    days: int
-) -> pd.Series:
+async def get_historical_prices_for_stock(stock_code: str,  end_date: date,  days: int) -> pd.Series:
     """获取股票历史价格序列"""
     try:
         daily_data_model = get_daily_data_model_by_code(stock_code)
@@ -507,12 +497,7 @@ async def get_historical_prices_for_stock(
         logger.error(f"获取股票 {stock_code} 历史价格失败: {e}")
         return pd.Series()
 
-async def get_historical_chip_factors(
-    chip_factor_model,
-    stock,
-    current_date: date,
-    days: int
-) -> List[Dict]:
+async def get_historical_chip_factors(chip_factor_model, stock, current_date: date, days: int) -> List[Dict]:
     """获取历史筹码因子"""
     try:
         start_date = current_date - timedelta(days=days)
@@ -559,14 +544,8 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
         raise
 
 # ========== 单日计算任务 ==========
-@celery_app.task(bind=True, queue=ChipTaskConfig.get_queue_name(),
-             max_retries=ChipTaskConfig.MAX_RETRIES,
-             priority=ChipTaskConfig.PRIORITY_HIGH)
-def calculate_chip_factors_for_date(
-    self,
-    trade_date_str: str,
-    stock_codes: Optional[List[str]] = None
-) -> Dict:
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation', queue=ChipTaskConfig.get_queue_name())
+def calculate_chip_factors_for_date(self, trade_date_str: str, stock_codes: Optional[List[str]] = None) -> Dict:
     """
     计算指定日期的筹码因子
     
@@ -624,14 +603,8 @@ def calculate_chip_factors_for_date(
         logger.error(f"计算日期 {trade_date_str} 筹码因子失败: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
-@celery_app.task(bind=True, queue=ChipTaskConfig.get_queue_name(),
-             max_retries=ChipTaskConfig.MAX_RETRIES,
-             priority=ChipTaskConfig.PRIORITY_MEDIUM)
-def calculate_date_chip_factors_batch(
-    self,
-    trade_date_str: str,
-    stock_codes: List[str]
-) -> Dict:
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation', queue=ChipTaskConfig.get_queue_name())
+def calculate_date_chip_factors_batch(self, trade_date_str: str, stock_codes: List[str]) -> Dict:
     """计算指定日期批量的筹码因子"""
     try:
         trade_date = parse_date(trade_date_str)
@@ -677,10 +650,7 @@ def calculate_date_chip_factors_batch(
         logger.error(f"计算日期批量筹码因子失败: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
-def calculate_single_stock_single_date_sync(
-    stock_code: str,
-    trade_date: date
-) -> Dict:
+def calculate_single_stock_single_date_sync(stock_code: str,trade_date: date) -> Dict:
     """计算单只股票单日筹码因子（同步版本）"""
     try:
         # 创建事件循环
@@ -700,10 +670,7 @@ def calculate_single_stock_single_date_sync(
             'error': str(e)
         }
 
-async def calculate_single_stock_single_date_async(
-    stock_code: str,
-    trade_date: date
-) -> Dict:
+async def calculate_single_stock_single_date_async(stock_code: str,trade_date: date) -> Dict:
     """计算单只股票单日筹码因子（异步版本）"""
     try:
         # 获取模型
@@ -809,11 +776,8 @@ async def calculate_single_stock_single_date_async(
         return {'status': 'error', 'error': str(e)}
 
 # ========== 监控和状态检查任务 ==========
-@celery_app.task(queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_LOW)
-def check_chip_factor_status(
-    date_str: Optional[str] = None,
-    market: Optional[str] = None
-) -> Dict:
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation',queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_LOW)
+def check_chip_factor_status(date_str: Optional[str] = None,market: Optional[str] = None) -> Dict:
     """
     检查筹码因子计算状态
     
@@ -874,8 +838,8 @@ def check_chip_factor_status(
         return {'status': 'error', 'error': str(e)}
 
 # ========== 定时任务 ==========
-@celery_app.task(queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_HIGH)
-def daily_chip_factor_update() -> Dict:
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation',queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_HIGH)
+def daily_chip_factor_update(self) -> Dict:
     """
     每日筹码因子更新任务
     在筹码数据更新后（18-19点）运行
@@ -912,8 +876,8 @@ def daily_chip_factor_update() -> Dict:
         logger.error(f"每日筹码因子更新失败: {e}")
         return {'status': 'error', 'error': str(e)}
 
-@celery_app.task(queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_LOW)
-def weekly_chip_factor_maintenance() -> Dict:
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_maintenance',queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_LOW)
+def weekly_chip_factor_maintenance(self) -> Dict:
     """
     每周筹码因子维护任务
     补充历史数据、清理异常数据等
@@ -964,11 +928,7 @@ def weekly_chip_factor_maintenance() -> Dict:
         return {'status': 'error', 'error': str(e)}
 
 # ========== 工具函数 ==========
-def schedule_comprehensive_calculation(
-    start_date_str: str = None,
-    end_date_str: str = None,
-    market: str = None
-) -> str:
+def schedule_comprehensive_calculation(start_date_str: str = None,end_date_str: str = None,market: str = None) -> str:
     """
     调度综合计算（命令行调用）
     
@@ -990,11 +950,7 @@ def schedule_comprehensive_calculation(
     
     return task.id
 
-def schedule_single_stock_calculation(
-    stock_code: str,
-    start_date_str: str = None,
-    end_date_str: str = None
-) -> str:
+def schedule_single_stock_calculation(stock_code: str,start_date_str: str = None,end_date_str: str = None) -> str:
     """
     调度单只股票计算（命令行调用）
     """
