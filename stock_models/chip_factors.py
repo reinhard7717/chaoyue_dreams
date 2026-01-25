@@ -110,6 +110,10 @@ class ChipFactorBase(models.Model):
     
     his_low = models.FloatField(verbose_name='历史最低价', null=True, blank=True)
     his_high = models.FloatField(verbose_name='历史最高价', null=True, blank=True)
+    
+    # ========== 结合量价验证因子 ==========
+    turnover_rate = models.FloatField(verbose_name='换手率(%)', null=True, blank=True)
+    volume_ratio = models.FloatField(verbose_name='量比', null=True, blank=True)
 
     # ========== 趋势强度因子 ==========
     # 移动平均线相对位置
