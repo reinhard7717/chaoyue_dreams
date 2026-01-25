@@ -33,7 +33,7 @@ from stock_models.fund_flow import (
     FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
 )
 from typing import Type, Optional, List, Dict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from django.db import models
 
 def get_minute_data_model_by_code_and_timelevel(stock_code: str, time_level_str: str) -> Optional[Type[models.Model]]:
