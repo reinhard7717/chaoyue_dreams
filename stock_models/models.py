@@ -5,6 +5,7 @@ from .stock_basic import *
 from .financial import *
 from .fund_flow import *
 from .chip import *
+from .chip_factors import *
 from .index import *
 from .industry import *
 from .market import *
