@@ -1,4 +1,4 @@
-# stock_tasks/chip_factor_tasks.py
+# tasks\chip_factor_tasks.py
 from chaoyue_dreams.celery import app as celery_app
 from celery.result import AsyncResult
 from django.utils import timezone
