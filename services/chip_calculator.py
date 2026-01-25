@@ -412,89 +412,101 @@ class ChipFactorCalculator:
         trend_score = 0.0
         reversal_score = 0.0
         try:
-            close = price_data.get('close', 0)
-            volume = volume_data.get('volume', 0)
-            turnover_rate = volume_data.get('turnover_rate', 0)
+            # 探针：检查输入数据的完整性，便于排查NaN/None源头
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Trend Calc Input Probe - MA: {ma_values}, Price: {price_data}, Vol: {volume_data}")
+            # 数据清洗与安全获取（防止 NoneType 参与比较）
+            def safe_get(d: Dict, k: str, default: float = 0.0) -> float:
+                val = d.get(k)
+                return float(val) if val is not None else default
+            close = safe_get(price_data, 'close')
+            volume = safe_get(volume_data, 'volume')
+            turnover_rate = safe_get(volume_data, 'turnover_rate')
             # ========== 趋势得分计算 ==========
             trend_factors = []
-            # 1. 均线排列得分
-            if all(k in ma_values for k in ['ma5', 'ma21', 'ma34', 'ma55']):
-                if (ma_values['ma5'] > ma_values['ma21'] > ma_values['ma34'] > ma_values['ma55']):
+            # 1. 均线排列得分 (修复：增加对value非空的检查)
+            ma_keys = ['ma5', 'ma21', 'ma34', 'ma55']
+            # 确保所有需要的均线键存在且值不为None
+            if all(ma_values.get(k) is not None for k in ma_keys):
+                ma5 = ma_values['ma5']
+                ma21 = ma_values['ma21']
+                ma34 = ma_values['ma34']
+                ma55 = ma_values['ma55']
+                if ma5 > ma21 > ma34 > ma55:
                     trend_factors.append(1.0)  # 强势多头
-                elif (ma_values['ma5'] < ma_values['ma21'] < ma_values['ma34'] < ma_values['ma55']):
+                elif ma5 < ma21 < ma34 < ma55:
                     trend_factors.append(-1.0)  # 强势空头
                 else:
                     trend_factors.append(0.0)
             # 2. 股价相对筹码成本位置
-            weight_avg = chip_factors.get('weight_avg_cost', 0)
+            weight_avg = safe_get(chip_factors, 'weight_avg_cost')
             if weight_avg > 0:
                 price_to_chip = (close - weight_avg) / weight_avg
-                # 强势多头：股价远高于成本
                 if price_to_chip > 0.15:
                     trend_factors.append(1.0)
-                # 强势空头：股价远低于成本
                 elif price_to_chip < -0.15:
                     trend_factors.append(-1.0)
                 else:
                     trend_factors.append(0.0)
             # 3. 筹码集中度趋势
-            chip_concentration = chip_factors.get('chip_concentration_ratio', 0)
+            chip_concentration = safe_get(chip_factors, 'chip_concentration_ratio')
             if chip_concentration < 0.3:  # 高度集中
-                trend_factors.append(1.0)  # 趋势延续信号
+                trend_factors.append(1.0)
             elif chip_concentration > 0.7:  # 高度分散
-                trend_factors.append(-0.5)  # 趋势可能结束
+                trend_factors.append(-0.5)
             # 4. 量价配合
             if turnover_rate > 0:
-                # 价格上涨+放量 = 强势
-                price_change = price_data.get('pct_change', 0)
+                price_change = safe_get(price_data, 'pct_change')
                 if price_change > 0.01 and turnover_rate > 0.05:
                     trend_factors.append(1.0)
                 elif price_change < -0.01 and turnover_rate > 0.05:
                     trend_factors.append(-1.0)
             # 趋势得分 = 因子加权平均
             if trend_factors:
-                trend_score = np.mean(trend_factors)
+                trend_score = float(np.mean(trend_factors))
             # ========== 反转得分计算 ==========
             reversal_factors = []
             # 1. 筹码峰形态反转信号
-            is_multi_peak = chip_factors.get('is_multi_peak', False)
-            is_double_peak = chip_factors.get('is_double_peak', False)
+            is_multi_peak = chip_factors.get('is_multi_peak') is True  # 显式布尔检查
+            is_double_peak = chip_factors.get('is_double_peak') is True
             if is_multi_peak:
-                reversal_factors.append(0.8)  # 多峰常预示反转
+                reversal_factors.append(0.8)
             elif is_double_peak:
-                # 双峰：判断是顶部双峰还是底部双峰
-                price_position = chip_factors.get('price_percentile_position', 0.5)
+                price_position = safe_get(chip_factors, 'price_percentile_position', 0.5)
                 if price_position > 0.8:  # 高位双峰
                     reversal_factors.append(0.7)
                 elif price_position < 0.2:  # 低位双峰
-                    reversal_factors.append(-0.7)  # 负分表示底部反转
+                    reversal_factors.append(-0.7)
             # 2. 筹码发散度反转信号
-            chip_divergence = chip_factors.get('chip_divergence_ratio', 0)
+            chip_divergence = safe_get(chip_factors, 'chip_divergence_ratio')
             if chip_divergence > 0.6:  # 高度发散
                 reversal_factors.append(0.6)
             # 3. 价格与筹码背离
-            winner_rate = chip_factors.get('winner_rate', 0)
-            if close > weight_avg and winner_rate < 0.5:
-                # 价格高于成本但胜率低 -> 顶部背离
-                reversal_factors.append(0.5)
-            elif close < weight_avg and winner_rate > 0.7:
-                # 价格低于成本但胜率高 -> 底部背离
-                reversal_factors.append(-0.5)
+            winner_rate = safe_get(chip_factors, 'winner_rate')
+            if weight_avg > 0:  # 确保分母/基准有效
+                if close > weight_avg and winner_rate < 0.5:
+                    reversal_factors.append(0.5)
+                elif close < weight_avg and winner_rate > 0.7:
+                    reversal_factors.append(-0.5)
             # 4. 极端分位突破
-            price_to_95pct = (close - chip_factors.get('cost_95pct', 0)) / close
-            price_to_5pct = (close - chip_factors.get('cost_5pct', 0)) / close
-            if price_to_95pct > 0.03:  # 突破95分位
-                reversal_factors.append(0.4)
-            elif price_to_5pct < -0.03:  # 跌破5分位
-                reversal_factors.append(-0.4)
+            cost_95pct = safe_get(chip_factors, 'cost_95pct')
+            cost_5pct = safe_get(chip_factors, 'cost_5pct')
+            if close > 0:
+                price_to_95pct = (close - cost_95pct) / close if cost_95pct else 0.0
+                price_to_5pct = (close - cost_5pct) / close if cost_5pct else 0.0
+                if price_to_95pct > 0.03:  # 突破95分位
+                    reversal_factors.append(0.4)
+                elif price_to_5pct < -0.03:  # 跌破5分位
+                    reversal_factors.append(-0.4)
             # 反转得分 = 因子加权平均
             if reversal_factors:
-                reversal_score = np.mean(reversal_factors)
+                reversal_score = float(np.mean(reversal_factors))
             return trend_score, reversal_score
         except Exception as e:
-            logger.error(f"计算趋势反转得分失败: {e}")
+            # 详细的错误上下文日志
+            logger.error(f"计算趋势反转得分失败: {e} | MA_Has_None: {any(v is None for v in ma_values.values())}")
             return 0.0, 0.0
-    
+
     @staticmethod
     def determine_chip_structure(chip_factors: Dict, trend_score: float) -> str:
         """
