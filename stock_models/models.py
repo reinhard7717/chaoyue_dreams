@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from .stock_basic import *
 from .financial import *
 from .fund_flow import *
+from .chip import *
 from .index import *
 from .industry import *
 from .market import *

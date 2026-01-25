@@ -3,8 +3,7 @@
 
 from stock_models.time_trade import (
     StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, 
-    StockDailyData_KC, StockDailyData_BJ, StockCyqChipsCY,
-    StockCyqChipsSZ, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsBJ, StockDailyBasic_CY,
+    StockDailyData_KC, StockDailyData_BJ,  StockDailyBasic_CY,
     StockDailyBasic_SZ, StockDailyBasic_KC, StockDailyBasic_SH, StockDailyBasic_BJ,
     StockMinuteData_1_SZ, StockMinuteData_5_SZ, StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_60_SZ,
     StockMinuteData_1_CY, StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY,
@@ -13,6 +12,7 @@ from stock_models.time_trade import (
     StockMinuteData_1_BJ, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
     StockPriceLimit_SZ, StockPriceLimit_SH, StockPriceLimit_CY,StockPriceLimit_KC, StockPriceLimit_BJ,
 )
+from stock_models.chip import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ
 from stock_models.advanced_metrics import (
     AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC, AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ,
     AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ,
@@ -22,13 +22,16 @@ from stock_models.advanced_metrics import (
     MultiTimeframeTrendline_CY, MultiTimeframeTrendline_SZ, MultiTimeframeTrendline_KC, MultiTimeframeTrendline_SH, MultiTimeframeTrendline_BJ,
     TrendlineEvent_CY, TrendlineEvent_SZ, TrendlineEvent_KC, TrendlineEvent_SH, TrendlineEvent_BJ
 )
-
 from stock_models.stock_realtime import (
     StockRealtimeData_SH, StockRealtimeData_SZ, StockRealtimeData_CY, StockRealtimeData_KC, StockRealtimeData_BJ,
     StockLevel5Data_SH, StockLevel5Data_SZ, StockLevel5Data_CY, StockLevel5Data_KC, StockLevel5Data_BJ,
     StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
 )
-from stock_models.fund_flow import FundFlowDailyDC_CY, FundFlowDailyDC_SZ, FundFlowDailyDC_KC, FundFlowDailyDC_SH, FundFlowDailyDC_BJ, FundFlowDailyTHS_CY, FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ, FundFlowDailyCY, FundFlowDailySZ, FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
+from stock_models.fund_flow import (
+    FundFlowDailyDC_CY, FundFlowDailyDC_SZ, FundFlowDailyDC_KC, FundFlowDailyDC_SH, FundFlowDailyDC_BJ, FundFlowDailyTHS_CY, 
+    FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ, FundFlowDailyCY, FundFlowDailySZ, 
+    FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
+)
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone
 from django.db import models
@@ -307,7 +310,6 @@ def get_trendline_event_model_by_code(stock_code: str) -> Optional[Type[models.M
         print(f"未识别的股票代码: {stock_code}，趋势线事件默认使用SZ主板表")
         return TrendlineEvent_SZ
 
-
 def get_price_limit_percent(stock_code: str) -> float:
     """
     【公共辅助函数】根据股票代码返回其对应的涨跌停限制比例。
@@ -406,7 +408,74 @@ def get_stock_level5_data_model_by_code(stock_code: str) -> Optional[Type[models
         print(f"调试信息: 未能为 {stock_code} 找到对应的Level5盘口数据模型。")
         return None
 
+# utils/model_helpers.py 补充
+def get_chip_factor_model_by_code(stock_code: str):
+    """
+    根据股票代码返回对应的筹码因子分表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        from stock_models.chip_factor import ChipFactorCY
+        return ChipFactorCY
+    elif stock_code.endswith('.SZ'):
+        from stock_models.chip_factor import ChipFactorSZ
+        return ChipFactorSZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        from stock_models.chip_factor import ChipFactorKC
+        return ChipFactorKC
+    elif stock_code.endswith('.SH'):
+        from stock_models.chip_factor import ChipFactorSH
+        return ChipFactorSH
+    elif stock_code.endswith('.BJ'):
+        from stock_models.chip_factor import ChipFactorBJ
+        return ChipFactorBJ
+    else:
+        from stock_models.chip_factor import ChipFactorSZ
+        return ChipFactorSZ
 
+# 批量获取筹码因子的函数
+async def get_chip_factors_batch(stock_codes: List[str], trade_date: date) -> Dict[str, Dict]:
+    """
+    批量获取筹码因子数据
+    
+    Args:
+        stock_codes: 股票代码列表
+        trade_date: 交易日期
+    
+    Returns:
+        Dict[str, Dict]: 股票代码到因子字典的映射
+    """
+    result = {}
+    
+    # 按市场分组
+    market_groups = {}
+    for code in stock_codes:
+        model = get_chip_factor_model_by_code(code)
+        market_groups.setdefault(model, []).append(code)
+    
+    # 并行查询不同市场的数据
+    for model, codes in market_groups.items():
+        queryset = model.objects.filter(
+            stock__stock_code__in=codes,
+            trade_time=trade_date,
+            calc_status='success'
+        ).select_related('stock')
+        
+        async for factor in queryset:
+            result[factor.stock.stock_code] = {
+                'price_to_weight_avg_ratio': factor.price_to_weight_avg_ratio,
+                'chip_concentration_ratio': factor.chip_concentration_ratio,
+                'chip_stability': factor.chip_stability,
+                'profit_pressure': factor.profit_pressure,
+                'chip_entropy': factor.chip_entropy,
+                'chip_skewness': factor.chip_skewness,
+                'chip_kurtosis': factor.chip_kurtosis,
+                'winner_rate': factor.winner_rate,
+                'close': factor.close,
+                'weight_avg_cost': factor.weight_avg_cost,
+                'trade_time': factor.trade_time
+            }
+    
+    return result
 
 
 
