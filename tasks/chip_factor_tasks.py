@@ -19,9 +19,7 @@ from stock_models.chip_factors import (
     ChipFactorSZ, ChipFactorSH, ChipFactorCY, 
     ChipFactorKC, ChipFactorBJ, 
 )
-from stock_models.chip import (
-    StockCyqPerf
-)
+from stock_models.chip import StockCyqPerf
 from stock_models.index import TradeCalendar
 from utils.model_helpers import (
     get_cyq_chips_model_by_code,

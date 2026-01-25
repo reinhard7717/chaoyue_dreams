@@ -269,7 +269,7 @@ class StockMonthlyDataSerializer(serializers.ModelSerializer):
 
 class StockCyqPerfSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.time_trade import StockCyqPerf
+        from stock_models.chip import StockCyqPerf
         model = StockCyqPerf
         fields = '__all__'
 

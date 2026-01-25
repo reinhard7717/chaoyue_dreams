@@ -18,7 +18,8 @@ from stock_models.index import TradeCalendar
 from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_minute_data_model_by_code_and_timelevel, get_stk_limit_model_by_code
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockCyqPerf, StockDailyBasic, StockWeeklyData, StockMonthlyData
+from stock_models.time_trade import StockDailyBasic, StockWeeklyData, StockMonthlyData
+from stock_models.chip import StockCyqPerf
 from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
