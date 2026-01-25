@@ -7,7 +7,8 @@ from functools import reduce
 from django.db import transaction
 from asgiref.sync import sync_to_async
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockDailyBasic, StockCyqPerf
+from stock_models.time_trade import StockDailyBasic
+from stock_models.chip import StockCyqPerf
 from stock_models.advanced_metrics import BaseAdvancedChipMetrics
 from utils.model_helpers import (
     get_advanced_chip_metrics_model_by_code,

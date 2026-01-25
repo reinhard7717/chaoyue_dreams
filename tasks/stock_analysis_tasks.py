@@ -541,7 +541,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
         get_cyq_chips_model_by_code
     )
-    from stock_models.time_trade import StockDailyBasic, StockCyqPerf
+    from stock_models.time_trade import StockDailyBasic
+    from stock_models.chip import StockCyqPerf
     from django.utils import timezone
     from datetime import time, datetime, timedelta
     from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
