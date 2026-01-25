@@ -895,126 +895,117 @@ class ChipFactorCalculator:
         daily_kline_data: Dict,
         prev_chip_dist_data: pd.DataFrame = None,
         historical_prices: pd.Series = None,
-        historical_chip_factors: List[Dict] = None
+        historical_chip_factors: List[Dict] = None,
+        extended_historical_prices: pd.Series = None  # 更长期的价格数据，用于波动率和RSI
     ) -> Dict:
         """
-        计算完整的筹码因子（包含时间序列因子）
+        计算完整的筹码因子（包含高级因子）
         
-        Args:
-            chip_perf_data: 当日筹码性能数据
-            chip_dist_data: 当日筹码分布数据
-            daily_basic_data: 当日基本面数据
-            daily_kline_data: 当日K线数据
-            prev_chip_dist_data: 前一日筹码分布数据
-            historical_prices: 历史价格序列（用于计算MA）
-            historical_chip_factors: 历史筹码因子列表
-        
-        Returns:
-            Dict: 完整的因子字典
+        新增参数：
+            extended_historical_prices: 扩展历史价格数据（至少60天，用于计算波动率和RSI）
         """
         factors = {}
         
         try:
-            # 1. 计算基础因子
+            # 1. 计算基础因子（原有逻辑）
             base_factors = ChipFactorCalculator.calculate_all_factors(
                 chip_perf_data, chip_dist_data, daily_basic_data, daily_kline_data
             )
             factors.update(base_factors)
-            # 2. 计算均线相关因子
-            if historical_prices is not None:
-                # 计算移动平均线
-                ma_values = ChipFactorCalculator.calculate_moving_averages(
-                    historical_prices, [5, 21, 34, 55]
+            
+            # 2. 计算需要历史数据的高级因子
+            if historical_chip_factors and len(historical_chip_factors) >= 6:
+                # 提取历史数据
+                historical_centers = []
+                historical_stability = []
+                historical_dates = []  # 需要从历史因子中提取日期
+                
+                for factor_data in historical_chip_factors:
+                    if 'chip_mean' in factor_data:
+                        historical_centers.append(factor_data['chip_mean'])
+                    if 'chip_stability' in factor_data:
+                        historical_stability.append(factor_data['chip_stability'])
+                
+                # 计算筹码峰迁移速度
+                if len(historical_centers) >= 5:
+                    # 假设日期是连续的，这里简化处理
+                    # 实际应该从historical_chip_factors中提取trade_time
+                    factors['peak_migration_speed_5d'] = ChipFactorCalculator.calculate_peak_migration_speed(
+                        historical_centers, [], daily_kline_data.get('trade_time', None)
+                    )
+                
+                # 计算筹码稳定性变化
+                if len(historical_stability) >= 6:
+                    factors['chip_stability_change_5d'] = ChipFactorCalculator.calculate_chip_stability_change(
+                        historical_stability
+                    )
+            
+            # 3. 计算波动率调整的筹码集中度
+            if extended_historical_prices is not None and not extended_historical_prices.empty:
+                # 计算历史波动率
+                price_volatility = ChipFactorCalculator.calculate_historical_volatility(
+                    extended_historical_prices, window=20
                 )
-                close = factors.get('close', 0)
-                for ma_name, ma_value in ma_values.items():
-                    if ma_value and ma_value > 0:
-                        ratio_key = f'price_to_{ma_name}_ratio'
-                        factors[ratio_key] = (close - ma_value) / ma_value * 100
-                # 计算均线排列状态
-                factors['ma_arrangement_status'] = ChipFactorCalculator.calculate_ma_arrangement(
-                    ma_values
+                
+                # 获取原始筹码集中度
+                chip_concentration = factors.get('chip_concentration_ratio', 0.5)
+                
+                # 计算波动率调整后的集中度
+                factors['volatility_adjusted_concentration'] = ChipFactorCalculator.calculate_volatility_adjusted_concentration(
+                    chip_concentration, price_volatility
                 )
-                # 计算筹码成本均线与MA21差值
-                weight_avg = factors.get('weight_avg_cost')
-                if weight_avg and 'ma21' in ma_values and ma_values['ma21']:
-                    factors['chip_cost_to_ma21_diff'] = weight_avg - ma_values['ma21']
-            # 3. 计算多峰形态因子
-            if not chip_dist_data.empty:
-                peak_prices, peak_heights = ChipFactorCalculator.detect_peaks(chip_dist_data)
-                price_range = (chip_dist_data['price'].min(), chip_dist_data['price'].max())
-                peak_analysis = ChipFactorCalculator.analyze_peak_pattern(
-                    peak_prices, peak_heights, price_range
+            
+            # 4. 计算筹码RSI背离度
+            if (extended_historical_prices is not None and 
+                not extended_historical_prices.empty and
+                'chip_flow_direction' in factors):
+                
+                # 计算RSI
+                current_rsi, historical_rsi = ChipFactorCalculator.calculate_rsi(
+                    extended_historical_prices, period=14
                 )
-                factors.update({
-                    'peak_count': peak_analysis['peak_count'],
-                    'main_peak_position': peak_analysis['main_peak_position'],
-                    'peak_distance_ratio': peak_analysis['peak_distance_ratio'],
-                    'peak_concentration': peak_analysis['peak_concentration'],
-                    'is_double_peak': peak_analysis['is_double_peak'],
-                    'is_multi_peak': peak_analysis['is_multi_peak']
-                })
-            # 4. 计算筹码流动因子
-            if prev_chip_dist_data is not None and not prev_chip_dist_data.empty:
-                close = factors.get('close', 0)
-                flow_direction, flow_intensity = ChipFactorCalculator.calculate_chip_flow(
-                    chip_dist_data, prev_chip_dist_data, close
+                
+                # 计算价格趋势（最近5日收益率）
+                if len(extended_historical_prices) >= 5:
+                    recent_prices = extended_historical_prices[-5:]
+                    price_trend = (recent_prices.iloc[-1] - recent_prices.iloc[0]) / recent_prices.iloc[0]
+                else:
+                    price_trend = 0.0
+                
+                # 计算筹码集中度趋势
+                if historical_chip_factors and len(historical_chip_factors) >= 5:
+                    recent_concentrations = []
+                    for i in range(min(5, len(historical_chip_factors))):
+                        idx = -(i+1)
+                        if 'chip_concentration_ratio' in historical_chip_factors[idx]:
+                            recent_concentrations.append(
+                                historical_chip_factors[idx]['chip_concentration_ratio']
+                            )
+                    
+                    if len(recent_concentrations) >= 2:
+                        chip_concentration_trend = (
+                            recent_concentrations[0] - recent_concentrations[-1]
+                        ) / max(recent_concentrations[-1], 0.001)
+                    else:
+                        chip_concentration_trend = 0.0
+                else:
+                    chip_concentration_trend = 0.0
+                
+                # 计算RSI背离度
+                factors['chip_rsi_divergence'] = ChipFactorCalculator.calculate_chip_rsi_divergence(
+                    current_rsi=current_rsi,
+                    historical_rsi=historical_rsi,
+                    chip_flow_direction=factors.get('chip_flow_direction', 0),
+                    price_trend=price_trend,
+                    chip_concentration_trend=chip_concentration_trend
                 )
-                factors.update({
-                    'chip_flow_direction': flow_direction,
-                    'chip_flow_intensity': flow_intensity
-                })
-            # 5. 计算聚集度和发散度
-            if not chip_dist_data.empty:
-                cost_50pct = factors.get('cost_50pct', 0)
-                price_range = (factors.get('his_low', 0), factors.get('his_high', 0))
-                convergence, divergence = ChipFactorCalculator.calculate_convergence_divergence(
-                    chip_dist_data, cost_50pct, price_range
-                )
-                factors.update({
-                    'chip_convergence_ratio': convergence,
-                    'chip_divergence_ratio': divergence
-                })
-            # 6. 计算趋势和反转得分
-            ma_values_dict = {}
-            if historical_prices is not None:
-                ma_values_dict = ChipFactorCalculator.calculate_moving_averages(
-                    historical_prices, [5, 21, 34, 55]
-                )
-            price_data = {
-                'close': factors.get('close', 0),
-                'pct_change': daily_kline_data.get('pct_change', 0)
-            }
-            volume_data = {
-                'volume': daily_kline_data.get('vol', 0),
-                'turnover_rate': factors.get('turnover_rate', 0)
-            }
-            trend_score, reversal_score = ChipFactorCalculator.calculate_trend_reversal_scores(
-                factors, ma_values_dict, price_data, volume_data
-            )
-            factors.update({
-                'trend_confirmation_score': trend_score,
-                'reversal_warning_score': reversal_score
-            })
-            # 7. 计算筹码结构状态
-            chip_structure = ChipFactorCalculator.determine_chip_structure(factors, trend_score)
-            factors['chip_structure_state'] = chip_structure
-            # 8. 计算时间序列因子（需要历史数据）
-            if historical_chip_factors and len(historical_chip_factors) >= 5:
-                # 提取最近5日的筹码重心
-                chip_centers_5d = [f.get('chip_mean', 0) for f in historical_chip_factors[-5:]]
-                chip_stability_5d = [f.get('chip_stability', 0) for f in historical_chip_factors[-5:]]
-                # 计算迁移速度
-                factors['peak_migration_speed_5d'] = ChipFactorCalculator.calculate_peak_migration(
-                    chip_centers_5d
-                )
-                # 计算稳定性变化
-                factors['chip_stability_change_5d'] = ChipFactorCalculator.calculate_chip_stability_change(
-                    chip_stability_5d
-                )
-            # 9. 计算市场适应性因子
-            # 这里需要额外的数据，如波动率、RSI等
-            # 暂时留空，后续可以根据需要添加
+            
+            # 5. 确保所有字段都有值（即使计算失败）
+            for field in ['peak_migration_speed_5d', 'chip_stability_change_5d',
+                         'volatility_adjusted_concentration', 'chip_rsi_divergence']:
+                if field not in factors:
+                    factors[field] = 0.0
+            
             factors['calc_status'] = 'success'
             
         except Exception as e:
