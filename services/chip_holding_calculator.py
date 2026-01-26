@@ -458,16 +458,14 @@ class ChipHoldingService:
         except Exception as e:
             logger.error(f"计算持有时间矩阵失败: {e}")
             return np.zeros((chip_matrix.shape[1], self.max_holding_days))
-    
+
     def _calculate_holding_factors(
         self,
         holding_matrix: np.ndarray,
         chip_matrix: np.ndarray,
         data_dict: Dict[str, any]
     ) -> Dict[str, float]:
-        """
-        计算持有时间相关因子
-        """
+        """计算持有时间相关因子"""
         try:
             factors = {}
             if holding_matrix.size == 0:
@@ -494,14 +492,48 @@ class ChipHoldingService:
             if chip_matrix.shape[0] > 0:
                 chip_concentration = np.std(chip_matrix[-1, :]) / np.mean(chip_matrix[-1, :])
                 factors['concentration_adjusted_holding'] = float(avg_holding_days * (1 + chip_concentration))
-            # 6. 换手率调整因子
+            # 6. 高位筹码沉淀比例（90%分位以上）
+            if 'price_grid' in data_dict and 'chip_dist_current' in data_dict:
+                price_grid = data_dict['price_grid']
+                chip_dist_current = data_dict['chip_dist_current']
+                if len(price_grid) > 0 and not chip_dist_current.empty:
+                    # 找到90%分位价格
+                    sorted_prices = np.sort(price_grid)
+                    idx_90 = int(len(sorted_prices) * 0.9)
+                    price_90 = sorted_prices[idx_90]
+                    # 计算价格高于90%分位的筹码比例
+                    high_mask = chip_dist_current['price'] >= price_90
+                    if high_mask.any():
+                        high_chip_ratio = chip_dist_current.loc[high_mask, 'percent'].sum() / chip_dist_current['percent'].sum()
+                        factors['high_position_lock_ratio_90'] = float(high_chip_ratio)
+                    else:
+                        factors['high_position_lock_ratio_90'] = 0.0
+            # 7. 主力成本区间锁定比例（50分位±10%）
+            if 'chip_dist_current' in data_dict:
+                chip_dist_current = data_dict['chip_dist_current']
+                if not chip_dist_current.empty:
+                    # 获取50分位成本
+                    sorted_chips = chip_dist_current.sort_values('price')
+                    cumsum = sorted_chips['percent'].cumsum()
+                    idx_50 = (cumsum >= 0.5).idxmax() if (cumsum >= 0.5).any() else -1
+                    if idx_50 >= 0:
+                        cost_50pct = sorted_chips.loc[idx_50, 'price']
+                        # 计算50分位±10%区间筹码
+                        lower_bound = cost_50pct * 0.9
+                        upper_bound = cost_50pct * 1.1
+                        main_mask = (chip_dist_current['price'] >= lower_bound) & (chip_dist_current['price'] <= upper_bound)
+                        main_range_ratio = chip_dist_current.loc[main_mask, 'percent'].sum() / chip_dist_current['percent'].sum()
+                        factors['main_cost_range_ratio'] = float(main_range_ratio)
+                    else:
+                        factors['main_cost_range_ratio'] = 0.0
+            # 8. 换手率调整因子
             if 'daily_turnover' in data_dict and isinstance(data_dict['daily_turnover'], pd.Series):
                 recent_turnover = data_dict['daily_turnover'].iloc[-5:].mean() if len(data_dict['daily_turnover']) >= 5 else 0
                 factors['turnover_adjustment'] = float(recent_turnover)
                 # 高换手率下短线筹码比例应该更高
                 if recent_turnover > 0.05:  # 5%以上换手
                     factors['short_term_ratio'] = min(factors['short_term_ratio'] * 1.5, 0.95)
-            # 7. 价格位置调整
+            # 9. 价格位置调整
             if 'price_range' in data_dict and chip_matrix.shape[0] > 0:
                 price_min, price_max = data_dict['price_range']
                 current_chip = chip_matrix[-1, :] if chip_matrix.shape[0] > 0 else np.zeros(chip_matrix.shape[1])
@@ -516,7 +548,7 @@ class ChipHoldingService:
         except Exception as e:
             logger.error(f"计算持有因子失败: {e}")
             return self._get_default_factors()
-    
+
     def _validate_results(
         self,
         holding_matrix: np.ndarray,
@@ -601,7 +633,7 @@ class ChipHoldingService:
             'calc_status': 'failed',
             'calc_time': datetime.now()
         }
-    
+
     def _get_default_factors(self) -> Dict[str, float]:
         """获取默认因子值"""
         return {
@@ -610,6 +642,8 @@ class ChipHoldingService:
             'long_term_ratio': 0.5,
             'avg_holding_days': 100.0,
             'concentration_adjusted_holding': 100.0,
+            'high_position_lock_ratio_90': 0.0,
+            'main_cost_range_ratio': 0.5,
             'turnover_adjustment': 0.02,
             'price_position': 0.5
         }
