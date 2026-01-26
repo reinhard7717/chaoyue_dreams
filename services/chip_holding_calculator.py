@@ -164,13 +164,19 @@ class ChipHoldingService:
             from asgiref.sync import sync_to_async
             # 转换日期
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
-            # 使用交易日历获取回溯的起始交易日
-            start_date = TradeCalendar.get_trade_date_offset(trade_date_dt, -lookback_days)
-            if not start_date:
-                print(f"⚠️ [数据获取] 无法获取 {lookback_days} 个交易日前的日期，使用自然日计算")
-                start_date = trade_date_dt - timedelta(days=lookback_days * 2)  # 乘以2确保覆盖足够天数
-            data = {}
+            # 使用交易日历获取回溯的起始交易日（异步调用）
             print(f"🟢 [数据获取开始] 股票: {stock_code}, 日期: {trade_date}, 回溯交易日: {lookback_days}")
+            # 异步调用 TradeCalendar 方法
+            get_offset_func = sync_to_async(TradeCalendar.get_trade_date_offset, thread_sensitive=True)
+            try:
+                start_date = await get_offset_func(trade_date_dt, -lookback_days)
+                if not start_date:
+                    print(f"⚠️ [数据获取] 无法获取 {lookback_days} 个交易日前的日期，使用自然日计算")
+                    start_date = trade_date_dt - timedelta(days=lookback_days * 2)
+            except Exception as e:
+                print(f"⚠️ [数据获取] 获取交易日偏移失败: {e}, 使用自然日计算")
+                start_date = trade_date_dt - timedelta(days=lookback_days * 2)
+            data = {}
             print(f"📅 [交易日历] 计算日期范围: {start_date} 到 {trade_date_dt}")
             # 1. 获取1分钟数据
             minute_model = self.get_minute_data_model(stock_code, '1')
@@ -209,16 +215,18 @@ class ChipHoldingService:
                 else:
                     data['chip_dist_current'] = pd.DataFrame()
                     print(f"⚠️ [当前筹码] 无当日筹码数据")
-                # 获取历史筹码分布数据 - 获取日期范围内的所有交易日
-                trade_dates = TradeCalendar.get_trade_dates_between(start_date, trade_date_dt - timedelta(days=1))
-                print(f"📅 [历史筹码] 获取 {len(trade_dates)} 个交易日的数据")
+                # 获取历史筹码分布数据 - 获取日期范围内的所有交易日（异步调用）
+                get_dates_between_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
+                trade_dates = await get_dates_between_func(start_date, trade_date_dt - timedelta(days=1))
+                print(f"📅 [历史筹码] 获取 {len(trade_dates) if trade_dates else 0} 个交易日的数据")
                 # 分批获取历史筹码数据
                 historical_by_date = {}
-                for trade_date_obj in trade_dates:
-                    daily_chips_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_obj).values('price', 'percent')
-                    daily_chips_list = await sync_to_async(list)(daily_chips_qs)
-                    if daily_chips_list:
-                        historical_by_date[str(trade_date_obj)] = daily_chips_list
+                if trade_dates:
+                    for trade_date_obj in trade_dates:
+                        daily_chips_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_obj).values('price', 'percent')
+                        daily_chips_list = await sync_to_async(list)(daily_chips_qs)
+                        if daily_chips_list:
+                            historical_by_date[str(trade_date_obj)] = daily_chips_list
                 # 转换为需要的格式：每日一个字典列表
                 data['chip_dists'] = list(historical_by_date.values())
                 print(f"📊 [历史筹码分组] 共 {len(historical_by_date)} 个交易日有筹码数据")
