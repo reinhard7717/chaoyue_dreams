@@ -315,8 +315,6 @@ def calculate_single_stock_chip_factors_sync(
             'processed_dates': 0
         }
 
-# tasks/chip_factor_tasks.py
-
 async def calculate_single_stock_chip_factors_async(stock_code: str, start_date: date, end_date: date) -> Dict:
     """异步版本的单个股票计算函数"""
     try:
@@ -756,7 +754,7 @@ async def calculate_single_stock_single_date_async(stock_code: str,trade_date: d
             'amount': daily_kline.amount,
             'pct_change': daily_kline.pct_change
         }
-        # 计算因子
+        # 计算基础因子
         factors = ChipFactorCalculator.calculate_complete_factors(
             chip_perf_data=chip_perf_dict,
             chip_dist_data=chips_df,
@@ -766,10 +764,50 @@ async def calculate_single_stock_single_date_async(stock_code: str,trade_date: d
             historical_prices=historical_prices,
             historical_chip_factors=historical_factors
         )
+        print(f"计算基础因子完成，字段数量：{len(factors)}")
+        # 计算持有时间因子
+        try:
+            from services.chip_holding_calculator import ChipHoldingService
+            holding_service = ChipHoldingService(use_tick_data=False)
+            holding_result = holding_service.calculate_holding_matrix_daily(
+                stock_code=stock_code,
+                trade_date=trade_date.strftime('%Y-%m-%d'),
+                lookback_days=60
+            )
+            print(f"持有时间矩阵计算状态：{holding_result.get('calc_status')}")
+            if holding_result.get('calc_status') == 'success':
+                holding_factors = holding_result.get('factors', {})
+                # 映射字段名到chip_factors模型
+                factors['avg_holding_days'] = holding_factors.get('avg_holding_days', 0)
+                factors['short_term_chip_ratio'] = holding_factors.get('short_term_ratio', 0)
+                factors['long_term_chip_ratio'] = holding_factors.get('long_term_ratio', 0)
+                # 计算中短线筹码（5-60日）
+                short_term = holding_factors.get('short_term_ratio', 0)
+                long_term = holding_factors.get('long_term_ratio', 0)
+                factors['mid_term_ratio'] = max(0, 1.0 - short_term - long_term)
+                # 计算主力成本区间锁定度（简化版）
+                chip_std = factors.get('chip_std', 0)
+                chip_mean = factors.get('chip_mean', 0)
+                if chip_std > 0:
+                    factors['main_cost_range_ratio'] = min(1.0, chip_std / chip_mean * 2)
+                # 计算高位筹码沉淀比例（90%分位以上）
+                cost_95pct = factors.get('cost_95pct', 0)
+                current_price = factors.get('close', 0)
+                if current_price > 0:
+                    factors['high_position_lock_ratio_90'] = max(0, (cost_95pct - current_price) / current_price)
+                print(f"持有时间因子已整合，新增字段数：5")
+        except Exception as e:
+            print(f"持有时间因子计算失败：{str(e)}")
+            factors['avg_holding_days'] = 100.0
+            factors['short_term_chip_ratio'] = 0.2
+            factors['long_term_chip_ratio'] = 0.5
+            factors['mid_term_ratio'] = 0.3
+            factors['main_cost_range_ratio'] = 0.5
+            factors['high_position_lock_ratio_90'] = 0.0
         # 保存
         await save_chip_factors(chip_factor_model, stock, trade_date, factors)
+        print(f"因子保存完成，总计字段数：{len(factors)}")
         return {'status': 'success', 'message': '计算完成'}
-        
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 日期 {trade_date} 失败: {e}")
         return {'status': 'error', 'error': str(e)}

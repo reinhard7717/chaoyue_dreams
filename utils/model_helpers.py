@@ -33,7 +33,8 @@ from stock_models.fund_flow import (
     FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
 )
 from stock_models.chip_factors import (
-    ChipFactorSH, ChipFactorSZ, ChipFactorKC, ChipFactorBJ, ChipFactorCY
+    ChipFactorSH, ChipFactorSZ, ChipFactorKC, ChipFactorBJ, ChipFactorCY,
+    ChipHoldingMatrix_SH, ChipHoldingMatrix_SZ, ChipHoldingMatrix_KC, ChipHoldingMatrix_BJ, ChipHoldingMatrix_CY
 )
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone, date
@@ -411,7 +412,6 @@ def get_stock_level5_data_model_by_code(stock_code: str) -> Optional[Type[models
         print(f"调试信息: 未能为 {stock_code} 找到对应的Level5盘口数据模型。")
         return None
 
-# utils/model_helpers.py 补充
 def get_chip_factor_model_by_code(stock_code: str):
     """
     根据股票代码返回对应的筹码因子分表Model
@@ -468,6 +468,21 @@ async def get_chip_factors_batch(stock_codes: List[str], trade_date: date) -> Di
             }
     return result
 
-
+def get_chip_holding_matrix_model_by_code(stock_code: str):
+    """
+    根据股票代码返回对应的筹码持有时间矩阵分表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return ChipHoldingMatrix_CY
+    elif stock_code.endswith('.SZ'):
+        return ChipHoldingMatrix_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return ChipHoldingMatrix_KC
+    elif stock_code.endswith('.SH'):
+        return ChipHoldingMatrix_SH
+    elif stock_code.endswith('.BJ'):
+        return ChipHoldingMatrix_BJ
+    else:
+        return ChipHoldingMatrix_SZ
 
 

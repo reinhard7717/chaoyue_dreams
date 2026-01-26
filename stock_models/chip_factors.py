@@ -5,6 +5,9 @@ import numpy as np
 from scipy.signal import find_peaks
 from scipy.stats import linregress
 from typing import List, Tuple, Dict, Optional
+import json
+import base64
+import pickle
 
 class ChipFactorBase(models.Model):
     """
@@ -183,7 +186,7 @@ class ChipFactorBase(models.Model):
         verbose_name='是否多峰形态',
         default=False
     )
-    
+
     # ========== 筹码峰动态变化因子 ==========
     # 聚集度变化
     chip_convergence_ratio = models.FloatField(
@@ -209,6 +212,38 @@ class ChipFactorBase(models.Model):
     chip_flow_intensity = models.FloatField(
         verbose_name='筹码流动强度',
         null=True, blank=True
+    )
+    
+    # 高位筹码沉淀比例 (成本高于当前价N%的筹码)
+    high_position_lock_ratio_90 = models.FloatField(
+        verbose_name='90%分位以上筹码占比',
+        help_text='成本在90-100分位的筹码占比，反映高位套牢盘'
+    )
+    
+    # 主力成本区间锁定度
+    main_cost_range_ratio = models.FloatField(
+        verbose_name='主力成本区间锁定比例',
+        help_text='(cost_50pct±10%)区间筹码占比，反映主力控盘度'
+    )
+    
+    # 筹码平均持有时间
+    avg_holding_days = models.FloatField(
+        verbose_name='平均持有时长(天)',
+        help_text='基于换手率推算的筹码平均持有时间'
+    )
+    
+    # 长线锁定筹码（基于历史分布变化推算）
+    long_term_chip_ratio = models.FloatField(
+        verbose_name='长线锁定筹码比例(>60日)',
+        null=True, blank=True,
+        help_text='基于历史筹码分布变化推算的长线锁定筹码'
+    )
+    
+    # 短线交易筹码（基于换手率推算）
+    short_term_chip_ratio = models.FloatField(
+        verbose_name='短线筹码比例(<5日)',
+        null=True, blank=True,
+        help_text='基于换手率推算的短线交易筹码占比'
     )
     
     # ========== 趋势与反转信号 ==========
@@ -323,3 +358,180 @@ class ChipFactorBJ(ChipFactorBase):
         verbose_name = '筹码因子BJ'
         verbose_name_plural = '筹码因子BJ'
         db_table = 'stock_chip_factor_bj'
+
+class ChipHoldingMatrixBase(models.Model):
+    """
+    筹码持有时间矩阵基类
+    """
+    stock = models.ForeignKey(
+        'StockInfo',
+        to_field='stock_code',
+        on_delete=models.CASCADE,
+        verbose_name='股票',
+        db_index=True
+    )
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
+    
+    # 基础因子
+    short_term_ratio = models.FloatField(
+        verbose_name='短线筹码比例(<5日)',
+        null=True, blank=True,
+        help_text='持有少于5天的筹码比例'
+    )
+    mid_term_ratio = models.FloatField(
+        verbose_name='中线筹码比例(5-60日)',
+        null=True, blank=True,
+        help_text='持有5-60天的筹码比例'
+    )
+    long_term_ratio = models.FloatField(
+        verbose_name='长线筹码比例(>60日)',
+        null=True, blank=True,
+        help_text='持有超过60天的筹码比例'
+    )
+    avg_holding_days = models.FloatField(
+        verbose_name='平均持有天数',
+        null=True, blank=True
+    )
+    
+    # 矩阵数据（存储完整的持有时间矩阵）
+    matrix_data = models.JSONField(
+        verbose_name='矩阵数据',
+        null=True, blank=True,
+        help_text='持有时间矩阵的JSON表示'
+    )
+    
+    # 压缩矩阵（二进制存储，更高效）
+    compressed_matrix = models.BinaryField(
+        verbose_name='压缩矩阵',
+        null=True, blank=True
+    )
+    
+    # 计算元数据
+    price_grid = models.JSONField(
+        verbose_name='价格网格',
+        null=True, blank=True,
+        help_text='价格区间网格点'
+    )
+    max_holding_days = models.IntegerField(
+        verbose_name='最大持有天数',
+        default=250
+    )
+    
+    # 验证信息
+    validation_score = models.FloatField(
+        verbose_name='验证分数',
+        null=True, blank=True,
+        help_text='计算结果的可信度评分(0-1)'
+    )
+    validation_warnings = models.JSONField(
+        verbose_name='验证警告',
+        null=True, blank=True,
+        help_text='计算过程中的警告信息'
+    )
+    
+    # 计算状态
+    calc_status = models.CharField(
+        max_length=20,
+        verbose_name='计算状态',
+        default='pending',
+        choices=[
+            ('pending', '待计算'),
+            ('processing', '计算中'),
+            ('success', '成功'),
+            ('partial', '部分成功'),
+            ('failed', '失败')
+        ]
+    )
+    calc_time = models.DateTimeField(verbose_name='计算时间', auto_now=True)
+    error_message = models.TextField(verbose_name='错误信息', null=True, blank=True)
+    
+    # 数据源标记
+    used_minute_data = models.BooleanField(
+        verbose_name='使用分钟数据',
+        default=True
+    )
+    used_tick_data = models.BooleanField(
+        verbose_name='使用逐笔数据',
+        default=False
+    )
+    
+    class Meta:
+        abstract = True
+        verbose_name = '筹码持有时间矩阵基础'
+        verbose_name_plural = '筹码持有时间矩阵基础'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['trade_time', 'calc_status']),
+            models.Index(fields=['short_term_ratio']),
+            models.Index(fields=['long_term_ratio']),
+        ]
+    
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time} 持有矩阵"
+    
+    def get_holding_matrix(self) -> np.ndarray:
+        """
+        从数据库加载持有时间矩阵
+        """
+        try:
+            if self.compressed_matrix:
+                # 从二进制数据加载
+                matrix_bytes = base64.b64decode(self.compressed_matrix)
+                return pickle.loads(matrix_bytes)
+            elif self.matrix_data:
+                # 从JSON数据加载
+                return np.array(self.matrix_data.get('matrix', []))
+            return np.array([])
+        except Exception as e:
+            print(f"加载持有矩阵失败: {e}")
+            return np.array([])
+    
+    def set_holding_matrix(self, matrix: np.ndarray, compress: bool = True):
+        """
+        设置持有时间矩阵
+        """
+        try:
+            if compress:
+                # 压缩存储
+                matrix_bytes = pickle.dumps(matrix)
+                self.compressed_matrix = base64.b64encode(matrix_bytes)
+                self.matrix_data = None
+            else:
+                # JSON存储
+                self.matrix_data = {'matrix': matrix.tolist()}
+                self.compressed_matrix = None
+        except Exception as e:
+            print(f"保存持有矩阵失败: {e}")
+
+# 分表模型
+class ChipHoldingMatrix_SZ(ChipHoldingMatrixBase):
+    class Meta:
+        verbose_name = '筹码持有时间矩阵SZ'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_chip_holding_matrix_sz'
+
+class ChipHoldingMatrix_SH(ChipHoldingMatrixBase):
+    class Meta:
+        verbose_name = '筹码持有时间矩阵SH'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_chip_holding_matrix_sh'
+
+class ChipHoldingMatrix_CY(ChipHoldingMatrixBase):
+    class Meta:
+        verbose_name = '筹码持有时间矩阵CY'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_chip_holding_matrix_cy'
+
+class ChipHoldingMatrix_KC(ChipHoldingMatrixBase):
+    class Meta:
+        verbose_name = '筹码持有时间矩阵KC'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_chip_holding_matrix_kc'
+
+class ChipHoldingMatrix_BJ(ChipHoldingMatrixBase):
+    class Meta:
+        verbose_name = '筹码持有时间矩阵BJ'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_chip_holding_matrix_bj'
+
