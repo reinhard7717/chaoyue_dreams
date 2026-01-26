@@ -936,7 +936,7 @@ async def calculate_single_stock_holding_matrix_async(
                 if existing:
                     current_date += timedelta(days=1)
                     continue
-                # 计算持有时间矩阵
+                # 计算持有时间矩阵（同步调用）
                 result = service.calculate_holding_matrix_daily(
                     stock_code=stock_code,
                     trade_date=current_date.strftime('%Y-%m-%d'),
@@ -944,7 +944,7 @@ async def calculate_single_stock_holding_matrix_async(
                 )
                 # 保存到数据库
                 if result.get('calc_status') == 'success':
-                    save_success = service.save_holding_matrix_to_db(
+                    save_success = await sync_to_async(service.save_holding_matrix_to_db)(
                         stock_code=stock_code,
                         trade_date=current_date.strftime('%Y-%m-%d'),
                         result=result

@@ -36,64 +36,56 @@ class ChipHoldingService:
         self.get_tick_data_model = get_stock_tick_data_model_by_code
         self.get_chips_model = get_cyq_chips_model_by_code
         self.get_daily_data_model = get_daily_data_model_by_code
-    
-    def calculate_holding_matrix_daily(
+
+    async def calculate_holding_matrix_daily_async(
         self,
         stock_code: str,
         trade_date: str,
         lookback_days: int = 60
     ) -> Dict[str, any]:
         """
-        计算单日筹码持有时间矩阵（主入口函数）
-        Args:
-            stock_code: 股票代码
-            trade_date: 交易日期（YYYY-MM-DD）
-            lookback_days: 回看天数（用于估算）
-        Returns:
-            Dict: 包含持有时间矩阵和相关因子
+        计算单日筹码持有时间矩阵（异步版本）
         """
         try:
             logger.info(f"开始计算 {stock_code} {trade_date} 的筹码持有时间矩阵")
-            # 1. 获取基础数据
-            data_dict = self._fetch_required_data(stock_code, trade_date, lookback_days)
+            # 1. 获取基础数据（异步）
+            data_dict = await self._fetch_required_data(stock_code, trade_date, lookback_days)
             if not data_dict:
                 logger.error(f"获取基础数据失败: {stock_code} {trade_date}")
                 return self._get_default_result()
-            # 2. 建立价格网格
-            price_grid, chip_dist_matrix = self._build_price_grid_and_chip_matrix(
+            # 2. 建立价格网格（同步计算）
+            price_grid, chip_dist_matrix = await sync_to_async(self._build_price_grid_and_chip_matrix)(
                 data_dict['chip_dists'], data_dict['price_range']
             )
-            # 3. 计算分钟级成交量分布
-            minute_volume_dist = self._calculate_minute_volume_distribution(
+            # 3. 计算分钟级成交量分布（同步计算）
+            minute_volume_dist = await sync_to_async(self._calculate_minute_volume_distribution)(
                 data_dict['minute_data'], price_grid
             )
             # 4. 如果使用逐笔数据，进行增强计算
             if self.use_tick_data and data_dict['tick_data'] is not None:
-                enhanced_dist = self._enhance_with_tick_data(
+                enhanced_dist = await sync_to_async(self._enhance_with_tick_data)(
                     minute_volume_dist, data_dict['tick_data'], price_grid
                 )
             else:
                 enhanced_dist = minute_volume_dist
-            # 5. 计算换手率矩阵
-            turnover_matrix = self._calculate_turnover_matrix(
-                enhanced_dist, 
-                chip_dist_matrix, 
-                data_dict['float_shares']
+            # 5. 计算换手率矩阵（同步计算）
+            turnover_matrix = await sync_to_async(self._calculate_turnover_matrix)(
+                enhanced_dist, chip_dist_matrix, data_dict['float_shares']
             )
-            # 6. 优化换手概率参数
-            optimal_params = self._optimize_turnover_parameters(
+            # 6. 优化换手概率参数（同步计算）
+            optimal_params = await sync_to_async(self._optimize_turnover_parameters)(
                 turnover_matrix, chip_dist_matrix, data_dict['daily_turnover']
             )
-            # 7. 计算持有时间矩阵
-            holding_matrix = self._calculate_holding_matrix(
+            # 7. 计算持有时间矩阵（同步计算）
+            holding_matrix = await sync_to_async(self._calculate_holding_matrix)(
                 chip_dist_matrix, turnover_matrix, optimal_params
             )
-            # 8. 计算衍生因子
-            factors = self._calculate_holding_factors(
+            # 8. 计算衍生因子（同步计算）
+            factors = await sync_to_async(self._calculate_holding_factors)(
                 holding_matrix, chip_dist_matrix, data_dict
             )
-            # 9. 验证结果
-            validation = self._validate_results(
+            # 9. 验证结果（同步计算）
+            validation = await sync_to_async(self._validate_results)(
                 holding_matrix, factors, data_dict
             )
             result = {
@@ -113,7 +105,31 @@ class ChipHoldingService:
         except Exception as e:
             logger.error(f"计算筹码持有矩阵失败 {stock_code} {trade_date}: {e}", exc_info=True)
             return self._get_default_result(stock_code, trade_date)
-    
+
+    def calculate_holding_matrix_daily(
+        self,
+        stock_code: str,
+        trade_date: str,
+        lookback_days: int = 60
+    ) -> Dict[str, any]:
+        """
+        计算单日筹码持有时间矩阵（主入口函数，同步包装）
+        """
+        try:
+            # 创建事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(
+                    self.calculate_holding_matrix_daily_async(stock_code, trade_date, lookback_days)
+                )
+            finally:
+                loop.close()
+            return result
+        except Exception as e:
+            logger.error(f"计算筹码持有矩阵失败 {stock_code} {trade_date}: {e}")
+            return self._get_default_result(stock_code, trade_date)
+
     def calculate_batch_holding_matrices(
         self,
         stock_codes: List[str],
@@ -150,18 +166,19 @@ class ChipHoldingService:
                     results[code] = self._get_default_result(code, trade_date)
         return results
     
-    def _fetch_required_data(
+    async def _fetch_required_data(
         self,
         stock_code: str,
         trade_date: str,
         lookback_days: int
     ) -> Dict[str, any]:
         """
-        获取计算所需的所有数据
+        获取计算所需的所有数据（异步版本）
         """
         try:
             from django.db.models import Q
             import pytz
+            from stock_models.time_trade import StockDailyBasic
             # 转换日期
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
             start_date = trade_date_dt - timedelta(days=lookback_days)
@@ -173,8 +190,7 @@ class ChipHoldingService:
                     stock__stock_code=stock_code,
                     trade_time__date=trade_date_dt
                 ).order_by('trade_time')
-                minute_records = list(minute_qs.values('trade_time', 'open', 'high', 'low', 
-                                                     'close', 'vol', 'amount'))
+                minute_records = await sync_to_async(list)(minute_qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'))
                 data['minute_data'] = pd.DataFrame(minute_records) if minute_records else None
             # 2. 获取逐笔数据（如果可用）
             if self.use_tick_data:
@@ -183,36 +199,39 @@ class ChipHoldingService:
                     tick_qs = tick_model.objects.filter(
                         stock__stock_code=stock_code,
                         trade_time__date=trade_date_dt
-                    ).order_by('trade_time')[:50000]  # 限制数量，避免内存问题
-                    tick_records = list(tick_qs.values('trade_time', 'price', 'volume', 'type'))
+                    ).order_by('trade_time')[:50000]
+                    tick_records = await sync_to_async(list)(tick_qs.values('trade_time', 'price', 'volume', 'type'))
                     data['tick_data'] = pd.DataFrame(tick_records) if tick_records else None
             # 3. 获取筹码分布数据
             chips_model = self.get_chips_model(stock_code)
-            chip_dist_current = chips_model.objects.filter(
+            chip_dist_current_qs = chips_model.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time=trade_date_dt
             ).values('price', 'percent')
-            chip_dist_historical = chips_model.objects.filter(
+            chip_dist_historical_qs = chips_model.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_date,
                 trade_time__lt=trade_date_dt
             ).order_by('trade_time')
+            chip_dist_current = await sync_to_async(list)(chip_dist_current_qs)
+            chip_dist_historical = await sync_to_async(list)(chip_dist_historical_qs.values('trade_time', 'price', 'percent'))
             data['chip_dist_current'] = pd.DataFrame(list(chip_dist_current))
-            data['chip_dists'] = list(chip_dist_historical.values('trade_time', 'price', 'percent'))
+            data['chip_dists'] = chip_dist_historical
             # 4. 获取日线数据（用于换手率）
             daily_model = self.get_daily_data_model(stock_code)
-            daily_data = daily_model.objects.filter(
+            daily_qs = daily_model.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_date,
                 trade_time__lte=trade_date_dt
             ).order_by('trade_time').values('trade_time', 'vol', 'amount')
+            daily_data = await sync_to_async(list)(daily_qs)
             data['daily_data'] = pd.DataFrame(list(daily_data))
             # 5. 获取自由流通股本
-            from stock_models.time_trade import StockDailyBasic
-            basic_data = StockDailyBasic.objects.filter(
+            basic_qs = StockDailyBasic.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time=trade_date_dt
-            ).first()
+            )
+            basic_data = await sync_to_async(basic_qs.first)()
             data['float_shares'] = float(basic_data.free_share) * 10000 if basic_data and basic_data.free_share else 0
             # 6. 计算价格范围
             if not data['chip_dist_current'].empty:
@@ -225,9 +244,9 @@ class ChipHoldingService:
                 data['daily_turnover'] = data['daily_data']['vol'] * 100 / data['float_shares']
             return data
         except Exception as e:
-            logger.error(f"获取数据失败 {stock_code}: {e}")
+            logger.error(f"获取数据失败 {stock_code}: {e}", exc_info=True)
             return {}
-    
+
     def _build_price_grid_and_chip_matrix(
         self,
         chip_dists: List[Dict],
