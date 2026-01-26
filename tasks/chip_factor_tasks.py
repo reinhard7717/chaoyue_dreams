@@ -893,6 +893,75 @@ def calculate_single_stock_holding_matrix_sync(
             'processed_dates': 0
         }
 
+def calculate_holding_matrix_for_stock_sync(
+    stock_code: str,
+    start_date: date,
+    end_date: date
+) -> Dict:
+    """
+    同步版本的股票持有矩阵计算（避免事件循环冲突）
+    """
+    try:
+        logger.info(f"开始同步计算股票 {stock_code} 的持有时间矩阵")
+        from services.chip_holding_calculator import ChipHoldingService
+        service = ChipHoldingService(use_tick_data=False)
+        processed_dates = 0
+        current_date = start_date
+        while current_date <= end_date:
+            try:
+                # 计算持有时间矩阵
+                result = service.calculate_holding_matrix_daily(
+                    stock_code=stock_code,
+                    trade_date=current_date.strftime('%Y-%m-%d'),
+                    lookback_days=60
+                )
+                if result.get('calc_status') == 'success':
+                    # 同步保存
+                    from utils.model_helpers import get_chip_holding_matrix_model_by_code
+                    import json
+                    import base64
+                    import pickle
+                    ChipHoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
+                    # 将矩阵转换为可存储格式
+                    if 'holding_matrix' in result and result['holding_matrix'].size > 0:
+                        # 保存为压缩二进制
+                        matrix_bytes = pickle.dumps(result['holding_matrix'])
+                        compressed_data = base64.b64encode(matrix_bytes).decode('utf-8')
+                        # 创建或更新记录
+                        holding_record, created = ChipHoldingMatrixModel.objects.update_or_create(
+                            stock__stock_code=stock_code,
+                            trade_time=current_date,
+                            defaults={
+                                'short_term_ratio': result['factors'].get('short_term_ratio', 0),
+                                'mid_term_ratio': result['factors'].get('mid_term_ratio', 0),
+                                'long_term_ratio': result['factors'].get('long_term_ratio', 0),
+                                'avg_holding_days': result['factors'].get('avg_holding_days', 0),
+                                'compressed_matrix': compressed_data,
+                                'calc_status': result.get('calc_status', 'failed'),
+                                'validation_score': result.get('validation', {}).get('score', 0)
+                            }
+                        )
+                        processed_dates += 1
+                        logger.debug(f"股票 {stock_code} 日期 {current_date} 持有矩阵保存成功")
+                else:
+                    logger.warning(f"股票 {stock_code} 日期 {current_date} 持有矩阵计算失败")
+            except Exception as e:
+                logger.warning(f"股票 {stock_code} 日期 {current_date} 计算失败: {e}")
+            current_date += timedelta(days=1)
+        logger.info(f"股票 {stock_code} 持有矩阵计算完成，处理 {processed_dates} 个交易日")
+        return {
+            'status': 'success',
+            'processed_dates': processed_dates,
+            'date_range': f"{start_date} - {end_date}"
+        }
+    except Exception as e:
+        logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'processed_dates': 0
+        }
+
 async def calculate_single_stock_holding_matrix_async(
     stock_code: str,
     start_date: date,
