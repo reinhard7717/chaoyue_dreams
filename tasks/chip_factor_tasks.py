@@ -25,6 +25,7 @@ from utils.model_helpers import (
     get_cyq_chips_model_by_code,
     get_daily_data_model_by_code,
     get_chip_factor_model_by_code,
+    get_chip_holding_matrix_model_by_code,
 )
 from services.chip_calculator import ChipFactorCalculator
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
