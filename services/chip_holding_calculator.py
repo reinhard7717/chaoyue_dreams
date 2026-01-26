@@ -39,75 +39,61 @@ class ChipHoldingService:
         self.get_chips_model = get_cyq_chips_model_by_code
         self.get_daily_data_model = get_daily_data_model_by_code
 
-    async def calculate_holding_matrix_daily_async(
-        self,
-        stock_code: str,
-        trade_date: str,
-        lookback_days: int = 60
-    ) -> Dict[str, any]:
-        """
-        计算单日筹码持有时间矩阵（异步版本）
-        """
+    async def calculate_holding_matrix_daily_async(self, stock_code: str, trade_date: str, lookback_days: int = 60) -> Dict[str, any]:
+        """计算单日筹码持有时间矩阵（异步版本）"""
         try:
             logger.info(f"开始计算 {stock_code} {trade_date} 的筹码持有时间矩阵")
+            print(f"🔴 [主流程开始] 股票: {stock_code}, 日期: {trade_date}")
             # 1. 获取基础数据（异步）
             data_dict = await self._fetch_required_data(stock_code, trade_date, lookback_days)
             if not data_dict:
                 logger.error(f"获取基础数据失败: {stock_code} {trade_date}")
+                print(f"❌ [主流程] 获取基础数据失败")
                 return self._get_default_result()
+            # 检查关键数据
+            chip_dists = data_dict.get('chip_dists', [])
+            price_range = data_dict.get('price_range', (0, 0))
+            print(f"📊 [主流程] 获取到筹码历史数据: {len(chip_dists)}条, 价格范围: {price_range}")
+            if len(chip_dists) == 0:
+                print(f"⚠️ [主流程] 警告: 无历史筹码数据，计算可能不准确")
             # 2. 建立价格网格（同步计算）
-            price_grid, chip_dist_matrix = await sync_to_async(self._build_price_grid_and_chip_matrix)(
-                data_dict['chip_dists'], data_dict['price_range']
-            )
+            print(f"🔨 [主流程] 开始构建价格网格和筹码矩阵...")
+            price_grid, chip_dist_matrix = await sync_to_async(self._build_price_grid_and_chip_matrix)(data_dict['chip_dists'], data_dict['price_range'])
+            print(f"📊 [主流程] 价格网格形状: {price_grid.shape}, 筹码矩阵形状: {chip_dist_matrix.shape}")
+            if chip_dist_matrix.size == 0 or len(chip_dist_matrix.shape) < 2:
+                print(f"❌ [主流程] 错误: 筹码矩阵无效，形状={chip_dist_matrix.shape}")
+                return self._get_default_result(stock_code, trade_date)
             # 3. 计算分钟级成交量分布（同步计算）
-            minute_volume_dist = await sync_to_async(self._calculate_minute_volume_distribution)(
-                data_dict['minute_data'], price_grid
-            )
+            minute_volume_dist = await sync_to_async(self._calculate_minute_volume_distribution)(data_dict['minute_data'], price_grid)
+            print(f"📊 [主流程] 分钟成交量分布形状: {minute_volume_dist.shape}")
             # 4. 如果使用逐笔数据，进行增强计算
             if self.use_tick_data and data_dict['tick_data'] is not None:
-                enhanced_dist = await sync_to_async(self._enhance_with_tick_data)(
-                    minute_volume_dist, data_dict['tick_data'], price_grid
-                )
+                enhanced_dist = await sync_to_async(self._enhance_with_tick_data)(minute_volume_dist, data_dict['tick_data'], price_grid)
+                print(f"📊 [主流程] 增强分布完成")
             else:
                 enhanced_dist = minute_volume_dist
             # 5. 计算换手率矩阵（同步计算）
-            turnover_matrix = await sync_to_async(self._calculate_turnover_matrix)(
-                enhanced_dist, chip_dist_matrix, data_dict['float_shares']
-            )
+            turnover_matrix = await sync_to_async(self._calculate_turnover_matrix)(enhanced_dist, chip_dist_matrix, data_dict['float_shares'])
+            print(f"📊 [主流程] 换手率矩阵形状: {turnover_matrix.shape}")
             # 6. 优化换手概率参数（同步计算）
-            optimal_params = await sync_to_async(self._optimize_turnover_parameters)(
-                turnover_matrix, chip_dist_matrix, data_dict['daily_turnover']
-            )
+            optimal_params = await sync_to_async(self._optimize_turnover_parameters)(turnover_matrix, chip_dist_matrix, data_dict['daily_turnover'])
+            print(f"📊 [主流程] 优化参数完成: {optimal_params}")
             # 7. 计算持有时间矩阵（同步计算）
-            holding_matrix = await sync_to_async(self._calculate_holding_matrix)(
-                chip_dist_matrix, turnover_matrix, optimal_params
-            )
+            holding_matrix = await sync_to_async(self._calculate_holding_matrix)(chip_dist_matrix, turnover_matrix, optimal_params)
+            print(f"📊 [主流程] 持有时间矩阵形状: {holding_matrix.shape}")
             # 8. 计算衍生因子（同步计算）
-            factors = await sync_to_async(self._calculate_holding_factors)(
-                holding_matrix, chip_dist_matrix, data_dict
-            )
+            factors = await sync_to_async(self._calculate_holding_factors)(holding_matrix, chip_dist_matrix, data_dict)
+            print(f"📊 [主流程] 计算衍生因子完成: {len(factors)}个因子")
             # 9. 验证结果（同步计算）
-            validation = await sync_to_async(self._validate_results)(
-                holding_matrix, factors, data_dict
-            )
-            result = {
-                'stock_code': stock_code,
-                'trade_date': trade_date,
-                'holding_matrix': holding_matrix,
-                'price_grid': price_grid,
-                'factors': factors,
-                'validation': validation,
-                'calc_status': 'success',
-                'calc_time': datetime.now()
-            }
-            logger.info(f"计算完成 {stock_code} {trade_date}: "
-                       f"短线筹码={factors.get('short_term_ratio', 0):.2%}, "
-                       f"长线筹码={factors.get('long_term_ratio', 0):.2%}")
+            validation = await sync_to_async(self._validate_results)(holding_matrix, factors, data_dict)
+            result = {'stock_code': stock_code, 'trade_date': trade_date, 'holding_matrix': holding_matrix, 'price_grid': price_grid, 'factors': factors, 'validation': validation, 'calc_status': 'success', 'calc_time': datetime.now()}
+            logger.info(f"计算完成 {stock_code} {trade_date}: 短线筹码={factors.get('short_term_ratio', 0):.2%}, 长线筹码={factors.get('long_term_ratio', 0):.2%}")
+            print(f"✅ [主流程完成] {stock_code} {trade_date} 计算成功")
             return result
         except Exception as e:
             logger.error(f"计算筹码持有矩阵失败 {stock_code} {trade_date}: {e}", exc_info=True)
+            print(f"❌ [主流程异常] {stock_code} {trade_date}: {e}")
             return self._get_default_result(stock_code, trade_date)
-
 
     def calculate_holding_matrix_daily(
         self,
@@ -169,117 +155,190 @@ class ChipHoldingService:
                     results[code] = self._get_default_result(code, trade_date)
         return results
     
-    async def _fetch_required_data(
-        self,
-        stock_code: str,
-        trade_date: str,
-        lookback_days: int
-    ) -> Dict[str, any]:
-        """
-        获取计算所需的所有数据（异步版本）
-        """
+    async def _fetch_required_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
+        """获取计算所需的所有数据（异步版本）"""
         try:
             from django.db.models import Q
             import pytz
             from stock_models.time_trade import StockDailyBasic
+            from asgiref.sync import sync_to_async
             # 转换日期
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
             start_date = trade_date_dt - timedelta(days=lookback_days)
             data = {}
+            print(f"🟢 [数据获取开始] 股票: {stock_code}, 日期: {trade_date}, 回溯天数: {lookback_days}")
             # 1. 获取1分钟数据
             minute_model = self.get_minute_data_model(stock_code, '1')
             if minute_model:
-                minute_qs = minute_model.objects.filter(
-                    stock__stock_code=stock_code,
-                    trade_time__date=trade_date_dt
-                ).order_by('trade_time')
+                minute_qs = minute_model.objects.filter(stock__stock_code=stock_code, trade_time__date=trade_date_dt).order_by('trade_time')
                 minute_records = await sync_to_async(list)(minute_qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'))
                 data['minute_data'] = pd.DataFrame(minute_records) if minute_records else None
+                print(f"📊 [分钟数据] 记录数: {len(minute_records) if minute_records else 0}")
+            else:
+                print(f"⚠️ [分钟数据] 模型不存在")
             # 2. 获取逐笔数据（如果可用）
             if self.use_tick_data:
                 tick_model = self.get_tick_data_model(stock_code)
                 if tick_model:
-                    tick_qs = tick_model.objects.filter(
-                        stock__stock_code=stock_code,
-                        trade_time__date=trade_date_dt
-                    ).order_by('trade_time')[:50000]
+                    tick_qs = tick_model.objects.filter(stock__stock_code=stock_code, trade_time__date=trade_date_dt).order_by('trade_time')[:50000]
                     tick_records = await sync_to_async(list)(tick_qs.values('trade_time', 'price', 'volume', 'type'))
                     data['tick_data'] = pd.DataFrame(tick_records) if tick_records else None
-            # 3. 获取筹码分布数据
+                    print(f"📊 [逐笔数据] 记录数: {len(tick_records) if tick_records else 0}")
+                else:
+                    print(f"⚠️ [逐笔数据] 模型不存在")
+            # 3. 获取筹码分布数据 - 这是关键数据源
             chips_model = self.get_chips_model(stock_code)
-            chip_dist_current_qs = chips_model.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time=trade_date_dt
-            ).values('price', 'percent')
-            chip_dist_historical_qs = chips_model.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time__gte=start_date,
-                trade_time__lt=trade_date_dt
-            ).order_by('trade_time')
-            chip_dist_current = await sync_to_async(list)(chip_dist_current_qs)
-            chip_dist_historical = await sync_to_async(list)(chip_dist_historical_qs.values('trade_time', 'price', 'percent'))
-            data['chip_dist_current'] = pd.DataFrame(list(chip_dist_current))
-            data['chip_dists'] = chip_dist_historical
+            print(f"🔍 [筹码模型] 获取模型: {chips_model}")
+            if chips_model is None:
+                print(f"❌ [筹码模型] 模型获取失败!")
+                data['chip_dists'] = []
+                data['chip_dist_current'] = pd.DataFrame()
+            else:
+                # 获取当前日期的筹码分布
+                chip_dist_current_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt).values('price', 'percent')
+                chip_dist_current = await sync_to_async(list)(chip_dist_current_qs)
+                data['chip_dist_current'] = pd.DataFrame(list(chip_dist_current))
+                print(f"📊 [当前筹码] 记录数: {len(chip_dist_current)}")
+                # 获取历史筹码分布数据
+                chip_dist_historical_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lt=trade_date_dt).order_by('trade_time')
+                chip_dist_historical = await sync_to_async(list)(chip_dist_historical_qs.values('trade_time', 'price', 'percent'))
+                data['chip_dists'] = chip_dist_historical
+                print(f"📊 [历史筹码] 记录数: {len(chip_dist_historical)}, 日期范围: {start_date} 到 {trade_date_dt}")
+                # 打印前几天的数据量用于调试
+                if chip_dist_historical:
+                    # 按日期分组计数
+                    from collections import defaultdict
+                    date_counts = defaultdict(int)
+                    for record in chip_dist_historical:
+                        date_str = str(record['trade_time'])
+                        date_counts[date_str] += 1
+                    print(f"📅 [历史筹码分布] 按日期统计:")
+                    for date_str, count in list(date_counts.items())[:5]:
+                        print(f"   {date_str}: {count}条记录")
+                    if len(date_counts) > 5:
+                        print(f"   共{len(date_counts)}天数据，显示前5天")
             # 4. 获取日线数据（用于换手率）
             daily_model = self.get_daily_data_model(stock_code)
-            daily_qs = daily_model.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time__gte=start_date,
-                trade_time__lte=trade_date_dt
-            ).order_by('trade_time').values('trade_time', 'vol', 'amount')
-            daily_data = await sync_to_async(list)(daily_qs)
-            data['daily_data'] = pd.DataFrame(list(daily_data))
+            if daily_model:
+                daily_qs = daily_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).order_by('trade_time').values('trade_time', 'vol', 'amount')
+                daily_data = await sync_to_async(list)(daily_qs)
+                data['daily_data'] = pd.DataFrame(list(daily_data))
+                print(f"📊 [日线数据] 记录数: {len(daily_data)}")
+            else:
+                print(f"⚠️ [日线数据] 模型不存在")
+                data['daily_data'] = pd.DataFrame()
             # 5. 获取自由流通股本
-            basic_qs = StockDailyBasic.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time=trade_date_dt
-            )
+            basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
             basic_data = await sync_to_async(basic_qs.first)()
             data['float_shares'] = float(basic_data.free_share) * 10000 if basic_data and basic_data.free_share else 0
-            # 6. 计算价格范围
-            if not data['chip_dist_current'].empty:
-                data['price_range'] = (
-                    data['chip_dist_current']['price'].min(),
-                    data['chip_dist_current']['price'].max()
-                )
+            print(f"📊 [自由流通股本] {data['float_shares']}")
+            # 6. 计算价格范围 - 这是关键步骤
+            if 'chip_dist_current' in data and not data['chip_dist_current'].empty:
+                price_min = data['chip_dist_current']['price'].min()
+                price_max = data['chip_dist_current']['price'].max()
+                data['price_range'] = (price_min, price_max)
+                print(f"📈 [价格范围] {price_min:.2f} - {price_max:.2f}, 差值: {price_max - price_min:.2f}")
+            else:
+                print(f"⚠️ [价格范围] 当前筹码数据为空，使用默认范围")
+                # 如果没有当前筹码数据，尝试从历史数据中获取价格范围
+                if data['chip_dists']:
+                    all_prices = []
+                    for dist in data['chip_dists']:
+                        all_prices.append(dist['price'])
+                    price_min = min(all_prices) if all_prices else 1.0
+                    price_max = max(all_prices) if all_prices else 100.0
+                    data['price_range'] = (price_min, price_max)
+                    print(f"📈 [价格范围-历史] {price_min:.2f} - {price_max:.2f}")
+                else:
+                    data['price_range'] = (1.0, 100.0)
+                    print(f"⚠️ [价格范围] 使用默认值: 1.0 - 100.0")
             # 7. 计算日换手率
             if not data['daily_data'].empty and data['float_shares'] > 0:
                 data['daily_turnover'] = data['daily_data']['vol'] * 100 / data['float_shares']
+                print(f"📊 [日换手率] 计算完成，数据长度: {len(data['daily_turnover'])}")
+            else:
+                print(f"⚠️ [日换手率] 计算失败，日线数据空: {data['daily_data'].empty}, 流通股本: {data['float_shares']}")
+                data['daily_turnover'] = pd.Series()
+            print(f"✅ [数据获取完成] 共获取{len(data)}个数据集")
+            # 打印关键数据状态
+            print(f"📋 [数据摘要] 筹码历史数据条数: {len(data.get('chip_dists', []))}, 当前筹码条数: {len(data.get('chip_dist_current', pd.DataFrame()))}")
             return data
         except Exception as e:
             logger.error(f"获取数据失败 {stock_code}: {e}", exc_info=True)
+            print(f"❌ [数据获取异常] {e}")
             return {}
 
-    def _build_price_grid_and_chip_matrix(
-        self,
-        chip_dists: List[Dict],
-        price_range: Tuple[float, float]
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        建立价格网格和筹码分布矩阵
-        """
+    def _build_price_grid_and_chip_matrix(self, chip_dists: List[Dict], price_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
+        """建立价格网格和筹码分布矩阵"""
         try:
             min_price, max_price = price_range
+            print(f"🔨 [构建矩阵] 输入价格范围: {min_price:.2f} - {max_price:.2f}")
+            # 检查价格范围有效性
+            if max_price <= min_price or max_price <= 0 or min_price <= 0:
+                print(f"⚠️ [构建矩阵] 价格范围无效，使用默认范围")
+                min_price, max_price = 1.0, 100.0
+            # 确保价格范围有足够的差值
+            price_diff = max_price - min_price
+            if price_diff < 0.01:
+                print(f"⚠️ [构建矩阵] 价格差值过小: {price_diff:.4f}, 扩展范围")
+                padding = max(1.0, min_price * 0.1)  # 至少1.0或价格的10%
+                min_price = max(0.01, min_price - padding)
+                max_price = max_price + padding
             price_grid = np.linspace(min_price, max_price, self.price_grid_size)
+            print(f"📊 [构建矩阵] 价格网格: {len(price_grid)}个点, {min_price:.2f}-{max_price:.2f}")
+            # 检查是否有历史筹码数据
+            if not chip_dists:
+                print(f"⚠️ [构建矩阵] 无历史筹码分布数据，创建默认矩阵")
+                # 创建一个默认的筹码矩阵（1天 x 价格网格数）
+                chip_matrix = np.ones((1, len(price_grid))) / len(price_grid)
+                print(f"📊 [构建矩阵] 创建默认筹码矩阵: 形状={chip_matrix.shape}")
+                return price_grid, chip_matrix
+            print(f"📊 [构建矩阵] 处理 {len(chip_dists)} 天的历史筹码数据")
             # 将历史筹码分布插值到价格网格
             chip_matrix = np.zeros((len(chip_dists), len(price_grid)))
+            valid_days = 0
             for i, chip_dist in enumerate(chip_dists):
+                if not chip_dist:
+                    print(f"⚠️ [构建矩阵] 第{i}天筹码数据为空")
+                    chip_matrix[i, :] = np.ones(len(price_grid)) / len(price_grid)
+                    continue
                 df = pd.DataFrame(chip_dist)
-                if not df.empty:
+                if df.empty or 'price' not in df.columns or 'percent' not in df.columns:
+                    print(f"⚠️ [构建矩阵] 第{i}天数据格式错误，使用均匀分布")
+                    chip_matrix[i, :] = np.ones(len(price_grid)) / len(price_grid)
+                    continue
+                # 检查数据质量
+                if len(df) < 2:
+                    print(f"⚠️ [构建矩阵] 第{i}天数据点过少: {len(df)}个")
+                    chip_matrix[i, :] = np.ones(len(price_grid)) / len(price_grid)
+                    continue
+                try:
                     # 线性插值
-                    f = interp1d(df['price'], df['percent'], 
-                                bounds_error=False, fill_value=0)
+                    f = interp1d(df['price'], df['percent'], bounds_error=False, fill_value=0)
                     chip_matrix[i, :] = f(price_grid)
+                    valid_days += 1
+                except Exception as e:
+                    print(f"⚠️ [构建矩阵] 第{i}天插值失败: {e}")
+                    chip_matrix[i, :] = np.ones(len(price_grid)) / len(price_grid)
+            print(f"📊 [构建矩阵] 有效处理天数: {valid_days}/{len(chip_dists)}")
             # 归一化
             row_sums = chip_matrix.sum(axis=1, keepdims=True)
-            chip_matrix = np.divide(chip_matrix, row_sums, 
-                                   out=np.zeros_like(chip_matrix), 
-                                   where=row_sums != 0)
+            chip_matrix = np.divide(chip_matrix, row_sums, out=np.zeros_like(chip_matrix), where=row_sums != 0)
+            # 检查最终矩阵
+            if chip_matrix.shape[0] == 0 or chip_matrix.shape[1] == 0:
+                print(f"❌ [构建矩阵] 最终矩阵维度异常: {chip_matrix.shape}")
+                # 创建安全的默认矩阵
+                chip_matrix = np.ones((max(len(chip_dists), 1), len(price_grid))) / len(price_grid)
+            print(f"✅ [构建矩阵完成] 价格网格形状={price_grid.shape}, 筹码矩阵形状={chip_matrix.shape}")
             return price_grid, chip_matrix
         except Exception as e:
             logger.error(f"建立价格网格失败: {e}")
-            return np.array([]), np.array([])
-    
+            print(f"❌ [构建矩阵异常] {e}")
+            # 返回安全的默认值
+            default_price_grid = np.linspace(1.0, 100.0, self.price_grid_size)
+            default_chip_matrix = np.ones((1, len(default_price_grid))) / len(default_price_grid)
+            return default_price_grid, default_chip_matrix
+
     def _calculate_minute_volume_distribution(
         self,
         minute_data: pd.DataFrame,
