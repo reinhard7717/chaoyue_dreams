@@ -882,17 +882,9 @@ def calculate_single_stock_holding_matrix_sync(
 ) -> Dict:
     """同步版本的单个股票持有矩阵计算函数"""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(
-                calculate_single_stock_holding_matrix_async(
-                    stock_code, start_date, end_date
-                )
-            )
-        finally:
-            loop.close()
-        return result
+        return calculate_holding_matrix_for_stock_sync(
+            stock_code, start_date, end_date
+        )
     except Exception as e:
         logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
         return {
