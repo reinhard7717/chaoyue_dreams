@@ -339,6 +339,8 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
     """异步版本的单个股票计算函数（使用交易日历）"""
     try:
         logger.debug(f"开始计算股票 {stock_code} 的筹码因子")
+        from stock_models.index import TradeCalendar
+        from asgiref.sync import sync_to_async
         # 获取对应的模型
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
@@ -351,8 +353,10 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         historical_prices = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_prices.empty:
             return {'status': 'failed', 'error': f'股票 {stock_code} 历史价格数据不足', 'processed_dates': 0}
-        # 获取日期范围内的所有交易日
-        trade_dates = TradeCalendar.get_trade_dates_between(start_date, end_date)
+        # 获取日期范围内的所有交易日（异步调用） - 修复这里
+        print(f"📅 [计算] 获取交易日范围: {start_date} 到 {end_date}")
+        get_dates_between_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
+        trade_dates = await get_dates_between_func(start_date, end_date)
         if not trade_dates:
             print(f"⚠️ [计算] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
             return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
@@ -381,8 +385,9 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 if not daily_kline:
                     print(f"⚠️ [计算] {stock_code} {current_date} 无日K线数据，跳过")
                     continue
-                # 获取前一日筹码数据（用于计算流动）
-                prev_date = TradeCalendar.get_trade_date_offset(current_date, -1)
+                # 获取前一日筹码数据（使用异步调用）
+                get_offset_func = sync_to_async(TradeCalendar.get_trade_date_offset, thread_sensitive=True)
+                prev_date = await get_offset_func(current_date, -1)
                 if prev_date:
                     prev_chips_data = await sync_to_async(list)(chips_model.objects.filter(stock=stock, trade_time=prev_date).values('price', 'percent'))
                     prev_chips_df = pd.DataFrame(list(prev_chips_data)) if prev_chips_data else pd.DataFrame()
@@ -410,6 +415,7 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         return {'status': 'success', 'processed_dates': processed_dates, 'date_range': f"{start_date} - {end_date}", 'trade_dates_processed': processed_dates}
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 筹码因子失败: {e}", exc_info=True)
+        print(f"❌ [计算异常] {stock_code}: {e}")
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def get_historical_prices_for_stock(stock_code: str,  end_date: date,  days: int) -> pd.Series:
