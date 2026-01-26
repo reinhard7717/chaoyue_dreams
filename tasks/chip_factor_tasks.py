@@ -367,7 +367,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 # 检查是否已计算
                 existing = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)()
                 if existing:
-                    print(f"⏭️ [计算] {stock_code} {current_date} 已计算，跳过")
                     continue
                 # 获取数据
                 chip_perf = await sync_to_async(StockCyqPerf.objects.filter(stock=stock, trade_time=current_date).first)()
