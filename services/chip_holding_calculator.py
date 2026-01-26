@@ -1,5 +1,6 @@
 # services/chip_holding_service.py
 import asyncio
+from asgiref.sync import sync_to_async # 异步转换工具
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional

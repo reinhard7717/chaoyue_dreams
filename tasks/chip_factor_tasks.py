@@ -327,64 +327,33 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         # 获取股票基本信息
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
-            return {
-                'status': 'failed',
-                'error': f'未找到股票 {stock_code}',
-                'processed_dates': 0
-            }
+            return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
         # 获取历史价格数据用于计算MA
-        historical_prices = await get_historical_prices_for_stock(
-            stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA
-        )
+        historical_prices = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_prices.empty:
-            return {
-                'status': 'failed',
-                'error': f'股票 {stock_code} 历史价格数据不足',
-                'processed_dates': 0
-            }
+            return {'status': 'failed', 'error': f'股票 {stock_code} 历史价格数据不足', 'processed_dates': 0}
         processed_dates = 0
         current_date = start_date
         while current_date <= end_date:
             try:
                 # 检查是否已计算
-                existing = await sync_to_async(
-                    chip_factor_model.objects.filter(
-                        stock=stock,
-                        trade_time=current_date,
-                        calc_status='success'
-                    ).exists
-                )()
+                existing = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)()
                 if existing:
                     current_date += timedelta(days=1)
                     continue
                 # 获取数据
-                chip_perf = await sync_to_async(
-                    StockCyqPerf.objects.filter(
-                        stock=stock,
-                        trade_time=current_date
-                    ).first
-                )()
+                chip_perf = await sync_to_async(StockCyqPerf.objects.filter(stock=stock, trade_time=current_date).first)()
                 if not chip_perf:
                     current_date += timedelta(days=1)
                     continue
                 # 获取筹码分布数据
-                chips_data = await sync_to_async(list)(
-                    chips_model.objects.filter(
-                        stock=stock,
-                        trade_time=current_date
-                    ).values('price', 'percent')
-                )
+                chips_data = await sync_to_async(list)(chips_model.objects.filter(stock=stock, trade_time=current_date).values('price', 'percent'))
                 if not chips_data:
                     current_date += timedelta(days=1)
                     continue
                 chips_df = pd.DataFrame(chips_data)
                 # 获取日K线数据
-                daily_kline = await sync_to_async(
-                    daily_data_model.objects.filter(
-                        stock=stock,
-                        trade_time=current_date
-                    ).first
-                )()
+                daily_kline = await sync_to_async(daily_data_model.objects.filter(stock=stock, trade_time=current_date).first)()
                 if not daily_kline:
                     current_date += timedelta(days=1)
                     continue
@@ -393,75 +362,30 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 # ==================== 修复点开始 ====================
                 # 原错误代码: prev_chips_data = await sync_to_sync(...)
                 # 修正: 使用 sync_to_async(list) 包装
-                prev_chips_data = await sync_to_async(list)(
-                    chips_model.objects.filter(
-                        stock=stock,
-                        trade_time=prev_date
-                    ).values('price', 'percent')
-                )
+                prev_chips_data = await sync_to_async(list)(chips_model.objects.filter(stock=stock, trade_time=prev_date).values('price', 'percent'))
                 # ==================== 修复点结束 ====================
                 prev_chips_df = pd.DataFrame(list(prev_chips_data)) if prev_chips_data else pd.DataFrame()
+                print(f"股票 {stock_code} 日期 {current_date}: 前一日筹码数据条数 {len(prev_chips_data)}")
                 # 获取历史筹码因子（用于计算时间序列因子）
-                historical_factors = await get_historical_chip_factors(
-                    chip_factor_model, stock, current_date, 5
-                )
+                historical_factors = await get_historical_chip_factors(chip_factor_model, stock, current_date, 5)
                 # 准备数据字典
-                chip_perf_dict = {
-                    'weight_avg': chip_perf.weight_avg,
-                    'his_high': chip_perf.his_high,
-                    'his_low': chip_perf.his_low,
-                    'cost_5pct': chip_perf.cost_5pct,
-                    'cost_15pct': chip_perf.cost_15pct,
-                    'cost_50pct': chip_perf.cost_50pct,
-                    'cost_85pct': chip_perf.cost_85pct,
-                    'cost_95pct': chip_perf.cost_95pct,
-                    'winner_rate': chip_perf.winner_rate
-                }
-                daily_kline_dict = {
-                    'close': daily_kline.close_qfq,
-                    'open': daily_kline.open_qfq,
-                    'high': daily_kline.high_qfq,
-                    'low': daily_kline.low_qfq,
-                    'vol': daily_kline.vol,
-                    'amount': daily_kline.amount,
-                    'pct_change': daily_kline.pct_change
-                }
+                chip_perf_dict = {'weight_avg': chip_perf.weight_avg, 'his_high': chip_perf.his_high, 'his_low': chip_perf.his_low, 'cost_5pct': chip_perf.cost_5pct, 'cost_15pct': chip_perf.cost_15pct, 'cost_50pct': chip_perf.cost_50pct, 'cost_85pct': chip_perf.cost_85pct, 'cost_95pct': chip_perf.cost_95pct, 'winner_rate': chip_perf.winner_rate}
+                daily_kline_dict = {'close': daily_kline.close_qfq, 'open': daily_kline.open_qfq, 'high': daily_kline.high_qfq, 'low': daily_kline.low_qfq, 'vol': daily_kline.vol, 'amount': daily_kline.amount, 'pct_change': daily_kline.pct_change}
                 # 计算因子
-                factors = ChipFactorCalculator.calculate_complete_factors(
-                    chip_perf_data=chip_perf_dict,
-                    chip_dist_data=chips_df,
-                    daily_basic_data={},  # 暂时留空，需要时补充
-                    daily_kline_data=daily_kline_dict,
-                    prev_chip_dist_data=prev_chips_df,
-                    historical_prices=historical_prices,
-                    historical_chip_factors=historical_factors
-                )
+                factors = ChipFactorCalculator.calculate_complete_factors(chip_perf_data=chip_perf_dict, chip_dist_data=chips_df, daily_basic_data={}, daily_kline_data=daily_kline_dict, prev_chip_dist_data=prev_chips_df, historical_prices=historical_prices, historical_chip_factors=historical_factors)
                 # 保存到数据库
-                await save_chip_factors(
-                    chip_factor_model, stock, current_date, factors
-                )
+                await save_chip_factors(chip_factor_model, stock, current_date, factors)
                 processed_dates += 1
                 if processed_dates % 10 == 0:
                     logger.debug(f"股票 {stock_code} 已处理 {processed_dates} 个交易日")
-                
             except Exception as e:
-                # 记录详细的错误栈以便排查
                 logger.warning(f"股票 {stock_code} 日期 {current_date} 计算失败: {e}", exc_info=True)
             current_date += timedelta(days=1)
         logger.info(f"股票 {stock_code} 计算完成，处理 {processed_dates} 个交易日")
-        return {
-            'status': 'success',
-            'processed_dates': processed_dates,
-            'date_range': f"{start_date} - {end_date}"
-        }
-        
+        return {'status': 'success', 'processed_dates': processed_dates, 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 筹码因子失败: {e}", exc_info=True)
-        return {
-            'status': 'error',
-            'error': str(e),
-            'processed_dates': 0
-        }
+        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def get_historical_prices_for_stock(stock_code: str,  end_date: date,  days: int) -> pd.Series:
     """获取股票历史价格序列"""
