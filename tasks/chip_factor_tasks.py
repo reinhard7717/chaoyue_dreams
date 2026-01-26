@@ -812,6 +812,273 @@ async def calculate_single_stock_single_date_async(stock_code: str,trade_date: d
         logger.error(f"计算股票 {stock_code} 日期 {trade_date} 失败: {e}")
         return {'status': 'error', 'error': str(e)}
 
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.calculate_holding_matrix_batch', queue=ChipTaskConfig.get_queue_name())
+def calculate_holding_matrix_batch(
+    self,
+    stock_codes: List[str],
+    start_date: str,
+    end_date: str,
+    market: str = None
+) -> Dict:
+    """
+    批量计算多只股票的持有时间矩阵
+    
+    Args:
+        stock_codes: 股票代码列表
+        start_date: 开始日期
+        end_date: 结束日期
+        market: 市场标识
+    
+    Returns:
+        Dict: 计算结果
+    """
+    try:
+        logger.info(f"开始批量计算持有时间矩阵，股票数量: {len(stock_codes)}")
+        start_date_obj = parse_date(start_date)
+        end_date_obj = parse_date(end_date)
+        results = {
+            'total': len(stock_codes),
+            'success': 0,
+            'failed': 0,
+            'details': []
+        }
+        # 逐个计算，避免资源争用
+        for stock_code in stock_codes:
+            try:
+                # 计算单个股票的持有时间矩阵
+                result = calculate_single_stock_holding_matrix_sync(
+                    stock_code, start_date_obj, end_date_obj
+                )
+                if result.get('status') == 'success':
+                    results['success'] += 1
+                    processed_dates = result.get('processed_dates', 0)
+                    logger.debug(f"股票 {stock_code} 持有矩阵计算成功，处理 {processed_dates} 个交易日")
+                else:
+                    results['failed'] += 1
+                    logger.warning(f"股票 {stock_code} 持有矩阵计算失败: {result.get('error')}")
+                results['details'].append({
+                    'stock_code': stock_code,
+                    **result
+                })
+            except Exception as e:
+                results['failed'] += 1
+                logger.error(f"股票 {stock_code} 持有矩阵计算异常: {e}")
+                results['details'].append({
+                    'stock_code': stock_code,
+                    'status': 'error',
+                    'error': str(e)
+                })
+        logger.info(f"持有时间矩阵批量计算完成: 成功 {results['success']}, 失败 {results['failed']}")
+        return results
+    except Exception as e:
+        logger.error(f"批量计算持有时间矩阵失败: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
+
+def calculate_single_stock_holding_matrix_sync(
+    stock_code: str,
+    start_date: date,
+    end_date: date
+) -> Dict:
+    """同步版本的单个股票持有矩阵计算函数"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                calculate_single_stock_holding_matrix_async(
+                    stock_code, start_date, end_date
+                )
+            )
+        finally:
+            loop.close()
+        return result
+    except Exception as e:
+        logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'processed_dates': 0
+        }
+
+async def calculate_single_stock_holding_matrix_async(
+    stock_code: str,
+    start_date: date,
+    end_date: date
+) -> Dict:
+    """异步版本的单个股票持有矩阵计算函数"""
+    try:
+        logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵")
+        # 获取持有矩阵模型
+        holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
+        # 获取股票基本信息
+        stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
+        if not stock:
+            return {
+                'status': 'failed',
+                'error': f'未找到股票 {stock_code}',
+                'processed_dates': 0
+            }
+        from services.chip_holding_calculator import ChipHoldingService
+        service = ChipHoldingService(use_tick_data=False)
+        processed_dates = 0
+        current_date = start_date
+        while current_date <= end_date:
+            try:
+                # 检查是否已计算
+                existing = await sync_to_async(
+                    holding_matrix_model.objects.filter(
+                        stock=stock,
+                        trade_time=current_date,
+                        calc_status='success'
+                    ).exists
+                )()
+                if existing:
+                    current_date += timedelta(days=1)
+                    continue
+                # 计算持有时间矩阵
+                result = service.calculate_holding_matrix_daily(
+                    stock_code=stock_code,
+                    trade_date=current_date.strftime('%Y-%m-%d'),
+                    lookback_days=60
+                )
+                # 保存到数据库
+                if result.get('calc_status') == 'success':
+                    save_success = service.save_holding_matrix_to_db(
+                        stock_code=stock_code,
+                        trade_date=current_date.strftime('%Y-%m-%d'),
+                        result=result
+                    )
+                    if save_success:
+                        processed_dates += 1
+                        logger.debug(f"股票 {stock_code} 日期 {current_date} 持有矩阵保存成功")
+                    else:
+                        logger.warning(f"股票 {stock_code} 日期 {current_date} 持有矩阵保存失败")
+                else:
+                    logger.warning(f"股票 {stock_code} 日期 {current_date} 持有矩阵计算失败")
+            except Exception as e:
+                logger.warning(f"股票 {stock_code} 日期 {current_date} 计算失败: {e}")
+            current_date += timedelta(days=1)
+        logger.info(f"股票 {stock_code} 持有矩阵计算完成，处理 {processed_dates} 个交易日")
+        return {
+            'status': 'success',
+            'processed_dates': processed_dates,
+            'date_range': f"{start_date} - {end_date}"
+        }
+    except Exception as e:
+        logger.error(f"计算股票 {stock_code} 持有矩阵失败: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'error': str(e),
+            'processed_dates': 0
+        }
+
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_holding_matrix_calculation', queue=ChipTaskConfig.get_queue_name())
+def schedule_holding_matrix_calculation(
+    self,
+    stock_codes: Optional[List[str]] = None,
+    start_date_str: Optional[str] = None,
+    end_date_str: Optional[str] = None
+) -> Dict:
+    """
+    调度持有时间矩阵计算任务
+    
+    Args:
+        stock_codes: 股票代码列表，None表示全市场
+        start_date_str: 开始日期 (YYYYMMDD)，None表示默认起始
+        end_date_str: 结束日期 (YYYYMMDD)，None表示最近交易日
+    
+    Returns:
+        Dict: 调度结果
+    """
+    try:
+        logger.info(f"开始调度持有时间矩阵计算任务")
+        # 解析日期
+        if start_date_str:
+            start_date = parse_date(start_date_str)
+        else:
+            start_date = parse_date(ChipTaskConfig.DEFAULT_START_DATE)
+        if end_date_str:
+            end_date = parse_date(end_date_str)
+        else:
+            end_date = get_last_trade_date()
+        logger.info(f"持有矩阵计算日期范围: {start_date} 到 {end_date}")
+        # 获取股票列表
+        if stock_codes is None:
+            cache_manager = CacheManager()
+            stock_dao = StockBasicInfoDao(cache_manager)
+            # 同步调用异步方法
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                stock_list = loop.run_until_complete(stock_dao.get_stock_list())
+                stock_codes = [stock.stock_code for stock in stock_list]
+            finally:
+                loop.close()
+        logger.info(f"需要计算持有矩阵的股票数量: {len(stock_codes)}")
+        # 按市场分组
+        market_groups = {}
+        for code in stock_codes:
+            market = get_market_from_code(code)
+            market_groups.setdefault(market, []).append(code)
+        total_tasks = 0
+        # 为每个市场的股票创建任务
+        for market, codes in market_groups.items():
+            # 分批处理
+            for i in range(0, len(codes), ChipTaskConfig.BATCH_SIZE_BULK):
+                batch_codes = codes[i:i + ChipTaskConfig.BATCH_SIZE_BULK]
+                # 创建计算任务
+                task = calculate_holding_matrix_batch.delay(
+                    stock_codes=batch_codes,
+                    start_date=start_date.strftime('%Y%m%d'),
+                    end_date=end_date.strftime('%Y%m%d'),
+                    market=market
+                )
+                total_tasks += 1
+                logger.debug(f"创建持有矩阵批量计算任务 {task.id}: {len(batch_codes)} 只股票")
+        return {
+            'status': 'scheduled',
+            'total_tasks': total_tasks,
+            'mode': 'stock_batch',
+            'total_stocks': len(stock_codes),
+            'date_range': f"{start_date} - {end_date}"
+        }
+    except Exception as e:
+        logger.error(f"调度持有矩阵计算任务失败: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
+
+def schedule_single_stock_comprehensive_calculation(
+    stock_code: str,
+    start_date_str: str = None,
+    end_date_str: str = None
+) -> List[str]:
+    """
+    调度单只股票的综合计算（命令行调用）
+    
+    Returns:
+        List[str]: 任务ID列表
+    """
+    if start_date_str is None:
+        start_date_str = ChipTaskConfig.DEFAULT_START_DATE
+    if end_date_str is None:
+        end_date_str = get_last_trade_date().strftime('%Y%m%d')
+    task_ids = []
+    # 调度筹码因子计算
+    chip_task = calculate_chip_factors_batch.delay(
+        stock_codes=[stock_code],
+        start_date=start_date_str,
+        end_date=end_date_str
+    )
+    task_ids.append(chip_task.id)
+    # 调度持有矩阵计算
+    holding_task = calculate_holding_matrix_batch.delay(
+        stock_codes=[stock_code],
+        start_date=start_date_str,
+        end_date=end_date_str
+    )
+    task_ids.append(holding_task.id)
+    print(f"股票 {stock_code} 综合计算已调度，任务ID列表: {task_ids}")
+    return task_ids
+
 # ========== 监控和状态检查任务 ==========
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.check_chip_factor_status',queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_LOW)
 def check_chip_factor_status(date_str: Optional[str] = None,market: Optional[str] = None) -> Dict:
@@ -965,27 +1232,52 @@ def weekly_chip_factor_maintenance(self) -> Dict:
         return {'status': 'error', 'error': str(e)}
 
 # ========== 工具函数 ==========
-def schedule_comprehensive_calculation(start_date_str: str = None,end_date_str: str = None,market: str = None) -> str:
+def schedule_comprehensive_calculation(
+    start_date_str: str = None,
+    end_date_str: str = None,
+    market: str = None,
+    include_chip_factors: bool = True,
+    include_holding_matrix: bool = True
+) -> List[str]:
     """
-    调度综合计算（命令行调用）
+    调度综合计算（命令行调用），同时计算筹码因子和持有时间矩阵
+    
+    Args:
+        start_date_str: 开始日期
+        end_date_str: 结束日期
+        market: 市场标识
+        include_chip_factors: 是否包含筹码因子计算
+        include_holding_matrix: 是否包含持有矩阵计算
     
     Returns:
-        str: 任务ID
+        List[str]: 任务ID列表
     """
+    task_ids = []
     if start_date_str is None:
         start_date_str = ChipTaskConfig.DEFAULT_START_DATE
-    
     if end_date_str is None:
         end_date_str = get_last_trade_date().strftime('%Y%m%d')
-    
-    task = schedule_chip_factor_calculation.delay(
-        stock_codes=None,
-        start_date_str=start_date_str,
-        end_date_str=end_date_str,
-        batch_mode=True
-    )
-    
-    return task.id
+    # 调度筹码因子计算
+    if include_chip_factors:
+        chip_task = schedule_chip_factor_calculation.delay(
+            stock_codes=None,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str,
+            batch_mode=True
+        )
+        task_ids.append(chip_task.id)
+        logger.info(f"筹码因子计算任务已调度: {chip_task.id}")
+    # 调度持有时间矩阵计算
+    if include_holding_matrix:
+        holding_task = schedule_holding_matrix_calculation.delay(
+            stock_codes=None,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str
+        )
+        task_ids.append(holding_task.id)
+        logger.info(f"持有时间矩阵计算任务已调度: {holding_task.id}")
+    print(f"综合计算已调度，任务ID列表: {task_ids}")
+    return task_ids
 
 def schedule_single_stock_calculation(stock_code: str,start_date_str: str = None,end_date_str: str = None) -> str:
     """
