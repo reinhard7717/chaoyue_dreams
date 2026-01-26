@@ -214,36 +214,41 @@ class ChipFactorBase(models.Model):
         null=True, blank=True
     )
     
-    # 高位筹码沉淀比例 (成本高于当前价N%的筹码)
+    # ========== 高位筹码沉淀比例 ==========
     high_position_lock_ratio_90 = models.FloatField(
         verbose_name='90%分位以上筹码占比',
-        help_text='成本在90-100分位的筹码占比，反映高位套牢盘'
+        help_text='成本在90-100分位的筹码占比，反映高位套牢盘',
+        default=0.0  # 添加默认值
     )
     
-    # 主力成本区间锁定度
+    # ========== 主力成本区间锁定度 ==========
     main_cost_range_ratio = models.FloatField(
         verbose_name='主力成本区间锁定比例',
-        help_text='(cost_50pct±10%)区间筹码占比，反映主力控盘度'
+        help_text='(cost_50pct±10%)区间筹码占比，反映主力控盘度',
+        default=0.5  # 添加默认值
     )
     
-    # 筹码平均持有时间
+    # ========== 筹码平均持有时间 ==========
     avg_holding_days = models.FloatField(
         verbose_name='平均持有时长(天)',
-        help_text='基于换手率推算的筹码平均持有时间'
+        help_text='基于换手率推算的筹码平均持有时间',
+        default=100.0  # 添加默认值
     )
     
-    # 长线锁定筹码（基于历史分布变化推算）
+    # ========== 长线锁定筹码 ==========
     long_term_chip_ratio = models.FloatField(
         verbose_name='长线锁定筹码比例(>60日)',
         null=True, blank=True,
-        help_text='基于历史筹码分布变化推算的长线锁定筹码'
+        help_text='基于历史筹码分布变化推算的长线锁定筹码',
+        default=0.5  # 添加默认值
     )
-    
-    # 短线交易筹码（基于换手率推算）
+
+    # ========== 短线交易筹码 ==========
     short_term_chip_ratio = models.FloatField(
         verbose_name='短线筹码比例(<5日)',
         null=True, blank=True,
-        help_text='基于换手率推算的短线交易筹码占比'
+        help_text='基于换手率推算的短线交易筹码占比',
+        default=0.2  # 添加默认值
     )
     
     # ========== 趋势与反转信号 ==========
