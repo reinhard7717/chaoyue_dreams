@@ -476,13 +476,13 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
         # 检查是否已存在
         existing = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=trade_date).first)()
         if existing:
-            print(f"💾 [保存因子] 更新现有记录")
+            print(f"💾 [保存因子] {stock.stock_code} {trade_date} 更新现有记录")
             for key, value in factors.items():
                 setattr(existing, key, value)
             await sync_to_async(existing.save)()
-            print(f"💾 [保存因子] 记录更新完成")
+            print(f"💾 [保存因子] {stock.stock_code} {trade_date} 记录更新完成")
         else:
-            print(f"💾 [保存因子] 创建新记录")
+            print(f"💾 [保存因子] {stock.stock_code} {trade_date} 创建新记录")
             # 创建新记录，确保所有字符串值都正确处理编码
             sanitized_factors = {}
             for key, value in factors.items():
@@ -500,10 +500,10 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
                 else:
                     sanitized_factors[key] = value
             await sync_to_async(chip_factor_model.objects.create)(stock=stock, trade_time=trade_date, **sanitized_factors)
-            print(f"💾 [保存因子] 新记录创建完成")
+            print(f"💾 [保存因子] {stock.stock_code} {trade_date} 新记录创建完成")
     except Exception as e:
-        logger.error(f"保存筹码因子失败: {e}")
-        print(f"❌ [保存因子异常] {e}")
+        logger.error(f"保存筹码因子失败: {stock.stock_code} {trade_date} - {e}")
+        print(f"❌ [保存因子异常] {stock.stock_code} {trade_date} - {e}")
         import traceback
         traceback.print_exc()
         raise
