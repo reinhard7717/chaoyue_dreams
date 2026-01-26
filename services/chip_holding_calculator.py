@@ -156,17 +156,22 @@ class ChipHoldingService:
         return results
     
     async def _fetch_required_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
-        """获取计算所需的所有数据（异步版本）"""
+        """获取计算所需的所有数据（异步版本，使用交易日历）"""
         try:
             from django.db.models import Q
-            import pytz
             from stock_models.time_trade import StockDailyBasic
+            from stock_models.index import TradeCalendar
             from asgiref.sync import sync_to_async
             # 转换日期
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
-            start_date = trade_date_dt - timedelta(days=lookback_days)
+            # 使用交易日历获取回溯的起始交易日
+            start_date = TradeCalendar.get_trade_date_offset(trade_date_dt, -lookback_days)
+            if not start_date:
+                print(f"⚠️ [数据获取] 无法获取 {lookback_days} 个交易日前的日期，使用自然日计算")
+                start_date = trade_date_dt - timedelta(days=lookback_days * 2)  # 乘以2确保覆盖足够天数
             data = {}
-            print(f"🟢 [数据获取开始] 股票: {stock_code}, 日期: {trade_date}, 回溯天数: {lookback_days}")
+            print(f"🟢 [数据获取开始] 股票: {stock_code}, 日期: {trade_date}, 回溯交易日: {lookback_days}")
+            print(f"📅 [交易日历] 计算日期范围: {start_date} 到 {trade_date_dt}")
             # 1. 获取1分钟数据
             minute_model = self.get_minute_data_model(stock_code, '1')
             if minute_model:
@@ -186,7 +191,7 @@ class ChipHoldingService:
                     print(f"📊 [逐笔数据] 记录数: {len(tick_records) if tick_records else 0}")
                 else:
                     print(f"⚠️ [逐笔数据] 模型不存在")
-            # 3. 获取筹码分布数据 - 这是关键数据源
+            # 3. 获取筹码分布数据
             chips_model = self.get_chips_model(stock_code)
             print(f"🔍 [筹码模型] 获取模型: {chips_model}")
             if chips_model is None:
@@ -199,37 +204,31 @@ class ChipHoldingService:
                 chip_dist_current_list = await sync_to_async(list)(chip_dist_current_qs)
                 print(f"📊 [当前筹码查询] 原始记录数: {len(chip_dist_current_list)}")
                 if chip_dist_current_list:
-                    # 转换为DataFrame
                     data['chip_dist_current'] = pd.DataFrame(chip_dist_current_list)
                     print(f"📊 [当前筹码] DataFrame记录数: {len(data['chip_dist_current'])}")
-                    print(f"📊 [当前筹码] 列名: {list(data['chip_dist_current'].columns)}")
-                    print(f"📊 [当前筹码] 前3行数据:")
-                    print(data['chip_dist_current'].head(3))
                 else:
                     data['chip_dist_current'] = pd.DataFrame()
                     print(f"⚠️ [当前筹码] 无当日筹码数据")
-                # 获取历史筹码分布数据 - 按日期分组
-                chip_dist_historical_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lt=trade_date_dt).order_by('trade_time')
-                chip_dist_historical_list = await sync_to_async(list)(chip_dist_historical_qs.values('trade_time', 'price', 'percent'))
-                print(f"📊 [历史筹码查询] 原始记录数: {len(chip_dist_historical_list)}")
-                # 按日期分组历史数据
+                # 获取历史筹码分布数据 - 获取日期范围内的所有交易日
+                trade_dates = TradeCalendar.get_trade_dates_between(start_date, trade_date_dt - timedelta(days=1))
+                print(f"📅 [历史筹码] 获取 {len(trade_dates)} 个交易日的数据")
+                # 分批获取历史筹码数据
                 historical_by_date = {}
-                for record in chip_dist_historical_list:
-                    date_key = str(record['trade_time'])
-                    if date_key not in historical_by_date:
-                        historical_by_date[date_key] = []
-                    historical_by_date[date_key].append({'price': record['price'], 'percent': record['percent']})
+                for trade_date_obj in trade_dates:
+                    daily_chips_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_obj).values('price', 'percent')
+                    daily_chips_list = await sync_to_async(list)(daily_chips_qs)
+                    if daily_chips_list:
+                        historical_by_date[str(trade_date_obj)] = daily_chips_list
                 # 转换为需要的格式：每日一个字典列表
                 data['chip_dists'] = list(historical_by_date.values())
-                print(f"📊 [历史筹码分组] 共 {len(historical_by_date)} 个交易日的数据")
-                # 显示各交易日的数据量
+                print(f"📊 [历史筹码分组] 共 {len(historical_by_date)} 个交易日有筹码数据")
+                # 显示前几个交易日的数据量
                 for date_key, records in list(historical_by_date.items())[:5]:
                     print(f"   {date_key}: {len(records)} 条价格记录")
-                if len(historical_by_date) > 5:
-                    print(f"   共{len(historical_by_date)}天数据，显示前5天")
-            # 4. 获取日线数据（用于换手率）
+            # 4. 获取日线数据（用于换手率）- 获取交易日数据
             daily_model = self.get_daily_data_model(stock_code)
             if daily_model:
+                # 获取日期范围内的所有交易日数据
                 daily_qs = daily_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).order_by('trade_time').values('trade_time', 'vol', 'amount')
                 daily_data = await sync_to_async(list)(daily_qs)
                 data['daily_data'] = pd.DataFrame(list(daily_data))
@@ -237,11 +236,11 @@ class ChipHoldingService:
             else:
                 print(f"⚠️ [日线数据] 模型不存在")
                 data['daily_data'] = pd.DataFrame()
-            # 5. 获取自由流通股本 - 修复这个问题
+            # 5. 获取自由流通股本
             basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
             basic_data = await sync_to_async(basic_qs.first)()
             if basic_data and basic_data.free_share:
-                data['float_shares'] = float(basic_data.free_share) * 10000  # 万→股
+                data['float_shares'] = float(basic_data.free_share) * 10000
                 print(f"📊 [自由流通股本] 从数据库获取: {basic_data.free_share}万 → {data['float_shares']}股")
             else:
                 # 尝试获取最近的有效数据
@@ -252,7 +251,7 @@ class ChipHoldingService:
                     data['float_shares'] = float(recent_basic_data.free_share) * 10000
                     print(f"📊 [自由流通股本] 使用最近数据({recent_basic_data.trade_time}): {data['float_shares']}股")
                 else:
-                    data['float_shares'] = 100000000  # 默认1亿股
+                    data['float_shares'] = 100000000
                     print(f"⚠️ [自由流通股本] 使用默认值: {data['float_shares']}股")
             # 6. 计算价格范围
             if 'chip_dist_current' in data and not data['chip_dist_current'].empty:
@@ -265,14 +264,13 @@ class ChipHoldingService:
                 all_prices = []
                 if 'chip_dists' in data and data['chip_dists']:
                     for daily_dist in data['chip_dists']:
-                        if daily_dist:  # 确保不是空列表
+                        if daily_dist:
                             for item in daily_dist:
                                 if isinstance(item, dict) and 'price' in item:
                                     all_prices.append(item['price'])
                 if all_prices:
                     price_min = min(all_prices)
                     price_max = max(all_prices)
-                    # 扩展价格范围10%
                     padding = (price_max - price_min) * 0.1
                     price_min = max(0.01, price_min - padding)
                     price_max = price_max + padding
@@ -283,7 +281,6 @@ class ChipHoldingService:
                     print(f"⚠️ [价格范围] 无价格数据，使用默认范围: 1.0 - 100.0")
             # 7. 计算日换手率
             if not data['daily_data'].empty and data['float_shares'] > 0:
-                # 确保有足够的列
                 if 'vol' in data['daily_data'].columns:
                     data['daily_turnover'] = data['daily_data']['vol'] * 100 / data['float_shares']
                     print(f"📊 [日换手率] 计算完成，数据长度: {len(data['daily_turnover'])}")
@@ -294,16 +291,7 @@ class ChipHoldingService:
                 print(f"⚠️ [日换手率] 计算失败，日线数据空: {data['daily_data'].empty}, 流通股本: {data['float_shares']}")
                 data['daily_turnover'] = pd.Series()
             print(f"✅ [数据获取完成] 共获取{len(data)}个数据集")
-            # 打印关键数据状态
-            chip_dists_count = len(data.get('chip_dists', []))
-            chip_current_count = len(data.get('chip_dist_current', pd.DataFrame()))
-            print(f"📋 [数据摘要] 筹码历史天数: {chip_dists_count}, 当前筹码条数: {chip_current_count}")
-            # 验证数据结构
-            if chip_dists_count > 0:
-                first_day = data['chip_dists'][0]
-                print(f"📋 [数据结构] 第一天数据: {len(first_day) if first_day else 0}条, 类型: {type(first_day)}")
-                if first_day and len(first_day) > 0:
-                    print(f"📋 [数据结构] 第一条记录: {first_day[0]}")
+            print(f"📋 [数据摘要] 筹码历史天数: {len(data.get('chip_dists', []))}, 当前筹码条数: {len(data.get('chip_dist_current', pd.DataFrame()))}")
             return data
         except Exception as e:
             logger.error(f"获取数据失败 {stock_code}: {e}", exc_info=True)
@@ -780,58 +768,89 @@ class ChipHoldingService:
             'turnover_adjustment': 0.02,
             'price_position': 0.5
         }
-    
-    def save_holding_matrix_to_db(
-        self,
-        stock_code: str,
-        trade_date: str,
-        result: Dict[str, any]
-    ) -> bool:
+
+    def save_holding_matrix_to_db(self, stock_code: str, trade_date: str, result: Dict[str, any]) -> bool:
         """
         将持有时间矩阵保存到数据库
         需要先创建对应的数据库模型
         """
         try:
+            print(f"💾 [保存矩阵] 开始保存持有矩阵: {stock_code} {trade_date}")
             # 压缩矩阵数据（可以保存为JSON或二进制）
             import json
             import base64
             import pickle
             ChipHoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
+            print(f"💾 [保存矩阵] 获取模型: {ChipHoldingMatrixModel}")
             # 将矩阵转换为可存储格式
             if 'holding_matrix' in result and result['holding_matrix'].size > 0:
                 # 方法1：保存为JSON（适合小矩阵）
-                matrix_data = {
-                    'matrix': result['holding_matrix'].tolist(),
-                    'price_grid': result['price_grid'].tolist() if 'price_grid' in result else []
-                }
-                # 方法2：保存为压缩二进制（推荐）
-                matrix_bytes = pickle.dumps(result['holding_matrix'])
-                compressed_data = base64.b64encode(matrix_bytes).decode('utf-8')
-                # 创建或更新记录
-                holding_record, created = ChipHoldingMatrixModel.objects.update_or_create(
-                    stock__stock_code=stock_code,
-                    trade_time=trade_date,
-                    defaults={
-                        'short_term_ratio': result['factors'].get('short_term_ratio', 0),
-                        'long_term_ratio': result['factors'].get('long_term_ratio', 0),
-                        'avg_holding_days': result['factors'].get('avg_holding_days', 0),
-                        'matrix_data': json.dumps(matrix_data),  # 或保存压缩数据
-                        'calc_status': result.get('calc_status', 'failed'),
-                        'validation_score': result.get('validation', {}).get('score', 0)
+                try:
+                    matrix_data = {
+                        'matrix': result['holding_matrix'].tolist(),
+                        'price_grid': result['price_grid'].tolist() if 'price_grid' in result else []
                     }
-                )
-                return True
+                    # 将JSON数据转换为字符串
+                    matrix_json = json.dumps(matrix_data, ensure_ascii=False)
+                    print(f"💾 [保存矩阵] JSON数据长度: {len(matrix_json)}")
+                except Exception as e:
+                    print(f"⚠️ [保存矩阵] JSON转换失败: {e}")
+                    matrix_json = "{}"
+                # 方法2：保存为压缩二进制（推荐）
+                try:
+                    matrix_bytes = pickle.dumps(result['holding_matrix'])
+                    compressed_data = base64.b64encode(matrix_bytes).decode('utf-8')
+                    print(f"💾 [保存矩阵] 压缩数据长度: {len(compressed_data)}")
+                except Exception as e:
+                    print(f"⚠️ [保存矩阵] 二进制压缩失败: {e}")
+                    compressed_data = ""
+                # 准备保存的数据
+                defaults = {
+                    'short_term_ratio': result['factors'].get('short_term_ratio', 0),
+                    'mid_term_ratio': result['factors'].get('mid_term_ratio', 0),
+                    'long_term_ratio': result['factors'].get('long_term_ratio', 0),
+                    'avg_holding_days': result['factors'].get('avg_holding_days', 0),
+                    'matrix_data': matrix_json,  # 保存JSON数据
+                    'compressed_matrix': compressed_data,  # 保存压缩数据
+                    'calc_status': result.get('calc_status', 'failed'),
+                    'validation_score': result.get('validation', {}).get('score', 0)
+                }
+                print(f"💾 [保存矩阵] 准备保存的字段: {list(defaults.keys())}")
+                # 转换trade_date为date对象
+                try:
+                    trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
+                    print(f"💾 [保存矩阵] 交易日期转换: {trade_date} -> {trade_date_dt}")
+                except:
+                    trade_date_dt = datetime.strptime(trade_date, "%Y%m%d").date()
+                # 创建或更新记录
+                try:
+                    holding_record, created = ChipHoldingMatrixModel.objects.update_or_create(
+                        stock__stock_code=stock_code,
+                        trade_time=trade_date_dt,
+                        defaults=defaults
+                    )
+                    print(f"💾 [保存矩阵] 保存{'成功' if created else '已更新'}: ID={holding_record.id}")
+                    return True
+                except Exception as e:
+                    print(f"❌ [保存矩阵] 数据库操作失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return False
+            else:
+                print(f"⚠️ [保存矩阵] 无有效的持有矩阵数据")
+                return False
         except Exception as e:
             logger.error(f"保存持有矩阵失败 {stock_code} {trade_date}: {e}")
+            print(f"❌ [保存矩阵异常] {e}")
+            import traceback
+            traceback.print_exc()
             return False
-        return False
 
-
-# 快速计算函数（保持向后兼容）
-def calculate_holding_factors_daily(stock_code: str, trade_date: str) -> Dict[str, float]:
-    """
-    快速计算持有时间因子（简化接口）
-    """
-    service = ChipHoldingService(use_tick_data=True)
-    result = service.calculate_holding_matrix_daily(stock_code, trade_date)
-    return result.get('factors', {})
+    # 快速计算函数（保持向后兼容）
+    def calculate_holding_factors_daily(stock_code: str, trade_date: str) -> Dict[str, float]:
+        """
+        快速计算持有时间因子（简化接口）
+        """
+        service = ChipHoldingService(use_tick_data=True)
+        result = service.calculate_holding_matrix_daily(stock_code, trade_date)
+        return result.get('factors', {})
