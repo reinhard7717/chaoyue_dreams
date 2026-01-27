@@ -805,7 +805,7 @@ class ChipHoldingService:
                     print(f"⚠️ [保存矩阵] 二进制压缩失败: {e}")
                     import traceback
                     traceback.print_exc()
-                # 准备保存的数据
+                # 准备保存的数据 - 只包含 ChipHoldingMatrix 模型中存在的字段
                 defaults = {
                     'short_term_ratio': result['factors'].get('short_term_ratio', 0),
                     'mid_term_ratio': result['factors'].get('mid_term_ratio', 0),
@@ -815,8 +815,8 @@ class ChipHoldingService:
                     'compressed_matrix': compressed_data,  # 保存压缩数据（已经是bytes）
                     'calc_status': result.get('calc_status', 'failed'),
                     'validation_score': result.get('validation', {}).get('score', 0),
-                    'high_position_lock_ratio_90': result['factors'].get('high_position_lock_ratio_90', 0),
-                    'main_cost_range_ratio': result['factors'].get('main_cost_range_ratio', 0.5)
+                    # 注意：high_position_lock_ratio_90 和 main_cost_range_ratio 是 ChipFactor 模型的字段
+                    # 不应该在这里保存到 ChipHoldingMatrix 模型
                 }
                 print(f"💾 [保存矩阵] 准备保存的字段: {list(defaults.keys())}")
                 # 转换trade_date为date对象

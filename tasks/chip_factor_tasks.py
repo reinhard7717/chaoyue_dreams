@@ -648,6 +648,7 @@ async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
             if record:
                 key_fields = ['chip_mean', 'chip_std', 'chip_concentration_ratio', 
                              'avg_holding_days', 'short_term_chip_ratio', 'long_term_chip_ratio',
+                             'main_cost_range_ratio', 'high_position_lock_ratio_90',  # 添加这两个字段
                              'calc_status', 'create_time', 'update_time']
                 for field in key_fields:
                     if hasattr(record, field):
@@ -865,9 +866,18 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
         # 准备数据
         chip_perf_dict = {'weight_avg': chip_perf.weight_avg, 'his_high': chip_perf.his_high, 'his_low': chip_perf.his_low, 'cost_5pct': chip_perf.cost_5pct, 'cost_15pct': chip_perf.cost_15pct, 'cost_50pct': chip_perf.cost_50pct, 'cost_85pct': chip_perf.cost_85pct, 'cost_95pct': chip_perf.cost_95pct, 'winner_rate': chip_perf.winner_rate}
         daily_kline_dict = {'close': daily_kline.close_qfq, 'open': daily_kline.open_qfq, 'high': daily_kline.high_qfq, 'low': daily_kline.low_qfq, 'vol': daily_kline.vol, 'amount': daily_kline.amount, 'pct_change': daily_kline.pct_change}
-        # 计算基础因子
+        # 计算基础因子（包含main_cost_range_ratio和high_position_lock_ratio_90的计算）
         factors = ChipFactorCalculator.calculate_complete_factors(chip_perf_data=chip_perf_dict, chip_dist_data=chips_df, daily_basic_data={}, daily_kline_data=daily_kline_dict, prev_chip_dist_data=prev_chips_df, historical_prices=historical_prices, historical_chip_factors=historical_factors)
         print(f"📊 [单日计算] 计算基础因子完成，字段数量：{len(factors)}")
+        # 打印关键字段检查
+        if 'main_cost_range_ratio' in factors:
+            print(f"📊 [单日计算] main_cost_range_ratio: {factors['main_cost_range_ratio']:.4f}")
+        else:
+            print(f"⚠️ [单日计算] main_cost_range_ratio 未计算")
+        if 'high_position_lock_ratio_90' in factors:
+            print(f"📊 [单日计算] high_position_lock_ratio_90: {factors['high_position_lock_ratio_90']:.4f}")
+        else:
+            print(f"⚠️ [单日计算] high_position_lock_ratio_90 未计算")
         # 尝试从数据库加载持有时间矩阵因子
         try:
             from utils.model_helpers import get_chip_holding_matrix_model_by_code
@@ -884,31 +894,23 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
                 short_term = factors.get('short_term_chip_ratio', 0.2)
                 long_term = factors.get('long_term_chip_ratio', 0.5)
                 factors['mid_term_ratio'] = max(0, 1.0 - short_term - long_term)
-                # 如果数据库中也保存了其他相关因子，一并加载
-                if hasattr(holding_record, 'main_cost_range_ratio'):
-                    factors['main_cost_range_ratio'] = holding_record.main_cost_range_ratio
-                if hasattr(holding_record, 'high_position_lock_ratio_90'):
-                    factors['high_position_lock_ratio_90'] = holding_record.high_position_lock_ratio_90
                 print(f"📊 [单日计算] 从数据库加载持有时间因子成功")
             else:
                 print(f"⚠️ [单日计算] 未找到已计算的持有矩阵，使用ChipFactorCalculator中的逻辑计算相关因子")
         except Exception as e:
             print(f"⚠️ [单日计算] 加载持有矩阵因子失败：{e}，使用ChipFactorCalculator中的逻辑")
-        # 检查并确保关键因子有值（使用ChipFactorCalculator中的计算逻辑作为fallback）
-        if 'main_cost_range_ratio' not in factors or factors['main_cost_range_ratio'] <= 0:
-            # 使用筹码分布数据计算主力成本区间锁定度
-            main_range_ratio = ChipFactorCalculator.calculate_main_cost_range_ratio(chips_df, chip_perf_dict.get('cost_50pct', 0))
-            factors['main_cost_range_ratio'] = main_range_ratio
-            print(f"📊 [单日计算] 计算main_cost_range_ratio: {main_range_ratio}")
-        if 'high_position_lock_ratio_90' not in factors or factors['high_position_lock_ratio_90'] < 0:
-            # 使用筹码分布数据计算高位筹码沉淀比例
-            high_lock_ratio = ChipFactorCalculator.calculate_high_position_lock_ratio_90(chips_df, daily_kline_dict.get('close', 0))
-            factors['high_position_lock_ratio_90'] = high_lock_ratio
-            print(f"📊 [单日计算] 计算high_position_lock_ratio_90: {high_lock_ratio}")
         # 保存筹码因子
         print(f"💾 [单日计算] 开始保存筹码因子")
         await save_chip_factors(chip_factor_model, stock, trade_date, factors)
         print(f"💾 [单日计算] 因子保存完成，总计字段数：{len(factors)}")
+        # 验证保存的字段
+        verify_result = await verify_chip_factor_saved(stock_code, trade_date)
+        if verify_result.get('exists'):
+            print(f"✅ [单日计算] 验证通过: {stock_code} {trade_date} 已保存到数据库")
+            if 'field_main_cost_range_ratio' in verify_result:
+                print(f"📊 [单日计算] 保存的main_cost_range_ratio: {verify_result['field_main_cost_range_ratio']}")
+            if 'field_high_position_lock_ratio_90' in verify_result:
+                print(f"📊 [单日计算] 保存的high_position_lock_ratio_90: {verify_result['field_high_position_lock_ratio_90']}")
         return {'status': 'success', 'message': '计算完成'}
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 日期 {trade_date} 失败: {e}")
