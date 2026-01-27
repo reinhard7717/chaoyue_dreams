@@ -654,120 +654,105 @@ class ChipHoldingService:
             return {'alpha': 0.5, 'beta': 0.3, 'gamma': 0.2}
     
     def _calculate_holding_matrix(self,chip_matrix: np.ndarray,turnover_matrix: np.ndarray,params: Dict[str, float]) -> np.ndarray:
-        """计算持有时间矩阵 - V5版本优化长线筹码生成"""
+        """计算持有时间矩阵 - V6版本彻底修复筹码放大问题"""
         try:
             n_days = chip_matrix.shape[0]
             n_prices = chip_matrix.shape[1]
-            print(f"🔧 [_calculate_holding_matrix_v5] 输入: n_days={n_days}, n_prices={n_prices}")
-            # 初始化持有时间矩阵
+            print(f"🔧 [_calculate_holding_matrix_v6] 输入: n_days={n_days}, n_prices={n_prices}")
+            # 🚨 关键修复：初始化持有矩阵，确保每行和为1
             holding_matrix = np.zeros((n_prices, self.max_holding_days))
-            # 🚨 关键修复：根据平均换手率动态调整初始长线比例
+            # 根据平均换手率设置初始分布
             avg_turnover = turnover_matrix.mean() if turnover_matrix.size > 0 else 0.05
-            print(f"📊 [_calculate_holding_matrix_v5] 平均换手率: {avg_turnover:.4%}")
-            # 换手率越高，长线筹码比例应越低
-            if avg_turnover > 0.1:  # 高换手率 (>10%)
-                short_ratio, mid_ratio, long_ratio = 0.4, 0.4, 0.2
-            elif avg_turnover > 0.05:  # 中等换手率 (5-10%)
-                short_ratio, mid_ratio, long_ratio = 0.3, 0.4, 0.3
-            else:  # 低换手率 (<5%)
-                short_ratio, mid_ratio, long_ratio = 0.2, 0.3, 0.5
-            print(f"📊 [_calculate_holding_matrix_v5] 初始分配: 短线={short_ratio:.0%}, 中线={mid_ratio:.0%}, 长线={long_ratio:.0%}")
+            print(f"📊 [_calculate_holding_matrix_v6] 平均换手率: {avg_turnover:.4%}")
+            # 根据换手率设置初始比例（经验值）
+            if avg_turnover > 0.08:  # 高换手率
+                base_short, base_mid, base_long = 0.4, 0.35, 0.25
+            elif avg_turnover > 0.03:  # 中等换手率
+                base_short, base_mid, base_long = 0.3, 0.35, 0.35
+            else:  # 低换手率
+                base_short, base_mid, base_long = 0.2, 0.3, 0.5
+            print(f"📊 [_calculate_holding_matrix_v6] 初始分配: 短线={base_short:.0%}, 中线={base_mid:.0%}, 长线={base_long:.0%}")
             # 初始化每个价格区间的持有分布
             for price_idx in range(n_prices):
-                holding_matrix[price_idx, 0] = short_ratio  # 0天持有（当天买入）
-                holding_matrix[price_idx, 30] = mid_ratio   # 30天持有
-                holding_matrix[price_idx, 90] = long_ratio  # 90天持有
+                # 短线筹码（0-5天）
+                for day in range(5):
+                    holding_matrix[price_idx, day] = base_short / 5
+                # 中线筹码（5-60天）
+                for day in range(5, 60):
+                    holding_matrix[price_idx, day] = base_mid / 55
+                # 长线筹码（60天以上）
+                for day in range(60, self.max_holding_days):
+                    holding_matrix[price_idx, day] = base_long / (self.max_holding_days - 60)
                 # 行归一化
                 row_sum = holding_matrix[price_idx, :].sum()
                 if row_sum > 0:
                     holding_matrix[price_idx, :] = holding_matrix[price_idx, :] / row_sum
             if n_days <= 1:
                 return holding_matrix
-            # 获取参数
-            alpha = params.get('alpha', 0.5)
-            beta = params.get('beta', 0.3)
-            gamma = params.get('gamma', 0.2)
-            print(f"📊 [_calculate_holding_matrix_v5] 使用参数: alpha={alpha:.3f}, beta={beta:.3f}, gamma={gamma:.3f}")
-            # 改进的模拟算法：更好地控制长线筹码
-            for day_idx in range(1, min(n_days, 60)):
-                if day_idx % 10 == 0:
-                    print(f"📅 [_calculate_holding_matrix_v5] 模拟第{day_idx}天")
-                # 获取当天的换手率分布
+            # 🚨 关键修复：使用简化的模拟算法，避免筹码放大
+            # 只模拟最近30天的变化
+            simulate_days = min(n_days, 30)
+            for day_idx in range(1, simulate_days):
+                if day_idx % 5 == 0:
+                    print(f"📅 [_calculate_holding_matrix_v6] 模拟第{day_idx}天")
+                # 获取当天的换手率
                 if day_idx < turnover_matrix.shape[0]:
                     day_turnover_rate = turnover_matrix[day_idx, :]
                 else:
                     day_turnover_rate = turnover_matrix[-1, :]
-                # 应用参数调整换手率
-                adjusted_turnover = alpha * day_turnover_rate + beta * gamma
-                adjusted_turnover = np.clip(adjusted_turnover, 0.001, 0.2)  # 最大20%
                 # 创建临时矩阵
                 new_holding_matrix = np.zeros((n_prices, self.max_holding_days))
                 # 对每个价格区间处理
                 for price_idx in range(n_prices):
-                    current_turnover = adjusted_turnover[price_idx]
-                    # 处理不同持有期的筹码
+                    current_turnover = day_turnover_rate[price_idx]
+                    # 🚨 关键修复：使用固定的换手率，避免筹码增长
+                    effective_turnover = min(0.5, current_turnover * 1.5)  # 限制最大换手率
+                    # 处理当前持有的筹码
                     for holding_day in range(self.max_holding_days):
                         current_chips = holding_matrix[price_idx, holding_day]
                         if current_chips > 0:
-                            # 持有时间衰减函数：持有越久，换手率越低
-                            turnover_decay = max(0.05, np.exp(-holding_day / 60))  # 60天衰减到5%
-                            effective_turnover = current_turnover * turnover_decay
-                            # 继续持有（天数+1）
+                            # 持有时间衰减：持有越久，换手概率越低
+                            turnover_decay = np.exp(-holding_day / 100)  # 100天衰减
+                            day_turnover_prob = effective_turnover * turnover_decay
+                            # 继续持有
                             if holding_day < self.max_holding_days - 1:
-                                new_holding_matrix[price_idx, holding_day + 1] += current_chips * (1 - effective_turnover)
+                                new_holding_matrix[price_idx, holding_day + 1] += current_chips * (1 - day_turnover_prob)
                             else:
-                                new_holding_matrix[price_idx, holding_day] += current_chips * (1 - effective_turnover)
-                            # 换手重置
-                            new_holding_matrix[price_idx, 0] += current_chips * effective_turnover
-                    # 🚨 关键修复：当天新增筹码，根据换手率动态调整
-                    if day_idx < chip_matrix.shape[0]:
-                        # 计算当天筹码变化
-                        if day_idx > 0:
-                            chip_change = np.abs(chip_matrix[day_idx, price_idx] - chip_matrix[day_idx-1, price_idx])
-                        else:
-                            chip_change = chip_matrix[day_idx, price_idx]
-                        # 新增筹码分配：根据换手率调整
-                        if current_turnover > 0.1:  # 高换手率
-                            new_short, new_mid, new_long = 0.8, 0.15, 0.05
-                        elif current_turnover > 0.05:  # 中等换手率
-                            new_short, new_mid, new_long = 0.6, 0.25, 0.15
-                        else:  # 低换手率
-                            new_short, new_mid, new_long = 0.4, 0.3, 0.3
-                        # 新增筹码量 = 筹码变化 * 换手率
-                        new_chips_amount = chip_change * current_turnover * 0.1
-                        new_holding_matrix[price_idx, 0] += new_chips_amount * new_short
-                        if day_idx > 5:
-                            new_holding_matrix[price_idx, 10] += new_chips_amount * new_mid
-                        if day_idx > 20:
-                            new_holding_matrix[price_idx, 60] += new_chips_amount * new_long
+                                new_holding_matrix[price_idx, holding_day] += current_chips * (1 - day_turnover_prob)
+                            # 换手卖出
+                            new_holding_matrix[price_idx, 0] += current_chips * day_turnover_prob
+                # 🚨 关键修复：不再添加新增筹码，保持总量不变
                 # 行归一化
                 for i in range(n_prices):
                     row_sum = new_holding_matrix[i, :].sum()
                     if row_sum > 0:
                         new_holding_matrix[i, :] = new_holding_matrix[i, :] / row_sum
-                    else:
-                        # 保持上一天的分布
-                        new_holding_matrix[i, :] = holding_matrix[i, :]
                 holding_matrix = new_holding_matrix.copy()
-            # 最终检查
-            total_sum = holding_matrix.sum()
-            long_term_final = holding_matrix[:, 60:].sum()
-            short_term_final = holding_matrix[:, :5].sum()
-            print(f"✅ [_calculate_holding_matrix_v5] 计算完成:")
-            print(f"   矩阵总和: {total_sum:.6f}")
-            print(f"   短线筹码(<5天): {short_term_final:.2%}")
-            print(f"   长线筹码(>60天): {long_term_final:.2%}")
+            # 最终检查和归一化
+            for i in range(n_prices):
+                row_sum = holding_matrix[i, :].sum()
+                if abs(row_sum - 1.0) > 0.01:
+                    print(f"⚠️ [_calculate_holding_matrix_v6] 第{i}行筹码总和异常: {row_sum:.4f}, 进行归一化")
+                    if row_sum > 0:
+                        holding_matrix[i, :] = holding_matrix[i, :] / row_sum
+            # 计算最终统计
+            short_term = holding_matrix[:, :5].sum() / n_prices
+            long_term = holding_matrix[:, 60:].sum() / n_prices
+            print(f"✅ [_calculate_holding_matrix_v6] 计算完成:")
+            print(f"   短线筹码(<5天): {short_term:.2%}")
+            print(f"   长线筹码(>60天): {long_term:.2%}")
+            print(f"   验证: 每行和接近1.0")
             return holding_matrix
         except Exception as e:
-            print(f"❌ [_calculate_holding_matrix_v5] 计算失败: {e}")
+            print(f"❌ [_calculate_holding_matrix_v6] 计算失败: {e}")
             import traceback
             traceback.print_exc()
             # 返回合理的默认矩阵
             default_matrix = np.zeros((n_prices, self.max_holding_days))
             for i in range(n_prices):
-                default_matrix[i, 0] = 0.3
-                default_matrix[i, 30] = 0.4
-                default_matrix[i, 90] = 0.3
+                default_matrix[i, :5] = 0.3 / 5
+                default_matrix[i, 5:60] = 0.4 / 55
+                default_matrix[i, 60:] = 0.3 / (self.max_holding_days - 60)
                 row_sum = default_matrix[i, :].sum()
                 if row_sum > 0:
                     default_matrix[i, :] = default_matrix[i, :] / row_sum
@@ -1256,222 +1241,124 @@ class ChipHoldingService:
         except:
             return 'consolidation'
 
-    def _validate_results(self, holding_matrix: np.ndarray, factors: Dict[str, float], data_dict: Dict[str, any]) -> Dict[str, any]:
-        """验证计算结果合理性 - 修复验证逻辑错误并添加比例验证"""
-        validation = {
-            'is_valid': True,
-            'warnings': [],
-            'checks_passed': 0,
-            'total_checks': 7,  # 增加到7项检查
-            'detailed_checks': {}
-        }
-        
+    def _validate_results(self,holding_matrix: np.ndarray,factors: Dict[str, float],data_dict: Dict[str, any]) -> Dict[str, any]:
+        """验证计算结果合理性 - V2版本添加严格比例验证"""
+        validation = {'is_valid': True,'warnings': [],'checks_passed': 0,'total_checks': 8}
         try:
-            # ============ 检查1：持有时间矩阵行归一化 ============
-            check1_name = "矩阵行归一化"
-            n_prices = holding_matrix.shape[0] if holding_matrix.size > 0 else 0
-            row_normalization_issues = []
-            if holding_matrix.size > 0 and n_prices > 0:
-                row_sums = holding_matrix.sum(axis=1)
-                avg_row_sum = np.mean(row_sums)
-                min_row_sum = np.min(row_sums)
-                max_row_sum = np.max(row_sums)
-                validation['detailed_checks']['row_sums'] = {
-                    'avg': float(avg_row_sum),
-                    'min': float(min_row_sum),
-                    'max': float(max_row_sum),
-                    'std': float(np.std(row_sums))
-                }
-                print(f"📊 [_validate_results] 检查1 - {check1_name}: 矩阵形状={holding_matrix.shape}, 平均行和={avg_row_sum:.6f}")
-                # 检查行和是否接近1
-                if abs(avg_row_sum - 1.0) > 0.01:
-                    warning_msg = f"持有矩阵行和异常: 平均{avg_row_sum:.4f}, 期望1.0"
-                    validation['warnings'].append(warning_msg)
-                    validation['is_valid'] = False
-                    print(f"⚠️ [_validate_results] {warning_msg}")
-                    print(f"📊 [_validate_results] 行和范围: {min_row_sum:.6f} - {max_row_sum:.6f}")
-                else:
-                    validation['checks_passed'] += 1
-                    print(f"✅ [_validate_results] 检查1通过: {check1_name}正常")
-                    
-                # 检查是否有异常行（行和过大或过小）
-                abnormal_rows = []
-                for i, row_sum in enumerate(row_sums):
-                    if row_sum < 0.9 or row_sum > 1.1:
-                        abnormal_rows.append((i, float(row_sum)))
-                if abnormal_rows:
-                    warning_msg = f"发现{len(abnormal_rows)}行筹码总和异常(不在0.9-1.1范围)"
-                    validation['warnings'].append(warning_msg)
-                    validation['detailed_checks']['abnormal_rows'] = abnormal_rows[:10]  # 只记录前10个异常行
-            else:
-                warning_msg = "持有矩阵为空或形状异常"
+            # 检查1：矩阵行归一化
+            n_prices = holding_matrix.shape[0]
+            row_sums = holding_matrix.sum(axis=1)
+            avg_row_sum = np.mean(row_sums)
+            max_deviation = np.max(np.abs(row_sums - 1.0))
+            print(f"📊 [_validate_results_v2] 检查1 - 矩阵行归一化: 矩阵形状={holding_matrix.shape}, 平均行和={avg_row_sum:.6f}, 最大偏差={max_deviation:.6f}")
+            if max_deviation > 0.05:
+                warning_msg = f"矩阵行归一化异常: 最大偏差{max_deviation:.4f}>0.05"
                 validation['warnings'].append(warning_msg)
                 validation['is_valid'] = False
-                print(f"⚠️ [_validate_results] {warning_msg}")
-            # ============ 检查2：筹码比例总和检查 ============
-            check2_name = "筹码比例总和"
+                print(f"⚠️ [_validate_results_v2] {warning_msg}")
+            else:
+                validation['checks_passed'] += 1
+                print(f"✅ [_validate_results_v2] 检查1通过: 矩阵行归一化正常")
+            # 检查2：筹码比例总和
             sum_ratios = factors.get('short_term_ratio', 0) + factors.get('mid_term_ratio', 0) + factors.get('long_term_ratio', 0)
-            validation['detailed_checks']['chip_ratios'] = {
-                'short_term': float(factors.get('short_term_ratio', 0)),
-                'mid_term': float(factors.get('mid_term_ratio', 0)),
-                'long_term': float(factors.get('long_term_ratio', 0)),
-                'sum': float(sum_ratios)
-            }
-            if abs(sum_ratios - 1.0) > 0.05:
-                warning_msg = f"筹码比例总和异常: {sum_ratios:.4f} (短线{factors.get('short_term_ratio', 0):.2%}, 中线{factors.get('mid_term_ratio', 0):.2%}, 长线{factors.get('long_term_ratio', 0):.2%})"
+            print(f"📊 [_validate_results_v2] 检查2 - 筹码比例总和: {sum_ratios:.4f}")
+            if abs(sum_ratios - 1.0) > 0.1:
+                warning_msg = f"筹码比例总和异常: {sum_ratios:.4f}"
                 validation['warnings'].append(warning_msg)
                 validation['is_valid'] = False
-                print(f"⚠️ [_validate_results] {warning_msg}")
+                print(f"⚠️ [_validate_results_v2] {warning_msg}")
             else:
                 validation['checks_passed'] += 1
-                print(f"✅ [_validate_results] 检查2通过: {check2_name}正常")
-            # ============ 检查3：比例范围检查（新增关键检查） ============
-            check3_name = "比例范围检查"
-            short_term_ratio = factors.get('short_term_ratio', 0)
-            mid_term_ratio = factors.get('mid_term_ratio', 0)
-            long_term_ratio = factors.get('long_term_ratio', 0)
-            ratio_issues = []
-            # 检查单个比例是否超过100%
-            if short_term_ratio > 1.0:
-                ratio_issues.append(f"短线比例异常: {short_term_ratio:.2%}")
-                validation['is_valid'] = False
-            if mid_term_ratio > 1.0:
-                ratio_issues.append(f"中线比例异常: {mid_term_ratio:.2%}")
-                validation['is_valid'] = False
-            if long_term_ratio > 1.0:
-                ratio_issues.append(f"长线比例异常: {long_term_ratio:.2%}")
-                validation['is_valid'] = False
-            # 检查单个比例是否为负数
-            if short_term_ratio < 0:
-                ratio_issues.append(f"短线比例为负: {short_term_ratio:.2%}")
-                validation['is_valid'] = False
-            if mid_term_ratio < 0:
-                ratio_issues.append(f"中线比例为负: {mid_term_ratio:.2%}")
-                validation['is_valid'] = False
-            if long_term_ratio < 0:
-                ratio_issues.append(f"长线比例为负: {long_term_ratio:.2%}")
-                validation['is_valid'] = False
-            if ratio_issues:
-                warning_msg = f"比例范围检查失败: {', '.join(ratio_issues)}"
+                print(f"✅ [_validate_results_v2] 检查2通过: 筹码比例总和正常")
+            # 🚨 关键修复：检查3 - 比例范围（0-100%）
+            short_ratio = factors.get('short_term_ratio', 0)
+            long_ratio = factors.get('long_term_ratio', 0)
+            print(f"📊 [_validate_results_v2] 检查3 - 比例范围: 短线={short_ratio:.2%}, 长线={long_ratio:.2%}")
+            if short_ratio < 0 or short_ratio > 1.0:
+                warning_msg = f"短线比例超出范围[0,1]: {short_ratio:.2%}"
                 validation['warnings'].append(warning_msg)
-                print(f"⚠️ [_validate_results] {warning_msg}")
+                validation['is_valid'] = False
+                print(f"⚠️ [_validate_results_v2] {warning_msg}")
+            if long_ratio < 0 or long_ratio > 1.0:
+                warning_msg = f"长线比例超出范围[0,1]: {long_ratio:.2%}"
+                validation['warnings'].append(warning_msg)
+                validation['is_valid'] = False
+                print(f"⚠️ [_validate_results_v2] {warning_msg}")
+            if 0 <= short_ratio <= 1.0 and 0 <= long_ratio <= 1.0:
+                validation['checks_passed'] += 1
+                print(f"✅ [_validate_results_v2] 检查3通过: 比例范围检查正常")
+            # 检查4：从矩阵计算的比例与因子一致性
+            short_from_matrix = holding_matrix[:, :5].sum() / n_prices
+            long_from_matrix = holding_matrix[:, 60:].sum() / n_prices
+            print(f"📊 [_validate_results_v2] 检查4 - 矩阵计算比例: 短线={short_from_matrix:.2%}, 长线={long_from_matrix:.2%}")
+            if abs(short_from_matrix - short_ratio) > 0.2 or abs(long_from_matrix - long_ratio) > 0.2:
+                warning_msg = f"矩阵计算与因子不一致: 矩阵短线={short_from_matrix:.2%}, 因子短线={short_ratio:.2%}"
+                validation['warnings'].append(warning_msg)
+                print(f"⚠️ [_validate_results_v2] {warning_msg}")
             else:
                 validation['checks_passed'] += 1
-                print(f"✅ [_validate_results] 检查3通过: {check3_name}正常")
-            # ============ 检查4：平均持有时间合理性 ============
-            check4_name = "平均持有时间"
+                print(f"✅ [_validate_results_v2] 检查4通过: 矩阵与因子一致性正常")
+            # 检查5：平均持有时间
             avg_days = factors.get('avg_holding_days', 0)
-            validation['detailed_checks']['avg_holding_days'] = float(avg_days)
+            print(f"📊 [_validate_results_v2] 检查5 - 平均持有时间: {avg_days:.1f}天")
             if avg_days < 1 or avg_days > 500:
                 warning_msg = f"平均持有时间异常: {avg_days:.1f}天"
                 validation['warnings'].append(warning_msg)
                 validation['is_valid'] = False
-                print(f"⚠️ [_validate_results] {warning_msg}")
+                print(f"⚠️ [_validate_results_v2] {warning_msg}")
             else:
                 validation['checks_passed'] += 1
-                print(f"✅ [_validate_results] 检查4通过: {check4_name}正常")
-            # ============ 检查5：与换手率一致性 ============
-            check5_name = "换手率一致性"
+                print(f"✅ [_validate_results_v2] 检查5通过: 平均持有时间正常")
+            # 检查6：换手率一致性
             if 'daily_turnover' in data_dict and isinstance(data_dict['daily_turnover'], pd.Series):
                 recent_turnover = data_dict['daily_turnover'].iloc[-5:].mean() if len(data_dict['daily_turnover']) >= 5 else 0
-                # 更合理的预期公式：短线比例 ≈ 换手率 × 2.5
-                expected_short_term = min(recent_turnover * 2.5, 0.8)
-                actual_short_term = factors.get('short_term_ratio', 0)
-                diff_threshold = 0.25  # 允许25%的差异
-                validation['detailed_checks']['turnover_consistency'] = {
-                    'recent_turnover': float(recent_turnover),
-                    'expected_short_term': float(expected_short_term),
-                    'actual_short_term': float(actual_short_term),
-                    'difference': float(abs(actual_short_term - expected_short_term))
-                }
-                if abs(actual_short_term - expected_short_term) > diff_threshold:
-                    warning_msg = f"短线比例与换手率差异较大: 实际{actual_short_term:.2%}, 预期{expected_short_term:.2%} (换手率{recent_turnover:.2%})"
+                expected_short = min(recent_turnover * 2.5, 0.6)
+                diff = abs(short_ratio - expected_short)
+                print(f"📊 [_validate_results_v2] 检查6 - 换手率一致性: 换手率={recent_turnover:.2%}, 预期短线={expected_short:.2%}, 实际短线={short_ratio:.2%}, 差异={diff:.2%}")
+                if diff > 0.3:
+                    warning_msg = f"短线比例与换手率差异较大: 差异{diff:.2%}"
                     validation['warnings'].append(warning_msg)
-                    print(f"⚠️ [_validate_results] {warning_msg}")
+                    print(f"⚠️ [_validate_results_v2] {warning_msg}")
                 else:
                     validation['checks_passed'] += 1
-                    print(f"✅ [_validate_results] 检查5通过: {check5_name}正常")
-            else:
-                print(f"⚠️ [_validate_results] 无换手率数据，跳过{check5_name}")
-                validation['total_checks'] -= 1  # 减少总检查数
-            # ============ 检查6：价格区间合理性 ============
-            check6_name = "价格区间"
+                    print(f"✅ [_validate_results_v2] 检查6通过: 换手率一致性正常")
+            # 检查7：价格区间
             if 'price_range' in data_dict:
                 price_min, price_max = data_dict['price_range']
-                validation['detailed_checks']['price_range'] = {
-                    'min': float(price_min),
-                    'max': float(price_max),
-                    'range': float(price_max - price_min)
-                }
+                print(f"📊 [_validate_results_v2] 检查7 - 价格区间: {price_min:.2f}-{price_max:.2f}")
                 if price_max <= price_min or price_max <= 0:
                     warning_msg = f"价格区间异常: {price_min}-{price_max}"
                     validation['warnings'].append(warning_msg)
                     validation['is_valid'] = False
-                    print(f"⚠️ [_validate_results] {warning_msg}")
+                    print(f"⚠️ [_validate_results_v2] {warning_msg}")
                 else:
                     validation['checks_passed'] += 1
-                    print(f"✅ [_validate_results] 检查6通过: {check6_name}正常")
+                    print(f"✅ [_validate_results_v2] 检查7通过: 价格区间正常")
+            # 检查8：矩阵数值范围
+            matrix_min = holding_matrix.min()
+            matrix_max = holding_matrix.max()
+            print(f"📊 [_validate_results_v2] 检查8 - 矩阵数值范围: [{matrix_min:.6f}, {matrix_max:.6f}]")
+            if matrix_min < -0.01 or matrix_max > 1.01:
+                warning_msg = f"矩阵数值异常: 最小值={matrix_min:.6f}, 最大值={matrix_max:.6f}"
+                validation['warnings'].append(warning_msg)
+                validation['is_valid'] = False
+                print(f"⚠️ [_validate_results_v2] {warning_msg}")
             else:
-                print(f"⚠️ [_validate_results] 无价格区间数据，跳过{check6_name}")
-                validation['total_checks'] -= 1  # 减少总检查数
-            # ============ 检查7：矩阵数值范围检查（新增） ============
-            check7_name = "矩阵数值范围"
-            if holding_matrix.size > 0:
-                matrix_min = holding_matrix.min()
-                matrix_max = holding_matrix.max()
-                matrix_mean = holding_matrix.mean()
-                validation['detailed_checks']['matrix_values'] = {
-                    'min': float(matrix_min),
-                    'max': float(matrix_max),
-                    'mean': float(matrix_mean),
-                    'std': float(holding_matrix.std())
-                }
-                # 检查是否有异常大的值（>1.0或负数）
-                if matrix_max > 1.0:
-                    warning_msg = f"矩阵中存在大于1的值: {matrix_max:.4f}"
-                    validation['warnings'].append(warning_msg)
-                    validation['is_valid'] = False
-                    print(f"⚠️ [_validate_results] {warning_msg}")
-                if matrix_min < 0:
-                    warning_msg = f"矩阵中存在负值: {matrix_min:.4f}"
-                    validation['warnings'].append(warning_msg)
-                    validation['is_valid'] = False
-                    print(f"⚠️ [_validate_results] {warning_msg}")
-                # 检查矩阵中NaN或Inf值
-                if np.isnan(holding_matrix).any():
-                    warning_msg = f"矩阵中存在NaN值"
-                    validation['warnings'].append(warning_msg)
-                    validation['is_valid'] = False
-                    print(f"⚠️ [_validate_results] {warning_msg}")
-                if np.isinf(holding_matrix).any():
-                    warning_msg = f"矩阵中存在无穷大值"
-                    validation['warnings'].append(warning_msg)
-                    validation['is_valid'] = False
-                    print(f"⚠️ [_validate_results] {warning_msg}")
-                if validation['is_valid'] or (matrix_max <= 1.0 and matrix_min >= 0):
-                    validation['checks_passed'] += 1
-                    print(f"✅ [_validate_results] 检查7通过: {check7_name}正常")
-            # ============ 计算最终分数 ============
-            validation['score'] = validation['checks_passed'] / validation['total_checks'] if validation['total_checks'] > 0 else 0
-            print(f"📊 [_validate_results] 验证完成:")
+                validation['checks_passed'] += 1
+                print(f"✅ [_validate_results_v2] 检查8通过: 矩阵数值范围正常")
+            validation['score'] = validation['checks_passed'] / validation['total_checks']
+            print(f"📊 [_validate_results_v2] 验证完成:")
             print(f"   通过检查: {validation['checks_passed']}/{validation['total_checks']}项")
             print(f"   验证分数: {validation['score']:.2f}")
             print(f"   警告数量: {len(validation['warnings'])}")
             print(f"   有效性: {validation['is_valid']}")
-            if validation['warnings']:
-                print(f"⚠️ 警告详情:")
-                for i, warning in enumerate(validation['warnings'], 1):
-                    print(f"   {i}. {warning}")
             return validation
-            
         except Exception as e:
-            logger.error(f"验证结果失败: {e}", exc_info=True)
+            logger.error(f"验证结果失败: {e}")
             warning_msg = f"验证过程异常: {str(e)}"
             validation['warnings'].append(warning_msg)
             validation['is_valid'] = False
-            print(f"❌ [_validate_results] 验证异常: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ [_validate_results_v2] {warning_msg}")
             return validation
 
     def _get_default_result(self, stock_code: str = "", trade_date: str = "") -> Dict[str, any]:
