@@ -1177,7 +1177,24 @@ class ChipFactorCalculator:
                     # 设置默认值
                     factors['volatility_adjusted_concentration'] = factors.get('chip_concentration_ratio', 0.5)
                     factors['chip_rsi_divergence'] = 0.0
-            # 如果上述因子没有计算出来，设置默认值
+            # 10. 确保关键因子被计算：主力成本区间锁定度和高位筹码沉淀比例
+            # 检查并计算 main_cost_range_ratio
+            if 'main_cost_range_ratio' not in factors:
+                cost_50pct = chip_perf_data.get('cost_50pct')
+                if cost_50pct:
+                    factors['main_cost_range_ratio'] = ChipFactorCalculator.calculate_main_cost_range_ratio(chip_dist_data, cost_50pct)
+                else:
+                    factors['main_cost_range_ratio'] = 0.5
+                    print(f"⚠️ [calculate_complete_factors] cost_50pct缺失，main_cost_range_ratio使用默认值0.5")
+            # 检查并计算 high_position_lock_ratio_90
+            if 'high_position_lock_ratio_90' not in factors:
+                current_price = daily_kline_data.get('close', 0)
+                if current_price > 0:
+                    factors['high_position_lock_ratio_90'] = ChipFactorCalculator.calculate_high_position_lock_ratio_90(chip_dist_data, current_price)
+                else:
+                    factors['high_position_lock_ratio_90'] = 0.0
+                    print(f"⚠️ [calculate_complete_factors] 当前价格无效，high_position_lock_ratio_90使用默认值0.0")
+            # 如果上述其他因子没有计算出来，设置默认值
             if 'peak_migration_speed_5d' not in factors:
                 factors['peak_migration_speed_5d'] = 0.0
             if 'chip_stability_change_5d' not in factors:
@@ -1409,6 +1426,72 @@ class ChipFactorCalculator:
             logger.error(f"计算主力行为因子失败: {e}")
             return {'accumulation_intensity': 0, 'distribution_intensity': 0}
 
+    @staticmethod
+    def calculate_main_cost_range_ratio(chip_dist_data: pd.DataFrame, cost_50pct: float) -> float:
+        """
+        基于筹码分布数据计算主力成本区间锁定比例 (main_cost_range_ratio)
+        逻辑: 计算筹码成本在成本中位数(cost_50pct)上下10%区间内的筹码占比
+        """
+        try:
+            if chip_dist_data.empty or cost_50pct <= 0:
+                print(f"⚠️ [calculate_main_cost_range_ratio] 输入数据无效，返回默认值0.5")
+                return 0.5
+            lower_bound = cost_50pct * 0.9
+            upper_bound = cost_50pct * 1.1
+            # 筛选在主力成本区间的筹码
+            main_mask = (chip_dist_data['price'] >= lower_bound) & (chip_dist_data['price'] <= upper_bound)
+            if not main_mask.any():
+                print(f"⚠️ [calculate_main_cost_range_ratio] 无筹码落在主力成本区间[{lower_bound:.2f}, {upper_bound:.2f}]，返回0")
+                return 0.0
+            main_chip_sum = chip_dist_data.loc[main_mask, 'percent'].sum()
+            total_chip_sum = chip_dist_data['percent'].sum()
+            if total_chip_sum <= 0:
+                return 0.0
+            ratio = main_chip_sum / total_chip_sum
+            print(f"📊 [calculate_main_cost_range_ratio] 计算完成: {ratio:.4f} (区间: {lower_bound:.2f}-{upper_bound:.2f})")
+            return float(ratio)
+        except Exception as e:
+            print(f"❌ [calculate_main_cost_range_ratio] 计算失败: {e}，返回默认值0.5")
+            return 0.5
+    @staticmethod
+    def calculate_high_position_lock_ratio_90(chip_dist_data: pd.DataFrame, current_price: float) -> float:
+        """
+        基于筹码分布数据计算90%分位以上高位筹码沉淀比例 (high_position_lock_ratio_90)
+        逻辑: 计算价格高于“当前价格90%分位”的筹码占比，用于反映高位套牢盘。
+             如果当前价格很低，则计算价格高于“筹码分布价格90%分位”的筹码占比。
+        """
+        try:
+            if chip_dist_data.empty or current_price <= 0:
+                print(f"⚠️ [calculate_high_position_lock_ratio_90] 输入数据无效，返回默认值0.0")
+                return 0.0
+            # 方法1: 基于当前价格计算90%分位阈值
+            price_threshold_1 = current_price * 1.0  # 当前价格的100%作为阈值（即高于当前价的筹码）
+            # 方法2: 基于筹码分布自身计算90%价格分位
+            sorted_chips = chip_dist_data.sort_values('price')
+            cum_pct = sorted_chips['percent'].cumsum()
+            # 找到累计占比达到90%的价格点
+            if (cum_pct >= 0.9).any():
+                idx_90 = (cum_pct >= 0.9).idxmax()
+                price_threshold_2 = sorted_chips.loc[idx_90, 'price']
+            else:
+                price_threshold_2 = sorted_chips['price'].max()
+            # 使用两者中较高的作为阈值，更严格反映“高位”
+            price_threshold = max(price_threshold_1, price_threshold_2)
+            # 计算高于阈值的筹码占比
+            high_mask = chip_dist_data['price'] >= price_threshold
+            if not high_mask.any():
+                print(f"⚠️ [calculate_high_position_lock_ratio_90] 无筹码高于阈值{price_threshold:.2f}，返回0")
+                return 0.0
+            high_chip_sum = chip_dist_data.loc[high_mask, 'percent'].sum()
+            total_chip_sum = chip_dist_data['percent'].sum()
+            if total_chip_sum <= 0:
+                return 0.0
+            ratio = high_chip_sum / total_chip_sum
+            print(f"📊 [calculate_high_position_lock_ratio_90] 计算完成: {ratio:.4f} (阈值: {price_threshold:.2f}, 当前价: {current_price:.2f})")
+            return float(ratio)
+        except Exception as e:
+            print(f"❌ [calculate_high_position_lock_ratio_90] 计算失败: {e}，返回默认值0.0")
+            return 0.0
 
 
 
