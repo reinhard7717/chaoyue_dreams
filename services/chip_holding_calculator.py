@@ -544,7 +544,7 @@ class ChipHoldingService:
             total_volume = 0
             
             for _, row in minute_data.iterrows():
-                minute_volume = row['vol'] * 100  # 转换为股
+                minute_volume = row['vol']
                 total_volume += minute_volume
                 low_price = row['low']
                 high_price = row['high']
@@ -585,7 +585,7 @@ class ChipHoldingService:
                 return base_dist
             # 基于逐笔数据计算更精确的分布
             tick_prices = tick_data['price'].values
-            tick_volumes = tick_data['volume'].values * 100  # 转换为股
+            tick_volumes = tick_data['volume'].values
             # 使用核密度估计
             if len(tick_prices) > 10:
                 # 训练KDE模型
