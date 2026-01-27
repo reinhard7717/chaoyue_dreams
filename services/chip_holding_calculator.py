@@ -29,7 +29,7 @@ class ChipHoldingService:
     """
     基于1分钟数据和逐笔数据的精确筹码持有时间计算服务
     """
-    def __init__(self, cache_manager_instance: CacheManager, use_tick_data: bool = True):
+    def __init__(self, use_tick_data: bool = True, cache_manager_instance: CacheManager = None):
         """
         初始化计算服务
         Args:
