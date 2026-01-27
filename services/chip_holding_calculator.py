@@ -654,228 +654,223 @@ class ChipHoldingService:
             return {'alpha': 0.5, 'beta': 0.3, 'gamma': 0.2}
     
     def _calculate_holding_matrix(self,chip_matrix: np.ndarray,turnover_matrix: np.ndarray,params: Dict[str, float]) -> np.ndarray:
-        """计算持有时间矩阵 - V6版本彻底修复筹码放大问题"""
+        """计算持有时间矩阵 - V7版本使用状态转移模型确保筹码守恒"""
         try:
             n_days = chip_matrix.shape[0]
             n_prices = chip_matrix.shape[1]
-            print(f"🔧 [_calculate_holding_matrix_v6] 输入: n_days={n_days}, n_prices={n_prices}")
-            # 🚨 关键修复：初始化持有矩阵，确保每行和为1
+            print(f"🔧 [_calculate_holding_matrix] 输入: n_days={n_days}, n_prices={n_prices}")
+            # 🚨 V7核心修复：使用状态转移概率矩阵，确保筹码守恒
+            # 初始化持有矩阵，每行代表一个价格区间，每列代表持有天数
             holding_matrix = np.zeros((n_prices, self.max_holding_days))
-            # 根据平均换手率设置初始分布
+            # 基于换手率设置初始状态
             avg_turnover = turnover_matrix.mean() if turnover_matrix.size > 0 else 0.05
-            print(f"📊 [_calculate_holding_matrix_v6] 平均换手率: {avg_turnover:.4%}")
-            # 根据换手率设置初始比例（经验值）
+            print(f"📊 [_calculate_holding_matrix] 平均换手率: {avg_turnover:.4%}")
+            # 根据换手率确定初始分布
+            # 高换手率：短线筹码更多
+            # 低换手率：长线筹码更多
             if avg_turnover > 0.08:  # 高换手率
-                base_short, base_mid, base_long = 0.4, 0.35, 0.25
-            elif avg_turnover > 0.03:  # 中等换手率
-                base_short, base_mid, base_long = 0.3, 0.35, 0.35
+                short_ratio, mid_ratio, long_ratio = 0.35, 0.40, 0.25
+            elif avg_turnover > 0.03:  # 中换手率
+                short_ratio, mid_ratio, long_ratio = 0.25, 0.40, 0.35
             else:  # 低换手率
-                base_short, base_mid, base_long = 0.2, 0.3, 0.5
-            print(f"📊 [_calculate_holding_matrix_v6] 初始分配: 短线={base_short:.0%}, 中线={base_mid:.0%}, 长线={base_long:.0%}")
-            # 初始化每个价格区间的持有分布
+                short_ratio, mid_ratio, long_ratio = 0.15, 0.35, 0.50
+            print(f"📊 [_calculate_holding_matrix] 初始分配比例: 短线={short_ratio:.0%}, 中线={mid_ratio:.0%}, 长线={long_ratio:.0%}")
+            # 🚨 V7关键修复：为每个价格区间设置独立的初始分布
             for price_idx in range(n_prices):
-                # 短线筹码（0-5天）
-                for day in range(5):
-                    holding_matrix[price_idx, day] = base_short / 5
-                # 中线筹码（5-60天）
-                for day in range(5, 60):
-                    holding_matrix[price_idx, day] = base_mid / 55
-                # 长线筹码（60天以上）
-                for day in range(60, self.max_holding_days):
-                    holding_matrix[price_idx, day] = base_long / (self.max_holding_days - 60)
-                # 行归一化
+                # 为该价格区间的所有筹码分配持有时间分布
+                # 短线：0-5天
+                short_days = 5
+                # 中线：5-60天
+                mid_days = 55
+                # 长线：60天以上
+                long_days = self.max_holding_days - 60
+                # 计算每个持有区间的概率密度
+                holding_matrix[price_idx, :short_days] = short_ratio / short_days
+                holding_matrix[price_idx, short_days:short_days+mid_days] = mid_ratio / mid_days
+                holding_matrix[price_idx, short_days+mid_days:] = long_ratio / long_days
+                # 🚨 关键：每行必须严格归一化为1
                 row_sum = holding_matrix[price_idx, :].sum()
-                if row_sum > 0:
+                if abs(row_sum - 1.0) > 1e-6:
                     holding_matrix[price_idx, :] = holding_matrix[price_idx, :] / row_sum
-            if n_days <= 1:
-                return holding_matrix
-            # 🚨 关键修复：使用简化的模拟算法，避免筹码放大
-            # 只模拟最近30天的变化
-            simulate_days = min(n_days, 30)
-            for day_idx in range(1, simulate_days):
-                if day_idx % 5 == 0:
-                    print(f"📅 [_calculate_holding_matrix_v6] 模拟第{day_idx}天")
-                # 获取当天的换手率
-                if day_idx < turnover_matrix.shape[0]:
-                    day_turnover_rate = turnover_matrix[day_idx, :]
-                else:
-                    day_turnover_rate = turnover_matrix[-1, :]
-                # 创建临时矩阵
-                new_holding_matrix = np.zeros((n_prices, self.max_holding_days))
-                # 对每个价格区间处理
-                for price_idx in range(n_prices):
-                    current_turnover = day_turnover_rate[price_idx]
-                    # 🚨 关键修复：使用固定的换手率，避免筹码增长
-                    effective_turnover = min(0.5, current_turnover * 1.5)  # 限制最大换手率
-                    # 处理当前持有的筹码
-                    for holding_day in range(self.max_holding_days):
-                        current_chips = holding_matrix[price_idx, holding_day]
-                        if current_chips > 0:
-                            # 持有时间衰减：持有越久，换手概率越低
-                            turnover_decay = np.exp(-holding_day / 100)  # 100天衰减
-                            day_turnover_prob = effective_turnover * turnover_decay
-                            # 继续持有
-                            if holding_day < self.max_holding_days - 1:
-                                new_holding_matrix[price_idx, holding_day + 1] += current_chips * (1 - day_turnover_prob)
-                            else:
-                                new_holding_matrix[price_idx, holding_day] += current_chips * (1 - day_turnover_prob)
-                            # 换手卖出
-                            new_holding_matrix[price_idx, 0] += current_chips * day_turnover_prob
-                # 🚨 关键修复：不再添加新增筹码，保持总量不变
-                # 行归一化
+            # 🚨 V7核心：构建状态转移概率矩阵
+            # 如果n_days>1，使用换手率模拟状态转移
+            if n_days > 1:
+                # 只模拟最近的有效天数（最多30天）
+                simulate_days = min(n_days, 30)
+                for day_idx in range(simulate_days):
+                    # 获取当天的换手率向量
+                    if day_idx < turnover_matrix.shape[0]:
+                        day_turnover = turnover_matrix[day_idx, :]
+                    else:
+                        day_turnover = turnover_matrix[-1, :]
+                    # 创建新的状态矩阵
+                    new_holding_matrix = np.zeros((n_prices, self.max_holding_days))
+                    # 对每个价格区间进行状态转移
+                    for price_idx in range(n_prices):
+                        # 获取该价格区间的换手率
+                        price_turnover = min(0.5, day_turnover[price_idx] * 2.0)  # 限制最大换手率
+                        # 构建状态转移概率矩阵
+                        # 规则：
+                        # 1. 每天有price_turnover概率换手（重新开始持有）
+                        # 2. 有(1-price_turnover)概率继续持有（持有天数+1）
+                        # 3. 最大持有天数不变（到达最大值后不再增加）
+                        for holding_day in range(self.max_holding_days):
+                            current_prob = holding_matrix[price_idx, holding_day]
+                            if current_prob > 0:
+                                # 换手概率：持有时间越短，换手概率越高
+                                decay_factor = np.exp(-holding_day / 50.0)  # 50天衰减
+                                turnover_prob = price_turnover * decay_factor
+                                # 状态转移：
+                                # 1. 继续持有（转移到holding_day+1）
+                                continue_prob = current_prob * (1.0 - turnover_prob)
+                                if holding_day < self.max_holding_days - 1:
+                                    new_holding_matrix[price_idx, holding_day + 1] += continue_prob
+                                else:
+                                    # 已经是最大持有天数，保持不变
+                                    new_holding_matrix[price_idx, holding_day] += continue_prob
+                                # 2. 换手卖出（转移到holding_day=0）
+                                turnover_amount = current_prob * turnover_prob
+                                new_holding_matrix[price_idx, 0] += turnover_amount
+                    # 🚨 V7关键修复：严格归一化，确保每行和为1
+                    for price_idx in range(n_prices):
+                        row_sum = new_holding_matrix[price_idx, :].sum()
+                        if row_sum > 0:
+                            new_holding_matrix[price_idx, :] = new_holding_matrix[price_idx, :] / row_sum
+                        else:
+                            # 如果行和为0，使用初始分布
+                            new_holding_matrix[price_idx, :] = holding_matrix[price_idx, :]
+                    holding_matrix = new_holding_matrix.copy()
+                    if day_idx % 10 == 0:
+                        print(f"📅 [_calculate_holding_matrix] 模拟第{day_idx}天完成，平均行和={holding_matrix.mean(axis=1).mean():.6f}")
+            # 🚨 V7最终验证：确保矩阵合理性
+            # 1. 检查每行归一化
+            row_sums = holding_matrix.sum(axis=1)
+            avg_row_sum = row_sums.mean()
+            max_deviation = np.max(np.abs(row_sums - 1.0))
+            print(f"📊 [_calculate_holding_matrix] 最终矩阵检查: 平均行和={avg_row_sum:.6f}, 最大偏差={max_deviation:.6f}")
+            # 2. 如果偏差过大，强制归一化
+            if max_deviation > 0.01:
+                print(f"⚠️ [_calculate_holding_matrix] 矩阵行和偏差较大，强制归一化")
                 for i in range(n_prices):
-                    row_sum = new_holding_matrix[i, :].sum()
-                    if row_sum > 0:
-                        new_holding_matrix[i, :] = new_holding_matrix[i, :] / row_sum
-                holding_matrix = new_holding_matrix.copy()
-            # 最终检查和归一化
-            for i in range(n_prices):
-                row_sum = holding_matrix[i, :].sum()
-                if abs(row_sum - 1.0) > 0.01:
-                    print(f"⚠️ [_calculate_holding_matrix_v6] 第{i}行筹码总和异常: {row_sum:.4f}, 进行归一化")
+                    row_sum = holding_matrix[i, :].sum()
                     if row_sum > 0:
                         holding_matrix[i, :] = holding_matrix[i, :] / row_sum
-            # 计算最终统计
-            short_term = holding_matrix[:, :5].sum() / n_prices
-            long_term = holding_matrix[:, 60:].sum() / n_prices
-            print(f"✅ [_calculate_holding_matrix_v6] 计算完成:")
-            print(f"   短线筹码(<5天): {short_term:.2%}")
-            print(f"   长线筹码(>60天): {long_term:.2%}")
-            print(f"   验证: 每行和接近1.0")
+            # 3. 计算统计指标
+            short_term_ratio = holding_matrix[:, :5].mean(axis=0).sum()
+            long_term_ratio = holding_matrix[:, 60:].mean(axis=0).sum()
+            avg_holding_days = np.sum(holding_matrix * np.arange(self.max_holding_days), axis=1).mean()
+            print(f"✅ [_calculate_holding_matrix] 计算完成:")
+            print(f"   矩阵形状: {holding_matrix.shape}")
+            print(f"   短线筹码(<5天): {short_term_ratio:.2%}")
+            print(f"   长线筹码(>60天): {long_term_ratio:.2%}")
+            print(f"   平均持有天数: {avg_holding_days:.1f}天")
+            print(f"   验证: 每行和≈1.0, 矩阵总和≈{n_prices}")
             return holding_matrix
         except Exception as e:
-            print(f"❌ [_calculate_holding_matrix_v6] 计算失败: {e}")
+            print(f"❌ [_calculate_holding_matrix] 计算失败: {e}")
             import traceback
             traceback.print_exc()
-            # 返回合理的默认矩阵
+            # 返回安全的默认矩阵
+            n_prices = chip_matrix.shape[1] if chip_matrix.shape[1] > 0 else 200
             default_matrix = np.zeros((n_prices, self.max_holding_days))
             for i in range(n_prices):
-                default_matrix[i, :5] = 0.3 / 5
-                default_matrix[i, 5:60] = 0.4 / 55
-                default_matrix[i, 60:] = 0.3 / (self.max_holding_days - 60)
+                default_matrix[i, :5] = 0.2 / 5
+                default_matrix[i, 5:60] = 0.3 / 55
+                default_matrix[i, 60:] = 0.5 / (self.max_holding_days - 60)
                 row_sum = default_matrix[i, :].sum()
                 if row_sum > 0:
                     default_matrix[i, :] = default_matrix[i, :] / row_sum
             return default_matrix
 
     def _calculate_holding_factors(self,holding_matrix: np.ndarray,chip_matrix: np.ndarray,data_dict: Dict[str, any]) -> Dict[str, float]:
-        """计算持有时间相关因子 - 优化短线筹码计算"""
+        """计算持有时间相关因子 - V2版本修复比例计算逻辑"""
         try:
             factors = {}
             if holding_matrix.size == 0:
                 return self._get_default_factors()
             print(f"📊 [_calculate_holding_factors] 持有矩阵形状: {holding_matrix.shape}")
-            # 基础计算
+            # 🚨 V2核心修复：从矩阵正确计算比例
             n_prices = holding_matrix.shape[0]
-            # 计算各种持有时间的筹码比例
-            short_term_mask = np.arange(self.max_holding_days) < 5
-            mid_term_mask = (np.arange(self.max_holding_days) >= 5) & (np.arange(self.max_holding_days) < 60)
-            long_term_mask = np.arange(self.max_holding_days) >= 60
-            short_term_ratios = []
-            mid_term_ratios = []
-            long_term_ratios = []
-            for i in range(n_prices):
-                row_sum = holding_matrix[i, :].sum()
+            # 定义持有时间区间
+            short_days = 5
+            mid_days = 55  # 5-60天
+            long_days = self.max_holding_days - 60
+            # 计算每个价格区间的比例，然后取平均
+            short_ratios = []
+            mid_ratios = []
+            long_ratios = []
+            for price_idx in range(n_prices):
+                row = holding_matrix[price_idx, :]
+                row_sum = row.sum()
                 if row_sum > 0:
-                    row = holding_matrix[i, :] / row_sum
-                    short_term_ratios.append(row[short_term_mask].sum())
-                    mid_term_ratios.append(row[mid_term_mask].sum())
-                    long_term_ratios.append(row[long_term_mask].sum())
-            if short_term_ratios:
-                base_short = float(np.mean(short_term_ratios))
-                base_mid = float(np.mean(mid_term_ratios))
-                base_long = float(np.mean(long_term_ratios))
+                    normalized_row = row / row_sum
+                    short_ratios.append(normalized_row[:short_days].sum())
+                    mid_ratios.append(normalized_row[short_days:short_days+mid_days].sum())
+                    long_ratios.append(normalized_row[short_days+mid_days:].sum())
+            # 计算平均值
+            if short_ratios:
+                base_short = float(np.mean(short_ratios))
+                base_mid = float(np.mean(mid_ratios))
+                base_long = float(np.mean(long_ratios))
             else:
                 base_short = 0.2
                 base_mid = 0.3
                 base_long = 0.5
-            print(f"📊 [基础计算] 短线: {base_short:.2%}, 中线: {base_mid:.2%}, 长线: {base_long:.2%}")
-            # 根据换手率调整短线筹码
+            print(f"📊 [_calculate_holding_factors] 基础比例计算: 短线={base_short:.2%}, 中线={base_mid:.2%}, 长线={base_long:.2%}")
+            # 🚨 V2关键修复：验证比例总和
+            total = base_short + base_mid + base_long
+            if abs(total - 1.0) > 0.01:
+                print(f"⚠️ [_calculate_holding_factors] 基础比例总和异常: {total:.4f}, 进行归一化")
+                if total > 0:
+                    base_short = base_short / total
+                    base_mid = base_mid / total
+                    base_long = base_long / total
+            factors['short_term_ratio'] = base_short
+            factors['mid_term_ratio'] = base_mid
+            factors['long_term_ratio'] = base_long
+            # 计算平均持有时间
+            holding_days = np.arange(self.max_holding_days)
+            avg_days_sum = 0
+            valid_rows = 0
+            for price_idx in range(n_prices):
+                row = holding_matrix[price_idx, :]
+                row_sum = row.sum()
+                if row_sum > 0:
+                    normalized_row = row / row_sum
+                    avg_days_sum += np.sum(normalized_row * holding_days)
+                    valid_rows += 1
+            factors['avg_holding_days'] = float(avg_days_sum / valid_rows if valid_rows > 0 else 100.0)
+            # 计算其他因子
             if 'daily_turnover' in data_dict and isinstance(data_dict['daily_turnover'], pd.Series):
                 turnover_series = data_dict['daily_turnover']
                 if len(turnover_series) >= 5:
                     recent_turnover = turnover_series.iloc[-5:].mean()
-                    # 关键改进：换手率与短线筹码关系
-                    # 高换手率（>10%）：短线筹码应该更高（30-50%）
-                    # 中换手率（5-10%）：适中（20-30%）
-                    # 低换手率（<5%）：较低（10-20%）
-                    if recent_turnover > 0.1:  # 换手率>10%
-                        target_short = min(0.5, base_short * 1.5)
-                        print(f"📊 [换手率调整] 高换手率{recent_turnover:.2%}，提升短线筹码")
-                    elif recent_turnover > 0.05:  # 换手率5-10%
-                        target_short = min(0.35, base_short * 1.2)
-                        print(f"📊 [换手率调整] 中换手率{recent_turnover:.2%}，适度提升短线筹码")
-                    else:  # 换手率<5%
-                        target_short = max(0.1, base_short * 0.8)
-                        print(f"📊 [换手率调整] 低换手率{recent_turnover:.2%}，降低短线筹码")
-                    # 调整比例
-                    short_change = target_short - base_short
-                    total_other = base_mid + base_long
-                    if total_other > 0:
-                        factors['short_term_ratio'] = target_short
-                        factors['mid_term_ratio'] = max(0.05, base_mid - short_change * (base_mid / total_other))
-                        factors['long_term_ratio'] = max(0.05, base_long - short_change * (base_long / total_other))
-                    else:
-                        factors['short_term_ratio'] = base_short
-                        factors['mid_term_ratio'] = base_mid
-                        factors['long_term_ratio'] = base_long
-                else:
-                    factors['short_term_ratio'] = base_short
-                    factors['mid_term_ratio'] = base_mid
-                    factors['long_term_ratio'] = base_long
-            else:
-                factors['short_term_ratio'] = base_short
-                factors['mid_term_ratio'] = base_mid
-                factors['long_term_ratio'] = base_long
-            # 应用A股长线模型（如果可用）
-            if 'chip_dist_current' in data_dict and 'daily_turnover' in data_dict:
-                try:
-                    market_env = {'daily_turnover': data_dict['daily_turnover']}
-                    long_term_model_result = self._calculate_china_a_share_long_term_factors(
-                        stock_code='',
-                        chip_dist_current=data_dict['chip_dist_current'],
-                        historical_data=data_dict.get('daily_data', pd.DataFrame()),
-                        market_environment=market_env
-                    )
-                    if 'final_long_term_ratio' in long_term_model_result:
-                        model_long_term = long_term_model_result['final_long_term_ratio']
-                        # 融合：A股模型主要影响长线比例
-                        blend_factor = 0.6  # 60%权重给A股模型
-                        final_long_term = model_long_term * blend_factor + factors['long_term_ratio'] * (1 - blend_factor)
-                        # 调整其他比例
-                        long_change = final_long_term - factors['long_term_ratio']
-                        total_short_mid = factors['short_term_ratio'] + factors['mid_term_ratio']
-                        if total_short_mid > 0:
-                            factors['long_term_ratio'] = final_long_term
-                            factors['short_term_ratio'] = max(0.05, factors['short_term_ratio'] - long_change * (factors['short_term_ratio'] / total_short_mid))
-                            factors['mid_term_ratio'] = max(0.05, factors['mid_term_ratio'] - long_change * (factors['mid_term_ratio'] / total_short_mid))
-                        print(f"📊 [模型融合] A股模型长线: {model_long_term:.2%}, 最终长线: {final_long_term:.2%}")
-                except Exception as e:
-                    print(f"⚠️ [模型融合] A股长线模型失败: {e}")
-            # 计算平均持有时间
-            holding_days = np.arange(self.max_holding_days)
-            avg_days = 0
-            valid_rows = 0
-            for i in range(n_prices):
-                row_sum = holding_matrix[i, :].sum()
-                if row_sum > 0:
-                    row = holding_matrix[i, :] / row_sum
-                    avg_days += np.sum(row * holding_days)
-                    valid_rows += 1
-            factors['avg_holding_days'] = float(avg_days / valid_rows if valid_rows > 0 else 100.0)
-            # 计算其他因子
-            self._calculate_additional_factors(factors, holding_matrix, data_dict)
-            # 最终归一化确保总和为1
-            total = factors.get('short_term_ratio', 0) + factors.get('mid_term_ratio', 0) + factors.get('long_term_ratio', 0)
-            if total > 0:
-                factors['short_term_ratio'] = factors.get('short_term_ratio', 0) / total
-                factors['mid_term_ratio'] = factors.get('mid_term_ratio', 0) / total
-                factors['long_term_ratio'] = factors.get('long_term_ratio', 0) / total
+                    factors['recent_turnover_5d'] = float(recent_turnover)
+                    print(f"📊 [_calculate_holding_factors] 5日平均换手率: {recent_turnover:.2%}")
+            # 🚨 V2关键修复：应用换手率调整
+            if 'recent_turnover_5d' in factors:
+                turnover_rate = factors['recent_turnover_5d']
+                # 换手率越高，短线筹码应该越多
+                turnover_adjustment = min(2.0, 1.0 + turnover_rate * 5.0)  # 换手率每增加1%，短线筹码增加5%
+                adjusted_short = min(0.6, base_short * turnover_adjustment)
+                # 调整比例，保持总和为1
+                short_change = adjusted_short - base_short
+                factors['short_term_ratio'] = adjusted_short
+                factors['mid_term_ratio'] = base_mid - short_change * (base_mid / (base_mid + base_long))
+                factors['long_term_ratio'] = base_long - short_change * (base_long / (base_mid + base_long))
+                print(f"📊 [_calculate_holding_factors] 换手率调整: 短线从{base_short:.2%}调整到{adjusted_short:.2%}")
+            # 🚨 V2最终归一化确保总和为1
+            total_final = factors['short_term_ratio'] + factors['mid_term_ratio'] + factors['long_term_ratio']
+            if abs(total_final - 1.0) > 0.0001:
+                print(f"⚠️ [_calculate_holding_factors] 最终比例总和异常: {total_final:.4f}, 重新归一化")
+                factors['short_term_ratio'] = factors['short_term_ratio'] / total_final
+                factors['mid_term_ratio'] = factors['mid_term_ratio'] / total_final
+                factors['long_term_ratio'] = factors['long_term_ratio'] / total_final
             print(f"✅ [_calculate_holding_factors] 最终比例:")
-            print(f"   短线筹码: {factors.get('short_term_ratio', 0):.2%}")
-            print(f"   中线筹码: {factors.get('mid_term_ratio', 0):.2%}")
-            print(f"   长线筹码: {factors.get('long_term_ratio', 0):.2%}")
-            print(f"   平均持有: {factors.get('avg_holding_days', 0):.1f}天")
+            print(f"   短线筹码: {factors['short_term_ratio']:.2%}")
+            print(f"   中线筹码: {factors['mid_term_ratio']:.2%}")
+            print(f"   长线筹码: {factors['long_term_ratio']:.2%}")
+            print(f"   平均持有: {factors['avg_holding_days']:.1f}天")
             return factors
         except Exception as e:
             print(f"❌ [_calculate_holding_factors] 计算失败: {e}")
