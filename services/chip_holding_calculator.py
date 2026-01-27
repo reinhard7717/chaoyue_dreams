@@ -420,12 +420,7 @@ class ChipHoldingService:
             logger.error(f"计算分钟成交量分布失败: {e}")
             return np.zeros(len(price_grid))
     
-    def _enhance_with_tick_data(
-        self,
-        base_dist: np.ndarray,
-        tick_data: pd.DataFrame,
-        price_grid: np.ndarray
-    ) -> np.ndarray:
+    def _enhance_with_tick_data(self,base_dist: np.ndarray,tick_data: pd.DataFrame,price_grid: np.ndarray) -> np.ndarray:
         """
         使用逐笔数据增强成交量分布
         """
@@ -464,12 +459,7 @@ class ChipHoldingService:
             logger.error(f"逐笔数据增强失败: {e}")
             return base_dist
     
-    def _calculate_turnover_matrix(
-        self,
-        volume_dist: np.ndarray,
-        chip_matrix: np.ndarray,
-        float_shares: float
-    ) -> np.ndarray:
+    def _calculate_turnover_matrix(self,volume_dist: np.ndarray,chip_matrix: np.ndarray,float_shares: float) -> np.ndarray:
         """
         计算换手率矩阵
         """
@@ -805,13 +795,16 @@ class ChipHoldingService:
                     print(f"⚠️ [保存矩阵] JSON转换失败: {e}")
                     matrix_json = "{}"
                 # 方法2：保存为压缩二进制（推荐）
+                compressed_data = b""  # 初始化为空字节串
                 try:
                     matrix_bytes = pickle.dumps(result['holding_matrix'])
-                    compressed_data = base64.b64encode(matrix_bytes).decode('utf-8')
-                    print(f"💾 [保存矩阵] 压缩数据长度: {len(compressed_data)}")
+                    # 修复编码问题：确保encode方法的正确使用
+                    compressed_data = base64.b64encode(matrix_bytes)
+                    print(f"💾 [保存矩阵] 压缩数据长度: {len(compressed_data)} 字节")
                 except Exception as e:
                     print(f"⚠️ [保存矩阵] 二进制压缩失败: {e}")
-                    compressed_data = ""
+                    import traceback
+                    traceback.print_exc()
                 # 准备保存的数据
                 defaults = {
                     'short_term_ratio': result['factors'].get('short_term_ratio', 0),
@@ -819,9 +812,11 @@ class ChipHoldingService:
                     'long_term_ratio': result['factors'].get('long_term_ratio', 0),
                     'avg_holding_days': result['factors'].get('avg_holding_days', 0),
                     'matrix_data': matrix_json,  # 保存JSON数据
-                    'compressed_matrix': compressed_data,  # 保存压缩数据
+                    'compressed_matrix': compressed_data,  # 保存压缩数据（已经是bytes）
                     'calc_status': result.get('calc_status', 'failed'),
-                    'validation_score': result.get('validation', {}).get('score', 0)
+                    'validation_score': result.get('validation', {}).get('score', 0),
+                    'high_position_lock_ratio_90': result['factors'].get('high_position_lock_ratio_90', 0),
+                    'main_cost_range_ratio': result['factors'].get('main_cost_range_ratio', 0.5)
                 }
                 print(f"💾 [保存矩阵] 准备保存的字段: {list(defaults.keys())}")
                 # 转换trade_date为date对象
@@ -829,11 +824,22 @@ class ChipHoldingService:
                     trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
                     print(f"💾 [保存矩阵] 交易日期转换: {trade_date} -> {trade_date_dt}")
                 except:
-                    trade_date_dt = datetime.strptime(trade_date, "%Y%m%d").date()
+                    try:
+                        trade_date_dt = datetime.strptime(trade_date, "%Y%m%d").date()
+                    except:
+                        print(f"❌ [保存矩阵] 日期格式无法解析: {trade_date}")
+                        return False
+                # 获取股票对象
+                from stock_models.stock_basic import StockInfo
+                try:
+                    stock = StockInfo.objects.get(stock_code=stock_code)
+                except StockInfo.DoesNotExist:
+                    print(f"❌ [保存矩阵] 股票不存在: {stock_code}")
+                    return False
                 # 创建或更新记录
                 try:
                     holding_record, created = ChipHoldingMatrixModel.objects.update_or_create(
-                        stock__stock_code=stock_code,
+                        stock=stock,
                         trade_time=trade_date_dt,
                         defaults=defaults
                     )

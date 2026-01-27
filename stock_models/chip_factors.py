@@ -482,7 +482,15 @@ class ChipHoldingMatrixBase(models.Model):
         try:
             if self.compressed_matrix:
                 # 从二进制数据加载
-                matrix_bytes = base64.b64decode(self.compressed_matrix)
+                # 注意：compressed_matrix 已经是 base64 编码的 bytes
+                if isinstance(self.compressed_matrix, bytes):
+                    matrix_bytes = base64.b64decode(self.compressed_matrix)
+                elif isinstance(self.compressed_matrix, str):
+                    # 如果是字符串，先编码为 bytes
+                    matrix_bytes = base64.b64decode(self.compressed_matrix.encode('utf-8'))
+                else:
+                    print(f"⚠️ [加载持有矩阵] 未知的数据类型: {type(self.compressed_matrix)}")
+                    return np.array([])
                 return pickle.loads(matrix_bytes)
             elif self.matrix_data:
                 # 从JSON数据加载
@@ -491,7 +499,7 @@ class ChipHoldingMatrixBase(models.Model):
         except Exception as e:
             print(f"加载持有矩阵失败: {e}")
             return np.array([])
-    
+
     def set_holding_matrix(self, matrix: np.ndarray, compress: bool = True):
         """
         设置持有时间矩阵

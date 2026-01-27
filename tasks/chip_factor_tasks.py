@@ -1016,21 +1016,32 @@ def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, e
                     # 同步保存
                     import json, base64, pickle
                     if 'holding_matrix' in result and result['holding_matrix'].size > 0:
-                        matrix_bytes = pickle.dumps(result['holding_matrix'])
-                        compressed_data = base64.b64encode(matrix_bytes).decode('utf-8')
-                        holding_record, created = ChipHoldingMatrixModel.objects.update_or_create(stock__stock_code=stock_code, trade_time=current_date, defaults={'short_term_ratio': result['factors'].get('short_term_ratio', 0), 'mid_term_ratio': result['factors'].get('mid_term_ratio', 0), 'long_term_ratio': result['factors'].get('long_term_ratio', 0), 'avg_holding_days': result['factors'].get('avg_holding_days', 0), 'compressed_matrix': compressed_data, 'calc_status': result.get('calc_status', 'failed'), 'validation_score': result.get('validation', {}).get('score', 0)})
-                        processed_dates += 1
+                        # 使用 service 的保存方法
+                        save_success = service.save_holding_matrix_to_db(
+                            stock_code=stock_code,
+                            trade_date=current_date.strftime('%Y-%m-%d'),
+                            result=result
+                        )
+                        if save_success:
+                            processed_dates += 1
+                            print(f"✅ [持有矩阵] {stock_code} {current_date} 保存成功")
+                        else:
+                            print(f"❌ [持有矩阵] {stock_code} {current_date} 保存失败")
                     else:
                         print(f"⚠️ [持有矩阵] {stock_code} {current_date} 计算失败或无矩阵数据")
                 else:
                     print(f"⚠️ [持有矩阵] {stock_code} {current_date} 持有矩阵计算失败")
             except Exception as e:
                 print(f"❌ [持有矩阵] {stock_code} {current_date} 计算失败: {e}")
+                import traceback
+                traceback.print_exc()
         print(f"✅ [持有矩阵完成] {stock_code} 处理完成，成功 {processed_dates} 个交易日")
         return {'status': 'success', 'processed_dates': processed_dates, 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
         logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
         print(f"❌ [持有矩阵异常] {stock_code}: {e}")
+        import traceback
+        traceback.print_exc()
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def calculate_single_stock_holding_matrix_async(stock_code: str,start_date: date,end_date: date) -> Dict:
