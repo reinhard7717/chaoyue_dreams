@@ -350,7 +350,6 @@ class ChipHoldingService:
                     continue
                 try:
                     df = pd.DataFrame(chip_dist)
-                    print(f"📊 [构建矩阵] 第{i}天DataFrame形状: {df.shape}, 列: {list(df.columns)}")
                     if df.empty or 'price' not in df.columns or 'percent' not in df.columns:
                         print(f"⚠️ [构建矩阵] 第{i}天DataFrame格式错误，使用均匀分布")
                         chip_matrix[i, :] = np.ones(len(price_grid)) / len(price_grid)
