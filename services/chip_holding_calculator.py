@@ -381,15 +381,15 @@ class ChipHoldingService:
                 basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
                 basic_data = await sync_to_async(basic_qs.first)()
                 if basic_data and basic_data.free_share:
-                    data['float_shares'] = float(basic_data.free_share) * 10000 * 100
-                    print(f"📊 [自由流通股本_v3] 从数据库获取: {basic_data.free_share}万手 → {data['float_shares']}股")
+                    data['float_shares'] = float(basic_data.free_share) * 10000
+                    print(f"📊 [自由流通股本_v3] 从数据库获取: {basic_data.free_share}万 → {data['float_shares']}股")
                 else:
                     # 尝试获取最近的有效数据
                     print(f"⚠️ [自由流通股本_v3] 当日数据不存在，尝试获取最近数据")
                     recent_basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time__lt=trade_date_dt).order_by('-trade_time')
                     recent_basic_data = await sync_to_async(recent_basic_qs.first)()
                     if recent_basic_data and recent_basic_data.free_share:
-                        data['float_shares'] = float(recent_basic_data.free_share) * 10000 * 100
+                        data['float_shares'] = float(recent_basic_data.free_share) * 10000
                         print(f"📊 [自由流通股本_v3] 使用最近数据({recent_basic_data.trade_time}): {data['float_shares']}股")
                     else:
                         data['float_shares'] = 100000000
