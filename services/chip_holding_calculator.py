@@ -557,6 +557,84 @@ class ChipHoldingService:
         except Exception as e:
             logger.error(f"优化参数失败: {e}")
             return {'alpha': 0.5, 'beta': 0.3, 'gamma': 0.2}
+    
+    def _calculate_holding_matrix(
+        self,
+        chip_matrix: np.ndarray,
+        turnover_matrix: np.ndarray,
+        params: Dict[str, float]
+    ) -> np.ndarray:
+        """
+        计算持有时间矩阵
+        """
+        try:
+            n_days = chip_matrix.shape[0]
+            n_prices = chip_matrix.shape[1]
+            print(f"📊 [_calculate_holding_matrix] 输入: n_days={n_days}, n_prices={n_prices}, max_holding_days={self.max_holding_days}")
+            # 初始化持有时间矩阵 [价格区间 × 持有天数]
+            holding_matrix = np.zeros((n_prices, self.max_holding_days))
+            # 初始假设：所有筹码持有0天（使用最近一天的筹码分布）
+            if n_days > 0:
+                holding_matrix[:, 0] = chip_matrix[-1, :]
+                print(f"📊 [_calculate_holding_matrix] 初始化持有矩阵: 使用第{n_days-1}天的筹码分布")
+            else:
+                holding_matrix[:, 0] = np.ones(n_prices) / n_prices
+                print(f"⚠️ [_calculate_holding_matrix] 无历史筹码数据，使用均匀分布初始化")
+            # 检查初始化是否有效
+            init_sum = holding_matrix[:, 0].sum()
+            print(f"📊 [_calculate_holding_matrix] 初始筹码总和: {init_sum:.6f}")
+            if init_sum <= 0:
+                print(f"⚠️ [_calculate_holding_matrix] 初始筹码总和为0，使用均匀分布")
+                holding_matrix[:, 0] = np.ones(n_prices) / n_prices
+            if n_days < 2:
+                print(f"⚠️ [_calculate_holding_matrix] 历史数据不足，返回初始持有矩阵")
+                return holding_matrix
+            # 模拟历史换手过程
+            for day in range(1, min(n_days, self.max_holding_days)):
+                # 获取当天的换手率
+                turnover_rate = turnover_matrix[day, :]
+                # 应用参数调整
+                alpha = params.get('alpha', 0.5)
+                beta = params.get('beta', 0.3)
+                adjusted_turnover = alpha * turnover_rate + beta
+                adjusted_turnover = np.clip(adjusted_turnover, 0, 0.99)  # 限制在0-0.99
+                # 更新持有时间矩阵
+                for price_idx in range(n_prices):
+                    turnover_prob = adjusted_turnover[price_idx]
+                    # 未换手的筹码持有时间增加
+                    for holding_day in range(self.max_holding_days - 1, 0, -1):
+                        holding_matrix[price_idx, holding_day] = holding_matrix[price_idx, holding_day - 1] * (1 - turnover_prob)
+                    # 新换手的筹码持有时间为0（从其他价格区间流入）
+                    # 简化处理：假设新换手筹码均匀分布
+                    holding_matrix[price_idx, 0] = 0
+                # 计算总换手量并重新分配
+                total_turnover = 0
+                for price_idx in range(n_prices):
+                    for holding_day in range(1, self.max_holding_days):
+                        total_turnover += holding_matrix[price_idx, holding_day] * adjusted_turnover[price_idx]
+                # 按成交量比例重新分配换手筹码
+                if total_turnover > 0 and turnover_matrix[day, :].sum() > 0:
+                    turnover_dist = turnover_matrix[day, :] / turnover_matrix[day, :].sum()
+                    for price_idx in range(n_prices):
+                        holding_matrix[price_idx, 0] += total_turnover * turnover_dist[price_idx]
+            # 归一化（确保每行和为1） - 修复广播问题
+            row_sums = holding_matrix.sum(axis=1)
+            print(f"📊 [_calculate_holding_matrix] 归一化前行和范围: {row_sums.min():.6f} - {row_sums.max():.6f}")
+            # 只对非零行进行归一化
+            for i in range(n_prices):
+                if row_sums[i] > 0:
+                    holding_matrix[i, :] = holding_matrix[i, :] / row_sums[i]
+            # 检查最终矩阵
+            final_sum = holding_matrix.sum()
+            row_sums_final = holding_matrix.sum(axis=1)
+            print(f"✅ [_calculate_holding_matrix] 计算完成: 最终矩阵总和={final_sum:.6f}, 形状={holding_matrix.shape}")
+            print(f"📊 [_calculate_holding_matrix] 归一化后行和范围: {row_sums_final.min():.6f} - {row_sums_final.max():.6f}")
+            return holding_matrix
+        except Exception as e:
+            print(f"❌ [_calculate_holding_matrix] 计算持有时间矩阵失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return np.zeros((chip_matrix.shape[1], self.max_holding_days))
 
     def _calculate_holding_factors(
         self,
