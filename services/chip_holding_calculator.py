@@ -197,6 +197,30 @@ class ChipHoldingService:
                 minute_records = await sync_to_async(list)(minute_qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'))
                 data['minute_data'] = pd.DataFrame(minute_records) if minute_records else None
                 print(f"📊 [分钟数据] 记录数: {len(minute_records) if minute_records else 0}")
+                # 如果分钟数据为空，尝试从日线数据估算
+                if data['minute_data'] is None or data['minute_data'].empty:
+                    print(f"⚠️ [分钟数据] 无1分钟数据，尝试从日线数据估算")
+                    # 从日线数据获取当日总成交量
+                    daily_model = self.get_daily_data_model(stock_code)
+                    if daily_model:
+                        daily_qs = daily_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
+                        daily_record = await sync_to_async(daily_qs.first)()
+                        if daily_record and daily_record.vol:
+                            # 使用日成交量作为总成交量
+                            day_volume = daily_record.vol * 100  # 手转股
+                            print(f"📊 [分钟数据] 从日线数据获取成交量: {day_volume}股")
+                            # 创建模拟的分钟数据（均匀分布）
+                            data['minute_data'] = pd.DataFrame({
+                                'trade_time': [trade_date_dt],
+                                'open': [daily_record.open_qfq or 0],
+                                'high': [daily_record.high_qfq or 0],
+                                'low': [daily_record.low_qfq or 0],
+                                'close': [daily_record.close_qfq or 0],
+                                'vol': [daily_record.vol or 0],  # 成交量（手）
+                                'amount': [daily_record.amount or 0]
+                            })
+                        else:
+                            print(f"⚠️ [分钟数据] 无日线成交量数据")
             else:
                 print(f"⚠️ [分钟数据] 模型不存在")
             # 2. 获取逐笔数据（如果可用）
@@ -408,19 +432,23 @@ class ChipHoldingService:
         """
         try:
             if minute_data is None or minute_data.empty:
-                print(f"⚠️ [_calculate_minute_volume_distribution] 分钟数据为空，使用均匀分布")
-                # 返回均匀分布
-                return np.ones(len(price_grid)) / len(price_grid) * 10000  # 假设总成交量为10000股
+                print(f"⚠️ [_calculate_minute_volume_distribution] 分钟数据为空")
+                # 返回零分布，让上层处理
+                return np.zeros(len(price_grid))
+            
             volume_dist = np.zeros(len(price_grid))
             total_volume = 0
+            
             for _, row in minute_data.iterrows():
                 minute_volume = row['vol'] * 100  # 转换为股
                 total_volume += minute_volume
                 low_price = row['low']
                 high_price = row['high']
+                
                 # 找到价格区间对应的网格索引
                 start_idx = np.searchsorted(price_grid, low_price, side='left')
                 end_idx = np.searchsorted(price_grid, high_price, side='right')
+                
                 if start_idx < end_idx:
                     # 在价格区间内均匀分布成交量
                     interval_volume = minute_volume / (end_idx - start_idx)
@@ -430,15 +458,19 @@ class ChipHoldingService:
                     mid_price = (low_price + high_price) / 2
                     nearest_idx = np.argmin(np.abs(price_grid - mid_price))
                     volume_dist[nearest_idx] += minute_volume
+            
             print(f"📊 [_calculate_minute_volume_distribution] 总成交量: {total_volume}股, 分布总和: {volume_dist.sum():.0f}股")
-            if volume_dist.sum() == 0:
-                print(f"⚠️ [_calculate_minute_volume_distribution] 成交量分布为0，使用均匀分布")
-                return np.ones(len(price_grid)) / len(price_grid) * 10000
+            
+            # 如果分钟数据量太小，使用日线数据补充
+            if total_volume < 1000:  # 小于1000股，认为数据不准确
+                print(f"⚠️ [_calculate_minute_volume_distribution] 分钟成交量过小 ({total_volume}股)，可能不准确")
+            
             return volume_dist
+            
         except Exception as e:
             logger.error(f"计算分钟成交量分布失败: {e}")
             print(f"❌ [_calculate_minute_volume_distribution] 计算失败: {e}")
-            return np.ones(len(price_grid)) / len(price_grid) * 10000
+            return np.zeros(len(price_grid))
 
     def _enhance_with_tick_data(self,base_dist: np.ndarray,tick_data: pd.DataFrame,price_grid: np.ndarray) -> np.ndarray:
         """
