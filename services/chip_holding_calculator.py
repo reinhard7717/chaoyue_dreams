@@ -168,141 +168,254 @@ class ChipHoldingService:
         return results
     
     async def _fetch_required_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
-        """获取计算所需的所有数据（异步版本，使用交易日历）"""
+        """获取计算所需的所有数据（异步版本，使用交易日历） - 修复分钟数据获取问题"""
         try:
             from django.db.models import Q
             from stock_models.time_trade import StockDailyBasic
             from stock_models.index import TradeCalendar
             from asgiref.sync import sync_to_async
+            
             # 转换日期
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
+            print(f"🟢 [数据获取开始_v2] 股票: {stock_code}, 日期: {trade_date}, 回溯交易日: {lookback_days}")
+            
             # 使用交易日历获取回溯的起始交易日（异步调用）
-            print(f"🟢 [数据获取开始] 股票: {stock_code}, 日期: {trade_date}, 回溯交易日: {lookback_days}")
-            # 异步调用 TradeCalendar 方法
             get_offset_func = sync_to_async(TradeCalendar.get_trade_date_offset, thread_sensitive=True)
             try:
                 start_date = await get_offset_func(trade_date_dt, -lookback_days)
                 if not start_date:
-                    print(f"⚠️ [数据获取] 无法获取 {lookback_days} 个交易日前的日期，使用自然日计算")
+                    print(f"⚠️ [数据获取_v2] 无法获取 {lookback_days} 个交易日前的日期，使用自然日计算")
                     start_date = trade_date_dt - timedelta(days=lookback_days * 2)
             except Exception as e:
-                print(f"⚠️ [数据获取] 获取交易日偏移失败: {e}, 使用自然日计算")
+                print(f"⚠️ [数据获取_v2] 获取交易日偏移失败: {e}, 使用自然日计算")
                 start_date = trade_date_dt - timedelta(days=lookback_days * 2)
+            
             data = {}
-            print(f"📅 [交易日历] 计算日期范围: {start_date} 到 {trade_date_dt}")
-            # 1. 获取1分钟数据
+            print(f"📅 [交易日历_v2] 计算日期范围: {start_date} 到 {trade_date_dt}")
+            
+            # 1. 获取1分钟数据 - 修复版
+            print(f"🔍 [分钟数据_v2] 开始获取股票 {stock_code} 的分钟数据")
             minute_model = self.get_minute_data_model(stock_code, '1')
+            
             if minute_model:
-                minute_qs = minute_model.objects.filter(stock__stock_code=stock_code, trade_time__date=trade_date_dt).order_by('trade_time')
-                minute_records = await sync_to_async(list)(minute_qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'))
-                data['minute_data'] = pd.DataFrame(minute_records) if minute_records else None
-                print(f"📊 [分钟数据] 记录数: {len(minute_records) if minute_records else 0}")
-                # 如果分钟数据为空，尝试从日线数据估算
-                if data['minute_data'] is None or data['minute_data'].empty:
-                    print(f"⚠️ [分钟数据] 无1分钟数据，尝试从日线数据估算")
-                    # 从日线数据获取当日总成交量
-                    daily_model = self.get_daily_data_model(stock_code)
-                    if daily_model:
-                        daily_qs = daily_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
-                        daily_record = await sync_to_async(daily_qs.first)()
-                        if daily_record and daily_record.vol:
-                            # 使用日成交量作为总成交量
-                            day_volume = daily_record.vol * 100  # 手转股
-                            print(f"📊 [分钟数据] 从日线数据获取成交量: {day_volume}股")
-                            # 创建模拟的分钟数据（均匀分布）
-                            data['minute_data'] = pd.DataFrame({
-                                'trade_time': [trade_date_dt],
-                                'open': [daily_record.open_qfq or 0],
-                                'high': [daily_record.high_qfq or 0],
-                                'low': [daily_record.low_qfq or 0],
-                                'close': [daily_record.close_qfq or 0],
-                                'vol': [daily_record.vol or 0],  # 成交量（手）
-                                'amount': [daily_record.amount or 0]
-                            })
+                print(f"📊 [分钟数据_v2] 获取到分钟数据模型: {minute_model}")
+                
+                # 构建查询：股票代码和交易日期
+                # 注意：这里需要先获取股票对象
+                from stock_models.stock_basic import StockInfo
+                try:
+                    # 异步获取股票对象
+                    get_stock_func = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
+                    stock = await get_stock_func(stock_code=stock_code)
+                    print(f"📊 [分钟数据_v2] 获取到股票对象: {stock.stock_code}")
+                    
+                    # 构建日期过滤条件
+                    # 分钟数据的trade_time是datetime格式，需要过滤日期部分
+                    from django.db.models.functions import TruncDate
+                    
+                    # 方法1：使用TruncDate（推荐）
+                    try:
+                        minute_qs = minute_model.objects.filter(
+                            stock=stock,
+                            trade_time__date=trade_date_dt
+                        ).order_by('trade_time')
+                        
+                        minute_records = await sync_to_async(list)(minute_qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'))
+                        print(f"📊 [分钟数据_v2] 查询条件: stock={stock_code}, trade_time__date={trade_date_dt}")
+                        print(f"📊 [分钟数据_v2] 查询结果数: {len(minute_records)}")
+                        
+                        if minute_records:
+                            data['minute_data'] = pd.DataFrame(minute_records)
+                            print(f"✅ [分钟数据_v2] 成功获取分钟数据: {len(minute_records)}条记录")
+                            print(f"📊 [分钟数据_v2] 第一条记录: {minute_records[0]}")
+                            print(f"📊 [分钟数据_v2] 最后一条记录: {minute_records[-1]}")
                         else:
-                            print(f"⚠️ [分钟数据] 无日线成交量数据")
+                            print(f"⚠️ [分钟数据_v2] 查询返回0条记录，尝试使用其他查询方法")
+                            
+                            # 方法2：使用范围查询
+                            next_day = trade_date_dt + timedelta(days=1)
+                            minute_qs2 = minute_model.objects.filter(
+                                stock=stock,
+                                trade_time__gte=datetime.combine(trade_date_dt, datetime.min.time()),
+                                trade_time__lt=datetime.combine(next_day, datetime.min.time())
+                            ).order_by('trade_time')
+                            
+                            minute_records2 = await sync_to_async(list)(minute_qs2.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'))
+                            print(f"📊 [分钟数据_v2] 范围查询结果数: {len(minute_records2)}")
+                            
+                            if minute_records2:
+                                data['minute_data'] = pd.DataFrame(minute_records2)
+                                print(f"✅ [分钟数据_v2] 范围查询成功: {len(minute_records2)}条记录")
+                            else:
+                                print(f"⚠️ [分钟数据_v2] 所有查询方法都返回0条记录")
+                                data['minute_data'] = None
+                                
+                    except Exception as e:
+                        print(f"❌ [分钟数据_v2] 查询异常: {e}")
+                        data['minute_data'] = None
+                        
+                except StockInfo.DoesNotExist:
+                    print(f"❌ [分钟数据_v2] 股票不存在: {stock_code}")
+                    data['minute_data'] = None
+                except Exception as e:
+                    print(f"❌ [分钟数据_v2] 获取股票对象失败: {e}")
+                    data['minute_data'] = None
             else:
-                print(f"⚠️ [分钟数据] 模型不存在")
-            # 2. 获取逐笔数据（如果可用）
+                print(f"⚠️ [分钟数据_v2] 分钟数据模型不存在")
+                data['minute_data'] = None
+            
+            # 如果分钟数据为空，尝试从日线数据估算
+            if data.get('minute_data') is None or data['minute_data'].empty:
+                print(f"⚠️ [分钟数据_v2] 无1分钟数据，尝试从日线数据估算")
+                # 从日线数据获取当日总成交量
+                daily_model = self.get_daily_data_model(stock_code)
+                if daily_model:
+                    daily_qs = daily_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
+                    daily_record = await sync_to_async(daily_qs.first)()
+                    if daily_record and daily_record.vol:
+                        # 使用日成交量作为总成交量
+                        day_volume = daily_record.vol * 100  # 手转股
+                        print(f"📊 [分钟数据_v2] 从日线数据获取成交量: {day_volume}股")
+                        # 创建模拟的分钟数据（均匀分布）
+                        data['minute_data'] = pd.DataFrame({
+                            'trade_time': [trade_date_dt],
+                            'open': [daily_record.open_qfq or 0],
+                            'high': [daily_record.high_qfq or 0],
+                            'low': [daily_record.low_qfq or 0],
+                            'close': [daily_record.close_qfq or 0],
+                            'vol': [daily_record.vol or 0],  # 成交量（手）
+                            'amount': [daily_record.amount or 0]
+                        })
+                    else:
+                        print(f"⚠️ [分钟数据_v2] 无日线成交量数据")
+                        data['minute_data'] = pd.DataFrame()
+            else:
+                print(f"✅ [分钟数据_v2] 分钟数据获取完成，记录数: {len(data['minute_data'])}")
+            
+            # 2. 获取逐笔数据（如果可用）- 简化处理
             if self.use_tick_data:
                 tick_model = self.get_tick_data_model(stock_code)
                 if tick_model:
-                    tick_qs = tick_model.objects.filter(stock__stock_code=stock_code, trade_time__date=trade_date_dt).order_by('trade_time')[:50000]
-                    tick_records = await sync_to_async(list)(tick_qs.values('trade_time', 'price', 'volume', 'type'))
-                    data['tick_data'] = pd.DataFrame(tick_records) if tick_records else None
-                    print(f"📊 [逐笔数据] 记录数: {len(tick_records) if tick_records else 0}")
+                    try:
+                        from stock_models.stock_basic import StockInfo
+                        stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+                        next_day = trade_date_dt + timedelta(days=1)
+                        
+                        tick_qs = tick_model.objects.filter(
+                            stock=stock,
+                            trade_time__gte=datetime.combine(trade_date_dt, datetime.min.time()),
+                            trade_time__lt=datetime.combine(next_day, datetime.min.time())
+                        ).order_by('trade_time')[:50000]
+                        
+                        tick_records = await sync_to_async(list)(tick_qs.values('trade_time', 'price', 'volume', 'type'))
+                        data['tick_data'] = pd.DataFrame(tick_records) if tick_records else None
+                        print(f"📊 [逐笔数据_v2] 记录数: {len(tick_records) if tick_records else 0}")
+                    except Exception as e:
+                        print(f"⚠️ [逐笔数据_v2] 获取失败: {e}")
+                        data['tick_data'] = None
                 else:
-                    print(f"⚠️ [逐笔数据] 模型不存在")
-            # 3. 获取筹码分布数据
+                    print(f"⚠️ [逐笔数据_v2] 模型不存在")
+                    data['tick_data'] = None
+            
+            # 3. 获取筹码分布数据 - 简化处理
             chips_model = self.get_chips_model(stock_code)
-            print(f"🔍 [筹码模型] 获取模型: {chips_model}")
+            print(f"🔍 [筹码模型_v2] 获取模型: {chips_model}")
+            
             if chips_model is None:
-                print(f"❌ [筹码模型] 模型获取失败!")
+                print(f"❌ [筹码模型_v2] 模型获取失败!")
                 data['chip_dists'] = []
                 data['chip_dist_current'] = pd.DataFrame()
             else:
-                # 获取当前日期的筹码分布
-                chip_dist_current_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt).values('price', 'percent')
-                chip_dist_current_list = await sync_to_async(list)(chip_dist_current_qs)
-                print(f"📊 [当前筹码查询] 原始记录数: {len(chip_dist_current_list)}")
-                if chip_dist_current_list:
-                    data['chip_dist_current'] = pd.DataFrame(chip_dist_current_list)
-                    print(f"📊 [当前筹码] DataFrame记录数: {len(data['chip_dist_current'])}")
-                else:
+                try:
+                    from stock_models.stock_basic import StockInfo
+                    stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+                    
+                    # 获取当前日期的筹码分布
+                    chip_dist_current_qs = chips_model.objects.filter(stock=stock, trade_time=trade_date_dt)
+                    chip_dist_current_list = await sync_to_async(list)(chip_dist_current_qs.values('price', 'percent'))
+                    
+                    print(f"📊 [当前筹码查询_v2] 原始记录数: {len(chip_dist_current_list)}")
+                    if chip_dist_current_list:
+                        data['chip_dist_current'] = pd.DataFrame(chip_dist_current_list)
+                        print(f"📊 [当前筹码_v2] DataFrame记录数: {len(data['chip_dist_current'])}")
+                    else:
+                        data['chip_dist_current'] = pd.DataFrame()
+                        print(f"⚠️ [当前筹码_v2] 无当日筹码数据")
+                    
+                    # 获取历史筹码分布数据
+                    get_dates_between_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
+                    trade_dates = await get_dates_between_func(start_date, trade_date_dt - timedelta(days=1))
+                    print(f"📅 [历史筹码_v2] 获取 {len(trade_dates) if trade_dates else 0} 个交易日的数据")
+                    
+                    # 分批获取历史筹码数据
+                    historical_by_date = {}
+                    if trade_dates:
+                        for trade_date_obj in trade_dates:
+                            daily_chips_qs = chips_model.objects.filter(stock=stock, trade_time=trade_date_obj)
+                            daily_chips_list = await sync_to_async(list)(daily_chips_qs.values('price', 'percent'))
+                            if daily_chips_list:
+                                historical_by_date[str(trade_date_obj)] = daily_chips_list
+                    
+                    # 转换为需要的格式：每日一个字典列表
+                    data['chip_dists'] = list(historical_by_date.values())
+                    print(f"📊 [历史筹码分组_v2] 共 {len(historical_by_date)} 个交易日有筹码数据")
+                    
+                except Exception as e:
+                    print(f"❌ [筹码模型_v2] 获取数据失败: {e}")
+                    data['chip_dists'] = []
                     data['chip_dist_current'] = pd.DataFrame()
-                    print(f"⚠️ [当前筹码] 无当日筹码数据")
-                # 获取历史筹码分布数据 - 获取日期范围内的所有交易日（异步调用）
-                get_dates_between_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
-                trade_dates = await get_dates_between_func(start_date, trade_date_dt - timedelta(days=1))
-                print(f"📅 [历史筹码] 获取 {len(trade_dates) if trade_dates else 0} 个交易日的数据")
-                # 分批获取历史筹码数据
-                historical_by_date = {}
-                if trade_dates:
-                    for trade_date_obj in trade_dates:
-                        daily_chips_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_obj).values('price', 'percent')
-                        daily_chips_list = await sync_to_async(list)(daily_chips_qs)
-                        if daily_chips_list:
-                            historical_by_date[str(trade_date_obj)] = daily_chips_list
-                # 转换为需要的格式：每日一个字典列表
-                data['chip_dists'] = list(historical_by_date.values())
-                print(f"📊 [历史筹码分组] 共 {len(historical_by_date)} 个交易日有筹码数据")
-                # 显示前几个交易日的数据量
-                for date_key, records in list(historical_by_date.items())[:5]:
-                    print(f"   {date_key}: {len(records)} 条价格记录")
-            # 4. 获取日线数据（用于换手率）- 获取交易日数据
+            
+            # 4. 获取日线数据（用于换手率）
             daily_model = self.get_daily_data_model(stock_code)
             if daily_model:
-                # 获取日期范围内的所有交易日数据
-                daily_qs = daily_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).order_by('trade_time').values('trade_time', 'vol', 'amount')
-                daily_data = await sync_to_async(list)(daily_qs)
-                data['daily_data'] = pd.DataFrame(list(daily_data))
-                print(f"📊 [日线数据] 记录数: {len(daily_data)}")
+                try:
+                    from stock_models.stock_basic import StockInfo
+                    stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+                    
+                    daily_qs = daily_model.objects.filter(
+                        stock=stock, 
+                        trade_time__gte=start_date, 
+                        trade_time__lte=trade_date_dt
+                    ).order_by('trade_time').values('trade_time', 'vol', 'amount')
+                    
+                    daily_data = await sync_to_async(list)(daily_qs)
+                    data['daily_data'] = pd.DataFrame(daily_data) if daily_data else pd.DataFrame()
+                    print(f"📊 [日线数据_v2] 记录数: {len(daily_data)}")
+                except Exception as e:
+                    print(f"⚠️ [日线数据_v2] 获取失败: {e}")
+                    data['daily_data'] = pd.DataFrame()
             else:
-                print(f"⚠️ [日线数据] 模型不存在")
+                print(f"⚠️ [日线数据_v2] 模型不存在")
                 data['daily_data'] = pd.DataFrame()
+            
             # 5. 获取自由流通股本
-            basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
-            basic_data = await sync_to_async(basic_qs.first)()
-            if basic_data and basic_data.free_share:
-                data['float_shares'] = float(basic_data.free_share) * 10000
-                print(f"📊 [自由流通股本] 从数据库获取: {basic_data.free_share}万 → {data['float_shares']}股")
-            else:
-                # 尝试获取最近的有效数据
-                print(f"⚠️ [自由流通股本] 当日数据不存在，尝试获取最近数据")
-                recent_basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time__lt=trade_date_dt).order_by('-trade_time')
-                recent_basic_data = await sync_to_async(recent_basic_qs.first)()
-                if recent_basic_data and recent_basic_data.free_share:
-                    data['float_shares'] = float(recent_basic_data.free_share) * 10000
-                    print(f"📊 [自由流通股本] 使用最近数据({recent_basic_data.trade_time}): {data['float_shares']}股")
+            try:
+                basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt)
+                basic_data = await sync_to_async(basic_qs.first)()
+                if basic_data and basic_data.free_share:
+                    data['float_shares'] = float(basic_data.free_share) * 10000
+                    print(f"📊 [自由流通股本_v2] 从数据库获取: {basic_data.free_share}万 → {data['float_shares']}股")
                 else:
-                    data['float_shares'] = 100000000
-                    print(f"⚠️ [自由流通股本] 使用默认值: {data['float_shares']}股")
+                    # 尝试获取最近的有效数据
+                    print(f"⚠️ [自由流通股本_v2] 当日数据不存在，尝试获取最近数据")
+                    recent_basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time__lt=trade_date_dt).order_by('-trade_time')
+                    recent_basic_data = await sync_to_async(recent_basic_qs.first)()
+                    if recent_basic_data and recent_basic_data.free_share:
+                        data['float_shares'] = float(recent_basic_data.free_share) * 10000
+                        print(f"📊 [自由流通股本_v2] 使用最近数据({recent_basic_data.trade_time}): {data['float_shares']}股")
+                    else:
+                        data['float_shares'] = 100000000
+                        print(f"⚠️ [自由流通股本_v2] 使用默认值: {data['float_shares']}股")
+            except Exception as e:
+                print(f"⚠️ [自由流通股本_v2] 获取失败: {e}, 使用默认值")
+                data['float_shares'] = 100000000
+            
             # 6. 计算价格范围
             if 'chip_dist_current' in data and not data['chip_dist_current'].empty:
                 price_min = data['chip_dist_current']['price'].min()
                 price_max = data['chip_dist_current']['price'].max()
                 data['price_range'] = (price_min, price_max)
-                print(f"📈 [价格范围-当前] {price_min:.2f} - {price_max:.2f}")
+                print(f"📈 [价格范围-当前_v2] {price_min:.2f} - {price_max:.2f}")
             else:
                 # 从历史数据中提取所有价格
                 all_prices = []
@@ -319,27 +432,30 @@ class ChipHoldingService:
                     price_min = max(0.01, price_min - padding)
                     price_max = price_max + padding
                     data['price_range'] = (price_min, price_max)
-                    print(f"📈 [价格范围-历史] {price_min:.2f} - {price_max:.2f}, 基于{len(all_prices)}个价格点")
+                    print(f"📈 [价格范围-历史_v2] {price_min:.2f} - {price_max:.2f}, 基于{len(all_prices)}个价格点")
                 else:
                     data['price_range'] = (1.0, 100.0)
-                    print(f"⚠️ [价格范围] 无价格数据，使用默认范围: 1.0 - 100.0")
+                    print(f"⚠️ [价格范围_v2] 无价格数据，使用默认范围: 1.0 - 100.0")
+            
             # 7. 计算日换手率
-            if not data['daily_data'].empty and data['float_shares'] > 0:
-                if 'vol' in data['daily_data'].columns:
-                    data['daily_turnover'] = data['daily_data']['vol'] * 100 / data['float_shares']
-                    print(f"📊 [日换手率] 计算完成，数据长度: {len(data['daily_turnover'])}")
-                else:
-                    print(f"⚠️ [日换手率] 日线数据缺少'vol'列")
-                    data['daily_turnover'] = pd.Series()
+            if not data['daily_data'].empty and 'vol' in data['daily_data'].columns and data['float_shares'] > 0:
+                data['daily_turnover'] = data['daily_data']['vol'] * 100 / data['float_shares']
+                print(f"📊 [日换手率_v2] 计算完成，数据长度: {len(data['daily_turnover'])}")
             else:
-                print(f"⚠️ [日换手率] 计算失败，日线数据空: {data['daily_data'].empty}, 流通股本: {data['float_shares']}")
+                print(f"⚠️ [日换手率_v2] 计算失败，数据不全")
                 data['daily_turnover'] = pd.Series()
-            print(f"✅ [数据获取完成] 共获取{len(data)}个数据集")
-            print(f"📋 [数据摘要] 筹码历史天数: {len(data.get('chip_dists', []))}, 当前筹码条数: {len(data.get('chip_dist_current', pd.DataFrame()))}")
+            
+            print(f"✅ [数据获取完成_v2] 共获取{len(data)}个数据集")
+            print(f"📋 [数据摘要_v2] 分钟数据: {len(data.get('minute_data', pd.DataFrame()))}行")
+            print(f"📋 [数据摘要_v2] 筹码历史天数: {len(data.get('chip_dists', []))}")
+            print(f"📋 [数据摘要_v2] 当前筹码条数: {len(data.get('chip_dist_current', pd.DataFrame()))}")
+            
             return data
         except Exception as e:
             logger.error(f"获取数据失败 {stock_code}: {e}", exc_info=True)
-            print(f"❌ [数据获取异常] {e}")
+            print(f"❌ [数据获取异常_v2] {e}")
+            import traceback
+            traceback.print_exc()
             return {}
 
     def _build_price_grid_and_chip_matrix(self, chip_dists: List[Dict], price_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
