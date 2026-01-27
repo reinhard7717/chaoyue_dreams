@@ -235,13 +235,11 @@ def schedule_by_date_batch(stock_codes: List[str], start_date: date, end_date: d
 def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, end_date: str, market: str = None) -> Dict:
     """
     批量计算多只股票的筹码因子（按股票循环）
-    
     Args:
         stock_codes: 股票代码列表
         start_date: 开始日期
         end_date: 结束日期
         market: 市场标识（可选，自动识别）
-    
     Returns:
         Dict: 计算结果
     """
@@ -257,10 +255,40 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
         }
         print(f"📋 [批量任务] 开始处理 {len(stock_codes)} 只股票")
         print(f"📋 [批量任务] 日期范围: {start_date_obj} 到 {end_date_obj}")
-        # 改为按股票顺序处理，完成一只股票的所有日期后再处理下一只
+        # 对于每只股票，先检查持有矩阵计算状态
         for stock_index, stock_code in enumerate(stock_codes):
             try:
                 print(f"🔴 [股票处理] 开始处理第 {stock_index + 1}/{len(stock_codes)} 只股票: {stock_code}")
+                # 检查该股票的持有矩阵是否已计算
+                print(f"🔍 [股票检查] 检查 {stock_code} 的持有矩阵计算状态...")
+                from utils.model_helpers import get_chip_holding_matrix_model_by_code
+                HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
+                # 查询该股票在日期范围内是否有成功计算的持有矩阵
+                date_range_count = HoldingMatrixModel.objects.filter(
+                    stock__stock_code=stock_code,
+                    trade_time__gte=start_date_obj,
+                    trade_time__lte=end_date_obj,
+                    calc_status='success'
+                ).count()
+                if date_range_count == 0:
+                    print(f"⚠️ [股票检查] {stock_code} 在日期范围内无成功计算的持有矩阵，将先调度计算")
+                    # 调度该股票的持有矩阵计算
+                    holding_task = calculate_holding_matrix_batch.delay(
+                        stock_codes=[stock_code],
+                        start_date=start_date,
+                        end_date=end_date,
+                        market=market
+                    )
+                    print(f"⏳ [股票检查] 已调度持有矩阵计算任务: {holding_task.id}，等待完成...")
+                    # 等待持有矩阵计算完成（可设置超时）
+                    try:
+                        holding_result = holding_task.get(timeout=300)  # 5分钟超时
+                        if holding_result.get('success', 0) == 0:
+                            print(f"⚠️ [股票检查] {stock_code} 持有矩阵计算失败，筹码因子计算可能使用默认值")
+                    except Exception as e:
+                        print(f"⚠️ [股票检查] {stock_code} 持有矩阵计算超时或失败: {e}")
+                else:
+                    print(f"✅ [股票检查] {stock_code} 已有 {date_range_count} 天的持有矩阵数据")
                 # 调用同步版本的单个股票计算函数
                 result = calculate_single_stock_chip_factors_sync(
                     stock_code,
@@ -1091,12 +1119,10 @@ def schedule_holding_matrix_calculation(
 ) -> Dict:
     """
     调度持有时间矩阵计算任务
-    
     Args:
         stock_codes: 股票代码列表，None表示全市场
         start_date_str: 开始日期 (YYYYMMDD)，None表示默认起始
         end_date_str: 结束日期 (YYYYMMDD)，None表示最近交易日
-    
     Returns:
         Dict: 调度结果
     """
@@ -1145,13 +1171,15 @@ def schedule_holding_matrix_calculation(
                 )
                 total_tasks += 1
                 logger.debug(f"创建持有矩阵批量计算任务 {task.id}: {len(batch_codes)} 只股票")
-        return {
+        result = {
             'status': 'scheduled',
             'total_tasks': total_tasks,
             'mode': 'stock_batch',
             'total_stocks': len(stock_codes),
             'date_range': f"{start_date} - {end_date}"
         }
+        print(f"✅ [调度完成] 持有矩阵任务调度完成: {result}")
+        return result
     except Exception as e:
         logger.error(f"调度持有矩阵计算任务失败: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
@@ -1250,6 +1278,47 @@ def check_chip_factor_status(date_str: Optional[str] = None,market: Optional[str
     except Exception as e:
         logger.error(f"检查筹码因子状态失败: {e}")
         return {'status': 'error', 'error': str(e)}
+
+def check_holding_matrix_status(stock_code: str, start_date: date, end_date: date) -> Dict:
+    """
+    检查单个股票在指定日期范围内的持有矩阵计算状态
+    Args:
+        stock_code: 股票代码
+        start_date: 开始日期
+        end_date: 结束日期
+    Returns:
+        Dict: 状态信息
+    """
+    try:
+        from utils.model_helpers import get_chip_holding_matrix_model_by_code
+        HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
+        # 查询成功计算的记录数
+        success_count = HoldingMatrixModel.objects.filter(
+            stock__stock_code=stock_code,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date,
+            calc_status='success'
+        ).count()
+        # 查询总交易日数
+        from stock_models.index import TradeCalendar
+        trade_dates = TradeCalendar.get_trade_dates_between(start_date, end_date)
+        total_days = len(trade_dates) if trade_dates else 0
+        return {
+            'stock_code': stock_code,
+            'success_count': success_count,
+            'total_days': total_days,
+            'completion_rate': success_count / total_days if total_days > 0 else 0,
+            'has_data': success_count > 0
+        }
+    except Exception as e:
+        print(f"❌ [检查持有矩阵状态失败] {stock_code}: {e}")
+        return {
+            'stock_code': stock_code,
+            'success_count': 0,
+            'total_days': 0,
+            'completion_rate': 0,
+            'has_data': False
+        }
 
 # ========== 定时任务 ==========
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.daily_chip_factor_update',queue=ChipTaskConfig.get_queue_name(), priority=ChipTaskConfig.PRIORITY_HIGH)
@@ -1350,15 +1419,13 @@ def schedule_comprehensive_calculation(
     include_holding_matrix: bool = True
 ) -> List[str]:
     """
-    调度综合计算（命令行调用），同时计算筹码因子和持有时间矩阵
-    
+    调度综合计算（命令行调用），改为链式调度：先计算持有矩阵，再计算筹码因子
     Args:
         start_date_str: 开始日期
         end_date_str: 结束日期
         market: 市场标识
         include_chip_factors: 是否包含筹码因子计算
         include_holding_matrix: 是否包含持有矩阵计算
-    
     Returns:
         List[str]: 任务ID列表
     """
@@ -1367,26 +1434,56 @@ def schedule_comprehensive_calculation(
         start_date_str = ChipTaskConfig.DEFAULT_START_DATE
     if end_date_str is None:
         end_date_str = get_last_trade_date().strftime('%Y%m%d')
-    # 调度筹码因子计算
-    if include_chip_factors:
-        chip_task = schedule_chip_factor_calculation.delay(
-            stock_codes=None,
-            start_date_str=start_date_str,
-            end_date_str=end_date_str,
-            batch_mode=True
-        )
-        task_ids.append(chip_task.id)
-        logger.info(f"筹码因子计算任务已调度: {chip_task.id}")
-    # 调度持有时间矩阵计算
+    print(f"🔗 [链式调度开始] 日期范围: {start_date_str} 到 {end_date_str}")
+    # 1. 首先调度持有时间矩阵计算（如果启用）
+    holding_task_id = None
     if include_holding_matrix:
+        print(f"⏳ [链式调度] 调度持有矩阵计算任务...")
         holding_task = schedule_holding_matrix_calculation.delay(
             stock_codes=None,
             start_date_str=start_date_str,
             end_date_str=end_date_str
         )
-        task_ids.append(holding_task.id)
-        logger.info(f"持有时间矩阵计算任务已调度: {holding_task.id}")
-    print(f"综合计算已调度，任务ID列表: {task_ids}")
+        holding_task_id = holding_task.id
+        task_ids.append(holding_task_id)
+        print(f"✅ [链式调度] 持有矩阵任务已调度: {holding_task_id}")
+    # 2. 然后调度筹码因子计算（如果启用），并设置与持有矩阵任务的依赖关系
+    if include_chip_factors:
+        print(f"⏳ [链式调度] 调度筹码因子计算任务...")
+        # 创建一个链式任务：等待持有矩阵完成后，再计算筹码因子
+        if holding_task_id and include_holding_matrix:
+            # 使用回调机制：当持有矩阵任务完成后，自动调度筹码因子计算
+            from celery import chain
+            # 创建回调任务：先等待持有矩阵完成，然后调度筹码因子
+            callback_task = schedule_chip_factor_calculation.si(
+                stock_codes=None,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str,
+                batch_mode=True
+            )
+            # 将持有矩阵任务和回调任务链接起来
+            chip_task = schedule_holding_matrix_calculation.s(
+                stock_codes=None,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            ).on_success(callback_task)
+            # 执行链式任务
+            result = chip_task.delay()
+            chip_task_id = result.id
+            task_ids.append(chip_task_id)
+            print(f"🔗 [链式调度] 创建链式任务: {holding_task_id} -> {chip_task_id}")
+        else:
+            # 如果没有持有矩阵任务，直接调度筹码因子
+            chip_task = schedule_chip_factor_calculation.delay(
+                stock_codes=None,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str,
+                batch_mode=True
+            )
+            chip_task_id = chip_task.id
+            task_ids.append(chip_task_id)
+            print(f"✅ [链式调度] 筹码因子任务已调度: {chip_task_id}")
+    print(f"✅ [链式调度完成] 任务ID列表: {task_ids}")
     return task_ids
 
 def schedule_single_stock_calculation(stock_code: str,start_date_str: str = None,end_date_str: str = None) -> str:
