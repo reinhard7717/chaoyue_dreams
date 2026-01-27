@@ -830,235 +830,328 @@ class ChipHoldingService:
             return default_matrix
 
     def _calculate_holding_factors(self,holding_matrix: np.ndarray,chip_matrix: np.ndarray,data_dict: Dict[str, any]) -> Dict[str, float]:
-        """计算持有时间相关因子 - 修复长线筹码为0的问题"""
+        """计算持有时间相关因子 - 整合A股长线模型"""
         try:
             factors = {}
             if holding_matrix.size == 0:
-                print(f"⚠️ [_calculate_holding_factors] 持有矩阵为空，返回默认因子")
                 return self._get_default_factors()
+            
             print(f"📊 [_calculate_holding_factors] 持有矩阵形状: {holding_matrix.shape}")
-            print(f"📊 [_calculate_holding_factors] 持有矩阵总和: {holding_matrix.sum()}")
-            # 1. 检查持有矩阵是否有效
-            if holding_matrix.sum() == 0:
-                print(f"⚠️ [_calculate_holding_factors] 持有矩阵总和为0，返回默认因子")
-                return self._get_default_factors()
-            # 2. 计算各种持有时间的筹码比例
-            total_sum = np.sum(holding_matrix)
-            # 短线筹码比例（<5日）
+            
+            # 基础计算（原有逻辑）
+            n_prices = holding_matrix.shape[0]
+            
+            # 计算各种持有时间的筹码比例
             short_term_mask = np.arange(self.max_holding_days) < 5
-            short_term_sum = np.sum(holding_matrix[:, short_term_mask])
-            if total_sum > 0:
-                short_term_ratio = short_term_sum / total_sum
-                factors['short_term_ratio'] = float(short_term_ratio)
-                print(f"📊 [_calculate_holding_factors] 短线筹码: {short_term_ratio:.4f}")
-            else:
-                factors['short_term_ratio'] = 0.2
-            # 中线筹码比例（5-60日）
             mid_term_mask = (np.arange(self.max_holding_days) >= 5) & (np.arange(self.max_holding_days) < 60)
-            mid_term_sum = np.sum(holding_matrix[:, mid_term_mask])
-            if total_sum > 0:
-                mid_term_ratio = mid_term_sum / total_sum
-                factors['mid_term_ratio'] = float(mid_term_ratio)
-                print(f"📊 [_calculate_holding_factors] 中线筹码: {mid_term_ratio:.4f}")
-            else:
-                factors['mid_term_ratio'] = 0.3
-            # 长线筹码比例（>60日） - 重点修复
             long_term_mask = np.arange(self.max_holding_days) >= 60
-            long_term_sum = np.sum(holding_matrix[:, long_term_mask])
-            if total_sum > 0:
-                long_term_ratio = long_term_sum / total_sum
-                factors['long_term_ratio'] = float(long_term_ratio)
-                print(f"📊 [_calculate_holding_factors] 长线筹码: {long_term_ratio:.4f}")
+            
+            short_term_ratios = []
+            mid_term_ratios = []
+            long_term_ratios = []
+            
+            for i in range(n_prices):
+                row_sum = holding_matrix[i, :].sum()
+                if row_sum > 0:
+                    row = holding_matrix[i, :] / row_sum
+                    short_term_ratios.append(row[short_term_mask].sum())
+                    mid_term_ratios.append(row[mid_term_mask].sum())
+                    long_term_ratios.append(row[long_term_mask].sum())
+            
+            if short_term_ratios:
+                base_short = float(np.mean(short_term_ratios))
+                base_mid = float(np.mean(mid_term_ratios))
+                base_long = float(np.mean(long_term_ratios))
             else:
-                factors['long_term_ratio'] = 0.5
-            # 3. 检查长线筹码是否异常为0
-            if factors['long_term_ratio'] < 0.01:
-                print(f"⚠️ [_calculate_holding_factors] 长线筹码异常低({factors['long_term_ratio']:.4f})，进行调整")
-                # 基于换手率和历史数据估算长线筹码
-                if 'daily_turnover' in data_dict and isinstance(data_dict['daily_turnover'], pd.Series):
-                    recent_turnover = data_dict['daily_turnover'].iloc[-20:].mean() if len(data_dict['daily_turnover']) >= 20 else 0.05
-                    # 高换手率下长线筹码少，低换手率下长线筹码多
-                    if recent_turnover < 0.02:  # 换手率低于2%
-                        estimated_long_term = 0.6
-                    elif recent_turnover < 0.05:  # 换手率2-5%
-                        estimated_long_term = 0.4
-                    elif recent_turnover < 0.1:  # 换手率5-10%
-                        estimated_long_term = 0.2
-                    else:  # 换手率高于10%
-                        estimated_long_term = 0.1
-                    
-                    print(f"📊 [_calculate_holding_factors] 基于换手率{recent_turnover:.2%}估算长线筹码: {estimated_long_term:.2%}")
-                    
-                    # 调整比例，保持总和为1
-                    current_short = factors.get('short_term_ratio', 0.2)
-                    current_mid = factors.get('mid_term_ratio', 0.3)
-                    
-                    # 计算需要减少的总量
-                    reduction_needed = estimated_long_term - factors['long_term_ratio']
-                    
-                    if reduction_needed > 0 and (current_short + current_mid) > 0:
-                        # 按比例从短线和中线中扣除
-                        factors['short_term_ratio'] = max(0, current_short - reduction_needed * (current_short / (current_short + current_mid)))
-                        factors['mid_term_ratio'] = max(0, current_mid - reduction_needed * (current_mid / (current_short + current_mid)))
-                        factors['long_term_ratio'] = estimated_long_term
+                base_short = 0.2
+                base_mid = 0.3
+                base_long = 0.5
+            
+            print(f"📊 [基础计算] 短线: {base_short:.2%}, 中线: {base_mid:.2%}, 长线: {base_long:.2%}")
+            
+            # 关键改进：应用A股长线模型
+            if 'chip_dist_current' in data_dict and 'daily_turnover' in data_dict:
+                market_env = {
+                    'daily_turnover': data_dict['daily_turnover'],
+                    'volume_ratio': 1.0  # 可根据实际情况获取
+                }
                 
-                # 如果还是太低，使用默认值
-                if factors['long_term_ratio'] < 0.05:
-                    print(f"⚠️ [_calculate_holding_factors] 长线筹码仍然过低，使用经验值")
-                    # 重新分配：短线20%，中线30%，长线50%
-                    total_current = factors.get('short_term_ratio', 0) + factors.get('mid_term_ratio', 0) + factors.get('long_term_ratio', 0)
-                    if total_current > 0:
-                        factors['short_term_ratio'] = 0.2 * total_current
-                        factors['mid_term_ratio'] = 0.3 * total_current
-                        factors['long_term_ratio'] = 0.5 * total_current
-            # 4. 归一化确保总和为1
-            sum_ratios = factors.get('short_term_ratio', 0) + factors.get('mid_term_ratio', 0) + factors.get('long_term_ratio', 0)
-            if abs(sum_ratios - 1.0) > 0.001 and sum_ratios > 0:
-                factors['short_term_ratio'] = factors.get('short_term_ratio', 0) / sum_ratios
-                factors['mid_term_ratio'] = factors.get('mid_term_ratio', 0) / sum_ratios
-                factors['long_term_ratio'] = factors.get('long_term_ratio', 0) / sum_ratios
-            # 5. 计算平均持有时间（修复版本）
-            holding_days = np.arange(self.max_holding_days)
-            weighted_days = np.sum(holding_matrix * holding_days[np.newaxis, :])
-            factors['avg_holding_days'] = float(weighted_days / total_sum if total_sum > 0 else 100.0)
-            print(f"✅ [_calculate_holding_factors] 最终比例:")
-            print(f"   短线: {factors.get('short_term_ratio', 0):.2%}")
-            print(f"   中线: {factors.get('mid_term_ratio', 0):.2%}")
-            print(f"   长线: {factors.get('long_term_ratio', 0):.2%}")
-            print(f"   总和: {factors.get('short_term_ratio', 0)+factors.get('mid_term_ratio', 0)+factors.get('long_term_ratio', 0):.4f}")
-            print(f"   平均持有: {factors.get('avg_holding_days', 0):.1f}天")
-            # 6. 平均持有时间
-            holding_days = np.arange(self.max_holding_days)
-            if total_sum > 0:
-                weighted_days = np.sum(holding_matrix * holding_days[np.newaxis, :])
-                avg_holding_days = weighted_days / total_sum
-                factors['avg_holding_days'] = float(avg_holding_days)
-                print(f"📊 [_calculate_holding_factors] 平均持有时间: {weighted_days:.6f}/{total_sum:.6f}={avg_holding_days:.2f}天")
-            else:
-                factors['avg_holding_days'] = 100.0
-                print(f"⚠️ [_calculate_holding_factors] 持有矩阵总和为0，平均持有时间使用默认值")
-            # 7. 筹码集中度调整的持有时间
-            if chip_matrix.shape[0] > 0:
-                current_chip = chip_matrix[-1, :] if chip_matrix.shape[0] > 0 else np.ones(chip_matrix.shape[1])
-                chip_mean = np.mean(current_chip)
-                if chip_mean > 0:
-                    chip_concentration = np.std(current_chip) / chip_mean
-                    factors['concentration_adjusted_holding'] = float(factors.get('avg_holding_days', 100.0) * (1 + chip_concentration))
-                    print(f"📊 [_calculate_holding_factors] 筹码集中度: {chip_concentration:.4f}, 调整后持有时间: {factors['concentration_adjusted_holding']:.2f}")
-            # 8. 高位筹码沉淀比例（90%分位以上）
-            if 'price_grid' in data_dict and 'chip_dist_current' in data_dict:
-                price_grid = data_dict['price_grid']
-                chip_dist_current = data_dict['chip_dist_current']
-                if len(price_grid) > 0 and not chip_dist_current.empty:
-                    # 找到90%分位价格
-                    sorted_prices = np.sort(price_grid)
-                    idx_90 = int(len(sorted_prices) * 0.9)
-                    price_90 = sorted_prices[idx_90]
-                    # 计算价格高于90%分位的筹码比例
-                    high_mask = chip_dist_current['price'] >= price_90
-                    if high_mask.any():
-                        high_chip_sum = chip_dist_current.loc[high_mask, 'percent'].sum()
-                        total_chip_sum = chip_dist_current['percent'].sum()
-                        if total_chip_sum > 0:
-                            high_chip_ratio = high_chip_sum / total_chip_sum
-                            factors['high_position_lock_ratio_90'] = float(high_chip_ratio)
-                            print(f"📊 [_calculate_holding_factors] 高位筹码沉淀比例: {high_chip_ratio:.4f} (阈值: {price_90:.2f})")
-                        else:
-                            factors['high_position_lock_ratio_90'] = 0.0
-                    else:
-                        factors['high_position_lock_ratio_90'] = 0.0
-                else:
-                    factors['high_position_lock_ratio_90'] = 0.0
-            # 9. 主力成本区间锁定比例（50分位±10%）
-            if 'chip_dist_current' in data_dict:
-                chip_dist_current = data_dict['chip_dist_current']
-                if not chip_dist_current.empty:
-                    # 获取50分位成本
-                    sorted_chips = chip_dist_current.sort_values('price')
-                    cumsum = sorted_chips['percent'].cumsum()
-                    if (cumsum >= 0.5).any():
-                        idx_50 = (cumsum >= 0.5).idxmax()
-                        cost_50pct = sorted_chips.loc[idx_50, 'price']
-                        # 计算50分位±10%区间筹码
-                        lower_bound = cost_50pct * 0.9
-                        upper_bound = cost_50pct * 1.1
-                        main_mask = (chip_dist_current['price'] >= lower_bound) & (chip_dist_current['price'] <= upper_bound)
-                        main_chip_sum = chip_dist_current.loc[main_mask, 'percent'].sum()
-                        total_chip_sum = chip_dist_current['percent'].sum()
-                        if total_chip_sum > 0:
-                            main_range_ratio = main_chip_sum / total_chip_sum
-                            factors['main_cost_range_ratio'] = float(main_range_ratio)
-                            print(f"📊 [_calculate_holding_factors] 主力成本区间锁定比例: {main_range_ratio:.4f} (区间: {lower_bound:.2f}-{upper_bound:.2f})")
-                        else:
-                            factors['main_cost_range_ratio'] = 0.5
-                    else:
-                        factors['main_cost_range_ratio'] = 0.5
-                else:
-                    factors['main_cost_range_ratio'] = 0.5
-            # 10. 换手率调整因子 - 修复逻辑：保持比例总和为1
-            if 'daily_turnover' in data_dict and isinstance(data_dict['daily_turnover'], pd.Series):
-                recent_turnover = data_dict['daily_turnover'].iloc[-5:].mean() if len(data_dict['daily_turnover']) >= 5 else 0
-                factors['turnover_adjustment'] = float(recent_turnover)
-                # 高换手率下短线筹码比例应该更高，但要保持总和为1
-                if recent_turnover > 0.05:  # 5%以上换手
-                    # 计算调整后的短线筹码比例（限制最大为0.95）
-                    new_short_term = min(factors.get('short_term_ratio', 0.2) * 1.5, 0.95)
-                    # 计算需要减少的其他筹码比例
-                    short_increase = new_short_term - factors.get('short_term_ratio', 0.2)
-                    # 按原比例减少中长线筹码
-                    current_mid = factors.get('mid_term_ratio', 0.3)
-                    current_long = factors.get('long_term_ratio', 0.5)
-                    total_other = current_mid + current_long
+                # 调用A股长线模型
+                long_term_model_result = self._calculate_china_a_share_long_term_factors(
+                    stock_code='',  # 可在调用时传入
+                    chip_dist_current=data_dict['chip_dist_current'],
+                    historical_data=data_dict.get('daily_data', pd.DataFrame()),
+                    market_environment=market_env
+                )
+                
+                # 获取模型计算的长线比例
+                if 'final_long_term_ratio' in long_term_model_result:
+                    model_long_term = long_term_model_result['final_long_term_ratio']
+                    
+                    # 融合算法：70%权重给A股模型，30%权重给基础算法
+                    blend_factor = 0.7
+                    final_long_term = model_long_term * blend_factor + base_long * (1 - blend_factor)
+                    
+                    # 重新分配短线和中线比例，保持总和为1
+                    total_other = base_short + base_mid
                     if total_other > 0:
-                        # 按比例减少中长线筹码
-                        factors['mid_term_ratio'] = max(0, current_mid - short_increase * (current_mid / total_other))
-                        factors['long_term_ratio'] = max(0, current_long - short_increase * (current_long / total_other))
-                    factors['short_term_ratio'] = new_short_term
-                    print(f"📊 [_calculate_holding_factors] 高换手率调整: {recent_turnover:.2%} → 短线={factors['short_term_ratio']:.2%}, 中线={factors['mid_term_ratio']:.2%}, 长线={factors['long_term_ratio']:.2%}")
-            # 11. 价格位置调整 - 修复逻辑：保持比例总和为1
-            if 'price_range' in data_dict and chip_matrix.shape[0] > 0:
-                price_min, price_max = data_dict['price_range']
-                current_chip = chip_matrix[-1, :] if chip_matrix.shape[0] > 0 else np.zeros(chip_matrix.shape[1])
-                # 计算筹码价格重心
-                price_center = np.sum(current_chip * np.linspace(price_min, price_max, len(current_chip))) / np.sum(current_chip) if np.sum(current_chip) > 0 else price_min
-                price_position = (price_center - price_min) / (price_max - price_min) if price_max > price_min else 0.5
-                factors['price_position'] = float(price_position)
-                # 价格高位通常长线筹码较少，但要保持总和为1
-                if price_position > 0.7:
-                    # 减少长线筹码，增加短线和中线
-                    reduction = factors.get('long_term_ratio', 0.5) * 0.2  # 减少20%
-                    new_long = max(0.1, factors.get('long_term_ratio', 0.5) - reduction)
-                    increase_total = reduction
-                    # 按原比例增加短线和中线
-                    current_short = factors.get('short_term_ratio', 0.2)
-                    current_mid = factors.get('mid_term_ratio', 0.3)
-                    total_short_mid = current_short + current_mid
-                    if total_short_mid > 0:
-                        factors['short_term_ratio'] = current_short + increase_total * (current_short / total_short_mid)
-                        factors['mid_term_ratio'] = current_mid + increase_total * (current_mid / total_short_mid)
-                    factors['long_term_ratio'] = new_long
-                    print(f"📊 [_calculate_holding_factors] 高位价格调整: 价格位置={price_position:.2%} → 短线={factors['short_term_ratio']:.2%}, 中线={factors['mid_term_ratio']:.2%}, 长线={factors['long_term_ratio']:.2%}")
-            # 12. 最终归一化确保总和为1
-            final_sum = factors.get('short_term_ratio', 0) + factors.get('mid_term_ratio', 0) + factors.get('long_term_ratio', 0)
-            if abs(final_sum - 1.0) > 0.001 and final_sum > 0:
-                print(f"⚠️ [_calculate_holding_factors] 最终比例异常 ({final_sum:.4f})，重新归一化")
-                factors['short_term_ratio'] = factors.get('short_term_ratio', 0) / final_sum
-                factors['mid_term_ratio'] = factors.get('mid_term_ratio', 0) / final_sum
-                factors['long_term_ratio'] = factors.get('long_term_ratio', 0) / final_sum
-            # 13. 打印最终因子值
-            final_sum_check = factors.get('short_term_ratio', 0) + factors.get('mid_term_ratio', 0) + factors.get('long_term_ratio', 0)
-            print(f"✅ [_calculate_holding_factors] 计算完成:")
+                        # 按原比例减少短线和中线
+                        reduction = final_long_term - base_long
+                        factors['short_term_ratio'] = max(0.05, base_short - reduction * (base_short / total_other))
+                        factors['mid_term_ratio'] = max(0.05, base_mid - reduction * (base_mid / total_other))
+                        factors['long_term_ratio'] = final_long_term
+                    else:
+                        factors['short_term_ratio'] = 0.2
+                        factors['mid_term_ratio'] = 0.3
+                        factors['long_term_ratio'] = 0.5
+                    
+                    print(f"📊 [模型融合] A股模型长线: {model_long_term:.2%}, 融合后长线: {final_long_term:.2%}")
+                else:
+                    factors['short_term_ratio'] = base_short
+                    factors['mid_term_ratio'] = base_mid
+                    factors['long_term_ratio'] = base_long
+            else:
+                factors['short_term_ratio'] = base_short
+                factors['mid_term_ratio'] = base_mid
+                factors['long_term_ratio'] = base_long
+            
+            # 计算平均持有时间
+            holding_days = np.arange(self.max_holding_days)
+            avg_days = 0
+            valid_rows = 0
+            
+            for i in range(n_prices):
+                row_sum = holding_matrix[i, :].sum()
+                if row_sum > 0:
+                    row = holding_matrix[i, :] / row_sum
+                    avg_days += np.sum(row * holding_days)
+                    valid_rows += 1
+            
+            factors['avg_holding_days'] = float(avg_days / valid_rows if valid_rows > 0 else 100.0)
+            
+            # 计算其他因子
+            self._calculate_additional_factors(factors, holding_matrix, data_dict)
+            
+            # 最终归一化
+            total = factors.get('short_term_ratio', 0) + factors.get('mid_term_ratio', 0) + factors.get('long_term_ratio', 0)
+            if total > 0:
+                factors['short_term_ratio'] = factors.get('short_term_ratio', 0) / total
+                factors['mid_term_ratio'] = factors.get('mid_term_ratio', 0) / total
+                factors['long_term_ratio'] = factors.get('long_term_ratio', 0) / total
+            
+            print(f"✅ [_calculate_holding_factors] 最终比例:")
             print(f"   短线筹码: {factors.get('short_term_ratio', 0):.2%}")
             print(f"   中线筹码: {factors.get('mid_term_ratio', 0):.2%}")
             print(f"   长线筹码: {factors.get('long_term_ratio', 0):.2%}")
-            print(f"   比例总和: {final_sum_check:.6f}")
             print(f"   平均持有: {factors.get('avg_holding_days', 0):.1f}天")
+            
             return factors
         except Exception as e:
-            print(f"❌ [_calculate_holding_factors] 计算持有因子失败: {e}")
+            print(f"❌ [_calculate_holding_factors] 计算失败: {e}")
             import traceback
             traceback.print_exc()
             return self._get_default_factors()
+
+    def _calculate_china_a_share_long_term_factors(self,stock_code: str,chip_dist_current: pd.DataFrame,historical_data: pd.DataFrame,market_environment: Dict) -> Dict[str, float]:
+        """中国A股特有的长线筹码因子计算模型"""
+        long_term_factors = {}
+        try:
+            print(f"🔍 [A股长线模型] 开始深度计算 {stock_code} 的长线筹码结构")
+            
+            # 1. 历史套牢盘分析（基于价格区间）
+            price_current = chip_dist_current['price'].mean()
+            price_history_high = historical_data['high'].max() if not historical_data.empty else price_current * 1.5
+            
+            # 计算不同价格区间的筹码沉淀
+            long_term_factors['high_position_lock_ratio'] = self._calculate_high_position_lock_ratio(chip_dist_current, price_history_high)
+            long_term_factors['mid_position_lock_ratio'] = self._calculate_mid_position_lock_ratio(chip_dist_current, price_current)
+            
+            # 2. 机构持仓分析（基于换手率和成交量）
+            if 'daily_turnover' in market_environment and 'volume_ratio' in market_environment:
+                turnover_20d = market_environment['daily_turnover'].iloc[-20:].mean() if len(market_environment['daily_turnover']) >= 20 else 0.05
+                volume_ratio = market_environment.get('volume_ratio', 1.0)
+                
+                # 机构持仓估算模型
+                institutional_ratio = self._estimate_institutional_holding(turnover_20d, volume_ratio)
+                long_term_factors['institutional_holding_ratio'] = institutional_ratio
+                print(f"📊 [A股长线模型] 机构持仓估算: {institutional_ratio:.2%}")
+            
+            # 3. 解禁压力分析
+            if 'float_shares_change' in market_environment:
+                float_change = market_environment['float_shares_change']
+                unlocking_pressure = self._calculate_unlocking_pressure(float_change, stock_code)
+                long_term_factors['unlocking_pressure_ratio'] = unlocking_pressure
+            
+            # 4. 趋势周期分析
+            trend_score = self._analyze_price_trend_cycle(historical_data)
+            cycle_position = self._identify_market_cycle_position(historical_data)
+            
+            # 根据趋势周期调整长线筹码预期
+            if cycle_position == 'accumulation':  # 吸筹期
+                expected_long_term = 0.6
+            elif cycle_position == 'lifting':  # 拉升期
+                expected_long_term = 0.4
+            elif cycle_position == 'distribution':  # 派发期
+                expected_long_term = 0.2
+            else:  # 整理期
+                expected_long_term = 0.35
+            
+            # 结合趋势强度调整
+            trend_adjustment = 1.0 + trend_score * 0.5
+            expected_long_term = min(0.8, max(0.1, expected_long_term * trend_adjustment))
+            
+            long_term_factors['expected_long_term_ratio'] = expected_long_term
+            print(f"📊 [A股长线模型] 周期位置: {cycle_position}, 趋势得分: {trend_score:.2f}, 预期长线: {expected_long_term:.2%}")
+            
+            # 5. 筹码集中度与长线筹码关系
+            chip_concentration = self._calculate_chip_concentration(chip_dist_current)
+            # 筹码越集中，长线筹码比例通常越高
+            concentration_factor = 0.3 + chip_concentration * 0.5
+            long_term_factors['concentration_based_long_term'] = concentration_factor
+            
+            # 6. 综合长线筹码比例计算（加权平均）
+            weights = {
+                'high_position': 0.25,      # 高位套牢盘权重
+                'institutional': 0.30,      # 机构持仓权重
+                'expected': 0.25,           # 周期预期权重
+                'concentration': 0.20       # 集中度权重
+            }
+            
+            total_long_term = 0.0
+            weight_sum = 0.0
+            
+            # 高位套牢盘贡献
+            if 'high_position_lock_ratio' in long_term_factors:
+                total_long_term += long_term_factors['high_position_lock_ratio'] * weights['high_position']
+                weight_sum += weights['high_position']
+            
+            # 机构持仓贡献
+            if 'institutional_holding_ratio' in long_term_factors:
+                total_long_term += long_term_factors['institutional_holding_ratio'] * weights['institutional']
+                weight_sum += weights['institutional']
+            
+            # 周期预期贡献
+            total_long_term += expected_long_term * weights['expected']
+            weight_sum += weights['expected']
+            
+            # 集中度贡献
+            if 'concentration_based_long_term' in long_term_factors:
+                total_long_term += long_term_factors['concentration_based_long_term'] * weights['concentration']
+                weight_sum += weights['concentration']
+            
+            if weight_sum > 0:
+                final_long_term_ratio = total_long_term / weight_sum
+            else:
+                final_long_term_ratio = 0.35  # 默认35%
+            
+            # 根据换手率进行微调
+            if 'daily_turnover' in market_environment:
+                turnover_20d = market_environment['daily_turnover'].iloc[-20:].mean() if len(market_environment['daily_turnover']) >= 20 else 0.05
+                # 换手率越低，长线筹码应越高
+                turnover_adjustment = 1.0 - min(0.5, turnover_20d * 2)
+                final_long_term_ratio = final_long_term_ratio * turnover_adjustment
+            
+            # 限制合理范围
+            final_long_term_ratio = min(0.7, max(0.05, final_long_term_ratio))
+            
+            long_term_factors['final_long_term_ratio'] = final_long_term_ratio
+            print(f"✅ [A股长线模型] 综合长线筹码比例: {final_long_term_ratio:.2%}")
+            
+            return long_term_factors
+        except Exception as e:
+            print(f"❌ [A股长线模型] 计算失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'final_long_term_ratio': 0.35}
+
+    def _calculate_high_position_lock_ratio(self,chip_dist: pd.DataFrame,historical_high: float) -> float:
+        """计算高位套牢盘比例（中国A股特有）"""
+        try:
+            if chip_dist.empty or historical_high <= 0:
+                return 0.0
+            
+            current_price = chip_dist['price'].mean()
+            
+            # 定义高位区域：历史高点的80%以上
+            high_threshold = historical_high * 0.8
+            
+            # 计算高位套牢盘
+            high_mask = chip_dist['price'] >= high_threshold
+            if not high_mask.any():
+                return 0.0
+            
+            high_chip_sum = chip_dist.loc[high_mask, 'percent'].sum()
+            total_chip_sum = chip_dist['percent'].sum()
+            
+            if total_chip_sum > 0:
+                ratio = high_chip_sum / total_chip_sum
+                print(f"📊 [高位套牢] 当前价: {current_price:.2f}, 历史高点: {historical_high:.2f}, 阈值: {high_threshold:.2f}, 套牢比例: {ratio:.2%}")
+                return float(ratio)
+            return 0.0
+        except:
+            return 0.0
+
+    def _estimate_institutional_holding(self,turnover_20d: float,volume_ratio: float) -> float:
+        """估算机构持仓比例"""
+        try:
+            # 基于换手率和量比估算机构持仓
+            # 换手率越低，机构持仓通常越高
+            # 量比稳定在1附近，表明交易正常，机构可能持仓稳定
+            
+            if turnover_20d < 0.01:  # 换手率低于1%
+                base_ratio = 0.7
+            elif turnover_20d < 0.02:  # 换手率1-2%
+                base_ratio = 0.6
+            elif turnover_20d < 0.05:  # 换手率2-5%
+                base_ratio = 0.5
+            elif turnover_20d < 0.1:   # 换手率5-10%
+                base_ratio = 0.3
+            else:                      # 换手率高于10%
+                base_ratio = 0.2
+            
+            # 量比调整：量比接近1，机构持仓稳定
+            volume_adjustment = 1.0 - min(0.3, abs(volume_ratio - 1.0) * 0.5)
+            
+            final_ratio = base_ratio * volume_adjustment
+            return min(0.8, max(0.1, final_ratio))
+        except:
+            return 0.4
+
+    def _identify_market_cycle_position(self,historical_data: pd.DataFrame) -> str:
+        """识别市场周期位置"""
+        try:
+            if historical_data.empty or len(historical_data) < 60:
+                return 'consolidation'
+            
+            # 计算技术指标
+            close_prices = historical_data['close'] if 'close' in historical_data.columns else historical_data.iloc[:, 0]
+            
+            # 计算均线
+            ma20 = close_prices.rolling(20).mean()
+            ma60 = close_prices.rolling(60).mean()
+            
+            if len(ma20) < 1 or len(ma60) < 1:
+                return 'consolidation'
+            
+            current_close = close_prices.iloc[-1]
+            current_ma20 = ma20.iloc[-1]
+            current_ma60 = ma60.iloc[-1]
+            
+            # 判断周期位置
+            if current_close > current_ma20 > current_ma60:  # 多头排列
+                if (current_close - current_ma60) / current_ma60 > 0.3:  # 涨幅超过30%
+                    return 'distribution'  # 可能处于派发期
+                else:
+                    return 'lifting'  # 拉升期
+            elif current_close < current_ma20 < current_ma60:  # 空头排列
+                if (current_ma60 - current_close) / current_close > 0.2:  # 跌幅超过20%
+                    return 'accumulation'  # 可能处于吸筹期
+                else:
+                    return 'decline'  # 下跌期
+            else:
+                return 'consolidation'  # 整理期
+        except:
+            return 'consolidation'
 
     def _validate_results(self,holding_matrix: np.ndarray,factors: Dict[str, float],data_dict: Dict[str, any]) -> Dict[str, any]:
         """验证计算结果合理性 - 修复验证逻辑错误"""
