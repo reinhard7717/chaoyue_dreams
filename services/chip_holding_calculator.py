@@ -396,10 +396,14 @@ class ChipHoldingService:
         """
         try:
             if minute_data is None or minute_data.empty:
-                return np.zeros(len(price_grid))
+                print(f"⚠️ [_calculate_minute_volume_distribution] 分钟数据为空，使用均匀分布")
+                # 返回均匀分布
+                return np.ones(len(price_grid)) / len(price_grid) * 10000  # 假设总成交量为10000股
             volume_dist = np.zeros(len(price_grid))
+            total_volume = 0
             for _, row in minute_data.iterrows():
                 minute_volume = row['vol'] * 100  # 转换为股
+                total_volume += minute_volume
                 low_price = row['low']
                 high_price = row['high']
                 # 找到价格区间对应的网格索引
@@ -414,11 +418,16 @@ class ChipHoldingService:
                     mid_price = (low_price + high_price) / 2
                     nearest_idx = np.argmin(np.abs(price_grid - mid_price))
                     volume_dist[nearest_idx] += minute_volume
+            print(f"📊 [_calculate_minute_volume_distribution] 总成交量: {total_volume}股, 分布总和: {volume_dist.sum():.0f}股")
+            if volume_dist.sum() == 0:
+                print(f"⚠️ [_calculate_minute_volume_distribution] 成交量分布为0，使用均匀分布")
+                return np.ones(len(price_grid)) / len(price_grid) * 10000
             return volume_dist
         except Exception as e:
             logger.error(f"计算分钟成交量分布失败: {e}")
-            return np.zeros(len(price_grid))
-    
+            print(f"❌ [_calculate_minute_volume_distribution] 计算失败: {e}")
+            return np.ones(len(price_grid)) / len(price_grid) * 10000
+
     def _enhance_with_tick_data(self,base_dist: np.ndarray,tick_data: pd.DataFrame,price_grid: np.ndarray) -> np.ndarray:
         """
         使用逐笔数据增强成交量分布
@@ -474,23 +483,25 @@ class ChipHoldingService:
             # 计算每日换手率
             daily_volume = volume_dist.sum()
             if daily_volume <= 0:
-                print(f"⚠️ [_calculate_turnover_matrix] 日成交量为0")
-                return np.zeros_like(chip_matrix)
-            daily_turnover_rate = daily_volume / float_shares
-            print(f"📊 [_calculate_turnover_matrix] 日成交量: {daily_volume:.0f}, 流通股: {float_shares:.0f}, 日换手率: {daily_turnover_rate:.4%}")
-            # 计算各价格区间的相对换手率
-            if chip_matrix.shape[0] > 0:
-                chip_dist_current = chip_matrix[-1, :]
+                print(f"⚠️ [_calculate_turnover_matrix] 日成交量为0，使用默认换手率0.02")
+                # 使用默认换手率 2%
+                price_turnover = np.ones(len(volume_dist)) * 0.02 / len(volume_dist)
             else:
-                chip_dist_current = np.ones(len(volume_dist)) / len(volume_dist)
-            # 避免除零
-            chip_dist_current = np.maximum(chip_dist_current, 1e-6)
-            # 各价格区间换手率 = 成交量分布 / (筹码分布 * 流通股本)
-            price_turnover = volume_dist / (chip_dist_current * float_shares)
-            price_turnover = np.nan_to_num(price_turnover, nan=0, posinf=0, neginf=0)
-            # 限制最大换手率
-            price_turnover = np.clip(price_turnover, 0, 0.99)
-            print(f"📊 [_calculate_turnover_matrix] 价格换手率范围: {price_turnover.min():.6f} - {price_turnover.max():.6f}")
+                daily_turnover_rate = daily_volume / float_shares
+                print(f"📊 [_calculate_turnover_matrix] 日成交量: {daily_volume:.0f}, 流通股: {float_shares:.0f}, 日换手率: {daily_turnover_rate:.4%}")
+                # 计算各价格区间的相对换手率
+                if chip_matrix.shape[0] > 0:
+                    chip_dist_current = chip_matrix[-1, :]
+                else:
+                    chip_dist_current = np.ones(len(volume_dist)) / len(volume_dist)
+                # 避免除零
+                chip_dist_current = np.maximum(chip_dist_current, 1e-6)
+                # 各价格区间换手率 = 成交量分布 / (筹码分布 * 流通股本)
+                price_turnover = volume_dist / (chip_dist_current * float_shares)
+                price_turnover = np.nan_to_num(price_turnover, nan=0, posinf=0, neginf=0)
+                # 限制最大换手率
+                price_turnover = np.clip(price_turnover, 0, 0.99)
+                print(f"📊 [_calculate_turnover_matrix] 价格换手率范围: {price_turnover.min():.6f} - {price_turnover.max():.6f}")
             # 创建换手率矩阵（与筹码矩阵同形状）
             turnover_matrix = np.tile(price_turnover, (chip_matrix.shape[0], 1))
             # 应用时间衰减（越久远的数据影响越小）
@@ -546,79 +557,6 @@ class ChipHoldingService:
         except Exception as e:
             logger.error(f"优化参数失败: {e}")
             return {'alpha': 0.5, 'beta': 0.3, 'gamma': 0.2}
-    
-    def _calculate_holding_matrix(
-        self,
-        chip_matrix: np.ndarray,
-        turnover_matrix: np.ndarray,
-        params: Dict[str, float]
-    ) -> np.ndarray:
-        """
-        计算持有时间矩阵
-        """
-        try:
-            n_days = chip_matrix.shape[0]
-            n_prices = chip_matrix.shape[1]
-            print(f"📊 [_calculate_holding_matrix] 输入: n_days={n_days}, n_prices={n_prices}, max_holding_days={self.max_holding_days}")
-            # 初始化持有时间矩阵 [价格区间 × 持有天数]
-            holding_matrix = np.zeros((n_prices, self.max_holding_days))
-            # 初始假设：所有筹码持有0天（使用最近一天的筹码分布）
-            if n_days > 0:
-                holding_matrix[:, 0] = chip_matrix[-1, :]
-                print(f"📊 [_calculate_holding_matrix] 初始化持有矩阵: 使用第{n_days-1}天的筹码分布")
-            else:
-                holding_matrix[:, 0] = np.ones(n_prices) / n_prices
-                print(f"⚠️ [_calculate_holding_matrix] 无历史筹码数据，使用均匀分布初始化")
-            # 检查初始化是否有效
-            init_sum = holding_matrix[:, 0].sum()
-            print(f"📊 [_calculate_holding_matrix] 初始筹码总和: {init_sum:.6f}")
-            if init_sum <= 0:
-                print(f"⚠️ [_calculate_holding_matrix] 初始筹码总和为0，使用均匀分布")
-                holding_matrix[:, 0] = np.ones(n_prices) / n_prices
-            if n_days < 2:
-                print(f"⚠️ [_calculate_holding_matrix] 历史数据不足，返回初始持有矩阵")
-                return holding_matrix
-            # 模拟历史换手过程
-            for day in range(1, min(n_days, self.max_holding_days)):
-                # 获取当天的换手率
-                turnover_rate = turnover_matrix[day, :]
-                # 应用参数调整
-                alpha = params.get('alpha', 0.5)
-                beta = params.get('beta', 0.3)
-                adjusted_turnover = alpha * turnover_rate + beta
-                adjusted_turnover = np.clip(adjusted_turnover, 0, 0.99)  # 限制在0-0.99
-                # 更新持有时间矩阵
-                for price_idx in range(n_prices):
-                    turnover_prob = adjusted_turnover[price_idx]
-                    # 未换手的筹码持有时间增加
-                    for holding_day in range(self.max_holding_days - 1, 0, -1):
-                        holding_matrix[price_idx, holding_day] = holding_matrix[price_idx, holding_day - 1] * (1 - turnover_prob)
-                    # 新换手的筹码持有时间为0（从其他价格区间流入）
-                    # 简化处理：假设新换手筹码均匀分布
-                    holding_matrix[price_idx, 0] = 0
-                # 计算总换手量并重新分配
-                total_turnover = 0
-                for price_idx in range(n_prices):
-                    for holding_day in range(1, self.max_holding_days):
-                        total_turnover += holding_matrix[price_idx, holding_day] * adjusted_turnover[price_idx]
-                # 按成交量比例重新分配换手筹码
-                if total_turnover > 0 and turnover_matrix[day, :].sum() > 0:
-                    turnover_dist = turnover_matrix[day, :] / turnover_matrix[day, :].sum()
-                    for price_idx in range(n_prices):
-                        holding_matrix[price_idx, 0] += total_turnover * turnover_dist[price_idx]
-            # 归一化（确保每行和为1）
-            row_sums = holding_matrix.sum(axis=1, keepdims=True)
-            valid_rows = row_sums > 0
-            holding_matrix[valid_rows[:, 0], :] = holding_matrix[valid_rows[:, 0], :] / row_sums[valid_rows]
-            # 检查最终矩阵
-            final_sum = holding_matrix.sum()
-            print(f"✅ [_calculate_holding_matrix] 计算完成: 最终矩阵总和={final_sum:.6f}, 形状={holding_matrix.shape}")
-            return holding_matrix
-        except Exception as e:
-            print(f"❌ [_calculate_holding_matrix] 计算持有时间矩阵失败: {e}")
-            import traceback
-            traceback.print_exc()
-            return np.zeros((chip_matrix.shape[1], self.max_holding_days))
 
     def _calculate_holding_factors(
         self,
