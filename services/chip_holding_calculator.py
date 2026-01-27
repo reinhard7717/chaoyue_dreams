@@ -697,43 +697,29 @@ class ChipHoldingService:
             return {'alpha': 0.5, 'beta': 0.3, 'gamma': 0.2}
     
     def _calculate_holding_matrix(self,chip_matrix: np.ndarray,turnover_matrix: np.ndarray,params: Dict[str, float]) -> np.ndarray:
-        """
-        计算持有时间矩阵 - 修复版本
-        核心问题：原算法没有正确处理筹码随时间的转移，导致长线筹码为0
-        新算法：模拟每日筹码持有时间的自然增长和换手重置
-        """
+        """计算持有时间矩阵 - 修复归一化和长线筹码问题"""
         try:
             n_days = chip_matrix.shape[0]
             n_prices = chip_matrix.shape[1]
-            print(f"🔧 [_calculate_holding_matrix_v2] 输入: n_days={n_days}, n_prices={n_prices}, max_holding_days={self.max_holding_days}")
+            print(f"🔧 [_calculate_holding_matrix] 修复版本: n_days={n_days}, n_prices={n_prices}")
             
-            # 初始化持有时间矩阵 [价格区间 × 持有天数]，全部初始化为0
+            # 初始化持有时间矩阵 [价格区间 × 持有天数]
             holding_matrix = np.zeros((n_prices, self.max_holding_days))
             
-            # 第0天：所有筹码持有0天（使用第一天的筹码分布）
+            # 第0天：所有筹码持有0天
             if n_days > 0:
-                # 初始筹码分布归一化
                 initial_chip = chip_matrix[0, :]
                 initial_sum = initial_chip.sum()
                 if initial_sum > 0:
-                    initial_chip = initial_chip / initial_sum
+                    holding_matrix[:, 0] = initial_chip / initial_sum
                 else:
-                    initial_chip = np.ones(n_prices) / n_prices
-                
-                holding_matrix[:, 0] = initial_chip
-                print(f"📊 [_calculate_holding_matrix_v2] 第0天初始化: 使用第0天的筹码分布，总和={holding_matrix[:, 0].sum():.6f}")
+                    holding_matrix[:, 0] = np.ones(n_prices) / n_prices
+                print(f"📊 [_calculate_holding_matrix] 第0天初始化: 总和={holding_matrix[:, 0].sum():.6f}")
             else:
                 holding_matrix[:, 0] = np.ones(n_prices) / n_prices
-                print(f"⚠️ [_calculate_holding_matrix_v2] 无历史数据，使用均匀分布初始化")
             
-            # 如果只有1天的数据，直接返回
             if n_days <= 1:
-                print(f"⚠️ [_calculate_holding_matrix_v2] 历史数据不足，返回初始矩阵")
-                # 归一化
-                row_sums = holding_matrix.sum(axis=1)
-                for i in range(n_prices):
-                    if row_sums[i] > 0:
-                        holding_matrix[i, :] = holding_matrix[i, :] / row_sums[i]
+                print(f"⚠️ [_calculate_holding_matrix] 历史数据不足，返回初始矩阵")
                 return holding_matrix
             
             # 获取参数
@@ -741,25 +727,40 @@ class ChipHoldingService:
             beta = params.get('beta', 0.3)
             gamma = params.get('gamma', 0.2)
             
-            print(f"📊 [_calculate_holding_matrix_v2] 使用参数: alpha={alpha:.3f}, beta={beta:.3f}, gamma={gamma:.3f}")
+            print(f"📊 [_calculate_holding_matrix] 使用参数: alpha={alpha:.3f}, beta={beta:.3f}, gamma={gamma:.3f}")
             
-            # 模拟历史换手过程 - 新算法
-            # 从第1天开始模拟到第n_days-1天
+            # 模拟历史换手过程
             for day_idx in range(1, min(n_days, self.max_holding_days)):
-                print(f"📅 [_calculate_holding_matrix_v2] 模拟第{day_idx}天")
+                if day_idx % 10 == 0:
+                    print(f"📅 [_calculate_holding_matrix] 模拟第{day_idx}天")
                 
                 # 获取当天的换手率分布
                 if day_idx < turnover_matrix.shape[0]:
                     day_turnover_rate = turnover_matrix[day_idx, :]
                 else:
-                    # 如果超出范围，使用最后一天的换手率
                     day_turnover_rate = turnover_matrix[-1, :]
                 
                 # 应用参数调整换手率
                 adjusted_turnover = alpha * day_turnover_rate + beta * gamma
                 adjusted_turnover = np.clip(adjusted_turnover, 0.001, 0.99)
                 
-                # 计算当天的筹码分布（用于验证）
+                # 创建临时矩阵
+                new_holding_matrix = np.zeros((n_prices, self.max_holding_days))
+                
+                # 对每个价格区间处理
+                for price_idx in range(n_prices):
+                    current_turnover = adjusted_turnover[price_idx]
+                    
+                    # 处理现有筹码
+                    for holding_day in range(self.max_holding_days - 1, 0, -1):
+                        prev_chips = holding_matrix[price_idx, holding_day - 1]
+                        if prev_chips > 0:
+                            # 继续持有
+                            new_holding_matrix[price_idx, holding_day] += prev_chips * (1 - current_turnover)
+                            # 换手重置
+                            new_holding_matrix[price_idx, 0] += prev_chips * current_turnover
+                
+                # 添加新筹码（基于当天成交量分布）
                 if day_idx < chip_matrix.shape[0]:
                     day_chip_dist = chip_matrix[day_idx, :]
                     day_chip_sum = day_chip_dist.sum()
@@ -767,109 +768,57 @@ class ChipHoldingService:
                     day_chip_dist = chip_matrix[-1, :]
                     day_chip_sum = day_chip_dist.sum()
                 
-                # 创建临时矩阵来保存当天的状态
-                new_holding_matrix = np.zeros((n_prices, self.max_holding_days))
-                
-                # 对每个价格区间处理
-                for price_idx in range(n_prices):
-                    current_turnover_rate = adjusted_turnover[price_idx]
-                    
-                    # 处理现有筹码：持有天数+1，但部分会换手
-                    for holding_day in range(self.max_holding_days - 1, 0, -1):
-                        # 前一天持有holding_day-1天的筹码
-                        prev_chips = holding_matrix[price_idx, holding_day - 1]
-                        if prev_chips > 0:
-                            # 部分筹码继续持有（天数+1）
-                            new_holding_matrix[price_idx, holding_day] += prev_chips * (1 - current_turnover_rate)
-                            # 部分筹码换手（重置为0天）
-                            new_holding_matrix[price_idx, 0] += prev_chips * current_turnover_rate
-                    
-                    # 处理当天新获得的筹码（来自其他价格区间的换手）
-                    # 这里假设换手筹码均匀分布到所有价格区间
-                    # 实际应该根据成交量分布，但简化处理
-                
-                # 处理当天的新筹码（来自当天的交易）
-                # 这部分应该基于当天的筹码分布和换手率
-                day_new_chips_total = 0
-                for price_idx in range(n_prices):
-                    if day_chip_sum > 0:
-                        # 当天的筹码分布比例
+                if day_chip_sum > 0:
+                    for price_idx in range(n_prices):
                         day_chip_ratio = day_chip_dist[price_idx] / day_chip_sum
-                        # 当天新获得的筹码（基于换手率）
-                        day_new_chips = day_chip_ratio * adjusted_turnover[price_idx] * 0.1  # 缩放因子
-                        new_holding_matrix[price_idx, 0] += day_new_chips
-                        day_new_chips_total += day_new_chips
+                        # 新筹码进入系统（基于换手率）
+                        new_chips = day_chip_ratio * adjusted_turnover[price_idx] * 0.1
+                        new_holding_matrix[price_idx, 0] += new_chips
                 
-                print(f"📊 [_calculate_holding_matrix_v2] 第{day_idx}天: 换手率均值={adjusted_turnover.mean():.4f}, 新增筹码={day_new_chips_total:.6f}")
+                # 关键修复：确保每行归一化
+                row_sums = new_holding_matrix.sum(axis=1)
+                for i in range(n_prices):
+                    if row_sums[i] > 0:
+                        new_holding_matrix[i, :] = new_holding_matrix[i, :] / row_sums[i]
+                    else:
+                        # 如果某行全为0，设置为均匀分布
+                        new_holding_matrix[i, :] = np.ones(self.max_holding_days) / self.max_holding_days
                 
-                # 更新持有矩阵
                 holding_matrix = new_holding_matrix.copy()
-                
-                # 归一化（保持每行总和为1）
-                row_sums = holding_matrix.sum(axis=1)
+            
+            # 最终检查：确保矩阵总和为1
+            total_sum = holding_matrix.sum()
+            print(f"📊 [_calculate_holding_matrix] 计算完成: 矩阵总和={total_sum:.6f}")
+            
+            # 如果总和异常，重新归一化
+            if abs(total_sum - n_prices) > 0.01:  # 注意：每行总和为1，所以总行数总和应为n_prices
+                print(f"⚠️ [_calculate_holding_matrix] 矩阵总和异常({total_sum:.6f})，重新归一化")
                 for i in range(n_prices):
-                    if row_sums[i] > 0:
-                        holding_matrix[i, :] = holding_matrix[i, :] / row_sums[i]
-                
-                # 检查长线筹码
-                if day_idx % 10 == 0:
-                    long_term_sum = holding_matrix[:, 60:].sum() if holding_matrix.shape[1] > 60 else 0
-                    print(f"📊 [_calculate_holding_matrix_v2] 第{day_idx}天长线筹码: {long_term_sum:.6f}")
+                    row_sum = holding_matrix[i, :].sum()
+                    if row_sum > 0:
+                        holding_matrix[i, :] = holding_matrix[i, :] / row_sum
             
-            # 最终归一化
-            row_sums = holding_matrix.sum(axis=1)
-            for i in range(n_prices):
-                if row_sums[i] > 0:
-                    holding_matrix[i, :] = holding_matrix[i, :] / row_sums[i]
+            # 检查长线筹码
+            long_term_sum = holding_matrix[:, 60:].sum() if holding_matrix.shape[1] > 60 else 0
+            short_term_sum = holding_matrix[:, :5].sum() if holding_matrix.shape[1] > 5 else 0
             
-            # 计算统计信息
-            final_sum = holding_matrix.sum()
-            row_sums_final = holding_matrix.sum(axis=1)
-            long_term_final = holding_matrix[:, 60:].sum() if holding_matrix.shape[1] > 60 else 0
-            short_term_final = holding_matrix[:, :5].sum() if holding_matrix.shape[1] > 5 else 0
-            
-            print(f"✅ [_calculate_holding_matrix_v2] 计算完成:")
-            print(f"   最终矩阵总和: {final_sum:.6f}")
+            print(f"📊 [_calculate_holding_matrix] 最终统计:")
             print(f"   形状: {holding_matrix.shape}")
-            print(f"   归一化后行和范围: {row_sums_final.min():.6f} - {row_sums_final.max():.6f}")
-            print(f"   短线筹码(<5天): {short_term_final:.6f} ({short_term_final/final_sum*100:.2f}%)")
-            print(f"   长线筹码(>60天): {long_term_final:.6f} ({long_term_final/final_sum*100:.2f}%)")
-            
-            # 如果长线筹码仍然为0，强制添加一些长线筹码
-            if long_term_final < 0.01:
-                print(f"⚠️ [_calculate_holding_matrix_v2] 长线筹码过低，强制添加")
-                # 将部分中线筹码转移到长线
-                for price_idx in range(n_prices):
-                    mid_chips = holding_matrix[price_idx, 30:60].sum()
-                    if mid_chips > 0.01:
-                        # 转移20%的中线筹码到长线
-                        transfer_amount = mid_chips * 0.2
-                        holding_matrix[price_idx, 30:60] *= 0.8
-                        # 平均分配到60天以上
-                        if holding_matrix.shape[1] > 60:
-                            holding_matrix[price_idx, 60:90] += transfer_amount / 30
-                
-                # 重新归一化
-                row_sums = holding_matrix.sum(axis=1)
-                for i in range(n_prices):
-                    if row_sums[i] > 0:
-                        holding_matrix[i, :] = holding_matrix[i, :] / row_sums[i]
-                
-                long_term_final = holding_matrix[:, 60:].sum() if holding_matrix.shape[1] > 60 else 0
-                print(f"📊 [_calculate_holding_matrix_v2] 调整后长线筹码: {long_term_final:.6f}")
+            print(f"   每行和范围: {holding_matrix.sum(axis=1).min():.6f} - {holding_matrix.sum(axis=1).max():.6f}")
+            print(f"   短线筹码(<5天): {short_term_sum:.6f}")
+            print(f"   长线筹码(>60天): {long_term_sum:.6f}")
             
             return holding_matrix
         except Exception as e:
-            print(f"❌ [_calculate_holding_matrix_v2] 计算持有时间矩阵失败: {e}")
+            print(f"❌ [_calculate_holding_matrix] 计算失败: {e}")
             import traceback
             traceback.print_exc()
-            # 返回一个合理的默认矩阵
+            # 返回合理的默认矩阵
             default_matrix = np.zeros((n_prices, self.max_holding_days))
-            default_matrix[:, 0] = 0.2  # 20%短线
-            default_matrix[:, 30] = 0.3  # 30%中线
-            default_matrix[:, 90] = 0.5  # 50%长线
-            # 归一化
             for i in range(n_prices):
+                default_matrix[i, 0] = 0.2  # 短线
+                default_matrix[i, 30] = 0.3  # 中线
+                default_matrix[i, 90] = 0.5  # 长线
                 row_sum = default_matrix[i, :].sum()
                 if row_sum > 0:
                     default_matrix[i, :] = default_matrix[i, :] / row_sum
