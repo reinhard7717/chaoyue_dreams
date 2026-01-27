@@ -805,19 +805,45 @@ class ChipHoldingService:
                     import traceback
                     traceback.print_exc()
                 # 准备保存的数据 - 只包含 ChipHoldingMatrix 模型中存在的字段
+                # 获取因子值并清理 NaN
+                short_term_ratio = result['factors'].get('short_term_ratio', 0)
+                mid_term_ratio = result['factors'].get('mid_term_ratio', 0)
+                long_term_ratio = result['factors'].get('long_term_ratio', 0)
+                avg_holding_days = result['factors'].get('avg_holding_days', 0)
+                validation_score = result.get('validation', {}).get('score', 0)
+                # 清理 NaN 值，转换为 None
+                def clean_nan(value):
+                    import math
+                    if value is None:
+                        return None
+                    if isinstance(value, float) and math.isnan(value):
+                        return None
+                    return value
                 defaults = {
-                    'short_term_ratio': result['factors'].get('short_term_ratio', 0),
-                    'mid_term_ratio': result['factors'].get('mid_term_ratio', 0),
-                    'long_term_ratio': result['factors'].get('long_term_ratio', 0),
-                    'avg_holding_days': result['factors'].get('avg_holding_days', 0),
+                    'short_term_ratio': clean_nan(short_term_ratio),
+                    'mid_term_ratio': clean_nan(mid_term_ratio),
+                    'long_term_ratio': clean_nan(long_term_ratio),
+                    'avg_holding_days': clean_nan(avg_holding_days),
                     'matrix_data': matrix_json,  # 保存JSON数据
                     'compressed_matrix': compressed_data,  # 保存压缩数据（已经是bytes）
                     'calc_status': result.get('calc_status', 'failed'),
-                    'validation_score': result.get('validation', {}).get('score', 0),
-                    # 注意：high_position_lock_ratio_90 和 main_cost_range_ratio 是 ChipFactor 模型的字段
-                    # 不应该在这里保存到 ChipHoldingMatrix 模型
+                    'validation_score': clean_nan(validation_score),
                 }
+                # 检查所有浮点字段是否为 None，如果是则设置默认值
+                float_fields = ['short_term_ratio', 'mid_term_ratio', 'long_term_ratio', 'avg_holding_days', 'validation_score']
+                for field in float_fields:
+                    if defaults[field] is None:
+                        if field == 'validation_score':
+                            defaults[field] = 0.0
+                        elif field == 'avg_holding_days':
+                            defaults[field] = 100.0
+                        else:
+                            defaults[field] = 0.0
+                        print(f"⚠️ [保存矩阵] 字段 {field} 为NaN，已设置为默认值: {defaults[field]}")
                 print(f"💾 [保存矩阵] 准备保存的字段: {list(defaults.keys())}")
+                print(f"💾 [保存矩阵] 字段值检查:")
+                for field in float_fields:
+                    print(f"  {field}: {defaults[field]} (type: {type(defaults[field])})")
                 # 转换trade_date为date对象
                 try:
                     trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
