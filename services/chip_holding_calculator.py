@@ -14,7 +14,14 @@ from scipy.interpolate import interp1d
 from scipy.stats import gaussian_kde
 from sklearn.neighbors import KernelDensity
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from utils.cache_manager import CacheManager
 from utils.model_helpers import get_chip_holding_matrix_model_by_code
+from utils.model_helpers import (
+    get_minute_data_model_by_code_and_timelevel,
+    get_stock_tick_data_model_by_code,
+    get_cyq_chips_model_by_code,
+    get_daily_data_model_by_code
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +29,7 @@ class ChipHoldingService:
     """
     基于1分钟数据和逐笔数据的精确筹码持有时间计算服务
     """
-    def __init__(self, use_tick_data: bool = True):
+    def __init__(self, cache_manager_instance: CacheManager, use_tick_data: bool = True):
         """
         初始化计算服务
         Args:
@@ -31,13 +38,8 @@ class ChipHoldingService:
         self.use_tick_data = use_tick_data
         self.price_grid_size = 200  # 价格网格数量
         self.max_holding_days = 250  # 最大追踪持有天数
+        self.stock_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         # 从model_helpers导入必要的函数
-        from utils.model_helpers import (
-            get_minute_data_model_by_code_and_timelevel,
-            get_stock_tick_data_model_by_code,
-            get_cyq_chips_model_by_code,
-            get_daily_data_model_by_code
-        )
         self.get_minute_data_model = get_minute_data_model_by_code_and_timelevel
         self.get_tick_data_model = get_stock_tick_data_model_by_code
         self.get_chips_model = get_cyq_chips_model_by_code
@@ -111,12 +113,7 @@ class ChipHoldingService:
             print(f"❌ [主流程异常] {stock_code} {trade_date}: {e}")
             return self._get_default_result(stock_code, trade_date)
 
-    def calculate_holding_matrix_daily(
-        self,
-        stock_code: str,
-        trade_date: str,
-        lookback_days: int = 60
-    ) -> Dict[str, any]:
+    def calculate_holding_matrix_daily(self,stock_code: str,trade_date: str,lookback_days: int = 60) -> Dict[str, any]:
         """
         计算单日筹码持有时间矩阵（主入口函数，同步包装）
         """
@@ -135,12 +132,7 @@ class ChipHoldingService:
             logger.error(f"计算筹码持有矩阵失败 {stock_code} {trade_date}: {e}")
             return self._get_default_result(stock_code, trade_date)
 
-    def calculate_batch_holding_matrices(
-        self,
-        stock_codes: List[str],
-        trade_date: str,
-        max_workers: int = 4
-    ) -> Dict[str, Dict]:
+    def calculate_batch_holding_matrices(self,stock_codes: List[str],trade_date: str,max_workers: int = 4) -> Dict[str, Dict]:
         """
         批量计算多只股票的持有时间矩阵
         Args:
@@ -197,9 +189,7 @@ class ChipHoldingService:
             print(f"🔍 [分钟数据_v3] 开始获取股票 {stock_code} 的分钟数据，日期: {trade_date_dt}")
             
             try:
-                # 创建DAO实例并调用方法
-                trade_dao = StockTimeTradeDAO()
-                minute_df = await trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date_dt)
+                minute_df = await self.stock_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date_dt)
                 
                 if minute_df is not None and not minute_df.empty:
                     # 重置索引并将trade_time作为列
@@ -625,12 +615,7 @@ class ChipHoldingService:
             logger.error(f"逐笔数据增强失败: {e}")
             return base_dist
     
-    def _calculate_turnover_matrix(
-        self,
-        volume_dist: np.ndarray,
-        chip_matrix: np.ndarray,
-        float_shares: float
-    ) -> np.ndarray:
+    def _calculate_turnover_matrix(self,volume_dist: np.ndarray,chip_matrix: np.ndarray,float_shares: float) -> np.ndarray:
         """
         计算换手率矩阵
         """
@@ -675,12 +660,7 @@ class ChipHoldingService:
             traceback.print_exc()
             return np.zeros_like(chip_matrix)
 
-    def _optimize_turnover_parameters(
-        self,
-        turnover_matrix: np.ndarray,
-        chip_matrix: np.ndarray,
-        daily_turnover_series: pd.Series
-    ) -> Dict[str, float]:
+    def _optimize_turnover_parameters(self,turnover_matrix: np.ndarray,chip_matrix: np.ndarray,daily_turnover_series: pd.Series) -> Dict[str, float]:
         """
         优化换手概率参数
         """
@@ -716,12 +696,7 @@ class ChipHoldingService:
             logger.error(f"优化参数失败: {e}")
             return {'alpha': 0.5, 'beta': 0.3, 'gamma': 0.2}
     
-    def _calculate_holding_matrix(
-        self,
-        chip_matrix: np.ndarray,
-        turnover_matrix: np.ndarray,
-        params: Dict[str, float]
-    ) -> np.ndarray:
+    def _calculate_holding_matrix(self,chip_matrix: np.ndarray,turnover_matrix: np.ndarray,params: Dict[str, float]) -> np.ndarray:
         """
         计算持有时间矩阵 - 修复版本
         核心问题：原算法没有正确处理筹码随时间的转移，导致长线筹码为0
@@ -900,12 +875,7 @@ class ChipHoldingService:
                     default_matrix[i, :] = default_matrix[i, :] / row_sum
             return default_matrix
 
-    def _calculate_holding_factors(
-        self,
-        holding_matrix: np.ndarray,
-        chip_matrix: np.ndarray,
-        data_dict: Dict[str, any]
-    ) -> Dict[str, float]:
+    def _calculate_holding_factors(self,holding_matrix: np.ndarray,chip_matrix: np.ndarray,data_dict: Dict[str, any]) -> Dict[str, float]:
         """计算持有时间相关因子 - 修复长线筹码为0的问题"""
         try:
             factors = {}
@@ -1146,12 +1116,7 @@ class ChipHoldingService:
             traceback.print_exc()
             return self._get_default_factors()
 
-    def _validate_results(
-        self,
-        holding_matrix: np.ndarray,
-        factors: Dict[str, float],
-        data_dict: Dict[str, any]
-    ) -> Dict[str, any]:
+    def _validate_results(self,holding_matrix: np.ndarray,factors: Dict[str, float],data_dict: Dict[str, any]) -> Dict[str, any]:
         """
         验证计算结果合理性
         """
