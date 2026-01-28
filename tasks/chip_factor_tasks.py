@@ -453,6 +453,24 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         print(f"❌ [单股异常] {stock_code}: {e}")
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
+def calculate_single_stock_holding_matrix_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
+    """同步版本的单个股票持有矩阵计算函数（按股票循环）版本：重构适配AdvancedChipDynamicsService"""
+    try:
+        print(f"🔴 [持有矩阵单股开始] 开始处理股票 {stock_code}")
+        print(f"📅 [持有矩阵单股日期] 日期范围: {start_date} 到 {end_date}")
+        # 创建事件循环用于异步调用
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(calculate_single_stock_holding_matrix_async(stock_code, start_date, end_date))
+            return result
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
+        print(f"❌ [持有矩阵单股异常] {stock_code}: {e}")
+        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
+
 async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date) -> Dict:
     """异步版本的单个股票持有矩阵计算函数（使用AdvancedChipDynamicsService）版本：重构适配AdvancedChipDynamicsService"""
     try:
@@ -520,6 +538,23 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
         return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 持有矩阵失败: {e}", exc_info=True)
+        print(f"❌ [持有矩阵异常] {stock_code}: {e}")
+        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
+
+def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
+    """同步版本的股票持有矩阵计算（按股票循环）版本：重构适配AdvancedChipDynamicsService"""
+    try:
+        logger.info(f"开始同步计算股票 {stock_code} 的持有时间矩阵（使用AdvancedChipDynamicsService）")
+        # 创建事件循环用于异步调用
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(calculate_single_stock_holding_matrix_async(stock_code, start_date, end_date))
+            return result
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
         print(f"❌ [持有矩阵异常] {stock_code}: {e}")
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
