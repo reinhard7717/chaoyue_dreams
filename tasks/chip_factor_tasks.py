@@ -1,5 +1,6 @@
 # tasks\chip_factor_tasks.py
 from chaoyue_dreams.celery import app as celery_app
+from django.apps import apps
 from celery.result import AsyncResult
 from django.utils import timezone
 from django.db import transaction
@@ -355,6 +356,7 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             print(f"⚠️ [单股检查] {stock_code} 在日期范围内无持有矩阵数据，将尝试降级计算")
         else:
             print(f"✅ [单股检查] {stock_code} 已有 {holding_count} 天的持有矩阵数据")
+            
         # 获取对应的模型
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
@@ -364,12 +366,14 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         if not stock:
             print(f"❌ [单股错误] {stock_code} 股票不存在")
             return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
+            
         # 获取历史价格数据用于计算MA
         print(f"📊 [单股数据] 获取历史价格数据...")
         historical_df = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_df.empty:
             print(f"❌ [单股错误] {stock_code} 历史价格数据不足")
             return {'status': 'failed', 'error': f'股票 {stock_code} 历史价格数据不足', 'processed_dates': 0}
+            
         print(f"📊 [单股数据] 历史价格: {len(historical_df)} 条")
         # 提取 close Series 用于传给 calculate_complete_factors
         historical_prices_series = historical_df['close_qfq'] if 'close_qfq' in historical_df else pd.Series()
@@ -379,6 +383,7 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         if not trade_dates:
             print(f"⚠️ [单股警告] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
             return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
+            
         processed_dates = 0
         saved_dates = []
         failed_dates = []
@@ -416,14 +421,20 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     prev_chips_df = pd.DataFrame()
                 # 获取历史因子
                 historical_factors = await get_historical_chip_factors(chip_factor_model, stock, current_date, 5)
+                # 获取当日换手率 (从 historical_df 中获取)
+                current_turnover = 0.0
+                if current_date in historical_df.index:
+                    current_turnover = historical_df.loc[current_date, 'turnover_rate']
                 # 准备数据字典
                 chip_perf_dict = {'weight_avg': chip_perf.weight_avg, 'his_high': chip_perf.his_high, 'his_low': chip_perf.his_low, 'cost_5pct': chip_perf.cost_5pct, 'cost_15pct': chip_perf.cost_15pct, 'cost_50pct': chip_perf.cost_50pct, 'cost_85pct': chip_perf.cost_85pct, 'cost_95pct': chip_perf.cost_95pct, 'winner_rate': chip_perf.winner_rate}
                 daily_kline_dict = {'close': daily_kline.close_qfq, 'open': daily_kline.open_qfq, 'high': daily_kline.high_qfq, 'low': daily_kline.low_qfq, 'vol': daily_kline.vol, 'amount': daily_kline.amount, 'pct_change': daily_kline.pct_change}
+                # 传入换手率
+                daily_basic_dict = {'turnover_rate': current_turnover}
                 # 计算因子
                 factors = ChipFactorCalculator.calculate_complete_factors(
                     chip_perf_data=chip_perf_dict, 
                     chip_dist_data=chips_df, 
-                    daily_basic_data={}, 
+                    daily_basic_data=daily_basic_dict, 
                     daily_kline_data=daily_kline_dict, 
                     prev_chip_dist_data=prev_chips_df, 
                     historical_prices=historical_prices_series, 
@@ -441,7 +452,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         factors['long_term_chip_ratio'] = holding_record.long_term_ratio if holding_record.long_term_ratio is not None else 0.5
                     else:
                         # 2. 降级计算
-                        current_turnover = daily_kline.turnover_rate
                         # 计算20日平均换手率 (截取截止到 current_date 的数据)
                         hist_slice = historical_df.loc[:current_date]
                         avg_turnover_20d = hist_slice['turnover_rate'].tail(20).mean() if not hist_slice.empty and 'turnover_rate' in hist_slice else 0
@@ -592,28 +602,67 @@ def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, e
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def get_historical_prices_for_stock(stock_code: str, end_date: date, days: int) -> pd.DataFrame:
-    """获取股票历史价格数据（返回DataFrame，包含close_qfq和turnover_rate）"""
+    """
+    获取股票历史价格和换手率数据
+    返回DataFrame，包含 close_qfq 和 turnover_rate (来自 turnover_rate_f)
+    """
     try:
+        # 1. 获取价格数据 (StockDailyData)
         daily_data_model = get_daily_data_model_by_code(stock_code)
-        start_date = end_date - timedelta(days=days * 2)  # 多取一些数据
-        # 查询历史价格和换手率
+        start_date = end_date - timedelta(days=days * 2)  # 多取一些数据以确保均线计算
         price_data = await sync_to_async(list)(
             daily_data_model.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_date,
                 trade_time__lte=end_date
             ).order_by('trade_time')
-            .values('trade_time', 'close_qfq', 'turnover_rate')
+            .values('trade_time', 'close_qfq')
         )
         if not price_data:
             return pd.DataFrame()
-        # 转换为DataFrame
-        df = pd.DataFrame(price_data)
-        df.set_index('trade_time', inplace=True)
-        return df
-        
+            
+        df_price = pd.DataFrame(price_data)
+        df_price['trade_time'] = pd.to_datetime(df_price['trade_time']).dt.date
+        df_price.set_index('trade_time', inplace=True)
+        # 2. 获取换手率数据 (StockDailyBasic)
+        # 使用 apps.get_model 动态获取模型，避免循环导入或路径问题
+        try:
+            StockDailyBasic = apps.get_model('stock_models', 'StockDailyBasic')
+            basic_data = await sync_to_async(list)(
+                StockDailyBasic.objects.filter(
+                    stock__stock_code=stock_code,
+                    trade_time__gte=start_date,
+                    trade_time__lte=end_date
+                ).order_by('trade_time')
+                .values('trade_time', 'turnover_rate_f')
+            )
+            if basic_data:
+                df_basic = pd.DataFrame(basic_data)
+                df_basic['trade_time'] = pd.to_datetime(df_basic['trade_time']).dt.date
+                df_basic.set_index('trade_time', inplace=True)
+                # 重命名 turnover_rate_f 为 turnover_rate，方便后续统一使用
+                df_basic.rename(columns={'turnover_rate_f': 'turnover_rate'}, inplace=True)
+                # 3. 合并数据
+                # 使用 inner join 或 left join，这里以价格数据为主
+                df_merged = df_price.join(df_basic, how='left')
+                # 处理 Decimal 类型转 float
+                if 'turnover_rate' in df_merged.columns:
+                    df_merged['turnover_rate'] = df_merged['turnover_rate'].astype(float).fillna(0.0)
+                else:
+                    df_merged['turnover_rate'] = 0.0
+                return df_merged
+            else:
+                # 如果没有基本面数据，补充 turnover_rate 列为 0
+                df_price['turnover_rate'] = 0.0
+                return df_price
+                
+        except LookupError:
+            logger.error("无法找到 StockDailyBasic 模型")
+            df_price['turnover_rate'] = 0.0
+            return df_price
+            
     except Exception as e:
-        logger.error(f"获取股票 {stock_code} 历史价格失败: {e}")
+        logger.error(f"获取股票 {stock_code} 历史数据失败: {e}")
         return pd.DataFrame()
 
 async def get_historical_chip_factors(chip_factor_model,stock,current_date: date,days: int) -> List[Dict]:
@@ -931,15 +980,18 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
             return {'status': 'failed', 'error': '股票不存在'}
+            
         # 检查是否已计算
         existing = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=trade_date, calc_status='success').exists)()
         if existing:
             print(f"⚠️ [单日计算] 已计算过，跳过")
             return {'status': 'success', 'message': '已计算'}
+            
         # 获取数据
         chip_perf = await sync_to_async(StockCyqPerf.objects.filter(stock=stock, trade_time=trade_date).first)()
         if not chip_perf:
             return {'status': 'failed', 'error': '无筹码性能数据'}
+            
         # 获取筹码分布
         chips_data = await sync_to_async(list)(chips_model.objects.filter(stock=stock, trade_time=trade_date).values('price', 'percent'))
         if not chips_data:
@@ -949,6 +1001,7 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
         daily_kline = await sync_to_async(daily_data_model.objects.filter(stock=stock, trade_time=trade_date).first)()
         if not daily_kline:
             return {'status': 'failed', 'error': '无日K线数据'}
+            
         # 获取前一日数据
         prev_date = trade_date - timedelta(days=1)
         prev_chips_data = await sync_to_async(list)(chips_model.objects.filter(stock=stock, trade_time=prev_date).values('price', 'percent'))
@@ -958,14 +1011,20 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
         historical_prices_series = historical_df['close_qfq'] if 'close_qfq' in historical_df else pd.Series()
         # 获取历史因子
         historical_factors = await get_historical_chip_factors(chip_factor_model, stock, trade_date, 5)
+        # 获取当日换手率
+        current_turnover = 0.0
+        if trade_date in historical_df.index:
+            current_turnover = historical_df.loc[trade_date, 'turnover_rate']
         # 准备数据
         chip_perf_dict = {'weight_avg': chip_perf.weight_avg, 'his_high': chip_perf.his_high, 'his_low': chip_perf.his_low, 'cost_5pct': chip_perf.cost_5pct, 'cost_15pct': chip_perf.cost_15pct, 'cost_50pct': chip_perf.cost_50pct, 'cost_85pct': chip_perf.cost_85pct, 'cost_95pct': chip_perf.cost_95pct, 'winner_rate': chip_perf.winner_rate}
         daily_kline_dict = {'close': daily_kline.close_qfq, 'open': daily_kline.open_qfq, 'high': daily_kline.high_qfq, 'low': daily_kline.low_qfq, 'vol': daily_kline.vol, 'amount': daily_kline.amount, 'pct_change': daily_kline.pct_change}
+        # 传入换手率
+        daily_basic_dict = {'turnover_rate': current_turnover}
         # 计算基础因子
         factors = ChipFactorCalculator.calculate_complete_factors(
             chip_perf_data=chip_perf_dict, 
             chip_dist_data=chips_df, 
-            daily_basic_data={}, 
+            daily_basic_data=daily_basic_dict, 
             daily_kline_data=daily_kline_dict, 
             prev_chip_dist_data=prev_chips_df, 
             historical_prices=historical_prices_series, 
@@ -984,7 +1043,6 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
             else:
                 print(f"⚠️ [单日计算] 未找到已计算的持有矩阵，执行降级计算")
                 # 降级计算
-                current_turnover = daily_kline.turnover_rate
                 # 计算20日平均换手率
                 hist_slice = historical_df.loc[:trade_date]
                 avg_turnover_20d = hist_slice['turnover_rate'].tail(20).mean() if not hist_slice.empty and 'turnover_rate' in hist_slice else 0
@@ -995,11 +1053,11 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
                     avg_turnover_20d=avg_turnover_20d
                 )
                 factors.update(holding_factors)
-                
             # 计算中线筹码
             short_term = factors.get('short_term_chip_ratio', 0.2)
             long_term = factors.get('long_term_chip_ratio', 0.5)
             factors['mid_term_ratio'] = max(0, 1.0 - short_term - long_term)
+            
         except Exception as e:
             print(f"⚠️ [单日计算] 持有因子处理失败：{e}")
         # =================================================
@@ -1009,6 +1067,7 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
         verify_result = await verify_chip_factor_saved(stock_code, trade_date)
         if verify_result.get('exists'):
             print(f"✅ [单日计算] 验证通过: {stock_code} {trade_date} 已保存到数据库")
+            
         return {'status': 'success', 'message': '计算完成'}
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 日期 {trade_date} 失败: {e}")
