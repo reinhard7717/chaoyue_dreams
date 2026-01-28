@@ -494,7 +494,7 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
         # 按日期循环处理当前股票
         for date_index, current_date in enumerate(trade_dates):
             try:
-                print(f"📊 [持有矩阵进度] {stock_code} {current_date} ({date_index + 1}/{len(trade_dates)})")
+                # print(f"📊 [持有矩阵进度] {stock_code} {current_date} ({date_index + 1}/{len(trade_dates)})")
                 # 检查是否已计算
                 existing = await sync_to_async(holding_matrix_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)()
                 if existing:
@@ -1032,7 +1032,7 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
                 # 每完成5只股票打印一次进度
                 if (stock_index + 1) % 5 == 0:
                     print(f"📊 [持有矩阵进度] 已完成 {stock_index + 1}/{len(stock_codes)} 只股票")
-                    print(f"📊 [持有矩阵进度] 成功: {results['success']}, 失败: {results['failed']}")
+                    # print(f"📊 [持有矩阵进度] 成功: {results['success']}, 失败: {results['failed']}")
             except Exception as e:
                 results['failed'] += 1
                 print(f"❌ [持有矩阵单股异常] {stock_code} 处理异常: {e}")
