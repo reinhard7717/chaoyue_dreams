@@ -278,8 +278,7 @@ class ChipFactorCalculator:
             return [], []
     
     @staticmethod
-    def analyze_peak_pattern(peak_prices: List[float], peak_heights: List[float],
-                            price_range: Tuple[float, float]) -> Dict:
+    def analyze_peak_pattern(peak_prices: List[float], peak_heights: List[float], price_range: Tuple[float, float]) -> Dict:
         """
         分析多峰形态
         Args:
@@ -319,10 +318,16 @@ class ChipFactorCalculator:
             if len(peak_prices) >= 2:
                 peak_span = max(peak_prices) - min(peak_prices)
                 analysis['peak_distance_ratio'] = peak_span / price_span if price_span > 0 else 0.0
-            # 峰间集中度（前两大峰占比）
-            if len(peak_heights) >= 2:
+            
+            # 峰间集中度（前两大峰占比之和）
+            # 修改：原逻辑 sum(top2)/sum(all) 在双峰时恒为1。
+            # 现改为直接计算前两大峰的高度之和，反映峰的绝对强度。
+            if peak_heights:
                 sorted_heights = sorted(peak_heights, reverse=True)
-                analysis['peak_concentration'] = sum(sorted_heights[:2]) / sum(peak_heights)
+                analysis['peak_concentration'] = sum(sorted_heights[:2])
+            else:
+                analysis['peak_concentration'] = 0.0
+                
             # 双峰/多峰判断
             if analysis['peak_count'] == 2:
                 analysis['is_double_peak'] = True
@@ -332,7 +337,7 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"分析多峰形态失败: {e}")
             return analysis
-    
+
     @staticmethod
     def calculate_chip_flow(current_chip: pd.DataFrame, prev_chip: pd.DataFrame, 
                            current_price: float) -> Tuple[int, float]:
