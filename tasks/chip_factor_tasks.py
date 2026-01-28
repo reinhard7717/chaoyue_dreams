@@ -453,6 +453,76 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         print(f"❌ [单股异常] {stock_code}: {e}")
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
+async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date) -> Dict:
+    """异步版本的单个股票持有矩阵计算函数（使用AdvancedChipDynamicsService）版本：重构适配AdvancedChipDynamicsService"""
+    try:
+        logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵（使用AdvancedChipDynamicsService）")
+        from services.chip_dynamics_service import AdvancedChipDynamicsService
+        from utils.model_helpers import get_chip_holding_matrix_model_by_code
+        # 获取持有矩阵模型
+        holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
+        # 获取股票基本信息
+        stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
+        if not stock:
+            return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
+        # 创建动态分析服务
+        service = AdvancedChipDynamicsService(market_type=get_market_from_code(stock_code))
+        processed_dates = 0
+        saved_dates = []
+        failed_dates = []
+        # 获取日期范围内的所有交易日
+        from stock_models.index import TradeCalendar
+        get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
+        trade_dates = await get_dates_func(start_date, end_date)
+        if not trade_dates:
+            print(f"⚠️ [持有矩阵] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
+            return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
+        print(f"📅 [持有矩阵] {stock_code} 交易日: {len(trade_dates)} 天")
+        # 按日期循环处理当前股票
+        for date_index, current_date in enumerate(trade_dates):
+            try:
+                print(f"📊 [持有矩阵进度] {stock_code} {current_date} ({date_index + 1}/{len(trade_dates)})")
+                # 检查是否已计算
+                existing = await sync_to_async(holding_matrix_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)()
+                if existing:
+                    continue
+                # 使用AdvancedChipDynamicsService进行动态分析
+                trade_date_str = current_date.strftime('%Y-%m-%d')
+                dynamics_result = await service.analyze_chip_dynamics_daily(
+                    stock_code=stock_code,
+                    trade_date=trade_date_str,
+                    lookback_days=20
+                )
+                # 保存动态分析结果到数据库
+                if dynamics_result.get('analysis_status') == 'success':
+                    # 获取或创建记录
+                    record, created = await sync_to_async(holding_matrix_model.objects.get_or_create)(
+                        stock=stock,
+                        trade_time=current_date,
+                        defaults={'calc_status': 'pending'}
+                    )
+                    # 保存动态分析结果
+                    save_success = record.save_dynamics_result(dynamics_result)
+                    if save_success:
+                        processed_dates += 1
+                        saved_dates.append(current_date)
+                        print(f"✅ [持有矩阵] {stock_code} {current_date} 动态分析保存成功")
+                    else:
+                        failed_dates.append(current_date)
+                        print(f"❌ [持有矩阵] {stock_code} {current_date} 动态分析保存失败")
+                else:
+                    failed_dates.append(current_date)
+                    print(f"⚠️ [持有矩阵] {stock_code} {current_date} 动态分析失败")
+            except Exception as e:
+                print(f"❌ [持有矩阵] {stock_code} {current_date} 计算失败: {e}")
+                failed_dates.append(current_date)
+        print(f"✅ [持有矩阵完成] {stock_code} 处理完成，成功 {len(saved_dates)} 个交易日，失败 {len(failed_dates)} 个交易日")
+        return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
+    except Exception as e:
+        logger.error(f"计算股票 {stock_code} 持有矩阵失败: {e}", exc_info=True)
+        print(f"❌ [持有矩阵异常] {stock_code}: {e}")
+        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
+
 async def get_historical_prices_for_stock(stock_code: str,  end_date: date,  days: int) -> pd.Series:
     """获取股票历史价格序列"""
     try:
