@@ -261,7 +261,6 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
                 print(f"🔴 [股票处理] 开始处理第 {stock_index + 1}/{len(stock_codes)} 只股票: {stock_code}")
                 # 检查该股票的持有矩阵是否已计算（仅检查，不调度）
                 print(f"🔍 [股票检查] 检查 {stock_code} 的持有矩阵计算状态...")
-                from utils.model_helpers import get_chip_holding_matrix_model_by_code
                 HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
                 # 查询该股票在日期范围内是否有成功计算的持有矩阵
                 date_range_count = HoldingMatrixModel.objects.filter(
@@ -348,7 +347,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         print(f"🔴 [单股异步开始] {stock_code} {start_date} 到 {end_date}")
         # 注意：不再在这里调度持有矩阵计算，因为链式调度已经确保了先后顺序
         # 检查持有矩阵数据是否已存在
-        from utils.model_helpers import get_chip_holding_matrix_model_by_code
         HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
         holding_count = await sync_to_async(HoldingMatrixModel.objects.filter(
             stock__stock_code=stock_code,
@@ -480,16 +478,10 @@ async def get_historical_prices_for_stock(stock_code: str,  end_date: date,  day
         logger.error(f"获取股票 {stock_code} 历史价格失败: {e}")
         return pd.Series()
 
-async def get_historical_chip_factors(
-    chip_factor_model,
-    stock,
-    current_date: date,
-    days: int
-) -> List[Dict]:
+async def get_historical_chip_factors(chip_factor_model,stock,current_date: date,days: int) -> List[Dict]:
     """获取历史筹码因子（包含更多字段）"""
     try:
         start_date = current_date - timedelta(days=days)
-        
         historical_factors = await sync_to_async(list)(
             chip_factor_model.objects.filter(
                 stock=stock,
@@ -499,7 +491,6 @@ async def get_historical_chip_factors(
             ).order_by('trade_time')
             .values('chip_mean', 'chip_stability', 'chip_concentration_ratio')
         )
-        
         return historical_factors
         
     except Exception as e:
@@ -512,7 +503,6 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
         print(f"💾 [保存因子开始] {stock.stock_code} {trade_date}")
         print(f"💾 [模型信息] 模型类: {chip_factor_model.__name__}")
         print(f"💾 [因子数量] {len(factors)} 个因子")
-        
         # 检查因子数据是否有效
         if not factors:
             print(f"⚠️ [保存因子] 因子数据为空，跳过保存")
@@ -524,10 +514,8 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
         for key in key_factors:
             if key in factors:
                 print(f"💾 [因子值] {key}: {factors[key]}")
-        
         # 检查是否已存在
         existing = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=trade_date).first)()
-        
         if existing:
             print(f"💾 [保存因子] 更新现有记录 ID: {existing.id}")
             # 更新现有记录
@@ -536,26 +524,22 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
                     setattr(existing, key, value)
                 else:
                     print(f"⚠️ [保存因子] 字段 {key} 不在模型中，跳过")
-            
             # 设置计算状态
             if hasattr(existing, 'calc_status'):
                 existing.calc_status = 'success'
             if hasattr(existing, 'update_time'):
                 existing.update_time = datetime.now()
-            
             # 保存更新
             await sync_to_async(existing.save)()
             print(f"✅ [保存因子完成] {stock.stock_code} {trade_date} 记录更新成功")
             
         else:
             print(f"💾 [保存因子] 创建新记录")
-            
             # 准备创建数据
             create_data = {
                 'stock': stock,
                 'trade_time': trade_date,
             }
-            
             # 添加因子字段
             valid_fields = []
             for key, value in factors.items():
@@ -573,7 +557,6 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
                         print(f"⚠️ [保存因子] 字段 {key} 值类型不支持: {type(value)}")
                 except:
                     print(f"⚠️ [保存因子] 字段 {key} 不在模型中，跳过")
-            
             # 添加计算状态
             if hasattr(chip_factor_model, 'calc_status'):
                 create_data['calc_status'] = 'success'
@@ -581,10 +564,8 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
                 create_data['create_time'] = datetime.now()
             if hasattr(chip_factor_model, 'update_time'):
                 create_data['update_time'] = datetime.now()
-            
             print(f"💾 [创建数据] 有效字段数: {len(valid_fields)}")
             print(f"💾 [创建数据] 字段列表: {valid_fields[:10]}{'...' if len(valid_fields) > 10 else ''}")
-            
             try:
                 # 创建新记录
                 new_record = await sync_to_async(chip_factor_model.objects.create)(**create_data)
@@ -614,27 +595,21 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
 async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
     """验证筹码因子是否已保存到数据库"""
     try:
-        from stock_models.index import TradeCalendar
         from asgiref.sync import sync_to_async
-        
         # 获取股票
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
             return {'status': 'failed', 'error': '股票不存在'}
-        
         # 获取对应的因子模型
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
         print(f"🔍 [验证] 检查 {stock_code} {trade_date} 的筹码因子")
         print(f"🔍 [验证] 使用模型: {chip_factor_model.__name__}")
-        
         # 检查记录是否存在
         exists = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=trade_date).exists)()
-        
         if exists:
             # 获取记录详情
             record = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=trade_date).first)()
             field_count = len([f for f in chip_factor_model._meta.get_fields() if not f.is_relation])
-            
             result = {
                 'status': 'success',
                 'exists': True,
@@ -643,7 +618,6 @@ async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
                 'field_count': field_count,
                 'message': f"找到 {stock_code} {trade_date} 的记录"
             }
-            
             # 打印一些关键字段
             if record:
                 key_fields = ['chip_mean', 'chip_std', 'chip_concentration_ratio', 
@@ -664,7 +638,6 @@ async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
                 .order_by('-trade_time')
                 .values('trade_time', 'calc_status')[:5]
             )
-            
             result = {
                 'status': 'failed',
                 'exists': False,
@@ -672,7 +645,6 @@ async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
                 'recent_records': recent_records,
                 'message': f"未找到 {stock_code} {trade_date} 的记录"
             }
-            
             print(f"❌ [验证] 未找到 {stock_code} {trade_date} 的记录")
             print(f"📊 [验证] 该股票共有 {total_count} 条记录")
             if recent_records:
@@ -921,15 +893,12 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
 
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.calculate_holding_matrix_batch', queue=ChipTaskConfig.get_queue_name())
 def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str, end_date: str, market: str = None) -> Dict:
-    """
-    批量计算多只股票的持有时间矩阵（按股票循环）
-    
+    """批量计算多只股票的持有时间矩阵（使用AdvancedChipDynamicsService）版本：重构适配AdvancedChipDynamicsService
     Args:
         stock_codes: 股票代码列表
         start_date: 开始日期
         end_date: 结束日期
         market: 市场标识
-    
     Returns:
         Dict: 计算结果
     """
@@ -944,7 +913,7 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
         for stock_index, stock_code in enumerate(stock_codes):
             try:
                 print(f"🔴 [持有矩阵单股] 开始处理第 {stock_index + 1}/{len(stock_codes)} 只股票: {stock_code}")
-                # 计算单个股票的持有时间矩阵
+                # 计算单个股票的持有时间矩阵（使用新的AdvancedChipDynamicsService）
                 result = calculate_single_stock_holding_matrix_sync(stock_code, start_date_obj, end_date_obj)
                 if result.get('status') == 'success':
                     results['success'] += 1
@@ -971,156 +940,8 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
         print(f"❌ [持有矩阵批量异常] {e}")
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
-def calculate_single_stock_holding_matrix_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
-    """同步版本的单个股票持有矩阵计算函数（按股票循环）"""
-    try:
-        print(f"🔴 [持有矩阵单股开始] 开始处理股票 {stock_code}")
-        print(f"📅 [持有矩阵单股日期] 日期范围: {start_date} 到 {end_date}")
-        return calculate_holding_matrix_for_stock_sync(stock_code, start_date, end_date)
-    except Exception as e:
-        logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
-        print(f"❌ [持有矩阵单股异常] {stock_code}: {e}")
-        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
-
-def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
-    """
-    同步版本的股票持有矩阵计算（按股票循环）
-    """
-    try:
-        logger.info(f"开始同步计算股票 {stock_code} 的持有时间矩阵")
-        from services.chip_holding_calculator import ChipHoldingService
-        from stock_models.index import TradeCalendar
-        from utils.model_helpers import get_chip_holding_matrix_model_by_code
-        service = ChipHoldingService(use_tick_data=False)
-        # 获取日期范围内的所有交易日
-        trade_dates = TradeCalendar.get_trade_dates_between(start_date, end_date)
-        if not trade_dates:
-            print(f"⚠️ [持有矩阵] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
-            return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
-        print(f"📅 [持有矩阵] {stock_code} 交易日: {len(trade_dates)} 天")
-        ChipHoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
-        processed_dates = 0
-        date_progress_interval = max(1, len(trade_dates) // 10)  # 每10%打印一次进度
-        # 按日期循环处理当前股票
-        for date_index, current_date in enumerate(trade_dates):
-            # 打印进度
-            if date_index % date_progress_interval == 0:
-                progress = (date_index + 1) / len(trade_dates) * 100
-                print(f"📊 [持有矩阵进度] {stock_code} 进度: {progress:.1f}% ({date_index + 1}/{len(trade_dates)})")
-            try:
-                # 检查是否已计算
-                existing = ChipHoldingMatrixModel.objects.filter(stock__stock_code=stock_code, trade_time=current_date, calc_status='success').exists()
-                if existing:
-                    continue
-                # 计算持有时间矩阵
-                result = service.calculate_holding_matrix_daily(stock_code=stock_code, trade_date=current_date.strftime('%Y-%m-%d'), lookback_days=60)
-                if result.get('calc_status') == 'success':
-                    # 同步保存
-                    import json, base64, pickle
-                    if 'holding_matrix' in result and result['holding_matrix'].size > 0:
-                        # 使用 service 的保存方法
-                        save_success = service.save_holding_matrix_to_db(
-                            stock_code=stock_code,
-                            trade_date=current_date.strftime('%Y-%m-%d'),
-                            result=result
-                        )
-                        if save_success:
-                            processed_dates += 1
-                            print(f"✅ [持有矩阵] {stock_code} {current_date} 保存成功")
-                        else:
-                            print(f"❌ [持有矩阵] {stock_code} {current_date} 保存失败")
-                    else:
-                        print(f"⚠️ [持有矩阵] {stock_code} {current_date} 计算失败或无矩阵数据")
-                else:
-                    print(f"⚠️ [持有矩阵] {stock_code} {current_date} 持有矩阵计算失败")
-            except Exception as e:
-                print(f"❌ [持有矩阵] {stock_code} {current_date} 计算失败: {e}")
-                import traceback
-                traceback.print_exc()
-        print(f"✅ [持有矩阵完成] {stock_code} 处理完成，成功 {processed_dates} 个交易日")
-        return {'status': 'success', 'processed_dates': processed_dates, 'date_range': f"{start_date} - {end_date}"}
-    except Exception as e:
-        logger.error(f"同步计算股票 {stock_code} 持有矩阵失败: {e}")
-        print(f"❌ [持有矩阵异常] {stock_code}: {e}")
-        import traceback
-        traceback.print_exc()
-        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
-
-async def calculate_single_stock_holding_matrix_async(stock_code: str,start_date: date,end_date: date) -> Dict:
-    """异步版本的单个股票持有矩阵计算函数"""
-    try:
-        logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵")
-        # 获取持有矩阵模型
-        holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
-        # 获取股票基本信息
-        stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
-        if not stock:
-            return {
-                'status': 'failed',
-                'error': f'未找到股票 {stock_code}',
-                'processed_dates': 0
-            }
-        from services.chip_holding_calculator import ChipHoldingService
-        service = ChipHoldingService(use_tick_data=False)
-        processed_dates = 0
-        current_date = start_date
-        while current_date <= end_date:
-            try:
-                # 检查是否已计算
-                existing = await sync_to_async(
-                    holding_matrix_model.objects.filter(
-                        stock=stock,
-                        trade_time=current_date,
-                        calc_status='success'
-                    ).exists
-                )()
-                if existing:
-                    current_date += timedelta(days=1)
-                    continue
-                # 计算持有时间矩阵（同步调用）
-                result = service.calculate_holding_matrix_daily(
-                    stock_code=stock_code,
-                    trade_date=current_date.strftime('%Y-%m-%d'),
-                    lookback_days=60
-                )
-                # 保存到数据库
-                if result.get('calc_status') == 'success':
-                    save_success = await sync_to_async(service.save_holding_matrix_to_db)(
-                        stock_code=stock_code,
-                        trade_date=current_date.strftime('%Y-%m-%d'),
-                        result=result
-                    )
-                    if save_success:
-                        processed_dates += 1
-                        logger.debug(f"股票 {stock_code} 日期 {current_date} 持有矩阵保存成功")
-                    else:
-                        logger.warning(f"股票 {stock_code} 日期 {current_date} 持有矩阵保存失败")
-                else:
-                    logger.warning(f"股票 {stock_code} 日期 {current_date} 持有矩阵计算失败")
-            except Exception as e:
-                logger.warning(f"股票 {stock_code} 日期 {current_date} 计算失败: {e}")
-            current_date += timedelta(days=1)
-        logger.info(f"股票 {stock_code} 持有矩阵计算完成，处理 {processed_dates} 个交易日")
-        return {
-            'status': 'success',
-            'processed_dates': processed_dates,
-            'date_range': f"{start_date} - {end_date}"
-        }
-    except Exception as e:
-        logger.error(f"计算股票 {stock_code} 持有矩阵失败: {e}", exc_info=True)
-        return {
-            'status': 'error',
-            'error': str(e),
-            'processed_dates': 0
-        }
-
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_holding_matrix_calculation', queue=ChipTaskConfig.get_queue_name())
-def schedule_holding_matrix_calculation(
-    self,
-    stock_codes: Optional[List[str]] = None,
-    start_date_str: Optional[str] = None,
-    end_date_str: Optional[str] = None
-) -> Dict:
+def schedule_holding_matrix_calculation(self,stock_codes: Optional[List[str]] = None,start_date_str: Optional[str] = None,end_date_str: Optional[str] = None) -> Dict:
     """
     调度持有时间矩阵计算任务
     Args:
