@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Any
 from datetime import datetime
 from scipy.signal import find_peaks, savgol_filter
 from scipy.stats import linregress
