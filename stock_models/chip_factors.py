@@ -384,13 +384,11 @@ class ChipFactorBase(models.Model):
         try:
             if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success':
                 return cls._get_default_convergence_factors()
-            
             # 获取核心数据
             convergence_metrics = chip_dynamics_result.get('convergence_metrics', {})
             behavior_patterns = chip_dynamics_result.get('behavior_patterns', {})
             migration_patterns = chip_dynamics_result.get('migration_patterns', {})
             absolute_signals = chip_dynamics_result.get('absolute_change_signals', {})
-            
             # 1. 基础聚散度
             factors = {
                 'percent_change_convergence': convergence_metrics.get('comprehensive_convergence', 0.5),
@@ -398,64 +396,49 @@ class ChipFactorBase(models.Model):
                 'convergence_strength': convergence_metrics.get('convergence_strength', 0.0),
                 'divergence_strength': convergence_metrics.get('divergence_strength', 0.0),
             }
-            
             # 2. 迁移相关因子
             factors['net_migration_direction'] = migration_patterns.get('net_migration_direction', 0.0)
             factors['migration_convergence_ratio'] = convergence_metrics.get('migration_convergence', 0.5)
-            
             # 3. 绝对变化强度
             # 计算所有显著变化的总强度
             increase_areas = absolute_signals.get('significant_increase_areas', [])
             decrease_areas = absolute_signals.get('significant_decrease_areas', [])
-            
             total_increase = sum(abs(area['change']) for area in increase_areas)
             total_decrease = sum(abs(area['change']) for area in decrease_areas)
             factors['absolute_change_strength'] = (total_increase + total_decrease) / 100.0
-            
             # 4. 吸筹/派发信号强度
             accumulation = behavior_patterns.get('accumulation', {})
             distribution = behavior_patterns.get('distribution', {})
-            
             factors['accumulation_signal_score'] = accumulation.get('strength', 0.0)
             factors['distribution_signal_score'] = distribution.get('strength', 0.0)
-            
             # 5. 主力活跃度
             factors['main_force_activity_index'] = behavior_patterns.get('main_force_activity', 0.0)
-            
             # 6. 信号质量
             factors['signal_quality_score'] = absolute_signals.get('signal_quality', 0.0)
-            
             # 7. 行为确认度（多种信号的一致性）
             confirmation_score = 0.0
             confirmation_count = 0
-            
             # 吸筹确认
             if accumulation.get('detected', False):
                 confirmation_score += accumulation.get('strength', 0.0)
                 confirmation_count += 1
-            
             # 派发确认
             if distribution.get('detected', False):
                 confirmation_score += distribution.get('strength', 0.0)
                 confirmation_count += 1
-            
             # 迁移方向确认
             if abs(factors['net_migration_direction']) > 0.1:
                 confirmation_score += min(1.0, abs(factors['net_migration_direction']) / 10.0)
                 confirmation_count += 1
-            
             factors['behavior_confirmation'] = (
                 confirmation_score / confirmation_count if confirmation_count > 0 else 0.0
             )
-            
             # 8. 压力与支撑
             pressure_metrics = chip_dynamics_result.get('pressure_metrics', {})
             factors['pressure_release_index'] = pressure_metrics.get('pressure_release', 0.0)
-            
             support = pressure_metrics.get('support_strength', 0.3)
             resistance = pressure_metrics.get('resistance_strength', 0.3)
             factors['support_resistance_ratio'] = support / resistance if resistance > 0 else 1.0
-            
             return factors
             
         except Exception as e:
@@ -492,13 +475,11 @@ class ChipFactorBase(models.Model):
         try:
             if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success':
                 return False
-            
             # 1. 更新聚散度因子
             convergence_factors = self.calculate_convergence_divergence(chip_dynamics_result)
             for key, value in convergence_factors.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
-            
             # 2. 更新集中度因子
             concentration_metrics = chip_dynamics_result.get('concentration_metrics', {})
             if concentration_metrics:
@@ -506,12 +487,10 @@ class ChipFactorBase(models.Model):
                 self.chip_entropy = -np.log(concentration_metrics.get('entropy_concentration', 0.5) + 1e-10)
                 self.chip_skewness = concentration_metrics.get('chip_skewness', 0.0)
                 self.chip_kurtosis = concentration_metrics.get('chip_kurtosis', 0.0)
-            
             # 3. 更新压力因子
             pressure_metrics = chip_dynamics_result.get('pressure_metrics', {})
             if pressure_metrics:
                 self.profit_ratio = pressure_metrics.get('profit_pressure', 0.5)
-            
             # 4. 更新行为模式
             behavior_patterns = chip_dynamics_result.get('behavior_patterns', {})
             if behavior_patterns:
@@ -527,10 +506,8 @@ class ChipFactorBase(models.Model):
                     self.chip_structure_state = 'consolidation'
                 elif behavior_patterns.get('breakout_preparation', {}).get('detected', False):
                     self.chip_structure_state = 'lifting'
-            
             # 5. 计算综合趋势得分
             self._calculate_trend_score(chip_dynamics_result)
-            
             self.calc_status = 'success'
             return True
             
@@ -553,29 +530,22 @@ class ChipFactorBase(models.Model):
         try:
             # 获取相关数据
             convergence_factors = self.calculate_convergence_divergence(chip_dynamics_result)
-            
             # 1. 趋势方向得分
             direction_score = 0.0
             net_migration = convergence_factors.get('net_migration_direction', 0.0)
-            
             if net_migration > 0.1:  # 向上迁移
                 direction_score = min(1.0, net_migration / 5.0)
             elif net_migration < -0.1:  # 向下迁移
                 direction_score = -min(1.0, abs(net_migration) / 5.0)
-            
             # 2. 主力行为得分
             main_force_score = convergence_factors.get('main_force_activity_index', 0.0)
-            
             # 3. 支撑强度得分
             support_ratio = convergence_factors.get('support_resistance_ratio', 1.0)
             support_score = min(1.0, support_ratio) if support_ratio > 1 else support_ratio
-            
             # 4. 信号质量得分
             signal_score = convergence_factors.get('signal_quality_score', 0.0)
-            
             # 5. 行为确认得分
             confirmation_score = convergence_factors.get('behavior_confirmation', 0.0)
-            
             # 综合趋势得分
             weights = [0.3, 0.25, 0.2, 0.15, 0.1]
             scores = [
@@ -585,12 +555,9 @@ class ChipFactorBase(models.Model):
                 signal_score,
                 confirmation_score
             ]
-            
             trend_score = np.sum(np.array(weights) * np.array(scores))
-            
             # 趋势确认信号
             self.trend_confirmation_score = trend_score
-            
             # 反转预警（趋势得分低但主力活跃）
             if trend_score < 0.4 and main_force_score > 0.6:
                 self.reversal_warning_score = 1.0 - trend_score
