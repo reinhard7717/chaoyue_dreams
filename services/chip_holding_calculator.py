@@ -40,46 +40,48 @@ class AdvancedChipDynamicsService:
             'distribution_days': 3,              # 派发天数判定
         }
         
-    async def analyze_chip_dynamics_daily(self,stock_code: str,trade_date: str,lookback_days: int = 20) -> Dict[str, any]:
+    async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20) -> Dict[str, any]:
         """
         分析单日筹码动态 - 主入口函数
-        
-        Returns:
-            Dict包含：
-            - percent_change_matrix: 百分比变化矩阵（核心）
-            - absolute_change_signals: 绝对变化信号
-            - concentration_metrics: 集中度指标
-            - pressure_metrics: 压力指标
-            - behavior_patterns: 行为模式
-            - migration_patterns: 迁移模式
         """
         try:
             print(f"🔍 [筹码动态分析] 开始分析 {stock_code} {trade_date}")
+            
             # 1. 获取筹码分布历史数据（包含百分比）
             chip_data = await self._fetch_chip_percent_data(
                 stock_code, trade_date, lookback_days
             )
+            
+            # PROBE: 检查数据获取结果
+            history_len = len(chip_data['chip_history']) if chip_data else 0
+            print(f"🕵️ [PROBE-DATA] {stock_code} 获取历史天数: {history_len}")
+            
             if not chip_data or len(chip_data['chip_history']) < 5:
-                print(f"⚠️ [筹码动态分析] 数据不足")
+                print(f"⚠️ [PROBE-WARN] 数据不足 (历史天数 {history_len} < 5)，返回默认结果")
                 return self._get_default_result(stock_code, trade_date)
+            
             # 2. 构建价格网格和归一化筹码矩阵
             price_grid, chip_matrix = self._build_normalized_chip_matrix(
                 chip_data['chip_history'],
                 chip_data['current_chip_dist']
             )
+            
             # 3. 计算百分比变化矩阵（核心）
             percent_change_matrix = self._calculate_percent_change_matrix(chip_matrix)
+            
             # 4. 基于绝对变化的行为分析
             absolute_signals = self._analyze_absolute_changes(
                 percent_change_matrix,
                 price_grid,
                 chip_data['current_price']
             )
+            
             # 5. 计算筹码集中度指标
             concentration_metrics = self._calculate_concentration_metrics(
                 chip_matrix[-1],  # 当前筹码分布
                 price_grid
             )
+            
             # 6. 计算压力与支撑指标
             pressure_metrics = self._calculate_pressure_metrics(
                 chip_matrix[-1],
@@ -87,6 +89,7 @@ class AdvancedChipDynamicsService:
                 chip_data['current_price'],
                 chip_data['price_history']
             )
+            
             # 7. 识别主力行为模式
             behavior_patterns = self._identify_behavior_patterns(
                 percent_change_matrix,
@@ -94,18 +97,21 @@ class AdvancedChipDynamicsService:
                 price_grid,
                 chip_data['current_price']
             )
+            
             # 8. 计算筹码迁移模式
             migration_patterns = self._calculate_migration_patterns(
                 percent_change_matrix,
                 chip_matrix,
                 price_grid
             )
+            
             # 9. 计算综合聚散度
             convergence_metrics = self._calculate_convergence_metrics(
                 chip_matrix,
                 percent_change_matrix,
                 price_grid
             )
+            
             result = {
                 'stock_code': stock_code,
                 'trade_date': trade_date,
@@ -129,7 +135,7 @@ class AdvancedChipDynamicsService:
             import traceback
             traceback.print_exc()
             return self._get_default_result(stock_code, trade_date)
-    
+
     def _build_normalized_chip_matrix(self,chip_history: List[pd.DataFrame],current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
         构建归一化的筹码矩阵
@@ -611,19 +617,18 @@ class AdvancedChipDynamicsService:
     
     # ============== 数据获取方法 ==============
     
-    async def _fetch_chip_percent_data(self,stock_code: str,trade_date: str,lookback_days: int) -> Dict[str, any]:
+    async def _fetch_chip_percent_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
         """
         获取筹码百分比数据
-        
-        需要根据实际系统实现数据库查询
         """
         try:
-            # 这里简化实现，实际需要从数据库查询
-            # 使用现有的 get_chips_model 函数
             chips_model = get_cyq_chips_model_by_code(stock_code)
             if not chips_model:
+                print(f"🕵️ [PROBE-FETCH] 无法获取模型 {stock_code}")
                 return None
+            
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
+            
             # 获取当前日期的筹码分布
             current_chip_qs = chips_model.objects.filter(
                 stock__stock_code=stock_code,
@@ -631,6 +636,7 @@ class AdvancedChipDynamicsService:
             ).values('price', 'percent')
             current_chip_list = await sync_to_async(list)(current_chip_qs)
             current_chip_df = pd.DataFrame(current_chip_list) if current_chip_list else pd.DataFrame()
+            
             # 获取历史筹码分布
             start_date = trade_date_dt - timedelta(days=lookback_days * 2)
             history_chip_qs = chips_model.objects.filter(
@@ -639,14 +645,23 @@ class AdvancedChipDynamicsService:
                 trade_time__lt=trade_date_dt
             ).order_by('trade_time').values('trade_time', 'price', 'percent')
             history_chip_list = await sync_to_async(list)(history_chip_qs)
+            
+            print(f"🕵️ [PROBE-FETCH] {stock_code} {trade_date} (lookback={lookback_days})")
+            print(f"   > Start Date: {start_date}")
+            print(f"   > Current Rows: {len(current_chip_list)}")
+            print(f"   > History Raw Rows: {len(history_chip_list)}")
+            
             # 按日期分组
             chip_history = []
             if history_chip_list:
                 history_df = pd.DataFrame(history_chip_list)
-                for date in history_df['trade_time'].unique():
+                unique_dates = history_df['trade_time'].unique()
+                print(f"   > History Unique Dates: {len(unique_dates)}")
+                for date in unique_dates:
                     day_df = history_df[history_df['trade_time'] == date][['price', 'percent']]
                     chip_history.append(day_df)
-            # 获取价格历史（用于压力计算）
+            
+            # 获取价格历史
             from utils.model_helpers import get_daily_data_model_by_code
             daily_model = get_daily_data_model_by_code(stock_code)
             price_history = pd.DataFrame()
@@ -660,11 +675,13 @@ class AdvancedChipDynamicsService:
                 ).order_by('trade_time').values('trade_time', 'open', 'high', 'low', 'close')
                 price_list = await sync_to_async(list)(price_qs)
                 price_history = pd.DataFrame(price_list) if price_list else pd.DataFrame()
+            
             current_price = 0
             if not current_chip_df.empty:
                 current_price = current_chip_df['price'].mean()
             elif not price_history.empty:
                 current_price = price_history['close'].iloc[-1]
+                
             return {
                 'current_chip_dist': current_chip_df,
                 'chip_history': chip_history,
@@ -674,8 +691,11 @@ class AdvancedChipDynamicsService:
             
         except Exception as e:
             logger.error(f"获取筹码数据失败 {stock_code}: {e}")
+            print(f"❌ [PROBE-FETCH-ERROR] {e}")
+            import traceback
+            traceback.print_exc()
             return None
-    
+
     # ============== 默认结果方法 ==============
     
     def _get_default_result(self, stock_code: str = "", trade_date: str = "") -> Dict[str, any]:
