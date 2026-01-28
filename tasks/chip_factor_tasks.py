@@ -524,7 +524,6 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                     if save_success:
                         processed_dates += 1
                         saved_dates.append(current_date)
-                        print(f"✅ [持有矩阵] {stock_code} {current_date} 动态分析保存成功")
                     else:
                         failed_dates.append(current_date)
                         print(f"❌ [持有矩阵] {stock_code} {current_date} 动态分析保存失败")

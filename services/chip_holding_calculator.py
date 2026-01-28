@@ -45,7 +45,6 @@ class AdvancedChipDynamicsService:
         分析单日筹码动态 - 主入口函数
         """
         try:
-            print(f"🔍 [筹码动态分析] 开始分析 {stock_code} {trade_date}")
             # 1. 获取筹码分布历史数据（包含百分比）
             chip_data = await self._fetch_chip_percent_data(
                 stock_code, trade_date, lookback_days
@@ -134,7 +133,6 @@ class AdvancedChipDynamicsService:
                 'analysis_status': 'success',
                 'analysis_time': datetime.now().isoformat()
             }
-            print(f"✅ [筹码动态分析] 完成分析 {stock_code} {trade_date}")
             return result
         except Exception as e:
             logger.error(f"筹码动态分析失败 {stock_code} {trade_date}: {e}")
